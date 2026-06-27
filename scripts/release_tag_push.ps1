@@ -105,8 +105,8 @@ if (-not $SkipCommit) {
     }
 }
 
-& git rev-parse $tag 1>$null 2>$null
-if ($LASTEXITCODE -eq 0) {
+$existingTag = (& git tag --list $tag)
+if (-not [string]::IsNullOrWhiteSpace($existingTag)) {
     Fail "tag already exists locally: $tag"
 }
 
