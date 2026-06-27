@@ -139,8 +139,13 @@ if (-not $SkipReleaseUpload) {
         }
     }
 
-    & gh release view $tag --repo $repoSlug 1>$null 2>$null
-    $exists = ($LASTEXITCODE -eq 0)
+    $exists = $false
+    try {
+        & gh release view $tag --repo $repoSlug 1>$null 2>$null
+        $exists = ($LASTEXITCODE -eq 0)
+    } catch {
+        $exists = $false
+    }
 
     if ($exists) {
         Write-Host "[RELEASE_TAG] Release exists. Uploading assets with overwrite..."
