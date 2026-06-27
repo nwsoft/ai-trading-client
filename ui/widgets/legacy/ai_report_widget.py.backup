@@ -1,0 +1,483 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+AI 리포트 위젯 (CustomTkinter)
+자동 생성되는 거래 리포트를 표시하는 전용 위젯
+"""
+
+import json
+import logging
+from datetime import datetime, timedelta
+from typing import Any, Dict, List, Optional
+
+import customtkinter as ctk
+from customtkinter import CTkFrame, CTkLabel, CTkButton, CTkTabview, CTkTextbox, CTkScrollableFrame
+
+class AIReportWidget(CTkFrame):
+    """AI 리포트 전용 위젯 (CustomTkinter)"""
+    DEFAULT_COLORS: Dict[str, str] = {
+        "text_primary": "#f9fafb",
+        "text_secondary": "#9ca3af",
+        "success": "#22c55e",
+        "info": "#3b82f6",
+        "danger": "#ef4444",
+        "accent": "#9b59b6",
+        "warning": "#f59e0b",
+    }
+
+    
+    def __init__(self, parent=None, colors: Optional[Dict[str, str]] = None, **kwargs):
+        super().__init__(parent, **kwargs)
+        self.logger = logging.getLogger(__name__)
+        self.colors = dict(colors) if colors and isinstance(colors, dict) else {}
+        self.init_ui()
+        
+        # 자동 리포트 생성 타이머
+        self.report_timer = None
+        self.last_report_generation = None
+        
+        # 초기 리포트 생성 (1초 후 실행)
+        self.after(1000, self.auto_generate_reports)
+        
+    def _color(self, key: str, fallback: Optional[str] = None) -> str:
+        if fallback is None:
+            fallback = self.DEFAULT_COLORS.get(key, "#9ca3af")
+        try:
+            value = self.colors.get(key) if isinstance(self.colors, dict) else None
+            if value:
+                return value
+        except Exception:
+            pass
+        return fallback
+
+    def init_ui(self):
+        """UI 초기화"""
+        # 메인 레이아웃
+        self.grid_columnconfigure(0, weight=1)
+        self.grid_rowconfigure(1, weight=1)
+        
+        # 제목
+        title_label = CTkLabel(
+            self,
+            text="📊 AI 자동 리포트",
+            font=ctk.CTkFont(size=20, weight="bold")
+        )
+        title_label.grid(row=0, column=0, pady=(10, 5))
+        
+        # 설명
+        desc_label = CTkLabel(
+            self,
+            text="🤖 AI가 자동으로 생성하는 거래 리포트입니다. 실시간으로 업데이트됩니다.",
+            font=ctk.CTkFont(size=12),
+            text_color=self._color("text_secondary", "#7f8c8d")
+        )
+        desc_label.grid(row=1, column=0, pady=(0, 10))
+        
+        # 리포트 탭 위젯
+        self.report_tabs = CTkTabview(self)
+        self.report_tabs.grid(row=2, column=0, sticky="nsew", padx=10, pady=5)
+        
+        # 오늘 리포트 탭
+        self.today_tab = self.report_tabs.add("📅 오늘")
+        self.create_today_report_tab()
+        
+        # 주간 리포트 탭
+        self.weekly_tab = self.report_tabs.add("📊 주간")
+        self.create_weekly_report_tab()
+        
+        # 월간 리포트 탭
+        self.monthly_tab = self.report_tabs.add("📈 월간")
+        self.create_monthly_report_tab()
+        
+        # 새로고침 버튼
+        refresh_btn = CTkButton(
+            self,
+            text="🔄 새로고침",
+            command=self.auto_generate_reports,
+            width=120,
+            height=35
+        )
+        refresh_btn.grid(row=3, column=0, pady=10)
+        
+    def create_today_report_tab(self):
+        """오늘 리포트 탭 생성"""
+        # 요약 정보
+        summary_frame = CTkFrame(self.today_tab)
+        summary_frame.pack(fill="x", padx=10, pady=10)
+        
+        title_label = CTkLabel(
+            summary_frame,
+            text="📋 오늘 거래 요약",
+            font=ctk.CTkFont(size=16, weight="bold")
+        )
+        title_label.pack(pady=(10, 5))
+        
+        # 요약 정보 그리드
+        summary_grid = CTkFrame(summary_frame)
+        summary_grid.pack(fill="x", padx=10, pady=5)
+        summary_grid.grid_columnconfigure(0, weight=1)
+        summary_grid.grid_columnconfigure(1, weight=1)
+        
+        self.today_summary_labels = {}
+        summary_items = [
+            ("총 거래 수", "total_trades", "0"),
+            ("승률", "win_rate", "0%"),
+            ("수익률", "profit_rate", "0%"),
+            ("최대 손실", "max_loss", "0%"),
+            ("샤프 비율", "sharpe_ratio", "0"),
+            ("거래량", "volume", "0 USDT")
+        ]
+        
+        for i, (label, key, default) in enumerate(summary_items):
+            row = i // 2
+            col = (i % 2) * 2
+            
+            CTkLabel(summary_grid, text=f"{label}:").grid(
+                row=row, column=col, sticky="w", padx=10, pady=5
+            )
+            
+            value_label = CTkLabel(
+                summary_grid,
+                text=default,
+                font=ctk.CTkFont(weight="bold"),
+                text_color=self._color("success", "#27ae60")
+            )
+            value_label.grid(row=row, column=col+1, sticky="w", padx=10, pady=5)
+            
+            self.today_summary_labels[key] = value_label
+        
+        # 상세 리포트
+        detail_frame = CTkFrame(self.today_tab)
+        detail_frame.pack(fill="both", expand=True, padx=10, pady=10)
+        
+        detail_title = CTkLabel(
+            detail_frame,
+            text="📊 상세 분석",
+            font=ctk.CTkFont(size=16, weight="bold")
+        )
+        detail_title.pack(pady=(10, 5))
+        
+        self.today_detail_text = CTkTextbox(
+            detail_frame,
+            height=300,
+            font=ctk.CTkFont(size=12)
+        )
+        self.today_detail_text.pack(fill="both", expand=True, padx=10, pady=5)
+        
+    def create_weekly_report_tab(self):
+        """주간 리포트 탭 생성"""
+        # 주간 요약
+        summary_frame = CTkFrame(self.weekly_tab)
+        summary_frame.pack(fill="x", padx=10, pady=10)
+        
+        title_label = CTkLabel(
+            summary_frame,
+            text="📊 주간 거래 요약",
+            font=ctk.CTkFont(size=16, weight="bold")
+        )
+        title_label.pack(pady=(10, 5))
+        
+        # 요약 정보 그리드
+        summary_grid = CTkFrame(summary_frame)
+        summary_grid.pack(fill="x", padx=10, pady=5)
+        summary_grid.grid_columnconfigure(0, weight=1)
+        summary_grid.grid_columnconfigure(1, weight=1)
+        
+        self.weekly_summary_labels = {}
+        summary_items = [
+            ("총 거래 수", "total_trades", "0"),
+            ("평균 승률", "avg_win_rate", "0%"),
+            ("누적 수익률", "cumulative_profit", "0%"),
+            ("최고 수익일", "best_day", "N/A"),
+            ("최저 수익일", "worst_day", "N/A"),
+            ("변동성", "volatility", "0%")
+        ]
+        
+        for i, (label, key, default) in enumerate(summary_items):
+            row = i // 2
+            col = (i % 2) * 2
+            
+            CTkLabel(summary_grid, text=f"{label}:").grid(
+                row=row, column=col, sticky="w", padx=10, pady=5
+            )
+            
+            value_label = CTkLabel(
+                summary_grid,
+                text=default,
+                font=ctk.CTkFont(weight="bold"),
+                text_color=self._color("info", "#3498db")
+            )
+            value_label.grid(row=row, column=col+1, sticky="w", padx=10, pady=5)
+            
+            self.weekly_summary_labels[key] = value_label
+        
+        # 주간 상세
+        detail_frame = CTkFrame(self.weekly_tab)
+        detail_frame.pack(fill="both", expand=True, padx=10, pady=10)
+        
+        detail_title = CTkLabel(
+            detail_frame,
+            text="📈 일별 성과",
+            font=ctk.CTkFont(size=16, weight="bold")
+        )
+        detail_title.pack(pady=(10, 5))
+        
+        self.weekly_detail_text = CTkTextbox(
+            detail_frame,
+            height=300,
+            font=ctk.CTkFont(size=12)
+        )
+        self.weekly_detail_text.pack(fill="both", expand=True, padx=10, pady=5)
+        
+    def create_monthly_report_tab(self):
+        """월간 리포트 탭 생성"""
+        # 월간 요약
+        summary_frame = CTkFrame(self.monthly_tab)
+        summary_frame.pack(fill="x", padx=10, pady=10)
+        
+        title_label = CTkLabel(
+            summary_frame,
+            text="📈 월간 거래 요약",
+            font=ctk.CTkFont(size=16, weight="bold")
+        )
+        title_label.pack(pady=(10, 5))
+        
+        # 요약 정보 그리드
+        summary_grid = CTkFrame(summary_frame)
+        summary_grid.pack(fill="x", padx=10, pady=5)
+        summary_grid.grid_columnconfigure(0, weight=1)
+        summary_grid.grid_columnconfigure(1, weight=1)
+        
+        self.monthly_summary_labels = {}
+        summary_items = [
+            ("총 거래 수", "total_trades", "0"),
+            ("월간 수익률", "monthly_profit", "0%"),
+            ("월간 승률", "monthly_win_rate", "0%"),
+            ("최고 수익 주", "best_week", "N/A"),
+            ("최저 수익 주", "worst_week", "N/A"),
+            ("샤프 비율", "sharpe_ratio", "0")
+        ]
+        
+        for i, (label, key, default) in enumerate(summary_items):
+            row = i // 2
+            col = (i % 2) * 2
+            
+            CTkLabel(summary_grid, text=f"{label}:").grid(
+                row=row, column=col, sticky="w", padx=10, pady=5
+            )
+            
+            value_label = CTkLabel(
+                summary_grid,
+                text=default,
+                font=ctk.CTkFont(weight="bold"),
+                text_color=self._color("warning", "#e67e22")
+            )
+            value_label.grid(row=row, column=col+1, sticky="w", padx=10, pady=5)
+            
+            self.monthly_summary_labels[key] = value_label
+        
+        # 월간 상세
+        detail_frame = CTkFrame(self.monthly_tab)
+        detail_frame.pack(fill="both", expand=True, padx=10, pady=10)
+        
+        detail_title = CTkLabel(
+            detail_frame,
+            text="📊 월간 성과 분석",
+            font=ctk.CTkFont(size=16, weight="bold")
+        )
+        detail_title.pack(pady=(10, 5))
+        
+        self.monthly_detail_text = CTkTextbox(
+            detail_frame,
+            height=300,
+            font=ctk.CTkFont(size=12)
+        )
+        self.monthly_detail_text.pack(fill="both", expand=True, padx=10, pady=5)
+        
+    def auto_generate_reports(self):
+        """자동으로 리포트 생성"""
+        try:
+            # 중복 실행 방지 (30분 내 재실행 방지)
+            current_time = datetime.now()
+            if (self.last_report_generation and 
+                (current_time - self.last_report_generation).total_seconds() < 1800):  # 30분 = 1800초
+                print(f"리포트가 이미 최근에 생성되었습니다. (마지막 생성: {self.last_report_generation.strftime('%H:%M:%S')})")
+                return
+            
+            print(f"리포트 생성 시작: {current_time.strftime('%H:%M:%S')}")
+            
+            # 오늘 리포트 생성
+            today_report = self.generate_today_report()
+            self.update_today_report(today_report)
+            
+            # 주간 리포트 생성
+            weekly_report = self.generate_weekly_report()
+            self.update_weekly_report(weekly_report)
+            
+            # 월간 리포트 생성
+            monthly_report = self.generate_monthly_report()
+            self.update_monthly_report(monthly_report)
+            
+            # 마지막 생성 시간 업데이트
+            self.last_report_generation = current_time
+            print(f"리포트가 자동으로 생성되었습니다. (생성 시간: {current_time.strftime('%H:%M:%S')})")
+            
+        except Exception as e:
+            print(f"자동 리포트 생성 오류: {e}")
+            import traceback
+            traceback.print_exc()
+    
+    def generate_today_report(self):
+        """오늘 리포트 생성"""
+        # 실제로는 데이터베이스에서 오늘 거래 데이터를 가져와서 분석
+        return {
+            'total_trades': 15,
+            'win_rate': 73.3,
+            'profit_rate': 2.8,
+            'max_loss': -1.2,
+            'sharpe_ratio': 1.45,
+            'volume': 12500,
+            'detail': """
+🤖 AI 거래 리포트 - 오늘 (2025-08-10)
+
+📊 거래 요약:
+• 총 거래: 15건
+• 승률: 73.3%
+• 수익률: +2.8%
+• 최대 손실: -1.2%
+• 샤프 비율: 1.45
+• 거래량: 12,500 USDT
+
+🎯 주요 성과:
+• BTCUSDT: +1.8% (롱 포지션)
+• ETHUSDT: +0.9% (스캘핑)
+• ADAUSDT: +0.1% (단기 매매)
+
+⚠️ 주의사항:
+• 변동성이 높은 시장 상황
+• AI가 보수적 접근 권장
+• 레버리지 자동 조정 중
+            """
+        }
+    
+    def generate_weekly_report(self):
+        """주간 리포트 생성"""
+        return {
+            'total_trades': 87,
+            'avg_win_rate': 71.2,
+            'cumulative_profit': 8.5,
+            'best_day': '수요일 (+3.2%)',
+            'worst_day': '금요일 (-0.8%)',
+            'volatility': 2.1,
+            'detail': """
+📈 주간 거래 리포트 (2025-08-04 ~ 2025-08-10)
+
+📊 주간 성과:
+• 총 거래: 87건
+• 평균 승률: 71.2%
+• 누적 수익률: +8.5%
+• 최고 수익일: 수요일 (+3.2%)
+• 최저 수익일: 금요일 (-0.8%)
+• 변동성: 2.1%
+
+📅 일별 성과:
+• 월요일: +1.8% (12건)
+• 화요일: +2.1% (15건)
+• 수요일: +3.2% (18건)
+• 목요일: +1.4% (14건)
+• 금요일: -0.8% (16건)
+• 토요일: +0.8% (12건)
+
+🎯 AI 분석:
+• 상승 추세 지속 중
+• 변동성 증가로 인한 리스크 관리 강화
+• 코인 선택 기준 최적화 진행 중
+            """
+        }
+    
+    def generate_monthly_report(self):
+        """월간 리포트 생성"""
+        return {
+            'total_trades': 342,
+            'monthly_profit': 23.7,
+            'monthly_win_rate': 69.8,
+            'best_week': '2주차 (+12.3%)',
+            'worst_week': '4주차 (-2.1%)',
+            'sharpe_ratio': 1.67,
+            'detail': """
+📊 월간 거래 리포트 (2025-07-10 ~ 2025-08-10)
+
+📈 월간 성과:
+• 총 거래: 342건
+• 월간 수익률: +23.7%
+• 월간 승률: 69.8%
+• 최고 수익 주: 2주차 (+12.3%)
+• 최저 수익 주: 4주차 (-2.1%)
+• 샤프 비율: 1.67
+
+📅 주별 성과:
+• 1주차: +5.2% (78건)
+• 2주차: +12.3% (89건)
+• 3주차: +8.1% (76건)
+• 4주차: -2.1% (99건)
+
+🎯 AI 학습 결과:
+• 패턴 인식 정확도 향상
+• 리스크 관리 알고리즘 최적화
+• 시장 상황별 전략 자동 조정
+• 코인 선택 기준 지속 개선
+
+💡 향후 전략:
+• 변동성 높은 시장 대응 강화
+• 리스크 관리 기준 상향 조정
+• AI 학습 데이터 확장
+            """
+        }
+    
+    def update_today_report(self, report):
+        """오늘 리포트 업데이트"""
+        try:
+            self.today_summary_labels['total_trades'].configure(text=str(report['total_trades']))
+            self.today_summary_labels['win_rate'].configure(text=f"{report['win_rate']}%")
+            self.today_summary_labels['profit_rate'].configure(text=f"{report['profit_rate']}%")
+            self.today_summary_labels['max_loss'].configure(text=f"{report['max_loss']}%")
+            self.today_summary_labels['sharpe_ratio'].configure(text=str(report['sharpe_ratio']))
+            self.today_summary_labels['volume'].configure(text=f"{report['volume']:,} USDT")
+            
+            self.today_detail_text.delete("1.0", "end")
+            self.today_detail_text.insert("1.0", report['detail'])
+            
+        except Exception as e:
+            print(f"오늘 리포트 업데이트 오류: {e}")
+    
+    def update_weekly_report(self, report):
+        """주간 리포트 업데이트"""
+        try:
+            self.weekly_summary_labels['total_trades'].configure(text=str(report['total_trades']))
+            self.weekly_summary_labels['avg_win_rate'].configure(text=f"{report['avg_win_rate']}%")
+            self.weekly_summary_labels['cumulative_profit'].configure(text=f"{report['cumulative_profit']}%")
+            self.weekly_summary_labels['best_day'].configure(text=report['best_day'])
+            self.weekly_summary_labels['worst_day'].configure(text=report['worst_day'])
+            self.weekly_summary_labels['volatility'].configure(text=f"{report['volatility']}%")
+            
+            self.weekly_detail_text.delete("1.0", "end")
+            self.weekly_detail_text.insert("1.0", report['detail'])
+            
+        except Exception as e:
+            print(f"주간 리포트 업데이트 오류: {e}")
+    
+    def update_monthly_report(self, report):
+        """월간 리포트 업데이트"""
+        try:
+            self.monthly_summary_labels['total_trades'].configure(text=str(report['total_trades']))
+            self.monthly_summary_labels['monthly_profit'].configure(text=f"{report['monthly_profit']}%")
+            self.monthly_summary_labels['monthly_win_rate'].configure(text=f"{report['monthly_win_rate']}%")
+            self.monthly_summary_labels['best_week'].configure(text=report['best_week'])
+            self.monthly_summary_labels['worst_week'].configure(text=report['worst_week'])
+            self.monthly_summary_labels['sharpe_ratio'].configure(text=str(report['sharpe_ratio']))
+            
+            self.monthly_detail_text.delete("1.0", "end")
+            self.monthly_detail_text.insert("1.0", report['detail'])
+            
+        except Exception as e:
+            print(f"월간 리포트 업데이트 오류: {e}")

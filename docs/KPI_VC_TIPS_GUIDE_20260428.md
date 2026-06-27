@@ -1,0 +1,74 @@
+# KPI 확인 및 VC/TIPS 활용 가이드 (2026-04-28)
+
+## 1. KPI를 어디서 확인하나
+
+### 관리자 화면
+
+- KPI 대시보드: `/admin/kpi`
+- 기간별 조회: `/admin/kpi?days=1|7|30|90`
+
+### 관리자 API
+
+- 기본 집계: `GET /admin/kpi/api?days=30`
+- 트랙션 상세(내부): `GET /admin/kpi/traction/api?days=30`
+- 외부 공유용 요약: `GET /admin/kpi/traction/public?days=30`
+
+### CLI 리포트 내보내기
+
+- 실행: `python3 kpi_traction_export.py --days 30`
+- 출력 위치(기본): `fastapi설치/reports/kpi/`
+- 산출물: JSON, CSV(이벤트/자산/카테고리/소스/상태), Markdown 요약
+
+## 2. 어떤 데이터를 확인할 수 있나
+
+### 핵심 지표
+
+- 전체 이벤트 수(`total_events`)
+- 고유 사용자 수(`unique_users`)
+- 고유 세션 수(`unique_sessions`)
+- 성공률(`success_rate`)
+- 실패율(`failure_rate`)
+
+### 분류 지표
+
+- 이벤트 타입별 건수(`by_event_type`)
+- 자산군별 건수(`by_asset`)
+- 카테고리별 건수(`by_category`)
+- 소스별 건수(`by_source`)
+- 상태별 건수(`by_status`)
+
+### 현재 KPI 원칙
+
+- 원문 로그 본문은 KPI 서버로 올리지 않는다.
+- 서버에는 집계 가능한 KPI 이벤트만 저장한다.
+- 허용된 이벤트 카탈로그 기준에 맞지 않으면 수집 거절(400)한다.
+
+## 3. VC/TIPS 마케팅에 쓸 수 있나
+
+사용 가능하다. 단, 용도는 "성과 과장"이 아니라 "운영 트랙션 증빙"이다.
+
+### 권장 사용 방식
+
+- 최근 30일/90일 추이로 총 이벤트, 사용자/세션, 성공률 제시
+- 자산군 확장성 근거(crypto/stock/etf 이벤트 분포) 제시
+- 리스크/실패 이벤트를 숨기지 않고 함께 제시
+
+### 금지/주의
+
+- 수익률 보장, 투자 권유 표현으로 전환하지 않는다.
+- 개인 식별 가능한 원문 로그/메타데이터를 외부 문서에 그대로 노출하지 않는다.
+- KPI는 운영 지표이며 재무 감사 지표와 동일시하지 않는다.
+
+## 4. 어떤 문서를 먼저 보면 되나
+
+1. 본 문서: KPI 확인 경로 + 대외 활용 원칙
+2. `fastapi설치/DEPLOYMENT.md`: 배포/유지보수/보관 정책
+3. `noahai_client/docs/UPDATE_PLAN.md`: 현재 우선순위와 완료 범위
+4. `noahai_client/docs/ACCOUNT_MANAGEMENT.md`: 클라이언트 KPI 전송 범위
+
+## 5. 지금 상태 결론
+
+- KPI 확인 경로: 확정
+- KPI 대외 공유 산출물(JSON/CSV/MD): 자동 생성 가능
+- VC/TIPS 활용: 가능(트랙션/운영 증빙 용도)
+- 다음 우선순위: 증권 실연동 완성(실API 경로 고도화)

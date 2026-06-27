@@ -1,0 +1,17 @@
+# Python environment/cache
+.venv/
+__pycache__/
+.pytest_cache/
+*.py[cod]
+
+# Build artifacts
+build/
+dist/
+deploy/
+
+# Runtime/generated data (do not commit)
+data/
+
+# OS/editor noise
+Thumbs.db
+*.tmp

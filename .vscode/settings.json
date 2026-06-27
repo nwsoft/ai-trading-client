@@ -1,0 +1,47 @@
+{
+  "files.insertFinalNewline": true,
+  "files.trimTrailingWhitespace": true,
+  "editor.tabSize": 4,
+  "editor.insertSpaces": true,
+  "editor.renderWhitespace": "selection",
+  // Markdown-specific
+  "[markdown]": {
+    "editor.wordWrap": "on",
+    "editor.rulers": [
+      80
+    ],
+    "editor.quickSuggestions": {
+      "other": true,
+      "comments": true,
+      "strings": true
+    },
+    "editor.defaultFormatter": "vscode.markdown-language-features",
+    "editor.formatOnSave": true,
+    // Markdown에서 줄바꿈(두 칸 공백) 보존을 위해 트림 비활성화
+    "files.trimTrailingWhitespace": false
+  },
+  // JSON/JSONC
+  "[json]": {
+    "editor.defaultFormatter": "vscode.json-language-features",
+    "editor.tabSize": 2,
+    "editor.formatOnSave": true
+  },
+  "[jsonc]": {
+    "editor.defaultFormatter": "vscode.json-language-features",
+    "editor.tabSize": 2,
+    "editor.formatOnSave": true
+  },
+  // Python (들여쓰기 고정 및 저장시 정리)
+  "[python]": {
+    "editor.tabSize": 4,
+    "editor.insertSpaces": true,
+    "editor.formatOnSave": false
+  },
+  "python.analysis.typeCheckingMode": "basic",
+  // Markdown Preview
+  "markdown.preview.breaks": false,
+  "markdown.preview.doubleClickToSwitchToEditor": true,
+  // Markdownlint (규칙은 .markdownlint.json에서 관리)
+  "markdownlint.config": null,
+  "cursorpyright.analysis.typeCheckingMode": "basic"
+}

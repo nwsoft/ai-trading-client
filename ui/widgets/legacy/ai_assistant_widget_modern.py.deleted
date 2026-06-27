@@ -1,0 +1,1232 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+AI 어시스턴트 위젯 (CustomTkinter)
+대시보드에서 분리된 AI 채팅 및 설정 관리 기능
+"""
+
+import sys
+import os
+import json
+import logging
+from datetime import datetime
+from typing import Dict, List, Any, Optional
+
+import customtkinter as ctk
+from customtkinter import CTkFrame, CTkLabel, CTkButton, CTkTextbox, CTkEntry, CTkCheckBox, CTkScrollableFrame, CTkTabview
+from tkinter import messagebox
+
+try:
+    # 선택 위젯: 차트 스크린샷 분석기
+    from ui.widgets.chart_screenshot_widget import ChartScreenshotWidget
+except Exception:
+    ChartScreenshotWidget = None  # type: ignore
+
+# ThemeManager 제거 - 고정 색상 사용
+
+class ModernAIAssistantWidget(CTkFrame):
+    """AI 어시스턴트 위젯 (CustomTkinter)"""
+
+    DEFAULT_COLORS: Dict[str, str] = {
+        "text_primary": "#f9fafb",
+        "text_secondary": "#9ca3af",
+        "surface": "#1f2937",
+        "background": "#0f172a",
+        "border": "#374151",
+        "primary": "#3b82f6",
+        "secondary": "#4b5563",
+        "success": "#22c55e",
+        "danger": "#ef4444",
+        "warning": "#f59e0b",
+        "info": "#3b82f6",
+        "accent": "#8b5cf6",
+    }
+
+    def __init__(self, parent=None, ai_manager=None, assistant_model_name: str | None = None, colors: Optional[Dict[str, str]] = None, **kwargs):
+        super().__init__(parent, **kwargs)
+        self.logger = logging.getLogger(__name__)
+
+        # AI 매니저 주입
+        self.ai_manager = ai_manager
+        # 어시스턴트용 모델명 (설정에서 주입 가능)
+        self.assistant_model_name = assistant_model_name or 'gpt-4o'
+
+        # AI Manager가 없으면 위젯 비활성화
+        if not self.ai_manager:
+            self.logger.warning("AI Manager가 전달되지 않아 AI 기능이 비활성화됩니다")
+
+        # 설정 변경 이력 추적
+        self.settings_change_history = []
+        self.max_history_size = 50
+
+        # 현재 권장 설정
+        self.current_recommended_settings = None
+
+        # AI 채팅 활성화 상태
+        self.ai_chat_enabled = False
+
+        # 대시보드 참조 (거래 상황 수집용)
+        self.parent_dashboard = None
+
+        # 대시보드에서 전달받은 colors만 사용 (하드코딩 제거)
+        self.colors = dict(colors) if colors and isinstance(colors, dict) else {}
+
+        self.init_ui()
+
+    def init_ui(self):
+        """UI 초기화"""
+        # 메인 레이아웃
+        self.grid_columnconfigure(0, weight=1)
+        self.grid_rowconfigure(0, weight=1)  # 채팅창에만 가중치 부여
+
+        # AI Manager 상태 확인 및 경고 표시
+        if not self.ai_manager:
+            self.create_disabled_ui()
+            return
+
+        # 정상 UI 생성
+        self.create_normal_ui()
+
+    # --- Theme helpers ---------------------------------------------------
+    # _ensure_palette 제거 - 고정 색상 사용
+
+    def _color(self, key: str, fallback: Optional[str] = None) -> str:
+        if fallback is None:
+            fallback = self.DEFAULT_COLORS.get(key, "#9ca3af")
+        try:
+            if isinstance(self.colors, dict):
+                value = self.colors.get(key)
+                if value:
+                    return value
+        except Exception:
+            pass
+        return fallback
+
+    @staticmethod
+    def _shade_color(hex_color: str, factor: float = 0.85) -> str:
+        try:
+            color = hex_color.lstrip('#')
+            if len(color) != 6:
+                return hex_color
+            r = max(0, min(255, int(int(color[0:2], 16) * factor)))
+            g = max(0, min(255, int(int(color[2:4], 16) * factor)))
+            b = max(0, min(255, int(int(color[4:6], 16) * factor)))
+            return f"#{r:02x}{g:02x}{b:02x}"
+        except Exception:
+            return hex_color
+
+    def _hover_from(self, color_hex: str, factor: float = 0.85) -> str:
+        return self._shade_color(color_hex, factor)
+
+    def create_disabled_ui(self):
+        """AI 기능 비활성화된 UI 생성"""
+        # 경고 메시지
+        warning_label = CTkLabel(
+            self,
+            text="⚠️ AI 기능이 비활성화되었습니다.\nOpenAI API 키를 설정해주세요.",
+            font=ctk.CTkFont(size=16, weight="bold"),
+            text_color=self._color("danger")
+        )
+        warning_label.grid(row=0, column=0, pady=20, padx=20)
+
+        # 안내 메시지
+        info_label = CTkLabel(
+            self,
+            text="AI 기능을 사용하려면 OpenAI API 키를 설정하고\n프로그램을 재시작해주세요.",
+            font=ctk.CTkFont(size=12),
+            text_color=self._color("text_secondary")
+        )
+        info_label.grid(row=1, column=0, pady=10)
+
+    def create_normal_ui(self):
+        """정상 UI 생성"""
+        # 설정 관리 버튼들은 모달창으로 통합됨
+
+        # 상단 정보 바 (현재 모델 캡션 표시)
+        try:
+            # 레이아웃 가중치 재설정: 헤더(0) 고정, 본문(1) 확장
+            self.grid_rowconfigure(0, weight=0)
+            self.grid_rowconfigure(1, weight=1)
+            self.create_info_bar()
+        except Exception:
+            pass
+
+        # AI 채팅 위젯
+        self.create_chat_widget()
+
+        # 자주 하는 질문 버튼들
+        self.create_quick_question_buttons()
+
+        # 전략 상태는 설정관리 모달창으로 이동됨
+
+    def create_warning_frame(self):
+        """경고 프레임 생성"""
+        self.warning_frame = CTkFrame(
+            self,
+            fg_color=self._color("surface"),
+            border_color=self._color("border"),
+            border_width=1,
+            corner_radius=12
+        )
+        self.warning_frame.grid(row=0, column=0, sticky="ew", padx=10, pady=5)
+
+        # 경고 제목
+        warning_title = CTkLabel(
+            self.warning_frame,
+            text="⚠️ 고급 사용자 전용 기능",
+            font=ctk.CTkFont(size=16, weight="bold"),
+            text_color=self._color("danger")
+        )
+        warning_title.pack(pady=10)
+
+        # 경고 내용
+        warning_text = CTkLabel(
+            self.warning_frame,
+            text="""이 기능은 고급 사용자를 위한 AI 대화형 전략 조정 시스템입니다.
+
+🚨 주의사항:
+• AI의 제안은 참고용이며, 투자 손실에 대한 책임은 사용자에게 있습니다
+• 과도한 레버리지나 포지션 크기는 큰 손실을 초래할 수 있습니다
+• 시장 상황이 급변할 경우 AI 분석이 부정확할 수 있습니다
+• 언제든지 기본 설정으로 복원할 수 있습니다
+
+💡 권장사항:
+• 소액으로 먼저 테스트해보세요
+• AI 제안을 맹신하지 말고 본인 판단을 우선하세요
+• 손실 허용 범위 내에서만 거래하세요""",
+            font=ctk.CTkFont(size=12),
+            text_color=self._color("danger"),
+            justify="left"
+        )
+        warning_text.pack(pady=5, padx=10)
+
+        # AI 대화 활성화 체크박스
+        self.ai_chat_enable_checkbox = CTkCheckBox(
+            self.warning_frame,
+            text="위 내용을 이해했으며 AI 대화 기능을 사용하겠습니다",
+            font=ctk.CTkFont(size=12, weight="bold"),
+            text_color=self._color("danger"),
+            command=self.on_ai_chat_enable_changed
+        )
+        self.ai_chat_enable_checkbox.pack(pady=10)
+
+
+    def create_chat_widget(self):
+        """채팅 위젯 생성 (크기 최적화)"""
+        self.chat_frame = CTkFrame(
+            self,
+            fg_color=self._color("surface"),
+            border_color=self._color("border"),
+            border_width=1,
+            corner_radius=12
+        )
+        # 헤더가 있으므로 본문은 row=1에 배치
+        self.chat_frame.grid(row=1, column=0, sticky="nsew", padx=5, pady=5)
+        self.chat_frame.grid_rowconfigure(0, weight=1)
+        self.chat_frame.grid_columnconfigure(0, weight=1)
+
+        # 채팅 히스토리 (스크롤 가능, 크기 최적화)
+        self.chat_history = CTkScrollableFrame(
+            self.chat_frame,
+            height=450,  # 크기 늘림 (빈공간 제거)
+            fg_color="#0b1120",  # 로그인 폼과 동일한 배경색
+            border_color="#1f2937",  # 명확한 테두리
+            border_width=2,
+            corner_radius=12,
+            scrollbar_button_color=self._color("secondary"),
+            scrollbar_button_hover_color=self._hover_from(self._color("secondary"))
+        )
+        self.chat_history.grid(row=0, column=0, sticky="nsew", padx=5, pady=5)
+
+        # 채팅 메시지 컨테이너 (배경색 명확히)
+        self.chat_messages_frame = CTkFrame(
+            self.chat_history,
+            fg_color="#0b1120"  # 배경 투명으로
+        )
+        self.chat_messages_frame.pack(fill="both", expand=True, padx=5, pady=5)
+
+        # 초기 메시지 (채팅창 안에 표시)
+        self.add_ai_message("🤖 AI Trading Assistant에 오신 것을 환영합니다!")
+        self.add_ai_message("")
+        self.add_ai_message("💡 아래 입력창에 질문을 입력하면 AI가 도와드립니다.")
+
+        # 사용자 입력 영역
+        input_frame = CTkFrame(
+            self.chat_frame,
+            fg_color="#0b1120"
+        )
+        input_frame.grid(row=1, column=0, sticky="ew", padx=5, pady=(0, 2))
+        input_frame.grid_columnconfigure(0, weight=1)
+
+        self.chat_input = CTkEntry(
+            input_frame,
+            placeholder_text="AI에게 질문하거나 요청사항을 입력하세요...",
+            font=ctk.CTkFont(size=12),
+            height=35
+        )
+        self.chat_input.grid(row=0, column=0, sticky="ew", padx=5, pady=5)
+        self.chat_input.bind("<Return>", lambda e: self.send_ai_message())
+
+        send_button = CTkButton(
+            input_frame,
+            text="전송",
+            command=self.send_ai_message,
+            width=80,
+            height=35,
+            fg_color=self._color("primary"),
+            hover_color=self._hover_from(self._color("primary"))
+        )
+        send_button.grid(row=0, column=1, padx=5, pady=5)
+
+        settings_button = CTkButton(
+            input_frame,
+            text="설정관리",
+            command=self.show_settings_management_modal,
+            width=100,
+            height=35,
+            fg_color=self._color("secondary"),
+            hover_color=self._hover_from(self._color("secondary"))
+        )
+        settings_button.grid(row=0, column=2, padx=5, pady=5)
+
+        # 차트 이미지 분석 버튼 (채팅 입력영역 옆)
+        try:
+            chart_btn = CTkButton(
+                input_frame,
+                text="📊 차트 이미지 분석",
+                command=self.open_chart_analyzer,
+                width=150,
+                height=35,
+                fg_color=self._color("info"),
+                hover_color=self._hover_from(self._color("info"))
+            )
+            chart_btn.grid(row=0, column=3, padx=5, pady=5)
+        except Exception:
+            pass
+
+    def create_info_bar(self):
+        """상단 정보 바: 현재 어시스턴트 모델 캡션 표시"""
+        try:
+            self.info_frame = CTkFrame(
+                self,
+                fg_color="#0b1120"
+            )
+            self.info_frame.grid(row=0, column=0, sticky="ew", padx=6, pady=(6, 0))
+            self.info_frame.grid_columnconfigure(0, weight=1)
+            caption_text = f"현재 어시스턴트 모델: {self.assistant_model_name}"
+            self.model_caption = CTkLabel(
+                self.info_frame,
+                text=caption_text,
+                font=ctk.CTkFont(size=11),
+                text_color=self._color("text_secondary"),
+                anchor="w",
+            )
+            self.model_caption.grid(row=0, column=0, sticky="w", padx=6)
+
+            # 상단 바 버튼은 최소화 (차트 분석 버튼은 입력창 옆으로 이동)
+        except Exception:
+            # 캡션 실패는 치명적이지 않으므로 무시
+            self.model_caption = None
+
+    def create_quick_question_buttons(self):
+        """자주 하는 질문 버튼들 생성"""
+        try:
+            buttons_frame = CTkFrame(
+                self,
+                fg_color=self._color("surface"),
+                border_color=self._color("border"),
+                border_width=1,
+                corner_radius=12
+            )
+            buttons_frame.grid(row=2, column=0, sticky="ew", padx=5, pady=5)
+            buttons_frame.grid_columnconfigure(0, weight=1)
+
+            # 제목
+            title_label = CTkLabel(
+                buttons_frame,
+                text="💡 자주 하는 질문",
+                font=ctk.CTkFont(size=13, weight="bold"),
+                text_color=self._color("text_primary")
+            )
+            title_label.pack(anchor="w", padx=12, pady=(12, 8))
+
+            # 질문 버튼들
+            questions_frame = CTkFrame(buttons_frame, fg_color="#0b1120")
+            questions_frame.pack(fill="x", padx=12, pady=(0, 12))
+            questions_frame.grid_columnconfigure(0, weight=1)
+            questions_frame.grid_columnconfigure(1, weight=1)
+            questions_frame.grid_columnconfigure(2, weight=1)
+
+            questions = [
+                ("거래 부재 원인", "왜 거래가 발생하지 않고 있나요? 원인을 분석해주세요"),
+                ("수익률 개선", "현재 수익률을 개선할 방법을 제안해주세요"),
+                ("리스크 점검", "현재 리스크 상황을 점검하고 위험 요소를 알려주세요"),
+                ("전략 평가", "현재 거래 전략의 장단점을 평가해주세요"),
+                ("레버리지 증가", "레버리지를 높여서 더 적극적으로 거래하고 싶어요"),
+                ("안전 모드", "손실을 줄이고 싶어요. 보수적으로 거래하도록 설정해주세요"),
+                ("시장 상황", "현재 암호화폐 시장 상황과 전망을 알려주세요"),
+                ("코인 분석", "현재 선택된 코인들의 분석 결과를 보여주세요"),
+                ("거래 성과", "최근 거래 성과와 통계를 요약해주세요")
+            ]
+
+            for i, (button_text, question) in enumerate(questions):
+                row = i // 3
+                col = i % 3
+
+                btn = CTkButton(
+                    questions_frame,
+                    text=button_text,
+                    command=lambda q=question: self.send_quick_question(q),
+                    width=140,
+                    height=32,
+                    fg_color=self._color("secondary"),
+                    hover_color=self._hover_from(self._color("secondary")),
+                    font=ctk.CTkFont(size=11)
+                )
+                btn.grid(row=row, column=col, padx=4, pady=4)
+        except Exception as e:
+            self.logger.error(f"자주 하는 질문 버튼 생성 오류: {e}")
+
+    def send_quick_question(self, question: str):
+        """빠른 질문 전송"""
+        try:
+            self.chat_input.delete(0, "end")
+            self.chat_input.insert(0, question)
+            self.send_ai_message()
+        except Exception as e:
+            self.logger.error(f"빠른 질문 전송 오류: {e}")
+
+    def update_model_caption(self):
+        """모델 캡션 텍스트를 현재 모델명으로 갱신"""
+        try:
+            if hasattr(self, 'model_caption') and self.model_caption is not None:
+                self.model_caption.configure(text=f"현재 어시스턴트 모델: {self.assistant_model_name}")
+        except Exception:
+            pass
+
+    def set_assistant_model(self, model_name: str, announce: bool = True):
+        """런타임에 어시스턴트 모델을 재설정하고 캡션을 갱신합니다."""
+        try:
+            model_name = (model_name or '').strip() or 'gpt-4o'
+            prev = getattr(self, 'assistant_model_name', None)
+            self.assistant_model_name = model_name
+            self.update_model_caption()
+            if announce and prev and (prev != model_name):
+                self.add_ai_message(f"🔁 어시스턴트 모델이 '{prev}' → '{model_name}' 로 변경되었습니다.")
+        except Exception:
+            pass
+
+    def on_ai_chat_enable_changed(self):
+        """AI 대화 기능 활성화/비활성화"""
+        try:
+            if hasattr(self, 'ai_chat_enable_checkbox') and self.ai_chat_enable_checkbox:
+                self.ai_chat_enabled = bool(self.ai_chat_enable_checkbox.get())
+            else:
+                self.ai_chat_enabled = True
+            if self.ai_chat_enabled:
+                self.add_ai_message("✅ AI 대화 기능이 활성화되었습니다. 자유롭게 질문해 보세요!")
+            else:
+                self.add_ai_message("❌ AI 대화 기능이 비활성화되었습니다.")
+        except Exception:
+            pass
+
+    def add_ai_message(self, message: str):
+        """AI 메시지를 채팅 영역에 추가하고 스크롤을 하단으로 이동"""
+        try:
+            # 빈 줄은 구분선 역할
+            if not (message or "").strip():
+                label = CTkLabel(
+                    self.chat_messages_frame,
+                    text="─" * 50,
+                    font=ctk.CTkFont(size=10),
+                    text_color=self._color("text_secondary"),
+                    justify="center"
+                )
+            else:
+                label = CTkLabel(
+                    self.chat_messages_frame,
+                    text=f"{message}",
+                    font=ctk.CTkFont(size=12),
+                    text_color=self._color("text_primary"),
+                    justify="left",
+                    wraplength=450
+                )
+            label.pack(pady=2, padx=5, anchor="w")
+            try:
+                self.chat_history.update()
+                self.chat_history._parent_canvas.yview_moveto(1.0)
+            except Exception:
+                pass
+        except Exception:
+            pass
+
+    def send_ai_message(self):
+        """AI 메시지 전송"""
+        message = self.chat_input.get().strip()
+        if not message:
+            return
+
+        # 첫 번째 실제 질문 시 초기 메시지들 제거
+        if not hasattr(self, '_first_message_sent'):
+            self._first_message_sent = True
+            # 초기 메시지들 제거
+            for widget in self.chat_messages_frame.winfo_children():
+                widget.destroy()
+
+        # AI 대화 기능은 항상 활성화됨 (체크박스 제거됨)
+
+        # 사용자 메시지 추가
+        user_message_label = CTkLabel(
+            self.chat_messages_frame,
+            text=f"👤 사용자: {message}",
+            font=ctk.CTkFont(size=12),
+            text_color=self._color("success"),
+            justify="left",
+            wraplength=450  # 스크롤 영역에 맞게 조절
+        )
+        user_message_label.pack(pady=2, padx=5, anchor="w")
+
+        # 스크롤을 맨 아래로 (안전한 방법)
+        try:
+            self.chat_history.update()
+            self.chat_history._parent_canvas.yview_moveto(1.0)
+        except:
+            # 스크롤 실패 시 무시
+            pass
+
+        # 입력창 초기화
+        self.chat_input.delete(0, "end")
+
+        # AI 응답 생성
+        self.generate_ai_response(message)
+
+    def generate_ai_response(self, message: str):
+        """AI 응답 생성"""
+        try:
+            if not self.ai_manager or not self.ai_manager.enabled():
+                self.add_ai_message("❌ AI 매니저가 활성화되지 않았습니다. API 키를 확인해주세요.")
+                return
+
+            # AI 매니저를 통한 실제 응답 생성
+            system_prompt = """당신은 암호화폐 거래 전문가입니다.
+현재 시장 상황과 거래 상황을 종합적으로 분석하여 스마트한 조언을 제공해야 합니다.
+
+다음과 같은 방식으로 응답해주세요:
+1. 현재 시장 상황 분석
+2. 거래 상황 평가
+3. 구체적인 조언과 제안
+4. 설정 변경이 필요한 경우 권장 설정
+
+항상 안전하고 현실적인 조언을 제공하세요."""
+
+            user_prompt = f"""
+사용자 요청: {message}
+
+현재 거래 상황을 종합적으로 분석하고 적절한 조언을 제공해주세요.
+설정 변경이 필요한 경우 구체적인 권장 설정도 함께 제시해주세요.
+
+응답 형식:
+- 시장 상황 분석
+- 거래 상황 평가
+- 구체적 조언
+- 권장 설정 (필요시)
+"""
+
+            # AI 어시스턴트용 모델 사용 (설정에서 전달된 모델 우선)
+            assistant_model = getattr(self, 'assistant_model_name', None) or 'gpt-4o'
+
+            # AI 매니저를 통한 응답 생성
+            ai_response = self.ai_manager.chat_completion([
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt}
+            ], model=assistant_model)
+
+            if ai_response:
+                # AI 응답 표시
+                self.add_ai_message(f"🤖 AI 분석 결과:\n{ai_response}")
+
+                # 설정 제안이 포함된 경우 권장 설정 생성
+                if "권장 설정" in ai_response or "설정" in ai_response:
+                    recommended_settings = self._extract_recommended_settings(ai_response, message)
+                    if recommended_settings:
+                        self.current_recommended_settings = recommended_settings
+            else:
+                self.add_ai_message("❌ AI 응답을 생성할 수 없습니다. 다시 시도해주세요.")
+
+        except Exception as e:
+            self.logger.error(f"AI 응답 생성 오류: {e}")
+            self.add_ai_message(f"❌ AI 응답 생성 중 오류가 발생했습니다: {str(e)}")
+
+    def _normalize_coins_for_analysis(self, coins: Any) -> List[Dict[str, str]]:
+        """분석기에 전달할 코인 리스트를 표준 형태로 정규화합니다.
+        - 허용 입력: ["BTCUSDT", ...] 또는 [{"symbol": "BTCUSDT"}, ...]
+        - 반환 형식: [{"symbol": "..."}, ...]
+        """
+        normalized: List[Dict[str, str]] = []
+        try:
+            for c in (coins or []):
+                if isinstance(c, dict):
+                    sym = c.get('symbol') or c.get('Symbol') or c.get('coin') or c.get('ticker')
+                    if sym:
+                        normalized.append({'symbol': str(sym)})
+                else:
+                    s = str(c).strip()
+                    if s:
+                        normalized.append({'symbol': s})
+        except Exception as e:
+            try:
+                self.logger.debug(f"코인 정규화 실패: {e}")
+            except Exception:
+                pass
+        return normalized
+
+
+
+    def undo_last_settings_change(self):
+        """마지막 설정 변경 되돌리기"""
+        if not self.settings_change_history:
+            self.add_ai_message("❌ 되돌릴 설정 변경이 없습니다.")
+            return
+
+        # 되돌리기 요청 처리
+        self.add_ai_message("🔄 마지막 설정 변경을 되돌립니다...")
+        # TODO: 실제 되돌리기 로직 구현
+
+    def show_settings_history(self):
+        """설정 변경 이력 표시"""
+        if not self.settings_change_history:
+            self.add_ai_message("📋 설정 변경 이력이 없습니다.")
+            return
+
+        history_text = "📋 설정 변경 이력:\n"
+        for i, change in enumerate(self.settings_change_history[-5:], 1):  # 최근 5개만 표시
+            history_text += f"{i}. {change['timestamp']}: {change['total_changes']}개 설정 변경\n"
+
+        self.add_ai_message(history_text)
+
+    def restore_default_strategy(self):
+        """기본 전략 복구"""
+        self.add_ai_message("🏠 기본 전략으로 복구합니다...")
+        # TODO: 실제 기본 설정 복구 로직 구현
+
+    def update_strategy_status(self, settings: dict):
+        """전략 상태 업데이트"""
+        try:
+            if not settings:
+                return
+
+            # AI 매니저 상태 확인
+            ai_status = "활성" if self.ai_manager and self.ai_manager.enabled() else "비활성"
+            ai_status_color = self._color("success") if ai_status == "활성" else self._color("danger")
+
+            # 현재 설정에서 정보 추출
+            leverage = settings.get('default_leverage', 1)
+            tp = settings.get('default_tp', 0.18)
+            sl = settings.get('default_sl', 0.20)
+
+            status_text = f"""🎯 전략: 균형 모드
+⚡ 레버리지: {leverage}x
+📊 포지션 크기: 10%
+📈 익절 목표: {tp*100:.1f}%
+📉 손절 라인: {sl*100:.1f}%
+🎲 신호 임계값: 70점
+
+🤖 AI 상태: {ai_status}"""
+
+            self.strategy_status_label.configure(text=status_text, text_color=ai_status_color)
+
+        except Exception as e:
+            self.logger.error(f"전략 상태 업데이트 오류: {e}")
+
+    def record_settings_change(self, new_settings: dict):
+        """설정 변경 이력 기록"""
+        try:
+            # 변경 이력에 추가
+            self.settings_change_history.append({
+                'timestamp': datetime.now().isoformat(),
+                'changes': new_settings,
+                'total_changes': len(new_settings)
+            })
+
+            # 최대 이력 크기 유지
+            if len(self.settings_change_history) > self.max_history_size:
+                self.settings_change_history.pop(0)
+
+        except Exception as e:
+            self.logger.error(f"설정 변경 이력 기록 실패: {e}")
+
+    def get_settings_change_history(self) -> list:
+        """설정 변경 이력 조회"""
+        return self.settings_change_history.copy()
+
+    def show_settings_management_modal(self):
+        """설정 관리 모달창 표시"""
+        try:
+            # 모달창 생성
+            modal = ctk.CTkToplevel(self)
+            modal.title("⚙️ 설정 관리")
+            modal.geometry("600x500")
+            # 모달을 최상위 윈도우에 종속시킵니다 (타입 안전)
+            try:
+                modal.transient(self.winfo_toplevel())
+            except Exception:
+                modal.transient(modal)
+            modal.grab_set()
+
+            # 창 중앙 배치
+            modal.update_idletasks()
+            x = (modal.winfo_screenwidth() // 2) - (600 // 2)
+            y = (modal.winfo_screenheight() // 2) - (500 // 2)
+            modal.geometry(f"600x500+{x}+{y}")
+
+            # 메인 프레임
+            main_frame = CTkFrame(modal)
+            main_frame.pack(fill="both", expand=True, padx=20, pady=20)
+
+            # 제목
+            title_label = CTkLabel(
+                main_frame,
+                text="⚙️ AI 설정 관리",
+                font=ctk.CTkFont(size=18, weight="bold")
+            )
+            title_label.pack(pady=20)
+
+            # 현재 전략 상태 표시
+            status_frame = CTkFrame(
+                main_frame,
+                fg_color=self._color("surface"),
+                border_color=self._color("border"),
+                border_width=1,
+                corner_radius=12
+            )
+            status_frame.pack(fill="x", padx=10, pady=10)
+
+            status_title = CTkLabel(
+                status_frame,
+                text="📋 현재 전략 상태",
+                font=ctk.CTkFont(size=14, weight="bold")
+            )
+            status_title.pack(pady=5)
+
+            self.strategy_status_label = CTkLabel(
+                status_frame,
+                text="""🎯 전략: 균형 모드 (기본값)
+⚡ 레버리지: 1x
+📊 포지션 크기: 10%
+📈 익절 목표: 0.18%
+📉 손절 라인: 0.20%
+🎲 신호 임계값: 70점""",
+                font=ctk.CTkFont(size=11, family="monospace"),
+                justify="left"
+            )
+            self.strategy_status_label.pack(pady=5, padx=10)
+
+            # 기능 설명
+            info_text = CTkTextbox(
+                main_frame,
+                font=ctk.CTkFont(size=11),
+                height=150,
+                fg_color=self._color("surface"),
+                text_color=self._color("text_primary"),
+                border_color=self._color("border"),
+                border_width=1,
+                corner_radius=12
+            )
+            info_text.pack(fill="x", padx=10, pady=5)
+
+            info_content = """🔧 설정 관리 기능 설명
+
+1. 🔄 마지막 설정 되돌리기
+   • AI가 제안한 마지막 설정 변경을 되돌립니다
+   • 현재 상태: 비활성화 (변경 이력 없음)
+
+2. 📋 설정 변경 이력
+   • AI가 제안한 모든 설정 변경 내역을 확인할 수 있습니다
+   • 최근 50개 변경 이력까지 저장됩니다
+
+3. 🏠 기본 전략 복구
+   • 모든 설정을 초기 기본값으로 되돌립니다
+   • 균형 모드, 1x 레버리지, 표준 TP/SL 설정으로 복원
+
+⚠️ 주의사항:
+• 설정 변경은 거래에 직접적인 영향을 미칩니다
+• 문제 발생 시 언제든지 기본 설정으로 복원 가능합니다"""
+
+            info_text.insert("1.0", info_content)
+            info_text.configure(state="disabled")
+
+            # 버튼들
+            button_frame = CTkFrame(
+                main_frame,
+                fg_color="#0b1120"
+            )
+            button_frame.pack(fill="x", padx=10, pady=10)
+
+            # 되돌리기 버튼
+            undo_btn = CTkButton(
+                button_frame,
+                text="마지막 설정 되돌리기",
+                command=lambda: self.undo_last_settings_change(),
+                width=200,
+                height=40,
+                fg_color=self._color("secondary"),
+                hover_color=self._hover_from(self._color("secondary")),
+                state="disabled"
+            )
+            undo_btn.pack(side="left", padx=5, pady=5)
+
+            # 이력 보기 버튼
+            history_btn = CTkButton(
+                button_frame,
+                text="설정 변경 이력",
+                command=lambda: self.show_settings_history(),
+                width=200,
+                height=40,
+                fg_color=self._color("secondary"),
+                hover_color=self._hover_from(self._color("secondary"))
+            )
+            history_btn.pack(side="left", padx=5, pady=5)
+
+            # 기본 전략 복구 버튼
+            restore_btn = CTkButton(
+                button_frame,
+                text="기본 전략 복구",
+                command=lambda: self.restore_default_strategy(),
+                width=200,
+                height=40,
+                fg_color=self._color("secondary"),
+                hover_color=self._hover_from(self._color("secondary"))
+            )
+            restore_btn.pack(side="left", padx=5, pady=5)
+
+            # 닫기 버튼
+            close_btn = CTkButton(
+                main_frame,
+                text="닫기",
+                command=modal.destroy,
+                width=100,
+                height=35,
+                fg_color=self._color("secondary"),
+                hover_color=self._hover_from(self._color("secondary"))
+            )
+            close_btn.pack(pady=20)
+
+            self.logger.info("설정 관리 모달창 표시")
+
+        except Exception as e:
+            self.logger.error(f"설정 관리 모달창 오류: {e}")
+
+    def _get_current_trading_context(self) -> str:
+        """현재 거래 상황 데이터 수집 (CustomTkinter 버전)"""
+        try:
+            context_parts = []
+
+            # 대시보드 참조를 통해 거래 상황 수집
+            dashboard = getattr(self, 'parent_dashboard', None)
+            if not dashboard:
+                return "거래 상황 정보를 가져올 수 없습니다. 대시보드가 연결되지 않았습니다."
+
+            # 1. 거래소 정보 및 연결 상태
+            if hasattr(dashboard, 'exchange_manager') and dashboard.exchange_manager:
+                exchange_manager = dashboard.exchange_manager
+                selected_exchange = exchange_manager.settings.get('selected_exchange', 'binance')
+                context_parts.append(f"현재 거래소: {selected_exchange}")
+
+                # 거래소 연결 상태 확인
+                try:
+                    is_connected = exchange_manager.validate_exchange_connection(selected_exchange)
+                    context_parts.append(f"거래소 연결 상태: {'연결됨' if is_connected else '연결 안됨'}")
+                except Exception as e:
+                    context_parts.append(f"거래소 연결 상태: 확인 불가 - {str(e)}")
+
+                # 2. 잔고 정보 (상세)
+                try:
+                    balance_result = exchange_manager.get_exchange_balance(selected_exchange)
+                    if balance_result.get('status') == 'success':
+                        balance = balance_result.get('balance', {})
+                        if balance:
+                            balance_info = []
+                            total_usdt = 0
+                            for currency, amount in balance.items():
+                                if amount > 0:
+                                    if currency == 'USDT':
+                                        total_usdt += amount
+                                    balance_info.append(f"{currency}: {amount:.4f}")
+
+                            if balance_info:
+                                context_parts.append(f"잔고: {', '.join(balance_info)}")
+                                context_parts.append(f"총 USDT 가치: {total_usdt:.2f} USDT")
+                            else:
+                                context_parts.append("잔고: 0 (거래 불가)")
+                        else:
+                            context_parts.append("잔고: 조회 실패")
+                    else:
+                        context_parts.append(f"잔고: {balance_result.get('error', '조회 실패')}")
+                except Exception as e:
+                    context_parts.append(f"잔고: 조회 오류 - {str(e)}")
+
+            # 3. 현재 설정 정보 (상세)
+            if hasattr(dashboard, 'settings') and dashboard.settings:
+                settings = dashboard.settings
+                context_parts.append(f"레버리지: {settings.get('default_leverage', 1)}x")
+                context_parts.append(f"TP: {settings.get('default_tp', 0.15)*100:.1f}%")
+                context_parts.append(f"SL: {settings.get('default_sl', 0.10)*100:.1f}%")
+                context_parts.append(f"최소 거래 금액: {settings.get('min_trade_amount', 5)} USDT")
+
+                # AI 거래 설정
+                ai_prefs = settings.get('ai_trading_preferences', {})
+                if ai_prefs:
+                    context_parts.append(f"AI 리스크 허용도: {ai_prefs.get('risk_tolerance', 'MODERATE')}")
+                    context_parts.append(f"잔고 활용 한도: {ai_prefs.get('balance_utilization_limit', 0.25)*100:.1f}%")
+
+                # RSI 설정
+                context_parts.append(f"RSI 기간: {settings.get('rsi_period', 14)}")
+                context_parts.append(f"RSI 과매도: {settings.get('rsi_oversold', 30)}")
+                context_parts.append(f"RSI 과매수: {settings.get('rsi_overbought', 70)}")
+
+                # 변동성 설정
+                context_parts.append(f"변동성 임계값: {settings.get('volatility_threshold', 0.02)*100:.2f}%")
+
+                # AI 청산 설정
+                ai_exit = settings.get('ai_exit_settings', {})
+                if ai_exit:
+                    context_parts.append(f"AI 수익 청산: {ai_exit.get('min_profit_for_exit', 0.0014)*100:.2f}% ~ {ai_exit.get('max_profit_for_exit', 0.0020)*100:.2f}%")
+                    context_parts.append(f"AI 손실 청산: {ai_exit.get('min_loss_for_exit', -0.0015)*100:.2f}% ~ {ai_exit.get('max_loss_for_exit', -0.0005)*100:.2f}%")
+
+            # 4. 거래 통계 (상세)
+            if hasattr(dashboard, 'recorder') and dashboard.recorder:
+                try:
+                    recorder = dashboard.recorder
+                    stats = recorder.get_trading_stats()
+                    if stats:
+                        total_trades, profitable_trades, loss_trades, win_rate, total_pnl, recent_pnl = stats
+                        context_parts.append(f"총 거래: {total_trades}회 (승리: {profitable_trades}회, 패배: {loss_trades}회)")
+                        context_parts.append(f"승률: {win_rate:.1f}%")
+                        context_parts.append(f"총 수익: {total_pnl:.2f} USDT")
+                        context_parts.append(f"최근 수익: {recent_pnl:.2f} USDT")
+
+                        # 수익률 계산
+                        if total_trades > 0:
+                            avg_profit_per_trade = total_pnl / total_trades
+                            context_parts.append(f"거래당 평균 수익: {avg_profit_per_trade:.2f} USDT")
+                except Exception as e:
+                    context_parts.append(f"거래 통계: 조회 오류 - {str(e)}")
+
+            # 5. 현재 포지션 (상세)
+            if hasattr(dashboard, 'unified_trader') and dashboard.unified_trader:
+                try:
+                    unified_trader = dashboard.unified_trader
+                    active_positions = getattr(unified_trader, 'active_positions', {})
+                    if active_positions:
+                        position_info = []
+                        total_position_value = 0
+                        for symbol, position in active_positions.items():
+                            if position.get('size', 0) > 0:
+                                side = position.get('side', 'UNKNOWN')
+                                size = position.get('size', 0)
+                                entry_price = position.get('entry_price', 0)
+                                current_price = position.get('current_price', 0)
+                                pnl = position.get('pnl', 0)
+
+                                position_str = f"{symbol}: {side} {size} @ {entry_price:.4f}"
+                                if current_price > 0:
+                                    position_str += f" (현재: {current_price:.4f}, PnL: {pnl:.2f})"
+                                    total_position_value += abs(size * current_price)
+
+                                position_info.append(position_str)
+
+                        if position_info:
+                            context_parts.append(f"활성 포지션: {', '.join(position_info)}")
+                            context_parts.append(f"총 포지션 가치: {total_position_value:.2f} USDT")
+                        else:
+                            context_parts.append("활성 포지션: 없음")
+                    else:
+                        context_parts.append("활성 포지션: 없음")
+                except Exception as e:
+                    context_parts.append(f"포지션 정보: 조회 오류 - {str(e)}")
+
+            # 6. 시장 데이터 (새로 추가)
+            if hasattr(dashboard, 'exchange_manager') and dashboard.exchange_manager:
+                try:
+                    exchange_manager = dashboard.exchange_manager
+                    selected_exchange = exchange_manager.settings.get('selected_exchange', 'binance')
+
+                    # 주요 코인들의 시장 데이터 수집
+                    major_coins = ['BTCUSDT', 'ETHUSDT', 'ADAUSDT', 'SOLUSDT', 'DOTUSDT']
+                    market_data = []
+
+                    for symbol in major_coins:
+                        try:
+                            ticker = exchange_manager.get_24h_ticker(symbol, selected_exchange)
+                            if ticker and ticker.get('last', 0) > 0:
+                                change_pct = ticker.get('percentage', 0)
+                                volume = ticker.get('quoteVolume', 0)
+                                market_data.append(f"{symbol}: ${ticker['last']:.4f} ({change_pct:+.2f}%) Vol: {volume:,.0f}")
+                        except Exception as e:
+                            self.logger.debug(f"{symbol} 시장 데이터 조회 실패: {e}")
+
+                    if market_data:
+                        context_parts.append("시장 데이터:")
+                        context_parts.extend(market_data[:5])  # 상위 5개만 표시
+
+                except Exception as e:
+                    context_parts.append(f"시장 데이터: 조회 오류 - {str(e)}")
+
+            # 7. 선택된 거래 코인 정보 및 분석 (새로 추가)
+            if hasattr(dashboard, 'selected_coins') and dashboard.selected_coins:
+                try:
+                    selected_coins = dashboard.selected_coins
+                    if selected_coins:
+                        coin_list = []
+                        for coin in selected_coins[:10]:  # 상위 10개만 표시
+                            if isinstance(coin, dict):
+                                symbol = coin.get('symbol', 'N/A')
+                            else:
+                                symbol = str(coin)
+                            coin_list.append(symbol)
+
+                        context_parts.append(f"선택된 거래 코인: {', '.join(coin_list)}")
+
+                        # 코인 분석 수행 (UnifiedTrader가 있는 경우)
+                        if hasattr(dashboard, 'unified_trader') and dashboard.unified_trader:
+                            try:
+                                unified_trader = dashboard.unified_trader
+                                # 안전한 거래소 선택값 획득
+                                selected_exchange_local = 'binance'
+                                try:
+                                    exm = getattr(dashboard, 'exchange_manager', None)
+                                    if exm and hasattr(exm, 'settings') and isinstance(exm.settings, dict):
+                                        selected_exchange_local = exm.settings.get('selected_exchange', 'binance')
+                                except Exception:
+                                    pass
+
+                                # 코인 목록 정규화 후 분석 실행
+                                normalized_coins = self._normalize_coins_for_analysis(selected_coins[:5])
+                                if normalized_coins:
+                                    analysis_results = unified_trader.analyze_coins_unified(selected_exchange_local, normalized_coins)
+                                else:
+                                    analysis_results = {}
+
+                                if analysis_results:
+                                    analysis_info = []
+                                    for symbol, analysis in analysis_results.items():
+                                        signal = analysis.get('signal', 'HOLD')
+                                        confidence = analysis.get('confidence', 0)
+                                        reason = analysis.get('reason', '')
+
+                                        signal_emoji = "🟢" if signal == "BUY" else "🔴" if signal == "SELL" else "🟡"
+                                        analysis_info.append(f"{symbol}: {signal_emoji} {signal} ({confidence:.2f}) - {reason}")
+
+                                    if analysis_info:
+                                        context_parts.append("코인 분석 결과:")
+                                        context_parts.extend(analysis_info[:3])  # 상위 3개만 표시
+
+                            except Exception as e:
+                                context_parts.append(f"코인 분석: 실행 오류 - {str(e)}")
+                    else:
+                        context_parts.append("선택된 거래 코인: 없음")
+                except Exception as e:
+                    context_parts.append(f"거래 코인 정보: 조회 오류 - {str(e)}")
+
+            # 8. AI 학습 데이터 (새로 추가)
+            if hasattr(dashboard, 'unified_trader') and dashboard.unified_trader:
+                try:
+                    unified_trader = dashboard.unified_trader
+                    ai_learning_data = getattr(unified_trader, 'ai_learning_data', {})
+                    if ai_learning_data:
+                        total_patterns = sum(len(patterns) for patterns in ai_learning_data.values())
+                        context_parts.append(f"AI 학습 패턴: {total_patterns}개")
+
+                        # 최근 학습된 패턴들
+                        recent_patterns = []
+                        for exchange, patterns in ai_learning_data.items():
+                            if patterns:
+                                recent_patterns.append(f"{exchange}: {len(patterns)}개")
+
+                        if recent_patterns:
+                            context_parts.append(f"거래소별 학습: {', '.join(recent_patterns)}")
+                    else:
+                        context_parts.append("AI 학습 데이터: 없음")
+                except Exception as e:
+                    context_parts.append(f"AI 학습 데이터: 조회 오류 - {str(e)}")
+
+            # 9. 시스템 상태 (새로 추가)
+            try:
+                import psutil
+                cpu_percent = psutil.cpu_percent(interval=1)
+                memory = psutil.virtual_memory()
+                context_parts.append(f"시스템 상태: CPU {cpu_percent:.1f}%, 메모리 {memory.percent:.1f}%")
+            except ImportError:
+                context_parts.append("시스템 상태: 모니터링 불가")
+            except Exception as e:
+                context_parts.append(f"시스템 상태: 조회 오류 - {str(e)}")
+
+            if not context_parts:
+                return "거래 상황 정보를 가져올 수 없습니다. 대시보드가 제대로 연결되지 않았거나 거래 시스템이 초기화되지 않았습니다."
+
+            # 디버깅 정보 추가
+            self.logger.info(f"AI 어시스턴트 컨텍스트 수집 완료: {len(context_parts)}개 항목")
+            for i, part in enumerate(context_parts):
+                self.logger.debug(f"컨텍스트 {i+1}: {part}")
+
+            return "\n".join(context_parts)
+
+        except Exception as e:
+            self.logger.error(f"거래 상황 수집 오류: {e}")
+            return f"거래 상황 수집 중 오류가 발생했습니다: {str(e)}"
+
+    # (중복된 고급 generate_ai_response는 제거되었습니다)
+
+    def _extract_recommended_settings(self, ai_response: str, user_message: str) -> dict:
+        """AI 응답에서 권장 설정을 추출"""
+        try:
+            # 간단한 키워드 기반 설정 추출 (실제로는 더 정교한 파싱 필요)
+            recommended_settings = {}
+
+            if "레버리지" in user_message or "레버리지" in ai_response:
+                if "높이" in user_message or "증가" in user_message:
+                    recommended_settings['default_leverage'] = 2
+                elif "낮추" in user_message or "감소" in user_message:
+                    recommended_settings['default_leverage'] = 1
+
+            if "TP/SL" in user_message or "손익" in user_message:
+                if "보수" in user_message or "안전" in user_message:
+                    recommended_settings['default_tp'] = 0.15
+                    recommended_settings['default_sl'] = 0.10
+                elif "공격" in user_message or "적극" in user_message:
+                    recommended_settings['default_tp'] = 0.25
+                    recommended_settings['default_sl'] = 0.20
+
+            # AI 청산 설정 추가
+            if "AI 청산" in user_message or "수익 목표" in user_message or "청산 범위" in user_message:
+                if "보수" in user_message or "안전" in user_message:
+                    recommended_settings['ai_exit_settings'] = {
+                        'min_profit_for_exit': 0.0020,    # 0.20% (수수료 + @)
+                        'max_profit_for_exit': 0.0030,    # 0.30%
+                        'min_loss_for_exit': -0.0010,     # -0.10%
+                        'max_loss_for_exit': -0.0003      # -0.03%
+                    }
+                elif "공격" in user_message or "적극" in user_message:
+                    recommended_settings['ai_exit_settings'] = {
+                        'min_profit_for_exit': 0.0010,    # 0.10% (수수료 + @)
+                        'max_profit_for_exit': 0.0015,    # 0.15%
+                        'min_loss_for_exit': -0.0020,     # -0.20%
+                        'max_loss_for_exit': -0.0010      # -0.10%
+                    }
+                elif "중간" in user_message or "균형" in user_message:
+                    recommended_settings['ai_exit_settings'] = {
+                        'min_profit_for_exit': 0.0014,    # 0.14% (수수료 + @)
+                        'max_profit_for_exit': 0.0020,    # 0.20%
+                        'min_loss_for_exit': -0.01,       # -1.0%
+                        'max_loss_for_exit': -0.0005      # -0.05%
+                    }
+
+            if "RSI" in user_message or "기술적" in user_message:
+                recommended_settings['rsi_period'] = 14
+                if "보수" in user_message:
+                    recommended_settings['rsi_oversold'] = 30
+                    recommended_settings['rsi_overbought'] = 70
+                else:
+                    recommended_settings['rsi_oversold'] = 25
+                    recommended_settings['rsi_overbought'] = 75
+
+            return recommended_settings
+
+        except Exception as e:
+            self.logger.error(f"설정 추출 오류: {e}")
+            return {}
+
+    def apply_recommended_settings(self):
+        """AI가 권장한 설정을 실제로 적용"""
+        try:
+            if not self.current_recommended_settings:
+                self.add_ai_message("❌ 적용할 권장 설정이 없습니다.")
+                return
+
+            # 대시보드에서 설정 업데이트
+            dashboard = getattr(self, 'parent_dashboard', None)
+            if not dashboard:
+                self.add_ai_message("❌ 대시보드에 연결되지 않았습니다.")
+                return
+
+            if hasattr(dashboard, 'settings') and dashboard.settings:
+                settings = dashboard.settings
+                settings.update(self.current_recommended_settings)
+
+                # 설정 파일에 저장
+                try:
+                    from config.settings import save_settings
+                    if save_settings(settings):
+                        self.add_ai_message("✅ AI 권장 설정이 성공적으로 적용되었습니다!")
+
+                        # 설정 변경 이력에 추가
+                        self.settings_change_history.append({
+                            'timestamp': datetime.now().isoformat(),
+                            'settings': self.current_recommended_settings.copy(),
+                            'source': 'ai_recommendation'
+                        })
+
+                        # 이력 크기 제한
+                        if len(self.settings_change_history) > self.max_history_size:
+                            self.settings_change_history.pop(0)
+
+                        # 권장 설정 초기화
+                        self.current_recommended_settings = None
+
+                        # 대시보드에 설정 변경 알림
+                        if hasattr(dashboard, 'on_settings_changed'):
+                            dashboard.on_settings_changed('settings_updated', settings)
+                    else:
+                        self.add_ai_message("❌ 설정 저장에 실패했습니다.")
+
+                except Exception as e:
+                    self.logger.error(f"설정 저장 오류: {e}")
+                    self.add_ai_message(f"❌ 설정 저장 중 오류가 발생했습니다: {str(e)}")
+            else:
+                self.add_ai_message("❌ 설정을 업데이트할 수 없습니다.")
+
+        except Exception as e:
+            self.logger.error(f"설정 적용 오류: {e}")
+            self.add_ai_message(f"❌ 설정 적용 중 오류가 발생했습니다: {str(e)}")
+
+    def reject_recommended_settings(self):
+        """AI 권장 설정 거부"""
+        try:
+            self.current_recommended_settings = None
+            self.add_ai_message("❌ AI 권장 설정이 거부되었습니다.")
+        except Exception as e:
+            self.logger.error(f"설정 거부 오류: {e}")
+
+    # 중복된 send_quick_question 정의 제거
+
+    # 중복된 send_ai_message 정의 제거
+
+    # --- Chart Screenshot Analyzer Integration ---
+    def open_chart_analyzer(self):
+        try:
+            if ChartScreenshotWidget is None:
+                messagebox.showwarning("기능 사용 불가", "차트 분석 위젯을 불러올 수 없습니다.")
+                return
+
+            # 기존 AI 세션 재사용
+            ai_client = getattr(self.ai_manager, 'client', None)
+
+            window = ctk.CTkToplevel(self)
+            window.title("NoahAI 차트 스크린샷 분석기")
+            window.geometry("880x720")
+            # 화면 중앙 배치
+            try:
+                window.update_idletasks()
+                x = (window.winfo_screenwidth() // 2) - (880 // 2)
+                y = (window.winfo_screenheight() // 2) - (720 // 2)
+                window.geometry(f"880x720+{x}+{y}")
+            except Exception:
+                pass
+
+            widget = ChartScreenshotWidget(window, ai_client=ai_client, colors=self.colors)
+            widget.pack(fill="both", expand=True)
+        except Exception as e:
+            try:
+                self.logger.error(f"차트 분석기 열기 오류: {e}")
+            except Exception:
+                pass

@@ -1,0 +1,860 @@
+{
+  "default_leverage": 10,
+  "default_margin_type": "ISOLATED",
+  "default_tp": 0.0018,
+  "default_sl": 0.002,
+  "entry_order_type": "market",
+  "tp_sl_settings": {
+    "enabled": true,
+    "trigger_price_source": "mark",
+    "tp_order_type": "market",
+    "sl_order_type": "market"
+  },
+  "backup_tp_sl_settings": {
+    "enabled": true,
+    "description": "백업 TP/SL 설정 (동적 임계값보다 높게 설정하여 실시간 모니터링이 먼저 청산되도록 함)",
+    "multipliers": {
+      "high_volatility": 3.0,
+      "medium_volatility": 2.5,
+      "low_volatility": 2.0
+    },
+    "safety_limits": {
+      "tp_min": 0.01,
+      "tp_max": 0.05,
+      "sl_min": 0.008,
+      "sl_max": 0.03
+    },
+    "volatility_thresholds": {
+      "high": 0.02,
+      "medium": 0.01
+    }
+  },
+  "exchange_tp_sl_overrides": {
+    "binance": {},
+    "bybit": {
+      "trigger_price_source": "mark"
+    },
+    "okx": {
+      "trigger_price_source": "mark",
+      "margin_mode": "cross"
+    },
+    "bitget": {
+      "trigger_price_source": "mark"
+    }
+  },
+  "ai_exit_settings": {
+    "min_profit_for_exit": 0.0012,
+    "max_profit_for_exit": 0.003,
+    "min_loss_for_exit": -0.0015,
+    "max_loss_for_exit": -0.001
+  },
+  "auto_trade_interval": 10,
+  "paper_trading": false,
+  "enable_stock_live_order": false,
+  "demo_mode": false,
+  "ai_enabled": true,
+  "binance_api_key": "",
+  "binance_secret_key": "",
+  "openai_api_key": "",
+  "upbit_api_key": "",
+  "upbit_secret_key": "",
+  "bithumb_api_key": "",
+  "bithumb_secret_key": "",
+  "bitget_api_key": "",
+  "bitget_secret_key": "",
+  "bitget_password": "",
+  "okx_api_key": "",
+  "okx_secret_key": "",
+  "okx_passphrase": "",
+  "bybit_api_key": "",
+  "bybit_secret_key": "",
+  "selected_exchange": "binance",
+  "enabled_exchanges": [
+    "binance"
+  ],
+  "advanced_trading_layers": {
+    "profitability_validation": {
+      "enabled": true,
+      "min_trades": 10,
+      "min_win_rate": 0.42,
+      "min_sharpe": 0.2,
+      "max_mdd": 0.3,
+      "min_expectancy": 0.0,
+      "min_walkforward_pass_rate": 0.4
+    },
+    "portfolio_orchestration": {
+      "enabled": true,
+      "risk_budget": {
+        "crypto": 0.4,
+        "stock": 0.35,
+        "etf": 0.25
+      },
+      "max_single_asset_weight": 0.35,
+      "correlation_penalty": 0.25
+    },
+    "execution_optimizer": {
+      "enabled": true,
+      "fallback_market": true,
+      "max_retries": 1,
+      "timeout_ms": 3000,
+      "max_slippage_bps": 35.0
+    },
+    "strategy_engine": {
+      "enabled": true,
+      "allow_regimes": ["trend", "range"],
+      "consensus_threshold": 0.6,
+      "cooldown_sec": 60
+    },
+    "ops_automation": {
+      "enabled": true,
+      "auto_rollback": true,
+      "reject_rate_threshold": 0.35,
+      "slippage_bps_threshold": 45.0,
+      "quality_score_threshold": 45.0
+    },
+    "exchange_overrides": {
+      "binance": {},
+      "bybit": {},
+      "okx": {},
+      "bitget": {}
+    }
+  },
+  "advanced_trading_policy_presets": {
+    "dev": {
+      "profitability_validation": {"enabled": false},
+      "execution_optimizer": {"enabled": false},
+      "strategy_engine": {"enabled": false},
+      "ops_automation": {"enabled": false}
+    },
+    "safe": {
+      "profitability_validation": {
+        "enabled": true,
+        "min_trades": 20,
+        "min_win_rate": 0.45,
+        "min_sharpe": 0.35,
+        "max_mdd": 0.25,
+        "min_walkforward_pass_rate": 0.45
+      },
+      "portfolio_orchestration": {
+        "enabled": true,
+        "max_single_asset_weight": 0.25
+      },
+      "execution_optimizer": {
+        "enabled": true,
+        "max_retries": 2,
+        "max_slippage_bps": 25.0
+      },
+      "strategy_engine": {
+        "enabled": true,
+        "consensus_threshold": 0.7,
+        "cooldown_sec": 120
+      },
+      "ops_automation": {
+        "enabled": true,
+        "quality_score_threshold": 55.0
+      }
+    },
+    "aggressive": {
+      "profitability_validation": {
+        "enabled": true,
+        "min_trades": 10,
+        "min_win_rate": 0.35,
+        "min_sharpe": 0.1,
+        "max_mdd": 0.35,
+        "min_walkforward_pass_rate": 0.35
+      },
+      "portfolio_orchestration": {
+        "enabled": true,
+        "max_single_asset_weight": 0.45
+      },
+      "execution_optimizer": {
+        "enabled": true,
+        "max_retries": 1,
+        "max_slippage_bps": 45.0
+      },
+      "strategy_engine": {
+        "enabled": true,
+        "consensus_threshold": 0.5,
+        "cooldown_sec": 30
+      },
+      "ops_automation": {
+        "enabled": true,
+        "quality_score_threshold": 35.0
+      }
+    }
+  },
+  "stock_asset_mode": "all",
+  "stock_order_guardrails": {
+    "enabled": true,
+    "enforce_market_hours": true,
+    "max_order_value": 50000000,
+    "max_quantity": 10000,
+    "daily_order_limit": 20,
+    "allow_market_order": true,
+    "allow_limit_order": true,
+    "broker_min_quantity": {
+      "kiwoom": 1,
+      "shinhan": 1,
+      "miraeasset": 1
+    },
+    "broker_quantity_step": {
+      "kiwoom": 1,
+      "shinhan": 1,
+      "miraeasset": 1
+    }
+  },
+  "stock_auto_trading": {
+    "auto_start": false,
+    "enabled": false,
+    "interval_sec": 60,
+    "buy_threshold": 70.0,
+    "sell_threshold": 30.0,
+    "order_type": "MARKET",
+    "quantity": 1.0,
+    "max_orders_per_cycle": 1,
+    "symbols": [],
+    "risk_guard_enabled": true,
+    "max_consecutive_losses": 3,
+    "daily_max_loss": 500000.0,
+    "cooldown_sec_per_symbol": 300,
+    "risk_governance_enabled": true,
+    "global_kill_switch": false,
+    "weekly_max_loss": 1500000.0,
+    "monthly_max_loss": 4000000.0,
+    "max_symbol_weight_percent": 35.0,
+    "broker_overrides": {},
+    "enable_exit_policy": true,
+    "take_profit_percent": 5.0,
+    "stop_loss_percent": 8.0,
+    "etf_take_profit_percent": 4.0,
+    "etf_stop_loss_percent": 6.0,
+    "use_signal_exit": true,
+    "etf_alert_exit": true
+  },
+  "stock_search_profile": {
+    "recent_codes": [],
+    "favorites": []
+  },
+  "enabled_stock_brokers": [],
+  "stock_broker_configs": {
+    "kiwoom": {
+      "enabled": false,
+      "api_type": "openapi",
+      "api_version": "pykiwoom",
+      "allow_live_order": false,
+      "account_no": "",
+      "password": "",
+      "asset_types": ["stock", "etf"],
+      "cert_password": "",
+      "id": ""
+    },
+    "shinhan": {
+      "enabled": false,
+      "api_type": "openapi",
+      "api_version": "solapi",
+      "allow_live_order": false,
+      "app_key": "",
+      "app_secret": "",
+      "account_no": "",
+      "password": "",
+      "asset_types": ["stock", "etf"],
+      "cert_password": "",
+      "id": ""
+    },
+    "miraeAsset": {
+      "enabled": false,
+      "api_type": "openapi",
+      "api_version": "miraemts",
+      "allow_live_order": false,
+      "app_key": "",
+      "app_secret": "",
+      "account_no": "",
+      "password": "",
+      "asset_types": ["stock", "etf"],
+      "cert_password": "",
+      "id": ""
+    }
+  },
+  "openai_model": "gpt-3.5-turbo",
+  "assistant_ai_model": "gpt-4o",
+  "ai_model_roles": {
+    "_comment": "역할별 AI 모델 배치 - 빈도·중요도에 따라 모델 티어를 분리해 비용 최적화",
+    "frequent_cheap": "gpt-4o-mini",
+    "standard": "gpt-4o",
+    "premium": "gpt-4o"
+  },
+  "assistant_voice": {
+    "enabled": false,
+    "auto_tts": false,
+    "lang": "ko-KR",
+    "rate": 180
+  },
+  "asset_insight_snapshot": {},
+  "life_finance_profile": {
+    "monthly_income": 0,
+    "fixed_cost": 0,
+    "variable_cost": 0,
+    "savable": 0,
+    "saved_at": ""
+  },
+  "life_finance_sync_dir": "",
+  "life_finance_backup_dir": "",
+  "backend_url": "http://localhost:8000",
+  "api_timeout": 10,
+  "ai_signal_enabled": true,
+  "rsi_period": 14,
+  "ma_period": 20,
+  "bb_period": 20,
+  "optimization_interval": 6,
+  "learning_period": 7,
+  "ai_learning_min_samples": 20,
+  "federated_learning": {
+    "enabled": false,
+    "batch_enabled": false,
+    "upload_enabled": false,
+    "batch_size": 128,
+    "max_pending_batches": 100,
+    "sync_interval_minutes": 60,
+    "server_base_url": "",
+    "api_key": "",
+    "timeout_sec": 5,
+    "anonymization_salt": ""
+  },
+  "saas_preparation": {
+    "enabled": false,
+    "tenant_mode": "single",
+    "telemetry_enabled": false,
+    "subscription_tier": "starter",
+    "feature_flags": {
+      "fl_beta": false,
+      "api_metering": false,
+      "model_marketplace": false
+    }
+  },
+  "log_level": "DEBUG",
+  "verbose_trade_logging": true,
+  "detailed_logs_enabled": true,
+  "log_file_size_limit": 200,
+  "log_retention_days": 30,
+  "position_sizing_debug": false,
+  "position_sizing_persist": false,
+  "analytics_refresh_interval_minutes": 30,
+  "clear_logs_on_restart": true,
+  "db_backup_interval": 24,
+  "db_backup_retention": 7,
+  "cache_timeout": 30,
+  "max_concurrent_requests": 10,
+  "max_positions": 3,
+  "position_mode": "multi",
+  "min_trade_amount": 20,
+  "slippage_tolerance": 0.08,
+  "include_fees": true,
+  "taker_fee_percent_per_side": 0.02,
+  "slippage_estimate_percent": 0.03,
+  "auto_coin_selection": true,
+  "symbol_min_notional_overrides": {
+    "ETHUSDT": 20.0
+  },
+  "num_alt_coins": 10,
+  "num_major_coins": 5,
+  "min_total_coins": 10,
+  "max_total_coins": 20,
+  "market_regime_coins": {
+    "bear": {
+      "min": 10,
+      "max": 10
+    },
+    "neutral": {
+      "min": 15,
+      "max": 15
+    },
+    "bull": {
+      "min": 20,
+      "max": 20
+    },
+    "volatile": {
+      "min": 12,
+      "max": 12
+    },
+    "normal": {
+      "min": 15,
+      "max": 15
+    }
+  },
+  "coin_selection_ratios": {
+    "bull": {
+      "altcoin_ratio": 0.8,
+      "major_ratio": 0.2,
+      "description": "강세장 - 알트코인 비중 높임 (변동성 활용)"
+    },
+    "bear": {
+      "altcoin_ratio": 0.4,
+      "major_ratio": 0.6,
+      "description": "약세장 - 메이저 코인 비중 높임 (안정성 중시)"
+    },
+    "volatile": {
+      "altcoin_ratio": 0.6,
+      "major_ratio": 0.4,
+      "description": "고변동성 - 균형잡힌 포트폴리오"
+    },
+    "normal": {
+      "altcoin_ratio": 0.7,
+      "major_ratio": 0.3,
+      "description": "정상장 - 기본 비율 유지"
+    }
+  },
+  "market_analysis_thresholds": {
+    "bull": {
+      "trend_slope_threshold": 0.03,
+      "volume_ratio_threshold": 1.2,
+      "volatility_threshold": 2.0,
+      "rsi_overbought": 75,
+      "rsi_oversold": 25
+    },
+    "bear": {
+      "trend_slope_threshold": 0.08,
+      "volume_ratio_threshold": 2.0,
+      "volatility_threshold": 5.0,
+      "rsi_overbought": 65,
+      "rsi_oversold": 35
+    },
+    "volatile": {
+      "trend_slope_threshold": 0.02,
+      "volume_ratio_threshold": 1.8,
+      "volatility_threshold": 4.0,
+      "rsi_overbought": 80,
+      "rsi_oversold": 20
+    },
+    "normal": {
+      "trend_slope_threshold": 0.05,
+      "volume_ratio_threshold": 1.5,
+      "volatility_threshold": 3.0,
+      "rsi_overbought": 70,
+      "rsi_oversold": 30
+    }
+  },
+  "trading_strategies": {
+    "scalping": {
+      "weights": {
+        "volatility_weight": 0.30,
+        "volume_stability_weight": 0.25,
+        "trend_weight": 0.25,
+        "frequency_weight": 0.10,
+        "depth_weight": 0.05
+      },
+      "criteria": {
+        "volatility_thresholds": [
+          0.8,
+          1.5,
+          3.0,
+          6.0,
+          10.0
+        ],
+        "volume_spike_thresholds": [
+          1.2,
+          2.0,
+          3.0,
+          4.0
+        ],
+        "trend_thresholds": [
+          15,
+          35,
+          60
+        ],
+        "frequency_thresholds": {
+          "major": [
+            5000,
+            20000,
+            50000,
+            200000,
+            500000
+          ],
+          "altcoin": [
+            1000,
+            5000,
+            10000,
+            50000,
+            100000
+          ]
+        },
+        "depth_thresholds": [
+          1e5
+        ],
+        "volume_thresholds": {
+          "optimal_min": 1000000,
+          "optimal_max": 100000000,
+          "acceptable_min": 500000,
+          "acceptable_max": 1000000000
+        }
+      },
+      "base_scores": {
+        "volatility_initial": 50,
+        "volume_initial": 50,
+        "trend_base": 60,
+        "frequency_base": 70,
+        "technical_base": 60,
+        "risk_base": 70
+      },
+      "adjustment_factors": {
+        "default": 1.0,
+        "market_low": 0.7,
+        "market_normal": 0.85,
+        "market_high": 0.95,
+        "fallback_levels": [
+          0.7,
+          0.5,
+          0.3,
+          0.1
+        ]
+      }
+    }
+  },
+  "signal_thresholds": {
+    "rsi_extreme_oversold": 20,
+    "rsi_oversold": 28,
+    "rsi_overbought": 72,
+    "rsi_extreme_overbought": 80,
+    "momentum_threshold": 0.00045,
+    "trend_momentum_threshold": 0.0016
+  },
+  "exchange_signal_thresholds": {
+    "binance": {
+      "rsi_extreme_oversold": 20,
+      "rsi_oversold": 28,
+      "rsi_overbought": 72,
+      "rsi_extreme_overbought": 80,
+      "momentum_threshold": 0.00045,
+      "trend_momentum_threshold": 0.0016
+    },
+    "bybit": {
+      "rsi_extreme_oversold": 20,
+      "rsi_oversold": 28,
+      "rsi_overbought": 72,
+      "rsi_extreme_overbought": 80,
+      "momentum_threshold": 0.00045,
+      "trend_momentum_threshold": 0.0016
+    },
+    "okx": {
+      "rsi_extreme_oversold": 20,
+      "rsi_oversold": 28,
+      "rsi_overbought": 72,
+      "rsi_extreme_overbought": 80,
+      "momentum_threshold": 0.00045,
+      "trend_momentum_threshold": 0.0016
+    },
+    "bitget": {
+      "rsi_extreme_oversold": 20,
+      "rsi_oversold": 28,
+      "rsi_overbought": 72,
+      "rsi_extreme_overbought": 80,
+      "momentum_threshold": 0.00045,
+      "trend_momentum_threshold": 0.0016
+    },
+    "upbit": {
+      "rsi_extreme_oversold": 22,
+      "rsi_oversold": 30,
+      "rsi_overbought": 70,
+      "rsi_extreme_overbought": 78,
+      "momentum_threshold": 0.002,
+      "trend_momentum_threshold": 0.004
+    },
+    "bithumb": {
+      "rsi_extreme_oversold": 15,
+      "rsi_oversold": 20,
+      "rsi_overbought": 80,
+      "rsi_extreme_overbought": 85,
+      "momentum_threshold": 0.00035,
+      "trend_momentum_threshold": 0.0012
+    }
+  },
+  "analyzer_settings": {
+    "user_signal_threshold": 68,
+    "coin_multipliers": {
+      "major": 0.65,
+      "altcoin": 0.8
+    },
+    "market_multipliers": {
+      "low": 0.25,
+      "normal": 0.85,
+      "high": 1.0
+    },
+    "volatility_thresholds": {
+      "major_min": 0.0002,
+      "major_max": 0.015,
+      "altcoin_min": 0.0006,
+      "altcoin_max": 0.020
+    },
+    "base_trading_params": {
+      "tp_percent": 0.0018,
+      "sl_percent": 0.002,
+      "leverage": 10,
+      "position_size": 0.10
+    }
+  },
+  "symbol_filters": {
+    "excluded_symbols": [
+      "ALPACAUSDT",
+      "B3USDT",
+      "WUSDT",
+      "FUSDT",
+      "SUSDT",
+      "HUSDT",
+      "BUSDT",
+      "TUSDT",
+      "AUSDT",
+      "GUSDT",
+      "DUSDT",
+      "MUSDT"
+    ],
+    "excluded_patterns": [
+      "USDCUSDT",
+      "USDTBTC",
+      "USDTUSDT",
+      "BTCBTC",
+      "ETHETH",
+      "BNBBNB",
+      "ADAADA",
+      "FART",
+      "PENGU",
+      "PUMP",
+      "HYPE",
+      "SOON",
+      "COIN",
+      "TOKEN",
+      "MOON",
+      "SHIB",
+      "DOGE",
+      "PEPE",
+      "BONK",
+      "INU",
+      "CAT",
+      "FLOKI"
+    ],
+    "min_symbol_length": 3,
+    "max_symbol_length": 12
+  },
+  "ai_trading_preferences": {
+    "risk_tolerance": "MODERATE",
+    "balance_utilization_limit": 0.20,
+    "max_position_size_factor": 5.0,
+    "min_position_size_factor": 0.5,
+    "risk_levels": {
+      "conservative": {
+        "balance_utilization": 0.12,
+        "max_position_factor": 2.0,
+        "description": "보수적 접근 - 안전 우선"
+      },
+      "moderate": {
+        "balance_utilization": 0.25,
+        "max_position_factor": 5.0,
+        "description": "중간 접근 - 균형 잡힌 리스크"
+      },
+      "aggressive": {
+        "balance_utilization": 0.40,
+        "max_position_factor": 10.0,
+        "description": "적극적 접근 - 수익 극대화"
+      }
+    },
+    "ai_decision_history": true,
+    "user_feedback_enabled": true
+  },
+  "exchange_position_factors": {
+    "binance": 1.0,
+    "bybit": 0.9,
+    "okx": 0.8,
+    "bitget": 0.85,
+    "upbit": 0.7,
+    "bithumb": 0.7
+  },
+  "dynamic_thresholds_enabled": true,
+  "dynamic_thresholds_profile": {
+    "low": {
+      "rsi_oversold_delta": -2,
+      "rsi_overbought_delta": 2,
+      "momentum_threshold_scale": 0.9
+    },
+    "high": {
+      "rsi_oversold_delta": -4,
+      "rsi_overbought_delta": 4,
+      "momentum_threshold_scale": 1.25
+    }
+  },
+  "dynamic_thresholds_high_multiplier": 1.5,
+  "dynamic_thresholds_hysteresis_enabled": true,
+  "dynamic_thresholds_hysteresis": {
+    "high_enter_mult": 1.65,
+    "high_exit_mult": 1.28,
+    "low_enter_mult": 1.0,
+    "low_exit_mult": 1.1
+  },
+  "dynamic_thresholds_mode": "auto",
+  "dynamic_thresholds_manual_regime": "NORMAL",
+  "operation_mode": "guided",
+  "tuning": {
+    "slippage_abs_warn": 0.0010,
+    "slippage_abs_high": 0.0020,
+    "adjust_step_volume": 0.15,
+    "adjust_step_volatility": 5.0,
+    "min_min_quote_volume": 5000000,
+    "max_min_quote_volume": 50000000,
+    "min_volatility_max": 10.0,
+    "max_volatility_max": 40.0
+  },
+  "exchange_risk_overrides": {
+    "binance": {
+      "max_positions": 3,
+      "max_position_size": 0.02,
+      "min_position_size": 0.001,
+      "max_leverage": 20
+    },
+    "bybit": {
+      "max_positions": 3,
+      "max_position_size": 0.008,
+      "min_position_size": 0.001,
+      "max_leverage": 20
+    },
+    "okx": {
+      "max_positions": 3,
+      "max_position_size": 0.006,
+      "min_position_size": 0.001,
+      "max_leverage": 20
+    },
+    "bitget": {
+      "max_positions": 3,
+      "max_position_size": 0.007,
+      "min_position_size": 0.001,
+      "max_leverage": 20
+    },
+    "upbit": {
+      "max_positions": 3,
+      "max_position_size": 0.005,
+      "min_position_size": 0.001
+    },
+    "bithumb": {
+      "max_positions": 3,
+      "max_position_size": 0.005,
+      "min_position_size": 0.001
+    }
+  },
+  "strategy_config": {
+    "volatility_thresholds": [
+      1.0,
+      3.0,
+      5.0,
+      7.0,
+      10.0
+    ],
+    "volume_thresholds": {
+      "optimal_min": 1000000,
+      "optimal_max": 100000000,
+      "acceptable_min": 500000,
+      "acceptable_max": 1000000000
+    },
+    "weights": {
+      "volatility_weight": 0.30,
+      "volume_stability_weight": 0.25,
+      "trend_weight": 0.25,
+      "frequency_weight": 0.10,
+      "rsi_weight": 0.05,
+      "depth_weight": 0.05
+    },
+    "base_scores": {
+      "volatility_initial": 50,
+      "volume_initial": 50,
+      "trend_base": 60,
+      "frequency_base": 70,
+      "technical_base": 60,
+      "risk_base": 70
+    }
+  },
+  "futures_selection": {
+    "bybit": {
+      "max_candidates": 100,
+      "min_quote_volume": 20000000,
+      "volatility_max": 25.0,
+      "sort_weights": {
+        "volume": 0.9,
+        "volatility": 0.1
+      }
+    },
+    "okx": {
+      "max_candidates": 100,
+      "min_quote_volume": 15000000,
+      "volatility_max": 25.0,
+      "sort_weights": {
+        "volume": 0.9,
+        "volatility": 0.1
+      }
+    },
+    "bitget": {
+      "max_candidates": 100,
+      "min_quote_volume": 12000000,
+      "volatility_max": 25.0,
+      "sort_weights": {
+        "volume": 0.9,
+        "volatility": 0.1
+      }
+    }
+  },
+  "risk_winrate_window": 10,
+  "risk_downshift_threshold": 40,
+  "risk_upshift_threshold": 60,
+  "risk_shift_factor_down": 0.85,
+  "risk_shift_factor_up": 1.10,
+  "alphaarena_enabled": false,
+  "alphaarena_ai_engine": "deepseek-chat-v3.1",
+  "alphaarena_capital": 10000,
+  "alphaarena_leverage_range": "10-20x",
+  "alphaarena_deepseek_api_key": "",
+  "alphaarena_openai_api_key": "",
+  "alphaarena_anthropic_api_key": "",
+  "alphaarena_google_api_key": "",
+  "alphaarena_xai_api_key": "",
+  "alphaarena_alibaba_api_key": "",
+  "alpha_arena": {
+    "enabled": false,
+    "exchange": "binance-futures",
+    "engine": "deepseek-3.1",
+    "available_engines": ["deepseek-3.1", "qwen3-max"],
+    "initial_capital_benchmark": 10000,
+    "deepseek_api_key": "",
+    "qwen_api_key": "",
+    "tick_interval_sec": 60,
+    "tick_trigger": "interval",
+    "symbols": [
+      "BTCUSDT",
+      "ETHUSDT",
+      "SOLUSDT",
+      "XRPUSDT",
+      "DOGEUSDT",
+      "BNBUSDT"
+    ],
+    "leverage_min": 10,
+    "leverage_max": 20,
+    "require_trading_decisions": false,
+    "echo_last_orders_to_llm": true,
+    "auto_insurance_tp_sl": false,
+    "max_concurrent_positions": 6,
+    "cooldown_sec_per_symbol": 30,
+    "max_risk_per_tick": 1500.0,
+    "workingType": "MARK_PRICE",
+    "logging": {
+      "level": "INFO",
+      "store_prompt_hash": true,
+      "prompt_version": "alphaarena-v1"
+    },
+    "help": {
+      "on_unknown": "AlphaArena 안내 모달을 먼저 보세요. 설정에도 없으면 관리자에게 문의하세요."
+    }
+  },
+  "ui_settings": {
+    "always_on_top": false,
+    "window_geometry": "1400x900",
+    "remember_window_position": true,
+    "auto_update_enabled": true,
+    "auto_update_check_interval_hours": 6,
+    "auto_update_auto_download": true,
+    "auto_update_auto_apply_on_exit": true,
+    "auto_update_release_repo": "nwsoft/ai-trading-client"
+  }
+}

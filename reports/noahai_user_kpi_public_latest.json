@@ -1,0 +1,110 @@
+{
+  "report_type": "noahai_user_kpi_public",
+  "generated_at_utc": "2026-05-17T10:50:17.113514Z",
+  "source_scope": {
+    "account_filter": "ALL",
+    "trade_account_column": null,
+    "decision_account_column": null
+  },
+  "summary": {
+    "latest_dates": {
+      "last_trade": "2026-04-28 21:33:49.439954",
+      "last_ai_decision": "2026-05-07 15:25:03"
+    },
+    "freshness_hours": {
+      "trade": null,
+      "ai_decision": 244.42
+    },
+    "status": {
+      "health": "GREEN",
+      "data_health_score": 80
+    },
+    "counts": {
+      "closed_trades": 4,
+      "wins": 2,
+      "losses": 2,
+      "ai_decisions": 3063
+    },
+    "performance": {
+      "win_rate_pct": 50.0,
+      "total_pnl": 6.0,
+      "avg_pnl": 1.5,
+      "avg_pnl_percent": 2.0
+    },
+    "risk_and_cost": {
+      "max_drawdown": 0.0,
+      "fees_total": 0.05,
+      "slippage_avg": 0.0
+    },
+    "exchange_performance": [
+      {
+        "exchange": "binance",
+        "trades": 2,
+        "total_pnl": 0.0,
+        "win_rate_pct": 50.0
+      },
+      {
+        "exchange": "shinhan",
+        "trades": 1,
+        "total_pnl": 0.0,
+        "win_rate_pct": 0.0
+      },
+      {
+        "exchange": "bitget",
+        "trades": 1,
+        "total_pnl": 6.0,
+        "win_rate_pct": 100.0
+      }
+    ],
+    "top_exit_reasons": [
+      {
+        "reason": "tp hit",
+        "count": 1,
+        "share_pct": 25.0
+      },
+      {
+        "reason": "stock_auto_sell_score_17.4_mom_-0.76",
+        "count": 1,
+        "share_pct": 25.0
+      },
+      {
+        "reason": "sl hit",
+        "count": 1,
+        "share_pct": 25.0
+      },
+      {
+        "reason": "manual",
+        "count": 1,
+        "share_pct": 25.0
+      }
+    ],
+    "top_decision_types": [
+      {
+        "decision_type": "stock_analyze_symbol",
+        "count": 962,
+        "share_pct": 31.41
+      },
+      {
+        "decision_type": "stock_market_regime",
+        "count": 732,
+        "share_pct": 23.9
+      },
+      {
+        "decision_type": "stock_auto_trade_cycle",
+        "count": 684,
+        "share_pct": 22.33
+      },
+      {
+        "decision_type": "stock_runtime_sync",
+        "count": 682,
+        "share_pct": 22.27
+      },
+      {
+        "decision_type": "stock_auto_trade_symbol",
+        "count": 3,
+        "share_pct": 0.1
+      }
+    ]
+  },
+  "disclaimer": "Public-safe summary only. Raw prompts, account identifiers, and user-level sensitive traces are excluded."
+}

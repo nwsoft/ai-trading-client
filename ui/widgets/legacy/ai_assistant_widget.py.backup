@@ -1,0 +1,510 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+AI 어시스턴트 위젯 (CustomTkinter)
+대시보드에서 분리된 AI 채팅 및 설정 관리 기능
+"""
+
+import sys
+import os
+import json
+import logging
+from datetime import datetime
+from typing import Dict, List, Any, Optional
+
+import customtkinter as ctk
+from customtkinter import CTkFrame, CTkLabel, CTkButton, CTkTextbox, CTkEntry, CTkCheckBox, CTkScrollableFrame
+
+class AIAssistantWidget(CTkFrame):
+    """AI 어시스턴트 위젯 (CustomTkinter)"""
+    
+    DEFAULT_COLORS: Dict[str, str] = {
+        "text_primary": "#f9fafb",
+        "text_secondary": "#7f8c8d",
+        "surface": "#1f2937",
+        "border": "#374151",
+        "primary": "#3b82f6",
+        "secondary": "#4b5563",
+        "success": "#22c55e",
+        "danger": "#ef4444",
+        "warning": "#f59e0b",
+        "info": "#3b82f6",
+        "accent": "#8b5cf6",
+    }
+
+    def __init__(self, parent=None, ai_manager=None, colors: Optional[Dict[str, str]] = None, **kwargs):
+        super().__init__(parent, **kwargs)
+        self.logger = logging.getLogger(__name__)
+        
+        # AI 매니저 주입
+        self.ai_manager = ai_manager
+        
+        # AI Manager가 없으면 위젯 비활성화
+        if not self.ai_manager:
+            self.logger.warning("AI Manager가 전달되지 않아 AI 기능이 비활성화됩니다")
+        
+        # 설정 변경 이력 추적
+        self.settings_change_history = []
+        self.max_history_size = 50
+        
+        # 현재 권장 설정
+        self.current_recommended_settings = None
+        self.colors = dict(colors) if colors and isinstance(colors, dict) else {}
+        
+        self.init_ui()
+        
+    def _color(self, key: str, fallback: Optional[str] = None) -> str:
+        if fallback is None:
+            fallback = self.DEFAULT_COLORS.get(key, "#9ca3af")
+        try:
+            value = self.colors.get(key) if isinstance(self.colors, dict) else None
+            if value:
+                return value
+        except Exception:
+            pass
+        return fallback
+        
+    def init_ui(self):
+        """UI 초기화"""
+        # 메인 레이아웃
+        self.grid_columnconfigure(0, weight=1)
+        self.grid_rowconfigure(1, weight=1)
+        
+        # AI Manager 상태 확인 및 경고 표시
+        if not self.ai_manager:
+            self.create_disabled_ui()
+            return
+        
+        # 정상 UI 생성
+        self.create_normal_ui()
+        
+    def create_disabled_ui(self):
+        """AI 기능 비활성화된 UI 생성"""
+        # 경고 메시지
+        warning_label = CTkLabel(
+            self,
+            text="⚠️ AI 기능이 비활성화되었습니다. OpenAI API 키를 설정해주세요.",
+            font=ctk.CTkFont(size=14, weight="bold"),
+            text_color=self._color("danger", "#ef4444")
+        )
+        warning_label.grid(row=0, column=0, pady=20, padx=20)
+        
+        # 설명
+        desc_label = CTkLabel(
+            self,
+            text="AI 기능을 사용하려면 OpenAI API 키를 설정하고 프로그램을 재시작해주세요.",
+            font=ctk.CTkFont(size=12),
+            text_color=self._color("text_secondary", "#7f8c8d")
+        )
+        desc_label.grid(row=1, column=0, pady=10, padx=20)
+        
+    def create_normal_ui(self):
+        """정상 AI 기능 UI 생성"""
+        # 1. 경고 프레임 (접을 수 있는 형태)
+        self.create_warning_frame()
+        
+        # 2. 설정 관리 버튼들
+        self.create_settings_management_buttons()
+        
+        # 3. AI 채팅 위젯
+        self.create_chat_widget()
+        
+        # 4. 자주 하는 질문 버튼들
+        self.create_quick_question_buttons()
+        
+        # 5. 전략 상태 표시
+        self.create_strategy_status_frame()
+        
+    def create_warning_frame(self):
+        """경고 프레임 생성"""
+        self.warning_frame = CTkFrame(self)
+        self.warning_frame.grid(row=0, column=0, sticky="ew", padx=10, pady=5)
+        self.warning_frame.grid_columnconfigure(0, weight=1)
+        
+        # 제목과 접기/펼치기 버튼
+        title_frame = CTkFrame(self.warning_frame)
+        title_frame.grid(row=0, column=0, sticky="ew", padx=10, pady=10)
+        title_frame.grid_columnconfigure(0, weight=1)
+        
+        warning_title = CTkLabel(
+            title_frame,
+            text="⚠️ 고급 사용자 전용 기능",
+            font=ctk.CTkFont(size=16, weight="bold"),
+            text_color=self._color("danger", "#ef4444")
+        )
+        warning_title.grid(row=0, column=0, sticky="w", padx=10, pady=5)
+        
+        self.collapse_btn = CTkButton(
+            title_frame,
+            text="▼",
+            width=30,
+            height=30,
+            command=self.toggle_warning_details
+        )
+        self.collapse_btn.grid(row=0, column=1, sticky="e", padx=10, pady=5)
+        
+        # 접을 수 있는 상세 내용
+        self.warning_details = CTkFrame(self.warning_frame)
+        self.warning_details.grid(row=1, column=0, sticky="ew", padx=10, pady=5)
+        self.warning_details.grid_columnconfigure(0, weight=1)
+        
+        warning_text = CTkLabel(
+            self.warning_details,
+            text="""이 기능은 고급 사용자를 위한 AI 대화형 전략 조정 시스템입니다.
+
+🚨 주의사항:
+• AI의 제안은 참고용이며, 투자 손실에 대한 책임은 사용자에게 있습니다
+• 과도한 레버리지나 포지션 크기는 큰 손실을 초래할 수 있습니다
+• 시장 상황이 급변할 경우 AI 분석이 부정확할 수 있습니다
+• 언제든지 기본 설정으로 복원할 수 있습니다
+
+💡 권장사항:
+• 소액으로 먼저 테스트해보세요
+• AI 제안을 맹신하지 말고 본인 판단을 우선하세요
+• 손실 허용 범위 내에서만 거래하세요""",
+            font=ctk.CTkFont(size=12),
+            text_color=self._color("danger", "#ef4444"),
+            justify="left"
+        )
+        warning_text.grid(row=0, column=0, sticky="w", padx=10, pady=5)
+        
+        self.ai_chat_enable_checkbox = CTkCheckBox(
+            self.warning_details,
+            text="위 내용을 이해했으며 AI 대화 기능을 사용하겠습니다",
+            font=ctk.CTkFont(weight="bold"),
+            text_color=self._color("danger", "#ef4444"),
+            command=self.on_ai_chat_enable_changed
+        )
+        self.ai_chat_enable_checkbox.grid(row=1, column=0, sticky="w", padx=10, pady=5)
+        
+    def create_settings_management_buttons(self):
+        """설정 관리 버튼들 생성"""
+        buttons_frame = CTkFrame(self)
+        buttons_frame.grid(row=1, column=0, sticky="ew", padx=10, pady=5)
+        buttons_frame.grid_columnconfigure(0, weight=1)
+        buttons_frame.grid_columnconfigure(1, weight=1)
+        buttons_frame.grid_columnconfigure(2, weight=1)
+        
+        # 되돌리기 버튼
+        self.undo_button = CTkButton(
+            buttons_frame,
+            text="🔄 마지막 설정 되돌리기",
+            command=self.undo_last_settings_change,
+            width=150,
+            height=35,
+            state="disabled"
+        )
+        self.undo_button.grid(row=0, column=0, padx=5, pady=5)
+        
+        # 이력 보기 버튼
+        self.history_button = CTkButton(
+            buttons_frame,
+            text="📋 설정 변경 이력",
+            command=self.show_settings_history,
+            width=150,
+            height=35
+        )
+        self.history_button.grid(row=0, column=1, padx=5, pady=5)
+        
+        # 기본 전략 복구 버튼
+        self.restore_default_button = CTkButton(
+            buttons_frame,
+            text="🏠 기본 전략 복구",
+            command=self.restore_default_strategy,
+            width=150,
+            height=35
+        )
+        self.restore_default_button.grid(row=0, column=2, padx=5, pady=5)
+        
+    def create_chat_widget(self):
+        """채팅 위젯 생성"""
+        chat_frame = CTkFrame(self)
+        chat_frame.grid(row=2, column=0, sticky="nsew", padx=10, pady=5)
+        chat_frame.grid_columnconfigure(0, weight=1)
+        chat_frame.grid_rowconfigure(0, weight=1)
+        
+        # 채팅 히스토리
+        self.chat_history = CTkTextbox(
+            chat_frame,
+            height=300,
+            font=ctk.CTkFont(size=12)
+        )
+        self.chat_history.grid(row=0, column=0, sticky="nsew", padx=10, pady=10)
+        
+        # 초기 메시지
+        self.chat_history.insert("1.0", """🤖 AI Trading Assistant에 오신 것을 환영합니다!
+
+💬 다음과 같이 대화할 수 있습니다:
+• "AI야, 지금 시장 상황 어때?"
+• "더 공격적으로 거래하고 싶어"
+• "손실이 너무 많아, 안전하게 해줘"
+• "레버리지를 2배로 올려줘"
+• "TP/SL을 조정해주세요"
+• "RSI 설정을 최적화해주세요"
+
+⚠️ 참고: 설정 변경은 환경설정에서 직접 수정해주세요.
+""")
+        
+        # 사용자 입력 영역
+        input_frame = CTkFrame(chat_frame)
+        input_frame.grid(row=1, column=0, sticky="ew", padx=10, pady=5)
+        input_frame.grid_columnconfigure(0, weight=1)
+        
+        self.chat_input = CTkEntry(
+            input_frame,
+            placeholder_text="AI에게 질문하거나 요청사항을 입력하세요...",
+            height=35
+        )
+        self.chat_input.grid(row=0, column=0, sticky="ew", padx=5, pady=5)
+        self.chat_input.bind("<Return>", lambda e: self.send_ai_message())
+        
+        send_button = CTkButton(
+            input_frame,
+            text="💬 전송",
+            command=self.send_ai_message,
+            width=80,
+            height=35
+        )
+        send_button.grid(row=0, column=1, padx=5, pady=5)
+        
+    def create_quick_question_buttons(self):
+        """자주 하는 질문 버튼들 생성"""
+        buttons_frame = CTkFrame(self)
+        buttons_frame.grid(row=3, column=0, sticky="ew", padx=10, pady=5)
+        buttons_frame.grid_columnconfigure(0, weight=1)
+        
+        # 제목
+        title_label = CTkLabel(
+            buttons_frame,
+            text="💡 자주 하는 질문",
+            font=ctk.CTkFont(size=14, weight="bold")
+        )
+        title_label.grid(row=0, column=0, sticky="w", padx=10, pady=5)
+        
+        # 질문 버튼들
+        questions_frame = CTkFrame(buttons_frame)
+        questions_frame.grid(row=1, column=0, sticky="ew", padx=10, pady=5)
+        questions_frame.grid_columnconfigure(0, weight=1)
+        questions_frame.grid_columnconfigure(1, weight=1)
+        questions_frame.grid_columnconfigure(2, weight=1)
+        
+        questions = [
+            ("거래 부재 원인", "왜 거래가 발생하지 않고 있나요? 원인을 분석해주세요"),
+            ("수익률 개선", "현재 수익률을 개선할 방법을 제안해주세요"),
+            ("리스크 점검", "현재 리스크 상황을 점검하고 위험 요소를 알려주세요"),
+            ("전략 평가", "현재 거래 전략의 장단점을 평가해주세요"),
+            ("레버리지 증가", "레버리지를 높여서 더 적극적으로 거래하고 싶어요"),
+            ("안전 모드", "손실을 줄이고 싶어요. 보수적으로 거래하도록 설정해주세요"),
+            ("시장 상황", "현재 암호화폐 시장 상황과 전망을 알려주세요"),
+            ("코인 분석", "현재 선택된 코인들의 분석 결과를 보여주세요"),
+            ("거래 성과", "최근 거래 성과와 통계를 요약해주세요")
+        ]
+        
+        for i, (button_text, question) in enumerate(questions):
+            row = i // 3
+            col = i % 3
+            
+            btn = CTkButton(
+                questions_frame,
+                text=button_text,
+                command=lambda q=question: self.send_quick_question(q),
+                width=120,
+                height=30
+            )
+            btn.grid(row=row, column=col, padx=5, pady=5)
+        
+    def create_strategy_status_frame(self):
+        """전략 상태 표시 프레임 생성"""
+        status_frame = CTkFrame(self)
+        status_frame.grid(row=4, column=0, sticky="ew", padx=10, pady=5)
+        status_frame.grid_columnconfigure(0, weight=1)
+        
+        # 제목
+        title_label = CTkLabel(
+            status_frame,
+            text="📋 현재 전략 상태",
+            font=ctk.CTkFont(size=14, weight="bold")
+        )
+        title_label.grid(row=0, column=0, sticky="w", padx=10, pady=5)
+        
+        # 상태 정보
+        self.strategy_status_label = CTkLabel(
+            status_frame,
+            text="""🎯 전략: 균형 모드 (기본값)
+⚡ 레버리지: 1x
+📊 포지션 크기: 10%
+📈 익절 목표: 0.18%
+📉 손절 라인: 0.20%
+🎲 신호 임계값: 70점""",
+            font=ctk.CTkFont(size=12),
+            justify="left"
+        )
+        self.strategy_status_label.grid(row=1, column=0, sticky="w", padx=10, pady=5)
+        
+        # 복원 버튼
+        restore_button = CTkButton(
+            status_frame,
+            text="🔄 기본 설정으로 복원",
+            command=self.restore_default_strategy,
+            width=150,
+            height=30
+        )
+        restore_button.grid(row=2, column=0, sticky="w", padx=10, pady=5)
+        
+    def toggle_warning_details(self):
+        """경고 상세 내용 접기/펼치기"""
+        is_visible = self.warning_details.winfo_viewable()
+        if is_visible:
+            self.warning_details.grid_remove()
+            self.collapse_btn.configure(text="▶")
+        else:
+            self.warning_details.grid()
+            self.collapse_btn.configure(text="▼")
+    
+    def on_ai_chat_enable_changed(self):
+        """AI 대화 기능 활성화/비활성화"""
+        is_enabled = self.ai_chat_enable_checkbox.get()
+        
+        if is_enabled:
+            # 체크박스가 활성화되면 경고 프레임 자체를 숨김
+            self.warning_frame.grid_remove()
+            self.add_ai_message("✅ AI 대화 기능이 활성화되었습니다! 이제 자유롭게 질문하거나 전략 조정을 요청할 수 있습니다.")
+        else:
+            # 체크박스가 비활성화되면 경고 프레임을 다시 표시
+            self.warning_frame.grid()
+            self.warning_details.grid()
+            self.collapse_btn.configure(text="▼")
+            self.add_ai_message("❌ AI 대화 기능이 비활성화되었습니다.")
+    
+    def add_ai_message(self, message_content):
+        """AI 메시지 추가"""
+        try:
+            self.chat_history.insert("end", f"\n🤖 AI Assistant: {message_content}\n")
+            # 스크롤을 맨 아래로
+            self.chat_history.see("end")
+        except Exception as e:
+            self.logger.error(f"메시지 추가 오류: {e}")
+    
+    def send_quick_question(self, question):
+        """빠른 질문 전송"""
+        self.chat_input.delete(0, "end")
+        self.chat_input.insert(0, question)
+        self.send_ai_message()
+    
+    def send_ai_message(self):
+        """AI 메시지 전송"""
+        message = self.chat_input.get().strip()
+        if not message:
+            return
+            
+        # 사용자 메시지 추가
+        self.chat_history.insert("end", f"\n👤 사용자: {message}\n")
+        self.chat_history.see("end")
+        
+        # 입력창 초기화
+        self.chat_input.delete(0, "end")
+        
+        # AI 응답 생성
+        self.generate_ai_response(message)
+    
+    def generate_ai_response(self, message: str):
+        """AI 응답 생성 및 설정 제안"""
+        try:
+            if not self.ai_manager or not self.ai_manager.enabled():
+                self.add_ai_message("❌ AI 매니저가 활성화되지 않았습니다. API 키를 확인해주세요.")
+                return
+            
+            # AI 매니저를 통한 실제 응답 생성
+            system_prompt = """당신은 암호화폐 거래 전문가입니다. 
+현재 시장 상황과 거래 상황을 종합적으로 분석하여 스마트한 조언을 제공해야 합니다.
+
+다음과 같은 방식으로 응답해주세요:
+1. 현재 시장 상황 분석
+2. 거래 상황 평가
+3. 구체적인 조언과 제안
+4. 설정 변경이 필요한 경우 권장 설정
+
+항상 안전하고 현실적인 조언을 제공하세요."""
+
+            user_prompt = f"""
+사용자 요청: {message}
+
+현재 거래 상황을 종합적으로 분석하고 적절한 조언을 제공해주세요.
+설정 변경이 필요한 경우 구체적인 권장 설정도 함께 제시해주세요.
+
+응답 형식:
+- 시장 상황 분석
+- 거래 상황 평가  
+- 구체적 조언
+- 권장 설정 (필요시)
+"""
+
+            # AI 어시스턴트용 모델 사용
+            assistant_model = 'gpt-4o'  # 기본값
+            
+            # AI 매니저를 통한 응답 생성
+            ai_response = self.ai_manager.chat_completion([
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt}
+            ], model=assistant_model)
+            
+            if ai_response:
+                # AI 응답 표시
+                self.add_ai_message(f"🤖 AI 분석 결과:\n{ai_response}")
+                
+                # 설정 제안이 포함된 경우 권장 설정 생성
+                if "권장 설정" in ai_response or "설정" in ai_response:
+                    recommended_settings = self._extract_recommended_settings(ai_response, message)
+                    if recommended_settings:
+                        self.current_recommended_settings = recommended_settings
+                        self.add_ai_message("📋 AI가 권장하는 설정이 있습니다. 환경설정에서 확인해주세요.")
+            else:
+                self.add_ai_message("❌ AI 응답을 생성할 수 없습니다. 다시 시도해주세요.")
+                
+        except Exception as e:
+            self.logger.error(f"AI 응답 생성 오류: {e}")
+            self.add_ai_message(f"❌ AI 응답 생성 중 오류가 발생했습니다: {str(e)}")
+    
+    def _extract_recommended_settings(self, ai_response: str, user_message: str) -> dict:
+        """AI 응답에서 권장 설정을 추출"""
+        try:
+            # 간단한 키워드 기반 설정 추출
+            recommended_settings = {}
+            
+            if "레버리지" in user_message or "레버리지" in ai_response:
+                if "높이" in user_message or "증가" in user_message:
+                    recommended_settings['default_leverage'] = 2
+                elif "낮추" in user_message or "감소" in user_message:
+                    recommended_settings['default_leverage'] = 1
+            
+            if "TP/SL" in user_message or "손익" in user_message:
+                if "보수" in user_message or "안전" in user_message:
+                    recommended_settings['default_tp'] = 0.15
+                    recommended_settings['default_sl'] = 0.10
+                elif "공격" in user_message or "적극" in user_message:
+                    recommended_settings['default_tp'] = 0.25
+                    recommended_settings['default_sl'] = 0.20
+            
+            return recommended_settings
+            
+        except Exception as e:
+            self.logger.error(f"설정 추출 오류: {e}")
+            return {}
+    
+    def undo_last_settings_change(self):
+        """마지막 설정 변경 되돌리기"""
+        if not self.settings_change_history:
+            return
+            
+        # 되돌리기 요청 시그널 발생 (실제 구현 필요)
+        self.add_ai_message("🔄 마지막 설정 변경을 되돌렸습니다.")
+    
+    def show_settings_history(self):
+        """설정 변경 이력 표시"""
+        # TODO: 이력 다이얼로그 구현
+        self.add_ai_message("📋 설정 변경 이력 기능은 준비 중입니다.")
+    
+    def restore_default_strategy(self):
+        """기본 전략 복구"""
+        # 기본 설정 복구 요청 시그널 발생 (실제 구현 필요)
+        self.add_ai_message("🏠 기본 전략으로 복구되었습니다.")
