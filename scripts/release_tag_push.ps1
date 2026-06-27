@@ -15,10 +15,10 @@ function Fail([string]$Message) {
     exit 1
 }
 
-function RunGit([string[]]$Args) {
-    & git @Args
+function RunGit([string[]]$GitArgs) {
+    & git @GitArgs
     if ($LASTEXITCODE -ne 0) {
-        Fail ("git " + ($Args -join " ") + " failed")
+        Fail ("git " + ($GitArgs -join " ") + " failed")
     }
 }
 
