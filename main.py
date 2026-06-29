@@ -250,6 +250,8 @@ from utils.auto_update_manager import AutoUpdateManager
 class NoahAIClient:
     """Noah AI 클라이언트 메인 클래스"""
 
+    ALLOWED_USER_GRADES = {"normal", "pro", "premium"}
+
 
     def __init__(self):
         """초기화"""
@@ -271,6 +273,7 @@ class NoahAIClient:
         # 설정은 항상 Dict로 취급 (Optional 경고 제거 및 호출부 안정화)
         self.settings: Dict[str, Any] = {}
         self.auto_update_manager: Optional[AutoUpdateManager] = None
+        self.current_user_grade: str = "normal"
 
         # 🔥 로그인 성공 처리 플래그 초기화
         self._login_success_processed = False
@@ -501,6 +504,8 @@ class NoahAIClient:
 
             # user_info에 username 필드 추가 (다른 모듈에서 사용)
             user_info['username'] = username
+            user_info['user_grade'] = self._normalize_user_grade(user_info.get('user_grade', 'normal'))
+            self.current_user_grade = user_info['user_grade']
 
             set_current_user_account(username)
             logger = self._get_main_logger(); logger.info(f'사용자 계정 설정: {username}')
@@ -508,6 +513,12 @@ class NoahAIClient:
             # 이제 설정 로드 (사용자별 폴더 사용)
             from config.settings import load_settings
             self.settings = load_settings()
+            changed = self._apply_membership_feature_limits(self.current_user_grade)
+            if changed:
+                try:
+                    save_settings(self.settings)
+                except Exception as e:
+                    logger = self._get_main_logger(); logger.warning(f"회원등급 제한 저장 실패(계속 진행): {e}")
             logger = self._get_main_logger(); logger.info('사용자별 설정 로드 완료')
             self._initialize_auto_update_manager()
 
@@ -537,6 +548,100 @@ class NoahAIClient:
                 logger.error(traceback.format_exc())
             except Exception:
                 pass
+
+    def _normalize_user_grade(self, raw_grade: Any) -> str:
+        grade = str(raw_grade or "").strip().lower()
+        alias_map = {
+            "general": "normal",
+            "basic": "normal",
+            "coin_start": "normal",
+            "coin-start": "normal",
+            "alltrading": "pro",
+            "all_trading": "pro",
+            "all-trading": "pro",
+            "middle": "pro",
+            "signature": "premium",
+            "signature_federated": "premium",
+        }
+        grade = alias_map.get(grade, grade)
+        if grade not in self.ALLOWED_USER_GRADES:
+            return "normal"
+        return grade
+
+    def _apply_membership_feature_limits(self, user_grade: Any) -> bool:
+        """회원등급에 따라 런타임 기능 제한을 강제한다."""
+        grade = self._normalize_user_grade(user_grade)
+        self.current_user_grade = grade
+        if not isinstance(self.settings, dict):
+            return False
+
+        changed = False
+
+        # 공통 컨테이너 보장
+        if not isinstance(self.settings.get('stock_broker_configs'), dict):
+            self.settings['stock_broker_configs'] = {}
+            changed = True
+        if not isinstance(self.settings.get('stock_auto_trading'), dict):
+            self.settings['stock_auto_trading'] = {}
+            changed = True
+        if not isinstance(self.settings.get('federated_learning'), dict):
+            self.settings['federated_learning'] = {}
+            changed = True
+        if not isinstance(self.settings.get('saas_preparation'), dict):
+            self.settings['saas_preparation'] = {}
+            changed = True
+
+        stock_broker_configs = self.settings.get('stock_broker_configs', {})
+        stock_auto_trading = self.settings.get('stock_auto_trading', {})
+        federated_learning = self.settings.get('federated_learning', {})
+        saas_prep = self.settings.get('saas_preparation', {})
+
+        if grade == 'normal':
+            if self.settings.get('enabled_stock_brokers') != []:
+                self.settings['enabled_stock_brokers'] = []
+                changed = True
+            if bool(self.settings.get('enable_stock_live_order', False)):
+                self.settings['enable_stock_live_order'] = False
+                changed = True
+
+            for broker_key, broker_cfg in stock_broker_configs.items():
+                if isinstance(broker_cfg, dict):
+                    if bool(broker_cfg.get('enabled', False)):
+                        broker_cfg['enabled'] = False
+                        changed = True
+                    if bool(broker_cfg.get('allow_live_order', False)):
+                        broker_cfg['allow_live_order'] = False
+                        changed = True
+                    stock_broker_configs[broker_key] = broker_cfg
+
+            if bool(stock_auto_trading.get('enabled', False)):
+                stock_auto_trading['enabled'] = False
+                changed = True
+            if bool(stock_auto_trading.get('auto_start', False)):
+                stock_auto_trading['auto_start'] = False
+                changed = True
+
+        if grade in {'normal', 'pro'}:
+            for key in ('enabled', 'batch_enabled', 'upload_enabled'):
+                if bool(federated_learning.get(key, False)):
+                    federated_learning[key] = False
+                    changed = True
+
+        target_tier = 'starter' if grade == 'normal' else 'plus' if grade == 'pro' else 'pro'
+        if str(saas_prep.get('subscription_tier', '') or '') != target_tier:
+            saas_prep['subscription_tier'] = target_tier
+            changed = True
+
+        self.settings['stock_broker_configs'] = stock_broker_configs
+        self.settings['stock_auto_trading'] = stock_auto_trading
+        self.settings['federated_learning'] = federated_learning
+        self.settings['saas_preparation'] = saas_prep
+
+        if changed:
+            logger = self._get_main_logger()
+            if logger:
+                logger.info(f"회원등급 기능 제한 적용: {grade}")
+        return changed
 
     def create_user_files_in_account_folder(self, username, user_info, access_token=None):
         """token.json을 사용자 폴더에 생성 (credentials.json은 login_modern.py에서 처리)"""
@@ -979,8 +1084,10 @@ class NoahAIClient:
 
             # 사용자 정보 설정 (token.json에서 불러온 user_info 사용)
             user_id = user_info.get('id', 'Unknown')
-            user_grade = user_info.get('user_grade', 'normal')
+            user_grade = self._normalize_user_grade(user_info.get('user_grade', 'normal'))
             user_email = user_info.get('email', '')
+            user_info['user_grade'] = user_grade
+            self.current_user_grade = user_grade
 
             # 🔥 사용자별 DB 경로 설정 (Recorder 초기화 전에 반드시 설정)
             from path_utils import set_current_user_account
@@ -1181,6 +1288,7 @@ class NoahAIClient:
 
             # 메모리 설정 갱신 및 디스크 저장
             self.settings.update(new_settings)
+            self._apply_membership_feature_limits(self.current_user_grade)
             if self.auto_update_manager is not None:
                 self.auto_update_manager.update_settings(self.settings)
             try:

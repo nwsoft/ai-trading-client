@@ -1,3 +1,39 @@
+## 2026-06-27 - v3.8.9.23 크몽 문서 운영절차 반영 (등급명 정합 + settings.json 변조 대응 절차)
+
+### ✅ 크몽 상세페이지 문서 정합화
+- `docs/KMONG_SALES_PAGE_DETAIL.md`
+  - 패키지 명칭을 운영 기준에 맞춰 정리
+    - `ALL TRADING` -> `프로`
+  - CTA 버튼 문구 정합화
+    - `ALL TRADING 시작하기` -> `프로 시작하기`
+
+### ✅ 회원등급 운영 절차 문서화
+- `docs/KMONG_SALES_PAGE_DETAIL.md`
+  - "회원등급 운영 절차 (settings.json 변조 대응 포함)" 섹션 추가
+  - 절차 핵심:
+    - 서버(DB user_grade) 원본 권한 기준
+    - 로그인 직후 등급별 로컬 설정 강제 정합
+    - 설정 저장 시 제한 로직 재적용
+    - 기능 실행 직전 재검증
+    - 세션/활성 상태 서버 주기 검증
+  - normal/pro/premium 기준 배포 전/후 점검 체크리스트 추가
+
+## 2026-06-27 - v3.8.9.23 회원등급 3단계 강제 게이팅
+
+### ✅ 회원등급 3단계 적용 (일반 / 프로 / 프리미엄-SIGNATURE)
+- `main.py`
+  - 등급 정규화 로직 추가: `normal`, `pro`, `premium`
+  - 별칭 매핑: `signature`/`signature_federated` -> `premium`
+  - 로그인 직후/설정 저장 시점에 등급별 기능 제한 강제 적용
+    - `normal`: 코인 중심(증권 브로커/주식 실주문/주식 자동매매 비활성화)
+    - `pro`: 코인+증권+ETF 허용, 연합학습 비활성화
+    - `premium`: 전체 허용(시그니처 포함)
+- `ui/dashboard_modern.py`
+  - 상태 배지 3단계 표기 반영
+    - `🔵 COIN START`
+    - `🟢 프로`
+    - `👑 프리미엄/SIGNATURE`
+
 ## 2026-06-27 - v3.8.9.23 운영 보강 (Windows 자동업데이트 런타임 구현)
 
 ### ✅ 자동업데이트 런타임 구현 완료 (Windows 배포 기준)

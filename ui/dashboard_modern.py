@@ -9759,7 +9759,15 @@ class ModernDashboard(ctk.CTk):
             # 사용자 정보 업데이트 (로그인 데이터에서)
             user_id = self.get_user_id_from_login_data()
             user_grade = self.get_user_grade_from_token()
-            grade_badge = "👑 프리미엄" if user_grade == "premium" else "🔵 일반"
+            normalized_grade = str(user_grade or '').strip().lower()
+            if normalized_grade in {'signature', 'signature_federated'}:
+                normalized_grade = 'premium'
+            if normalized_grade in {'pro', 'all_trading', 'all-trading', 'alltrading', 'middle'}:
+                grade_badge = "🟢 프로"
+            elif normalized_grade == 'premium':
+                grade_badge = "👑 프리미엄/SIGNATURE"
+            else:
+                grade_badge = "🔵 COIN START"
             try:
                 # 기존 스타일 유지하면서 텍스트만 업데이트
                 self.user_info_label.configure(

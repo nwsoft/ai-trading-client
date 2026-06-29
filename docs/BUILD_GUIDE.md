@@ -74,19 +74,26 @@ powershell -ExecutionPolicy Bypass -File scripts/build_windows_safe.ps1
 powershell -ExecutionPolicy Bypass -File scripts/build_windows_safe.ps1 -GateProfile prekey -ReadinessTimeoutSec 8
 ```
 
+`git diff` 기준으로 엄격 비교가 필요할 때만 아래 옵션을 사용하세요.
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/build_windows_safe.ps1 -GateProfile prekey -UseGitDiff
+```
+
 중요
 - `scripts/build_windows_safe.ps1`는 빌드 게이트 + Windows EXE 빌드 자동화 스크립트이며, Git 태그 생성/푸시는 수행하지 않습니다.
+- 기본 동작은 `SYNC_GUARD_CHANGED_FILES`를 주입하는 안정 모드이며, 로컬 Git 이력(`HEAD~1`)에 따른 변동으로 게이트가 흔들리는 문제를 줄입니다.
 
 ### 태그 푸시 자동화 스크립트 (Windows)
 
 태그 기반 GitHub 릴리즈를 한 번에 처리하려면 아래 스크립트를 사용합니다.
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File scripts/release_tag_push.ps1 -Version 3.8.9.23 -Branch main -PushBranch
+powershell -ExecutionPolicy Bypass -File scripts/release_tag_push.ps1 -Version 3.8.9.24 -Branch main -PushBranch
 ```
 
 옵션
-- `-Version`: 필수. `3.8.9.23` 또는 `v3.8.9.23` 모두 허용
+- `-Version`: 필수. `3.8.9.24` 또는 `v3.8.9.24` 모두 허용
 - `-Branch`: 기본 `main`
 - `-PushBranch`: 태그 push 전에 브랜치도 함께 push
 - `-SkipCommit`: 커밋 없이 기존 HEAD 기준으로 태그만 생성/푸시
