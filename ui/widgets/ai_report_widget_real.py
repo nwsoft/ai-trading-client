@@ -10,11 +10,13 @@ import logging
 import os
 import sqlite3
 import tkinter as tk
+import time
 from datetime import datetime, timedelta
 from typing import Dict, List, Any, Optional
 
 import customtkinter as ctk
 from customtkinter import CTkFrame, CTkLabel, CTkButton, CTkTextbox, CTkScrollableFrame, CTkTabview
+from utils.perf_metrics_logger import log_ui_perf_metric
 
 class AIReportWidgetReal(CTkFrame):
     """실제 AI 리포트 위젯 (CustomTkinter) - 실제 데이터 기반"""
@@ -32,6 +34,9 @@ class AIReportWidgetReal(CTkFrame):
         
         # 초기화 상태 플래그
         self.is_initialized = False
+        self._report_cache_ts: float = 0.0
+        self._report_cache_ttl_sec: int = 180
+        self._last_visible_force_refresh_ts: float = 0.0
         
         # 데이터베이스 경로
         from path_utils import get_db_file_path
@@ -55,6 +60,34 @@ class AIReportWidgetReal(CTkFrame):
             self.bind("<Destroy>", self._on_destroy, add="+")
         except Exception:
             pass
+        try:
+            self.bind("<Map>", self._on_map_visible, add="+")
+        except Exception:
+            pass
+
+    def _is_visible_now(self) -> bool:
+        try:
+            return bool(self.winfo_exists() and self.winfo_ismapped() and self.winfo_viewable() and not self._disposed)
+        except Exception:
+            return False
+
+    def _on_map_visible(self, event=None):
+        """탭 진입 시 1회 강제 갱신 트리거"""
+        try:
+            if event is not None and getattr(event, 'widget', None) is not self:
+                return
+        except Exception:
+            pass
+
+        if not self._is_visible_now() or not self.is_initialized:
+            return
+
+        now_ts = time.time()
+        if (now_ts - float(getattr(self, '_last_visible_force_refresh_ts', 0.0))) < 30.0:
+            return
+        self._last_visible_force_refresh_ts = now_ts
+        log_ui_perf_metric("ai_report", "map_force_refresh", cooldown_sec=30)
+        self.safe_after(100, lambda: self.auto_generate_reports(force_refresh=True))
     
     def _color(self, key: str, fallback: str) -> str:
         try:
@@ -473,11 +506,22 @@ class AIReportWidgetReal(CTkFrame):
         )
         transfer_btn.pack(pady=10)
         
-    def auto_generate_reports(self):
+    def auto_generate_reports(self, force_refresh: bool = False):
         """자동 리포트 생성"""
         try:
             if not self.is_initialized:
                 return
+
+            if not force_refresh and not self._is_visible_now():
+                log_ui_perf_metric("ai_report", "skip_invisible", force_refresh=False)
+                return
+
+            if not force_refresh:
+                now_ts = time.time()
+                if (now_ts - float(getattr(self, '_report_cache_ts', 0.0))) < float(self._report_cache_ttl_sec):
+                    log_ui_perf_metric("ai_report", "ttl_hit", ttl_sec=int(self._report_cache_ttl_sec))
+                    return
+                log_ui_perf_metric("ai_report", "ttl_miss", ttl_sec=int(self._report_cache_ttl_sec))
                 
             # 비동기로 리포트 생성 (UI 블록 방지)
             self.safe_after(100, self._generate_reports_async)
@@ -488,6 +532,7 @@ class AIReportWidgetReal(CTkFrame):
     def _generate_reports_async(self):
         """비동기 리포트 생성"""
         try:
+            started = time.perf_counter()
             # 오늘 리포트 생성
             self._generate_today_report()
             
@@ -496,11 +541,15 @@ class AIReportWidgetReal(CTkFrame):
             
             # 월간 리포트 생성 (4개 주간 리포트 종합)
             self._generate_monthly_report()
+            self._report_cache_ts = time.time()
+            elapsed_ms = int((time.perf_counter() - started) * 1000)
+            log_ui_perf_metric("ai_report", "generate_done", elapsed_ms=elapsed_ms)
             
             print("✅ 실제 AI 리포트 생성 완료")
             
         except Exception as e:
             print(f"❌ AI 리포트 생성 오류: {e}")
+            log_ui_perf_metric("ai_report", "generate_error", error=str(e)[:120])
     
     def generate_realtime_analysis(self):
         """실시간 분석 생성 (최근 1시간)"""
@@ -1344,6 +1393,11 @@ class AIReportWidgetReal(CTkFrame):
         try:
             if not self.is_initialized:
                 return
+
+            if not self._is_visible_now():
+                log_ui_perf_metric("ai_report", "defer_not_visible", delay_ms=1500)
+                self.safe_after(1500, self.load_and_display_existing_reports)
+                return
             
             # 1. 오늘 리포트 로드 및 표시
             self._load_and_display_today_report()
@@ -1353,6 +1407,7 @@ class AIReportWidgetReal(CTkFrame):
             
             # 3. 월간 리포트 로드 및 표시
             self._load_and_display_monthly_report()
+            self._report_cache_ts = time.time()
             
             print("✅ 기존 AI 리포트 로드 완료")
             

@@ -4,8 +4,8 @@ from utils.auto_update_manager import AutoUpdateManager
 
 
 def test_version_normalization_orders_properly():
-    a = AutoUpdateManager._normalize_version("v3.8.9.23")
-    b = AutoUpdateManager._normalize_version("v3.8.9.24")
+    a = AutoUpdateManager._normalize_version("v3.8.9.24")
+    b = AutoUpdateManager._normalize_version("v3.8.9.25")
     assert b > a
 
 

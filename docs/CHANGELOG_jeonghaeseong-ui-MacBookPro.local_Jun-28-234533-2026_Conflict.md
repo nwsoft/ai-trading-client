@@ -1,88 +1,69 @@
-## 2026-07-01 - v3.8.9.25 운영 정합 패치 (Unified 자산분류/학습필터/로그 프리픽스 중복 차단)
+## 2026-06-28 - v3.8.9.24 로그인 직후 백그라운드 부하 완화 (시장 트렌드 가시성 + 캐시)
 
-### ✅ Unified 자산분류 정합화
-- `trading/unified_trader.py`
-  - 포트폴리오 할당 시 `upbit`/`bithumb`을 `stock`으로 분류하던 경로를 제거
-  - 암호화폐 거래소(`bybit`/`okx`/`bitget`/`upbit`/`bithumb`)는 `asset_class=crypto`로 고정
+### ✅ 시장 트렌드 수집 트리거 최적화
+- `ui/widgets/market_trend_widget.py`
+  - 위젯이 실제로 보이지 않는 상태에서는 자동 수집을 건너뛰고 다음 주기에서 재평가하도록 유지
+  - 로그인 직후 대시보드 구성 시점의 불필요한 REST 호출/연산 시작을 억제
+  - 탭/위젯 표시(`Map`) 시점에 1회 강제 갱신 트리거를 추가해 최초 진입 최신성 보강
 
-### ✅ Unified 학습데이터 필터 정합화
-- `trading/unified_trader.py`, `trading/risk_manager.py`, `trading/trader.py`
-  - RiskManager 거래 이력에 `exchange` 태그 저장 경로 추가(옵션 인자)
-  - Binance 청산 경로에서 `exchange='binance'` 명시 저장
-  - Unified 청산 경로에서도 RiskManager 이력 저장을 추가해 거래소별 필터 정확도 강화
-  - Unified 자동조정 시 메모리 이력이 부족하면 Recorder DB 이력으로 보강하도록 추가
+### ✅ 인메모리 TTL 캐시 계층 추가 (시장 트렌드)
+- `ui/widgets/market_trend_widget.py`
+  - 서비스 컨텍스트(`blockchain`/`stock`)별 인메모리 캐시(`_trend_cache`) 추가
+  - 기본 TTL 180초 내 재진입/재호출 시 캐시를 우선 사용해 즉시 렌더링
+  - 자동 주기 갱신/수동 새로고침은 `force_refresh=True`로 실데이터 재수집 보장
 
-### ✅ 로그 이중 프리픽스 차단 보강
-- `log_system/log_adapter.py`
-  - 이미 시간/레벨이 포함된 메시지가 재유입될 때 선행 프리픽스를 제거하는 정규화 가드 추가
-  - 신규 로그 구간 기준 중복 프리픽스 재발 방지 목적
+### ✅ AI 리포트/AI 학습 초기 부하 완화 2차 적용
+- `ui/widgets/ai_report_widget_real.py`
+  - 비가시 상태에서는 자동 리포트 생성을 건너뛰도록 조정
+  - TTL(180초) 내 중복 자동 생성을 억제하고, 탭 진입 시 1회 강제 갱신으로 최신성 확보
+- `ui/widgets/ai_learning_widget.py`
+  - 초기 로드를 가시 상태에서만 수행하도록 조정
+  - TTL(180초) 기반 중복 새로고침 억제 + 탭 진입 시 1회 강제 새로고침 적용
 
-### ✅ 계획/문서 동기화
-- `docs/UPDATE_PLAN.md`
-  - 2026-07-01 실행 정본 추가
-  - 리스크/대응/검증 게이트 및 KPI·회원관리 서버 정합 체크리스트 반영
+### ✅ TTL 튜닝 관측용 성능 로그 추가
+- `utils/perf_metrics_logger.py`
+  - `logs/ui_perf_metrics.jsonl` 전용 파일에 위젯 성능 이벤트(JSONL) 기록
+- `ui/widgets/market_trend_widget.py`, `ui/widgets/ai_report_widget_real.py`, `ui/widgets/ai_learning_widget.py`
+  - `cache_hit/miss`, `ttl_hit/miss`, `skip_invisible`, `map_force_refresh`, `fetch_done|generate_done|refresh_done` 이벤트 기록
+- 운영 기준
+  - 테스터는 `ui_perf_metrics.jsonl` 파일을 제출
+  - 관리자/개발자는 3~7일 데이터 기반으로 TTL(180/120/60초) 조정 판단
 
-## 2026-06-30 - v3.8.9.25 전략 런타임 브리지 연결/학습 임계값 단일화/사이클 로그 가시성 강화
-
-### ✅ 전략 런타임 브리지 연결 (미연결 모듈 실루프 반영)
-- `main.py`, `trading/trader.py`, `trading/unified_trader.py`
-  - `strategy_customizer.py`, `ai_chat_strategy.py`를 실제 자동매매 루프에 연결
-  - Binance/Unified 경로 모두에서 런타임 프로파일/동적 조정이 동작하도록 브리지 초기화 경로 추가
-  - 설정 저장 후 재시작 없이 런타임 전략 동기화가 재적용되도록 보강
-
-### ✅ 학습 반영 경로 단일화 (저장소 중심)
-- `trading/trader.py`, `trading/unified_trader.py`
-  - 진입 임계값 계산에서 학습 반영 소스를 `learning_data` 저장 이력 중심으로 정리
-  - 학습 데이터 저장 시점에 성과 스냅샷(`recent_win_rate`, `recent_loss_rate`, `recent_trade_count`) 기록
-  - 저장 데이터와 임계값 계산 기준의 소스 일관성 개선
-
-### ✅ 매 사이클 임계값 before/after 로그 추가
-- `trading/trader.py`, `trading/unified_trader.py`
-  - pre-entry 분석 단계에서 `min_ai_confidence`, `max_loss_rate`, `min_trades_history`의 `before -> after`를 매 사이클 로그로 출력
-  - 임계값 산출 출처(`_source`)와 기준값(`_base`)을 함께 남겨 운영 추적성 강화
-
-## 2026-06-29 - v3.8.9.24 증권 로그 정합/ETF 파싱 안정화/코인선택 컨텍스트 분리
-
-### ✅ 한국투자증권 로그 라벨 정합화
-- `trading/exchanges/adapters/mirae_asset_stock_adapter.py`
-  - 한국투자증권(koreaInvestment) 경로에서 연결/조회/주문 로그가 `미래에셋`으로 표기되던 혼선을 제거
-  - 브로커 라벨/키를 런타임 컨텍스트 기반으로 분기해 로그 정확도 향상
-
-### ✅ ETF 응답 파싱 안전화 (비JSON/빈본문 방어)
-- `trading/exchanges/adapters/mirae_asset_stock_adapter.py`
-  - ETF 일봉 포함 GET/POST 응답 처리에 안전 파서(`_response_to_dict`) 추가
-  - JSON 파싱 실패 시 경고 로그(status/content-type/body snippet) 후 빈 dict로 안전 복귀
-  - 파싱 예외로 인해 주기 루프가 멈추는 위험 완화
-
-### ✅ 주식 컨텍스트 코인선택 로그 오염 차단
-- `trading/unified_trader.py`
-  - unified 코인 선택 루프 대상 거래소를 암호화폐 거래소(bybit/okx/bitget/upbit/bithumb)로 제한
-  - 주식 브로커 컨텍스트(kiwoom/shinhan/miraeAsset/koreaInvestment)에서 코인 선택 저장 로그가 찍히는 경로 차단
-  - 직접 호출 방어 가드 추가로 재발 방지 강화
-
-## 2026-06-28 - v3.8.9.24 초보자 모드/발급 안내 고도화 (거래소·증권사별 경로 + 대안책)
-
-### ✅ 초보자 모드(전체 3단계) 인앱 안내 추가
+### ✅ OpenAI 사용자 안내 분리 + 초보자 비용 가이드 보강
 - `ui/settings_modern.py`
-  - 설정 화면에서 `초보자 모드(전체 3단계)` 버튼 추가
-  - OpenAI 연결 -> 거래소 API 연결 -> 증권사 연결(선택) 순서의 단계형 모달 안내 제공
-  - 실사용 전 mock/점검 경로를 먼저 권장하는 안전 가이드 포함
-  - 각 단계에서 바로 다음 안내(OpenAI 발급 안내/거래소 공식 발급 경로/증권 점검 시작)로 이동 가능
+  - 설정 버튼 문구를 `OpenAI/호환 API 사용자 안내`로 변경
+  - 사용자 안내 버튼은 외부 문서 오픈 대신 앱 내부 팝업 안내를 표시하도록 조정(exe 사용자 기준)
+  - OpenAI 키 발급 안내에 초보자 막힘 포인트 보강:
+    - 키 이름(Name) 예시: `NoahAI-Desktop`
+    - 결제 한도 권장: Hard Limit 10~20달러 / Soft Limit 5달러
+    - ChatGPT 구독과 OpenAI API 과금 분리 재안내
+- `docs/AI_API_USER_GUIDE.md`
+  - 내부 참조용 사용자 단계별 문서 유지(앱 팝업 안내와 내용 정합)
+  - Base URL 사용 조건, 비용 최적화 체크리스트, 자주 막히는 지점 정리
 
-### ✅ 거래소 API 발급 안내를 거래소별 요약 경로로 보강
-- `ui/settings_modern.py`
-  - `거래소 API 키 발급 안내` 팝업에 Binance/Bybit/OKX/Bitget/Upbit/Bithumb 발급 메뉴 명시
-  - `거래소 공식 발급 바로가기` 버튼/모달에서 거래소별 공식 페이지를 브라우저로 바로 열 수 있게 추가
-  - 출금 권한 OFF, IP 제한 권장, Secret 재조회 제한 등 초보자 보안 체크리스트 추가
-  - 발급이 어려운 사용자를 위한 mock/점검 대안 경로와 AI 안내 한계(대리 발급 불가) 명확화
+### ✅ 설계 근거/영향 추적 문서 추가
+- `docs/PERFORMANCE_LOGIN_INIT_BACKGROUND_TASKS_20260628.md`
+  - 변경 배경, 기대 효과, 잠재 부정 영향, 관찰 지표, 롤백 기준을 문서화
+  - 향후 성능 회귀/데이터 신선도 이슈 발생 시 원인 추적 근거로 활용
 
-### ✅ 증권 설정 안내를 증권사별 실무 경로로 보강
-- `ui/settings_modern.py`
-  - `증권 설정 사용법`에 키움/신한/미래에셋/한국투자 중심의 발급/연결 요약 경로 추가
-  - `증권사 공식 발급 바로가기` 버튼/모달에서 브로커별 공식 페이지를 브라우저로 바로 열 수 있게 추가
-  - Windows 환경 제약(키움 OpenAPI+) 및 mock 선검증 후 실연결 권장 순서 반영
-  - "AI가 설명은 가능하지만 발급/인증을 대신할 수 없음" 안내를 명확히 표기
-  - 증권 연결 점검 팝업에서 `사용자 안내문 저장` 버튼으로 사용자 전달용 텍스트 파일 저장 가능
+## 2026-06-27 - v3.8.9.24 버전 상향 및 로그인 도움말 안내 보강
+
+### ✅ 버전 상향
+- `config/app_version.py`
+  - `RELEASE_VERSION`을 `3.8.9.24`로 상향
+
+### ✅ 로그인/회원가입 도움말 안내 보강
+- `ui/login_modern.py`
+  - 로그인 도움말의 `로그인 안내` 탭에 웹 회원가입 경로(`https://daltrading.net`)를 명시
+  - 운영 정책에 따라 가입키(초대/인증 키)가 필요한 경우
+    발급 채널(판매 채널/공식 고객지원)에서 발급받아 입력하도록 안내 추가
+  - `공식 안내(웹)` 탭 소개 문구를
+    회사 소개 -> 서비스·적용 영역 -> 기술 소개 -> 금융 AI와 미래 순서로 확인 가능하도록 명확화
+  - 회원가입 버튼 클릭 시 팝업 안내에 가입키 필요 가능성/발급 경로 문구 추가
+
+### ✅ 인앱 버전 표기 동기화
+- `ui/settings_modern.py`: 업데이트 탭 최신 변경 라벨을 `v3.8.9.24`로 갱신
+- `ui/widgets/user_manual_widget.py`: 모듈 헤더/최신 업데이트 섹션을 `v3.8.9.24` 기준으로 갱신
 
 ## 2026-06-27 - v3.8.9.23 크몽 문서 운영절차 반영 (등급명 정합 + settings.json 변조 대응 절차)
 

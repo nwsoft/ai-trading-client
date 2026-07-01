@@ -175,12 +175,12 @@ OS별 권한/경로 팁
 3) 릴리즈 권한 확인
   - 워크플로의 `permissions: contents: write`가 유지되어야 릴리즈 업로드 가능
 4) 태그 기반 배포 실행
-  - 버전 업데이트 커밋 후 `git tag v3.8.9.23` / `git push origin v3.8.9.23`
+  - 버전 업데이트 커밋 후 `git tag v3.8.9.24` / `git push origin v3.8.9.24`
   - 이후 버전도 동일 패턴(`v3.8.9.24` 등)
-  - Windows 자동화 스크립트 사용 가능: `powershell -ExecutionPolicy Bypass -File scripts/release_tag_push.ps1 -Version 3.8.9.23 -Branch main -PushBranch`
+  - Windows 자동화 스크립트 사용 가능: `powershell -ExecutionPolicy Bypass -File scripts/release_tag_push.ps1 -Version 3.8.9.24 -Branch main -PushBranch`
 
 전환 운영 기준(질문 반영)
-- `v3.8.9.23`: 전환 버전이므로
+- `v3.8.9.24`: 전환 버전이므로
   - 클라이언트 저장소 릴리즈 업로드(필수)
   - 웹사이트 저장소 공지/다운로드 안내 반영(권장)
 - `v3.8.9.24`부터:

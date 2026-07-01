@@ -113,6 +113,7 @@ except ImportError:
         _base_logger.setLevel(logging.INFO)
 
 _VALID_LEVELS = {"DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"}
+_LEADING_LOG_PREFIX = re.compile(r"^\s*\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2}\s*\|\s*[A-Z]+\s*-\s*")
 
 
 class _StreamForwardHandler(logging.Handler):
@@ -203,20 +204,17 @@ def log_event(category: str, message: str, *, exchange: Optional[str] = None, le
         if lvl not in _VALID_LEVELS:
             lvl = "INFO"
 
-        # 파일 로그 형식 통일 (중복 제거)
-        from datetime import datetime
-        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-
-        # 이미 포맷된 메시지인지 확인
-        if " | " in message and " - " in message:
-            # 이미 포맷된 메시지는 그대로 사용
-            formatted_message = message
-        else:
-            # 새로운 메시지는 포맷팅
-            if exchange:
-                formatted_message = f"{timestamp} | {lvl:8} - {message} (ex={exchange})"
-            else:
-                formatted_message = f"{timestamp} | {lvl:8} - {message}"
+        # 파일 sink(loguru)가 시간/레벨 포맷을 붙이므로 메시지는 본문만 유지한다.
+        # (기존 중복 포맷: "YYYY.. | INFO - YYYY.. | INFO - ..." 제거)
+        formatted_message = str(message)
+        # 상위 로거에서 이미 포맷된 문자열이 전달될 때 시간/레벨 프리픽스를 제거한다.
+        while True:
+            trimmed = _LEADING_LOG_PREFIX.sub("", formatted_message, count=1)
+            if trimmed == formatted_message:
+                break
+            formatted_message = trimmed
+        if exchange and "(ex=" not in formatted_message:
+            formatted_message = f"{formatted_message} (ex={exchange})"
 
         # LogStream 적재 (UI 표시용) - 원본 메시지 전송
         try:

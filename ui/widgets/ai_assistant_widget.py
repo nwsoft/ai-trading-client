@@ -82,7 +82,7 @@ class AIAssistantWidget(CTkFrame):
 
         # 🔥 모델명 정규화: 잘못된 모델명 자동 수정 (gpt4-4o → gpt-4o)
         # 최후의 fallback으로만 기본값 사용
-        self.assistant_model_name = self._normalize_model_name(raw_model_name or 'gpt-4o')
+        self.assistant_model_name = self._normalize_model_name(raw_model_name or 'gpt-4o-mini')
 
         # AI Manager가 없으면 위젯 비활성화
         if not self.ai_manager:
@@ -1057,7 +1057,7 @@ class AIAssistantWidget(CTkFrame):
     def set_assistant_model(self, model_name: str, announce: bool = True):
         """런타임에 어시스턴트 모델을 재설정하고 캡션을 갱신합니다."""
         try:
-            model_name = (model_name or '').strip() or 'gpt-4o'
+            model_name = (model_name or '').strip() or 'gpt-4o-mini'
             # 🔥 모델명 정규화 적용
             normalized_model = self._normalize_model_name(model_name)
             prev = getattr(self, 'assistant_model_name', None)
@@ -1368,7 +1368,7 @@ class AIAssistantWidget(CTkFrame):
 사용자 요청이 현재 상황에 맞지 않는다면 명확하게 교정해주세요."""
 
             # AI 어시스턴트용 모델 사용 (설정에서 전달된 모델 우선)
-            assistant_model = getattr(self, 'assistant_model_name', None) or 'gpt-4o'
+            assistant_model = getattr(self, 'assistant_model_name', None) or 'gpt-4o-mini'
             # 🔥 모델명 정규화 적용
             assistant_model = self._normalize_model_name(assistant_model)
 

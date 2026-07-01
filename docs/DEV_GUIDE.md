@@ -48,6 +48,9 @@
 - [ ] websocket_manager 직접 접근이 없는지 확인 (지역 변수로 추출)
 - [ ] analyzer/analyzer 메서드명 사용 일관성 (analyze_symbol)
 - [ ] **WebSocket 구독이 코인 분석용이 아닌 포지션 모니터링용인지 확인**
+- [ ] RiskManager 거래 이력 저장 시 거래소 필터가 필요한 경로는 `exchange` 태그가 포함되는지 확인
+- [ ] Unified 자산분류 경로에서 암호화폐 거래소(upbit/bithumb 포함)가 `asset_class=crypto`로 유지되는지 확인
+- [ ] log_adapter 경로에서 선행 시간/레벨 프리픽스 문자열 재유입 시 중복 출력이 발생하지 않는지 확인
 - [ ] CHANGELOG에 변경점이 기록되었는지 확인
 
 ## 3) 흔한 오류와 빠른 수정

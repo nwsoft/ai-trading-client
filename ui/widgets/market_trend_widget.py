@@ -7,6 +7,8 @@ import threading
 import customtkinter as ctk
 from typing import Dict, Any, Optional, List
 from datetime import datetime
+import time
+from utils.perf_metrics_logger import log_ui_perf_metric
 
 # 고정 색상 팔레트 사용
 from utils.fixed_colors import FIXED_COLORS
@@ -18,6 +20,12 @@ class MarketTrendWidget(ctk.CTkFrame):
         self.dashboard_ref = dashboard_ref
         self._trend_refreshing = False
         self._trend_sections = {}
+        self._service_context = 'blockchain'
+        self._last_visible_force_refresh_ts = 0.0
+
+        # 로그인 직후 과도한 API 호출을 줄이기 위한 인메모리 캐시
+        self._trend_cache: Dict[str, Dict[str, Any]] = {}
+        self._trend_cache_ttl_sec = 180
 
         # 고정 색상 팔레트 사용
         self.colors = FIXED_COLORS
@@ -202,10 +210,44 @@ class MarketTrendWidget(ctk.CTkFrame):
 
         # 자동 새로고침 시작
         self.safe_after(1000, self.start_auto_refresh)
+        try:
+            self.bind("<Map>", self._on_map_visible, add="+")
+        except Exception:
+            pass
+
+    def _on_map_visible(self, event=None):
+        """탭/위젯이 실제 표시될 때 1회 강제 갱신한다."""
+        try:
+            if event is not None and getattr(event, 'widget', None) is not self:
+                return
+        except Exception:
+            pass
+
+        if not self._is_visible_now() or self._trend_refreshing:
+            return
+
+        now_ts = time.time()
+        # 탭 전환 시 과도한 연속 호출을 막기 위한 최소 간격(30초)
+        if (now_ts - float(getattr(self, '_last_visible_force_refresh_ts', 0.0))) < 30.0:
+            return
+
+        self._last_visible_force_refresh_ts = now_ts
+        log_ui_perf_metric("market_trend", "map_force_refresh", cooldown_sec=30)
+        self.safe_after(100, lambda: self.collect_and_update(force_refresh=True))
+
+    def _is_visible_now(self) -> bool:
+        """현재 위젯이 실제로 화면에 표시 중인지 확인한다."""
+        try:
+            return bool(self.winfo_exists() and self.winfo_ismapped() and self.winfo_viewable())
+        except Exception:
+            return False
 
     def start_auto_refresh(self):
         """자동 새로고침 시작"""
-        self.collect_and_update()
+        if not self._is_visible_now():
+            self.safe_after(600000, self.start_auto_refresh)
+            return
+        self.collect_and_update(force_refresh=True)
         # 10분마다 자동 새로고침
         self.safe_after(600000, self.start_auto_refresh)
 
@@ -222,6 +264,47 @@ class MarketTrendWidget(ctk.CTkFrame):
             self.collect_and_update()
         except Exception as e:
             print(f"⚠️ MarketTrendWidget set_service_context 오류: {e}")
+
+    def _get_cache_key(self) -> str:
+        """서비스 컨텍스트별 캐시 키 반환"""
+        try:
+            return str(getattr(self, '_service_context', 'blockchain') or 'blockchain')
+        except Exception:
+            return 'blockchain'
+
+    def _load_cached_insights(self, max_age_sec: Optional[int] = None) -> Optional[Dict[str, Any]]:
+        """유효한 캐시 데이터가 있으면 반환"""
+        try:
+            cache_key = self._get_cache_key()
+            cached = self._trend_cache.get(cache_key)
+            if not cached:
+                return None
+
+            ts = cached.get('ts')
+            insights = cached.get('insights')
+            if ts is None or insights is None:
+                return None
+
+            ttl = int(max_age_sec if max_age_sec is not None else self._trend_cache_ttl_sec)
+            age = (datetime.now() - ts).total_seconds()
+            if age > ttl:
+                return None
+            return insights
+        except Exception:
+            return None
+
+    def _save_cached_insights(self, insights: Dict[str, Any]) -> None:
+        """현재 컨텍스트 기준 캐시 저장"""
+        try:
+            if not isinstance(insights, dict) or not insights:
+                return
+            cache_key = self._get_cache_key()
+            self._trend_cache[cache_key] = {
+                'ts': datetime.now(),
+                'insights': insights,
+            }
+        except Exception:
+            pass
 
     def _update_section_labels_for_stock(self) -> None:
         """주식/ETF 모드에 맞게 섹션 레이블 업데이트"""
@@ -276,23 +359,60 @@ class MarketTrendWidget(ctk.CTkFrame):
 
     def force_refresh(self):
         """수동 새로고침"""
-        self.collect_and_update()
+        self.collect_and_update(force_refresh=True)
 
-    def collect_and_update(self):
+    def collect_and_update(self, force_refresh: bool = False):
         """데이터 수집 및 UI 업데이트"""
+        if not self._is_visible_now():
+            log_ui_perf_metric("market_trend", "skip_invisible", force_refresh=bool(force_refresh))
+            return
         if self._trend_refreshing:
             return
+
+        # 캐시가 유효하면 즉시 UI 반영 후 네트워크 호출 생략
+        if not force_refresh:
+            cached_insights = self._load_cached_insights()
+            if cached_insights is not None:
+                log_ui_perf_metric(
+                    "market_trend",
+                    "cache_hit",
+                    ttl_sec=int(self._trend_cache_ttl_sec),
+                    force_refresh=False,
+                    service_context=self._get_cache_key(),
+                )
+                self._update_ui_with_data(cached_insights)
+                return
+            log_ui_perf_metric(
+                "market_trend",
+                "cache_miss",
+                ttl_sec=int(self._trend_cache_ttl_sec),
+                force_refresh=False,
+                service_context=self._get_cache_key(),
+            )
 
         self._trend_refreshing = True
         try:
             # 백그라운드에서 데이터 수집
             def _bg_collect():
+                started = time.perf_counter()
                 try:
                     insights = self._gather_market_trend_data()
+                    self._save_cached_insights(insights)
+                    elapsed_ms = int((time.perf_counter() - started) * 1000)
+                    log_ui_perf_metric(
+                        "market_trend",
+                        "fetch_done",
+                        force_refresh=bool(force_refresh),
+                        elapsed_ms=elapsed_ms,
+                        daily_count=len((insights or {}).get('daily_changes', []) or []),
+                        weekly_count=len((insights or {}).get('weekly_changes', []) or []),
+                        sector_count=len((insights or {}).get('sector_summary', []) or []),
+                    )
                     # 메인 스레드에서 UI 업데이트
                     self.safe_after(0, lambda: self._update_ui_with_data(insights))
                 except Exception as e:
                     print(f"❌ 데이터 수집 오류: {e}")
+                    log_ui_perf_metric("market_trend", "fetch_error", error=str(e)[:120])
                 finally:
                     self._trend_refreshing = False
 

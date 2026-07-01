@@ -569,7 +569,10 @@ class LoginWindow:
             webbrowser.open(signup_url)
             messagebox.showinfo(
                 "회원가입",
-                f"회원가입 페이지로 이동합니다.\n\n{signup_url}\n\n웹사이트에서 회원가입을 완료한 후\n다시 로그인해주세요."
+                f"회원가입 페이지로 이동합니다.\n\n{signup_url}\n\n"
+                "가입 시 운영 정책에 따라 가입키(초대/인증 키)가 필요할 수 있습니다.\n"
+                "가입키가 필요한 경우 판매 채널 또는 공식 고객지원 경로에서 발급받아 입력해주세요.\n\n"
+                "회원가입 완료 후 앱으로 돌아와 로그인해주세요."
             )
         except Exception as e:
             messagebox.showerror("오류", f"웹사이트를 열 수 없습니다: {str(e)}")
@@ -689,7 +692,10 @@ NoahAI Decision OS — 로그인
    • 「로그인 정보 저장」을 켜두면 다음 실행 시 아이디가 채워질 수 있습니다.
 
 2) 회원가입
-   • 「회원가입」으로 이동해 웹에서 가입을 완료한 뒤, 이 화면에서 다시 로그인합니다.
+    • 「회원가입」 버튼을 누르면 웹(https://daltrading.net)으로 이동합니다.
+    • 웹에서 회원가입을 완료한 뒤, 이 화면으로 돌아와 다시 로그인합니다.
+    • 운영 정책에 따라 가입키(초대/인증 키)가 필요한 계정은
+      판매 채널 또는 공식 고객지원 경로에서 발급받아 입력합니다.
    • 약관·필수 동의는 회원가입(웹) 절차에서 진행하는 것을 권장합니다.
 
 3) 보안
@@ -698,7 +704,8 @@ NoahAI Decision OS — 로그인
 
 4) 기타
    • 본 앱은 고정 스킨 UI를 사용합니다.
-   • 문의는 고객지원 채널을 이용해 주세요.
+    • 문의는 고객지원 채널을 이용해 주세요.
+    • 이용·책임 관련 참고 문구는 「이용·책임 참고」 탭에서 확인할 수 있습니다.
 """.strip(),
         )
         tb1.configure(state="disabled")
@@ -749,7 +756,7 @@ NoahAI Decision OS — 로그인
 
         intro = ctk.CTkLabel(
             web_frame,
-            text="Noah AI Labs 공식 사이트에서 회사·서비스·기술·방향을 확인할 수 있습니다.",
+            text="Noah AI Labs 공식 사이트에서 회사 소개 → 서비스·적용 영역 → 기술 소개 → 금융 AI와 미래 순서로 확인할 수 있습니다.",
             font=ctk.CTkFont(family="Segoe UI", size=12),
             text_color=self._color("text_secondary", "#9ca3af"),
             wraplength=520,

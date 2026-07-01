@@ -402,6 +402,9 @@ class UnifiedTrader:
         self.trading_cycles = {}  # {exchange: bool}
         self.trade_entered = {}  # {exchange: {symbol: bool}}
         self._learning_managers = {}  # {exchange: ExchangeLearningManager}
+        self.strategy_customizer = None
+        self.ai_trading_chatbot = None
+        self._runtime_profile_applied = None
         self.position_sizing_snapshots = {}
         self.portfolio_allocation_cache = {}
         self.cycle_execution_metrics = {}
@@ -420,6 +423,71 @@ class UnifiedTrader:
         self._recent_outcomes = {ex: deque(maxlen=self._winrate_window) for ex in self.enabled_exchanges}
         self.log_event('system', f"UnifiedTrader 초기화 완료 - 현재 거래소: {self.current_exchange}")
         pass
+
+    def configure_strategy_runtime(self, strategy_customizer: Any = None, ai_trading_chatbot: Any = None):
+        """미연결 전략 모듈을 통합 거래 루프에 연결한다."""
+        self.strategy_customizer = strategy_customizer
+        self.ai_trading_chatbot = ai_trading_chatbot
+
+    def update_runtime_strategy_settings(self, new_settings: Dict[str, Any]):
+        """재초기화 없이 전략 런타임 설정만 반영한다."""
+        if not isinstance(new_settings, dict) or not new_settings:
+            return
+        self.settings.update(new_settings)
+        self.log_event('settings', f"전략 런타임 설정 업데이트: {new_settings}", exchange='binance')
+
+    def _apply_connected_strategy_runtime_unified(self, exchange_name: str):
+        """연결된 StrategyCustomizer/AITradingChatbot을 거래소별 루프에 반영."""
+        try:
+            profile = str(self.settings.get('strategy_runtime_profile', 'balanced') or 'balanced').strip().lower()
+            mode = str(self.settings.get('strategy_runtime_mode', 'adaptive') or 'adaptive').strip().lower()
+
+            if self.ai_trading_chatbot and self._runtime_profile_applied != profile:
+                if profile in getattr(self.ai_trading_chatbot, 'strategy_presets', {}):
+                    self.ai_trading_chatbot.apply_strategy_changes({
+                        'type': 'strategy_change',
+                        'parameters': self.ai_trading_chatbot.strategy_presets[profile].parameters,
+                    })
+                    self._runtime_profile_applied = profile
+                    self.log_event('strategy', f"전략 프로파일 적용: {profile}", exchange=exchange_name)
+
+            if mode == 'adaptive' and self.strategy_customizer:
+                market_regime = 'NORMAL'
+                try:
+                    regime_raw = self._evaluate_current_market_conditions_unified_fast(exchange_name, 'BTCUSDT')
+                    market_regime = str(regime_raw or 'NORMAL').upper()
+                except Exception:
+                    market_regime = 'NORMAL'
+
+                perf = {
+                    'recent_win_rate': 0.5,
+                    'consecutive_losses': int(getattr(self.risk_manager, 'consecutive_losses', 0) or 0),
+                }
+                try:
+                    if self.recorder and hasattr(self.recorder, 'get_recent_trades'):
+                        rows = self.recorder.get_recent_trades(coin='', exchange=exchange_name, days=14) or []
+                        if isinstance(rows, list) and rows:
+                            wins = 0
+                            total = 0
+                            for row in rows[-30:]:
+                                if isinstance(row, dict):
+                                    pnl = float(row.get('pnl_percent', row.get('pnl', 0.0)) or 0.0)
+                                    total += 1
+                                    if pnl > 0:
+                                        wins += 1
+                            if total > 0:
+                                perf['recent_win_rate'] = wins / total
+                except Exception:
+                    pass
+
+                applied_market = self.strategy_customizer.apply_dynamic_adjustment('market_condition', {'market_condition': market_regime})
+                applied_perf = self.strategy_customizer.apply_dynamic_adjustment('performance_based', {'performance': perf})
+                if applied_market or applied_perf:
+                    self.log_event('strategy', f"adaptive 조정 적용: market={applied_market}, perf={applied_perf}, regime={market_regime}, win_rate={perf.get('recent_win_rate', 0.0):.2f}", exchange=exchange_name)
+                else:
+                    self.log_event('strategy', "adaptive 조정 스킵: 활성 전략 또는 조정 조건 미충족", exchange=exchange_name)
+        except Exception as e:
+            self.logger.warning(f"{exchange_name} 전략 런타임 반영 오류: {e}")
 
     def _prefilter_supported_coins(self, exchange_name: str, coins: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         """거래소별 지원 심볼만 남기는 사전 필터.
@@ -571,20 +639,23 @@ class UnifiedTrader:
         return str(exchange_name or '').strip().lower()
 
     def _compute_enabled_exchanges(self) -> List[str]:
-        # 거래소 목록은 settings에서 직접 추출 (기본값/수동 설정 완전 제거)
+        # 통합 코인 루프 대상은 '암호화폐 거래소'만 허용한다.
+        # 주식 브로커(kiwoom/shinhan/miraeAsset/koreaInvestment)가 유입되면
+        # 코인 선택/저장 로그가 주식 컨텍스트로 잘못 기록될 수 있다.
+        allowed_crypto_exchanges = {'bybit', 'okx', 'bitget', 'upbit', 'bithumb'}
         enabled_set = set()
         try:
             raw = self.settings.get('enabled_exchanges', []) if isinstance(self.settings, dict) else []
             for item in raw or []:
                 normalized = self._normalize_exchange(item)
-                if normalized:
+                if normalized in allowed_crypto_exchanges:
                     enabled_set.add(normalized)
         except Exception:
             enabled_set = set()
 
         if not enabled_set:
             fallback = self._normalize_exchange(self.settings.get('selected_exchange', 'bybit'))
-            if fallback and fallback != 'binance':  # 바이낸스 제외
+            if fallback in allowed_crypto_exchanges:
                 enabled_set.add(fallback)
 
         enabled_list = list(enabled_set)
@@ -656,7 +727,8 @@ class UnifiedTrader:
         except Exception:
             total_capital = 0.0
 
-        asset_class = 'crypto' if exchange_name in ['bybit', 'okx', 'bitget'] else 'stock'
+        # UnifiedTrader는 암호화폐 거래소만 대상으로 동작하므로 asset_class를 crypto로 고정한다.
+        asset_class = 'crypto' if exchange_name in ['bybit', 'okx', 'bitget', 'upbit', 'bithumb'] else 'stock'
         candidates = []
         for coin in selected_coins or []:
             symbol = str((coin or {}).get('symbol') or '').strip().upper()
@@ -732,6 +804,11 @@ class UnifiedTrader:
     def select_trading_coins_unified(self, exchange_name: str) -> List[Dict[str, Any]]:
         """거래소별 코인 선택 (기존 evaluator와 연동)"""
         try:
+            allowed_crypto_exchanges = {'bybit', 'okx', 'bitget', 'upbit', 'bithumb'}
+            if self._normalize_exchange(exchange_name) not in allowed_crypto_exchanges:
+                self.logger.info(f"{exchange_name}는 코인 선택 대상이 아님 - unified 코인 선택 건너뜀")
+                return []
+
             if not self._is_exchange_enabled(exchange_name):
                 self.logger.debug(f"{exchange_name} 코인 선택 건너뜀 (비활성 거래소)")
                 return []
@@ -933,6 +1010,7 @@ class UnifiedTrader:
 
             # 🤖 AI 자동 학습: 거래 성과에 따라 신호 기준 조절
             self._auto_adjust_threshold_from_performance(exchange_name)
+            self._apply_connected_strategy_runtime_unified(exchange_name)
 
             # 0. 코인 재선택 로직 (시장 상황 변화 체크) - 최적화
             self._check_and_reselect_coins_unified_optimized(exchange_name)
@@ -2413,6 +2491,26 @@ class UnifiedTrader:
                 # 거래 통계 업데이트
                 self._update_trade_stats_unified(exchange_name, pnl_percent)
 
+                # RiskManager 이력 업데이트 (거래소 필터 정합성 보장)
+                if hasattr(self, 'risk_manager') and self.risk_manager:
+                    try:
+                        entry_time = position.entry_time if hasattr(position, 'entry_time') else datetime.now(timezone.utc)
+                        exit_time = datetime.now(timezone.utc)
+                        holding_time_ms = int((exit_time - entry_time).total_seconds() * 1000) if isinstance(entry_time, datetime) else 0
+                        trade_result = 'PROFIT' if pnl_percent > 0 else 'LOSS'
+                        self.risk_manager.update_coin_trade_history(
+                            symbol=symbol,
+                            trade_result=trade_result,
+                            profit_rate=pnl_percent,
+                            entry_price=position.entry_price,
+                            exit_price=float(current_price),
+                            position_size=float(position.quantity) * float(position.entry_price),
+                            holding_time=holding_time_ms,
+                            exchange=exchange_name,
+                        )
+                    except Exception as rm_err:
+                        self.logger.warning(f"{exchange_name} {symbol} RiskManager 이력 업데이트 실패(계속): {rm_err}")
+
                 # AI 분석 (익절/손절)
                 if pnl_percent > 0:
                     self._perform_profit_analysis_unified(exchange_name, symbol, position, pnl_data)
@@ -3052,6 +3150,30 @@ class UnifiedTrader:
                 exchange_trades = [t for t in coin_trades if t.get('exchange') == exchange_name]
                 all_trades.extend(exchange_trades)
 
+            # RiskManager 메모리에 exchange 태그가 비어있을 수 있으므로 DB 이력으로 보강한다.
+            if len(all_trades) < 10 and hasattr(self, 'recorder') and self.recorder:
+                try:
+                    db_trades = self.recorder.get_recent_trades(coin='', exchange=exchange_name, days=30) or []
+                    existing_timestamps = {t.get('timestamp') for t in all_trades if t.get('timestamp')}
+                    for row in db_trades:
+                        if not isinstance(row, dict):
+                            continue
+                        ts = row.get('exit_time') or row.get('timestamp')
+                        if ts and ts in existing_timestamps:
+                            continue
+                        pnl_percent = float(row.get('pnl_percent', row.get('pnl', 0.0)) or 0.0)
+                        all_trades.append({
+                            'result': 'PROFIT' if pnl_percent > 0 else 'LOSS',
+                            'profit': pnl_percent,
+                            'profit_rate': pnl_percent,
+                            'timestamp': ts,
+                            'exchange': exchange_name,
+                        })
+                        if ts:
+                            existing_timestamps.add(ts)
+                except Exception as db_err:
+                    self.logger.warning(f"[{exchange_name}] DB 거래 이력 보강 실패: {db_err}")
+
             total_count = len(all_trades)
 
             # 4. 최소 거래 수 체크 (10거래 미만은 학습 부족)
@@ -3241,6 +3363,7 @@ Response in JSON format:
         - 기존에는 ai_manager가 없으면 반환했으나, 신호/분석 히스토리는 항상 남겨야 하므로 제거.
         """
         try:
+            perf = self._collect_symbol_performance_snapshot_unified(exchange_name=exchange_name, symbol=symbol)
 
             # 학습 데이터 생성
             learning_data = {
@@ -3256,7 +3379,10 @@ Response in JSON format:
                 'tp_percent': signal_data.get('tp_percent', 0.0),
                 'sl_percent': signal_data.get('sl_percent', 0.0),
                 'leverage': signal_data.get('leverage', 1.0),
-                'source': 'analyzer_cycle'
+                'source': 'analyzer_cycle',
+                'recent_win_rate': perf.get('recent_win_rate', 0.0),
+                'recent_loss_rate': perf.get('recent_loss_rate', 0.0),
+                'recent_trade_count': perf.get('recent_trade_count', 0),
             }
 
             # AI 학습 데이터 저장: 거래소별 학습 매니저로 직접 기록
@@ -3303,6 +3429,22 @@ Response in JSON format:
 
             # 4. 🔥 동적 임계값 기반 최종 결정
             dynamic_thresholds = self._get_dynamic_entry_thresholds_unified(exchange_name, symbol, market_conditions)
+            try:
+                base_snapshot = dynamic_thresholds.get('_base', {}) if isinstance(dynamic_thresholds, dict) else {}
+                source = dynamic_thresholds.get('_source', 'unknown') if isinstance(dynamic_thresholds, dict) else 'unknown'
+                self._log_trade_event(
+                    'analysis',
+                    (
+                        f"[{symbol}] 학습 반영 임계값(before->after): "
+                        f"min_ai_confidence {base_snapshot.get('min_ai_confidence', 'N/A')} -> {dynamic_thresholds.get('min_ai_confidence', 'N/A')}, "
+                        f"max_loss_rate {base_snapshot.get('max_loss_rate', 'N/A')} -> {dynamic_thresholds.get('max_loss_rate', 'N/A')}, "
+                        f"min_trades_history {base_snapshot.get('min_trades_history', 'N/A')} -> {dynamic_thresholds.get('min_trades_history', 'N/A')} "
+                        f"(source={source})"
+                    ),
+                    exchange=exchange_name,
+                )
+            except Exception:
+                pass
 
             proceed = (
                 pattern_analysis['loss_rate'] < dynamic_thresholds['max_loss_rate'] and
@@ -4624,17 +4766,18 @@ Response in JSON format:
     def _get_dynamic_entry_thresholds_unified(self, exchange_name: str, symbol: str, market_conditions: Dict) -> Dict:
         """시장 상황 기반 동적 진입 임계값 계산 (Unified) - AI 학습 기반"""
         try:
-            # AI 학습 데이터 기반 임계값 계산
-            learned_thresholds = self._get_ai_learned_thresholds_unified(exchange_name, symbol)
-            if learned_thresholds:
-                return learned_thresholds
-
-            # 기본 임계값 (AI 학습이 부족할 때 사용)
             base_thresholds = {
                 'max_loss_rate': 50.0,
                 'min_trades_history': 1,
-                'min_ai_confidence': 0.4
+                'min_ai_confidence': 0.4,
             }
+
+            # AI 학습 데이터 기반 임계값 계산
+            learned_thresholds = self._get_ai_learned_thresholds_unified(exchange_name, symbol)
+            if learned_thresholds:
+                learned_thresholds['_source'] = 'learning_store'
+                learned_thresholds['_base'] = dict(base_thresholds)
+                return learned_thresholds
 
             # 시장 변동성 기반 조정 (AI가 학습할 기준점)
             volatility = market_conditions.get('volatility', 0.01)
@@ -4643,19 +4786,25 @@ Response in JSON format:
                 return {
                     'max_loss_rate': base_thresholds['max_loss_rate'] * 0.8,  # AI가 학습할 조정 계수
                     'min_trades_history': max(5, base_thresholds['min_trades_history']),
-                    'min_ai_confidence': min(0.8, base_thresholds['min_ai_confidence'] * 1.5)
+                    'min_ai_confidence': min(0.8, base_thresholds['min_ai_confidence'] * 1.5),
+                    '_source': 'market_base',
+                    '_base': dict(base_thresholds),
                 }
             elif volatility > 0.01:  # 중간 변동성 (AI 학습 기준점)
                 return {
                     'max_loss_rate': base_thresholds['max_loss_rate'] * 0.9,  # AI가 학습할 조정 계수
                     'min_trades_history': max(3, base_thresholds['min_trades_history']),
-                    'min_ai_confidence': min(0.7, base_thresholds['min_ai_confidence'] * 1.25)
+                    'min_ai_confidence': min(0.7, base_thresholds['min_ai_confidence'] * 1.25),
+                    '_source': 'market_base',
+                    '_base': dict(base_thresholds),
                 }
             else:  # 낮은 변동성 (AI 학습 기준점)
                 return {
                     'max_loss_rate': base_thresholds['max_loss_rate'] * 1.2,  # AI가 학습할 조정 계수
                     'min_trades_history': base_thresholds['min_trades_history'],
-                    'min_ai_confidence': max(0.2, base_thresholds['min_ai_confidence'] * 0.75)
+                    'min_ai_confidence': max(0.2, base_thresholds['min_ai_confidence'] * 0.75),
+                    '_source': 'market_base',
+                    '_base': dict(base_thresholds),
                 }
 
         except Exception as e:
@@ -4665,43 +4814,102 @@ Response in JSON format:
             return {
                 'max_loss_rate': 50.0,
                 'min_trades_history': 1,
-                'min_ai_confidence': 0.4
+                'min_ai_confidence': 0.4,
+                '_source': 'fallback',
+                '_base': {'max_loss_rate': 50.0, 'min_trades_history': 1, 'min_ai_confidence': 0.4},
             }
 
     def _get_ai_learned_thresholds_unified(self, exchange_name: str, symbol: str) -> Optional[Dict]:
-        """AI 학습 데이터 기반 임계값 계산 (Unified)"""
+        """AI 학습 데이터 기반 임계값 계산(저장된 learning_data 단일 소스)."""
         try:
-            # 최근 학습 데이터 분석
-            coin = symbol.replace('USDT', '')
+            entries = self._get_recent_learning_entries_unified(exchange_name=exchange_name, symbol=symbol, limit=80)
+            if len(entries) < 10:
+                return None
 
-            if hasattr(self, 'recorder') and self.recorder:
-                # 최근 거래 결과 분석
-                recent_trades = self.recorder.get_recent_trades(coin=coin, exchange=exchange_name, days=30)
-                if len(recent_trades) >= 10:  # 충분한 데이터가 있을 때만
-                    # 승률 기반 임계값 조정
-                    wins = sum(1 for t in recent_trades if t.get('pnl', 0) > 0)
-                    win_rate = wins / len(recent_trades)
+            win_rates = []
+            conf_values = []
+            for item in entries:
+                try:
+                    win_rates.append(float(item.get('recent_win_rate', 0.0) or 0.0))
+                except Exception:
+                    pass
+                try:
+                    conf_values.append(float(item.get('confidence', 0.0) or 0.0))
+                except Exception:
+                    pass
 
-                    # AI 학습 기반 동적 조정
-                    if win_rate > 0.7:  # 높은 승률
-                        return {
-                            'max_loss_rate': 40.0,  # 더 엄격한 손실 허용
-                            'min_trades_history': 3,
-                            'min_ai_confidence': 0.3  # 더 낮은 신뢰도도 허용
-                        }
-                    elif win_rate < 0.3:  # 낮은 승률
-                        return {
-                            'max_loss_rate': 60.0,  # 더 관대한 손실 허용
-                            'min_trades_history': 5,
-                            'min_ai_confidence': 0.6  # 더 높은 신뢰도 요구
-                        }
+            if not win_rates:
+                return None
 
-            return None  # 학습 데이터 부족
+            avg_win_rate = max(0.0, min(1.0, sum(win_rates) / len(win_rates)))
+            avg_conf = max(0.2, min(0.9, (sum(conf_values) / len(conf_values)) if conf_values else 0.5))
 
+            min_ai_conf = max(0.25, min(0.75, avg_conf - 0.05))
+            max_loss = max(35.0, min(65.0, 60.0 - (avg_win_rate * 30.0)))
+            min_trades = 3 if len(entries) >= 30 else 5
+
+            self.logger.info(
+                f"[{exchange_name}] [{symbol}] 학습저장소 임계값 반영: n={len(entries)}, avg_win={avg_win_rate*100:.1f}%, avg_conf={avg_conf:.2f}"
+            )
+            return {
+                'max_loss_rate': max_loss,
+                'min_trades_history': min_trades,
+                'min_ai_confidence': min_ai_conf,
+            }
         except Exception as e:
             if hasattr(self, 'logger') and self.logger:
                 self.logger.error(f"❌ {exchange_name} {symbol} AI 학습 임계값 계산 오류: {e}")
             return None
+
+    def _collect_symbol_performance_snapshot_unified(self, exchange_name: str, symbol: str) -> Dict[str, Any]:
+        """학습데이터 저장 시점의 최근 성과 스냅샷을 수집한다."""
+        try:
+            coin = str(symbol or '').replace('USDT', '')
+            rows = []
+            if self.recorder and hasattr(self.recorder, 'get_recent_trades'):
+                rows = self.recorder.get_recent_trades(coin=coin, exchange=exchange_name, days=30) or []
+            if not isinstance(rows, list) or not rows:
+                return {'recent_win_rate': 0.0, 'recent_loss_rate': 0.0, 'recent_trade_count': 0}
+
+            win = 0
+            loss = 0
+            total = 0
+            for row in rows[-50:]:
+                if not isinstance(row, dict):
+                    continue
+                pnl = float(row.get('pnl_percent', row.get('pnl', 0.0)) or 0.0)
+                total += 1
+                if pnl > 0:
+                    win += 1
+                elif pnl < 0:
+                    loss += 1
+            if total == 0:
+                return {'recent_win_rate': 0.0, 'recent_loss_rate': 0.0, 'recent_trade_count': 0}
+            return {
+                'recent_win_rate': win / total,
+                'recent_loss_rate': loss / total,
+                'recent_trade_count': total,
+            }
+        except Exception:
+            return {'recent_win_rate': 0.0, 'recent_loss_rate': 0.0, 'recent_trade_count': 0}
+
+    def _get_recent_learning_entries_unified(self, exchange_name: str, symbol: str, limit: int = 80) -> List[Dict[str, Any]]:
+        """저장된 learning_data에서 심볼 기준 최근 항목을 읽는다."""
+        try:
+            from .exchange_learning_manager import ExchangeLearningManager
+            elm = self._learning_managers.get(exchange_name)
+            if elm is None:
+                elm = ExchangeLearningManager(exchange_name)
+                self._learning_managers[exchange_name] = elm
+            history = list(getattr(elm, 'learning_history', []) or [])
+            target = str(symbol or '').upper()
+            filtered = [
+                h for h in history
+                if isinstance(h, dict) and str(h.get('symbol', '')).upper() == target
+            ]
+            return filtered[-max(1, int(limit)):]
+        except Exception:
+            return []
 
     def _calculate_dynamic_tp_sl_unified(self, exchange_name: str, symbol: str, analysis: Dict) -> Dict:
         """시장 상황 기반 동적 TP/SL 계산 (Unified)"""

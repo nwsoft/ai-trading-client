@@ -207,9 +207,39 @@ class ModernSettingsWindow:
         except Exception:
             pass
 
+    def _open_ai_api_architecture_guide(self):
+        """OpenAI/호환 API 사용자 안내를 앱 내부 팝업으로 표시한다."""
+        try:
+            messagebox.showinfo(
+                "OpenAI/호환 API 사용자 안내",
+                (
+                    "이 안내는 aitrading.exe 사용자 기준입니다.\n"
+                    "개발 문서를 열지 않아도 앱 안에서 그대로 따라 할 수 있습니다.\n\n"
+                    "1) OpenAI 공식 API 사용(기본)\n"
+                    "- OpenAI API Key만 입력\n"
+                    "- Base URL은 비워둠\n\n"
+                    "2) OpenAI 호환 API 사용(선택)\n"
+                    "- 예: DeepSeek / OpenRouter / 로컬 Ollama\n"
+                    "- API Key + Base URL을 함께 입력\n\n"
+                    "Base URL 예시\n"
+                    "- DeepSeek: https://api.deepseek.com\n"
+                    "- OpenRouter: https://openrouter.ai/api/v1\n"
+                    "- Ollama(local): http://localhost:11434/v1\n\n"
+                    "초보자 권장\n"
+                    "- 모델: gpt-4o-mini\n"
+                    "- Billing 한도: Hard 10~20달러 / Soft 5달러\n"
+                    "- 키 이름(Name): NoahAI-Desktop\n\n"
+                    "참고\n"
+                    "- 'AI 설정 도우미 시작'은 키 발급 기능이 아니라\n"
+                    "  키 입력 후 모델/적용값 최적화를 도와주는 기능입니다."
+                ),
+            )
+        except Exception:
+            pass
+
     @staticmethod
     def _normalize_version_text(version_text: str) -> tuple:
-        """v3.8.9.23 같은 문자열을 비교 가능한 튜플로 변환한다."""
+        """v3.8.9.24 같은 문자열을 비교 가능한 튜플로 변환한다."""
         if not version_text:
             return tuple()
         cleaned = str(version_text).strip().lower().lstrip('v')
@@ -900,6 +930,18 @@ class ModernSettingsWindow:
                 command=lambda: self._save_text_to_file(
                     quick_3min_check,
                     default_name=f'stock_broker_3min_checklist_{datetime.now().strftime("%Y%m%d_%H%M%S")}.txt'
+                ),
+            ).pack(side='left', padx=(8, 0))
+
+            ctk.CTkButton(
+                button_row,
+                text='사용자 안내문 저장',
+                width=150,
+                fg_color='#4338ca',
+                hover_color='#3730a3',
+                command=lambda: self._save_text_to_file(
+                    user_notice_text,
+                    default_name=f'stock_broker_user_notice_{datetime.now().strftime("%Y%m%d_%H%M%S")}.txt'
                 ),
             ).pack(side='left', padx=(8, 0))
 
@@ -1648,6 +1690,7 @@ class ModernSettingsWindow:
         self.create_ai_settings_tab()
         self.create_advanced_layers_tab()
         self.create_alphaarena_tab()
+        self.create_update_info_tab()  # 자동업데이트/수동 업데이트 관리 탭 (가장 오른쪽)
 
         # 하단 버튼 영역
         self.create_button_area(main_frame)
@@ -1673,6 +1716,15 @@ class ModernSettingsWindow:
         )
         openai_title.pack(pady=(20, 15), padx=20)
 
+        _ai_models = [
+            "gpt-4o-mini",
+            "gpt-4o",
+            "gpt-4.1-mini",
+            "gpt-4.1",
+            "gpt-5-mini",
+            "gpt-5",
+        ]
+
         quick_help_row = ctk.CTkFrame(openai_group, fg_color="transparent")
         quick_help_row.pack(fill="x", padx=20, pady=(0, 10))
 
@@ -1694,6 +1746,36 @@ class ModernSettingsWindow:
             fg_color=self._color("secondary", "#4b5563"),
             hover_color=self._hover_from(self._color("secondary", "#4b5563")),
             command=lambda: self._show_api_key_help_dialog(kind='openai'),
+        ).pack(side="left", padx=6)
+
+        ctk.CTkButton(
+            quick_help_row,
+            text="OpenAI/호환 API 사용자 안내",
+            width=190,
+            height=32,
+            fg_color=self._color("secondary", "#334155"),
+            hover_color=self._hover_from(self._color("secondary", "#334155")),
+            command=self._open_ai_api_architecture_guide,
+        ).pack(side="left", padx=6)
+
+        ctk.CTkButton(
+            quick_help_row,
+            text="초보자 모드(전체 3단계)",
+            width=190,
+            height=32,
+            fg_color=self._color("secondary", "#1f2937"),
+            hover_color=self._hover_from(self._color("secondary", "#1f2937")),
+            command=self._show_beginner_mode_guide,
+        ).pack(side="left", padx=6)
+
+        ctk.CTkButton(
+            quick_help_row,
+            text="OpenAI 공식 페이지 열기",
+            width=180,
+            height=32,
+            fg_color=self._color("secondary", "#0f766e"),
+            hover_color=self._hover_from(self._color("secondary", "#0f766e")),
+            command=lambda: self._open_external_url("https://platform.openai.com/api-keys", "OpenAI"),
         ).pack(side="left", padx=6)
 
         # OpenAI API Key
@@ -1741,6 +1823,19 @@ class ModernSettingsWindow:
         )
         self.openai_base_url_entry.pack(fill="x", padx=20, pady=(0, 12))
 
+        openai_base_url_help = ctk.CTkLabel(
+            openai_group,
+            text=(
+                "비워두면 OpenAI 공식 API를 사용합니다.\n"
+                "DeepSeek/OpenRouter/Ollama처럼 OpenAI 호환 API를 쓰는 경우에만 입력하세요."
+            ),
+            font=ctk.CTkFont(family="Segoe UI", size=11),
+            text_color=self._color("text_secondary", "#9ca3af"),
+            justify="left",
+            wraplength=660,
+        )
+        openai_base_url_help.pack(anchor="w", padx=20, pady=(0, 10))
+
         # API 키 표시 토글 (OpenAI)
         self.show_openai_api_var = ctk.BooleanVar(value=False)
         show_openai_chk = ctk.CTkCheckBox(
@@ -1764,7 +1859,7 @@ class ModernSettingsWindow:
 
         self.openai_model_combo = ctk.CTkComboBox(
             openai_group,
-            values=["gpt-3.5-turbo", "gpt-4o-mini", "gpt-4o", "gpt-4-turbo", "gpt-5"],
+            values=_ai_models,
             height=40,
             font=ctk.CTkFont(family="Segoe UI", size=14, weight="normal"),
             fg_color=self._color("background", "#050a13"),
@@ -1786,7 +1881,7 @@ class ModernSettingsWindow:
 
         self.assistant_ai_model_combo = ctk.CTkComboBox(
             openai_group,
-            values=["gpt-3.5-turbo", "gpt-4o-mini", "gpt-4o", "gpt-4-turbo", "gpt-5"],
+            values=_ai_models,
             height=40,
             font=ctk.CTkFont(family="Segoe UI", size=14, weight="normal"),
             fg_color=self._color("background", "#050a13"),
@@ -1816,7 +1911,7 @@ class ModernSettingsWindow:
         )
         tier_desc_label.pack(anchor="w", padx=20, pady=(0, 8))
 
-        _tier_models = ["gpt-3.5-turbo", "gpt-4o-mini", "gpt-4o", "gpt-4-turbo", "gpt-5"]
+        _tier_models = list(_ai_models)
 
         tier_cheap_label = ctk.CTkLabel(
             openai_group,
@@ -2046,7 +2141,9 @@ class ModernSettingsWindow:
 • AI 설정 적용 방식: 기본값은 "사용자 최종확인"이며 법적/운영 리스크 최소화에 유리합니다
 • 어시스턴트 대화로도 모델 변경/티어 조정 요청이 가능합니다(2단계 확인 또는 자동적용 정책 적용)
 • API 키: OpenAI에서 발급받은 API 키를 입력하세요
+• ChatGPT 유료(Plus/Team)와 OpenAI API 과금은 별개입니다
 • OpenAI 호환 Base URL(선택): OpenAI 기본 엔드포인트 대신 DeepSeek/OpenRouter/Ollama 등 호환 API를 사용할 때 입력합니다
+• AI 설정 도우미: '키 발급' 도구가 아니라 키 발급 후 모델/적용정책을 도와주는 기능입니다
 • 음성 기능(STT/TTS)은 선택 기능이며 기본값은 비활성입니다"""
 
         info_label = ctk.CTkLabel(
@@ -2169,6 +2266,266 @@ class ModernSettingsWindow:
         except Exception as e:
             messagebox.showerror("초기 설정 가이드", f"온보딩 시작 중 오류가 발생했습니다.\n\n오류: {e}")
 
+    def _show_beginner_mode_guide(self):
+        """초보자용 3단계 통합 안내를 단계형 모달로 보여준다."""
+        try:
+            steps = [
+                {
+                    'title': '1단계: OpenAI 연결',
+                    'body': (
+                        "- OpenAI API 키를 발급해 앱에 입력합니다.\n"
+                        "- 초보 권장 모델: gpt-4o-mini\n"
+                        "- 결제 한도 권장: Hard 10~20달러 / Soft 5달러\n"
+                        "- ChatGPT 구독과 OpenAI API 과금은 별개입니다."
+                    ),
+                    'action_text': 'OpenAI 발급 안내 열기',
+                    'action': lambda: self._show_api_key_help_dialog(kind='openai'),
+                },
+                {
+                    'title': '2단계: 거래소 API 연결',
+                    'body': (
+                        "- 거래소별 API Key/Secret을 공식 페이지에서 직접 발급합니다.\n"
+                        "- 처음에는 출금 권한 OFF, 읽기/거래 권한만 권장합니다.\n"
+                        "- 어려우면 실거래 전 mock/점검 경로를 먼저 확인하세요."
+                    ),
+                    'action_text': '거래소 발급 경로 열기',
+                    'action': self._show_exchange_provider_links_dialog,
+                },
+                {
+                    'title': '3단계: 증권사 연결(선택)',
+                    'body': (
+                        "- 키움/신한/미래에셋/한국투자 중 실제 사용하는 곳만 설정합니다.\n"
+                        "- mock/점검 경로로 먼저 확인 후 실연결로 전환합니다.\n"
+                        "- 마지막에만 실주문 허용 ON으로 바꾸세요."
+                    ),
+                    'action_text': '바로 점검 시작',
+                    'action': self._on_click_stock_broker_connection_checklist,
+                },
+            ]
+
+            dialog = ctk.CTkToplevel(self.root)
+            dialog.title('초보자 모드 (전체 3단계)')
+            dialog.geometry('720x520')
+            dialog.transient(self.root)
+            dialog.grab_set()
+
+            container = ctk.CTkFrame(dialog)
+            container.pack(fill='both', expand=True, padx=16, pady=16)
+
+            step_index = tk.IntVar(value=0)
+
+            title_label = ctk.CTkLabel(
+                container,
+                text='',
+                font=ctk.CTkFont(family='Segoe UI', size=22, weight='bold'),
+                text_color=self._color('text_primary', '#f9fafb')
+            )
+            title_label.pack(anchor='w', padx=20, pady=(20, 8))
+
+            progress_label = ctk.CTkLabel(
+                container,
+                text='',
+                font=ctk.CTkFont(family='Segoe UI', size=12),
+                text_color=self._color('text_secondary', '#9ca3af')
+            )
+            progress_label.pack(anchor='w', padx=20, pady=(0, 8))
+
+            body_box = ctk.CTkTextbox(container, font=ctk.CTkFont(family='Segoe UI', size=13), wrap='word')
+            body_box.pack(fill='both', expand=True, padx=20, pady=(0, 12))
+
+            footer_label = ctk.CTkLabel(
+                container,
+                text='중요: AI는 절차를 안내할 수는 있지만 키/인증을 대신 발급할 수는 없습니다.',
+                font=ctk.CTkFont(family='Segoe UI', size=12),
+                text_color='#f59e0b',
+                justify='left'
+            )
+            footer_label.pack(anchor='w', padx=20, pady=(0, 12))
+
+            button_row = ctk.CTkFrame(container, fg_color='transparent')
+            button_row.pack(fill='x', padx=20, pady=(0, 20))
+
+            prev_button = ctk.CTkButton(button_row, text='이전', width=90)
+            prev_button.pack(side='left')
+
+            next_button = ctk.CTkButton(button_row, text='다음', width=90)
+            next_button.pack(side='left', padx=(8, 0))
+
+            action_button = ctk.CTkButton(
+                button_row,
+                text='',
+                width=190,
+                fg_color=self._color('secondary', '#334155'),
+                hover_color=self._hover_from(self._color('secondary', '#334155')),
+            )
+            action_button.pack(side='left', padx=(16, 0))
+
+            ctk.CTkButton(button_row, text='닫기', width=100, command=dialog.destroy).pack(side='right')
+
+            def render_step():
+                index = step_index.get()
+                current_step = steps[index]
+                title_label.configure(text=current_step['title'])
+                progress_label.configure(text=f'단계 {index + 1} / {len(steps)}')
+                body_box.configure(state='normal')
+                body_box.delete('1.0', 'end')
+                body_box.insert(
+                    '1.0',
+                    '이 안내는 aitrading.exe 사용자 기준입니다.\n'
+                    '개발 문서를 몰라도 순서대로 따라 하면 됩니다.\n\n'
+                    + current_step['body']
+                )
+                body_box.configure(state='disabled')
+                action_button.configure(text=current_step['action_text'], command=current_step['action'])
+                prev_button.configure(state='normal' if index > 0 else 'disabled')
+                next_button.configure(text='완료' if index == len(steps) - 1 else '다음')
+
+            def go_prev():
+                if step_index.get() > 0:
+                    step_index.set(step_index.get() - 1)
+                    render_step()
+
+            def go_next():
+                if step_index.get() >= len(steps) - 1:
+                    dialog.destroy()
+                    return
+                step_index.set(step_index.get() + 1)
+                render_step()
+
+            prev_button.configure(command=go_prev)
+            next_button.configure(command=go_next)
+            render_step()
+        except Exception as exc:
+            messagebox.showerror('초보자 모드', f'초보자 안내를 표시하지 못했습니다.\n\n오류: {exc}')
+
+    def _show_exchange_provider_links_dialog(self):
+        """거래소 공식 API 발급 페이지를 버튼으로 안내한다."""
+        providers = [
+            ('Binance', 'https://www.binance.com/en/my/settings/api-management'),
+            ('Bybit', 'https://www.bybit.com/app/user/api-management'),
+            ('OKX', 'https://www.okx.com/account/my-api'),
+            ('Bitget', 'https://www.bitget.com/account/newapi'),
+            ('Upbit', 'https://upbit.com/mypage/open_api_management'),
+            ('Bithumb', 'https://www.bithumb.com/myapi_management'),
+        ]
+        try:
+            dialog = ctk.CTkToplevel(self.root)
+            dialog.title('거래소 공식 발급 바로가기')
+            dialog.geometry('560x420')
+            dialog.transient(self.root)
+            dialog.grab_set()
+
+            frame = ctk.CTkFrame(dialog)
+            frame.pack(fill='both', expand=True, padx=16, pady=16)
+
+            ctk.CTkLabel(
+                frame,
+                text='거래소 공식 API 발급 바로가기',
+                font=ctk.CTkFont(family='Segoe UI', size=20, weight='bold'),
+                text_color=self._color('text_primary', '#f9fafb')
+            ).pack(anchor='w', padx=20, pady=(20, 8))
+
+            ctk.CTkLabel(
+                frame,
+                text='아래 버튼은 각 거래소의 공식 API 발급/관리 페이지를 브라우저에서 엽니다.\n로그인 상태와 지역/정책에 따라 화면 이름은 조금 다를 수 있습니다.',
+                font=ctk.CTkFont(family='Segoe UI', size=12),
+                text_color=self._color('text_secondary', '#9ca3af'),
+                justify='left'
+            ).pack(anchor='w', padx=20, pady=(0, 12))
+
+            list_frame = ctk.CTkScrollableFrame(frame)
+            list_frame.pack(fill='both', expand=True, padx=20, pady=(0, 12))
+
+            for provider_name, provider_url in providers:
+                row = ctk.CTkFrame(list_frame, fg_color='transparent')
+                row.pack(fill='x', pady=4)
+                ctk.CTkLabel(
+                    row,
+                    text=provider_name,
+                    font=ctk.CTkFont(family='Segoe UI', size=13, weight='bold'),
+                    text_color=self._color('text_primary', '#f9fafb')
+                ).pack(side='left')
+                ctk.CTkButton(
+                    row,
+                    text='공식 페이지 열기',
+                    width=120,
+                    fg_color=self._color('primary', '#2563eb'),
+                    hover_color='#1d4ed8',
+                    command=lambda url=provider_url, name=provider_name: self._open_external_url(url, name),
+                ).pack(side='right')
+
+            ctk.CTkButton(frame, text='닫기', width=100, command=dialog.destroy).pack(anchor='e', padx=20, pady=(0, 20))
+        except Exception as exc:
+            messagebox.showerror('거래소 발급 경로', f'거래소 발급 경로 안내를 표시하지 못했습니다.\n\n오류: {exc}')
+
+    def _open_external_url(self, url: str, provider_name: str):
+        """공식 외부 URL을 브라우저에서 연다."""
+        try:
+            webbrowser.open(url)
+        except Exception as exc:
+            messagebox.showerror(
+                '브라우저 열기 실패',
+                f'{provider_name} 공식 페이지를 열지 못했습니다.\n\n주소: {url}\n오류: {exc}'
+            )
+
+    def _show_stock_broker_provider_links_dialog(self):
+        """증권사 공식 발급/안내 페이지를 버튼으로 안내한다."""
+        providers = [
+            ('키움증권', 'https://www1.kiwoom.com'),
+            ('신한증권', 'https://www.shinhansec.com'),
+            ('미래에셋증권', 'https://securities.miraeasset.com'),
+            ('한국투자증권', 'https://securities.koreainvestment.com'),
+        ]
+        try:
+            dialog = ctk.CTkToplevel(self.root)
+            dialog.title('증권사 공식 발급 바로가기')
+            dialog.geometry('560x380')
+            dialog.transient(self.root)
+            dialog.grab_set()
+
+            frame = ctk.CTkFrame(dialog)
+            frame.pack(fill='both', expand=True, padx=16, pady=16)
+
+            ctk.CTkLabel(
+                frame,
+                text='증권사 공식 발급/안내 바로가기',
+                font=ctk.CTkFont(family='Segoe UI', size=20, weight='bold'),
+                text_color=self._color('text_primary', '#f9fafb')
+            ).pack(anchor='w', padx=20, pady=(20, 8))
+
+            ctk.CTkLabel(
+                frame,
+                text='브로커별 OpenAPI/개발자/안내 페이지는 정책에 따라 수시 변경될 수 있으므로, 우선 공식 메인/안내 경로를 엽니다.\n로그인 후 OpenAPI, 개발자센터, API, OpenAPI+ 메뉴를 찾으면 됩니다.',
+                font=ctk.CTkFont(family='Segoe UI', size=12),
+                text_color=self._color('text_secondary', '#9ca3af'),
+                justify='left'
+            ).pack(anchor='w', padx=20, pady=(0, 12))
+
+            list_frame = ctk.CTkScrollableFrame(frame)
+            list_frame.pack(fill='both', expand=True, padx=20, pady=(0, 12))
+
+            for provider_name, provider_url in providers:
+                row = ctk.CTkFrame(list_frame, fg_color='transparent')
+                row.pack(fill='x', pady=4)
+                ctk.CTkLabel(
+                    row,
+                    text=provider_name,
+                    font=ctk.CTkFont(family='Segoe UI', size=13, weight='bold'),
+                    text_color=self._color('text_primary', '#f9fafb')
+                ).pack(side='left')
+                ctk.CTkButton(
+                    row,
+                    text='공식 페이지 열기',
+                    width=120,
+                    fg_color=self._color('primary', '#2563eb'),
+                    hover_color='#1d4ed8',
+                    command=lambda url=provider_url, name=provider_name: self._open_external_url(url, name),
+                ).pack(side='right')
+
+            ctk.CTkButton(frame, text='닫기', width=100, command=dialog.destroy).pack(anchor='e', padx=20, pady=(0, 20))
+        except Exception as exc:
+            messagebox.showerror('증권사 발급 경로', f'증권사 발급 경로 안내를 표시하지 못했습니다.\n\n오류: {exc}')
+
     def _show_api_key_help_dialog(self, kind: str = 'openai'):
         """API 키 발급 경로와 AI 설정 도우미 위치를 짧게 안내한다."""
         try:
@@ -2176,14 +2533,33 @@ class ModernSettingsWindow:
                 messagebox.showinfo(
                     "OpenAI 키 발급 안내",
                     (
-                        "OpenAI 키는 앱에서 자동 발급되지 않습니다.\n"
-                        "사용자가 OpenAI 콘솔에서 발급 후 이 화면에 붙여넣어야 합니다.\n\n"
-                        "권장 순서\n"
-                        "1) OpenAI 플랫폼에서 API 키 생성\n"
-                        "2) 이 탭의 'OpenAI API Key' 입력\n"
-                        "3) 필요하면 'OpenAI 호환 Base URL' 입력(DeepSeek/OpenRouter/Ollama 등)\n"
-                        "4) 'AI 설정 도우미 시작' 또는 'AI로 초기 설정하기(5문항)' 실행\n"
-                        "5) 하단 '저장' 클릭"
+                        "초심자용 OpenAI API 키 발급/입력 순서\n\n"
+                        "[중요]\n"
+                        "- ChatGPT 유료 구독(Plus/Team)과 OpenAI API 과금은 별개입니다.\n"
+                        "- 이 앱은 OpenAI API 키가 필요합니다.\n\n"
+                        "1) OpenAI 계정 만들기\n"
+                        "   - https://platform.openai.com 에서 회원가입/로그인\n"
+                        "2) 결제수단 + 사용한도 먼저 설정\n"
+                        "   - Billing에서 카드/결제수단 등록\n"
+                        "   - 권장: 월 Hard Limit 10~20달러, Soft Limit 5달러\n"
+                        "   - 초보자는 작은 한도부터 시작 후 사용량 보고 상향\n"
+                        "3) API 키 생성\n"
+                        "   - API Keys 메뉴에서 'Create new secret key'\n"
+                        "   - 키 이름(Name): 예) NoahAI-Desktop (구분용)\n"
+                        "   - 생성 직후 키를 복사(다시 전체 조회 불가)\n"
+                        "   - 참고: 보통 선충전 없이 사용 가능하며, 정책상 소액 결제 인증이 필요할 수 있습니다\n"
+                        "4) 앱에 붙여넣기\n"
+                        "   - 설정 > OpenAI API > OpenAI API Key에 붙여넣기\n"
+                        "5) Base URL은 보통 비워두기\n"
+                        "   - OpenAI 공식 API면 비워둡니다\n"
+                        "   - DeepSeek/OpenRouter/Ollama 같은 호환 API일 때만 입력\n"
+                        "6) 모델/프리셋 선택\n"
+                        "   - 초보 기본 권장: gpt-4o-mini + 균형형 프리셋\n"
+                        "7) 저장 후 테스트\n"
+                        "   - AI 어시스턴트에서 간단 질문으로 연결 확인\n\n"
+                        "참고 1) 'AI 설정 도우미 시작'은 키 발급 기능이 아니라\n"
+                        "키 입력 이후 모델/적용방식 최적화를 도와주는 기능입니다.\n"
+                        "참고 2) 앱 내부 안내 팝업: 'OpenAI/호환 API 사용자 안내' 버튼"
                     ),
                 )
                 return
@@ -2192,14 +2568,26 @@ class ModernSettingsWindow:
                 messagebox.showinfo(
                     "거래소 API 키 발급 안내",
                     (
-                        "거래소 API 키도 앱에서 자동 발급되지 않습니다.\n"
-                        "각 거래소 웹/앱에서 발급한 Key/Secret을 이 탭에 입력해야 합니다.\n\n"
-                        "권장 순서\n"
-                        "1) 거래소에서 API Key/Secret 발급\n"
-                        "2) 이 탭에 거래소별 입력\n"
-                        "3) 설정 저장\n"
-                        "4) '거래소 선택' 탭에서 사용할 거래소 활성화\n"
-                        "5) 대시보드에서 거래소별 '시작' 버튼으로 개별 진단/시작"
+                        "거래소 API 키는 앱에서 자동 발급되지 않습니다.\n"
+                        "각 거래소 공식 페이지에서 발급 후 입력해야 합니다.\n\n"
+                        "거래소별 발급 경로(요약)\n"
+                        "- Binance: API Management\n"
+                        "- Bybit: API Management\n"
+                        "- OKX: API Key Management\n"
+                        "- Bitget: API Key\n"
+                        "- Upbit: Open API 관리\n"
+                        "- Bithumb: API 관리\n\n"
+                        "초보자 안전 설정\n"
+                        "1) 읽기/거래 권한만 ON, 출금 권한은 반드시 OFF\n"
+                        "2) 허용 IP를 사용할 수 있으면 등록 권장\n"
+                        "3) Secret은 발급 직후 복사(재조회 제한)\n"
+                        "4) 앱 입력 후 저장 -> 거래소 선택 탭에서 활성화\n"
+                        "5) 대시보드에서 거래소별 '시작'으로 연결 검증\n\n"
+                        "대안책\n"
+                        "- 발급이 어렵거나 불안하면 실거래 전 mock/점검 경로로 먼저 검증하세요.\n"
+                        "- AI는 발급 절차를 설명할 수 있지만 키를 대신 발급해주지는 못합니다.\n\n"
+                        "추가 기능\n"
+                        "- '거래소 공식 발급 바로가기' 버튼에서 거래소별 공식 페이지를 열 수 있습니다."
                     ),
                 )
                 return
@@ -2247,6 +2635,14 @@ class ModernSettingsWindow:
                 "중요\n"
                 "- 키움 실연결은 Windows 전용입니다.\n"
                 "- 사용자는 배포 클라이언트 안에서 이해할 수 있어야 하므로, 이 화면과 사용자 매뉴얼의 설명이 정본입니다."
+                "\n\n증권사별 발급/연결 경로(요약)\n"
+                "- 키움: OpenAPI+ 신청/설치 -> HTS/KOA 로그인 확인 후 앱 입력\n"
+                "- 신한/미래에셋/한국투자: 브로커 API 신청(개발자/오픈API 페이지) -> 발급 정보 앱 입력\n"
+                "- 공통: 발급이 지연되면 mock/점검 경로로 먼저 UI/전략 동작 검증\n"
+                "- '증권사 공식 발급 바로가기' 버튼으로 공식 안내 페이지를 바로 열 수 있습니다.\n"
+                "\nAI 안내 관련\n"
+                "- AI는 발급 절차 설명/체크리스트 제공은 가능하지만\n"
+                "  증권사 인증/발급 자체를 대신 처리할 수는 없습니다."
             ),
         )
 
@@ -2600,6 +2996,26 @@ class ModernSettingsWindow:
             fg_color=self._color("secondary", "#4b5563"),
             hover_color=self._hover_from(self._color("secondary", "#4b5563")),
             command=lambda: self._show_api_key_help_dialog(kind='assistant_path'),
+        ).pack(side="left", padx=6)
+
+        ctk.CTkButton(
+            exchange_help_row,
+            text="초보자 모드(전체 3단계)",
+            width=190,
+            height=32,
+            fg_color=self._color("secondary", "#1f2937"),
+            hover_color=self._hover_from(self._color("secondary", "#1f2937")),
+            command=self._show_beginner_mode_guide,
+        ).pack(side="left", padx=6)
+
+        ctk.CTkButton(
+            exchange_help_row,
+            text="거래소 공식 발급 바로가기",
+            width=200,
+            height=32,
+            fg_color=self._color("secondary", "#0f766e"),
+            hover_color=self._hover_from(self._color("secondary", "#0f766e")),
+            command=self._show_exchange_provider_links_dialog,
         ).pack(side="left", padx=6)
 
         # 바이낸스 API 설정
@@ -3145,6 +3561,16 @@ class ModernSettingsWindow:
             text_color=self._color("text_primary", "#f9fafb"),
             hover_color=self._hover_from(self._color("secondary", "#334155")),
             command=self._show_stock_broker_usage_help_dialog,
+        ).pack(side="right", padx=(0, 8), pady=8)
+
+        ctk.CTkButton(
+            broker_guide_row,
+            text="증권사 공식 발급 바로가기",
+            height=30,
+            fg_color=self._color("secondary", "#0f766e"),
+            text_color=self._color("text_primary", "#f9fafb"),
+            hover_color=self._hover_from(self._color("secondary", "#0f766e")),
+            command=self._show_stock_broker_provider_links_dialog,
         ).pack(side="right", padx=(0, 8), pady=8)
 
         ctk.CTkButton(
@@ -4927,16 +5353,16 @@ class ModernSettingsWindow:
 
             # OpenAI 모델 설정
             openai_model = self.current_settings.get('openai_model', 'gpt-4o-mini')
-            if openai_model in ["gpt-3.5-turbo", "gpt-4o-mini", "gpt-4o", "gpt-4-turbo", "gpt-5"]:
+            if openai_model in ["gpt-4o-mini", "gpt-4o", "gpt-4.1-mini", "gpt-4.1", "gpt-5-mini", "gpt-5"]:
                 self.openai_model_combo.set(openai_model)
 
             assistant_model = self.current_settings.get('assistant_ai_model', 'gpt-4o-mini')
-            if assistant_model in ["gpt-3.5-turbo", "gpt-4o-mini", "gpt-4o", "gpt-4-turbo", "gpt-5"]:
+            if assistant_model in ["gpt-4o-mini", "gpt-4o", "gpt-4.1-mini", "gpt-4.1", "gpt-5-mini", "gpt-5"]:
                 self.assistant_ai_model_combo.set(assistant_model)
 
             # 역할별 모델 티어 복원
             _ai_roles = self.current_settings.get('ai_model_roles', {})
-            _tier_allowed = ["gpt-3.5-turbo", "gpt-4o-mini", "gpt-4o", "gpt-4-turbo", "gpt-5"]
+            _tier_allowed = ["gpt-4o-mini", "gpt-4o", "gpt-4.1-mini", "gpt-4.1", "gpt-5-mini", "gpt-5"]
             if hasattr(self, 'ai_role_cheap_combo'):
                 v = _ai_roles.get('frequent_cheap', 'gpt-4o-mini')
                 self.ai_role_cheap_combo.set(v if v in _tier_allowed else 'gpt-4o-mini')
@@ -5461,40 +5887,33 @@ class ModernSettingsWindow:
             command=self._open_stock_broker_connection_checklist,
         ).pack(side="left", padx=(8, 0))
 
-        # 새로운 기능 섹션
-        new_features_group = ctk.CTkFrame(scroll_frame)
-        new_features_group.pack(fill="x", pady=(0, 20))
+        # 변경 이력 단일화 섹션
+        changelog_group = ctk.CTkFrame(scroll_frame)
+        changelog_group.pack(fill="x", pady=(0, 20))
 
-        features_title = ctk.CTkLabel(
-            new_features_group,
-            text="✨ v3.8.9.23 최신 변경",
+        changelog_title = ctk.CTkLabel(
+            changelog_group,
+            text="🗂️ 변경 이력 경로(단일화)",
             font=ctk.CTkFont(family="Segoe UI", size=16, weight="bold"),
             text_color=self._color("text_primary", "#f9fafb")
         )
-        features_title.pack(pady=(12, 8), padx=15, anchor="w")
+        changelog_title.pack(pady=(12, 8), padx=15, anchor="w")
 
-        # 새로운 기능 목록
-        features = [
-            "🤖 AI 기본 모델 fallback 정합화: gpt-4o-mini 기준 통일",
-            "🧩 Bybit/Bitget/OKX 포지션 파싱 안전화: marginType 누락 응답 방어",
-            "📉 빗썸 fetchMyTrades 미지원 경로: 주문내역 폴백 + 안내 로그 처리",
-            "🏦 한국투자증권/미래에셋 토큰 발급 보강: JSON + form-urlencoded 이중 시도",
-            "🔑 appkey/appsecret 및 appKey/appSecret 키 변형 동시 지원",
-            "🕒 시간 동기화 UTC-aware 통일: naive/aware 비교 오류 방지",
-            "🔄 설정 > 업데이트 탭에 GitHub 최신 버전 확인/릴리즈 열기 버튼 추가",
-            "🗂️ 변경 이력/버전/인앱 안내 동기화: 2026-06-26, v3.8.9.23",
-        ]
+        changelog_text = (
+            "중복 안내를 방지하기 위해 버전별 최신 변경 상세는 설정 탭에 중복 표기하지 않습니다.\n"
+            "공식 변경 이력은 대시보드 '사용자 매뉴얼 → 📅 업데이트' 탭에서만 단일 관리됩니다.\n"
+            "이 탭은 업데이트 확인/다운로드/적용과 런타임(Python·호환성) 점검 중심으로 유지됩니다."
+        )
 
-        for feature in features:
-            feature_label = ctk.CTkLabel(
-                new_features_group,
-                text=feature,
-                font=ctk.CTkFont(family="Segoe UI", size=12),
-                text_color="#d1d5db",
-                justify="left",
-                wraplength=700
-            )
-            feature_label.pack(anchor="w", padx=20, pady=3)
+        changelog_label = ctk.CTkLabel(
+            changelog_group,
+            text=changelog_text,
+            font=ctk.CTkFont(family="Segoe UI", size=12),
+            text_color="#d1d5db",
+            justify="left",
+            wraplength=700
+        )
+        changelog_label.pack(anchor="w", padx=20, pady=(0, 12))
 
         # 상세 정보 섹션
         more_info_group = ctk.CTkFrame(scroll_frame)

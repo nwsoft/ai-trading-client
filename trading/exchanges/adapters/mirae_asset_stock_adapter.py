@@ -61,6 +61,47 @@ class MiraeAssetStockAdapter(StockExchange):
             (295000, 295999),
         ]
 
+    def _broker_label(self) -> str:
+        return '한국투자증권' if self.exchange_name == 'koreaInvestment' else '미래에셋증권'
+
+    def _broker_key(self) -> str:
+        return 'koreaInvestment' if self.exchange_name == 'koreaInvestment' else 'miraeAsset'
+
+    def _response_to_dict(self, resp: Any, method: str, path: str) -> Dict[str, Any]:
+        """HTTP 응답을 안전하게 dict로 변환한다.
+
+        일부 게이트웨이는 200이어도 빈 본문/HTML을 반환할 수 있어 json() 예외를 방어한다.
+        """
+        if isinstance(resp, dict):
+            return resp
+        if not hasattr(resp, 'json'):
+            return {}
+        try:
+            data = resp.json()
+            return data if isinstance(data, dict) else {}
+        except Exception as exc:
+            status_code = getattr(resp, 'status_code', 'unknown')
+            content_type = ''
+            try:
+                headers = getattr(resp, 'headers', {}) or {}
+                content_type = str(headers.get('Content-Type') or headers.get('content-type') or '')
+            except Exception:
+                content_type = ''
+            body_snippet = ''
+            try:
+                body_snippet = (getattr(resp, 'text', '') or '').strip()[:180]
+            except Exception:
+                body_snippet = ''
+            self.log_event(
+                'system',
+                (
+                    f"{self._broker_label()} {method} {path} 응답 파싱 실패: {exc} "
+                    f"(status={status_code}, content_type={content_type or 'unknown'}, body={body_snippet or '(empty)'})"
+                ),
+                level='WARNING',
+            )
+            return {}
+
     # ------------------------------------------------------------------
     # 내부 헬퍼
     # ------------------------------------------------------------------
@@ -158,12 +199,10 @@ class MiraeAssetStockAdapter(StockExchange):
                     except Exception:
                         continue
 
-            broker_label = '한국투자증권' if self.exchange_name == 'koreaInvestment' else '미래에셋'
-            self.log_event('system', f'{broker_label} 토큰 발급 실패: {last_data}', level='ERROR')
+            self.log_event('system', f'{self._broker_label()} 토큰 발급 실패: {last_data}', level='ERROR')
             return False
         except Exception as exc:
-            broker_label = '한국투자증권' if self.exchange_name == 'koreaInvestment' else '미래에셋'
-            self.log_event('system', f'{broker_label} 토큰 요청 오류: {exc}', level='ERROR')
+            self.log_event('system', f'{self._broker_label()} 토큰 요청 오류: {exc}', level='ERROR')
             return False
 
     def _get(self, path: str, params: Optional[Dict] = None) -> Dict[str, Any]:
@@ -182,16 +221,16 @@ class MiraeAssetStockAdapter(StockExchange):
             # 401 Unauthorized → 토큰 갱신 후 1회 재시도
             status = getattr(resp, 'status_code', None)
             if status == 401:
-                self.log_event('system', f'미래에셋 GET {path} 401 → 토큰 갱신 후 재시도', level='WARNING')
+                self.log_event('system', f'{self._broker_label()} GET {path} 401 → 토큰 갱신 후 재시도', level='WARNING')
                 if self._refresh_token():
                     resp = http.get(
                         f'{self._base_url()}{path}',
                         params=params or {},
                         timeout=self.request_timeout,
                     )
-            return resp.json() if hasattr(resp, 'json') else (resp if isinstance(resp, dict) else {})
+            return self._response_to_dict(resp, method='GET', path=path)
         except Exception as exc:
-            self.log_event('system', f'미래에셋 GET {path} 오류: {exc}', level='ERROR')
+            self.log_event('system', f'{self._broker_label()} GET {path} 오류: {exc}', level='ERROR')
             return {}
 
     def _post(self, path: str, body: Optional[Dict] = None) -> Dict[str, Any]:
@@ -210,16 +249,16 @@ class MiraeAssetStockAdapter(StockExchange):
             )
             status = getattr(resp, 'status_code', None)
             if status == 401 and path not in ('/oauth2/token', '/oauth/token'):
-                self.log_event('system', f'미래에셋 POST {path} 401 → 토큰 갱신 후 재시도', level='WARNING')
+                self.log_event('system', f'{self._broker_label()} POST {path} 401 → 토큰 갱신 후 재시도', level='WARNING')
                 if self._refresh_token():
                     resp = http.post(
                         f'{self._base_url()}{path}',
                         json=body or {},
                         timeout=self.request_timeout,
                     )
-            return resp.json() if hasattr(resp, 'json') else (resp if isinstance(resp, dict) else {})
+            return self._response_to_dict(resp, method='POST', path=path)
         except Exception as exc:
-            self.log_event('system', f'미래에셋 POST {path} 오류: {exc}', level='ERROR')
+            self.log_event('system', f'{self._broker_label()} POST {path} 오류: {exc}', level='ERROR')
             return {}
 
     def _parse_position(self, item: Dict[str, Any]) -> Dict[str, Any]:
@@ -272,21 +311,21 @@ class MiraeAssetStockAdapter(StockExchange):
     def connect(self) -> bool:
         """미래에셋 Open Trading API 토큰 발급 및 연결."""
         try:
-            self.log_event('system', f'미래에셋증권 연결 시도 중... (type={self.api_type}, version={self.api_version})')
+            self.log_event('system', f'{self._broker_label()} 연결 시도 중... (type={self.api_type}, version={self.api_version})')
 
             if not (self.app_key and self.app_secret) and not (self.user_id and self.password):
-                self.log_event('system', '미래에셋증권 인증 정보가 설정되지 않음 — 연결 건너뜀')
+                self.log_event('system', f'{self._broker_label()} 인증 정보가 설정되지 않음 — 연결 건너뜀')
                 return False
 
             if self._http is not None and hasattr(self._http, '_mock_token'):
                 self._access_token = self._http._mock_token
                 self._token_expires_at = time.time() + 86400
                 self.is_connected = True
-                self.log_event('system', '미래에셋증권 연결 성공 (주입 backend)')
+                self.log_event('system', f'{self._broker_label()} 연결 성공 (주입 backend)')
                 return True
 
             if not self._ensure_token():
-                self.log_event('system', '미래에셋증권 토큰 발급 실패', level='ERROR')
+                self.log_event('system', f'{self._broker_label()} 토큰 발급 실패', level='ERROR')
                 return False
 
             if not self.account_no:
@@ -302,11 +341,11 @@ class MiraeAssetStockAdapter(StockExchange):
                     pass
 
             self.is_connected = True
-            self.log_event('system', f'미래에셋증권 연결 성공 (account: {self.account_no or "unknown"})')
+            self.log_event('system', f'{self._broker_label()} 연결 성공 (account: {self.account_no or "unknown"})')
             return True
 
         except Exception as e:
-            self.log_event('system', f'미래에셋증권 연결 실패: {e}', level='ERROR')
+            self.log_event('system', f'{self._broker_label()} 연결 실패: {e}', level='ERROR')
             return False
 
     def health_check(self) -> Dict[str, Any]:
@@ -373,7 +412,7 @@ class MiraeAssetStockAdapter(StockExchange):
                 })
             return results
         except Exception as e:
-            self.log_event('system', f'미래에셋 주식목록 조회 실패: {e}', level='ERROR')
+            self.log_event('system', f'{self._broker_label()} 주식목록 조회 실패: {e}', level='ERROR')
             return []
 
     def get_etf_list(self) -> List[Dict[str, Any]]:
@@ -405,7 +444,7 @@ class MiraeAssetStockAdapter(StockExchange):
                 })
             return results
         except Exception as e:
-            self.log_event('system', f'미래에셋 ETF목록 조회 실패: {e}', level='ERROR')
+            self.log_event('system', f'{self._broker_label()} ETF목록 조회 실패: {e}', level='ERROR')
             return []
 
     def is_etf(self, symbol: str) -> bool:
@@ -446,7 +485,7 @@ class MiraeAssetStockAdapter(StockExchange):
                 'status': 'ok',
             }
         except Exception as e:
-            self.log_event('system', f'미래에셋 종목정보 조회 실패: {symbol} - {e}', level='ERROR')
+            self.log_event('system', f'{self._broker_label()} 종목정보 조회 실패: {symbol} - {e}', level='ERROR')
             return {'status': 'error', 'error': str(e)}
 
     def get_realtime_price(self, symbol: str) -> Dict[str, Any]:
@@ -476,7 +515,7 @@ class MiraeAssetStockAdapter(StockExchange):
                 'status': 'ok',
             }
         except Exception as e:
-            self.log_event('system', f'미래에셋 시세 조회 실패: {symbol} - {e}', level='ERROR')
+            self.log_event('system', f'{self._broker_label()} 시세 조회 실패: {symbol} - {e}', level='ERROR')
             return {'status': 'error', 'error': str(e)}
 
     def get_etf_realtime_metrics(self, symbol: str) -> Dict[str, Any]:
@@ -512,7 +551,7 @@ class MiraeAssetStockAdapter(StockExchange):
                 'status': 'ok',
             }
         except Exception as e:
-            self.log_event('system', f'미래에셋 ETF 실시간 지표 조회 실패: {symbol} - {e}', level='ERROR')
+            self.log_event('system', f'{self._broker_label()} ETF 실시간 지표 조회 실패: {symbol} - {e}', level='ERROR')
             return {'status': 'error', 'error': str(e)}
 
     def _to_float_or_none(self, value) -> 'Optional[float]':
@@ -529,7 +568,7 @@ class MiraeAssetStockAdapter(StockExchange):
             'status': 'ok',
             'account_no': self.account_no,
             'user_id': self.user_id,
-            'broker': 'miraeAsset',
+            'broker': self._broker_key(),
             'api_type': self.api_type,
             'api_version': self.api_version,
         }
@@ -569,7 +608,7 @@ class MiraeAssetStockAdapter(StockExchange):
                 'status': 'ok',
             }
         except Exception as e:
-            self.log_event('system', f'미래에셋 잔고 조회 실패: {e}', level='ERROR')
+            self.log_event('system', f'{self._broker_label()} 잔고 조회 실패: {e}', level='ERROR')
             return {'status': 'error', 'error': str(e)}
 
     def get_positions(self) -> List[Dict[str, Any]]:
@@ -593,7 +632,7 @@ class MiraeAssetStockAdapter(StockExchange):
                 if self._to_int(item.get('hldg_qty') or item.get('quantity')) > 0
             ]
         except Exception as e:
-            self.log_event('system', f'미래에셋 보유종목 조회 실패: {e}', level='ERROR')
+            self.log_event('system', f'{self._broker_label()} 보유종목 조회 실패: {e}', level='ERROR')
             return []
 
     def place_order(self, symbol: str, side: str, quantity: float,
@@ -639,7 +678,7 @@ class MiraeAssetStockAdapter(StockExchange):
                 'quantity': qty,
                 'price': float(order_price),
                 'order_type': order_type_upper,
-                'broker': 'miraeAsset',
+                'broker': self._broker_key(),
                 'api_type': self.api_type,
                 'api_version': self.api_version,
                 'execution_mode': 'live_api',
@@ -648,11 +687,11 @@ class MiraeAssetStockAdapter(StockExchange):
                 'error': None if success else resp.get('msg1') or 'order_failed',
             }
         except Exception as e:
-            self.log_event('system', f'미래에셋 주문 실패: {symbol} - {e}', level='ERROR')
+            self.log_event('system', f'{self._broker_label()} 주문 실패: {symbol} - {e}', level='ERROR')
             return {
                 'status': 'error',
                 'error': str(e),
-                'broker': 'miraeAsset',
+                'broker': self._broker_key(),
                 'api_type': self.api_type,
                 'api_version': self.api_version,
                 'execution_mode': 'live_api',
@@ -688,7 +727,7 @@ class MiraeAssetStockAdapter(StockExchange):
             rt_cd = str(resp.get('rt_cd') or '0')
             return rt_cd in ('0', '00', '')
         except Exception as e:
-            self.log_event('system', f'미래에셋 주문 취소 실패: {order_id} - {e}', level='ERROR')
+            self.log_event('system', f'{self._broker_label()} 주문 취소 실패: {order_id} - {e}', level='ERROR')
             return False
 
     def get_open_orders(self, symbol: Optional[str] = None) -> List[Dict[str, Any]]:
@@ -710,7 +749,7 @@ class MiraeAssetStockAdapter(StockExchange):
             items = data.get('output') or []
             return [self._parse_order(item) for item in items]
         except Exception as e:
-            self.log_event('system', f'미래에셋 미체결 조회 실패: {e}', level='ERROR')
+            self.log_event('system', f'{self._broker_label()} 미체결 조회 실패: {e}', level='ERROR')
             return []
 
     def get_trade_history(self, symbol: Optional[str] = None, limit: int = 100) -> List[Dict[str, Any]]:
@@ -736,7 +775,7 @@ class MiraeAssetStockAdapter(StockExchange):
             ]
             return trades[:limit]
         except Exception as e:
-            self.log_event('system', f'미래에셋 거래내역 조회 실패: {e}', level='ERROR')
+            self.log_event('system', f'{self._broker_label()} 거래내역 조회 실패: {e}', level='ERROR')
             return []
 
     def get_24h_ticker(self, symbol: str) -> Dict[str, Any]:
@@ -750,7 +789,7 @@ class MiraeAssetStockAdapter(StockExchange):
         buy_count = sum(1 for t in history if 'BUY' in str(t.get('side', '')).upper())
         sell_count = sum(1 for t in history if 'SELL' in str(t.get('side', '')).upper())
         return {
-            'broker': 'miraeAsset',
+            'broker': self._broker_key(),
             'total_trades': len(history),
             'buy_count': buy_count,
             'sell_count': sell_count,

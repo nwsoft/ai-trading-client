@@ -131,6 +131,10 @@ class Trader:
         # 기본 settings 적용
         self.settings = settings or {}
         self.main_app = main_app
+        self.strategy_customizer = None
+        self.ai_trading_chatbot = None
+        self._runtime_profile_applied = None
+        self._learning_manager = None
 
         # TP/SL 매니저 초기화 (역할 분리 1단계)
         try:
@@ -244,6 +248,70 @@ class Trader:
         except Exception as e:
             self.log_event('system', f"⚠️ TP/SL watchdog 백업 경로 설정 실패: {e}", level='WARNING')
             self.tp_sl_watchdog_backup_path = None
+
+    def configure_strategy_runtime(self, strategy_customizer: Any = None, ai_trading_chatbot: Any = None):
+        """미연결 전략 모듈을 런타임 거래 루프에 연결한다."""
+        self.strategy_customizer = strategy_customizer
+        self.ai_trading_chatbot = ai_trading_chatbot
+
+    def update_runtime_strategy_settings(self, new_settings: Dict):
+        """전략 런타임 오버라이드 전용 설정 업데이트(재초기화 없음)."""
+        if not isinstance(new_settings, dict) or not new_settings:
+            return
+        self.settings.update(new_settings)
+        self.log_event('settings', f"전략 런타임 설정 업데이트: {new_settings}")
+
+    def _apply_connected_strategy_runtime(self):
+        """연결된 StrategyCustomizer/AITradingChatbot을 실제 거래 루프에 반영."""
+        try:
+            profile = str(self.settings.get('strategy_runtime_profile', 'balanced') or 'balanced').strip().lower()
+            mode = str(self.settings.get('strategy_runtime_mode', 'adaptive') or 'adaptive').strip().lower()
+
+            if self.ai_trading_chatbot and self._runtime_profile_applied != profile:
+                if profile in getattr(self.ai_trading_chatbot, 'strategy_presets', {}):
+                    self.ai_trading_chatbot.apply_strategy_changes({
+                        'type': 'strategy_change',
+                        'parameters': self.ai_trading_chatbot.strategy_presets[profile].parameters,
+                    })
+                    self._runtime_profile_applied = profile
+                    self.log_event('strategy', f"전략 프로파일 적용: {profile}")
+
+            if mode == 'adaptive' and self.strategy_customizer:
+                market_regime = 'NORMAL'
+                try:
+                    market_regime = str(self._analyze_market_regime_binance_fast() or 'NORMAL').upper()
+                except Exception:
+                    market_regime = 'NORMAL'
+
+                performance = {
+                    'recent_win_rate': 0.5,
+                    'consecutive_losses': int(getattr(self.risk_manager, 'consecutive_losses', 0) or 0),
+                }
+                try:
+                    if self.recorder and hasattr(self.recorder, 'get_recent_trades'):
+                        rows = self.recorder.get_recent_trades(coin='', exchange='binance', days=14) or []
+                        if isinstance(rows, list) and rows:
+                            wins = 0
+                            total = 0
+                            for row in rows[-30:]:
+                                if isinstance(row, dict):
+                                    pnl = float(row.get('pnl_percent', row.get('pnl', 0.0)) or 0.0)
+                                    total += 1
+                                    if pnl > 0:
+                                        wins += 1
+                            if total > 0:
+                                performance['recent_win_rate'] = wins / total
+                except Exception:
+                    pass
+
+                applied_market = self.strategy_customizer.apply_dynamic_adjustment('market_condition', {'market_condition': market_regime})
+                applied_perf = self.strategy_customizer.apply_dynamic_adjustment('performance_based', {'performance': performance})
+                if applied_market or applied_perf:
+                    self.log_event('strategy', f"adaptive 조정 적용: market={applied_market}, perf={applied_perf}, regime={market_regime}, win_rate={performance.get('recent_win_rate', 0.0):.2f}")
+                else:
+                    self.log_event('strategy', "adaptive 조정 스킵: 활성 전략 또는 조정 조건 미충족", level='DEBUG')
+        except Exception as e:
+            self.log_event('strategy', f"전략 런타임 반영 오류: {e}", level='WARNING')
 
     def _net_pnl_percent(self, raw_pnl_percent: float, leverage: int) -> float:
         """실질 수익률 계산 (수수료 + 슬리피지 차감)"""
@@ -1580,6 +1648,7 @@ class Trader:
 
             # 🤖 AI 자동 학습: 거래 성과에 따라 신호 기준 조절
             self._auto_adjust_threshold_from_performance()
+            self._apply_connected_strategy_runtime()
 
             layer_settings = self._get_advanced_layers_settings_binance()
             recent_trades = self._get_recent_trade_samples_binance(days=45, limit=300)
@@ -1778,17 +1847,17 @@ class Trader:
                         self.logger.info(f"📊 {symbol} 실시간 거래 신호 분석 중...")
 
                         # 포지션 진입 직전에 거래 신호 생성
-                        self.log_event('analysis', f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━", exchange='binance')
-                        self.log_event('analysis', f"📊 {symbol} 분석 시작", exchange='binance')
+                        self._log_trade_event('analysis', f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━", exchange='binance', verbose_only=True)
+                        self._log_trade_event('analysis', f"📊 {symbol} 분석 시작", exchange='binance', verbose_only=True)
 
-                        self.logger.info(f"🔍 {symbol} 신호 생성 시작...")
-                        self.logger.info(f"🔍 {symbol} analyzer 객체 확인: {hasattr(self, 'analyzer')}")
+                        self._log_trade_event('analysis', f"🔍 {symbol} 신호 생성 시작...", verbose_only=True)
+                        self._log_trade_event('analysis', f"🔍 {symbol} analyzer 객체 확인: {hasattr(self, 'analyzer')}", verbose_only=True)
                         if hasattr(self, 'analyzer'):
-                            self.logger.info(f"🔍 {symbol} analyzer 타입: {type(self.analyzer)}")
+                            self._log_trade_event('analysis', f"🔍 {symbol} analyzer 타입: {type(self.analyzer)}", verbose_only=True)
 
                         try:
                             signal_data = self.analyzer.generate_trading_signal(symbol)
-                            self.logger.info(f"✅ {symbol} 신호 생성 성공: {signal_data}")
+                            self._log_trade_event('analysis', f"✅ {symbol} 신호 생성 성공: {signal_data}", verbose_only=True)
                         except Exception as e:
                             self.logger.error(f"❌ {symbol} 신호 생성 실패: {str(e)}")
                             import traceback
@@ -1800,28 +1869,28 @@ class Trader:
                         confidence = signal_data.get('confidence', 0)
                         reason = signal_data.get('reason', '')
 
-                        self.logger.info(f"🔍 {symbol} 신호 데이터 파싱 완료: signal={signal}, confidence={confidence}")
+                        self._log_trade_event('analysis', f"🔍 {symbol} 신호 데이터 파싱 완료: signal={signal}, confidence={confidence}", verbose_only=True)
 
                         # 🔥 상세 분석 과정 로깅 (통합 로그 시스템 사용)
-                        self.log_event('analysis', f"[{symbol}] 분석 과정 상세")
-                        self.log_event('analysis', f"   • 시그널: {signal}")
-                        self.log_event('analysis', f"   • 신뢰도: {confidence:.2f}")
+                        self._log_trade_event('analysis', f"[{symbol}] 분석 과정 상세", verbose_only=True)
+                        self._log_trade_event('analysis', f"   • 시그널: {signal}", verbose_only=True)
+                        self._log_trade_event('analysis', f"   • 신뢰도: {confidence:.2f}", verbose_only=True)
 
                         # 트렌드 정보
                         trend = signal_data.get('trend', 'UNKNOWN')
                         if trend:
                             trend_str = str(trend).split('.')[-1] if hasattr(trend, 'value') else str(trend)
-                            self.log_event('analysis', f"   • 트렌드: {trend_str}")
+                            self._log_trade_event('analysis', f"   • 트렌드: {trend_str}", verbose_only=True)
 
                         # 변동성 정보
                         volatility = signal_data.get('volatility', 0)
-                        self.log_event('analysis', f"   • 변동성: {volatility:.2f}%")
+                        self._log_trade_event('analysis', f"   • 변동성: {volatility:.2f}%", verbose_only=True)
 
                         # 지지/저항 레벨
                         support_level = signal_data.get('support_level', 0)
                         resistance_level = signal_data.get('resistance_level', 0)
-                        self.log_event('analysis', f"   • 지지 레벨: {support_level:.4f}")
-                        self.log_event('analysis', f"   • 저항 레벨: {resistance_level:.4f}")
+                        self._log_trade_event('analysis', f"   • 지지 레벨: {support_level:.4f}", verbose_only=True)
+                        self._log_trade_event('analysis', f"   • 저항 레벨: {resistance_level:.4f}", verbose_only=True)
 
                         # 기술적 지표들
                         rsi = signal_data.get('rsi', 0)
@@ -1830,18 +1899,18 @@ class Trader:
                         ma20 = signal_data.get('ma20', 0)
                         ma50 = signal_data.get('ma50', 0)
 
-                        self.log_event('analysis', f"   • RSI: {rsi:.2f}")
-                        self.log_event('analysis', f"   • MACD: {macd:.4f}")
-                        self.log_event('analysis', f"   • 볼린저밴드 위치: {bb_position:.2f}")
-                        self.log_event('analysis', f"   • 이동평균 20: {ma20:.4f}")
-                        self.log_event('analysis', f"   • 이동평균 50: {ma50:.4f}")
+                        self._log_trade_event('analysis', f"   • RSI: {rsi:.2f}", verbose_only=True)
+                        self._log_trade_event('analysis', f"   • MACD: {macd:.4f}", verbose_only=True)
+                        self._log_trade_event('analysis', f"   • 볼린저밴드 위치: {bb_position:.2f}", verbose_only=True)
+                        self._log_trade_event('analysis', f"   • 이동평균 20: {ma20:.4f}", verbose_only=True)
+                        self._log_trade_event('analysis', f"   • 이동평균 50: {ma50:.4f}", verbose_only=True)
 
                         # 추론 정보
                         if reason:
-                            self.log_event('analysis', f"   • 추론: {reason}")
+                            self._log_trade_event('analysis', f"   • 추론: {reason}", verbose_only=True)
 
                         self.log_event('analysis', f"📊 {symbol} 분석 완료 - 시그널: {signal}", exchange='binance')
-                        self.log_event('analysis', f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━", exchange='binance')
+                        self._log_trade_event('analysis', f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━", exchange='binance', verbose_only=True)
 
                         # 🤖 AI 학습 데이터 저장 (ExchangeLearningManager 사용 - CCXT 거래소와 동일)
                         self._generate_ai_learning_data('binance', symbol, signal_data)
@@ -1963,7 +2032,7 @@ class Trader:
                             if trade_result:
                                 self.log_event('trade', f"✅ {symbol} 포지션 진입 완료 - 모니터링 시작")
                             else:
-                                self.log_event('trade', f"❌ {symbol} 거래 실행 실패", level='WARNING')
+                                self.log_event('trade', f"⏭️ {symbol} 거래 미실행(후행 게이트 차단 또는 조건 미충족)")
                         else:
                             self.log_event('trade', f"⏸️ {symbol} 거래 조건 미충족 (신호: {signal}, 신뢰도: {confidence:.2f})")
                             # 대시보드 요약 로그 전송(HOLD 요약)
@@ -2137,9 +2206,9 @@ class Trader:
                             self.log_event('trade', f"[{symbol}] ✅ 거래 실행 성공 - results에 추가")
                             results.append(trade_result)
                         else:
-                            self.log_event('trade', f"[{symbol}] ❌ 거래 실행 실패 - execute_single_trade 반환값: {trade_result}")
+                            self.log_event('trade', f"[{symbol}] ⏭️ 거래 미실행 - execute_single_trade 반환값: {trade_result}")
                     else:
-                        self.log_event('trade', f"[{symbol}] ❌ 거래 실행 조건 미충족 - should_execute_trade 반환값: False")
+                        self.log_event('trade', f"[{symbol}] ⏭️ 거래 스킵 - should_execute_trade=False")
                 else:
                     self.log_event('trade', f"[{symbol}] ❌ trade_config 없음 - optimized_params에서 {symbol} 키 없음")
 
@@ -2148,9 +2217,8 @@ class Trader:
                 self.logger.info(f"✅ 포지션 진입 완료: {len(results)}개 포지션 생성")
                 return results
             else:
-                self.logger.warning("⚠️ 거래 실행 결과 없음")
-                self.logger.warning(f"🔍 candidates 수: {len(candidates)}")
-                self.logger.warning(f"🔍 optimized_params 키: {list(optimized_params.keys()) if optimized_params else 'None'}")
+                self.logger.info("⏭️ 거래 실행 결과 없음(조건 미충족/게이트 차단)")
+                self._log_trade_event('trade', f"no_fill summary: candidates={len(candidates)}, optimized_keys={list(optimized_params.keys()) if optimized_params else 'None'}", level='INFO', verbose_only=True)
                 return False
 
         except Exception as e:
@@ -3982,6 +4050,21 @@ class Trader:
 
             # 4. 🔥 동적 임계값 기반 최종 결정
             dynamic_thresholds = self._get_dynamic_entry_thresholds(symbol, market_conditions)
+            try:
+                base_snapshot = dynamic_thresholds.get('_base', {}) if isinstance(dynamic_thresholds, dict) else {}
+                source = dynamic_thresholds.get('_source', 'unknown') if isinstance(dynamic_thresholds, dict) else 'unknown'
+                self.log_event(
+                    'analysis',
+                    (
+                        f"[{symbol}] 학습 반영 임계값(before->after): "
+                        f"min_ai_confidence {base_snapshot.get('min_ai_confidence', 'N/A')} -> {dynamic_thresholds.get('min_ai_confidence', 'N/A')}, "
+                        f"max_loss_rate {base_snapshot.get('max_loss_rate', 'N/A')} -> {dynamic_thresholds.get('max_loss_rate', 'N/A')}, "
+                        f"min_trades_history {base_snapshot.get('min_trades_history', 'N/A')} -> {dynamic_thresholds.get('min_trades_history', 'N/A')} "
+                        f"(source={source})"
+                    )
+                )
+            except Exception:
+                pass
 
             # 동적 임계값 사용 (데이터 충분 여부와 무관하게 일관된 기준 적용)
             dynamic_confidence_threshold = self._calculate_dynamic_confidence_threshold(symbol, signal_data)
@@ -3997,8 +4080,12 @@ class Trader:
             is_first_coin_trade = coin_trades_count == 0  # 해당 코인 첫 거래 여부
             is_first_overall_trade = all_trades_count == 0  # 전체 첫 거래 여부
             
-            # 🔍 디버깅: 거래 이력 상태 로그
-            self.log_event('analysis', f"🔍 {symbol} 거래 이력 상태: 전체={all_trades_count}회, 코인={coin_trades_count}회, 첫전체거래={is_first_overall_trade}, 첫코인거래={is_first_coin_trade}")
+            # 🔍 디버깅: 거래 이력 상태 로그(기본 숨김)
+            self._log_trade_event(
+                'analysis',
+                f"🔍 {symbol} 거래 이력 상태: 전체={all_trades_count}회, 코인={coin_trades_count}회, 첫전체거래={is_first_overall_trade}, 첫코인거래={is_first_coin_trade}",
+                verbose_only=True,
+            )
 
             # 🔥 스마트한 점진적 학습 시스템: 전체 거래 이력 + 코인별 거래 이력에 따라 임계값 점진적 조정
             # AI가 이미 시그널 강도를 반영하여 AI 신뢰도를 조정하므로, AI 판단을 신뢰
@@ -4074,17 +4161,17 @@ class Trader:
                         ai_validation['confidence'] >= conservative_threshold
                     )
                     if pattern_analysis.get('used_defaults'):
-                        self.log_event('analysis', f"🔍 {symbol} 기본값 사용 - 손실률 무시, 신뢰도만 체크 (임계값: {conservative_threshold:.2f}, AI 신뢰도: {ai_validation['confidence']:.2f}, 시그널 신뢰도: {signal_data.get('confidence', 0.5):.2f})")
+                        self._log_trade_event('analysis', f"🔍 {symbol} 기본값 사용 - 손실률 무시, 신뢰도만 체크 (임계값: {conservative_threshold:.2f}, AI 신뢰도: {ai_validation['confidence']:.2f}, 시그널 신뢰도: {signal_data.get('confidence', 0.5):.2f})", verbose_only=True)
                     else:
-                        self.log_event('analysis', f"🔍 {symbol} 데이터 부족 - 완화된 임계값 적용 (임계값: {conservative_threshold:.2f}, 동적 임계값: {dynamic_confidence_threshold:.2f}, 시그널 신뢰도: {signal_data.get('confidence', 0.5):.2f})")
+                        self._log_trade_event('analysis', f"🔍 {symbol} 데이터 부족 - 완화된 임계값 적용 (임계값: {conservative_threshold:.2f}, 동적 임계값: {dynamic_confidence_threshold:.2f}, 시그널 신뢰도: {signal_data.get('confidence', 0.5):.2f})", verbose_only=True)
 
-            # 디버깅 로그 추가
-            self.log_event('analysis', f"🔍 {symbol} Pre-entry 분석 세부사항:")
-            self.log_event('analysis', f"  - 패턴 분석: {pattern_analysis}")
-            self.log_event('analysis', f"  - 시장 조건: {market_conditions}")
-            self.log_event('analysis', f"  - AI 검증: {ai_validation}")
-            self.log_event('analysis', f"  - 동적 임계값: {dynamic_thresholds}")
-            self.log_event('analysis', f"  - 최종 proceed: {proceed}")
+            # 디버깅 로그 추가(기본 숨김)
+            self._log_trade_event('analysis', f"🔍 {symbol} Pre-entry 분석 세부사항:", verbose_only=True)
+            self._log_trade_event('analysis', f"  - 패턴 분석: {pattern_analysis}", verbose_only=True)
+            self._log_trade_event('analysis', f"  - 시장 조건: {market_conditions}", verbose_only=True)
+            self._log_trade_event('analysis', f"  - AI 검증: {ai_validation}", verbose_only=True)
+            self._log_trade_event('analysis', f"  - 동적 임계값: {dynamic_thresholds}", verbose_only=True)
+            self._log_trade_event('analysis', f"  - 최종 proceed: {proceed}", verbose_only=True)
 
             reason = ai_validation.get('reasoning', '진입 조건 분석 완료')
             # 표본 부족/기본값 사용 주석 추가
@@ -4116,12 +4203,14 @@ class Trader:
                 else:
                     reason = f"AI 신뢰도 부족 ({ai_validation['confidence']:.1f})"
 
-            self.log_event('analysis', f"[{symbol}] 진입 전 분석 결과:")
-            self.log_event('analysis', f"  - 최근 손실률: {pattern_analysis['loss_rate']:.1f}%")
-            self.log_event('analysis', f"  - 거래 이력: {pattern_analysis['recent_trades']}회")
-            self.log_event('analysis', f"  - 변동성 적합: {market_conditions['volatility_suitable']}")
-            self.log_event('analysis', f"  - AI 신뢰도: {ai_validation['confidence']:.1f}")
-            self.log_event('analysis', f"  - 결정: {'진입 허용' if proceed else '진입 금지'} ({reason})")
+            self.log_event(
+                'analysis',
+                (
+                    f"[{symbol}] 진입 전 분석 결과: proceed={proceed}, "
+                    f"loss_rate={pattern_analysis['loss_rate']:.1f}%, trades={pattern_analysis['recent_trades']}, "
+                    f"vol_ok={market_conditions['volatility_suitable']}, ai_conf={ai_validation['confidence']:.2f}, reason={reason}"
+                )
+            )
 
             return {
                 'proceed': proceed,
@@ -5212,7 +5301,8 @@ class Trader:
                             entry_price=position.entry_price,
                             exit_price=current_price,
                             position_size=position.quantity * position.entry_price,
-                            holding_time=holding_time_ms
+                            holding_time=holding_time_ms,
+                            exchange='binance'
                         )
                         self.log_event('trade', f"[{symbol}] ✅ RiskManager 거래 이력 업데이트 완료: {trade_result}, PnL: {pnl_percent:.2f}%")
                     except Exception as rm_err:
@@ -5346,7 +5436,8 @@ class Trader:
                                         entry_price=position.entry_price,
                                         exit_price=current_price,
                                         position_size=position.quantity * position.entry_price,
-                                        holding_time=holding_time_ms
+                                        holding_time=holding_time_ms,
+                                        exchange='binance'
                                     )
                                     self.log_event('trade', f"[{symbol}] ✅ RiskManager 거래 이력 업데이트 완료 (포지션 확인 기반): {trade_result}, PnL: {pnl_percent:.2f}%")
                                 except Exception as rm_err:
@@ -6109,6 +6200,7 @@ Response in JSON format:
         """AI 학습 데이터 생성 (바이낸스용)"""
         try:
             # datetime, timezone은 이미 모듈 레벨에서 임포트되어 있음 (Line 13)
+            perf = self._collect_symbol_performance_snapshot(symbol=symbol, exchange_name=exchange_name)
 
             # 학습 데이터 생성
             learning_data = {
@@ -6124,13 +6216,18 @@ Response in JSON format:
                 'tp_percent': signal_data.get('tp_percent', 0.0),
                 'sl_percent': signal_data.get('sl_percent', 0.0),
                 'leverage': signal_data.get('leverage', 1.0),
-                'source': 'analyzer_cycle'
+                'source': 'analyzer_cycle',
+                'recent_win_rate': perf.get('recent_win_rate', 0.0),
+                'recent_loss_rate': perf.get('recent_loss_rate', 0.0),
+                'recent_trade_count': perf.get('recent_trade_count', 0),
             }
 
             # AI 학습 데이터 저장: 거래소별 학습 매니저로 직접 기록
             try:
                 from .exchange_learning_manager import ExchangeLearningManager
-                elm = ExchangeLearningManager(exchange_name)
+                if self._learning_manager is None:
+                    self._learning_manager = ExchangeLearningManager(exchange_name)
+                elm = self._learning_manager
                 elm.add_learning_data(learning_data)
             except Exception:
                 # 조용히 패스(학습 저장 실패가 거래 흐름을 막지 않도록)
@@ -6143,17 +6240,18 @@ Response in JSON format:
     def _get_dynamic_entry_thresholds(self, symbol: str, market_conditions: Dict) -> Dict:
         """시장 상황 기반 동적 진입 임계값 계산 (바이낸스용) - AI 학습 기반"""
         try:
-            # AI 학습 데이터 기반 임계값 계산
-            learned_thresholds = self._get_ai_learned_thresholds(symbol)
-            if learned_thresholds:
-                return learned_thresholds
-
-            # 기본 임계값 (AI 학습이 부족할 때 사용)
             base_thresholds = {
                 'max_loss_rate': 50.0,
                 'min_trades_history': 1,
-                'min_ai_confidence': 0.4
+                'min_ai_confidence': 0.4,
             }
+
+            # AI 학습 데이터 기반 임계값 계산
+            learned_thresholds = self._get_ai_learned_thresholds(symbol)
+            if learned_thresholds:
+                learned_thresholds['_source'] = 'learning_store'
+                learned_thresholds['_base'] = dict(base_thresholds)
+                return learned_thresholds
 
             # 시장 변동성 기반 조정 (AI가 학습할 기준점)
             volatility = market_conditions.get('volatility', 0.01)
@@ -6162,19 +6260,25 @@ Response in JSON format:
                 return {
                     'max_loss_rate': base_thresholds['max_loss_rate'] * 0.8,  # AI가 학습할 조정 계수
                     'min_trades_history': max(5, base_thresholds['min_trades_history']),
-                    'min_ai_confidence': min(0.8, base_thresholds['min_ai_confidence'] * 1.5)
+                    'min_ai_confidence': min(0.8, base_thresholds['min_ai_confidence'] * 1.5),
+                    '_source': 'market_base',
+                    '_base': dict(base_thresholds),
                 }
             elif volatility > 0.01:  # 중간 변동성 (AI 학습 기준점)
                 return {
                     'max_loss_rate': base_thresholds['max_loss_rate'] * 0.9,  # AI가 학습할 조정 계수
                     'min_trades_history': max(3, base_thresholds['min_trades_history']),
-                    'min_ai_confidence': min(0.7, base_thresholds['min_ai_confidence'] * 1.25)
+                    'min_ai_confidence': min(0.7, base_thresholds['min_ai_confidence'] * 1.25),
+                    '_source': 'market_base',
+                    '_base': dict(base_thresholds),
                 }
             else:  # 낮은 변동성 (AI 학습 기준점)
                 return {
                     'max_loss_rate': base_thresholds['max_loss_rate'] * 1.2,  # AI가 학습할 조정 계수
                     'min_trades_history': base_thresholds['min_trades_history'],
-                    'min_ai_confidence': max(0.2, base_thresholds['min_ai_confidence'] * 0.75)
+                    'min_ai_confidence': max(0.2, base_thresholds['min_ai_confidence'] * 0.75),
+                    '_source': 'market_base',
+                    '_base': dict(base_thresholds),
                 }
 
         except Exception as e:
@@ -6182,74 +6286,48 @@ Response in JSON format:
             return {
                 'max_loss_rate': 50.0,
                 'min_trades_history': 1,
-                'min_ai_confidence': 0.4
+                'min_ai_confidence': 0.4,
+                '_source': 'fallback',
+                '_base': {'max_loss_rate': 50.0, 'min_trades_history': 1, 'min_ai_confidence': 0.4},
             }
 
     def _get_ai_learned_thresholds(self, symbol: str) -> Optional[Dict]:
-        """AI 학습 데이터 기반 임계값 계산 (승률 기반 자동 조정)"""
+        """AI 학습 데이터 기반 임계값 계산(저장된 learning_data 단일 소스)."""
         try:
-            # 최근 학습 데이터 분석
-            coin = symbol.replace('USDT', '')
-            all_recent_trades = []
+            entries = self._get_recent_learning_entries(symbol=symbol, exchange_name='binance', limit=80)
+            if len(entries) < 10:
+                return None
 
-            # 🔥 1단계: RiskManager 메모리 이력 확인
-            if self.risk_manager and coin in self.risk_manager.coin_trade_history:
-                memory_trades = self.risk_manager.coin_trade_history[coin]
-                all_recent_trades.extend(memory_trades[-30:])  # 최근 30회
-
-            # 🔥 2단계: DB에서 거래 이력 조회 (메모리 이력 보완)
-            if hasattr(self, 'recorder') and self.recorder:
+            win_rates = []
+            conf_values = []
+            for item in entries:
                 try:
-                    # recorder.get_recent_trades 사용
-                    db_trades = self.recorder.get_recent_trades(coin=coin, exchange='binance', days=30)
-                    if isinstance(db_trades, list) and len(db_trades) > 0:
-                        # DB 데이터를 RiskManager 형식으로 변환
-                        memory_timestamps = {t.get('timestamp') for t in all_recent_trades if t.get('timestamp')}
-                        for trade in db_trades:
-                            # 중복 제거 (timestamp 기준)
-                            trade_timestamp = trade.get('exit_time')
-                            if trade_timestamp not in memory_timestamps:
-                                pnl_percent = float(trade.get('pnl_percent', 0) or 0)
-                                all_recent_trades.append({
-                                    'result': 'PROFIT' if pnl_percent > 0 else 'LOSS',
-                                    'profit_rate': pnl_percent,
-                                    'timestamp': trade_timestamp
-                                })
-                except Exception as db_err:
-                    self.logger.warning(f"[{coin}] DB 거래 이력 조회 실패: {db_err}")
+                    win_rates.append(float(item.get('recent_win_rate', 0.0) or 0.0))
+                except Exception:
+                    pass
+                try:
+                    conf_values.append(float(item.get('confidence', 0.0) or 0.0))
+                except Exception:
+                    pass
 
-            # 🔥 3단계: 승률 계산 및 임계값 조정
-            if len(all_recent_trades) >= 10:  # 충분한 데이터가 있을 때만
-                # 승률 기반 임계값 조정
-                wins = sum(1 for t in all_recent_trades if t.get('result') == 'PROFIT' or (t.get('profit_rate', 0) or 0) > 0)
-                win_rate = wins / len(all_recent_trades)
+            if not win_rates:
+                return None
 
-                self.logger.info(f"[{symbol}] 🔍 AI 학습 분석: 총 {len(all_recent_trades)}회 거래, 승률 {win_rate*100:.1f}%")
+            avg_win_rate = max(0.0, min(1.0, sum(win_rates) / len(win_rates)))
+            avg_conf = max(0.2, min(0.9, (sum(conf_values) / len(conf_values)) if conf_values else 0.5))
 
-                # AI 학습 기반 동적 조정
-                if win_rate > 0.7:  # 높은 승률 (70% 이상)
-                    self.logger.info(f"[{symbol}] ✅ 높은 승률 감지 - 더 공격적인 거래 허용 (승률: {win_rate*100:.1f}%)")
-                    return {
-                        'max_loss_rate': 40.0,  # 더 엄격한 손실 허용
-                        'min_trades_history': 3,
-                        'min_ai_confidence': 0.3  # 더 낮은 신뢰도도 허용 (공격적)
-                    }
-                elif win_rate < 0.3:  # 낮은 승률 (30% 미만)
-                    self.logger.warning(f"[{symbol}] ⚠️ 낮은 승률 감지 - 더 보수적인 거래 필요 (승률: {win_rate*100:.1f}%)")
-                    return {
-                        'max_loss_rate': 60.0,  # 더 관대한 손실 허용
-                        'min_trades_history': 5,
-                        'min_ai_confidence': 0.6  # 더 높은 신뢰도 요구 (보수적)
-                    }
-                else:  # 중간 승률 (30-70%)
-                    # 승률에 비례하여 조정
-                    confidence_adjustment = 0.4 + (win_rate - 0.3) * 0.5  # 0.3~0.7 승률 → 0.4~0.6 신뢰도
-                    self.logger.info(f"[{symbol}] ℹ️ 중간 승률 - 균형 조정 (승률: {win_rate*100:.1f}%, 신뢰도 기준: {confidence_adjustment:.2f})")
-                    return {
-                        'max_loss_rate': 50.0 - (win_rate - 0.5) * 20.0,  # 승률이 높을수록 엄격
-                        'min_trades_history': 3,
-                        'min_ai_confidence': confidence_adjustment
-                    }
+            min_ai_conf = max(0.25, min(0.75, avg_conf - 0.05))
+            max_loss = max(35.0, min(65.0, 60.0 - (avg_win_rate * 30.0)))
+            min_trades = 3 if len(entries) >= 30 else 5
+
+            self.logger.info(
+                f"[{symbol}] 학습저장소 임계값 반영: n={len(entries)}, avg_win={avg_win_rate*100:.1f}%, avg_conf={avg_conf:.2f}"
+            )
+            return {
+                'max_loss_rate': max_loss,
+                'min_trades_history': min_trades,
+                'min_ai_confidence': min_ai_conf,
+            }
 
             return None  # 학습 데이터 부족
 
@@ -6257,6 +6335,54 @@ Response in JSON format:
             if hasattr(self, 'logger') and self.logger:
                 self.logger.error(f"AI 학습 임계값 계산 오류: {e}")
             return None
+
+    def _collect_symbol_performance_snapshot(self, symbol: str, exchange_name: str) -> Dict[str, Any]:
+        """학습데이터 저장 시점의 최근 성과 스냅샷을 수집한다."""
+        try:
+            coin = str(symbol or '').replace('USDT', '')
+            rows = []
+            if self.recorder and hasattr(self.recorder, 'get_recent_trades'):
+                rows = self.recorder.get_recent_trades(coin=coin, exchange=exchange_name, days=30) or []
+            if not isinstance(rows, list) or not rows:
+                return {'recent_win_rate': 0.0, 'recent_loss_rate': 0.0, 'recent_trade_count': 0}
+
+            win = 0
+            loss = 0
+            total = 0
+            for row in rows[-50:]:
+                if not isinstance(row, dict):
+                    continue
+                pnl = float(row.get('pnl_percent', row.get('pnl', 0.0)) or 0.0)
+                total += 1
+                if pnl > 0:
+                    win += 1
+                elif pnl < 0:
+                    loss += 1
+            if total == 0:
+                return {'recent_win_rate': 0.0, 'recent_loss_rate': 0.0, 'recent_trade_count': 0}
+            return {
+                'recent_win_rate': win / total,
+                'recent_loss_rate': loss / total,
+                'recent_trade_count': total,
+            }
+        except Exception:
+            return {'recent_win_rate': 0.0, 'recent_loss_rate': 0.0, 'recent_trade_count': 0}
+
+    def _get_recent_learning_entries(self, symbol: str, exchange_name: str, limit: int = 80) -> List[Dict[str, Any]]:
+        """저장된 learning_data에서 심볼 기준 최근 항목을 읽는다."""
+        try:
+            from .exchange_learning_manager import ExchangeLearningManager
+            if self._learning_manager is None:
+                self._learning_manager = ExchangeLearningManager(exchange_name)
+            history = list(getattr(self._learning_manager, 'learning_history', []) or [])
+            target = str(symbol or '').upper()
+            filtered = [
+                h for h in history
+                if isinstance(h, dict) and str(h.get('symbol', '')).upper() == target
+            ]
+            return filtered[-max(1, int(limit)):]
+        except Exception:
+            return []
 
     def _calculate_market_volatility(self, symbol: str) -> float:
         """시장 변동성 계산 (바이낸스용)"""

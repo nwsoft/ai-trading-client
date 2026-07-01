@@ -2,6 +2,37 @@
 
 <!-- markdownlint-disable MD007 MD013 MD024 -->
 
+## v3.8.9.25 (2026-07-01) - 운영 정합 패치
+
+### 🎯 핵심 업데이트
+
+#### 1️⃣ Unified 자산분류 정합화
+
+- `trading/unified_trader.py`
+   - Unified 포트폴리오 할당 경로에서 upbit/bithumb 자산군 분류를 `crypto`로 고정
+   - 거래소별 KPI/리포트 해석 일관성 강화
+
+#### 2️⃣ 거래소별 학습 필터 정합화
+
+- `trading/risk_manager.py`
+   - `update_coin_trade_history()`에 `exchange` 태그 저장 경로 추가(옵션)
+- `trading/trader.py`
+   - Binance 청산 이력 저장 시 `exchange='binance'` 명시
+- `trading/unified_trader.py`
+   - Unified 청산 경로에서도 RiskManager 이력 저장
+   - 메모리 이력 부족 시 Recorder DB 이력으로 자동 보강
+
+#### 3️⃣ 로그 이중 프리픽스 재발 방지
+
+- `log_system/log_adapter.py`
+   - 이미 포맷된 로그 메시지가 재유입될 때 선행 시간/레벨 프리픽스 제거 가드 추가
+   - 신규 생성 로그에서 중복 포맷 재발 방지
+
+#### 4️⃣ 계획/문서 동기화
+
+- `docs/UPDATE_PLAN.md`: 2026-07-01 실행 정본(리스크/대응/검증 게이트/KPI·회원관리 정합 체크리스트) 반영
+- `docs/CHANGELOG.md`, 인앱 `📅 업데이트` 동기화
+
 ## v3.8.9.22 (2026-06-11) - AI 학습 데이터 경량화 최적화 + 버전 동기화
 
 ### 🔧 v3.8.9.22 운영 업데이트 (2026-06-17) - 증권 연결 안내 문구 정합화 + 대량 사용자 전달 자동화

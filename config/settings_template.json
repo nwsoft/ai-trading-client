@@ -275,8 +275,8 @@
       "id": ""
     }
   },
-  "openai_model": "gpt-3.5-turbo",
-  "assistant_ai_model": "gpt-4o",
+  "openai_model": "gpt-4o-mini",
+  "assistant_ai_model": "gpt-4o-mini",
   "ai_model_roles": {
     "_comment": "역할별 AI 모델 배치 - 빈도·중요도에 따라 모델 티어를 분리해 비용 최적화",
     "frequent_cheap": "gpt-4o-mini",
@@ -332,7 +332,7 @@
     }
   },
   "log_level": "DEBUG",
-  "verbose_trade_logging": true,
+  "verbose_trade_logging": false,
   "detailed_logs_enabled": true,
   "log_file_size_limit": 200,
   "log_retention_days": 30,

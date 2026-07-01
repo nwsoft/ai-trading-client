@@ -23,6 +23,17 @@
 - SaaS 문서 기준선 정합화(증권 SaaS 4대 판단 기준 반영)
 - 빌드/배포 문서와 증권 어댑터 hidden import 기준 동기화
 
+## 2026-07-01 패치 기준선 (v3.8.9.25 유지보수)
+
+- Unified 포트폴리오 할당 자산분류 정합화
+  - `upbit`/`bithumb` 자산군을 `crypto`로 고정하여 자산군 분류 일관성 강화
+- 거래소별 학습 필터 정합화
+  - RiskManager 이력에 `exchange` 태그 저장 경로 추가
+  - Binance/Unified 청산 경로 모두 RiskManager 이력 저장 반영
+  - Unified 자동조정에서 메모리 이력 부족 시 Recorder DB 이력 보강
+- 로그 중복 포맷 재발 방지
+  - `log_adapter`에서 선행 시간/레벨 프리픽스 제거 가드 추가
+
 ## 2026-05-29 패치 기준선 (v3.8.9.20)
 
 - 실시간 청산 판단 `net_pnl_percent` 산식을 recorder 기준(화폐단위 순손익 환산)으로 정렬

@@ -53,7 +53,7 @@ if (-not $tag.StartsWith("v")) {
 }
 
 if ($tag -notmatch '^v\d+\.\d+\.\d+\.\d+$') {
-    Fail "version format must look like v3.8.9.23"
+    Fail "version format must look like v3.8.9.24"
 }
 
 $venvPython = Join-Path ".venv" "Scripts\python.exe"

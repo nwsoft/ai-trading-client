@@ -9763,21 +9763,21 @@ class ModernDashboard(ctk.CTk):
             if normalized_grade in {'signature', 'signature_federated'}:
                 normalized_grade = 'premium'
             if normalized_grade in {'pro', 'all_trading', 'all-trading', 'alltrading', 'middle'}:
-                grade_badge = "🟢 프로"
+                grade_badge = "프로"
             elif normalized_grade == 'premium':
-                grade_badge = "👑 프리미엄/SIGNATURE"
+                grade_badge = "프리미엄"
             else:
-                grade_badge = "🔵 COIN START"
+                grade_badge = "일반"
             try:
                 # 기존 스타일 유지하면서 텍스트만 업데이트
                 self.user_info_label.configure(
-                    text=f"👤 {user_id}  |  {grade_badge}",
+                    text=f"👤 {user_id} | {grade_badge}",
                     fg_color=self._color('surface', '#0b1120'),
                     corner_radius=12
                 )
             except Exception:
                 pass
-            self.user_info_label.configure(text=f"👤 {user_id}  |  {grade_badge}")
+            self.user_info_label.configure(text=f"👤 {user_id} | {grade_badge}")
 
             # 거래소 정보는 오른쪽 상태정보에 표시됨
 

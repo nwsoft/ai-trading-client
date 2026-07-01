@@ -1491,6 +1491,12 @@ class NoahAIClient:
                 except Exception:
                     pass
 
+            # 전략 런타임 브리지/프로파일 재동기화
+            try:
+                self._initialize_strategy_runtime_bridges()
+            except Exception:
+                pass
+
             logger = self._get_main_logger()
             if logger:
                 if logger is not None:
@@ -1814,8 +1820,12 @@ class NoahAIClient:
                 recorder=self.recorder,
                 ai_manager=self.ai_manager,
                 logger=self.logger,  # 🔥 main.py의 logger 전달
-                settings=self.settings  # 🔥 settings 전달
+                settings=self.settings,  # 🔥 settings 전달
+                main_app=self,
             )
+
+            # 전략 커스터마이저/AI 챗봇을 실제 거래 루프에 연결
+            self._initialize_strategy_runtime_bridges()
 
             # 🔥 Trader 초기화 후 설정값 동기화 확인
             if hasattr(self.trader, 'settings') and self.trader.settings:
@@ -2665,6 +2675,16 @@ class NoahAIClient:
                         dashboard=getattr(self, 'dashboard', None),
                         logger=logging.getLogger(__name__),
                     )
+                    try:
+                        setter = getattr(self.unified_trader, 'set_main_app', None)
+                        if callable(setter):
+                            setter(self)
+                    except Exception:
+                        pass
+                    try:
+                        self._initialize_strategy_runtime_bridges()
+                    except Exception:
+                        pass
                 except Exception as ie:
                     if logger:
                         logger.error(f"UnifiedTrader 생성 실패: {ie}")
@@ -2694,6 +2714,107 @@ class NoahAIClient:
             if logger:
                 logger.error(f"❌ {exchange} 거래 시작 오류: {e}")
             return False
+
+    def _initialize_strategy_runtime_bridges(self):
+        """미연결 전략 모듈을 실제 자동매매 루프에 연결한다."""
+        logger = self._get_main_logger()
+        try:
+            from strategy_customizer import StrategyCustomizer
+            from ai_chat_strategy import AITradingChatbot
+
+            self.strategy_customizer = StrategyCustomizer(
+                getattr(self, 'analyzer', None),
+                getattr(self, 'trader', None),
+                getattr(self, 'evaluator', None),
+                getattr(self, 'risk_manager', None),
+            )
+            self.strategy_customizer_unified = StrategyCustomizer(
+                getattr(self, 'analyzer', None),
+                getattr(self, 'unified_trader', None),
+                getattr(self, 'evaluator', None),
+                getattr(self, 'risk_manager', None),
+            )
+            self.ai_trading_chatbot = AITradingChatbot(
+                getattr(self, 'analyzer', None),
+                getattr(self, 'trader', None),
+                getattr(self, 'risk_manager', None),
+            )
+
+            if hasattr(self, 'trader') and self.trader and hasattr(self.trader, 'configure_strategy_runtime'):
+                self.trader.configure_strategy_runtime(self.strategy_customizer, self.ai_trading_chatbot)
+
+            if hasattr(self, 'unified_trader') and self.unified_trader and hasattr(self.unified_trader, 'configure_strategy_runtime'):
+                self.unified_trader.configure_strategy_runtime(self.strategy_customizer_unified, self.ai_trading_chatbot)
+
+            self._apply_runtime_strategy_profile()
+
+            if logger:
+                logger.info("✅ 전략 런타임 브리지 연결 완료 (strategy_customizer + ai_chat_strategy)")
+        except Exception as e:
+            if logger:
+                logger.warning(f"전략 런타임 브리지 연결 실패: {e}")
+
+    def _apply_runtime_strategy_profile(self):
+        """설정 기반 런타임 전략 프로파일을 적용한다."""
+        logger = self._get_main_logger()
+        try:
+            chatbot = getattr(self, 'ai_trading_chatbot', None)
+            if not chatbot:
+                return
+            profile = str(self.settings.get('strategy_runtime_profile', 'balanced') or 'balanced').strip().lower()
+            presets = getattr(chatbot, 'strategy_presets', {}) or {}
+            if profile not in presets:
+                profile = 'balanced'
+            preset_parameters = dict(presets[profile].parameters)
+            chatbot.apply_strategy_changes({
+                'type': 'strategy_change',
+                'parameters': preset_parameters,
+            })
+
+            # adaptive 동적 조정이 no-op되지 않도록 StrategyCustomizer 활성 전략을 동기화
+            self._sync_strategy_customizer_profile(profile=profile, base_params=preset_parameters)
+
+            if logger:
+                logger.info(f"✅ 런타임 전략 프로파일 적용: {profile}")
+        except Exception as e:
+            if logger:
+                logger.warning(f"런타임 전략 프로파일 적용 실패: {e}")
+
+    def _sync_strategy_customizer_profile(self, profile: str, base_params: Dict[str, Any]):
+        """StrategyCustomizer에 profile 기반 활성 전략을 자동 생성/적용한다."""
+        logger = self._get_main_logger()
+        try:
+            customizers = [
+                getattr(self, 'strategy_customizer', None),
+                getattr(self, 'strategy_customizer_unified', None),
+            ]
+            for idx, customizer in enumerate(customizers):
+                if not customizer:
+                    continue
+                strategy_name = f"auto_runtime_{profile}_{idx}"
+                strategy_id = None
+
+                for sid, item in (getattr(customizer, 'user_strategies', {}) or {}).items():
+                    if isinstance(item, dict) and item.get('name') == strategy_name:
+                        strategy_id = sid
+                        break
+
+                if not strategy_id and hasattr(customizer, 'create_custom_strategy'):
+                    strategy_id = customizer.create_custom_strategy({
+                        'name': strategy_name,
+                        'base_params': dict(base_params),
+                        'filters': {},
+                        'time_rules': {},
+                        'risk_rules': {},
+                        'dynamic_adjustments': ['market_condition', 'performance_based'],
+                    })
+
+                if strategy_id and hasattr(customizer, 'apply_strategy'):
+                    customizer.apply_strategy(strategy_id)
+
+        except Exception as e:
+            if logger:
+                logger.warning(f"StrategyCustomizer 프로파일 동기화 실패: {e}")
 
     def on_stop_exchange(self, exchange: str) -> bool:
         """거래소별 정지 (상태 매니저 우선)"""

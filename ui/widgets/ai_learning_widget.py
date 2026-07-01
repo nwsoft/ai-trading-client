@@ -14,6 +14,7 @@ from typing import Any, Dict, List, Optional
 
 import customtkinter as ctk
 from customtkinter import CTkFrame, CTkLabel, CTkButton, CTkProgressBar, CTkScrollableFrame, CTkTextbox
+from utils.perf_metrics_logger import log_ui_perf_metric
 
 class AILearningWidget(CTkFrame):
     """AI 학습 전용 위젯 (CustomTkinter)"""
@@ -41,6 +42,9 @@ class AILearningWidget(CTkFrame):
         self._last_data_mtime: Optional[float] = None  # 파일이 변하지 않으면 렌더 생략
         self._data_file_path: Optional[str] = None     # 현재 사용 중인 데이터 파일 경로
         self._service_context = kwargs.get('service_context', 'blockchain')  # 서비스 컨텍스트 저장
+        self._learning_cache_ts: float = 0.0
+        self._learning_cache_ttl_sec: int = 180
+        self._last_visible_force_refresh_ts: float = 0.0
 
         # AI 학습 데이터 저장용 (콜백 업데이트를 위해 필요)
         self.learning_data: List[Dict] = []
@@ -58,6 +62,37 @@ class AILearningWidget(CTkFrame):
         except Exception:
             # after_idle 사용이 불가한 환경에서는 최소 지연으로 예약
             self.after(0, self._initial_load_async)
+        try:
+            self.bind("<Map>", self._on_map_visible, add="+")
+        except Exception:
+            pass
+
+    def _is_visible_now(self) -> bool:
+        try:
+            return bool(self.winfo_exists() and self.winfo_ismapped() and self.winfo_viewable())
+        except Exception:
+            return False
+
+    def _on_map_visible(self, event=None):
+        """탭 진입 시 1회 강제 새로고침 트리거"""
+        try:
+            if event is not None and getattr(event, 'widget', None) is not self:
+                return
+        except Exception:
+            pass
+
+        if not self._is_visible_now():
+            return
+
+        now_ts = time.time()
+        if (now_ts - float(getattr(self, '_last_visible_force_refresh_ts', 0.0))) < 30.0:
+            return
+        self._last_visible_force_refresh_ts = now_ts
+        log_ui_perf_metric("ai_learning", "map_force_refresh", cooldown_sec=30)
+        try:
+            self.after(100, lambda: self.refresh_learning_data(force_refresh=True))
+        except Exception:
+            pass
 
     def _color(self, key: str, fallback: Optional[str] = None) -> str:
         if fallback is None:
@@ -582,6 +617,10 @@ class AILearningWidget(CTkFrame):
     def _initial_load_async(self):
         """이벤트 루프 시작 후 안전하게 초기 데이터/상태를 채웁니다."""
         try:
+            if not self._is_visible_now():
+                log_ui_perf_metric("ai_learning", "initial_defer_not_visible", delay_ms=1200)
+                self.after(1200, self._initial_load_async)
+                return
             self.load_learning_data()
             # 상태/성능은 데이터 렌더 예약과 무관하게 업데이트 가능
             try:
@@ -591,9 +630,20 @@ class AILearningWidget(CTkFrame):
         except Exception as e:
             self.logger.warning(f"초기 로드 지연 처리 중 오류: {e}")
 
-    def refresh_learning_data(self):
+    def refresh_learning_data(self, force_refresh: bool = False):
         """AI 학습 데이터 실시간 새로고침 - 서비스 컨텍스트 기반 필터링"""
         try:
+            if not force_refresh and not self._is_visible_now():
+                log_ui_perf_metric("ai_learning", "skip_invisible", force_refresh=False)
+                return
+
+            if not force_refresh:
+                now_ts = time.time()
+                if self.learning_data and (now_ts - float(getattr(self, '_learning_cache_ts', 0.0))) < float(self._learning_cache_ttl_sec):
+                    log_ui_perf_metric("ai_learning", "ttl_hit", ttl_sec=int(self._learning_cache_ttl_sec))
+                    return
+                log_ui_perf_metric("ai_learning", "ttl_miss", ttl_sec=int(self._learning_cache_ttl_sec))
+
             # ai_learning_data.json에서 최신 데이터 로드 (거래소별 경로 우선)
             from path_utils import get_ai_learning_data_path, get_exchange_ai_learning_data_path
             try:
@@ -648,6 +698,15 @@ class AILearningWidget(CTkFrame):
                 # 요약 콜백이 설정되어 있으면 업데이트
                 if self._summary_callback:
                     self._trigger_summary_update()
+
+                self._learning_cache_ts = time.time()
+                log_ui_perf_metric(
+                    "ai_learning",
+                    "refresh_done",
+                    rows=len(data),
+                    force_refresh=bool(force_refresh),
+                    service_context=str(getattr(self, '_service_context', 'blockchain')),
+                )
 
                 self.logger.info(f"✅ AI 학습 데이터 테이블 새로고침 완료: {len(data)}개 항목")
             else:

@@ -72,9 +72,9 @@ class RiskManager:
         
         self.logger.info("RiskManager 초기화 완료")
     
-    def update_coin_trade_history(self, symbol: str, trade_result: str, profit_rate: float, 
-                                entry_price: float, exit_price: float, position_size: float, 
-                                holding_time: int) -> bool:
+    def update_coin_trade_history(self, symbol: str, trade_result: str, profit_rate: float,
+                                entry_price: float, exit_price: float, position_size: float,
+                                holding_time: int, exchange: Optional[str] = None) -> bool:
         """코인별 거래 이력 업데이트 및 즉시 교체 결정"""
         try:
             coin = symbol.replace('USDT', '')
@@ -96,7 +96,10 @@ class RiskManager:
                 position_size=position_size,
                 holding_time=holding_time
             )
-            self.coin_trade_history[coin].append(asdict(trade_info))
+            trade_payload = asdict(trade_info)
+            if exchange:
+                trade_payload['exchange'] = str(exchange).strip().lower()
+            self.coin_trade_history[coin].append(trade_payload)
             
             # 연속 횟수 업데이트
             if trade_result == 'PROFIT':

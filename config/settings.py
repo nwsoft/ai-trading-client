@@ -295,8 +295,13 @@ def load_settings() -> Dict[str, Any]:
                 # 기본 설정 반환
                 return get_default_settings()
 
+            loaded_settings_snapshot = copy.deepcopy(settings)
+            needs_save = False
+
             # 🔄 템플릿에서 새로운 설정 업데이트
             settings = update_settings_from_template(settings)
+            if settings != loaded_settings_snapshot:
+                needs_save = True
             
             # 🔥 모델명 정규화: 잘못된 모델명 자동 수정
             if 'assistant_ai_model' in settings:
@@ -311,8 +316,7 @@ def load_settings() -> Dict[str, Any]:
                 if model_name in model_fixes:
                     print(f"🔧 모델명 정규화: '{model_name}' → '{model_fixes[model_name]}'")
                     settings['assistant_ai_model'] = model_fixes[model_name]
-                    # 수정된 설정 저장
-                    save_settings(settings)
+                    needs_save = True
             
             # 🔥 frequency_thresholds 형식 자동 수정 (잘못된 리스트 형식을 딕셔너리로 변환)
             fixed_frequency = False
@@ -364,8 +368,8 @@ def load_settings() -> Dict[str, Any]:
             
             # 수정된 경우 설정 파일 저장
             if fixed_frequency:
-                save_settings(settings)
                 print("✅ frequency_thresholds 형식 자동 수정 완료 및 저장")
+                needs_save = True
 
             # UI 설정이 없으면 강제로 추가
             if 'ui_settings' not in settings:
@@ -380,9 +384,11 @@ def load_settings() -> Dict[str, Any]:
                     'auto_update_release_repo': 'nwsoft/ai-trading-client',
                 }
                 print("  ➕ UI 설정 강제 추가")
+                needs_save = True
 
-            # 업데이트된 설정 저장
-            save_settings(settings)
+            # 변경이 있을 때만 저장 (로그인/초기화 시 불필요한 디스크 I/O 방지)
+            if needs_save:
+                save_settings(settings)
 
             return settings
 
