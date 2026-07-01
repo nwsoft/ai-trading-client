@@ -44,6 +44,9 @@ class AutoUpdateManager:
         self.update_cache_dir = self._resolve_update_cache_dir()
         self.update_cache_dir.mkdir(parents=True, exist_ok=True)
 
+        self.install_target_marker_path = self._resolve_install_target_marker_path()
+        self.install_target_exe = self._resolve_install_target_executable()
+
         self.update_settings(self.settings)
 
     def update_settings(self, settings: Optional[Dict[str, Any]] = None):
@@ -192,8 +195,13 @@ class AutoUpdateManager:
         if not exe_url:
             return {"ok": False, "reason": "exe_url_missing"}
 
-        target_path = target_dir / exe_name
-        tmp_path = target_dir / f"{exe_name}.download"
+        staged_name = exe_name
+        if exe_name.lower() == "aitrading.exe":
+            # 캐시에 실제 런처 이름이 그대로 보이면 사용자가 설치 경로로 오해하기 쉽다.
+            staged_name = "AITrading.new.exe"
+
+        target_path = target_dir / staged_name
+        tmp_path = target_dir / f"{staged_name}.download"
 
         ok = self._download_file(exe_url, tmp_path)
         if not ok:
@@ -242,7 +250,15 @@ class AutoUpdateManager:
         if not asset_path.exists():
             return False
 
-        target_exe = Path(sys.executable)
+        target_exe = self._resolve_install_target_executable()
+        self.install_target_exe = target_exe
+
+        if self._is_path_under(target_exe, self.update_cache_dir):
+            self._log_warning(
+                f"update target resolved to cache path and was rejected: {target_exe}"
+            )
+            return False
+
         if not target_exe.exists():
             return False
 
@@ -284,6 +300,17 @@ class AutoUpdateManager:
 
     def has_pending_update(self) -> bool:
         return bool(self.pending_update.get("downloaded"))
+
+    def get_runtime_diagnostics(self) -> Dict[str, str]:
+        current_exe = str(Path(sys.executable))
+        install_target = str(self.install_target_exe or Path(sys.executable))
+        pending_asset = str(self.pending_update.get("asset_path") or "")
+        return {
+            "current_exe": current_exe,
+            "install_target_exe": install_target,
+            "update_cache_dir": str(self.update_cache_dir),
+            "pending_asset_path": pending_asset,
+        }
 
     def _scheduled_check(self):
         try:
@@ -378,6 +405,74 @@ class AutoUpdateManager:
         except Exception:
             return Path(os.getcwd()) / "data" / "cache" / "auto_updater"
 
+    def _resolve_install_target_marker_path(self) -> Path:
+        try:
+            from path_utils import get_app_data_dir
+
+            config_dir = Path(get_app_data_dir()) / "config"
+            config_dir.mkdir(parents=True, exist_ok=True)
+            return config_dir / "auto_update_target.json"
+        except Exception:
+            return self.update_cache_dir / "auto_update_target.json"
+
+    @staticmethod
+    def _is_path_under(path: Path, parent: Path) -> bool:
+        try:
+            path.resolve().relative_to(parent.resolve())
+            return True
+        except Exception:
+            return False
+
+    def _read_persisted_install_target(self) -> Optional[Path]:
+        try:
+            if not self.install_target_marker_path.exists():
+                return None
+            payload = json.loads(self.install_target_marker_path.read_text(encoding="utf-8"))
+            value = str(payload.get("install_target_exe") or "").strip()
+            if not value:
+                return None
+            return Path(value)
+        except Exception:
+            return None
+
+    def _persist_install_target(self, target_path: Path):
+        try:
+            payload = {
+                "install_target_exe": str(target_path),
+                "saved_at": datetime.now(timezone.utc).isoformat(),
+            }
+            self.install_target_marker_path.write_text(
+                json.dumps(payload, ensure_ascii=False, indent=2),
+                encoding="utf-8",
+            )
+        except Exception:
+            pass
+
+    def _resolve_install_target_executable(self) -> Path:
+        current_exe = Path(sys.executable)
+        if not (sys.platform.startswith("win") and getattr(sys, "frozen", False)):
+            return current_exe
+
+        persisted = self._read_persisted_install_target()
+
+        # 정상 경로에서 실행 중이면 그 경로를 설치 타겟으로 고정한다.
+        if not self._is_path_under(current_exe, self.update_cache_dir):
+            self._persist_install_target(current_exe)
+            return current_exe
+
+        # 캐시에서 실행된 경우에는 이전에 저장한 정상 타겟이 있으면 우선한다.
+        if persisted and persisted.exists() and not self._is_path_under(persisted, self.update_cache_dir):
+            self._log_info(
+                f"current executable is in update cache; using persisted install target: {persisted}"
+            )
+            return persisted
+
+        self._log_warning(
+            "current executable is in update cache and no persisted install target exists; "
+            f"falling back to current executable: {current_exe}"
+        )
+        return current_exe
+
     @staticmethod
     def _normalize_version(version_text: str) -> tuple:
         cleaned = str(version_text or "").strip().lower().lstrip("v")
@@ -412,7 +507,7 @@ function Restore-And-Start {{
     }}
 }}
 
-Start-Sleep -Seconds 2
+Start-Sleep -Seconds 1
 
 if (-not (Test-Path $newExe)) {{
     Restore-And-Start
@@ -420,12 +515,25 @@ if (-not (Test-Path $newExe)) {{
 }}
 
 if (Test-Path $target) {{
-    Copy-Item -Path $target -Destination $backup -Force
+    try {{
+        Copy-Item -Path $target -Destination $backup -Force
+    }} catch {{
+        # 백업 실패는 치명적이지 않을 수 있으므로 복사 재시도 로직으로 진행
+    }}
 }}
 
-try {{
-    Copy-Item -Path $newExe -Destination $target -Force
-}} catch {{
+$copied = $false
+for ($i = 0; $i -lt 60; $i++) {{
+    try {{
+        Copy-Item -Path $newExe -Destination $target -Force
+        $copied = $true
+        break
+    }} catch {{
+        Start-Sleep -Seconds 1
+    }}
+}}
+
+if (-not $copied) {{
     Restore-And-Start
     exit 1
 }}

@@ -578,13 +578,13 @@ class ModernDashboard(ctk.CTk):
 
         return level, reasons
 
-    def _diagnose_ai_execute_readiness(self) -> list[str]:
+    def _diagnose_ai_execute_readiness(self, live_check: bool = True) -> list[str]:
         """AI 실행 전 준비도(연결/설정/API 조합) 점검 결과를 생성한다.
 
         성능 최적화:
         - 설정이 변경되지 않았으면 캐시된 결과를 즉시 반환한다 (반복 클릭 시 빠름).
-        - 거래소 연결 체크를 ThreadPoolExecutor로 병렬 실행하여 여러 거래소가
-          있어도 가장 느린 것 하나 기다리는 시간으로 처리한다.
+                - live_check=True일 때만 거래소 실연결 검증을 수행한다.
+                - 설정 창 진입 경로에서는 live_check=False(빠른 점검)로 UI 응답성을 우선한다.
         """
         import concurrent.futures
 
@@ -612,35 +612,67 @@ class ModernDashboard(ctk.CTk):
         # ── 거래소 연결 준비도 (병렬 체크) ───────────────────────────────────
         enabled_exchanges = list(getattr(self, 'enabled_exchanges', []) or [])
         if enabled_exchanges and getattr(self, 'exchange_manager', None):
-            def _check_exchange(ex: str) -> str:
-                try:
-                    ok = bool(self.exchange_manager.validate_exchange_connection(ex))
-                    return f"- 거래소 {ex}: {'연결 준비됨' if ok else '연결 확인 필요'}"
-                except Exception as e:
-                    return f"- 거래소 {ex}: 진단 오류 ({str(e)[:60]})"
+            if not live_check:
+                for ex in enabled_exchanges:
+                    key_ready = False
+                    try:
+                        if hasattr(self, 'main_app') and self.main_app and hasattr(self.main_app, '_validate_exchange_keys'):
+                            key_ready = bool(self.main_app._validate_exchange_keys(ex))
+                        else:
+                            api = str(settings_obj.get(f"{ex}_api_key", '') or '').strip()
+                            sec = str(settings_obj.get(f"{ex}_secret_key", '') or '').strip()
+                            key_ready = bool(api and sec)
+                    except Exception:
+                        key_ready = False
 
-            try:
-                with concurrent.futures.ThreadPoolExecutor(
-                    max_workers=min(len(enabled_exchanges), 4),
-                    thread_name_prefix="diag_exchange",
-                ) as executor:
+                    lines.append(
+                        f"- 거래소 {ex}: {'키 준비됨(빠른 점검)' if key_ready else '키 확인 필요(빠른 점검)'}"
+                    )
+                # 설정 창 경로에서는 네트워크 실연결 검증을 수행하지 않는다.
+                live_check = False
+
+            if live_check:
+                def _check_exchange(ex: str) -> str:
+                    try:
+                        ok = bool(self.exchange_manager.validate_exchange_connection(ex))
+                        return f"- 거래소 {ex}: {'연결 준비됨' if ok else '연결 확인 필요'}"
+                    except Exception as e:
+                        return f"- 거래소 {ex}: 진단 오류 ({str(e)[:60]})"
+
+                executor = None
+                futures: dict[concurrent.futures.Future[str], str] = {}
+                results: dict[str, str] = {}
+                try:
+                    executor = concurrent.futures.ThreadPoolExecutor(
+                        max_workers=min(len(enabled_exchanges), 4),
+                        thread_name_prefix="diag_exchange",
+                    )
                     futures = {executor.submit(_check_exchange, ex): ex
                                for ex in enabled_exchanges}
+
                     # 순서 유지: 원래 enabled_exchanges 순서대로 결과 수집
-                    results: dict[str, str] = {}
-                    for fut in concurrent.futures.as_completed(futures, timeout=5):
+                    # 주의: 설정창은 UI 스레드에서 열리므로 진단 대기는 짧게 제한한다.
+                    for fut in concurrent.futures.as_completed(futures, timeout=2):
                         ex = futures[fut]
                         try:
                             results[ex] = fut.result()
                         except Exception as e:
                             results[ex] = f"- 거래소 {ex}: 진단 오류 ({str(e)[:60]})"
-                    for ex in enabled_exchanges:
-                        lines.append(results.get(ex, f"- 거래소 {ex}: 진단 미완료"))
-            except concurrent.futures.TimeoutError:
+                except concurrent.futures.TimeoutError:
+                    # 일부 거래소 연결 검증이 지연될 수 있으므로 UI 응답성을 우선한다.
+                    pass
+                except Exception as e:
+                    lines.append(f"- 거래소 병렬 진단 오류: {str(e)[:80]}")
+                finally:
+                    # 핵심: wait=False로 종료해 설정창 오픈 흐름을 블로킹하지 않는다.
+                    if executor is not None:
+                        try:
+                            executor.shutdown(wait=False, cancel_futures=True)
+                        except TypeError:
+                            executor.shutdown(wait=False)
+
                 for ex in enabled_exchanges:
-                    lines.append(f"- 거래소 {ex}: 연결 확인 시간 초과")
-            except Exception as e:
-                lines.append(f"- 거래소 병렬 진단 오류: {str(e)[:80]}")
+                    lines.append(results.get(ex, f"- 거래소 {ex}: 연결 확인 시간 초과"))
         elif enabled_exchanges:
             lines.append('- 거래소 진단: exchange_manager가 없어 상세 확인 불가')
 
@@ -9954,10 +9986,10 @@ class ModernDashboard(ctk.CTk):
         ]
         return action, "거래소별 제어 계획", lines
 
-    def _build_ai_diagnosis_payload(self) -> Dict[str, Any]:
+    def _build_ai_diagnosis_payload(self, for_settings_dialog: bool = False) -> Dict[str, Any]:
         """설정 창/가이드 UI에서 재사용 가능한 AI 진단 payload를 생성한다."""
         action, title, plan_lines = self._build_ai_execute_plan()
-        readiness_lines = self._diagnose_ai_execute_readiness()
+        readiness_lines = self._diagnose_ai_execute_readiness(live_check=not for_settings_dialog)
         risk_level, risk_reasons = self._assess_ai_execute_risk()
 
         issues: list[str] = []
@@ -10897,7 +10929,7 @@ class ModernDashboard(ctk.CTk):
                             # 설정이 바뀌었으므로 진단 캐시 무효화
                             self._diagnosis_cache = None
                             self._diagnosis_cache_settings_hash = None
-                            new_diagnosis = self._build_ai_diagnosis_payload()
+                            new_diagnosis = self._build_ai_diagnosis_payload(for_settings_dialog=True)
                             self._last_ai_diagnosis = new_diagnosis
                         except Exception as e:
                             print(f"⚠️ 설정 저장 후 AI 진단 갱신 실패: {e}")
@@ -10914,7 +10946,7 @@ class ModernDashboard(ctk.CTk):
                     self.update_idletasks()
                 except Exception:
                     pass
-                ai_diagnosis = self._build_ai_diagnosis_payload()
+                ai_diagnosis = self._build_ai_diagnosis_payload(for_settings_dialog=True)
                 
                 # ✅ AI 진단 결과를 설정 창에 전달
                 win = ModernSettingsWindow(

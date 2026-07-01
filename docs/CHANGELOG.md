@@ -1,3 +1,51 @@
+## 2026-07-01 - v3.8.9.26 업데이트 테스트 기준선 정합 (자동/수동 업데이트 경로 구조 수정)
+
+### ✅ 설치 대상 경로 정책화 (cache 경로 배제)
+- `utils/auto_update_manager.py`
+  - 업데이트 적용 타겟을 `sys.executable` 고정 사용에서 분리
+  - 정상 실행 경로를 `auto_update_target.json`에 저장해 재실행/캐시 실행 상황에서도 일관된 타겟 유지
+  - 적용 타겟이 `cache/auto_updater` 하위로 해석되면 적용 중단(경로 오염 차단)
+
+### ✅ 캐시 스테이징/적용 안정성 강화
+- `utils/auto_update_manager.py`
+  - 캐시 다운로드 파일명을 `AITrading.new.exe`로 분리해 사용자 혼동 완화
+  - 적용 스크립트 복사 재시도(최대 60초) 추가로 자동/수동 업데이트 실패율 완화
+  - 런타임 진단(`current_exe`/`install_target_exe`/`update_cache_dir`) 제공
+- `ui/settings_modern.py`
+  - 업데이트 탭에서 적용 대상 EXE/현재 실행 EXE/캐시 경로를 즉시 표시
+
+### ✅ 업데이트 회귀 테스트 확장
+- `tests/test_auto_update_manager.py`
+  - cache 실행 시 persisted 타겟 우선 선택 검증
+  - staged 파일명(`AITrading.new.exe`) 검증
+
+### ✅ Windows 검증용 포함 범위 명시 (이전 거래소 설정 버그 포함)
+- `ui/dashboard_modern.py`, `trading/unified_trader.py`, `trading/risk_manager.py`, `trading/trader.py`
+  - Binance+BitGet 설정창 멈춤 완화 및 거래소별 이력/자산분류 정합 수정을 v3.8.9.26 테스트 기준선에 포함
+
+## 2026-07-01 - v3.8.9.25 업데이트 경로 정합/적용 안정성 구조 수정
+
+### ✅ 업데이트 대상 경로 고정 정책 도입 (cache 실행 오염 방지)
+- `utils/auto_update_manager.py`
+  - 자동업데이트 적용 대상 EXE를 `sys.executable` 단순 사용에서, "정상 설치 경로 우선 + 캐시 경로 배제" 정책으로 보강
+  - 정상 실행 경로를 `auto_update_target.json`에 저장하고, 캐시(`cache/auto_updater`)에서 앱이 실행된 경우에도 저장된 정상 경로를 우선 적용
+  - 적용 대상이 캐시 경로로 해석되면 업데이트 적용을 중단해 경로 오염을 차단
+
+### ✅ 캐시 스테이징 파일 명칭 개선 (사용자 혼동 방지)
+- `utils/auto_update_manager.py`
+  - 다운로드 스테이징 파일을 `AITrading.exe` 그대로 두지 않고 `AITrading.new.exe`로 저장
+  - `Documents/.../cache/auto_updater` 경로에 "실행 클라이언트가 새로 설치된 것처럼" 보이는 혼동을 완화
+
+### ✅ 종료 타이밍 잠금 경합 대응 (자동/수동 적용 실패율 완화)
+- `utils/auto_update_manager.py`
+  - 종료 직후 파일 잠금 해제가 늦는 케이스를 고려해, PowerShell 적용 스크립트에 복사 재시도(최대 60초) 루프 추가
+  - 단발성 copy 실패로 업데이트가 무효화되는 경로를 구조적으로 완화
+
+### ✅ 업데이트 매니저 단위 테스트 보강
+- `tests/test_auto_update_manager.py`
+  - 캐시 실행 상황에서 저장된 정상 설치 경로를 우선 선택하는 동작 검증 추가
+  - 다운로드 스테이징 파일이 `AITrading.new.exe`로 저장되는 동작 검증 추가
+
 ## 2026-07-01 - v3.8.9.25 운영 정합 패치 (Unified 자산분류/학습필터/로그 프리픽스 중복 차단)
 
 ### ✅ Unified 자산분류 정합화
@@ -16,6 +64,12 @@
 - `log_system/log_adapter.py`
   - 이미 시간/레벨이 포함된 메시지가 재유입될 때 선행 프리픽스를 제거하는 정규화 가드 추가
   - 신규 로그 구간 기준 중복 프리픽스 재발 방지 목적
+
+### ✅ 멀티거래소 설정창 멈춤 완화 (Binance+BitGet 재현 조건 대응)
+- `ui/dashboard_modern.py`
+  - 설정 창 오픈 전 AI 준비도 진단의 거래소 병렬 검증이 UI 스레드를 장시간 점유하지 않도록 변경
+  - 병렬 진단 타임아웃 후 executor를 `wait=False`로 종료해 설정 창 오픈 흐름 비차단 처리
+  - 지연 거래소는 `연결 확인 시간 초과`로 표기하고 UI 응답성을 우선 보장
 
 ### ✅ 계획/문서 동기화
 - `docs/UPDATE_PLAN.md`

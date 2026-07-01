@@ -2,6 +2,38 @@
 
 <!-- markdownlint-disable MD007 MD013 MD024 -->
 
+## v3.8.9.26 (2026-07-01) - 업데이트 경로 정합/적용 안정성 강화
+
+### 🎯 핵심 업데이트
+
+#### 1️⃣ 자동/수동 업데이트 경로 정합화 (Windows)
+
+- `utils/auto_update_manager.py`
+   - 업데이트 적용 대상을 "현재 실행 파일 단순 사용"에서 "정상 설치 경로 우선 + cache 경로 배제" 정책으로 변경
+   - 정상 실행 경로를 `auto_update_target.json`에 저장하고, cache 실행 상태에서도 저장된 정상 경로를 우선 적용
+   - 적용 대상이 `cache/auto_updater` 하위로 해석되면 업데이트 적용을 중단해 경로 오염 차단
+
+#### 2️⃣ 업데이트 캐시 혼동/실패 완화
+
+- `utils/auto_update_manager.py`
+   - 캐시 스테이징 파일명을 `AITrading.exe` -> `AITrading.new.exe`로 분리
+   - 종료 직후 파일 잠금 경합 대응을 위해 적용 스크립트에 복사 재시도(최대 60초) 추가
+   - 설정 업데이트 탭에서 적용 대상 EXE/현재 실행 EXE/캐시 경로를 즉시 확인 가능하도록 진단 정보 노출
+
+#### 3️⃣ 업데이트 회귀 방지 테스트 보강
+
+- `tests/test_auto_update_manager.py`
+   - cache 실행 시 저장된 정상 설치 경로를 우선 사용하는 테스트 추가
+   - 스테이징 파일명이 `AITrading.new.exe`로 저장되는 테스트 추가
+   - `PYTHONPATH=. pytest -q tests/test_auto_update_manager.py` 기준 `5 passed`
+
+#### 4️⃣ 이전 거래소 설정 관련 버그 수정 내용 포함
+
+- `ui/dashboard_modern.py`, `trading/unified_trader.py`, `trading/risk_manager.py`, `trading/trader.py`
+   - Binance+BitGet 설정창 멈춤 완화(UI 비차단 진단 경로)
+   - Unified 자산분류/거래소별 학습 이력 태깅(exchange) 정합화
+   - 기존 설정/거래소 관련 재현 이슈를 포함해 v3.8.9.26 테스트 기준선으로 묶음 반영
+
 ## v3.8.9.25 (2026-07-01) - 운영 정합 패치
 
 ### 🎯 핵심 업데이트

@@ -89,19 +89,81 @@ powershell -ExecutionPolicy Bypass -File scripts/build_windows_safe.ps1 -GatePro
 태그 기반 GitHub 릴리즈를 한 번에 처리하려면 아래 스크립트를 사용합니다.
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File scripts/release_tag_push.ps1 -Version 3.8.9.24 -Branch main -PushBranch
+powershell -ExecutionPolicy Bypass -File scripts/release_tag_push.ps1 -Version 3.8.9.26 -Branch main -PushBranch
 ```
 
 옵션
-- `-Version`: 필수. `3.8.9.24` 또는 `v3.8.9.24` 모두 허용
+- `-Version`: 필수. `3.8.9.26` 또는 `v3.8.9.26` 모두 허용
 - `-Branch`: 기본 `main`
 - `-PushBranch`: 태그 push 전에 브랜치도 함께 push
+- `-StrictBranchPush`: `-PushBranch` 실패 시 즉시 중단(기본은 경고 후 태그/릴리즈 업로드 계속)
 - `-SkipCommit`: 커밋 없이 기존 HEAD 기준으로 태그만 생성/푸시
+
+#### 빠른 실행 레시피 (복붙용)
+
+아래는 현장에서 가장 자주 쓰는 실행 패턴입니다.
+
+1) **가장 안전한 기본 배포(권장)**
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/release_tag_push.ps1 -Version 3.8.9.26
+```
+
+- 태그 push + GitHub 릴리즈 에셋 업로드까지 수행
+- 브랜치 push 충돌(non-fast-forward) 영향을 최소화
+
+2) **브랜치도 같이 push (실패해도 릴리즈는 계속 진행)**
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/release_tag_push.ps1 -Version 3.8.9.26 -Branch main -PushBranch
+```
+
+- `main` push가 거절돼도 태그/릴리즈 업로드는 계속 진행
+
+3) **브랜치 push 실패 시 즉시 중단(엄격 모드)**
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/release_tag_push.ps1 -Version 3.8.9.26 -Branch main -PushBranch -StrictBranchPush
+```
+
+- 팀 정책상 브랜치 push 성공이 필수일 때 사용
+
+4) **이미 커밋한 상태에서 태그/릴리즈만 수행**
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/release_tag_push.ps1 -Version 3.8.9.26 -SkipCommit
+```
+
+- 로컬 변경 자동 커밋 없이 현재 HEAD 기준으로 태그/릴리즈 처리
+
+5) **같은 태그에 재빌드 산출물만 덮어쓰기 업로드**
+
+```powershell
+python scripts/generate_release_assets.py --out-dir deploy --exe deploy/AITrading.exe --repo nwsoft/ai-trading-client
+gh release upload v3.8.9.26 deploy/AITrading.exe deploy/version.txt deploy/release_notes.md deploy/release-manifest.json --repo nwsoft/ai-trading-client --clobber
+```
+
+- 태그를 새로 만들지 않고 릴리즈 에셋만 교체
+
+6) **원격 main 선행 커밋 때문에 `-PushBranch`가 막힐 때**
+
+```powershell
+git fetch origin
+git rebase origin/main
+git push origin main
+```
+
+재정렬 후 릴리즈를 다시 실행합니다.
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/release_tag_push.ps1 -Version 3.8.9.26 -Branch main -PushBranch
+```
 
 주의
 - 이 스크립트는 `.git`이 있는 실제 클라이언트 Git 작업본에서만 동작합니다.
 - 스크립트 실행 시 `config/app_version.py`의 `RELEASE_VERSION`과 요청한 `-Version`이 다르면 즉시 실패합니다.
 - 스크립트 실행 시 `scripts/doc_consistency_check.py`를 자동 실행하며, 문서/버전 불일치 시 태그를 생성하지 않습니다.
+- 충돌 백업 파일(`*_Conflict.*`, `*.orig`)이나 미해결 merge 상태가 있으면 릴리즈 커밋 전에 즉시 실패합니다.
 
 ### 수동 빌드
 

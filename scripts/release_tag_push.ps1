@@ -5,6 +5,7 @@ param(
     [string]$CommitMessage = "",
     [switch]$SkipCommit,
     [switch]$PushBranch,
+    [switch]$StrictBranchPush,
     [switch]$SkipReleaseUpload
 )
 
@@ -20,6 +21,11 @@ function RunGit([string[]]$GitArgs) {
     if ($LASTEXITCODE -ne 0) {
         Fail ("git " + ($GitArgs -join " ") + " failed")
     }
+}
+
+function TryRunGit([string[]]$GitArgs) {
+    & git @GitArgs
+    return ($LASTEXITCODE -eq 0)
 }
 
 function Get-RepoSlugFromRemote([string]$RemoteUrl) {
@@ -93,6 +99,22 @@ Write-Host "[RELEASE_TAG] repo=$repoSlug"
 
 if (-not $SkipCommit) {
     $status = (& git status --porcelain)
+    $unmerged = @()
+    $conflictArtifacts = @()
+    if (-not [string]::IsNullOrWhiteSpace($status)) {
+        $statusLines = $status -split "`r?`n" | Where-Object { -not [string]::IsNullOrWhiteSpace($_) }
+        $unmerged = $statusLines | Where-Object { $_ -match '^(UU|AA|DD|AU|UA|DU|UD)\s' }
+        $conflictArtifacts = $statusLines | Where-Object { $_ -match '_Conflict\.' -or $_ -match '\.orig$' }
+    }
+
+    if ($unmerged.Count -gt 0) {
+        Fail ("unmerged files detected. resolve merge conflicts first:`n" + ($unmerged -join "`n"))
+    }
+
+    if ($conflictArtifacts.Count -gt 0) {
+        Fail ("conflict artifact files detected. clean or ignore these before release:`n" + ($conflictArtifacts -join "`n"))
+    }
+
     if ([string]::IsNullOrWhiteSpace($status)) {
         Write-Host "[RELEASE_TAG] No local changes to commit"
     } else {
@@ -113,13 +135,19 @@ if (-not [string]::IsNullOrWhiteSpace($existingTag)) {
 RunGit @("tag", $tag)
 Write-Host "[RELEASE_TAG] Created tag $tag"
 
-if ($PushBranch) {
-    RunGit @("push", "origin", $Branch)
-    Write-Host "[RELEASE_TAG] Pushed branch $Branch"
-}
-
 RunGit @("push", "origin", $tag)
 Write-Host "[RELEASE_TAG] Pushed tag $tag"
+
+if ($PushBranch) {
+    if (TryRunGit @("push", "origin", $Branch)) {
+        Write-Host "[RELEASE_TAG] Pushed branch $Branch"
+    } else {
+        if ($StrictBranchPush) {
+            Fail "git push origin $Branch failed"
+        }
+        Write-Warning "[RELEASE_TAG] Branch push failed (likely non-fast-forward). Tag/release upload will continue."
+    }
+}
 
 if (-not $SkipReleaseUpload) {
     if (-not (Get-Command gh -ErrorAction SilentlyContinue)) {

@@ -300,6 +300,7 @@ class ModernSettingsWindow:
                 ui_settings.update(self._collect_auto_update_ui_settings())
                 self.current_settings['ui_settings'] = ui_settings
                 auto_manager.update_settings(self.current_settings)
+                self._refresh_update_runtime_diagnostics_label()
 
                 result = auto_manager.check_for_updates(manual=True)
                 if not result.get('ok'):
@@ -351,6 +352,8 @@ class ModernSettingsWindow:
             except Exception:
                 # 매니저 경로에서 예외가 나면 기존 로직으로 폴백
                 pass
+
+        self._refresh_update_runtime_diagnostics_label()
 
         current_version = self._get_current_release_version()
         latest_info = self._fetch_latest_release_from_github()
@@ -440,6 +443,41 @@ class ModernSettingsWindow:
             values['auto_update_auto_apply_on_exit'] = True
             values['auto_update_check_interval_hours'] = 6
         return values
+
+    def _refresh_update_runtime_diagnostics_label(self):
+        """업데이트 적용 대상/캐시 경로를 UI에 표시한다."""
+        label = getattr(self, 'update_runtime_path_label', None)
+        if label is None:
+            return
+
+        main_app = self.main_app
+        auto_manager = getattr(main_app, 'auto_update_manager', None) if main_app is not None else None
+        if auto_manager is None or not hasattr(auto_manager, 'get_runtime_diagnostics'):
+            try:
+                label.configure(
+                    text="업데이트 런타임 정보: 업데이트 매니저를 초기화하지 못했습니다.",
+                    text_color="#f59e0b",
+                )
+            except Exception:
+                pass
+            return
+
+        try:
+            info = auto_manager.get_runtime_diagnostics()
+            text = (
+                f"적용 대상 EXE: {info.get('install_target_exe', '-') }\n"
+                f"현재 실행 EXE: {info.get('current_exe', '-') }\n"
+                f"업데이트 캐시: {info.get('update_cache_dir', '-') }"
+            )
+            label.configure(text=text, text_color="#94a3b8")
+        except Exception:
+            try:
+                label.configure(
+                    text="업데이트 런타임 정보: 경로 진단 중 오류가 발생했습니다.",
+                    text_color="#f59e0b",
+                )
+            except Exception:
+                pass
 
     def _apply_downloaded_update_now(self):
         """다운로드된 업데이트가 있으면 즉시 적용을 예약하고 앱 종료를 유도한다."""
@@ -5720,7 +5758,7 @@ class ModernSettingsWindow:
         # 업데이트 일자
         update_date_label = ctk.CTkLabel(
             version_group,
-            text="업데이트 일자: 2026년 6월 26일",
+            text="업데이트 일자: 2026년 7월 1일",
             font=ctk.CTkFont(family="Segoe UI", size=12),
             text_color="#9ca3af"
         )
@@ -5733,6 +5771,18 @@ class ModernSettingsWindow:
             text_color="#9ca3af",
         )
         self.update_status_label.pack(pady=4, padx=20, anchor="w")
+
+        self.update_runtime_path_label = ctk.CTkLabel(
+            version_group,
+            text="업데이트 런타임 정보: 로딩 중...",
+            font=ctk.CTkFont(family="Segoe UI", size=11),
+            text_color="#94a3b8",
+            justify="left",
+            wraplength=760,
+        )
+        self.update_runtime_path_label.pack(pady=(2, 8), padx=20, anchor="w")
+
+        self._refresh_update_runtime_diagnostics_label()
 
         update_actions_row = ctk.CTkFrame(version_group, fg_color="transparent")
         update_actions_row.pack(fill="x", padx=20, pady=(8, 14))
