@@ -1,5 +1,31 @@
 # ⚠️ NoahAI 거래 시스템 문제 및 해결 내역 (2025-11-01)
 
+## 6. 바이낸스 외 거래소 미체결/장기 HOLD (2026-07-05)
+- **문제:**
+  - "바이낸스는 거래되는데 타 거래소는 거래가 안 된다"는 운영 이슈 반복.
+  - 비바이낸스 경로에서 거래 이력 부족 구간이 손실률 차단으로 해석되어 장기 HOLD로 고착되는 케이스 존재.
+  - Bybit/OKX/Bitget 인증 실패 시 사용자가 원인을 바로 알기 어려워 재시도만 반복.
+- **근본 원인:**
+  - 전략 계층: Unified pre-entry 기본값(`loss_rate=50%`, `min_trades_history>=1`)이 cold-start에 과도하게 불리하게 작동.
+  - 심볼 계층: 호환 심볼 전부 탈락 시 원본 심볼을 다시 분석하는 폴백으로 비호환 루프 발생 가능.
+  - 인증 계층: 거래소별 401/IP 불일치/권한 부족을 사용자 조치 단계로 변환하는 공통 진단 UX 부재.
+- **해결:**
+  - `trading/unified_trader.py`
+    - no-trade 기본값을 `loss_rate=0.0`, `data_insufficient=True`로 정규화
+    - `min_trades_history` 기본/폴백 0으로 조정
+    - 차단 사유 우선순위를 `거래 이력 부족` 우선으로 조정
+    - 심볼 전부 비호환 시 분석 스킵(원본 심볼 재주입 중단)
+  - `trading/exchanges/adapters/*_futures_adapter.py` (Bitget/Bybit/OKX)
+    - `last_error`, `last_auth_guidance` 상태 추가
+    - 인증 실패를 원인별 조치 문구로 표준화
+  - `ui/settings_modern.py`
+    - 거래소 검증 실패 시 조치 가이드 팝업 제공
+    - Bitget 공인 IP 표시/새로고침으로 화이트리스트 점검 동선 단축
+  - `trading/recorder.py`
+    - 청산 로그에 `exchange` 상시 저장으로 통계 정합 보강
+
+---
+
 ## 5. Recorder 구조 중복 및 초기화 오류 (2025-11-01)
 - **문제:**
   - Recorder 클래스에 __init__이 두 번 정의되어 있었음. (exchange 등 인자 무시, logger/DB 경로 등 미초기화)

@@ -646,14 +646,15 @@ class AIReportWidgetReal(CTkFrame):
             # 최근 N시간 거래 데이터 조회
             base_sql = """
                 SELECT * FROM trade_log 
-                WHERE entry_time >= datetime('now', '-{} hours')
+                WHERE exit_time >= datetime('now', '-{} hours')
+                AND exit_time IS NOT NULL
             """.format(hours)
             params: List[Any] = []
             selected = (self.exchange_filter_var.get() if hasattr(self, 'exchange_filter_var') else '전체')
             if selected and selected != "전체":
                 base_sql += " AND exchange = ?"
                 params.append(selected)
-            base_sql += " ORDER BY entry_time DESC"
+            base_sql += " ORDER BY exit_time DESC"
             cursor.execute(base_sql, tuple(params))
             
             columns = [description[0] for description in cursor.description]

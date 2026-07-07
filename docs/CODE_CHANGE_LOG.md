@@ -2,6 +2,81 @@
 
 ---
 
+## 2026-07-06: 자동업데이트 경로 고정/누적 파일/진행률 가시성 개선
+
+### 수정 파일
+
+#### `utils/auto_update_manager.py`
+- **문제**:
+  - 업데이트 캐시가 사용자 Documents 기반 경로에 고정 생성되어 설치 위치와 무관하게 보이는 혼선
+  - `cache/auto_updater` 하위 버전 디렉토리/적용 스크립트 누적으로 이전 버전이 계속 남는 현상
+  - 다운로드 진행 상황을 UI에서 퍼센트로 확인하기 어려움
+- **수정**:
+  - `_resolve_update_cache_dir()`를 설치 위치 우선 정책으로 변경(불가 시 LOCALAPPDATA/TEMP 폴백)
+  - `_can_use_cache_dir()` 추가로 쓰기 가능 경로만 선택
+  - `_prune_update_cache()` + `_safe_remove_tree()` 추가로 오래된 버전 캐시/스크립트 자동 정리(최신 2개 유지)
+  - `set_progress_callback()` + `_emit_progress()` 추가
+  - `_download_file()`에서 Content-Length 기반 다운로드 퍼센트 이벤트 전송
+
+#### `ui/settings_modern.py`
+- **수정**:
+  - 업데이트 확인 동작에 progress callback 연결
+  - 다운로드 진행률(%)/수신량(MB) 실시간 상태 라벨 반영
+  - 완료 시 다운로드 파일 경로, 적용 대상 EXE, 캐시 경로를 팝업/상태 라벨에 표시
+
+### 검증
+- `python -m pytest tests/test_auto_update_manager.py -q` -> **5 passed**
+- 정적 오류 점검(`get_errors`) -> 수정 파일 **No errors found**
+
+---
+
+## 2026-07-05: 거래소 인증 진단 UX + Unified 과차단 완화
+
+### 수정 파일
+
+#### `trading/unified_trader.py`
+- **문제**: 비바이낸스 경로에서 거래 이력 부족(no-trade) 구간이 손실률 조건과 결합되어 과도하게 HOLD로 고정될 수 있었음.
+- **수정**:
+  - `_analyze_recent_trading_patterns_unified()`의 no-trade 기본값을 `loss_rate=0.0`, `data_insufficient=True`로 정규화
+  - `_get_dynamic_entry_thresholds_unified()` 기본/폴백 `min_trades_history`를 0으로 조정
+  - `_perform_pre_entry_analysis_unified()` 차단 사유 우선순위를 `거래 이력 부족` 우선으로 조정
+  - `_prefilter_supported_coins()`에서 호환 심볼 전부 탈락 시 원본 심볼 재사용을 중단하고 빈 결과 반환
+
+#### `trading/recorder.py`
+- **문제**: 청산 로그 일부에서 `exchange` 누락으로 통계 집계/거래소 필터 정합이 떨어질 수 있었음.
+- **수정**:
+  - `log_trade_exit()`의 `TradeLog` 생성 시 `exchange=self.exchange`를 명시 저장
+
+#### `trading/exchanges/adapters/bitget_futures_adapter.py`
+- **추가**:
+  - 진단 상태 필드: `last_error`, `last_auth_guidance`
+  - 공인 IP 조회 + 인증 오류 분류 + 사용자 조치 가이드 생성
+  - 인증 계열 실패 시 1회성 진단가이드 로그 출력
+
+#### `trading/exchanges/adapters/bybit_futures_adapter.py`
+- **추가**:
+  - 진단 상태 필드: `last_error`, `last_auth_guidance`
+  - IP 바인딩 불일치/401/키 권한 오류 분류 및 조치 가이드 생성
+
+#### `trading/exchanges/adapters/okx_futures_adapter.py`
+- **추가**:
+  - 진단 상태 필드: `last_error`, `last_auth_guidance`
+  - passphrase/account mode/IP/401 계열 오류 분류 및 조치 가이드 생성
+
+#### `ui/settings_modern.py`
+- **수정**:
+  - Bitget/Bybit/OKX API 키 검증 실패 시 원인별 안내 팝업 제공
+  - Bitget 설정 섹션에 공인 IP 표시/새로고침 버튼 추가
+  - 어댑터 진단 상태(`last_error`, `last_auth_guidance`)를 사용자 문구로 연결
+
+### 운영 검증 메모
+- 5m x 50 캔들 자동 진단(상위 10 심볼):
+  - Bitget 10/10 성공, Upbit 10/10 성공, Bithumb 10/10 성공
+  - Bybit 0/10(주요 원인: Unmatched IP), OKX 0/10(연결 실패)
+- 결론: 다중 거래소 미체결 원인을 전략 로직만이 아니라 인증/권한/IP 계층까지 분리 진단 가능한 상태로 개선
+
+---
+
 ## 2026-05-03: 생활금융 확장 스프린트 — 세무·이상탐지·카탈로그
 
 ### 신규 파일

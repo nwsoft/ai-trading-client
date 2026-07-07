@@ -7,6 +7,7 @@
 import logging
 from typing import Dict, List, Optional, Any
 from decimal import Decimal, ROUND_DOWN
+from urllib import request as urllib_request
 from ..interfaces.futures_exchange import FuturesExchange
 
 class BitgetFuturesAdapter(FuturesExchange):
@@ -14,22 +15,97 @@ class BitgetFuturesAdapter(FuturesExchange):
     
     def __init__(self, api_key: str, secret_key: str, password: str = "", **kwargs):
         super().__init__("bitget")
-        self.api_key = api_key
-        self.secret_key = secret_key
-        self.password = password
+        # 키 값에 개행/공백이 섞이면 HTTP 헤더가 깨질 수 있으므로 초기화 시 정규화한다.
+        self.api_key = self._normalize_credential(api_key)
+        self.secret_key = self._normalize_credential(secret_key)
+        self.password = self._normalize_credential(password)
         self.exchange = None
         self.logger = logging.getLogger(__name__)
+        self.last_error: str = ""
+        self.last_auth_guidance: str = ""
+        self._auth_tip_emitted = set()
         from log_system.log_adapter import log_event
         self.log_event = lambda category, msg, level='INFO': log_event(category, msg, exchange='bitget', level=level)
+
+    @staticmethod
+    def _normalize_credential(value: Any) -> str:
+        if value is None:
+            return ""
+        try:
+            # strip으로 선/후행 공백 제거 + 내부 개행 제거
+            return str(value).strip().replace("\r", "").replace("\n", "")
+        except Exception:
+            return ""
+
+    @staticmethod
+    def _get_public_ip(timeout_sec: float = 1.8) -> Optional[str]:
+        try:
+            with urllib_request.urlopen('https://api.ipify.org', timeout=timeout_sec) as resp:
+                ip = resp.read().decode('utf-8').strip()
+                return ip or None
+        except Exception:
+            return None
+
+    def _classify_auth_error(self, message: str) -> str:
+        msg = str(message or '').lower()
+        if 'invalid ip' in msg or 'code":"40018' in msg or "code': '40018" in msg:
+            return 'invalid_ip'
+        if 'invalid header value' in msg:
+            return 'invalid_header'
+        if 'api key' in msg and ('invalid' in msg or 'expired' in msg):
+            return 'invalid_api_key'
+        if 'passphrase' in msg or 'password' in msg:
+            return 'invalid_passphrase'
+        if '401' in msg or 'unauthorized' in msg:
+            return 'unauthorized'
+        return ''
+
+    def _build_auth_guidance(self, error_type: str) -> str:
+        if error_type == 'invalid_ip':
+            ip = self._get_public_ip()
+            if ip:
+                return (
+                    f"Bitget API 접근 차단(Invalid IP). 현재 공인 IP: {ip}. "
+                    f"Bitget API 키의 IP 화이트리스트에 동일 IP를 등록하세요."
+                )
+            return "Bitget API 접근 차단(Invalid IP). Bitget API 키의 IP 화이트리스트를 확인하세요."
+        if error_type == 'invalid_header':
+            return (
+                "Bitget 요청 헤더 값 오류. API 키/시크릿/패스프레이즈의 앞뒤 공백, 줄바꿈, 특수문자 인코딩을 확인하고 "
+                "설정 저장 후 다시 검증하세요."
+            )
+        if error_type == 'invalid_api_key':
+            return "Bitget API 키가 유효하지 않습니다. 키 상태(활성/권한/만료)를 확인하세요."
+        if error_type == 'invalid_passphrase':
+            return "Bitget passphrase/password 불일치입니다. 생성 시 입력한 passphrase를 정확히 입력하세요."
+        if error_type == 'unauthorized':
+            return "Bitget 인증 실패(401). API Key/Secret/Passphrase 및 거래 권한을 확인하세요."
+        return ""
+
+    def _handle_auth_error(self, raw_error: Any, where: str) -> None:
+        message = str(raw_error or '')
+        error_type = self._classify_auth_error(message)
+        if not error_type:
+            return
+        guidance = self._build_auth_guidance(error_type)
+        self.last_auth_guidance = guidance
+        key = f"{where}:{error_type}"
+        if key not in self._auth_tip_emitted:
+            if guidance:
+                self.log_event('system', f"[Bitget 진단가이드] {guidance}", level='WARNING')
+            self._auth_tip_emitted.add(key)
     
     def connect(self) -> bool:
         try:
             import importlib
             ccxt = importlib.import_module('ccxt')
+            api_key = self._normalize_credential(self.api_key)
+            secret_key = self._normalize_credential(self.secret_key)
+            password = self._normalize_credential(self.password)
             config = {
-                'apiKey': str(self.api_key) if self.api_key is not None else '',
-                'secret': str(self.secret_key) if self.secret_key is not None else '',
-                'password': str(self.password) if self.password is not None else '',
+                'apiKey': api_key,
+                'secret': secret_key,
+                'password': password,
                 'enableRateLimit': True,
                 'options': {
                     'defaultType': 'swap',  # 선물 스왑 기본
@@ -41,9 +117,13 @@ class BitgetFuturesAdapter(FuturesExchange):
             self.exchange = ccxt.bitget(config)  # type: ignore
             self.exchange.load_markets()
             self.is_connected = True
+            self.last_error = ""
+            self.last_auth_guidance = ""
             self.log_event('system', "비트겟 선물 연결 성공")
             return True
         except Exception as e:
+            self.last_error = str(e)
+            self._handle_auth_error(e, where='connect')
             self.log_event('system', f"비트겟 선물 연결 실패: {e}", level='ERROR')
             return False
 
@@ -89,6 +169,8 @@ class BitgetFuturesAdapter(FuturesExchange):
                 'ETH': balance.get('ETH', {}).get('total', 0),
             }
         except Exception as e:
+            self.last_error = str(e)
+            self._handle_auth_error(e, where='get_balance')
             self.log_event('system', f"잔고 조회 실패: {e}", level='ERROR')
             return {}
 
@@ -104,6 +186,8 @@ class BitgetFuturesAdapter(FuturesExchange):
                 'balances': balance
             }
         except Exception as e:
+            self.last_error = str(e)
+            self._handle_auth_error(e, where='get_account_info')
             self.log_event('system', f"계정 정보 조회 실패: {e}", level='ERROR')
             return {}
     
@@ -138,6 +222,8 @@ class BitgetFuturesAdapter(FuturesExchange):
                     })
             return position_list
         except Exception as e:
+            self.last_error = str(e)
+            self._handle_auth_error(e, where='get_positions')
             self.log_event('system', f"포지션 조회 실패: {e}", level='ERROR')
             return []
     
@@ -184,6 +270,8 @@ class BitgetFuturesAdapter(FuturesExchange):
                 'timestamp': order.get('timestamp')
             }
         except Exception as e:
+            self.last_error = str(e)
+            self._handle_auth_error(e, where='place_order')
             self.log_event('system', f"주문 실행 실패: {e}", level='ERROR')
             return {'status': 'error', 'error': str(e)}
     

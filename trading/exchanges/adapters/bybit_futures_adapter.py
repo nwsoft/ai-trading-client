@@ -6,6 +6,7 @@
 
 import logging
 from typing import Dict, List, Optional, Any
+from urllib import request as urllib_request
 from ..interfaces.futures_exchange import FuturesExchange
 from decimal import Decimal, ROUND_DOWN
 
@@ -18,8 +19,57 @@ class BybitFuturesAdapter(FuturesExchange):
         self.secret_key = secret_key
         self.exchange = None
         self.logger = logging.getLogger(__name__)
+        self.last_error: str = ""
+        self.last_auth_guidance: str = ""
+        self._auth_tip_emitted = set()
         from log_system.log_adapter import log_event
         self.log_event = lambda category, msg, level='INFO': log_event(category, msg, exchange='bybit', level=level)
+
+    @staticmethod
+    def _get_public_ip(timeout_sec: float = 1.8) -> Optional[str]:
+        try:
+            with urllib_request.urlopen('https://api.ipify.org', timeout=timeout_sec) as resp:
+                ip = resp.read().decode('utf-8').strip()
+                return ip or None
+        except Exception:
+            return None
+
+    def _classify_auth_error(self, message: str) -> str:
+        msg = str(message or '').lower()
+        if 'unmatched ip' in msg or 'bound ip' in msg:
+            return 'invalid_ip'
+        if 'invalid api key' in msg or 'api key is invalid' in msg or 'retcode":10003' in msg:
+            return 'invalid_api_key'
+        if '401' in msg or 'unauthorized' in msg:
+            return 'unauthorized'
+        return ''
+
+    def _build_auth_guidance(self, error_type: str) -> str:
+        if error_type == 'invalid_ip':
+            ip = self._get_public_ip()
+            if ip:
+                return (
+                    f"Bybit IP 화이트리스트 불일치(Unmatched IP). 현재 공인 IP: {ip}. "
+                    f"Bybit API 키의 bound IP 주소에 해당 IP를 등록하세요."
+                )
+            return "Bybit IP 화이트리스트 불일치(Unmatched IP). API 키 bound IP 설정을 확인하세요."
+        if error_type == 'invalid_api_key':
+            return "Bybit API 키가 유효하지 않습니다. 키 상태(활성/권한/만료)를 확인하세요."
+        if error_type == 'unauthorized':
+            return "Bybit 인증 실패(401). API Key/Secret 및 선물 거래 권한을 확인하세요."
+        return ""
+
+    def _handle_auth_error(self, raw_error: Any, where: str) -> None:
+        msg = str(raw_error or '')
+        error_type = self._classify_auth_error(msg)
+        if not error_type:
+            return
+        guidance = self._build_auth_guidance(error_type)
+        self.last_auth_guidance = guidance
+        dedup_key = f"{where}:{error_type}"
+        if guidance and dedup_key not in self._auth_tip_emitted:
+            self.log_event('system', f"[Bybit 진단가이드] {guidance}", level='WARNING')
+            self._auth_tip_emitted.add(dedup_key)
     
     def connect(self) -> bool:
         # API 키가 없으면 연결 시도하지 않음
@@ -41,9 +91,13 @@ class BybitFuturesAdapter(FuturesExchange):
             self.exchange = ccxt.bybit(config)  # type: ignore
             self.exchange.load_markets()
             self.is_connected = True
+            self.last_error = ""
+            self.last_auth_guidance = ""
             self.log_event('system', "바이비트 선물 연결 성공")
             return True
         except Exception as e:
+            self.last_error = str(e)
+            self._handle_auth_error(e, where='connect')
             self.log_event('system', f"바이비트 선물 연결 실패: {e}", level='ERROR')
             return False
 

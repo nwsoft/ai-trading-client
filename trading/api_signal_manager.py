@@ -97,9 +97,7 @@ class APISignalManager:
                 self.timer_thread = threading.Thread(target=self._timer_loop, daemon=True)
                 self.timer_thread.start()
                 self.logger.info(f"API 신호 수집 시작 (간격: {self.signal_interval}초)")
-                
-                # 초기 신호 수집
-                self._collect_signals()
+                # 초기 신호 수집은 타이머 스레드에서 수행하여 로그인/초기화 경로를 비차단으로 유지
             
         except Exception as e:
             self.logger.error(f"신호 수집 시작 오류: {e}")
@@ -265,13 +263,28 @@ class APISignalManager:
         try:
             # 안전 심볼 사용
             safe_symbol = symbol_validator.get_safe_symbol(exchange_name)
-            trade_history = client.get_trade_history(symbol=safe_symbol, limit=10)
+            trade_history = []
+            trade_volume = 0.0
+
+            # 국내 현물 거래소는 거래내역 API 미지원/제한 케이스가 잦아
+            # 신호 수집에서는 티커 볼륨을 우선 사용해 불필요한 API 호출을 피한다.
+            if exchange_name in ('upbit', 'bithumb'):
+                ticker = {}
+                if hasattr(client, 'get_24h_ticker'):
+                    try:
+                        ticker = client.get_24h_ticker(safe_symbol) or {}
+                    except Exception:
+                        ticker = {}
+                trade_volume = float(ticker.get('baseVolume', 0) or 0)
+            else:
+                trade_history = client.get_trade_history(symbol=safe_symbol, limit=10) or []
+                trade_volume = sum(float(trade.get('amount', 0) or 0) for trade in trade_history)
             
             volume_data = {
                 'exchange': exchange_name,
                 'timestamp': datetime.now().isoformat(),
                 'recent_trades': len(trade_history),
-                'trade_volume': sum(trade.get('amount', 0) for trade in trade_history)
+                'trade_volume': trade_volume
             }
             
             return volume_data

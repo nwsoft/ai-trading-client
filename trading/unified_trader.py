@@ -411,7 +411,7 @@ class UnifiedTrader:
         self.last_market_analysis_time_by_exchange: Dict[str, float] = {}
         self.last_market_regime_by_exchange: Dict[str, str] = {}
         self.enabled_exchanges = self._compute_enabled_exchanges()
-        self._initialize_exchanges()
+        self._initialized_exchanges = set()
         try:
             self._winrate_window = max(1, int(self.settings.get('risk_winrate_window', 10)))
         except Exception:
@@ -590,6 +590,14 @@ class UnifiedTrader:
                     self.logger.info(f"🧹 {exchange_name} 심볼 호환성 필터: {len(coins)} → {len(filtered)}")
                 except Exception:
                     pass
+            # 모든 심볼이 비호환으로 탈락한 경우 원본을 재사용하면
+            # 거래소 비호환 심볼로 데이터 부족 루프가 발생할 수 있다.
+            if not filtered and coins and name in ['bybit', 'okx', 'bitget', 'upbit', 'bithumb']:
+                try:
+                    self.logger.warning(f"⚠️ {exchange_name} 호환 심볼 없음 - 분석 스킵")
+                except Exception:
+                    pass
+                return []
             return filtered if filtered else coins
         except Exception as e:
             try:
@@ -744,12 +752,19 @@ class UnifiedTrader:
             })
         return PortfolioOrchestrator().allocate(candidates=candidates, total_capital=total_capital, policy=policy)
 
-    def _initialize_exchanges(self):
-        """거래소별 시스템 초기화 (CCXT 거래소만)"""
-        for exchange in self.enabled_exchanges:
+    def _initialize_exchanges(self, exchanges: Optional[List[str]] = None):
+        """거래소별 시스템 초기화 (CCXT 거래소만)
+
+        기본은 지연 초기화이며, 필요한 거래소만 명시적으로 준비한다.
+        """
+        target_exchanges = exchanges if exchanges is not None else self.enabled_exchanges
+        for exchange in target_exchanges:
             # 🔥 바이낸스는 절대 처리하지 않음 (Trader에서 처리)
             if exchange == 'binance':
                 self.logger.debug(f"바이낸스는 unified_trader에서 처리하지 않습니다: {exchange}")
+                continue
+
+            if exchange in self._initialized_exchanges:
                 continue
 
             # 거래소별 통계 초기화 (DB에서 로드)
@@ -787,6 +802,18 @@ class UnifiedTrader:
             self.advanced_order_managers[exchange] = None
 
             self.logger.info(f"✅ {exchange} 거래소 시스템 초기화 완료")
+            self._initialized_exchanges.add(exchange)
+
+    def _ensure_exchange_initialized(self, exchange_name: str) -> bool:
+        ex = self._normalize_exchange(exchange_name)
+        if not ex or ex == 'binance':
+            return False
+        if ex not in self.enabled_exchanges:
+            self.logger.warning(f"{ex}는 활성 거래소 목록에 없어 초기화를 건너뜁니다")
+            return False
+        if ex not in self._initialized_exchanges:
+            self._initialize_exchanges([ex])
+        return ex in self._initialized_exchanges
 
     def get_exchange_client(self, exchange_name: str):
         """거래소별 클라이언트 가져오기 (CCXT 거래소만 지원)"""
@@ -2994,6 +3021,10 @@ class UnifiedTrader:
     def start_trading(self, exchange_name: str):
         """거래소별 거래 시작"""
         try:
+            if not self._ensure_exchange_initialized(exchange_name):
+                self.logger.warning(f"⚠️ {exchange_name} 거래 시작 취소 - 거래소 초기화 실패")
+                return False
+
             # 이미 실행 중이면 중복 스레드 생성 방지
             if self.monitoring_flags.get(exchange_name, False):
                 thread = self.monitoring_threads.get(exchange_name)
@@ -3455,10 +3486,11 @@ Response in JSON format:
 
             reason = ai_validation.get('reasoning', '진입 조건 분석 완료')
             if not proceed:
-                if pattern_analysis['loss_rate'] >= 50.0:
-                    reason = f"높은 손실률 ({pattern_analysis['loss_rate']:.1f}%)"
-                elif pattern_analysis['recent_trades'] < 1:
+                # 거래 이력이 없는 cold-start는 손실률보다 먼저 안내해야 오해를 줄일 수 있다.
+                if pattern_analysis['recent_trades'] < 1:
                     reason = f"거래 이력 부족 ({pattern_analysis['recent_trades']}회)"
+                elif pattern_analysis['loss_rate'] >= 50.0:
+                    reason = f"높은 손실률 ({pattern_analysis['loss_rate']:.1f}%)"
                 elif not market_conditions['volatility_suitable']:
                     reason = "변동성 부적절"
                 else:
@@ -3596,11 +3628,11 @@ Response in JSON format:
 
             # 데이터가 없거나 recorder가 없으면 완화된 기본값 반환
             return {
-                'loss_rate': 50.0,   # 70.0 → 50.0 (완화)
-                'recent_trades': 0,  # 거래 이력 없음
-                'win_rate': 50.0,    # 30.0 → 50.0 (완화)
-                'avg_profit': 0.5,   # 평균 수익률 % (0.5%)
-                'avg_loss': -0.8,    # 평균 손실률 % (-0.8%)
+                'loss_rate': 0.0,
+                'recent_trades': 0,
+                'win_rate': 0.0,
+                'avg_profit': 0.0,
+                'avg_loss': 0.0,
                 'data_insufficient': True,
                 'used_defaults': True
             }
@@ -4595,8 +4627,10 @@ Response in JSON format:
                 if key not in self.enabled_exchanges:
                     container.pop(key, None)
 
-        # 활성 거래소 재초기화
-        self._initialize_exchanges()
+        # 활성 거래소는 지연 초기화로 전환: 기존 초기화 마크만 정리
+        self._initialized_exchanges = {
+            ex for ex in self._initialized_exchanges if ex in self.enabled_exchanges
+        }
         self._recent_outcomes = {ex: deque(maxlen=self._winrate_window) for ex in self.enabled_exchanges}
 
     # 🔥 사용되지 않는 함수 제거됨 (2025-10-20):
@@ -4768,7 +4802,7 @@ Response in JSON format:
         try:
             base_thresholds = {
                 'max_loss_rate': 50.0,
-                'min_trades_history': 1,
+                'min_trades_history': 0,
                 'min_ai_confidence': 0.4,
             }
 
@@ -4813,10 +4847,10 @@ Response in JSON format:
             # 오류 시 기본값 반환
             return {
                 'max_loss_rate': 50.0,
-                'min_trades_history': 1,
+                'min_trades_history': 0,
                 'min_ai_confidence': 0.4,
                 '_source': 'fallback',
-                '_base': {'max_loss_rate': 50.0, 'min_trades_history': 1, 'min_ai_confidence': 0.4},
+                '_base': {'max_loss_rate': 50.0, 'min_trades_history': 0, 'min_ai_confidence': 0.4},
             }
 
     def _get_ai_learned_thresholds_unified(self, exchange_name: str, symbol: str) -> Optional[Dict]:

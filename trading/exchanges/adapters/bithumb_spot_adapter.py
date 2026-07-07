@@ -19,6 +19,15 @@ class BithumbSpotAdapter(SpotExchange):
         self.logger = logging.getLogger(__name__)
         from log_system.log_adapter import log_event
         self.log_event = lambda category, msg, level='INFO': log_event(category, msg, exchange='bithumb', level=level)
+        # 거래내역 조회 경로 캐시: my_trades | orders_fallback | unsupported
+        self._trade_history_mode: Optional[str] = None
+        self._trade_history_notice_emitted = set()
+
+    def _log_trade_history_notice_once(self, key: str, msg: str, level: str = 'INFO') -> None:
+        if key in self._trade_history_notice_emitted:
+            return
+        self._trade_history_notice_emitted.add(key)
+        self.log_event('system', msg, level=level)
 
     def _extract_total_balance(self, balance: Dict[str, Any], currency: str) -> float:
         """ccxt fetch_balance 결과에서 통화 잔고를 안전하게 추출"""
@@ -218,13 +227,17 @@ class BithumbSpotAdapter(SpotExchange):
             return []
         try:
             normalized = self._normalize_bithumb_symbol(symbol) if symbol else None
-            has_fetch_my_trades = True
-            try:
-                has_fetch_my_trades = bool(getattr(self.exchange, 'has', {}).get('fetchMyTrades', True))
-            except Exception:
+            mode = self._trade_history_mode
+            if mode is None:
                 has_fetch_my_trades = True
+                try:
+                    has_fetch_my_trades = bool(getattr(self.exchange, 'has', {}).get('fetchMyTrades', True))
+                except Exception:
+                    has_fetch_my_trades = True
+                mode = 'my_trades' if has_fetch_my_trades else 'orders_fallback'
+                self._trade_history_mode = mode
 
-            if has_fetch_my_trades:
+            if mode == 'my_trades':
                 try:
                     trades = self.exchange.fetch_my_trades(normalized, limit=limit)  # type: ignore
                     return [dict(t) for t in trades]
@@ -233,6 +246,45 @@ class BithumbSpotAdapter(SpotExchange):
                     unsupported_tokens = ('not supported', 'unsupported', 'fetchmytrades', 'fetch_my_trades')
                     if not any(token in fetch_err_text for token in unsupported_tokens):
                         raise
+                    # 한 번 미지원이 확정되면 이후에는 fetch_my_trades를 시도하지 않음
+                    mode = 'orders_fallback'
+                    self._trade_history_mode = mode
+                    self._log_trade_history_notice_once(
+                        'fetch_my_trades_unsupported',
+                        '빗썸 거래 내역 조회: fetch_my_trades 미지원, 주문 내역 기반 폴백으로 전환'
+                    )
+
+            if mode == 'orders_fallback':
+                for method_name in ('fetch_closed_orders', 'fetch_orders'):
+                    fetcher = getattr(self.exchange, method_name, None)
+                    if not callable(fetcher):
+                        continue
+                    try:
+                        try:
+                            orders = fetcher(normalized, limit=limit)  # type: ignore[misc]
+                        except TypeError:
+                            orders = fetcher(normalized)  # type: ignore[misc]
+                    except Exception:
+                        continue
+
+                    trades = self._orders_to_trade_history(list(orders or []), symbol_hint=normalized)
+                    if trades:
+                        self._log_trade_history_notice_once(
+                            'orders_fallback_in_use',
+                            '빗썸 거래 내역 조회: 주문 내역 기반 폴백 사용 중'
+                        )
+                        return trades[:limit]
+
+                # 폴백 경로에서도 결과를 얻지 못하면 unsupported로 고정해 과도한 재시도 차단
+                self._trade_history_mode = 'unsupported'
+                self._log_trade_history_notice_once(
+                    'trade_history_effectively_unsupported',
+                    '빗썸 거래 내역 조회: 현재 환경에서 거래 내역 API 경로를 사용할 수 없음'
+                )
+                return []
+
+            if mode == 'unsupported':
+                return []
 
             for method_name in ('fetch_closed_orders', 'fetch_orders'):
                 fetcher = getattr(self.exchange, method_name, None)
@@ -248,16 +300,27 @@ class BithumbSpotAdapter(SpotExchange):
 
                 trades = self._orders_to_trade_history(list(orders or []), symbol_hint=normalized)
                 if trades:
-                    self.log_event('system', '빗썸 거래 내역 조회: fetch_my_trades 미지원으로 주문 내역 폴백 사용')
+                    self._log_trade_history_notice_once(
+                        'orders_fallback_in_use',
+                        '빗썸 거래 내역 조회: 주문 내역 기반 폴백 사용 중'
+                    )
                     return trades[:limit]
 
-            self.log_event('system', '빗썸 거래 내역 조회: fetch_my_trades 미지원')
+            self._trade_history_mode = 'unsupported'
+            self._log_trade_history_notice_once(
+                'trade_history_effectively_unsupported',
+                '빗썸 거래 내역 조회: 현재 환경에서 거래 내역 API 경로를 사용할 수 없음'
+            )
             return []
         except Exception as e:
             err_text = str(e).lower()
             if ('not supported' in err_text or 'unsupported' in err_text
                     or 'fetchmytrades' in err_text or 'fetch_my_trades' in err_text):
-                self.log_event('system', '빗썸 거래 내역 조회: fetch_my_trades 미지원')
+                self._trade_history_mode = 'unsupported'
+                self._log_trade_history_notice_once(
+                    'fetch_my_trades_unsupported',
+                    '빗썸 거래 내역 조회: fetch_my_trades 미지원'
+                )
             else:
                 self.log_event('system', f"거래 내역 조회 실패: {e}", level='ERROR')
             return []

@@ -17,7 +17,8 @@ class UnifiedTradingManager:
         self.settings = settings
         self.logger = logging.getLogger(__name__)
         self.exchanges = {}
-        self._initialize_exchanges()
+        # 거래소 연결은 요청 시점에 지연 생성한다.
+        # (로그인/대시보드 초기 진입 시 동기 블로킹 방지)
 
     def _get_enabled_exchange_set(self) -> set:
         enabled_set = set()
@@ -63,6 +64,39 @@ class UnifiedTradingManager:
                         self.logger.info(f"{exchange_name} 현물 거래소 초기화 완료")
                 except Exception as e:
                     self.logger.error(f"{exchange_name} 현물 거래소 초기화 실패: {e}")
+
+    def _is_supported_pair(self, exchange_name: str, trading_type: str) -> bool:
+        name = str(exchange_name or '').strip().lower()
+        ttype = str(trading_type or '').strip().lower()
+        if ttype == 'futures':
+            return name in ['binance', 'bybit', 'okx', 'bitget']
+        if ttype == 'spot':
+            return name in ['upbit', 'bithumb']
+        return False
+
+    def _create_and_connect_exchange(self, exchange_name: str, trading_type: str) -> Optional[ExchangeInterface]:
+        name = str(exchange_name or '').strip().lower()
+        ttype = str(trading_type or '').strip().lower()
+
+        if not self._is_supported_pair(name, ttype):
+            return None
+
+        if not self._has_valid_api_keys(name):
+            return None
+
+        try:
+            if ttype == 'futures':
+                exchange = ExchangeFactory.create_futures_exchange(name, self.settings)
+            else:
+                exchange = ExchangeFactory.create_spot_exchange(name, self.settings)
+
+            if exchange and exchange.connect():
+                self.logger.info(f"{name} {ttype} 거래소 지연 초기화 완료")
+                return exchange
+        except Exception as e:
+            self.logger.error(f"{name} {ttype} 거래소 지연 초기화 실패: {e}")
+
+        return None
     
     def _has_valid_api_keys(self, exchange_name: str) -> bool:
         """API 키 유효성 확인 (거래소별 요구사항 반영)"""
@@ -80,8 +114,23 @@ class UnifiedTradingManager:
     
     def get_exchange(self, exchange_name: str, trading_type: str) -> Optional[ExchangeInterface]:
         """거래소 가져오기"""
-        key = f"{exchange_name}_{trading_type}"
-        return self.exchanges.get(key)
+        name = str(exchange_name or '').strip().lower()
+        ttype = str(trading_type or '').strip().lower()
+        key = f"{name}_{ttype}"
+
+        enabled = self._get_enabled_exchange_set()
+        if enabled and name not in enabled:
+            return None
+
+        cached = self.exchanges.get(key)
+        if cached:
+            return cached
+
+        created = self._create_and_connect_exchange(name, ttype)
+        if created:
+            self.exchanges[key] = created
+            return created
+        return None
     
     def get_all_balances(self) -> Dict[str, Dict[str, float]]:
         """활성화된 거래소의 잔고만 조회 (비활성 거래소 에러 방지)"""
@@ -295,8 +344,7 @@ class UnifiedTradingManager:
         """모든 연결을 재구성 (간단히 재생성)"""
         try:
             self.exchanges.clear()
-            self._initialize_exchanges()
-            self.logger.info("UnifiedTradingManager 재초기화 완료")
+            self.logger.info("UnifiedTradingManager 재초기화 완료 (지연 연결 모드)")
         except Exception as e:
             self.logger.error(f"UnifiedTradingManager 재초기화 실패: {e}")
 

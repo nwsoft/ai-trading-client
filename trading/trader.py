@@ -1939,6 +1939,10 @@ class Trader:
                             self.log_event('trade', f"[{symbol}] 신호 검증 시작 - 시그널: {signal}", exchange='binance')
                         else:
                             self.log_event('trade', f"[{symbol}] 거래 시그널 없음 - {signal} (거래 실행 생략)", exchange='binance')
+                            self.log_event('trade', f"⏸️ {symbol} 거래 조건 미충족 (신호: {signal}, 신뢰도: {confidence:.2f})")
+                            # HOLD는 정책상 미진입 경로이므로 pre-entry 검증을 생략한다.
+                            self._log_trade_event('trade', f"{symbol} HOLD | 신호 {signal}, 신뢰도 {confidence:.2f}", exchange='binance', level='INFO')
+                            continue
 
                         # 🤖 기존 시스템 스타일: 진입 전 패턴 분석 + AI 검증
                         try:
@@ -1968,7 +1972,7 @@ class Trader:
 
                         # 🔥 pre_entry_analysis에서 이미 검증 완료되었으므로, 그 결과를 사용
                         # (첫 거래 완화, 코인별 첫 거래 완화 등이 이미 적용된 상태)
-                        if signal in ['LONG', 'SHORT'] and pre_entry_analysis['proceed']:
+                        if pre_entry_analysis['proceed']:
                             # 🔥 거래 실행 직전 중지 신호 최종 확인
                             if hasattr(self.main_app, 'trading_worker') and self.main_app.trading_worker:
                                 if not self.main_app.trading_worker.running:
@@ -2035,8 +2039,6 @@ class Trader:
                                 self.log_event('trade', f"⏭️ {symbol} 거래 미실행(후행 게이트 차단 또는 조건 미충족)")
                         else:
                             self.log_event('trade', f"⏸️ {symbol} 거래 조건 미충족 (신호: {signal}, 신뢰도: {confidence:.2f})")
-                            # 대시보드 요약 로그 전송(HOLD 요약)
-                            self._log_trade_event('trade', f"{symbol} HOLD | 신호 {signal}, 신뢰도 {confidence:.2f}", exchange='binance', level='INFO')
 
                     except Exception as e:
                         self.log_event('debug', f"코인 처리 중 예외 발생 - symbol: {symbol}, error: {e}", exchange='binance', level='DEBUG')

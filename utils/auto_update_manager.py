@@ -10,6 +10,7 @@ import os
 import re
 import subprocess
 import sys
+import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Dict, Optional
@@ -36,6 +37,7 @@ class AutoUpdateManager:
         self._ui_root = None
         self._after_job = None
         self._notify_callback: Optional[Callable[[str], None]] = None
+        self._progress_callback: Optional[Callable[[Dict[str, Any]], None]] = None
         self._apply_started = False
 
         self.last_check_result: Dict[str, Any] = {}
@@ -46,6 +48,7 @@ class AutoUpdateManager:
 
         self.install_target_marker_path = self._resolve_install_target_marker_path()
         self.install_target_exe = self._resolve_install_target_executable()
+        self._prune_update_cache(keep_latest_versions=2)
 
         self.update_settings(self.settings)
 
@@ -96,6 +99,10 @@ class AutoUpdateManager:
             except Exception:
                 pass
         self._after_job = None
+
+    def set_progress_callback(self, callback: Optional[Callable[[Dict[str, Any]], None]] = None):
+        """UI에서 다운로드 진행률/완료 이벤트를 받을 콜백을 등록한다."""
+        self._progress_callback = callback
 
     def check_for_updates(self, manual: bool = False) -> Dict[str, Any]:
         """Check latest release and optionally pre-download update executable."""
@@ -203,8 +210,18 @@ class AutoUpdateManager:
         target_path = target_dir / staged_name
         tmp_path = target_dir / f"{staged_name}.download"
 
+        self._emit_progress(
+            event="download_start",
+            version=version,
+            file_name=staged_name,
+            target_path=str(target_path),
+            cache_dir=str(self.update_cache_dir),
+            install_target=str(self.install_target_exe),
+        )
+
         ok = self._download_file(exe_url, tmp_path)
         if not ok:
+            self._emit_progress(event="download_failed", reason="download_failed")
             return {"ok": False, "reason": "download_failed"}
 
         expected_sha = self._fetch_expected_sha_from_manifest(assets)
@@ -215,6 +232,12 @@ class AutoUpdateManager:
                 tmp_path.unlink(missing_ok=True)
             except Exception:
                 pass
+            self._emit_progress(
+                event="download_failed",
+                reason="sha256_mismatch",
+                expected_sha=expected_sha,
+                actual_sha=actual_sha,
+            )
             return {"ok": False, "reason": "sha256_mismatch", "expected_sha": expected_sha, "actual_sha": actual_sha}
 
         if target_path.exists():
@@ -223,6 +246,18 @@ class AutoUpdateManager:
             except Exception:
                 pass
         tmp_path.rename(target_path)
+
+        # 오래된 버전 캐시/스크립트는 정리해 누적 오염을 방지한다.
+        self._prune_update_cache(keep_latest_versions=2)
+
+        self._emit_progress(
+            event="download_completed",
+            version=version,
+            asset_path=str(target_path),
+            cache_dir=str(self.update_cache_dir),
+            install_target=str(self.install_target_exe),
+            sha256=actual_sha,
+        )
 
         return {
             "ok": True,
@@ -387,23 +422,137 @@ class AutoUpdateManager:
         try:
             req = urllib_request.Request(url, headers={"User-Agent": "NoahAI-AutoUpdate/1.0"})
             with urllib_request.urlopen(req, timeout=30) as resp, output_path.open("wb") as f:
+                total_size = 0
+                try:
+                    total_size = int(resp.headers.get("Content-Length", "0") or "0")
+                except Exception:
+                    total_size = 0
+
+                received = 0
+                last_emitted_percent = -1
                 while True:
                     chunk = resp.read(1024 * 1024)
                     if not chunk:
                         break
                     f.write(chunk)
+
+                    received += len(chunk)
+                    if total_size > 0:
+                        percent = int((received / total_size) * 100)
+                        if percent != last_emitted_percent:
+                            last_emitted_percent = percent
+                            self._emit_progress(
+                                event="download_progress",
+                                percent=percent,
+                                downloaded_bytes=received,
+                                total_bytes=total_size,
+                            )
+                    else:
+                        # Content-Length를 모를 때도 수신량은 보여준다.
+                        self._emit_progress(
+                            event="download_progress",
+                            percent=None,
+                            downloaded_bytes=received,
+                            total_bytes=0,
+                        )
             return True
         except Exception as exc:
             self._log_warning(f"download failed ({url}): {exc}")
             return False
 
     def _resolve_update_cache_dir(self) -> Path:
+        # Windows 배포본에서는 설치 위치를 우선해 캐시를 잡아
+        # "내문서 고정 생성" 체감을 줄이고 설치 위치 중심 동작을 보장한다.
+        if sys.platform.startswith("win") and getattr(sys, "frozen", False):
+            current_exe = Path(sys.executable)
+            exe_parent = current_exe.parent
+
+            install_near_candidates = [
+                exe_parent / "cache" / "auto_updater",
+                exe_parent / ".auto_updater",
+            ]
+
+            local_appdata = os.environ.get("LOCALAPPDATA", "").strip()
+            if local_appdata:
+                install_near_candidates.append(Path(local_appdata) / "NoahAI" / "cache" / "auto_updater")
+
+            # TEMP는 최후 폴백
+            install_near_candidates.append(Path(tempfile.gettempdir()) / "NoahAI" / "cache" / "auto_updater")
+
+            for candidate in install_near_candidates:
+                # 이미 auto_updater 캐시 하위에서 실행 중인 경우는 스킵
+                lowered = str(candidate).replace("\\", "/").lower()
+                if "/auto_updater/" in lowered and str(current_exe).replace("\\", "/").lower().find("/auto_updater/") >= 0:
+                    continue
+                if self._can_use_cache_dir(candidate):
+                    return candidate
+
         try:
             from path_utils import get_cache_dir
 
-            return Path(get_cache_dir()) / "auto_updater"
+            fallback = Path(get_cache_dir()) / "auto_updater"
+            if self._can_use_cache_dir(fallback):
+                return fallback
         except Exception:
-            return Path(os.getcwd()) / "data" / "cache" / "auto_updater"
+            pass
+
+        return Path(os.getcwd()) / "data" / "cache" / "auto_updater"
+
+    @staticmethod
+    def _can_use_cache_dir(path: Path) -> bool:
+        try:
+            path.mkdir(parents=True, exist_ok=True)
+            probe = path / ".write_test"
+            probe.write_text("ok", encoding="utf-8")
+            probe.unlink(missing_ok=True)
+            return True
+        except Exception:
+            return False
+
+    def _prune_update_cache(self, keep_latest_versions: int = 2):
+        try:
+            if keep_latest_versions < 1:
+                keep_latest_versions = 1
+
+            version_dirs = [p for p in self.update_cache_dir.iterdir() if p.is_dir()]
+            version_dirs.sort(key=lambda p: p.stat().st_mtime, reverse=True)
+
+            keep_dirs = set(version_dirs[:keep_latest_versions])
+            for old_dir in version_dirs[keep_latest_versions:]:
+                self._safe_remove_tree(old_dir)
+
+            # 남은 버전 디렉토리명 기준으로 스크립트도 정리
+            keep_names = {d.name for d in keep_dirs}
+            for script in self.update_cache_dir.glob("apply_update_*.ps1"):
+                script_name = script.stem  # apply_update_v3.8.9.26
+                version_hint = script_name.replace("apply_update_", "").lstrip("v")
+                if version_hint not in keep_names:
+                    try:
+                        script.unlink(missing_ok=True)
+                    except Exception:
+                        pass
+        except Exception:
+            # 정리 실패는 업데이트 본 흐름을 막지 않는다.
+            pass
+
+    @staticmethod
+    def _safe_remove_tree(path: Path):
+        try:
+            for child in path.rglob("*"):
+                if child.is_file() or child.is_symlink():
+                    try:
+                        child.unlink(missing_ok=True)
+                    except Exception:
+                        pass
+            for child in sorted(path.rglob("*"), reverse=True):
+                if child.is_dir():
+                    try:
+                        child.rmdir()
+                    except Exception:
+                        pass
+            path.rmdir()
+        except Exception:
+            pass
 
     def _resolve_install_target_marker_path(self) -> Path:
         try:
@@ -565,6 +714,15 @@ try {{
             except Exception:
                 pass
         self._log_info(message)
+
+    def _emit_progress(self, **payload: Any):
+        callback = self._progress_callback
+        if not callable(callback):
+            return
+        try:
+            callback(dict(payload))
+        except Exception:
+            pass
 
     def _log_info(self, message: str):
         try:

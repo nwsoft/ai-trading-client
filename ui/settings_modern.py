@@ -295,12 +295,21 @@ class ModernSettingsWindow:
 
         if auto_manager is not None:
             try:
+                if hasattr(auto_manager, 'set_progress_callback'):
+                    auto_manager.set_progress_callback(self._handle_auto_update_progress)
+
                 # 설정창에서 즉시 변경한 자동업데이트 옵션을 반영해 체크한다.
                 ui_settings = dict(self.current_settings.get('ui_settings', {}) or {})
                 ui_settings.update(self._collect_auto_update_ui_settings())
                 self.current_settings['ui_settings'] = ui_settings
                 auto_manager.update_settings(self.current_settings)
                 self._refresh_update_runtime_diagnostics_label()
+
+                if hasattr(self, 'update_status_label') and self.update_status_label is not None:
+                    self.update_status_label.configure(
+                        text="업데이트 확인/다운로드 시작...",
+                        text_color="#60a5fa",
+                    )
 
                 result = auto_manager.check_for_updates(manual=True)
                 if not result.get('ok'):
@@ -327,6 +336,9 @@ class ModernSettingsWindow:
                     status_text = f"새 버전 발견: {latest_version} (현재 v{current_version}){suffix}"
                     if hasattr(self, 'update_status_label') and self.update_status_label is not None:
                         self.update_status_label.configure(text=status_text, text_color=color)
+
+                    diagnostics = auto_manager.get_runtime_diagnostics() if hasattr(auto_manager, 'get_runtime_diagnostics') else {}
+                    asset_path = str((auto_manager.pending_update or {}).get('asset_path', '') or '-')
                     messagebox.showinfo(
                         "업데이트 확인",
                         (
@@ -334,6 +346,9 @@ class ModernSettingsWindow:
                             f"- 현재 버전: v{current_version}\n"
                             f"- 최신 버전: {latest_version}\n"
                             f"- 다운로드 상태: {'완료' if downloaded else '미완료'}\n\n"
+                            f"- 다운로드 파일: {asset_path}\n"
+                            f"- 적용 대상 EXE: {diagnostics.get('install_target_exe', '-')}\n"
+                            f"- 업데이트 캐시: {diagnostics.get('update_cache_dir', '-')}\n\n"
                             "다운로드 완료 시 '지금 업데이트 적용(재시작)' 버튼으로 즉시 반영할 수 있습니다."
                         ),
                     )
@@ -352,6 +367,12 @@ class ModernSettingsWindow:
             except Exception:
                 # 매니저 경로에서 예외가 나면 기존 로직으로 폴백
                 pass
+            finally:
+                try:
+                    if hasattr(auto_manager, 'set_progress_callback'):
+                        auto_manager.set_progress_callback(None)
+                except Exception:
+                    pass
 
         self._refresh_update_runtime_diagnostics_label()
 
@@ -412,6 +433,55 @@ class ModernSettingsWindow:
                 f"- 저장소: {latest_info.get('repo', 'unknown')}"
             ),
         )
+
+    def _handle_auto_update_progress(self, payload: Dict[str, Any]):
+        """자동업데이트 진행 이벤트를 설정 UI 라벨에 반영한다."""
+        try:
+            label = getattr(self, 'update_status_label', None)
+            if label is None:
+                return
+
+            event = str(payload.get('event', '') or '').strip().lower()
+
+            if event == 'download_start':
+                file_name = str(payload.get('file_name', 'AITrading.new.exe') or 'AITrading.new.exe')
+                text = f"업데이트 다운로드 시작: {file_name}"
+                label.configure(text=text, text_color="#60a5fa")
+                return
+
+            if event == 'download_progress':
+                percent = payload.get('percent', None)
+                downloaded_bytes = int(payload.get('downloaded_bytes', 0) or 0)
+                total_bytes = int(payload.get('total_bytes', 0) or 0)
+
+                if percent is None or total_bytes <= 0:
+                    mb = downloaded_bytes / (1024 * 1024)
+                    text = f"업데이트 다운로드 중... {mb:.1f}MB"
+                else:
+                    done_mb = downloaded_bytes / (1024 * 1024)
+                    total_mb = total_bytes / (1024 * 1024)
+                    text = f"업데이트 다운로드 중... {percent}% ({done_mb:.1f}/{total_mb:.1f}MB)"
+                label.configure(text=text, text_color="#60a5fa")
+                return
+
+            if event == 'download_completed':
+                asset_path = str(payload.get('asset_path', '-') or '-')
+                install_target = str(payload.get('install_target', '-') or '-')
+                text = (
+                    "다운로드 완료.\n"
+                    f"파일: {asset_path}\n"
+                    f"적용 대상: {install_target}"
+                )
+                label.configure(text=text, text_color="#22c55e")
+                self._refresh_update_runtime_diagnostics_label()
+                return
+
+            if event == 'download_failed':
+                reason = str(payload.get('reason', 'download_failed') or 'download_failed')
+                label.configure(text=f"업데이트 다운로드 실패: {reason}", text_color="#f59e0b")
+                return
+        except Exception:
+            pass
 
     def _open_latest_release_page(self):
         """최근 확인된 릴리즈 페이지를 연다."""
@@ -3581,6 +3651,29 @@ class ModernSettingsWindow:
             command=self._on_click_verify_bitget
         ).pack(side="right")
 
+        # Bitget 화이트리스트 등록을 위한 현재 공인 IP 표시
+        bitget_ip_row = ctk.CTkFrame(bitget_group)
+        bitget_ip_row.pack(fill="x", padx=20, pady=(0, 10))
+        self._bitget_public_ip_status = ctk.StringVar(value="현재 공인 IP: 확인 중...")
+        ctk.CTkLabel(
+            bitget_ip_row,
+            textvariable=self._bitget_public_ip_status,
+            font=ctk.CTkFont(family="Segoe UI", size=12, weight="normal"),
+            text_color=self._color("text_secondary", "#94a3b8")
+        ).pack(side="left", padx=(0, 10))
+        ctk.CTkButton(
+            bitget_ip_row,
+            text="IP 새로고침",
+            height=28,
+            width=100,
+            fg_color=self._color("secondary", "#334155"),
+            text_color=self._color("text_primary", "#f9fafb"),
+            hover_color=self._hover_from(self._color("secondary", "#334155")),
+            command=self._refresh_bitget_public_ip,
+        ).pack(side="right")
+
+        self._refresh_bitget_public_ip()
+
         broker_guide_row = ctk.CTkFrame(scroll_frame)
         broker_guide_row.pack(fill="x", pady=(0, 12))
 
@@ -6618,7 +6711,18 @@ class ModernSettingsWindow:
             if success:
                 self.root.after(0, lambda: self._okx_verify_status.set("✅ 검증 완료"))
             else:
-                self.root.after(0, lambda: self._okx_verify_status.set("❌ 검증 실패"))
+                raw_error = str(getattr(adapter, 'last_error', '') or '')
+                guidance = str(getattr(adapter, 'last_auth_guidance', '') or '')
+                hint = guidance or self._build_okx_verify_hint(raw_error)
+
+                def _apply_okx_fail_hint():
+                    self._okx_verify_status.set(hint.split('\n')[0])
+                    try:
+                        messagebox.showwarning("OKX 검증 가이드", hint)
+                    except Exception:
+                        pass
+
+                self.root.after(0, _apply_okx_fail_hint)
 
         except Exception as e:
             error_msg = str(e)
@@ -6629,7 +6733,16 @@ class ModernSettingsWindow:
             elif "passphrase" in error_msg.lower():
                 self.root.after(0, lambda: self._okx_verify_status.set("❌ Passphrase 오류"))
             else:
-                self.root.after(0, lambda: self._okx_verify_status.set("❌ 검증 실패"))
+                hint = self._build_okx_verify_hint(error_msg)
+
+                def _apply_okx_exception_hint():
+                    self._okx_verify_status.set(hint.split('\n')[0])
+                    try:
+                        messagebox.showwarning("OKX 검증 가이드", hint)
+                    except Exception:
+                        pass
+
+                self.root.after(0, _apply_okx_exception_hint)
 
     def _on_click_verify_bithumb(self):
         """빗썸 API 키 검증"""
@@ -6700,7 +6813,18 @@ class ModernSettingsWindow:
             if success:
                 self.root.after(0, lambda: self._bybit_verify_status.set("✅ 검증 완료"))
             else:
-                self.root.after(0, lambda: self._bybit_verify_status.set("❌ 검증 실패"))
+                raw_error = str(getattr(adapter, 'last_error', '') or '')
+                guidance = str(getattr(adapter, 'last_auth_guidance', '') or '')
+                hint = guidance or self._build_bybit_verify_hint(raw_error)
+
+                def _apply_bybit_fail_hint():
+                    self._bybit_verify_status.set(hint.split('\n')[0])
+                    try:
+                        messagebox.showwarning("Bybit 검증 가이드", hint)
+                    except Exception:
+                        pass
+
+                self.root.after(0, _apply_bybit_fail_hint)
 
         except Exception as e:
             error_msg = str(e)
@@ -6709,7 +6833,16 @@ class ModernSettingsWindow:
             elif "403" in error_msg:
                 self.root.after(0, lambda: self._bybit_verify_status.set("❌ 접근 제한"))
             else:
-                self.root.after(0, lambda: self._bybit_verify_status.set("❌ 검증 실패"))
+                hint = self._build_bybit_verify_hint(error_msg)
+
+                def _apply_bybit_exception_hint():
+                    self._bybit_verify_status.set(hint.split('\n')[0])
+                    try:
+                        messagebox.showwarning("Bybit 검증 가이드", hint)
+                    except Exception:
+                        pass
+
+                self.root.after(0, _apply_bybit_exception_hint)
 
     def _on_click_verify_bitget(self):
         """비트겟 API 키 검증"""
@@ -6730,6 +6863,91 @@ class ModernSettingsWindow:
             daemon=True
         ).start()
 
+    @staticmethod
+    def _get_public_ip_for_hint(timeout_sec: float = 1.8) -> str:
+        try:
+            with urllib_request.urlopen('https://api.ipify.org', timeout=timeout_sec) as resp:
+                return resp.read().decode('utf-8').strip()
+        except Exception:
+            return "확인 실패"
+
+    def _refresh_bitget_public_ip(self):
+        try:
+            if hasattr(self, '_bitget_public_ip_status') and self._bitget_public_ip_status is not None:
+                self._bitget_public_ip_status.set("현재 공인 IP: 확인 중...")
+        except Exception:
+            pass
+
+        threading.Thread(target=self._refresh_bitget_public_ip_worker, daemon=True).start()
+
+    def _refresh_bitget_public_ip_worker(self):
+        ip = self._get_public_ip_for_hint()
+        text = f"현재 공인 IP: {ip}"
+        try:
+            self.root.after(0, lambda: self._bitget_public_ip_status.set(text))
+        except Exception:
+            pass
+
+    def _build_bitget_verify_hint(self, error_msg: str) -> str:
+        msg = str(error_msg or '')
+        low = msg.lower()
+        public_ip = self._get_public_ip_for_hint()
+
+        if 'invalid ip' in low or 'code":"40018' in low or "code': '40018" in low:
+            return (
+                "❌ Bitget IP 화이트리스트 오류\n"
+                f"현재 공인 IP: {public_ip}\n"
+                "Bitget API 키 설정에서 IP 화이트리스트에 위 IP를 등록한 뒤 다시 검증하세요."
+            )
+
+        if 'invalid header value' in low:
+            return (
+                "❌ Bitget 헤더 값 오류\n"
+                "API Key/Secret/Passphrase 앞뒤 공백·줄바꿈을 제거하고 다시 저장 후 검증하세요."
+            )
+
+        if 'password' in low or 'passphrase' in low:
+            return "❌ Bitget Passphrase 오류: 키 생성 시 입력한 passphrase 값을 다시 확인하세요."
+
+        if '401' in low or 'unauthorized' in low:
+            return "❌ Bitget 인증 오류: API Key/Secret/Passphrase 및 선물 거래 권한을 확인하세요."
+
+        return "❌ Bitget 검증 실패: 입력값과 권한 설정을 확인한 뒤 다시 시도하세요."
+
+    def _build_bybit_verify_hint(self, error_msg: str) -> str:
+        msg = str(error_msg or '')
+        low = msg.lower()
+        public_ip = self._get_public_ip_for_hint()
+
+        if 'unmatched ip' in low or 'bound ip' in low:
+            return (
+                "❌ Bybit IP 화이트리스트 오류\n"
+                f"현재 공인 IP: {public_ip}\n"
+                "Bybit API 키의 bound IP 주소에 위 IP를 등록한 뒤 다시 검증하세요."
+            )
+        if '401' in low or 'unauthorized' in low:
+            return "❌ Bybit 인증 오류: API Key/Secret 및 선물 거래 권한을 확인하세요."
+        return "❌ Bybit 검증 실패: 입력값과 API 권한 설정을 확인한 뒤 다시 시도하세요."
+
+    def _build_okx_verify_hint(self, error_msg: str) -> str:
+        msg = str(error_msg or '')
+        low = msg.lower()
+        public_ip = self._get_public_ip_for_hint()
+
+        if 'passphrase' in low:
+            return "❌ OKX Passphrase 오류: API 생성 시 설정한 passphrase를 다시 확인하세요."
+        if '51010' in low or 'account mode' in low:
+            return "❌ OKX 계좌 모드 오류: 웹사이트에서 계좌 모드를 Single/Multi-currency margin으로 변경 후 다시 검증하세요."
+        if 'invalid ip' in low:
+            return (
+                "❌ OKX IP 제한 가능성\n"
+                f"현재 공인 IP: {public_ip}\n"
+                "OKX API 키의 IP 제한 설정을 확인하세요."
+            )
+        if '401' in low or 'unauthorized' in low:
+            return "❌ OKX 인증 오류: API Key/Secret/Passphrase 및 거래 권한을 확인하세요."
+        return "❌ OKX 검증 실패: 입력값과 계좌 모드/권한 설정을 확인한 뒤 다시 시도하세요."
+
     def _verify_bitget_keys_worker(self, api_key: str, secret_key: str, password: str):
         """비트겟 API 키 검증 (백그라운드 스레드)"""
         try:
@@ -6741,7 +6959,19 @@ class ModernSettingsWindow:
             if success:
                 self.root.after(0, lambda: self._bitget_verify_status.set("✅ 검증 완료"))
             else:
-                self.root.after(0, lambda: self._bitget_verify_status.set("❌ 검증 실패"))
+                raw_error = str(getattr(adapter, 'last_error', '') or '')
+                guidance = str(getattr(adapter, 'last_auth_guidance', '') or '')
+                hint = guidance or self._build_bitget_verify_hint(raw_error)
+
+                def _apply_bitget_fail_hint():
+                    one_line = hint.split('\n')[0]
+                    self._bitget_verify_status.set(one_line)
+                    try:
+                        messagebox.showwarning("Bitget 검증 가이드", hint)
+                    except Exception:
+                        pass
+
+                self.root.after(0, _apply_bitget_fail_hint)
 
         except Exception as e:
             error_msg = str(e)
@@ -6752,7 +6982,16 @@ class ModernSettingsWindow:
             elif "password" in error_msg.lower():
                 self.root.after(0, lambda: self._bitget_verify_status.set("❌ Password 오류"))
             else:
-                self.root.after(0, lambda: self._bitget_verify_status.set("❌ 검증 실패"))
+                hint = self._build_bitget_verify_hint(error_msg)
+
+                def _apply_bitget_exception_hint():
+                    self._bitget_verify_status.set(hint.split('\n')[0])
+                    try:
+                        messagebox.showwarning("Bitget 검증 가이드", hint)
+                    except Exception:
+                        pass
+
+                self.root.after(0, _apply_bitget_exception_hint)
 
     def create_advanced_layers_tab(self):
         """고급 자동매매 계층 설정 탭 - 프리셋 전환 + 개별 ON/OFF"""

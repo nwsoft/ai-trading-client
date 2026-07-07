@@ -2,6 +2,64 @@
 
 <!-- markdownlint-disable MD007 MD013 MD024 -->
 
+## v3.8.9.27 (2026-07-04) - 시작/정지 응답성 근본 패치
+
+### 🔧 v3.8.9.27 운영 업데이트 (2026-07-06) - 자동업데이트 경로/진행률 가시성 강화
+
+#### 1️⃣ 업데이트 진행률 실시간 표시
+
+- `utils/auto_update_manager.py`, `ui/settings_modern.py`
+   - 다운로드 시작/진행률(%) 또는 수신량(MB) 이벤트를 설정 업데이트 탭에 실시간 표시
+   - 완료/실패 상태를 상태 라벨로 즉시 확인 가능
+
+#### 2️⃣ 완료 시 경로 안내 강화
+
+- `ui/settings_modern.py`
+   - 다운로드 완료 팝업/상태 영역에 다음 경로를 명확히 노출
+     - 다운로드 파일 경로
+     - 적용 대상 EXE 경로
+     - 업데이트 캐시 경로
+
+#### 3️⃣ 캐시 경로 정책 및 누적 정리 개선
+
+- `utils/auto_update_manager.py`
+   - Windows 배포본에서 업데이트 캐시를 설치 위치 우선 경로로 선택
+   - 쓰기 불가 시 `LOCALAPPDATA` -> `TEMP` 순으로 폴백
+   - 오래된 auto_updater 버전 폴더/적용 스크립트 자동 정리(최신 2개 유지)
+
+#### 🧪 검증
+
+- `python -m pytest tests/test_auto_update_manager.py -q` -> `5 passed`
+- 수정 파일 정적 오류 점검: `No errors found`
+
+### 🎯 핵심 업데이트
+
+#### 1️⃣ 거래소 시작/정지 UI 비동기화
+
+- `ui/dashboard_modern.py`
+   - 거래소별 토글 버튼 동작을 백그라운드 스레드로 전환
+   - `Starting...`/`Stopping...` 중간 상태를 즉시 표시하고 처리 중 중복 클릭 차단
+
+#### 2️⃣ Unified 계층 지연 초기화(lazy connect)
+
+- `trading/unified_trading_manager.py`
+   - 로그인 직후 전체 거래소 eager connect를 제거
+   - `get_exchange()` 시점에 필요한 거래소만 생성/연결
+- `trading/unified_trader.py`
+   - 생성 시 전체 거래소 초기화/복구를 제거
+   - `start_trading(exchange)` 시점에 대상 거래소만 초기화
+
+#### 3️⃣ API 신호 수집 초기 동기 호출 제거
+
+- `trading/api_signal_manager.py`
+   - `start_signal_collection()`의 즉시 `_collect_signals()` 호출 제거
+   - 초기 수집을 타이머 스레드로 이관해 초기 진입 블로킹 최소화
+
+#### 🧪 검증 포인트
+
+- 로그인 직후 대시보드 진입 시 거래소 연결 대기 때문에 UI가 장시간 멈추지 않아야 함
+- 다중 거래소 개별 시작 시 버튼 상태/배지가 즉시 반영되고, 요청이 순차적으로 처리되어야 함
+
 ## v3.8.9.26 (2026-07-01) - 업데이트 경로 정합/적용 안정성 강화
 
 ### 🎯 핵심 업데이트

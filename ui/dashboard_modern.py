@@ -7686,6 +7686,8 @@ class ModernDashboard(ctk.CTk):
             # 토글 상태 저장소 (실제 거래 상태와 동기화)
             if not hasattr(self, '_exchange_running'):
                 self._exchange_running = {}
+            if not hasattr(self, '_exchange_action_pending'):
+                self._exchange_action_pending = {}
 
             # 실제 거래 상태 확인하여 초기값 설정
             actual_running = self._check_actual_exchange_status(exchange)
@@ -7701,35 +7703,74 @@ class ModernDashboard(ctk.CTk):
 
             def _toggle_exchange(e=exchange):
                 try:
+                    if self._exchange_action_pending.get(e, False):
+                        return
+
                     running = bool(self._exchange_running.get(e, False))
-                    if running:
-                        # 정지
-                        if hasattr(self, 'main_app') and self.main_app and hasattr(self.main_app, 'on_stop_exchange'):
-                            self.main_app.on_stop_exchange(e)
-                        self._exchange_running[e] = False
-                        self._running_exchanges.discard(e)
-                        # 상태 배지 업데이트
-                        if e in self._exchange_status_labels:
-                            self._exchange_status_labels[e].configure(text="🟥 Stopped")
-                    else:
-                        # 시작
+                    self._exchange_action_pending[e] = True
+
+                    if e in self._exchange_toggle_buttons:
+                        self._exchange_toggle_buttons[e].configure(state="disabled", text="⏳ 처리 중")
+                    if e in self._exchange_status_labels:
+                        pending_text = "🟨 Stopping..." if running else "🟨 Starting..."
+                        self._exchange_status_labels[e].configure(text=pending_text)
+
+                    def _worker():
                         started = False
-                        if hasattr(self, 'main_app') and self.main_app and hasattr(self.main_app, 'on_start_exchange'):
-                            started = bool(self.main_app.on_start_exchange(e))
-                        self._exchange_running[e] = started
-                        if started:
-                            self._running_exchanges.add(e)
-                            if e in self._exchange_status_labels:
-                                self._exchange_status_labels[e].configure(text="🟩 Running")
-                        else:
-                            self._running_exchanges.discard(e)
-                            if e in self._exchange_status_labels:
-                                self._exchange_status_labels[e].configure(text="🟥 Stopped")
-                    self._update_exchange_toggle_button(e)
-                    self._update_global_status_ui()
+                        stopped = False
+                        action_error = None
+                        try:
+                            if running:
+                                if hasattr(self, 'main_app') and self.main_app and hasattr(self.main_app, 'on_stop_exchange'):
+                                    stopped = bool(self.main_app.on_stop_exchange(e))
+                            else:
+                                if hasattr(self, 'main_app') and self.main_app and hasattr(self.main_app, 'on_start_exchange'):
+                                    started = bool(self.main_app.on_start_exchange(e))
+                        except Exception as ex:
+                            action_error = ex
+
+                        def _apply_result():
+                            try:
+                                if action_error is not None:
+                                    self.logger.error(f"토글 실패: {e} - {action_error}")
+
+                                if running:
+                                    if stopped:
+                                        self._exchange_running[e] = False
+                                        self._running_exchanges.discard(e)
+                                        if e in self._exchange_status_labels:
+                                            self._exchange_status_labels[e].configure(text="🟥 Stopped")
+                                    else:
+                                        # 실패 시 기존 실행 상태 유지
+                                        self._exchange_running[e] = True
+                                        self._running_exchanges.add(e)
+                                        if e in self._exchange_status_labels:
+                                            self._exchange_status_labels[e].configure(text="🟩 Running")
+                                else:
+                                    self._exchange_running[e] = started
+                                    if started:
+                                        self._running_exchanges.add(e)
+                                        if e in self._exchange_status_labels:
+                                            self._exchange_status_labels[e].configure(text="🟩 Running")
+                                    else:
+                                        self._running_exchanges.discard(e)
+                                        if e in self._exchange_status_labels:
+                                            self._exchange_status_labels[e].configure(text="🟥 Stopped")
+
+                                self._update_exchange_toggle_button(e)
+                                if e in self._exchange_toggle_buttons:
+                                    self._exchange_toggle_buttons[e].configure(state="normal")
+                                self._update_global_status_ui()
+                            finally:
+                                self._exchange_action_pending[e] = False
+
+                        self.thread_safe_after(0, _apply_result)
+
+                    threading.Thread(target=_worker, daemon=True, name=f"toggle_{e}").start()
                 except Exception as te:
                     try:
                         self.logger.error(f"토글 실패: {e} - {te}")
+                        self._exchange_action_pending[e] = False
                     except Exception:
                         pass
 

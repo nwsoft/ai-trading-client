@@ -1,3 +1,81 @@
+## 2026-07-06 - v3.8.9.27 자동업데이트 경로/가시성 패치
+
+### ✅ 업데이트 캐시 경로 정책 개선 (설치 위치 우선)
+- `utils/auto_update_manager.py`
+  - Windows 배포본에서 업데이트 캐시를 설치 위치 근처 경로 우선으로 선택
+  - 쓰기 불가 시 `LOCALAPPDATA` -> `TEMP` 순으로 안전 폴백
+  - 기존 "Documents 고정 생성" 체감 이슈 완화
+
+### ✅ 업데이트 누적 파일 자동 정리
+- `utils/auto_update_manager.py`
+  - 오래된 버전 캐시/적용 스크립트를 자동 정리
+  - 최신 2개 버전만 유지해 cache/auto_updater 누적 오염 방지
+
+### ✅ 설정 UI에서 다운로드 진행률/완료 경로 표시
+- `utils/auto_update_manager.py`
+  - 다운로드 진행 이벤트(`download_start/progress/completed/failed`) 콜백 추가
+- `ui/settings_modern.py`
+  - 업데이트 탭에서 퍼센트/수신량 진행 상태 실시간 표시
+  - 완료 시 다운로드 파일 경로/적용 대상 EXE/캐시 경로를 즉시 확인 가능
+
+### ✅ 검증
+- `tests/test_auto_update_manager.py` : `5 passed`
+- 수정 파일 정적 오류 점검: `No errors found`
+
+## 2026-07-05 - 거래소 진단 UX/Unified 진입 게이트 정합 패치
+
+### ✅ Unified 비바이낸스 경로 과차단 완화 (cold-start 정합)
+- `trading/unified_trader.py`
+  - 거래 이력 부족 기본값을 과차단 형태에서 분리
+    - `min_trades_history`: 기본 0
+    - no-trade 구간 기본 지표: `loss_rate=0.0`, `data_insufficient=True`
+  - pre-entry 차단 사유 우선순위를 `거래 이력 부족` → `높은 손실률` 순서로 조정
+  - CCXT 심볼 호환성 필터에서 전부 탈락 시 원본 심볼로 재주입하지 않고 분석 스킵 처리
+
+### ✅ 거래 통계 정합 보강
+- `trading/recorder.py`
+  - `log_trade_exit()`에서 `TradeLog(exchange=...)`를 항상 기록하도록 보강
+  - 청산 데이터의 거래소 누락으로 인한 집계/필터 불일치 재발 방지
+
+### ✅ 거래소 인증 실패 진단 가이드 표준화 (Bitget/Bybit/OKX)
+- `trading/exchanges/adapters/bitget_futures_adapter.py`
+- `trading/exchanges/adapters/bybit_futures_adapter.py`
+- `trading/exchanges/adapters/okx_futures_adapter.py`
+  - 어댑터 상태값 추가: `last_error`, `last_auth_guidance`
+  - 인증/권한/IP 화이트리스트 오류를 사용자 조치 문구로 분류
+  - Bitget은 현재 공인 IP 조회 및 가이드 문구 자동 생성 지원
+
+### ✅ 설정 UI 검증 경험 개선 (대시보드 운영 동선 연계)
+- `ui/settings_modern.py`
+  - Bitget/Bybit/OKX 검증 실패 시 단순 실패 팝업 대신 조치 안내 팝업 제공
+  - Bitget 설정 패널에 `현재 공인 IP` 표시 및 새로고침 버튼 추가
+  - 어댑터 진단 상태(`last_error`/`last_auth_guidance`)를 설정 검증 결과에 연결
+
+### ✅ 운영 진단 결과(5m x 50캔들, 상위 10개 심볼)
+- 성공: Bitget 10/10, Upbit 10/10, Bithumb 10/10
+- 실패: Bybit(주요 원인: Unmatched IP), OKX(연결 실패)
+- 의미: "바이낸스만 체결되는가" 이슈의 핵심 원인을 코드/설정/인증 레이어로 분리해 사용자에게 직접 안내 가능한 상태로 전환
+
+## 2026-07-04 - v3.8.9.27 시작/정지 응답성 근본 패치 (동기 블로킹 제거)
+
+### ✅ 거래소 시작/정지 UI 비동기화
+- `ui/dashboard_modern.py`
+  - 거래소별 토글 버튼 동작을 백그라운드 스레드로 전환
+  - `Starting...`/`Stopping...` 상태를 즉시 반영하고 처리 중 중복 클릭을 차단
+
+### ✅ Unified 계층 지연 초기화(lazy connect)
+- `trading/unified_trading_manager.py`
+  - 로그인 직후 전체 거래소 eager connect 제거
+  - `get_exchange()` 호출 시점에 필요한 거래소만 생성/연결
+- `trading/unified_trader.py`
+  - 생성자에서 전체 거래소 복구 초기화 제거
+  - `start_trading(exchange)` 시점에 대상 거래소만 초기화/복구
+
+### ✅ API 신호 수집 초기 동기 호출 제거
+- `trading/api_signal_manager.py`
+  - `start_signal_collection()`의 즉시 `_collect_signals()` 호출 제거
+  - 초기 신호 수집은 타이머 스레드에서 수행하도록 조정
+
 ## 2026-07-01 - v3.8.9.26 업데이트 테스트 기준선 정합 (자동/수동 업데이트 경로 구조 수정)
 
 ### ✅ 설치 대상 경로 정책화 (cache 경로 배제)

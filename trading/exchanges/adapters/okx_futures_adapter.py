@@ -7,6 +7,7 @@ OKX 선물 어댑터 (CCXT 기반)
 import logging
 from typing import Dict, List, Optional, Any
 from decimal import Decimal, ROUND_DOWN
+from urllib import request as urllib_request
 from ..interfaces.futures_exchange import FuturesExchange
 
 class OkxFuturesAdapter(FuturesExchange):
@@ -19,15 +20,43 @@ class OkxFuturesAdapter(FuturesExchange):
         self.passphrase = passphrase
         self.exchange = None
         self.logger = logging.getLogger(__name__)
+        self.last_error: str = ""
+        self.last_auth_guidance: str = ""
         
         # 🔥 로그 시스템 통일을 위한 헬퍼 메서드
         from log_system.log_adapter import log_event
         self.log_event = lambda category, msg, level='INFO': log_event(category, msg, exchange='okx', level=level)
         self._pos_mode_cached: Optional[str] = None  # 'net' | 'hedge' | None
+
+    @staticmethod
+    def _get_public_ip(timeout_sec: float = 1.8) -> Optional[str]:
+        try:
+            with urllib_request.urlopen('https://api.ipify.org', timeout=timeout_sec) as resp:
+                ip = resp.read().decode('utf-8').strip()
+                return ip or None
+        except Exception:
+            return None
+
+    def _build_auth_guidance(self, message: str) -> str:
+        msg = str(message or '').lower()
+        if 'invalid ip' in msg:
+            ip = self._get_public_ip()
+            if ip:
+                return f"OKX API 접근 IP 제한 가능성. 현재 공인 IP: {ip}. API 키 IP 제한 설정을 확인하세요."
+            return "OKX API 접근 IP 제한 가능성. API 키 IP 제한 설정을 확인하세요."
+        if 'passphrase' in msg:
+            return "OKX Passphrase 오류 가능성. API 생성 시 설정한 passphrase를 정확히 입력하세요."
+        if '51010' in msg or 'account mode' in msg:
+            return "OKX 계좌모드 오류. 웹사이트에서 계좌 모드를 Single/Multi-currency margin으로 변경 후 다시 검증하세요."
+        if '401' in msg or 'unauthorized' in msg:
+            return "OKX 인증 실패(401). API Key/Secret/Passphrase 및 거래 권한을 확인하세요."
+        return ""
     
     def connect(self) -> bool:
         # API 키가 없으면 연결 시도하지 않음
         if not self.api_key or not self.secret_key or not self.passphrase:
+            self.last_error = "missing_credentials"
+            self.last_auth_guidance = "OKX API 키/시크릿/패스프레이즈를 모두 입력하세요."
             self.log_event('system', "OKX API 키가 설정되지 않음 - 연결 건너뜀")
             return False
             
@@ -46,6 +75,8 @@ class OkxFuturesAdapter(FuturesExchange):
             self.exchange = ccxt.okx(config)  # type: ignore
             self.exchange.load_markets()
             self.is_connected = True
+            self.last_error = ""
+            self.last_auth_guidance = ""
             self.log_event('system', "OKX 선물 연결 성공")
             
             # 🔍 계좌 모드 사전 검증 (선물 거래 가능 여부 확인)
@@ -82,6 +113,8 @@ class OkxFuturesAdapter(FuturesExchange):
             
             return True
         except Exception as e:
+            self.last_error = str(e)
+            self.last_auth_guidance = self._build_auth_guidance(e)
             error_msg = str(e).lower()
             # 계좌 모드 관련 에러 감지
             if '51010' in error_msg or 'account mode' in error_msg:

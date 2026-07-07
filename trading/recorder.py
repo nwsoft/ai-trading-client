@@ -532,7 +532,8 @@ class Recorder:
                 tp_price=position.tp_price,
                 sl_price=position.sl_price,
                 fees=actual_fees,
-                slippage=actual_slippage
+                slippage=actual_slippage,
+                exchange=self.exchange,
             )
 
             # 기존 거래 레코드 업데이트 (INSERT 대신 UPDATE)

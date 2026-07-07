@@ -1,8 +1,21 @@
 ## 문서 동기화 메모 (2026-06-22)
 
-- 배포 버전 단일 소스(`config/app_version.py`) 기준 최신 릴리스는 `v3.8.9.22`
+- 배포 버전 단일 소스(`config/app_version.py`) 기준 최신 릴리스는 `v3.8.9.27`
 - 본 문서의 "자동 테스트 최신 실행 결과" 기준선은 현재 `2026-06-05 v3.8.9.21`
 - 즉, 버전 기준선과 테스트 실행 시점이 다를 수 있으며, 신규 배포 직전에는 release 게이트 재실행으로 보완한다.
+
+---
+
+## 최신 점검 결과 (2026-07-05 거래소 진단/정합)
+
+### 2026-07-05 반영
+- 운영 진단(5m x 50 캔들, 상위 10심볼)
+   - 결과: Bitget 10/10, Upbit 10/10, Bithumb 10/10, Bybit 0/10(Unmatched IP), OKX 0/10(연결 실패)
+   - 해석: 다중 거래소 미체결 이슈를 전략 로직 단일 원인으로 보지 않고, 인증/권한/IP 화이트리스트 계층으로 분리 진단 가능
+- 정적 오류 점검(`get_errors`) 핵심 수정 파일
+   - 대상: `trading/unified_trader.py`, `trading/recorder.py`, `trading/exchanges/adapters/bitget_futures_adapter.py`, `trading/exchanges/adapters/bybit_futures_adapter.py`, `trading/exchanges/adapters/okx_futures_adapter.py`, `ui/settings_modern.py`
+   - 결과: **No errors found**
+   - 해석: 2026-07-05 거래소 진단 UX 및 Unified 게이트 정합 패치 기준 신규 오류 없음
 
 ---
 

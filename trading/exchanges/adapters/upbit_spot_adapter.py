@@ -19,6 +19,7 @@ class UpbitSpotAdapter(SpotExchange):
         self.logger = logging.getLogger(__name__)
         from log_system.log_adapter import log_event
         self.log_event = lambda category, msg, level='INFO': log_event(category, msg, exchange='upbit', level=level)
+        self._trade_history_notice_emitted = False
 
     def _extract_total_balance(self, balance: Dict[str, Any], currency: str) -> float:
         """ccxt fetch_balance 결과에서 통화 잔고를 안전하게 추출"""
@@ -236,7 +237,9 @@ class UpbitSpotAdapter(SpotExchange):
         try:
             # 🔥 업비트는 fetchMyTrades를 지원하지 않으므로 빈 리스트 반환
             # 실제 구현 시에는 업비트 API 직접 호출 필요
-            self.logger.info("업비트 거래 내역 조회: CCXT 미지원, 빈 리스트 반환")
+            if not self._trade_history_notice_emitted:
+                self._trade_history_notice_emitted = True
+                self.log_event('system', "업비트 거래 내역 조회: CCXT 미지원, 거래량 수집은 티커 볼륨으로 대체")
             return []
         except Exception as e:
             self.logger.error(f"거래 내역 조회 실패: {e}")
