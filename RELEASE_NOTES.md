@@ -4,6 +4,55 @@
 
 ## v3.8.9.27 (2026-07-04) - 시작/정지 응답성 근본 패치
 
+### 🔧 v3.8.9.28 운영 업데이트 (2026-07-10) - 공통 학습/로그 안정성 구조 개선
+
+### 🔧 v3.8.9.28 운영 업데이트 (2026-07-12) - S등급 기능 완성 + fee 안전 패치
+
+- S-3 AI 일일 리포트 추가(아침 브리프/저녁 복기 + 비용 영향)
+- S-4 AI 대화형 투자비서 고도화(일반 질문에도 계좌 지표 기반 브리핑)
+- 거래 통계/거래소 통계/AI 리포트에 수수료 지표(누적Fee/평균Fee/Fee-PnL) 노출 강화
+- 사용자 DB 경로 자동 패치(exchange_trade_stats fee 컬럼 보강 + 1회 백필 + 합계 검증)
+- 실시간 로그 하단 `❓로그도움말` 추가 및 매뉴얼 `📅 업데이트` 탭 바로 열기 동선 연결
+- 시장 트렌드 상태에 `수집 중(경과초)`/`수집 지연` 표기를 추가해 대기 원인 가시화
+- AI 어시스턴트 컨텍스트에 최근 로그 요약(최신 20줄)을 포함해 해석 정확도 보강
+- AI 리포트 위젯 파괴 타이밍(Tkinter/CustomTkinter) 경합 방어 강화
+   - `safe_after` 생존성 가드, destroy 시 예약 콜백 정리, 안전 텍스트 갱신 경로 적용
+   - 탭 전환/창 종료 중 `TclError: invalid command name` 재발 경로 차단
+
+#### 1️⃣ 공통 학습 API 딜레이 판단 구조 개편
+
+- `trading/exchange_learning_manager.py`
+   - 최근 1분 요청 판단을 전체 이력 스캔 방식에서 deque 롤링 윈도우 방식으로 변경
+   - 거래소/코인 수 증가 시에도 딜레이 판단 경로의 시간복잡도를 상수 수준으로 유지
+
+#### 2️⃣ timezone 혼용 오류 근본 제거
+
+- `trading/exchange_learning_manager.py`
+   - timestamp 로드/저장/조회 경로를 timezone-aware UTC 기준으로 통일
+   - `offset-naive and offset-aware` 비교 오류 재발 경로 제거
+
+#### 3️⃣ 로그 폭주 상황 비차단 처리
+
+- `log_system/log_adapter.py`
+   - 동일 메시지 단기 반복 로그 자동 억제 + 생략 건수 요약 라인 기록
+- `main.py`, `log_system/log_adapter.py`
+   - loguru 파일 sink를 `enqueue=True` 비동기 기록으로 변경
+   - 고빈도 로그에서도 파일 I/O가 트레이딩/UI 흐름을 직접 블로킹하지 않도록 개선
+
+#### 4️⃣ 검증
+
+- `tests/test_exchange_learning_manager.py` 신규 추가
+- `PYTHONPATH=. pytest -q tests/test_exchange_learning_manager.py tests/test_auto_update_manager.py` -> `7 passed`
+
+#### 5️⃣ 코인 선택 안정성 보강 (목표 달성 후 fallback 차단)
+
+- `trading/evaluator.py`
+   - 초기 선정이 목표 수를 만족한 경우 즉시 반환하도록 수정
+   - 목표 달성 후에도 기준 완화 재분석으로 진입하던 경로를 차단해 선택 결과 일관성 강화
+- `tests/test_evaluator_selection_flow.py`
+   - 목표 달성 시 fallback 분석이 추가 호출되지 않는 회귀 테스트 추가
+   - 검증: `PYTHONPATH=. pytest -q tests/test_evaluator_selection_flow.py tests/test_exchange_learning_manager.py tests/test_auto_update_manager.py` -> `8 passed`
+
 ### 🔧 v3.8.9.27 운영 업데이트 (2026-07-06) - 자동업데이트 경로/진행률 가시성 강화
 
 #### 1️⃣ 업데이트 진행률 실시간 표시

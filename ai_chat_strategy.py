@@ -7,8 +7,10 @@ AI 대화형 전략 시스템
 
 import json
 import logging
+import math
+import statistics
 from datetime import datetime
-from typing import Dict, List, Optional, Any
+from typing import Dict, List, Optional, Any, Tuple
 from dataclasses import dataclass, asdict
 from enum import Enum
 
@@ -19,6 +21,7 @@ class ChatIntentType(Enum):
     PARAMETER_ADJUST = "parameter_adjust"
     RISK_MANAGEMENT = "risk_management"
     PERFORMANCE_REVIEW = "performance_review"
+    DAILY_REPORT = "daily_report"
     GENERAL_QUESTION = "general_question"
 
 @dataclass
@@ -163,7 +166,10 @@ class AITradingChatbot:
         elif any(word in message_lower for word in ["손실", "위험", "리스크", "안전하게"]):
             return ChatIntentType.RISK_MANAGEMENT
             
-        elif any(word in message_lower for word in ["수익", "성과", "결과", "성능"]):
+        elif any(word in message_lower for word in ["일일", "데일리", "브리프", "리포트", "아침", "저녁"]):
+            return ChatIntentType.DAILY_REPORT
+
+        elif any(word in message_lower for word in ["수익", "성과", "결과", "성능", "복기", "건강도", "샤프", "mdd", "포트폴리오", "분산", "편중", "현금비율"]):
             return ChatIntentType.PERFORMANCE_REVIEW
             
         else:
@@ -186,6 +192,9 @@ class AITradingChatbot:
                 
             elif intent == ChatIntentType.PERFORMANCE_REVIEW:
                 return await self._handle_performance_review_request()
+
+            elif intent == ChatIntentType.DAILY_REPORT:
+                return await self._handle_daily_report_request()
                 
             else:
                 return await self._handle_general_question(message)
@@ -406,23 +415,459 @@ class AITradingChatbot:
     
     async def _handle_performance_review_request(self) -> Dict[str, Any]:
         """성과 검토 요청 처리"""
-        # 성과 분석 로직 구현
+        try:
+            trades = self._collect_trade_history(limit=120)
+            if not trades:
+                return {
+                    "text": "최근 거래 데이터가 없어 복기를 생성할 수 없습니다. 거래가 1건 이상 쌓이면 계좌 건강도와 개선 포인트를 자동으로 보여드립니다.",
+                    "suggested_actions": ["거래 이력 보기", "시장 분석 요청"]
+                }
+
+            metrics = self._build_health_metrics(trades)
+            review_points = self._build_trade_review_points(metrics)
+            portfolio = self._build_portfolio_diagnosis()
+
+            response_text = (
+                "📋 계좌 건강도 + 거래 복기\n\n"
+                f"• 건강도 점수: {metrics['health_score']}/100 ({metrics['health_grade']})\n"
+                f"• 총 거래: {metrics['total_trades']}건 | 승률: {metrics['win_rate']:.1f}%\n"
+                f"• 순손익: {metrics['net_pnl']:+.2f} | Profit Factor: {metrics['profit_factor']:.2f}\n"
+                f"• Sharpe: {metrics['sharpe']:.2f} | MDD: {metrics['mdd']*100:.2f}%\n\n"
+                "📦 포트폴리오 진단\n"
+                f"• 포지션 수: {portfolio['position_count']} | 포지션 노출: {portfolio['exposure']:.2f}\n"
+                f"• 현금 비율: {portfolio['cash_ratio']:.1f}% | 최대 편중: {portfolio['top_symbol']} {portfolio['top_concentration']:.1f}%\n"
+                f"• 포트폴리오 상태: {portfolio['summary']}\n\n"
+                "🔎 거래 복기\n"
+                + "\n".join([f"• {point}" for point in review_points])
+            )
+
+            return {
+                "text": response_text,
+                "suggested_actions": ["리스크 관리", "전략 변경하기", "시장 분석 요청"],
+                "action": {
+                    "type": "performance_review",
+                    "metrics": metrics,
+                    "portfolio_diagnosis": portfolio,
+                },
+            }
+        except Exception as e:
+            self.logger.error(f"성과 검토 처리 오류: {e}")
+            return {
+                "text": "성과 분석 중 오류가 발생했습니다. 잠시 후 다시 시도해주세요.",
+                "suggested_actions": ["거래 이력 보기"]
+            }
+
+    async def _handle_daily_report_request(self) -> Dict[str, Any]:
+        """S-3 일일 리포트 요청 처리"""
+        try:
+            trades = self._collect_trade_history(limit=120)
+            if not trades:
+                return {
+                    "text": "📄 AI 일일 리포트\n\n❌ 거래 데이터가 없어 일일 리포트를 생성할 수 없습니다.\n\n• 거래 데이터가 1건 이상 쌓이면 자동으로 일일 요약을 제공합니다.",
+                    "suggested_actions": ["시장 분석 요청", "거래 이력 보기"],
+                }
+
+            metrics = self._build_health_metrics(trades)
+            portfolio = self._build_portfolio_diagnosis()
+            total_fees = sum(self._extract_trade_fee(t) for t in trades)
+            avg_fee = (total_fees / len(trades)) if trades else 0.0
+            fee_impact = (total_fees / abs(metrics["net_pnl"]) * 100.0) if abs(metrics["net_pnl"]) > 0 else 0.0
+
+            response_text = (
+                "📄 AI 일일 리포트\n\n"
+                "🌅 아침 브리프\n"
+                f"• 포트폴리오 상태: {portfolio['summary']}\n"
+                f"• 현금 비율: {portfolio['cash_ratio']:.1f}% | 최대 편중: {portfolio['top_symbol']} {portfolio['top_concentration']:.1f}%\n"
+                f"• 리스크 레벨: {'주의' if metrics['mdd'] > 0.25 else '안정'}\n\n"
+                "🌙 저녁 복기\n"
+                f"• 총 거래: {metrics['total_trades']}건 | 승률: {metrics['win_rate']:.1f}%\n"
+                f"• 누적PnL: {metrics['net_pnl']:+.2f} | Profit Factor: {metrics['profit_factor']:.2f}\n"
+                f"• 누적Fee: {total_fees:.2f} | 평균Fee: {avg_fee:.4f} | Fee/PnL: {fee_impact:.2f}%\n"
+                f"• 건강도: {metrics['health_score']}/100 ({metrics['health_grade']})"
+            )
+
+            return {
+                "text": response_text,
+                "suggested_actions": ["성과 검토", "리스크 관리", "전략 변경하기"],
+                "action": {
+                    "type": "daily_report",
+                    "metrics": metrics,
+                    "portfolio_diagnosis": portfolio,
+                    "cost": {
+                        "total_fees": float(total_fees),
+                        "avg_fee": float(avg_fee),
+                        "fee_impact_percent": float(fee_impact),
+                    },
+                },
+            }
+        except Exception as e:
+            self.logger.error(f"일일 리포트 처리 오류: {e}")
+            return {
+                "text": "일일 리포트 생성 중 오류가 발생했습니다. 잠시 후 다시 시도해주세요.",
+                "suggested_actions": ["성과 검토", "시장 분석 요청"],
+            }
+
+    def _collect_trade_history(self, limit: int = 120) -> List[Dict[str, Any]]:
+        """트레이더/레코더에서 최근 거래 이력을 수집한다."""
+        candidates: List[Any] = []
+
+        if not self.trader:
+            return []
+
+        # 1) 메모리 기반 후보
+        for attr in ("trade_history", "closed_trades", "recent_trades", "trades"):
+            value = getattr(self.trader, attr, None)
+            if isinstance(value, list):
+                candidates.extend(value)
+
+        # 2) 레코더 기반 후보
+        recorder = getattr(self.trader, "recorder", None)
+        if recorder:
+            for method_name in ("get_recent_trades", "get_trade_history", "load_recent_trades"):
+                method = getattr(recorder, method_name, None)
+                if callable(method):
+                    try:
+                        result = method(limit)  # type: ignore[misc]
+                        if isinstance(result, list):
+                            candidates.extend(result)
+                            break
+                    except Exception:
+                        continue
+
+        normalized: List[Dict[str, Any]] = []
+        for item in candidates:
+            if isinstance(item, dict):
+                normalized.append(item)
+            elif hasattr(item, "__dict__"):
+                normalized.append(dict(item.__dict__))
+
+        # 중복 제거(동일 timestamp + symbol + pnl 기준)
+        uniq: Dict[str, Dict[str, Any]] = {}
+        for trade in normalized:
+            key = "|".join(
+                [
+                    str(trade.get("timestamp") or trade.get("closed_at") or trade.get("time") or ""),
+                    str(trade.get("symbol") or trade.get("ticker") or ""),
+                    str(trade.get("pnl") or trade.get("profit") or trade.get("realized_pnl") or ""),
+                ]
+            )
+            uniq[key] = trade
+
+        trades = list(uniq.values())
+        return trades[-limit:] if limit > 0 else trades
+
+    def _extract_trade_pnl(self, trade: Dict[str, Any]) -> float:
+        """거래 객체에서 손익 값을 추출한다."""
+        for key in ("pnl", "profit", "realized_pnl", "net_pnl", "profit_loss"):
+            value = trade.get(key)
+            if value is not None:
+                try:
+                    return float(value)
+                except (TypeError, ValueError):
+                    continue
+        return 0.0
+
+    def _extract_trade_fee(self, trade: Dict[str, Any]) -> float:
+        """거래 객체에서 수수료 값을 추출한다."""
+        for key in ("fees", "fee", "commission"):
+            value = trade.get(key)
+            if value is not None:
+                try:
+                    return abs(float(value))
+                except (TypeError, ValueError):
+                    continue
+        return 0.0
+
+    def _build_health_metrics(self, trades: List[Dict[str, Any]]) -> Dict[str, Any]:
+        pnls = [self._extract_trade_pnl(t) for t in trades]
+        total = len(pnls)
+        wins = [p for p in pnls if p > 0]
+        losses = [p for p in pnls if p < 0]
+
+        win_count = len(wins)
+        loss_count = len(losses)
+        win_rate = (win_count / total * 100.0) if total else 0.0
+        net_pnl = float(sum(pnls))
+        avg_win = float(sum(wins) / win_count) if win_count else 0.0
+        avg_loss = float(sum(losses) / loss_count) if loss_count else 0.0
+
+        total_gain = float(sum(wins))
+        total_loss_abs = abs(float(sum(losses)))
+        profit_factor = total_gain / total_loss_abs if total_loss_abs > 0 else (9.99 if total_gain > 0 else 0.0)
+
+        equity = 0.0
+        peak = 0.0
+        max_drawdown = 0.0
+        for pnl in pnls:
+            equity += pnl
+            peak = max(peak, equity)
+            if peak > 0:
+                drawdown = (peak - equity) / peak
+                max_drawdown = max(max_drawdown, drawdown)
+
+        returns = [pnl for pnl in pnls if pnl != 0]
+        if len(returns) >= 2:
+            mean_ret = statistics.mean(returns)
+            std_ret = statistics.pstdev(returns)
+            sharpe = (mean_ret / std_ret) if std_ret > 0 else 0.0
+        else:
+            sharpe = 0.0
+
+        health_score = 50
+        health_score += min(20, int(win_rate / 5))
+        health_score += min(15, int(max(0.0, min(profit_factor, 3.0)) * 5))
+        health_score += min(10, int(max(-1.0, min(sharpe, 2.0)) * 5))
+        health_score += min(5, max(0, int((0.25 - max_drawdown) * 20)))
+        health_score = int(max(0, min(100, health_score)))
+
+        if health_score >= 80:
+            grade = "매우 양호"
+        elif health_score >= 65:
+            grade = "양호"
+        elif health_score >= 50:
+            grade = "주의"
+        else:
+            grade = "위험"
+
         return {
-            "text": "성과 분석 기능은 구현 중입니다.",
-            "suggested_actions": ["거래 이력 보기"]
+            "total_trades": total,
+            "win_rate": win_rate,
+            "net_pnl": net_pnl,
+            "avg_win": avg_win,
+            "avg_loss": avg_loss,
+            "profit_factor": profit_factor,
+            "sharpe": float(sharpe),
+            "mdd": float(max_drawdown),
+            "health_score": health_score,
+            "health_grade": grade,
         }
+
+    def _build_trade_review_points(self, metrics: Dict[str, Any]) -> List[str]:
+        """핵심 지표 기준의 복기 코멘트를 생성한다."""
+        points: List[str] = []
+
+        if metrics["win_rate"] < 45:
+            points.append("승률이 낮아 진입 필터를 강화하고 신호 임계값 상향을 권장합니다.")
+        else:
+            points.append("승률 흐름은 유지 가능한 수준입니다. 과도한 매매 빈도만 주의하세요.")
+
+        if metrics["profit_factor"] < 1.2:
+            points.append("손익비가 약합니다. 익절/손절 비율을 재점검해 평균 손실을 줄이세요.")
+        else:
+            points.append("손익비가 양호합니다. 현재 손절 규칙을 유지하되 급변 구간만 보수적으로 대응하세요.")
+
+        if metrics["mdd"] > 0.25:
+            points.append("최대 낙폭이 높습니다. 포지션 크기 축소와 레버리지 제한이 필요합니다.")
+        else:
+            points.append("최대 낙폭은 통제 범위입니다. 리스크 한도를 유지하세요.")
+
+        if metrics["sharpe"] < 0.5:
+            points.append("변동성 대비 성과가 낮습니다. 신호 품질이 높은 구간 위주로 거래를 압축하세요.")
+        else:
+            points.append("리스크 대비 성과(Sharpe)가 안정 구간입니다.")
+
+        return points
+
+    def _build_portfolio_diagnosis(self) -> Dict[str, Any]:
+        """현재 포지션/현금 기준 포트폴리오 진단을 생성한다."""
+        try:
+            positions = self._collect_active_positions()
+            cash_value = self._collect_cash_value()
+
+            exposures: List[Tuple[str, float]] = []
+            total_exposure = 0.0
+            for symbol, pos in positions.items():
+                exposure = self._estimate_position_exposure(pos)
+                if exposure <= 0:
+                    continue
+                total_exposure += exposure
+                exposures.append((symbol, exposure))
+
+            portfolio_total = total_exposure + max(0.0, cash_value)
+            cash_ratio = (cash_value / portfolio_total * 100.0) if portfolio_total > 0 else 0.0
+
+            top_symbol = "N/A"
+            top_concentration = 0.0
+            if exposures and total_exposure > 0:
+                top_symbol, top_value = max(exposures, key=lambda item: item[1])
+                top_concentration = (top_value / total_exposure) * 100.0
+
+            if len(exposures) == 0:
+                summary = "포지션 없음 (대기 상태)"
+            elif top_concentration >= 55.0:
+                summary = "편중 위험 높음"
+            elif top_concentration >= 40.0:
+                summary = "편중 주의"
+            else:
+                summary = "분산 양호"
+
+            return {
+                "position_count": len(exposures),
+                "exposure": float(total_exposure),
+                "cash": float(cash_value),
+                "cash_ratio": float(cash_ratio),
+                "top_symbol": str(top_symbol),
+                "top_concentration": float(top_concentration),
+                "summary": summary,
+            }
+        except Exception:
+            return {
+                "position_count": 0,
+                "exposure": 0.0,
+                "cash": 0.0,
+                "cash_ratio": 0.0,
+                "top_symbol": "N/A",
+                "top_concentration": 0.0,
+                "summary": "진단 데이터 부족",
+            }
+
+    def _collect_active_positions(self) -> Dict[str, Any]:
+        """트레이더에서 활성 포지션 딕셔너리를 추출한다."""
+        if not self.trader:
+            return {}
+
+        positions = getattr(self.trader, "active_positions", None)
+        if isinstance(positions, dict):
+            # unified 형태(exchange -> dict(symbol -> position)) 평탄화
+            if positions and all(isinstance(v, dict) for v in positions.values()):
+                flattened: Dict[str, Any] = {}
+                for value in positions.values():
+                    for k, v in value.items():
+                        flattened[str(k)] = v
+                if flattened:
+                    return flattened
+            return positions
+
+        return {}
+
+    def _collect_cash_value(self) -> float:
+        """트레이더의 현금성 값(USDT/KRW/현금)을 추정한다."""
+        if not self.trader:
+            return 0.0
+
+        for attr in ("available_balance", "current_balance", "account_balance", "usdt_balance", "cash"):
+            value = getattr(self.trader, attr, None)
+            if value is not None:
+                try:
+                    return float(value)
+                except (TypeError, ValueError):
+                    continue
+        return 0.0
+
+    def _estimate_position_exposure(self, pos: Any) -> float:
+        """포지션 한 건의 노출 금액을 추정한다."""
+        def _g(obj: Any, key: str, default: Any = None) -> Any:
+            try:
+                if isinstance(obj, dict):
+                    return obj.get(key, default)
+                if hasattr(obj, key):
+                    return getattr(obj, key)
+            except Exception:
+                pass
+            return default
+
+        qty = _g(pos, "quantity", _g(pos, "size", _g(pos, "contracts", 0.0)))
+        entry_price = _g(pos, "entry_price", _g(pos, "entryPrice", _g(pos, "price", 0.0)))
+        amount = _g(pos, "amount", None)
+
+        try:
+            if amount is not None:
+                amount_f = float(amount)
+                if amount_f > 0:
+                    return amount_f
+        except (TypeError, ValueError):
+            pass
+
+        try:
+            q = abs(float(qty or 0.0))
+            p = abs(float(entry_price or 0.0))
+            return q * p
+        except (TypeError, ValueError):
+            return 0.0
     
     async def _handle_general_question(self, message: str) -> Dict[str, Any]:
-        """일반 질문 처리"""
-        return {
-            "text": f"질문해주셔서 감사합니다! 더 구체적으로 도움이 필요한 부분을 말씀해주세요.\n\n💡 **이런 것들을 도와드릴 수 있어요**:\n• 현재 시장 상황 분석\n• 거래 전략 조정\n• 리스크 관리 설정\n• 성과 분석 및 개선",
-            "suggested_actions": [
-                "시장 분석 요청",
-                "전략 변경하기", 
-                "리스크 관리",
-                "성과 검토"
-            ]
-        }
+        """S-4 대화형 투자비서 고도화: 일반 질문에도 계좌 기반 조언을 제공한다."""
+        try:
+            message_lower = message.lower()
+            focus = "균형 점검"
+            if any(k in message_lower for k in ["리스크", "위험", "손실", "드로우다운"]):
+                focus = "리스크 관리"
+            elif any(k in message_lower for k in ["전략", "설정", "최적화", "개선"]):
+                focus = "전략 조정"
+            elif any(k in message_lower for k in ["수익", "성과", "복기", "수익률"]):
+                focus = "성과 개선"
+
+            trades = self._collect_trade_history(limit=120)
+            portfolio = self._build_portfolio_diagnosis()
+
+            if trades:
+                metrics = self._build_health_metrics(trades)
+                total_fees = sum(self._extract_trade_fee(t) for t in trades)
+                fee_impact = (total_fees / abs(metrics["net_pnl"]) * 100.0) if abs(metrics["net_pnl"]) > 0 else 0.0
+
+                brief_lines: List[str] = [
+                    "💬 AI 투자비서 브리핑",
+                    "",
+                    f"• 현재 포커스: {focus}",
+                    f"• 건강도: {metrics['health_score']}/100 ({metrics['health_grade']})",
+                    f"• 승률/손익: {metrics['win_rate']:.1f}% / {metrics['net_pnl']:+.2f}",
+                    f"• 포트폴리오: {portfolio['summary']} (현금 {portfolio['cash_ratio']:.1f}%)",
+                    f"• 비용 영향: 누적Fee {total_fees:.2f}, Fee/PnL {fee_impact:.2f}%",
+                    "",
+                    "🎯 다음 액션 제안",
+                ]
+
+                if focus == "리스크 관리":
+                    brief_lines.append("• 포지션 노출 상한과 손절 규칙을 우선 재점검하세요.")
+                elif focus == "전략 조정":
+                    brief_lines.append("• 최근 승률/손익 기준으로 전략 프리셋을 재선택해보세요.")
+                elif focus == "성과 개선":
+                    brief_lines.append("• 손익비가 낮은 구간을 복기하고 진입 필터를 강화하세요.")
+                else:
+                    brief_lines.append("• 일일 리포트와 성과 검토를 순서대로 확인하세요.")
+
+                return {
+                    "text": "\n".join(brief_lines),
+                    "suggested_actions": [
+                        "일일 리포트",
+                        "성과 검토",
+                        "리스크 관리",
+                        "전략 변경하기",
+                        "시장 분석 요청",
+                    ],
+                    "action": {
+                        "type": "investment_assistant",
+                        "focus": focus,
+                        "metrics": metrics,
+                        "portfolio_diagnosis": portfolio,
+                    },
+                }
+
+            # 거래 데이터가 없더라도 동작 가이드를 제공
+            return {
+                "text": (
+                    "💬 AI 투자비서 브리핑\n\n"
+                    "현재는 거래 데이터가 부족해 정량 브리핑을 계산할 수 없습니다.\n"
+                    "먼저 1~3건 이상 거래 이력을 만든 뒤 성과 검토/일일 리포트를 실행하면"
+                    " 계좌 기반 조언을 자동으로 제공합니다."
+                ),
+                "suggested_actions": [
+                    "시장 분석 요청",
+                    "일일 리포트",
+                    "성과 검토",
+                    "전략 변경하기",
+                ],
+                "action": {
+                    "type": "investment_assistant",
+                    "focus": focus,
+                },
+            }
+        except Exception as e:
+            self.logger.error(f"투자비서 응답 처리 오류: {e}")
+            return {
+                "text": "투자비서 응답 생성 중 오류가 발생했습니다. 잠시 후 다시 시도해주세요.",
+                "suggested_actions": ["시장 분석 요청", "성과 검토"],
+            }
     
     def apply_strategy_changes(self, action_data: Dict) -> bool:
         """전략 변경사항 적용"""

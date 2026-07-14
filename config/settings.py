@@ -202,7 +202,8 @@ def deep_merge_settings(existing: Dict[str, Any], template: Dict[str, Any], pare
                        'bithumb_api_key', 'bithumb_secret_key', 'bitget_api_key', 'bitget_secret_key', 'bitget_password',
                        'okx_api_key', 'okx_secret_key', 'okx_passphrase', 'bybit_api_key', 'bybit_secret_key',
                        'openai_api_key', 'backend_url', 'selected_exchange', 'enabled_exchanges',
-                       'default_margin_type', 'paper_trading', 'demo_mode']:
+                      'default_margin_type', 'paper_trading', 'demo_mode',
+                      'broadcast_replay_enabled', 'broadcast_replay_source_account']:
                 # 개인정보/중요 사용자 설정은 절대 덮어쓰지 않음
                 continue
             elif result[key] != template_value:
@@ -386,6 +387,11 @@ def load_settings() -> Dict[str, Any]:
                 print("  ➕ UI 설정 강제 추가")
                 needs_save = True
 
+            # adminjung 계정 최초 1회 방송 리플레이 기본값 자동 초기화
+            settings, replay_init_changed = _apply_adminjung_broadcast_replay_defaults(settings)
+            if replay_init_changed:
+                needs_save = True
+
             # 변경이 있을 때만 저장 (로그인/초기화 시 불필요한 디스크 I/O 방지)
             if needs_save:
                 save_settings(settings)
@@ -405,6 +411,9 @@ def load_settings() -> Dict[str, Any]:
             settings = get_default_settings()
             print("⚠️ 템플릿 파일 없음, 기본 설정 사용")
 
+        # adminjung 계정 최초 1회 방송 리플레이 기본값 자동 초기화
+        settings, _ = _apply_adminjung_broadcast_replay_defaults(settings)
+
         # 사용자 설정 파일 생성
         save_settings(settings)
         print(f"✅ 사용자 설정 파일 생성: {config_path}")
@@ -423,6 +432,30 @@ def _get_settings_paths() -> tuple[str, str]:
     config_path = os.path.join(config_dir, 'settings.json')
     backup_dir = os.path.join(config_dir, 'backups')
     return config_path, backup_dir
+
+
+def _apply_adminjung_broadcast_replay_defaults(settings: Dict[str, Any]) -> tuple[Dict[str, Any], bool]:
+    """adminjung 계정의 방송 리플레이 기본값을 최초 1회 자동 초기화한다."""
+    changed = False
+    try:
+        from path_utils import get_current_user_account
+
+        current_user = str(get_current_user_account() or settings.get('user_id') or settings.get('username') or '').strip().lower()
+        if current_user != 'adminjung':
+            return settings, False
+
+        if bool(settings.get('broadcast_replay_auto_initialized', False)):
+            return settings, False
+
+        settings['broadcast_replay_enabled'] = True
+        settings['broadcast_replay_source_account'] = str(settings.get('broadcast_replay_source_account') or 'nwsoft').strip() or 'nwsoft'
+        settings['broadcast_replay_auto_initialized'] = True
+        changed = True
+        print("✅ adminjung 방송 리플레이 기본값 자동 초기화 완료")
+    except Exception:
+        return settings, False
+
+    return settings, changed
 
 
 def create_settings_backup(retention: int = 3) -> str:
@@ -592,6 +625,8 @@ def get_default_settings() -> Dict[str, Any]:
         # 하위 호환: 레거시 키 유지
         'stock_stop_position_policy': 'keep_with_tp_sl',
         'demo_mode': False,
+        'broadcast_replay_enabled': False,
+        'broadcast_replay_source_account': '',
         'ai_enabled': True,
         # API 설정
         'binance_api_key': '',

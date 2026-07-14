@@ -104,7 +104,15 @@ if (-not $SkipCommit) {
     if (-not [string]::IsNullOrWhiteSpace($status)) {
         $statusLines = $status -split "`r?`n" | Where-Object { -not [string]::IsNullOrWhiteSpace($_) }
         $unmerged = $statusLines | Where-Object { $_ -match '^(UU|AA|DD|AU|UA|DU|UD)\s' }
-        $conflictArtifacts = $statusLines | Where-Object { $_ -match '_Conflict\.' -or $_ -match '\.orig$' }
+        $conflictArtifacts = @(
+            $statusLines | Where-Object {
+                $line = $_
+                $xy = if ($line.Length -ge 2) { $line.Substring(0, 2) } else { "" }
+                $isDeleteEntry = ($xy -match 'D')
+                $isConflictFile = ($line -match '_Conflict\.' -or $line -match '\.orig$')
+                $isConflictFile -and (-not $isDeleteEntry)
+            }
+        )
     }
 
     if ($unmerged.Count -gt 0) {

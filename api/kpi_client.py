@@ -7,11 +7,18 @@ from __future__ import annotations
 
 import json
 import logging
+import queue
+import threading
 from typing import Any, Dict, Optional, Tuple
 
 import requests
 
 logger = logging.getLogger(__name__)
+
+_KPI_QUEUE_MAXSIZE = 5000
+_kpi_queue: "queue.Queue[Dict[str, Any]]" = queue.Queue(maxsize=_KPI_QUEUE_MAXSIZE)
+_kpi_worker_lock = threading.Lock()
+_kpi_worker_started = False
 
 
 ALLOWED_ASSET_CLASSES = (
@@ -88,9 +95,10 @@ def _normalize_dimensions(category: str, asset_class: str, status: str) -> Tuple
 class ServerKPIClient:
     """fastapi설치 서버의 KPI 수집 엔드포인트 호출 클라이언트."""
 
-    def __init__(self, base_url: str = "https://daltrading.net", timeout: float = 3.0):
+    def __init__(self, base_url: str = "https://daltrading.net", timeout: float = 1.5, async_mode: bool = True):
         self.base_url = base_url.rstrip("/")
         self.timeout = timeout
+        self.async_mode = async_mode
 
     def emit_event(
         self,
@@ -125,6 +133,20 @@ class ServerKPIClient:
                 **(metadata or {}),
             },
         }
+        if self.async_mode:
+            _ensure_kpi_worker_started()
+            try:
+                _kpi_queue.put_nowait(
+                    {
+                        "url": f"{self.base_url}/auth/kpi/event",
+                        "payload": payload,
+                        "timeout": self.timeout,
+                    }
+                )
+                return True
+            except queue.Full:
+                logger.debug("KPI 이벤트 큐가 가득 차 이벤트를 드롭합니다: %s", event_type)
+                return False
         try:
             response = requests.post(
                 f"{self.base_url}/auth/kpi/event",
@@ -135,6 +157,33 @@ class ServerKPIClient:
         except Exception as exc:
             logger.debug("KPI 이벤트 전송 실패: %s", exc)
             return False
+
+
+def _kpi_worker_loop() -> None:
+    while True:
+        item = _kpi_queue.get()
+        try:
+            requests.post(
+                str(item.get("url") or ""),
+                json=item.get("payload") or {},
+                timeout=float(item.get("timeout") or 1.5),
+            )
+        except Exception as exc:
+            logger.debug("KPI 비동기 전송 실패: %s", exc)
+        finally:
+            _kpi_queue.task_done()
+
+
+def _ensure_kpi_worker_started() -> None:
+    global _kpi_worker_started
+    if _kpi_worker_started:
+        return
+    with _kpi_worker_lock:
+        if _kpi_worker_started:
+            return
+        worker = threading.Thread(target=_kpi_worker_loop, name="kpi-emitter", daemon=True)
+        worker.start()
+        _kpi_worker_started = True
 
 
 def _load_user_context() -> Dict[str, Optional[str]]:

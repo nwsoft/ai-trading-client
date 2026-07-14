@@ -11,8 +11,9 @@ import os
 import json
 import logging
 import threading
-from datetime import datetime, timedelta
-from typing import Dict, List, Optional
+from collections import deque
+from datetime import datetime, timedelta, timezone
+from typing import Any, Deque, Dict, List, Optional
 from dataclasses import dataclass, asdict
 import sys
 from api.kpi_client import emit_kpi_event
@@ -73,6 +74,10 @@ class ExchangeLearningManager:
 
         # API 제한 설정 (거래소별)
         self.api_limits = self._get_api_limits()
+
+        # API 요청 빈도 추적(최근 1분 롤링 윈도우)
+        self._api_request_times: Deque[datetime] = deque(maxlen=4000)
+        self._api_rate_lock = threading.Lock()
 
         self.logger.info(f"{self.exchange.upper()} 학습 매니저 초기화 완료")
 
@@ -148,7 +153,10 @@ class ExchangeLearningManager:
                 # JSON에서 datetime 객체로 변환
                 for item in data:
                     try:
-                        item['timestamp'] = datetime.fromisoformat(item['timestamp'])
+                        ts = datetime.fromisoformat(item['timestamp'])
+                        if ts.tzinfo is None:
+                            ts = ts.replace(tzinfo=timezone.utc)
+                        item['timestamp'] = ts
                     except Exception:
                         pass
                 return data
@@ -183,7 +191,7 @@ class ExchangeLearningManager:
                 try:
                     ts = item.get('timestamp')
                     if ts is None:
-                        ts_str = datetime.now().isoformat()
+                        ts_str = datetime.now(timezone.utc).isoformat()
                     elif isinstance(ts, str):
                         ts_str = ts
                     else:
@@ -192,7 +200,7 @@ class ExchangeLearningManager:
                     item_copy['timestamp'] = ts_str
                 except Exception:
                     # 최후 폴백: 문자열 변환
-                    item_copy['timestamp'] = str(item.get('timestamp', datetime.now().isoformat()))
+                    item_copy['timestamp'] = str(item.get('timestamp', datetime.now(timezone.utc).isoformat()))
                 data_to_save.append(item_copy)
 
             # 4단계: 저장 경로 확인 로그
@@ -273,7 +281,7 @@ class ExchangeLearningManager:
             api_stats = self._get_api_usage_stats()
 
             learning_data = ExchangeLearningData(
-                timestamp=datetime.now(),
+                timestamp=datetime.now(timezone.utc),
                 exchange=self.exchange,
                 learning_type="criteria_adjustment",
                 market_condition=market_analysis.get('level', 'UNKNOWN'),
@@ -334,11 +342,17 @@ class ExchangeLearningManager:
 
     def _get_api_usage_stats(self) -> Dict:
         """API 사용량 통계"""
+        now = datetime.now(timezone.utc)
+        with self._api_rate_lock:
+            cutoff = now - timedelta(minutes=1)
+            while self._api_request_times and self._api_request_times[0] < cutoff:
+                self._api_request_times.popleft()
+            req_minute = len(self._api_request_times)
         return {
             'requests_this_hour': 0,
-            'requests_this_minute': 0,
-            'rate_limit_remaining': self.api_limits['requests_per_minute'],
-            'last_request_time': datetime.now().isoformat()
+            'requests_this_minute': req_minute,
+            'rate_limit_remaining': max(0, int(self.api_limits['requests_per_minute']) - req_minute),
+            'last_request_time': now.isoformat()
         }
 
     def _get_selection_strategy(self) -> str:
@@ -474,10 +488,10 @@ class ExchangeLearningManager:
     def get_recent_learning_data(self, hours: int = 24) -> List[Dict]:
         """최근 학습 데이터 조회"""
         try:
-            cutoff_time = datetime.now() - timedelta(hours=hours)
+            cutoff_time = datetime.now(timezone.utc) - timedelta(hours=hours)
             recent_data = [
                 data for data in self.learning_history
-                if data['timestamp'] >= cutoff_time
+                if self._ensure_aware_timestamp(data.get('timestamp')) >= cutoff_time
             ]
             return recent_data
         except Exception as e:
@@ -536,22 +550,18 @@ class ExchangeLearningManager:
 
     def should_apply_api_delay(self) -> bool:
         """API 딜레이 적용 여부 확인"""
-        try:
-            # 최근 1분간의 요청 수 확인
-            recent_requests = [
-                d for d in self.learning_history
-                if d['timestamp'] >= datetime.now() - timedelta(minutes=1)
-            ]
+        now = datetime.now(timezone.utc)
+        with self._api_rate_lock:
+            self._api_request_times.append(now)
+            cutoff = now - timedelta(minutes=1)
+            while self._api_request_times and self._api_request_times[0] < cutoff:
+                self._api_request_times.popleft()
 
-            requests_per_minute = len(recent_requests)
-            max_requests = self.api_limits['requests_per_minute']
+            requests_per_minute = len(self._api_request_times)
+            max_requests = max(1, int(self.api_limits.get('requests_per_minute', 60)))
 
-            # 80% 이상 사용 시 딜레이 적용
-            return requests_per_minute >= (max_requests * 0.8)
-
-        except Exception as e:
-            self.logger.error(f"API 딜레이 확인 오류: {e}")
-            return True  # 안전하게 딜레이 적용
+        # 80% 이상 사용 시 딜레이 적용
+        return requests_per_minute >= (max_requests * 0.8)
 
     def get_analysis_delay(self) -> float:
         """분석 딜레이 시간 반환 (초)"""
@@ -576,7 +586,7 @@ class ExchangeLearningManager:
             ts = entry.get('timestamp')
             try:
                 if ts is None:
-                    ts_str = datetime.now().isoformat()
+                    ts_str = datetime.now(timezone.utc).isoformat()
                 elif isinstance(ts, str):
                     ts_str = ts
                 else:
@@ -588,7 +598,7 @@ class ExchangeLearningManager:
                 entry['timestamp'] = ts_str
             except Exception:
                 # 최후 폴백
-                entry['timestamp'] = str(ts or datetime.now().isoformat())
+                entry['timestamp'] = str(ts or datetime.now(timezone.utc).isoformat())
             data: List[Dict] = []
             if os.path.exists(agg_path):
                 loaded = self._read_json_list_safe(agg_path)
@@ -625,12 +635,25 @@ class ExchangeLearningManager:
             except json.JSONDecodeError as e:
                 self.logger.warning(f"{self.exchange.upper()} 학습 데이터 JSON 손상 감지: {e}")
                 try:
-                    backup_path = f"{path}.corrupt.{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+                    backup_path = f"{path}.corrupt.{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}"
                     os.replace(path, backup_path)
                     self.logger.warning(f"손상 파일 백업 완료: {backup_path}")
                 except Exception:
                     pass
                 return []
+
+    @staticmethod
+    def _ensure_aware_timestamp(value: Any) -> datetime:
+        """timestamp 값을 timezone-aware UTC datetime으로 정규화한다."""
+        if isinstance(value, datetime):
+            return value if value.tzinfo is not None else value.replace(tzinfo=timezone.utc)
+        if isinstance(value, str):
+            try:
+                parsed = datetime.fromisoformat(value)
+                return parsed if parsed.tzinfo is not None else parsed.replace(tzinfo=timezone.utc)
+            except Exception:
+                return datetime.now(timezone.utc)
+        return datetime.now(timezone.utc)
 
 
 def get_exchange_learning_manager(exchange: str) -> ExchangeLearningManager:

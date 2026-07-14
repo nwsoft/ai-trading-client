@@ -571,7 +571,15 @@ class AIReportWidgetReal(CTkFrame):
             
             if not recent_data:
                 # 데이터가 없으면 기본 메시지
-                summary_text = "⚡ 실시간 거래 분석 (최근 1시간)\n\n❌ 최근 1시간 거래 데이터가 없습니다.\n\n🤖 AI 분석:\n- 거래가 없어 분석할 데이터가 부족합니다.\n- 시장 상황을 모니터링하고 거래 기회를 기다려주세요."
+                summary_text = (
+                    "⚡ 실시간 거래 분석 (최근 1시간)\n\n"
+                    "❌ 최근 1시간 거래 데이터가 없습니다.\n\n"
+                    "💸 비용 영향:\n"
+                    "- 거래 데이터가 없어 비용 지표를 계산할 수 없습니다.\n\n"
+                    "🤖 AI 분석:\n"
+                    "- 거래가 없어 분석할 데이터가 부족합니다.\n"
+                    "- 시장 상황을 모니터링하고 거래 기회를 기다려주세요."
+                )
                 analysis_text = "📊 현재 거래 상황 분석\n\n분석할 거래 데이터가 없습니다."
                 ai_content = "현재 거래 데이터가 없어 AI 어시스턴트에게 전달할 분석 내용이 없습니다."
             else:
@@ -586,6 +594,12 @@ class AIReportWidgetReal(CTkFrame):
 📈 승률: {analysis_result['win_rate']:.1f}%
 💰 총 수익: {analysis_result['total_pnl']:.2f} USDT
 ⚡ 평균 거래 시간: {analysis_result['avg_trade_duration']:.1f}분
+
+💸 비용 영향:
+- 누적 Fee: {analysis_result['total_fees']:.2f} USDT
+- 평균 Fee: {analysis_result['avg_fee']:.4f} USDT
+- Fee 대비 PnL 영향도: {analysis_result['fee_impact_percent']:.2f}%
+- 총 수익은 현재 trade_log의 pnl 합계 기준이며, 수수료는 별도 비용 지표로 병행 표시됩니다.
 
 🤖 AI 실시간 분석:
 {analysis_result['ai_summary']}
@@ -612,6 +626,9 @@ class AIReportWidgetReal(CTkFrame):
 - 최근 1시간 거래 수: {analysis_result['total_trades']}건
 - 승률: {analysis_result['win_rate']:.1f}%
 - 총 수익: {analysis_result['total_pnl']:.2f} USDT
+- 누적 Fee: {analysis_result['total_fees']:.2f} USDT
+- 평균 Fee: {analysis_result['avg_fee']:.4f} USDT
+- Fee 대비 PnL 영향도: {analysis_result['fee_impact_percent']:.2f}%
 
 ✅ 주요 장점:
 {analysis_result['strengths']}
@@ -679,6 +696,9 @@ class AIReportWidgetReal(CTkFrame):
                 'profitable_trades': 0,
                 'win_rate': 0.0,
                 'total_pnl': 0.0,
+                'total_fees': 0.0,
+                'avg_fee': 0.0,
+                'fee_impact_percent': 0.0,
                 'avg_trade_duration': 0.0,
                 'ai_summary': "거래 데이터가 없어 분석할 수 없습니다.",
                 'strengths': "분석할 데이터가 없습니다.",
@@ -692,6 +712,10 @@ class AIReportWidgetReal(CTkFrame):
         win_rate = (profitable_trades / total_trades * 100) if total_trades > 0 else 0
         total_pnl = sum(t['pnl'] for t in trades)
         avg_pnl = total_pnl / total_trades if total_trades > 0 else 0
+        fee_values = [float(t.get('fees') or 0.0) for t in trades]
+        total_fees = sum(fee_values)
+        avg_fee = (total_fees / total_trades) if total_trades > 0 else 0.0
+        fee_impact_percent = (total_fees / abs(total_pnl) * 100.0) if abs(total_pnl) > 0 else 0.0
         
         # 거래 시간 분석
         trade_durations = []
@@ -719,6 +743,9 @@ class AIReportWidgetReal(CTkFrame):
             'profitable_trades': profitable_trades,
             'win_rate': win_rate,
             'total_pnl': total_pnl,
+            'total_fees': total_fees,
+            'avg_fee': avg_fee,
+            'fee_impact_percent': fee_impact_percent,
             'avg_trade_duration': avg_trade_duration,
             'ai_summary': ai_summary,
             'strengths': strengths,
@@ -917,7 +944,15 @@ class AIReportWidgetReal(CTkFrame):
             
             if not today_data:
                 # 데이터가 없으면 기본 메시지
-                summary_text = "📊 오늘 거래 요약\n\n❌ 오늘 거래 데이터가 없습니다.\n\n🤖 AI 분석:\n- 거래가 없어 분석할 데이터가 부족합니다.\n- 시장 상황을 모니터링하고 거래 기회를 기다려주세요."
+                summary_text = (
+                    "📊 오늘 거래 요약\n\n"
+                    "❌ 오늘 거래 데이터가 없습니다.\n\n"
+                    "💸 비용 영향:\n"
+                    "- 거래 데이터가 없어 비용 지표를 계산할 수 없습니다.\n\n"
+                    "🤖 AI 분석:\n"
+                    "- 거래가 없어 분석할 데이터가 부족합니다.\n"
+                    "- 시장 상황을 모니터링하고 거래 기회를 기다려주세요."
+                )
                 detail_text = "📈 상세 거래 내역\n\n거래 내역이 없습니다."
             else:
                 # 실제 데이터 기반 분석
@@ -926,6 +961,10 @@ class AIReportWidgetReal(CTkFrame):
                 win_rate = (profitable_trades / total_trades * 100) if total_trades > 0 else 0
                 total_pnl = sum(t['pnl'] for t in today_data)
                 avg_pnl = total_pnl / total_trades if total_trades > 0 else 0
+                fee_values = [float(t.get('fees') or 0.0) for t in today_data]
+                total_fees = sum(fee_values)
+                avg_fee = (total_fees / total_trades) if total_trades > 0 else 0.0
+                fee_impact_percent = (total_fees / abs(total_pnl) * 100.0) if abs(total_pnl) > 0 else 0.0
                 
                 # AI 분석
                 ai_analysis = self._analyze_trading_performance(today_data)
@@ -937,6 +976,12 @@ class AIReportWidgetReal(CTkFrame):
 📈 승률: {win_rate:.1f}%
 💰 총 수익: {total_pnl:.2f} USDT
 📊 평균 수익: {avg_pnl:.2f} USDT
+
+💸 비용 영향:
+- 누적 Fee: {total_fees:.2f} USDT
+- 평균 Fee: {avg_fee:.4f} USDT
+- Fee 대비 PnL 영향도: {fee_impact_percent:.2f}%
+- 총 수익은 현재 trade_log의 pnl 합계 기준이며, 수수료는 별도 비용 지표로 병행 표시됩니다.
 
 🤖 AI 분석:
 {ai_analysis['summary']}

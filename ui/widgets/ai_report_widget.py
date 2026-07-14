@@ -9,6 +9,7 @@ import json
 import logging
 import os
 import sqlite3
+import tkinter as tk
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Dict, List, Any, Optional
@@ -27,6 +28,7 @@ class AIReportWidget(CTkFrame):
         # after() 작업 추적 리스트는 UI 초기화보다 먼저 준비해야 한다.
         # (init_ui 내부에서 safe_after가 호출되는 경로를 방어)
         self.after_jobs = []
+        self._disposed = False
         
         # 대시보드에서 전달받은 colors 사용
         self.colors = dict(colors) if colors and isinstance(colors, dict) else {}
@@ -52,6 +54,10 @@ class AIReportWidget(CTkFrame):
         
         # 초기 리포트 생성
         self.safe_after(1000, self.load_and_display_existing_reports)
+        try:
+            self.bind("<Destroy>", self._on_destroy, add="+")
+        except Exception:
+            pass
     
     def _color(self, key: str, fallback: str) -> str:
         try:
@@ -78,20 +84,66 @@ class AIReportWidget(CTkFrame):
     
     def safe_after(self, delay, func, *args, **kwargs):
         """안전한 after() 메서드 - 작업 추적"""
-        job_id = self.after(delay, func, *args, **kwargs)
-        if not hasattr(self, 'after_jobs') or self.after_jobs is None:
-            self.after_jobs = []
-        self.after_jobs.append(job_id)
-        return job_id
+        try:
+            if self._disposed or not self.winfo_exists():
+                return None
+
+            def safe_callback():
+                try:
+                    if self._disposed or not self.winfo_exists():
+                        return
+                    func(*args, **kwargs)
+                except tk.TclError:
+                    return
+
+            job_id = self.after(delay, safe_callback)
+            if not hasattr(self, 'after_jobs') or self.after_jobs is None:
+                self.after_jobs = []
+            self.after_jobs.append(job_id)
+            return job_id
+        except tk.TclError:
+            return None
+        except Exception:
+            return None
     
     def cleanup_after_jobs(self):
         """모든 after() 작업 정리"""
-        for job_id in self.after_jobs:
+        for job_id in list(getattr(self, 'after_jobs', []) or []):
             try:
                 self.after_cancel(job_id)
             except:
                 pass
-        self.after_jobs.clear()
+        if hasattr(self, 'after_jobs') and self.after_jobs is not None:
+            self.after_jobs.clear()
+
+    def _on_destroy(self, event=None):
+        try:
+            if event is not None and getattr(event, 'widget', None) is not self:
+                return
+        except Exception:
+            pass
+        self._disposed = True
+        self.cleanup_after_jobs()
+
+    def destroy(self):
+        self._disposed = True
+        self.cleanup_after_jobs()
+        return super().destroy()
+
+    def _is_textbox_alive(self, widget) -> bool:
+        try:
+            return bool(widget is not None and widget.winfo_exists() and self.winfo_exists() and not self._disposed)
+        except Exception:
+            return False
+
+    def _safe_set_text(self, widget, text: str):
+        try:
+            if not self._is_textbox_alive(widget):
+                return
+            widget.delete("1.0", "end")
+            widget.insert("1.0", text)
+        except tk.TclError:
+            return
         
     def init_ui(self):
         """UI 초기화 (공간 최적화)"""
@@ -623,7 +675,15 @@ class AIReportWidget(CTkFrame):
             
             if not recent_data:
                 # 데이터가 없으면 기본 메시지
-                summary_text = "⚡ 실시간 거래 분석 (최근 1시간)\n\n❌ 최근 1시간 거래 데이터가 없습니다.\n\n🤖 AI 분석:\n- 거래가 없어 분석할 데이터가 부족합니다.\n- 시장 상황을 모니터링하고 거래 기회를 기다려주세요."
+                summary_text = (
+                    "⚡ 실시간 거래 분석 (최근 1시간)\n\n"
+                    "❌ 최근 1시간 거래 데이터가 없습니다.\n\n"
+                    "💸 비용 영향:\n"
+                    "- 거래 데이터가 없어 비용 지표를 계산할 수 없습니다.\n\n"
+                    "🤖 AI 분석:\n"
+                    "- 거래가 없어 분석할 데이터가 부족합니다.\n"
+                    "- 시장 상황을 모니터링하고 거래 기회를 기다려주세요."
+                )
                 analysis_text = "📊 현재 거래 상황 분석\n\n분석할 거래 데이터가 없습니다."
                 ai_content = "현재 거래 데이터가 없어 AI 어시스턴트에게 전달할 분석 내용이 없습니다."
             else:
@@ -638,6 +698,12 @@ class AIReportWidget(CTkFrame):
 📈 승률: {analysis_result['win_rate']:.1f}%
 💰 총 수익: {analysis_result['total_pnl']:.2f} USDT
 ⚡ 평균 거래 시간: {analysis_result['avg_trade_duration']:.1f}분
+
+💸 비용 영향:
+- 누적 Fee: {analysis_result['total_fees']:.2f} USDT
+- 평균 Fee: {analysis_result['avg_fee']:.4f} USDT
+- Fee 대비 PnL 영향도: {analysis_result['fee_impact_percent']:.2f}%
+- 총 수익은 현재 trade_log의 pnl 합계 기준이며, 수수료는 별도 비용 지표로 병행 표시됩니다.
 
 🤖 AI 실시간 분석:
 {analysis_result['ai_summary']}
@@ -664,6 +730,9 @@ class AIReportWidget(CTkFrame):
 - 최근 1시간 거래 수: {analysis_result['total_trades']}건
 - 승률: {analysis_result['win_rate']:.1f}%
 - 총 수익: {analysis_result['total_pnl']:.2f} USDT
+- 누적 Fee: {analysis_result['total_fees']:.2f} USDT
+- 평균 Fee: {analysis_result['avg_fee']:.4f} USDT
+- Fee 대비 PnL 영향도: {analysis_result['fee_impact_percent']:.2f}%
 
 ✅ 주요 장점:
 {analysis_result['strengths']}
@@ -677,14 +746,9 @@ class AIReportWidget(CTkFrame):
 위 분석을 바탕으로 거래 전략을 개선해주세요."""
             
             # UI 업데이트
-            self.realtime_summary.delete("1.0", "end")
-            self.realtime_summary.insert("1.0", summary_text)
-            
-            self.analysis_detail.delete("1.0", "end")
-            self.analysis_detail.insert("1.0", analysis_text)
-            
-            self.ai_transfer_content.delete("1.0", "end")
-            self.ai_transfer_content.insert("1.0", ai_content)
+            self._safe_set_text(self.realtime_summary, summary_text)
+            self._safe_set_text(self.analysis_detail, analysis_text)
+            self._safe_set_text(self.ai_transfer_content, ai_content)
             
             print("✅ 실시간 분석 생성 완료")
             
@@ -736,6 +800,9 @@ class AIReportWidget(CTkFrame):
                 'profitable_trades': 0,
                 'win_rate': 0.0,
                 'total_pnl': 0.0,
+                'total_fees': 0.0,
+                'avg_fee': 0.0,
+                'fee_impact_percent': 0.0,
                 'avg_trade_duration': 0.0,
                 'ai_summary': "거래 데이터가 없어 분석할 수 없습니다.",
                 'strengths': "분석할 데이터가 없습니다.",
@@ -749,6 +816,10 @@ class AIReportWidget(CTkFrame):
         win_rate = (profitable_trades / total_trades * 100) if total_trades > 0 else 0
         total_pnl = sum(t['pnl'] for t in trades)
         avg_pnl = total_pnl / total_trades if total_trades > 0 else 0
+        fee_values = [float(t.get('fees') or 0.0) for t in trades]
+        total_fees = sum(fee_values)
+        avg_fee = (total_fees / total_trades) if total_trades > 0 else 0.0
+        fee_impact_percent = (total_fees / abs(total_pnl) * 100.0) if abs(total_pnl) > 0 else 0.0
         
         # 거래 시간 분석
         trade_durations = []
@@ -776,6 +847,9 @@ class AIReportWidget(CTkFrame):
             'profitable_trades': profitable_trades,
             'win_rate': win_rate,
             'total_pnl': total_pnl,
+            'total_fees': total_fees,
+            'avg_fee': avg_fee,
+            'fee_impact_percent': fee_impact_percent,
             'avg_trade_duration': avg_trade_duration,
             'ai_summary': ai_summary,
             'strengths': strengths,
@@ -922,8 +996,10 @@ class AIReportWidget(CTkFrame):
             print("=" * 50)
             
             # 성공 메시지 표시
-            self.ai_transfer_content.delete("1.0", "end")
-            self.ai_transfer_content.insert("1.0", "✅ AI 어시스턴트에 성공적으로 전달되었습니다!\n\n위 분석 내용이 AI 어시스턴트 탭에 표시됩니다.")
+            self._safe_set_text(
+                self.ai_transfer_content,
+                "✅ AI 어시스턴트에 성공적으로 전달되었습니다!\n\n위 분석 내용이 AI 어시스턴트 탭에 표시됩니다."
+            )
             
             print("✅ AI 어시스턴트 전달 완료")
             
@@ -974,7 +1050,15 @@ class AIReportWidget(CTkFrame):
             
             if not today_data:
                 # 데이터가 없으면 기본 메시지
-                summary_text = "📊 오늘 거래 요약\n\n❌ 오늘 거래 데이터가 없습니다.\n\n🤖 AI 분석:\n- 거래가 없어 분석할 데이터가 부족합니다.\n- 시장 상황을 모니터링하고 거래 기회를 기다려주세요."
+                summary_text = (
+                    "📊 오늘 거래 요약\n\n"
+                    "❌ 오늘 거래 데이터가 없습니다.\n\n"
+                    "💸 비용 영향:\n"
+                    "- 거래 데이터가 없어 비용 지표를 계산할 수 없습니다.\n\n"
+                    "🤖 AI 분석:\n"
+                    "- 거래가 없어 분석할 데이터가 부족합니다.\n"
+                    "- 시장 상황을 모니터링하고 거래 기회를 기다려주세요."
+                )
                 detail_text = "📈 상세 거래 내역\n\n거래 내역이 없습니다."
             else:
                 # 실제 데이터 기반 분석
@@ -983,6 +1067,10 @@ class AIReportWidget(CTkFrame):
                 win_rate = (profitable_trades / total_trades * 100) if total_trades > 0 else 0
                 total_pnl = sum(t['pnl'] for t in today_data)
                 avg_pnl = total_pnl / total_trades if total_trades > 0 else 0
+                fee_values = [float(t.get('fees') or 0.0) for t in today_data]
+                total_fees = sum(fee_values)
+                avg_fee = (total_fees / total_trades) if total_trades > 0 else 0.0
+                fee_impact_percent = (total_fees / abs(total_pnl) * 100.0) if abs(total_pnl) > 0 else 0.0
                 
                 # AI 분석
                 ai_analysis = self._analyze_trading_performance(today_data)
@@ -994,6 +1082,12 @@ class AIReportWidget(CTkFrame):
 📈 승률: {win_rate:.1f}%
 💰 총 수익: {total_pnl:.2f} USDT
 📊 평균 수익: {avg_pnl:.2f} USDT
+
+💸 비용 영향:
+- 누적 Fee: {total_fees:.2f} USDT
+- 평균 Fee: {avg_fee:.4f} USDT
+- Fee 대비 PnL 영향도: {fee_impact_percent:.2f}%
+- 총 수익은 현재 trade_log의 pnl 합계 기준이며, 수수료는 별도 비용 지표로 병행 표시됩니다.
 
 🤖 AI 분석:
 {ai_analysis['summary']}
@@ -1016,11 +1110,8 @@ class AIReportWidget(CTkFrame):
                     detail_text += f"\n... 및 {len(today_data) - 20}건 더"
             
             # UI 업데이트
-            self.today_summary.delete("1.0", "end")
-            self.today_summary.insert("1.0", summary_text)
-            
-            self.today_detail.delete("1.0", "end") 
-            self.today_detail.insert("1.0", detail_text)
+            self._safe_set_text(self.today_summary, summary_text)
+            self._safe_set_text(self.today_detail, detail_text)
             
             # 오늘 리포트 저장
             self._save_daily_report(summary_text, detail_text)
@@ -1076,11 +1167,8 @@ class AIReportWidget(CTkFrame):
                 detail_text += f"\n\n{cc_section}"
             
             # UI 업데이트
-            self.weekly_summary.delete("1.0", "end")
-            self.weekly_summary.insert("1.0", summary_text)
-            
-            self.weekly_detail.delete("1.0", "end")
-            self.weekly_detail.insert("1.0", detail_text)
+            self._safe_set_text(self.weekly_summary, summary_text)
+            self._safe_set_text(self.weekly_detail, detail_text)
             
             # 주간 리포트 저장
             self._save_weekly_report(summary_text, detail_text)
@@ -1179,11 +1267,8 @@ class AIReportWidget(CTkFrame):
 """
             
             # UI 업데이트
-            self.monthly_summary.delete("1.0", "end")
-            self.monthly_summary.insert("1.0", summary_text)
-            
-            self.monthly_detail.delete("1.0", "end")
-            self.monthly_detail.insert("1.0", detail_text)
+            self._safe_set_text(self.monthly_summary, summary_text)
+            self._safe_set_text(self.monthly_detail, detail_text)
             
             # 월간 리포트 저장
             self._save_monthly_report(summary_text, detail_text)
@@ -1621,11 +1706,8 @@ class AIReportWidget(CTkFrame):
                     report_data = json.load(f)
                 
                 # UI 업데이트
-                self.today_summary.delete("1.0", "end")
-                self.today_summary.insert("1.0", report_data.get('summary', ''))
-                
-                self.today_detail.delete("1.0", "end") 
-                self.today_detail.insert("1.0", report_data.get('detail', ''))
+                self._safe_set_text(self.today_summary, report_data.get('summary', ''))
+                self._safe_set_text(self.today_detail, report_data.get('detail', ''))
                 
                 print(f"✅ 오늘 리포트 로드됨: {report_file}")
             else:
@@ -1645,11 +1727,8 @@ class AIReportWidget(CTkFrame):
                     report_data = json.load(f)
                 
                 # UI 업데이트
-                self.weekly_summary.delete("1.0", "end")
-                self.weekly_summary.insert("1.0", report_data.get('summary', ''))
-                
-                self.weekly_detail.delete("1.0", "end")
-                self.weekly_detail.insert("1.0", report_data.get('detail', ''))
+                self._safe_set_text(self.weekly_summary, report_data.get('summary', ''))
+                self._safe_set_text(self.weekly_detail, report_data.get('detail', ''))
                 
                 print(f"✅ 주간 리포트 로드됨: {report_file}")
             else:
@@ -1670,12 +1749,10 @@ class AIReportWidget(CTkFrame):
                 
                 # UI 업데이트 (월간 탭이 있다면)
                 if hasattr(self, 'monthly_summary'):
-                    self.monthly_summary.delete("1.0", "end")
-                    self.monthly_summary.insert("1.0", report_data.get('summary', ''))
+                    self._safe_set_text(self.monthly_summary, report_data.get('summary', ''))
                 
                 if hasattr(self, 'monthly_detail'):
-                    self.monthly_detail.delete("1.0", "end")
-                    self.monthly_detail.insert("1.0", report_data.get('detail', ''))
+                    self._safe_set_text(self.monthly_detail, report_data.get('detail', ''))
                 
                 print(f"✅ 월간 리포트 로드됨: {report_file}")
             else:

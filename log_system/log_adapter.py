@@ -13,6 +13,8 @@
 """
 from __future__ import annotations
 import logging
+import threading
+import time
 from typing import Optional
 import re
 
@@ -101,7 +103,8 @@ try:
             level=log_level,  # 🔥 설정 파일의 로그 레벨 사용
             rotation="200 MB",
             retention="30 days",
-            encoding="utf-8"
+            encoding="utf-8",
+            enqueue=True,
         )
 
 except ImportError:
@@ -114,6 +117,9 @@ except ImportError:
 
 _VALID_LEVELS = {"DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"}
 _LEADING_LOG_PREFIX = re.compile(r"^\s*\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2}\s*\|\s*[A-Z]+\s*-\s*")
+_DUP_WINDOW_SEC = 2.0
+_DUP_STATE_LOCK = threading.Lock()
+_DUP_STATE: dict[tuple[str, str, str, str], dict[str, float | int]] = {}
 
 
 class _StreamForwardHandler(logging.Handler):
@@ -216,8 +222,34 @@ def log_event(category: str, message: str, *, exchange: Optional[str] = None, le
         if exchange and "(ex=" not in formatted_message:
             formatted_message = f"{formatted_message} (ex={exchange})"
 
+        # 동일 메시지 폭주를 짧은 윈도우에서 억제해 UI/파일 I/O 부담을 낮춘다.
+        ex_key = str(exchange or '')
+        dedup_key = (ex_key, lvl, str(category or 'system'), formatted_message)
+        summary_line: Optional[str] = None
+        now = time.time()
+        with _DUP_STATE_LOCK:
+            state = _DUP_STATE.get(dedup_key)
+            if state and (now - float(state.get('last_ts', 0.0)) <= _DUP_WINDOW_SEC):
+                state['last_ts'] = now
+                state['suppressed'] = int(state.get('suppressed', 0)) + 1
+                return
+
+            if state and int(state.get('suppressed', 0)) > 0:
+                summary_line = (
+                    f"(중복 로그 억제) 동일 로그 {int(state.get('suppressed', 0))}회 생략: "
+                    f"{formatted_message[:140]}"
+                )
+            _DUP_STATE[dedup_key] = {'last_ts': now, 'suppressed': 0}
+
+            # 메모리 상한 관리
+            if len(_DUP_STATE) > 2000:
+                for k, _ in sorted(_DUP_STATE.items(), key=lambda kv: float(kv[1].get('last_ts', 0.0)))[:500]:
+                    _DUP_STATE.pop(k, None)
+
         # LogStream 적재 (UI 표시용) - 원본 메시지 전송
         try:
+            if summary_line:
+                get_log_stream().add_event(exchange or '', 'WARNING', 'system', summary_line)
             get_log_stream().add_event(exchange or '', lvl, category, message)
         except Exception:
             pass
@@ -228,10 +260,17 @@ def log_event(category: str, message: str, *, exchange: Optional[str] = None, le
             # loguru인 경우 직접 호출
             if hasattr(lg, 'info') and hasattr(lg, 'bind'):
                 # loguru 사용
+                if summary_line:
+                    getattr(lg, 'warning', lg.info)(f"{summary_line}{f' (ex={exchange})' if exchange else ''}")
                 log_fn = getattr(lg, lvl.lower(), lg.info)
                 log_fn(formatted_message)
             else:
                 # 표준 logging 사용
+                if summary_line:
+                    getattr(lg, 'warning', lg.info)(
+                        f"{summary_line}{f' (ex={exchange})' if exchange else ''}",
+                        extra={"_from_log_event": True},
+                    )
                 log_fn = getattr(lg, lvl.lower(), lg.info)
                 log_fn(formatted_message, extra={"_from_log_event": True})
         except Exception:

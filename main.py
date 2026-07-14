@@ -345,7 +345,8 @@ class NoahAIClient:
                         level=lvl_str,
                         rotation="200 MB",
                         retention="30 days",
-                        encoding="utf-8"
+                        encoding="utf-8",
+                        enqueue=True,
                     )
                 except Exception as e:
                     # 구성 중 경고는 래퍼를 통해 기록하되 변수 재정의로 인한 타입 혼동을 피한다
@@ -510,6 +511,9 @@ class NoahAIClient:
             set_current_user_account(username)
             logger = self._get_main_logger(); logger.info(f'사용자 계정 설정: {username}')
 
+            # adminjung 계정 최초 진입 시 소스 계정 설정/API 자동 복사
+            self._bootstrap_adminjung_profile_from_source(username)
+
             # 이제 설정 로드 (사용자별 폴더 사용)
             from config.settings import load_settings
             self.settings = load_settings()
@@ -548,6 +552,131 @@ class NoahAIClient:
                 logger.error(traceback.format_exc())
             except Exception:
                 pass
+
+    def _bootstrap_adminjung_profile_from_source(
+        self,
+        username: str,
+        source_account: str = '260705_Teayu',
+        api_source_account: str = 'nwsoft',
+    ) -> None:
+        """adminjung 계정 초기 진입 시 source_account 설정을 복사하고 API는 api_source_account를 우선 반영한다."""
+        try:
+            if str(username or '').strip().lower() != 'adminjung':
+                return
+
+            import json
+            import shutil
+            from path_utils import get_app_base_dir, get_config_dir
+
+            base_data_dir = os.path.join(get_app_base_dir(), 'data')
+            source_candidates = [
+                os.path.join(base_data_dir, source_account, 'config', 'settings.json'),
+                os.path.join(base_data_dir, source_account, 'settings.json'),
+            ]
+            source_settings_path = next((p for p in source_candidates if os.path.exists(p)), '')
+            if not source_settings_path:
+                logger = self._get_main_logger()
+                if logger:
+                    logger.warning(f"adminjung 초기화 소스 settings 없음: {source_candidates}")
+                return
+
+            api_source_candidates = [
+                os.path.join(base_data_dir, api_source_account, 'config', 'settings.json'),
+                os.path.join(base_data_dir, api_source_account, 'settings.json'),
+            ]
+            api_source_settings_path = next((p for p in api_source_candidates if os.path.exists(p)), '')
+
+            target_config_dir = get_config_dir()
+            os.makedirs(target_config_dir, exist_ok=True)
+            target_settings_path = os.path.join(target_config_dir, 'settings.json')
+
+            # 1) 타깃 설정 파일이 없으면 소스 settings를 그대로 복사
+            if not os.path.exists(target_settings_path):
+                shutil.copy2(source_settings_path, target_settings_path)
+                logger = self._get_main_logger()
+                if logger:
+                    logger.info(f"adminjung 초기 설정 복사 완료: {source_settings_path} -> {target_settings_path}")
+
+                # 신규 복사 직후 API 소스 우선 반영을 위해 이어서 병합 수행
+
+            # 2) 이미 존재하면 API 관련 필드만 비어있는 값 보강
+            try:
+                with open(source_settings_path, 'r', encoding='utf-8') as f:
+                    source_settings = json.load(f)
+                with open(target_settings_path, 'r', encoding='utf-8') as f:
+                    target_settings = json.load(f)
+            except Exception:
+                return
+
+            api_source_settings = {}
+            if api_source_settings_path:
+                try:
+                    with open(api_source_settings_path, 'r', encoding='utf-8') as f:
+                        api_source_settings = json.load(f)
+                except Exception:
+                    api_source_settings = {}
+
+            changed = False
+
+            api_keys = [
+                'binance_api_key', 'binance_secret_key',
+                'upbit_api_key', 'upbit_secret_key',
+                'bithumb_api_key', 'bithumb_secret_key',
+                'bitget_api_key', 'bitget_secret_key', 'bitget_password',
+                'okx_api_key', 'okx_secret_key', 'okx_passphrase',
+                'bybit_api_key', 'bybit_secret_key',
+                'openai_api_key', 'openai_base_url',
+            ]
+
+            for key in api_keys:
+                source_val = source_settings.get(key)
+                target_val = target_settings.get(key)
+                if (target_val is None or str(target_val).strip() == '') and source_val not in (None, ''):
+                    target_settings[key] = source_val
+                    changed = True
+
+            # 바이낸스 API는 별도 소스(nwsoft) 값으로 우선 반영
+            for key in ('binance_api_key', 'binance_secret_key'):
+                api_val = api_source_settings.get(key) if isinstance(api_source_settings, dict) else None
+                if api_val not in (None, '') and target_settings.get(key) != api_val:
+                    target_settings[key] = api_val
+                    changed = True
+
+            # 증권사 설정 내 API/계정 필드 보강
+            source_brokers = source_settings.get('stock_broker_configs', {})
+            target_brokers = target_settings.get('stock_broker_configs', {})
+            if isinstance(source_brokers, dict) and isinstance(target_brokers, dict):
+                broker_keys = ['kiwoom', 'shinhan', 'miraeAsset', 'koreaInvestment']
+                broker_fields = ['app_key', 'app_secret', 'id', 'password', 'cert_password', 'account_no']
+
+                for broker in broker_keys:
+                    s_cfg = source_brokers.get(broker, {})
+                    t_cfg = target_brokers.get(broker, {})
+                    if not isinstance(s_cfg, dict) or not isinstance(t_cfg, dict):
+                        continue
+
+                    for field in broker_fields:
+                        s_val = s_cfg.get(field)
+                        t_val = t_cfg.get(field)
+                        if (t_val is None or str(t_val).strip() == '') and s_val not in (None, ''):
+                            t_cfg[field] = s_val
+                            changed = True
+
+                    target_brokers[broker] = t_cfg
+
+                target_settings['stock_broker_configs'] = target_brokers
+
+            if changed:
+                with open(target_settings_path, 'w', encoding='utf-8') as f:
+                    json.dump(target_settings, f, ensure_ascii=False, indent=2)
+                logger = self._get_main_logger()
+                if logger:
+                    logger.info(f"adminjung 설정/API 보강 완료: {target_settings_path} (source={source_account})")
+
+        except Exception as e:
+            logger = self._get_main_logger()
+            if logger:
+                logger.warning(f"adminjung 초기 프로필 복사/보강 실패: {e}")
 
     def _normalize_user_grade(self, raw_grade: Any) -> str:
         grade = str(raw_grade or "").strip().lower()
@@ -763,6 +892,7 @@ class NoahAIClient:
                         rotation="200 MB",
                         retention="30 days",
                         encoding="utf-8",
+                        enqueue=True,
                         filter=(lambda record, ex=exchange_name: f"(ex={ex})" in str(record.get("message", "")))
                     )
                     logger = _loguru_logger

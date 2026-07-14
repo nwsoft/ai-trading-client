@@ -298,6 +298,16 @@ class Evaluator:
                     _t_stage['ai_eval'] = time.perf_counter() - _t_ai_start
 
                 self.logger.info("🔍 DEBUG: evaluator에서 return 직전")
+                total_elapsed = time.perf_counter() - _t_total_start
+                self.logger.info(f"⏱️ 코인 선정 전체 소요시간(기본선정 성공): {total_elapsed:.2f}s | 단계별: {_t_stage}")
+                try:
+                    self.coin_selection_performance['total_selections'] += 1
+                    ts = self.coin_selection_performance['total_selections']
+                    prev_avg = self.coin_selection_performance['avg_selection_time']
+                    self.coin_selection_performance['avg_selection_time'] = ((prev_avg * (ts-1)) + total_elapsed) / ts
+                except Exception:
+                    pass
+                return selected_coins
             else:
                 self.logger.warning(f"⚠️ 목표 미달성: {len(selected_coins)}개 < {num_alt + num_major}개 필요")
 

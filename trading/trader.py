@@ -22,6 +22,7 @@ from .ops_automation import OpsAutomationEngine
 from .portfolio_orchestrator import PortfolioOrchestrator
 from .profitability_validation import ProfitabilityValidator
 from .strategy_engine import StrategyEngine
+from api.kpi_client import emit_kpi_event
 
 
 class PositionSide(Enum):
@@ -1855,10 +1856,37 @@ class Trader:
                         if hasattr(self, 'analyzer'):
                             self._log_trade_event('analysis', f"🔍 {symbol} analyzer 타입: {type(self.analyzer)}", verbose_only=True)
 
+                        inference_started = time.perf_counter()
                         try:
                             signal_data = self.analyzer.generate_trading_signal(symbol)
+                            inference_ms = (time.perf_counter() - inference_started) * 1000.0
+                            emit_kpi_event(
+                                event_type='ai_inference_completed',
+                                category='learning',
+                                asset_class='crypto',
+                                status='success',
+                                source='noahai_client_trader',
+                                metric_value=float(inference_ms),
+                                metadata={
+                                    'exchange': 'binance',
+                                    'symbol': symbol,
+                                    'signal': str(signal_data.get('signal', 'HOLD')),
+                                },
+                            )
                             self._log_trade_event('analysis', f"✅ {symbol} 신호 생성 성공: {signal_data}", verbose_only=True)
                         except Exception as e:
+                            emit_kpi_event(
+                                event_type='ai_inference_completed',
+                                category='learning',
+                                asset_class='crypto',
+                                status='failed',
+                                source='noahai_client_trader',
+                                metadata={
+                                    'exchange': 'binance',
+                                    'symbol': symbol,
+                                    'reason': str(e),
+                                },
+                            )
                             self.logger.error(f"❌ {symbol} 신호 생성 실패: {str(e)}")
                             import traceback
                             self.logger.error(f"❌ {symbol} 예외 상세: {traceback.format_exc()}")
@@ -5178,6 +5206,11 @@ class Trader:
             if order_success:
                 # PnL 계산
                 pnl_percent = self._calc_pnl_percent(position, current_price)
+                hold_seconds = 0.0
+                try:
+                    hold_seconds = max(0.0, (datetime.now(timezone.utc) - position.entry_time).total_seconds())
+                except Exception:
+                    hold_seconds = 0.0
 
                 # 🔥 PnL USDT 계산 (통계용)
                 pnl_usdt = (pnl_percent / 100.0) * position.quantity * position.entry_price
@@ -5185,6 +5218,25 @@ class Trader:
                 # 거래 통계 업데이트
                 self.trade_stats['total_trades'] += 1
                 self.trade_stats['total_pnl'] += pnl_usdt  # 🔥 USDT 단위로 누적
+
+                emit_kpi_event(
+                    event_type='trade_order_executed',
+                    category='trade',
+                    asset_class='crypto',
+                    status='success',
+                    source='noahai_client_trader_close',
+                    metric_value=float(position.quantity),
+                    metadata={
+                        'exchange': 'binance',
+                        'symbol': symbol,
+                        'side': 'CLOSE',
+                        'close': True,
+                        'reason': reason,
+                        'hold_seconds': round(hold_seconds, 2),
+                        'executed_price': float(current_price or 0.0),
+                        'notional_estimate': float(position.quantity) * float(current_price or 0.0),
+                    },
+                )
 
                 if pnl_percent > 0:
                     self.trade_stats['winning_trades'] += 1
@@ -5321,6 +5373,20 @@ class Trader:
                 
                 self.logger.info(f"✅ {symbol} 포지션 청산 완료: {reason}, PnL: {pnl_percent:.2f}%")
             else:
+                emit_kpi_event(
+                    event_type='trade_order_failed',
+                    category='trade',
+                    asset_class='crypto',
+                    status='failed',
+                    source='noahai_client_trader_close',
+                    metadata={
+                        'exchange': 'binance',
+                        'symbol': symbol,
+                        'side': 'CLOSE',
+                        'close': True,
+                        'reason': f"status={order_status}",
+                    },
+                )
                 # 🔥 주문이 실패했지만 포지션이 실제로 청산되었는지 재확인
                 self.log_event(
                     'trade',
@@ -5346,6 +5412,30 @@ class Trader:
                             # 거래 통계 업데이트
                             self.trade_stats['total_trades'] += 1
                             self.trade_stats['total_pnl'] += pnl_usdt
+                            hold_seconds = 0.0
+                            try:
+                                hold_seconds = max(0.0, (datetime.now(timezone.utc) - position.entry_time).total_seconds())
+                            except Exception:
+                                hold_seconds = 0.0
+
+                            emit_kpi_event(
+                                event_type='trade_order_executed',
+                                category='trade',
+                                asset_class='crypto',
+                                status='success',
+                                source='noahai_client_trader_close',
+                                metric_value=float(position.quantity),
+                                metadata={
+                                    'exchange': 'binance',
+                                    'symbol': symbol,
+                                    'side': 'CLOSE',
+                                    'close': True,
+                                    'reason': f"{reason}_position_confirmed",
+                                    'hold_seconds': round(hold_seconds, 2),
+                                    'executed_price': float(current_price or 0.0),
+                                    'notional_estimate': float(position.quantity) * float(current_price or 0.0),
+                                },
+                            )
                             if pnl_percent > 0:
                                 self.trade_stats['winning_trades'] += 1
                             else:

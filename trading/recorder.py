@@ -131,6 +131,131 @@ class Recorder:
             return value.isoformat(sep=' ', timespec='seconds')
         return value
 
+    @staticmethod
+    def _get_table_columns(cursor: sqlite3.Cursor, table_name: str) -> List[str]:
+        """테이블 컬럼 목록을 소문자 기준으로 반환한다."""
+        try:
+            cursor.execute(f"PRAGMA table_info({table_name})")
+            return [str(row[1]).lower() for row in (cursor.fetchall() or []) if len(row) > 1]
+        except Exception:
+            return []
+
+    def _run_exchange_trade_stats_fee_migration(self, conn: sqlite3.Connection, cursor: sqlite3.Cursor) -> None:
+        """exchange_trade_stats fee 컬럼 보강 + trade_log 기반 1회 백필 + 검증.
+
+        - 사용자 데이터 경로 DB를 직접 보강
+        - 컬럼이 없으면 추가, 있으면 유지
+        - 스키마 변경 실패 시 기존 경로로 안전 폴백
+        """
+        try:
+            exchange_cols = set(self._get_table_columns(cursor, 'exchange_trade_stats'))
+            if not exchange_cols:
+                return
+
+            # 1) 스키마 보강 (optional 접근)
+            if 'total_fees' not in exchange_cols:
+                cursor.execute("ALTER TABLE exchange_trade_stats ADD COLUMN total_fees REAL DEFAULT 0.0")
+            if 'avg_fee' not in exchange_cols:
+                cursor.execute("ALTER TABLE exchange_trade_stats ADD COLUMN avg_fee REAL DEFAULT 0.0")
+            conn.commit()
+
+            exchange_cols = set(self._get_table_columns(cursor, 'exchange_trade_stats'))
+            if 'total_fees' not in exchange_cols or 'avg_fee' not in exchange_cols:
+                return
+
+            # 2) trade_log 기반 백필 준비 (legacy exchange NULL -> binance)
+            trade_cols = set(self._get_table_columns(cursor, 'trade_log'))
+            if not trade_cols:
+                return
+
+            fee_expr = "COALESCE(fees, 0)" if 'fees' in trade_cols else "0"
+
+            # 기존 max_drawdown 보존
+            cursor.execute("SELECT exchange, COALESCE(max_drawdown, 0.0) FROM exchange_trade_stats")
+            dd_map = {str(r[0]).lower(): float(r[1] or 0.0) for r in (cursor.fetchall() or []) if r and r[0]}
+
+            cursor.execute(
+                f"""
+                SELECT
+                    LOWER(COALESCE(exchange, 'binance')) as ex,
+                    COUNT(*) as total_trades,
+                    SUM(CASE WHEN COALESCE(pnl, 0) > 0 THEN 1 ELSE 0 END) as winning_trades,
+                    SUM(CASE WHEN COALESCE(pnl, 0) < 0 THEN 1 ELSE 0 END) as losing_trades,
+                    SUM(COALESCE(pnl, 0)) as total_pnl,
+                    SUM({fee_expr}) as total_fees,
+                    AVG({fee_expr}) as avg_fee
+                FROM trade_log
+                WHERE exit_time IS NOT NULL
+                GROUP BY LOWER(COALESCE(exchange, 'binance'))
+                """
+            )
+            grouped = cursor.fetchall() or []
+
+            for row in grouped:
+                ex = str(row[0] or 'binance').lower()
+                cursor.execute(
+                    """
+                    INSERT OR REPLACE INTO exchange_trade_stats (
+                        exchange, total_trades, winning_trades, losing_trades,
+                        total_pnl, max_drawdown, total_fees, avg_fee, last_updated
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                    """,
+                    (
+                        ex,
+                        int(row[1] or 0),
+                        int(row[2] or 0),
+                        int(row[3] or 0),
+                        float(row[4] or 0.0),
+                        float(dd_map.get(ex, 0.0)),
+                        float(row[5] or 0.0),
+                        float(row[6] or 0.0),
+                    ),
+                )
+            conn.commit()
+
+            # 3) 검증 (요약합 대조)
+            cursor.execute(
+                f"""
+                SELECT
+                    COALESCE(SUM(COALESCE(pnl, 0)), 0.0),
+                    COALESCE(SUM({fee_expr}), 0.0)
+                FROM trade_log
+                WHERE exit_time IS NOT NULL
+                """
+            )
+            trade_total_pnl, trade_total_fees = cursor.fetchone() or (0.0, 0.0)
+
+            cursor.execute(
+                """
+                SELECT
+                    COALESCE(SUM(COALESCE(total_pnl, 0)), 0.0),
+                    COALESCE(SUM(COALESCE(total_fees, 0)), 0.0)
+                FROM exchange_trade_stats
+                """
+            )
+            stats_total_pnl, stats_total_fees = cursor.fetchone() or (0.0, 0.0)
+
+            pnl_gap = abs(float(trade_total_pnl or 0.0) - float(stats_total_pnl or 0.0))
+            fee_gap = abs(float(trade_total_fees or 0.0) - float(stats_total_fees or 0.0))
+
+            if pnl_gap > 1e-4 or fee_gap > 1e-4:
+                log_event(
+                    'trade',
+                    f"⚠️ exchange_trade_stats 백필 검증 불일치: pnl_gap={pnl_gap:.6f}, fee_gap={fee_gap:.6f}",
+                    exchange=self.exchange,
+                    level='WARNING'
+                )
+            else:
+                log_event(
+                    'trade',
+                    "✅ exchange_trade_stats fee 백필/검증 완료",
+                    exchange=self.exchange,
+                    level='INFO'
+                )
+        except Exception as e:
+            # 마이그레이션 오류가 있어도 기존 경로는 계속 동작하도록 안전 폴백
+            log_event('trade', f"⚠️ exchange_trade_stats fee 마이그레이션 스킵: {e}", exchange=self.exchange, level='WARNING')
+
 
 
     def setup_logger(self):
@@ -435,6 +560,9 @@ class Recorder:
                     conn.commit()
                 except Exception:
                     pass
+
+                # v3.8.9.28+ 사용자 DB 패치: exchange_trade_stats fee 컬럼/백필/검증
+                self._run_exchange_trade_stats_fee_migration(conn, cursor)
 
                 log_event('trade', "데이터베이스 초기화 완료", exchange=self.exchange, level='INFO')
 
@@ -1358,6 +1486,9 @@ class Recorder:
             with sqlite3.connect(self.db_path) as conn:
                 cursor = conn.cursor()
 
+                table_cols = set(self._get_table_columns(cursor, 'exchange_trade_stats'))
+                has_fee_cols = 'total_fees' in table_cols and 'avg_fee' in table_cols
+
                 # 디버깅: 저장할 통계 데이터 확인
                 log_event('trade', f"[DEBUG] save_exchange_trade_stats 호출:", exchange=self.exchange, level='INFO')
                 log_event('trade', f"  - exchange: {exchange}", exchange=self.exchange, level='INFO')
@@ -1368,20 +1499,43 @@ class Recorder:
                 log_event('trade', f"  - total_pnl: {stats.get('total_pnl', 0.0)}", exchange=self.exchange, level='INFO')
                 log_event('trade', f"  - max_drawdown: {stats.get('max_drawdown', 0.0)}", exchange=self.exchange, level='INFO')
 
+                total_fees = float(stats.get('total_fees', stats.get('fees_total', 0.0)) or 0.0)
+                total_trades = int(stats.get('total_trades', 0) or 0)
+                avg_fee = float(stats.get('avg_fee', (total_fees / total_trades if total_trades > 0 else 0.0)) or 0.0)
+                log_event('trade', f"  - total_fees: {total_fees}", exchange=self.exchange, level='INFO')
+                log_event('trade', f"  - avg_fee: {avg_fee}", exchange=self.exchange, level='INFO')
+
                 # 거래소별 통계 업데이트 또는 삽입
-                cursor.execute("""
-                    INSERT OR REPLACE INTO exchange_trade_stats (
-                        exchange, total_trades, winning_trades, losing_trades,
-                        total_pnl, max_drawdown, last_updated
-                    ) VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
-                """, (
-                    exchange,
-                    stats.get('total_trades', 0),
-                    stats.get('winning_trades', 0) or stats.get('profitable_trades', 0),
-                    stats.get('losing_trades', 0),
-                    stats.get('total_pnl', 0.0),
-                    stats.get('max_drawdown', 0.0)
-                ))
+                if has_fee_cols:
+                    cursor.execute("""
+                        INSERT OR REPLACE INTO exchange_trade_stats (
+                            exchange, total_trades, winning_trades, losing_trades,
+                            total_pnl, max_drawdown, total_fees, avg_fee, last_updated
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                    """, (
+                        exchange,
+                        total_trades,
+                        stats.get('winning_trades', 0) or stats.get('profitable_trades', 0),
+                        stats.get('losing_trades', 0),
+                        stats.get('total_pnl', 0.0),
+                        stats.get('max_drawdown', 0.0),
+                        total_fees,
+                        avg_fee,
+                    ))
+                else:
+                    cursor.execute("""
+                        INSERT OR REPLACE INTO exchange_trade_stats (
+                            exchange, total_trades, winning_trades, losing_trades,
+                            total_pnl, max_drawdown, last_updated
+                        ) VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                    """, (
+                        exchange,
+                        total_trades,
+                        stats.get('winning_trades', 0) or stats.get('profitable_trades', 0),
+                        stats.get('losing_trades', 0),
+                        stats.get('total_pnl', 0.0),
+                        stats.get('max_drawdown', 0.0)
+                    ))
                 conn.commit()
 
                 # 저장 후 확인
@@ -1504,19 +1658,22 @@ class Recorder:
         try:
             with sqlite3.connect(self.db_path) as conn:
                 cursor = conn.cursor()
+                table_cols = set(self._get_table_columns(cursor, 'exchange_trade_stats'))
+                has_fee_cols = 'total_fees' in table_cols and 'avg_fee' in table_cols
+                fee_select = ", COALESCE(total_fees, 0), COALESCE(avg_fee, 0)" if has_fee_cols else ""
 
                 if exchange:
                     # 특정 거래소 통계
-                    cursor.execute("""
+                    cursor.execute(f"""
                         SELECT total_trades, winning_trades, losing_trades,
-                               total_pnl, max_drawdown, last_updated
+                               total_pnl, max_drawdown, last_updated{fee_select}
                         FROM exchange_trade_stats
                         WHERE exchange = ?
                     """, (exchange,))
                     result = cursor.fetchone()
 
                     if result:
-                        return {
+                        payload = {
                             'total_trades': result[0],
                             'winning_trades': result[1],
                             'losing_trades': result[2],
@@ -1524,19 +1681,26 @@ class Recorder:
                             'max_drawdown': result[4],
                             'last_updated': result[5]
                         }
+                        if has_fee_cols:
+                            payload['total_fees'] = float(result[6] or 0.0)
+                            payload['avg_fee'] = float(result[7] or 0.0)
+                        else:
+                            payload['total_fees'] = 0.0
+                            payload['avg_fee'] = 0.0
+                        return payload
                     return {}
                 else:
                     # 모든 거래소 통계
-                    cursor.execute("""
+                    cursor.execute(f"""
                         SELECT exchange, total_trades, winning_trades, losing_trades,
-                               total_pnl, max_drawdown, last_updated
+                               total_pnl, max_drawdown, last_updated{fee_select}
                         FROM exchange_trade_stats
                     """)
                     results = cursor.fetchall()
 
                     stats = {}
                     for row in results:
-                        stats[row[0]] = {
+                        item = {
                             'total_trades': row[1],
                             'winning_trades': row[2],
                             'losing_trades': row[3],
@@ -1544,6 +1708,13 @@ class Recorder:
                             'max_drawdown': row[5],
                             'last_updated': row[6]
                         }
+                        if has_fee_cols:
+                            item['total_fees'] = float(row[7] or 0.0)
+                            item['avg_fee'] = float(row[8] or 0.0)
+                        else:
+                            item['total_fees'] = 0.0
+                            item['avg_fee'] = 0.0
+                        stats[row[0]] = item
                     return stats
 
         except Exception as e:
@@ -2038,6 +2209,9 @@ class Recorder:
 
                 # 6. 백업 테이블 삭제
                 cursor.execute("DROP TABLE IF EXISTS trade_log_backup")
+
+                # exchange_trade_stats fee 컬럼/백필/검증
+                self._run_exchange_trade_stats_fee_migration(conn, cursor)
 
                 conn.commit()
                 log_event('trade', "✅ 데이터베이스 스키마 마이그레이션 완료", exchange=self.exchange, level='INFO')

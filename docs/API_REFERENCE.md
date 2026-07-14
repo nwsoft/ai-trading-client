@@ -74,11 +74,18 @@ Content-Type: application/json
 }
 ```
 
-**현재 클라이언트에서 서버로 전송되는 KPI 이벤트**:
+**현재 클라이언트에서 서버로 전송되는 KPI 이벤트 예시**:
 - `login_success_api`
 - `login_failed`
 - `ai_market_report_generated`
 - `ai_market_report_failed`
+
+참고:
+
+- 실제 허용 이벤트는 서버 카탈로그/화이트리스트 기준으로 관리됩니다.
+- 외부 공개 페이지에서 보는 KPI는 위 이벤트를 포함한 운영 집계 전체와 동일하지 않을 수 있습니다.
+- 공개 KPI는 코호트 기반 정적 스냅샷이고, 관리자 KPI는 익명 이벤트 기반 최신 운영 집계입니다.
+- `hold_seconds`, 응답시간, `ai_inference_completed` 계열 운영 KPI는 v3.8.9.28 이후부터 본격 누적되는 항목입니다.
 
 ### 거래 신호 API
 

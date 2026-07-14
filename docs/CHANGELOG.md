@@ -1,3 +1,186 @@
+## 2026-07-10 - v3.8.9.28 공통 학습/로그 안정성 구조 개선 (거래소 확장 대비)
+
+### ✅ 공통 학습 API 딜레이 판단 구조 개편 (O(n) -> O(1) 롤링 윈도우)
+- `trading/exchange_learning_manager.py`
+  - 기존: `learning_history` 전체를 매 호출 스캔하며 최근 1분 요청 수를 계산
+  - 변경: 최근 1분 요청 타임스탬프 deque 기반 롤링 윈도우로 상수시간 판단
+  - 효과: 거래소 수/코인 수가 늘어나도 딜레이 체크가 성능 병목이 되지 않도록 개선
+
+### ✅ timezone 혼용 오류 근본 제거 (naive/aware datetime 비교)
+- `trading/exchange_learning_manager.py`
+  - timestamp 로드/저장/조회 경로를 timezone-aware UTC 기준으로 정규화
+  - `get_recent_learning_data`, `should_apply_api_delay`에서 공통 정규화 함수 사용
+  - 로그 폭주 원인이던 `offset-naive and offset-aware` 비교 오류 재발 경로 제거
+
+### ✅ 로그 폭주 대응: 중복 억제 + 비차단 파일 기록
+- `log_system/log_adapter.py`
+  - 동일 로그 단기 반복(2초 윈도우)을 자동 억제하고 생략 건수 요약 라인으로 대체
+  - 폭주 시 UI 스트림/파일 I/O 부담이 누적되어 멈춤처럼 보이는 증상 완화
+- `main.py`, `log_system/log_adapter.py`
+  - loguru 파일 sink를 `enqueue=True` 비동기 기록으로 변경
+  - 고빈도 로그 상황에서 파일 I/O가 거래/UI 스레드를 블로킹하지 않도록 개선
+
+### ✅ 회귀 검증 추가
+- `tests/test_exchange_learning_manager.py` 추가
+  - timezone-aware 타임스탬프 입력 시 API 딜레이 판단/최근 데이터 조회 정상 동작 검증
+- 검증 결과
+  - `PYTHONPATH=. pytest -q tests/test_exchange_learning_manager.py tests/test_auto_update_manager.py` -> `7 passed`
+
+### ✅ 코인 선택 안정성 보강 (목표 달성 후 불필요 fallback 차단)
+- `trading/evaluator.py`
+  - 기존: 초기 코인 선택이 목표 수를 달성해도 기준 완화(fallback) 경로를 계속 수행
+  - 변경: 목표 달성 시 즉시 반환하도록 제어 흐름 수정
+  - 효과: 이미 선정된 결과가 불필요하게 재선정/왜곡되는 경로를 차단해 코인 선택 일관성 개선
+- `tests/test_evaluator_selection_flow.py` 추가
+  - 목표 달성 시 fallback 분석이 추가 호출되지 않는 회귀 테스트 추가
+  - 검증 결과: `PYTHONPATH=. pytest -q tests/test_evaluator_selection_flow.py tests/test_exchange_learning_manager.py tests/test_auto_update_manager.py` -> `8 passed`
+
+### ✅ 문서 정합 반영 (버전 상향 없음, 코인 우선 1단계 계획 고정)
+- `docs/UPDATE_PLAN.md`
+  - 2026-07-10 실행 정본 추가: 코인 우선 1단계 범위/마일스톤/테스트 게이트/릴리스 조건 명시
+  - 비대상 기능 명시: 무료 플랜 전제/고정 종목 푸시 큐레이션/멤버십 푸시 패키지 자동 운영 로직 제외
+  - 2026-07-11 기능 우선순위 재분류 반영: S(포트폴리오 진단/투자비서/거래복기/일일리포트/계좌건강도) -> A -> B 단계로 정리
+  - 범위 명확화: S/A/B는 장기 백로그이며, 현재 스프린트(M1)는 운영 안정화 유틸만 진행
+  - 일정 명확화: S/A/B 착수는 v3.8.9.28 배포 후 테스터 1주 리포트 Go/No-Go 판정 기반으로 진행
+  - 무기한 대기 방지 추가: 2026-07-18 판정일 고정, 무응답 자동 Go 규칙, 2026-07-19 S등급 1차 착수(계좌 건강도/거래 복기) 명시
+
+### ✅ S등급 1차 선행 구현 착수 (계좌 건강도/거래 복기)
+
+- `ai_chat_strategy.py`
+  - `PERFORMANCE_REVIEW` 처리에 실계산 로직 연결
+  - 최근 거래 이력 수집(trader/recorder 경로) + 중복 제거
+  - 건강도 지표 계산(승률, 순손익, Profit Factor, Sharpe, MDD, 종합 점수/등급)
+  - 거래 복기 코멘트 자동 생성(승률/손익비/낙폭/리스크대비성과 기준)
+- `tests/test_ai_chat_performance_review.py`
+  - 건강도/복기 응답 생성 테스트
+  - 거래 데이터 없음 안내 응답 테스트
+- 검증
+  - `PYTHONPATH=. pytest -q tests/test_evaluator_selection_flow.py tests/test_exchange_learning_manager.py tests/test_auto_update_manager.py tests/test_ai_chat_performance_review.py` -> `10 passed`
+
+### ✅ 대시보드 상용 레이아웃 1차 리모델링 (반응형 분할폭)
+
+- `ui/dashboard_modern.py`
+  - 서비스 하위 탭(거래소/증권사) 좌측 패널 고정폭(420) 제거
+  - 화면 폭 기준 반응형 분할폭 계산 로직 추가(`_get_service_split_layout`)
+    - 1800px 이상: 520
+    - 1500px 이상: 460
+    - 그 외: 400
+  - 좌측 제어 패널 `pack_propagate(False)` 적용으로 카드/텍스트 깨짐 완화
+  - 결과: 좁은 화면에서는 로그 영역이 더 확보되고, 넓은 화면에서는 정보 카드 가독성 개선
+- 검증
+  - `python -m py_compile ui/dashboard_modern.py ai_chat_strategy.py`
+  - `PYTHONPATH=. pytest -q tests/test_evaluator_selection_flow.py tests/test_exchange_learning_manager.py tests/test_auto_update_manager.py tests/test_ai_chat_performance_review.py` -> `10 passed`
+
+### ✅ 대시보드 상용 리모델링 2차 (운영 모니터링 센터)
+
+- `ui/dashboard_modern.py`
+  - 실시간 거래 로그 탭 우측 패널을 운영 모니터링 센터 구조로 개편
+  - 운영 KPI 카드 추가: 포지션/거래수/손익/승률 실시간 표시
+  - 실시간 운영 알림 카드 추가: 자동매매 대기, 손익 음수, 승률 저하, 과다 포지션 경고
+  - 기존 Quick Actions/통합 잔고는 유지하되 운영 판단 우선순위에 맞춰 재배치
+  - `_refresh_trading_summary`에서 요약 텍스트 + KPI + 알림을 동시 갱신하도록 연동
+- 검증
+  - `python -m py_compile ui/dashboard_modern.py`
+  - `PYTHONPATH=. pytest -q tests/test_evaluator_selection_flow.py tests/test_exchange_learning_manager.py tests/test_auto_update_manager.py tests/test_ai_chat_performance_review.py` -> `10 passed`
+
+### ✅ 대시보드 상용 리모델링 3차 (실행 연결 강화)
+
+- `ui/dashboard_modern.py`
+  - 운영 알림 심각도 배지 추가(정상/주의/위험)
+  - 운영 KPI를 클릭 가능한 카드 버튼으로 전환
+  - KPI 클릭 시 관련 탭 딥링크 이동
+    - 코인 서비스: 코인 정보/거래 통계/AI 어시스턴트
+    - 주식 서비스: 종목 정보/거래 통계/시나리오 점검
+  - 서비스 전환 시 KPI 라벨 자동 재구성(코인/주식 분기)
+  - `_refresh_trading_summary`에서 KPI/알림 배지/알림 텍스트 동시 갱신
+- 검증
+  - `python -m py_compile ui/dashboard_modern.py`
+  - `PYTHONPATH=. pytest -q tests/test_evaluator_selection_flow.py tests/test_exchange_learning_manager.py tests/test_auto_update_manager.py tests/test_ai_chat_performance_review.py` -> `10 passed`
+
+### ✅ 대시보드 접근성/가독성 보강 (세로 오버플로우 대응)
+
+- `ui/dashboard_modern.py`
+  - 우측 운영 패널을 스크롤 가능한 구조로 전환하여 작은 세로 해상도에서도 하단 카드 접근 가능
+  - 통합 잔고 요약 포맷을 구조화(`거래소/증권사별 현황`, `통화별 합계`)하고 구분선 문자열 제거
+  - 통합 잔고 텍스트를 거래 현황과 유사한 요약 톤으로 정리
+- `ui/widgets/user_manual_widget.py`
+  - 인앱 `📅 업데이트` 최신 항목에 대시보드 스크롤/잔고요약/KPI 딥링크/심각도 배지 반영
+- 검증
+  - `python -m py_compile ui/dashboard_modern.py ui/widgets/user_manual_widget.py`
+  - `PYTHONPATH=. pytest -q tests/test_evaluator_selection_flow.py tests/test_exchange_learning_manager.py tests/test_auto_update_manager.py tests/test_ai_chat_performance_review.py` -> `10 passed`
+
+### ✅ 진행 상태 가시화(문서) + 통합 잔고 판단성 개선
+
+- `docs/UPDATE_PLAN.md`
+  - 완료/진행중/미착수를 한눈에 보는 `진행 상태 보드` 섹션 추가
+  - 기준 시점(2026-07-11) 기준으로 M1/S등급/대시보드/문서 동기화 상태를 체크박스 형태로 명시
+- `ui/dashboard_modern.py`
+  - 통합 잔고 요약 하단에 `연결 상태: 수신 소스/전체 소스` 표시 추가
+  - 운영자가 데이터 수신 누락 여부를 첫 화면에서 즉시 판단 가능하도록 개선
+
+### ✅ S등급 2차: 포트폴리오 진단 구현
+
+- `ai_chat_strategy.py`
+  - 성과 검토 응답에 `포트폴리오 진단` 섹션 추가
+  - 포지션 노출/현금 비율/최대 편중(심볼) 계산 및 상태 요약(분산 양호/편중 주의/편중 위험)
+  - action payload에 `portfolio_diagnosis` 구조화 데이터 포함
+- `tests/test_ai_chat_performance_review.py`
+  - 포트폴리오 진단 텍스트/페이로드 검증 추가
+- 검증
+  - `PYTHONPATH=. pytest -q tests/test_ai_chat_performance_review.py tests/test_evaluator_selection_flow.py tests/test_exchange_learning_manager.py tests/test_auto_update_manager.py` -> `10 passed`
+
+### ✅ v3.8.9.28 순차 테스트 마크다운 추가
+
+- `docs/UPDATE_TEST_CHECKLIST_v3.8.9.28.md`
+  - 이번 차(28버전) 업데이트 항목을 순차로 확인하는 운영 체크리스트 추가
+  - 각 단계 종료 시 대시보드에서 무엇을 확인해야 하는지 항목화
+  - 최종 회귀 게이트(py_compile/pytest 핵심 묶음)와 완료 보고 템플릿 포함
+
+### ✅ 2차 안전 패치: 사용자 DB 경로 fee 스키마 자동 보강
+
+- `trading/recorder.py`
+  - 앱 실행 시 사용자 DB 경로(`get_db_file_path`)의 `exchange_trade_stats` 테이블에 fee 컬럼(`total_fees`, `avg_fee`)을 optional 방식으로 자동 추가
+  - `trade_log` 기준 1회 백필 수행(legacy `exchange IS NULL`은 `binance`로 보정)
+  - 백필 후 `trade_log` 합계와 `exchange_trade_stats` 합계를 자동 대조해 불일치 시 경고 로그 출력
+  - `save_exchange_trade_stats`/`load_exchange_trade_stats`에 fee 컬럼 유무 기반 폴백 로직 추가(컬럼 없어도 기존 동작 유지)
+- 검증
+  - `python -m py_compile trading/recorder.py ui/dashboard_modern.py ui/widgets/ai_report_widget.py ui/widgets/ai_report_widget_real.py`
+  - `PYTHONPATH=. pytest -q tests/test_evaluator_selection_flow.py tests/test_exchange_learning_manager.py tests/test_auto_update_manager.py tests/test_ai_chat_performance_review.py` -> `10 passed`
+
+### ✅ S등급 3차: AI 일일 리포트 구현
+
+- `ai_chat_strategy.py`
+  - `DAILY_REPORT` 의도 분기 추가(일일/데일리/브리프/리포트/아침/저녁 키워드)
+  - `AI 일일 리포트` 응답 추가(아침 브리프 + 저녁 복기)
+  - 비용 영향 지표 포함(누적 Fee/평균 Fee/Fee 대비 PnL)
+  - action payload `type=daily_report` + `cost` 구조화 데이터 추가
+- `tests/test_ai_chat_performance_review.py`
+  - 일일 리포트 생성/데이터 없음 경로 테스트 추가
+- 검증
+  - `python -m py_compile ai_chat_strategy.py tests/test_ai_chat_performance_review.py`
+  - `PYTHONPATH=. pytest -q tests/test_ai_chat_performance_review.py tests/test_evaluator_selection_flow.py tests/test_exchange_learning_manager.py tests/test_auto_update_manager.py` -> `12 passed`
+
+### ✅ S등급 4차: AI 대화형 투자비서 고도화
+
+- `ai_chat_strategy.py`
+  - 일반 질문 응답을 `AI 투자비서 브리핑` 형태로 고도화
+  - 계좌 건강도/포트폴리오/비용 영향(Fee/PnL)을 기반으로 포커스별(리스크/전략/성과/균형) 액션 제안
+  - 거래 데이터 부족 시에도 실행 가능한 가이드 브리핑 제공
+  - action payload `type=investment_assistant` 추가
+- `tests/test_ai_chat_performance_review.py`
+  - 투자비서 브리핑 응답 테스트(정상/데이터 부족) 추가
+- 검증
+  - `python -m py_compile ai_chat_strategy.py tests/test_ai_chat_performance_review.py`
+  - `PYTHONPATH=. pytest -q tests/test_ai_chat_performance_review.py tests/test_evaluator_selection_flow.py tests/test_exchange_learning_manager.py tests/test_auto_update_manager.py` -> `14 passed`
+- `docs/BUSINESS_PROPOSAL_2026.md`
+  - 코인 우선 1단계 사업 관점(KPI/리스크 경계/증빙 원칙) 추가
+- `docs/ARCHITECTURE.md`
+  - 최신 동기화 버전을 v3.8.9.28로 갱신하고 코인 우선 계층/모듈 책임/가드레일 기준 추가
+- `docs/USER_GUIDE.md`, `ui/widgets/user_manual_widget.py`
+  - 유료 사용자 운영 기준, 고정 큐레이션 푸시 비대상, 확률 보장형 마케팅 기능 제외 원칙 명시
+- 기준:
+  - 이번 항목은 코드 동작 변경이 아닌 계획/기준선 정합 반영으로, 앱 버전은 `3.8.9.28` 유지
+
 ## 2026-07-06 - v3.8.9.27 자동업데이트 경로/가시성 패치
 
 ### ✅ 업데이트 캐시 경로 정책 개선 (설치 위치 우선)

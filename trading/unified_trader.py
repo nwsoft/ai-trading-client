@@ -972,7 +972,37 @@ class UnifiedTrader:
 
                 # 기존 analyzer 사용
                 if self.analyzer:
-                    signal_data = self.analyzer.generate_trading_signal(symbol, exchange_name=exchange_name)
+                    try:
+                        inference_started = time.perf_counter()
+                        signal_data = self.analyzer.generate_trading_signal(symbol, exchange_name=exchange_name)
+                        inference_ms = (time.perf_counter() - inference_started) * 1000.0
+                        emit_kpi_event(
+                            event_type='ai_inference_completed',
+                            category='learning',
+                            asset_class='crypto',
+                            status='success',
+                            source='noahai_client_unified_trader',
+                            metric_value=float(inference_ms),
+                            metadata={
+                                'exchange': exchange_name,
+                                'symbol': symbol,
+                                'signal': str(signal_data.get('signal', 'HOLD')) if isinstance(signal_data, dict) else 'HOLD',
+                            },
+                        )
+                    except Exception as e:
+                        emit_kpi_event(
+                            event_type='ai_inference_completed',
+                            category='learning',
+                            asset_class='crypto',
+                            status='failed',
+                            source='noahai_client_unified_trader',
+                            metadata={
+                                'exchange': exchange_name,
+                                'symbol': symbol,
+                                'reason': str(e),
+                            },
+                        )
+                        raise
                     analysis_results[symbol] = signal_data
                     # 코인별 완료 로그 (핵심 지표 요약은 선택적으로 표시)
                     try:
@@ -1046,6 +1076,22 @@ class UnifiedTrader:
             try:
                 paper = bool(self.settings.get('paper_trading', False)) if isinstance(self.settings, dict) else False
                 demo = bool(self.settings.get('demo_mode', False)) if isinstance(self.settings, dict) else False
+
+                if demo:
+                    try:
+                        from path_utils import get_current_user_account
+                        from utils.admin_utils import is_admin_account
+
+                        current_user = get_current_user_account() or self.settings.get('user_id') or self.settings.get('username')
+                        if not is_admin_account(current_user):
+                            self.logger.warning("⛔ 데모 모드는 관리자 계정에서만 사용할 수 있습니다. demo_mode를 비활성화합니다.")
+                            demo = False
+                        else:
+                            # 데모 모드는 실거래 호출이 없어야 하므로 내부적으로 paper 모드를 강제한다.
+                            paper = True
+                    except Exception as admin_check_err:
+                        self.logger.warning(f"⚠️ 데모 모드 권한 확인 실패로 demo_mode를 비활성화합니다: {admin_check_err}")
+                        demo = False
 
                 # 데모 모드 우선순위 (데모 > 페이퍼 > 실제)
                 if demo:
@@ -1266,6 +1312,21 @@ class UnifiedTrader:
             try:
                 paper = bool(self.settings.get('paper_trading', False)) if isinstance(self.settings, dict) else False
                 demo = bool(self.settings.get('demo_mode', False)) if isinstance(self.settings, dict) else False
+
+                if demo:
+                    try:
+                        from path_utils import get_current_user_account
+                        from utils.admin_utils import is_admin_account
+
+                        current_user = get_current_user_account() or self.settings.get('user_id') or self.settings.get('username')
+                        if not is_admin_account(current_user):
+                            self.logger.warning("⛔ 관리자 계정이 아니므로 demo_mode를 무시합니다.")
+                            demo = False
+                        else:
+                            paper = True
+                    except Exception as admin_check_err:
+                        self.logger.warning(f"⚠️ 데모 모드 권한 확인 실패로 demo_mode를 비활성화합니다: {admin_check_err}")
+                        demo = False
             except Exception:
                 paper = False
                 demo = False
@@ -2426,6 +2487,11 @@ class UnifiedTrader:
                 # PnL 계산
                 pnl_data = self._calculate_pnl_unified(position, current_price)
                 pnl_percent = pnl_data.get('net_pnl_percent', 0.0)
+                hold_seconds = 0.0
+                try:
+                    hold_seconds = max(0.0, (datetime.now(timezone.utc) - position.entry_time).total_seconds())
+                except Exception:
+                    hold_seconds = 0.0
 
                 # 거래 청산 DB 로그 (Recorder) 기록 시도
                 try:
@@ -2517,6 +2583,25 @@ class UnifiedTrader:
 
                 # 거래 통계 업데이트
                 self._update_trade_stats_unified(exchange_name, pnl_percent)
+
+                emit_kpi_event(
+                    event_type='trade_order_executed',
+                    category='trade',
+                    asset_class='crypto',
+                    status='success',
+                    source='noahai_client_unified_trader_close',
+                    metric_value=float(position.quantity),
+                    metadata={
+                        'exchange': exchange_name,
+                        'symbol': symbol,
+                        'side': 'CLOSE',
+                        'close': True,
+                        'reason': 'auto_close',
+                        'hold_seconds': round(hold_seconds, 2),
+                        'executed_price': float(current_price or 0.0),
+                        'notional_estimate': float(position.quantity) * float(current_price or 0.0),
+                    },
+                )
 
                 # RiskManager 이력 업데이트 (거래소 필터 정합성 보장)
                 if hasattr(self, 'risk_manager') and self.risk_manager:
@@ -2645,6 +2730,20 @@ class UnifiedTrader:
 
                 self.logger.info(f"✅ {exchange_name} {symbol} 포지션 청산 완료 (PnL: {pnl_percent:.4f}%)")
             else:
+                emit_kpi_event(
+                    event_type='trade_order_failed',
+                    category='trade',
+                    asset_class='crypto',
+                    status='failed',
+                    source='noahai_client_unified_trader_close',
+                    metadata={
+                        'exchange': exchange_name,
+                        'symbol': symbol,
+                        'side': 'CLOSE',
+                        'close': True,
+                        'reason': str(order_result.get('error', 'Unknown error')),
+                    },
+                )
                 self.logger.error(f"❌ {exchange_name} {symbol} 포지션 청산 실패: {order_result.get('error', 'Unknown error')}")
 
         except Exception as e:

@@ -52,6 +52,8 @@
   "paper_trading": false,
   "enable_stock_live_order": false,
   "demo_mode": false,
+  "broadcast_replay_enabled": false,
+  "broadcast_replay_source_account": "",
   "ai_enabled": true,
   "binance_api_key": "",
   "binance_secret_key": "",

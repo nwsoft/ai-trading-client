@@ -22,6 +22,9 @@ class MarketTrendWidget(ctk.CTkFrame):
         self._trend_sections = {}
         self._service_context = 'blockchain'
         self._last_visible_force_refresh_ts = 0.0
+        self._last_refresh_started_at: Optional[datetime] = None
+        self._last_refresh_success_at: Optional[datetime] = None
+        self._last_refresh_error: str = ""
 
         # 로그인 직후 과도한 API 호출을 줄이기 위한 인메모리 캐시
         self._trend_cache: Dict[str, Dict[str, Any]] = {}
@@ -91,9 +94,9 @@ class MarketTrendWidget(ctk.CTkFrame):
                 return lbl
 
             # 메트릭 칩 - 서비스 컨텍스트별로 나중에 업데이트됨
-            self.trend_chip_direction = _chip(metrics_frame, "📊 시장 방향: 수집 중", "info", "#1f538d")
-            self.trend_chip_funding = _chip(metrics_frame, "💰 펀딩비: 수집 중", "success", "#2b7a0b")
-            self.trend_chip_fng = _chip(metrics_frame, "😼 공포/탐욕: 수집 중", "border", "#6b7280")
+            self.trend_chip_direction = _chip(metrics_frame, "📊 시장 방향: 연결 중", "info", "#1f538d")
+            self.trend_chip_funding = _chip(metrics_frame, "💰 펀딩비: 연결 중", "success", "#2b7a0b")
+            self.trend_chip_fng = _chip(metrics_frame, "😼 공포/탐욕: 연결 중", "border", "#6b7280")
         except Exception:
             pass
 
@@ -150,7 +153,7 @@ class MarketTrendWidget(ctk.CTkFrame):
             "시장 방향 · 모멘텀",
             "• 일간/주간 주요 지수와 수익률 요약을 표시합니다.\n"
             "• 서비스 컨텍스트(블록체인/주식)에 맞는 대표 심볼 기준으로 해석합니다.\n"
-            "• 데이터 수집이 없으면 수집 대기 상태를 표시합니다.",
+            "• 데이터 수집이 없으면 연결 중 상태를 표시합니다.",
             icon="🧭",
             chip_color_key="info",
             chip_fallback="#1f538d"
@@ -391,6 +394,7 @@ class MarketTrendWidget(ctk.CTkFrame):
             )
 
         self._trend_refreshing = True
+        self._last_refresh_started_at = datetime.now()
         try:
             # 백그라운드에서 데이터 수집
             def _bg_collect():
@@ -398,6 +402,8 @@ class MarketTrendWidget(ctk.CTkFrame):
                 try:
                     insights = self._gather_market_trend_data()
                     self._save_cached_insights(insights)
+                    self._last_refresh_success_at = datetime.now()
+                    self._last_refresh_error = ""
                     elapsed_ms = int((time.perf_counter() - started) * 1000)
                     log_ui_perf_metric(
                         "market_trend",
@@ -412,6 +418,7 @@ class MarketTrendWidget(ctk.CTkFrame):
                     self.safe_after(0, lambda: self._update_ui_with_data(insights))
                 except Exception as e:
                     print(f"❌ 데이터 수집 오류: {e}")
+                    self._last_refresh_error = str(e)
                     log_ui_perf_metric("market_trend", "fetch_error", error=str(e)[:120])
                 finally:
                     self._trend_refreshing = False
@@ -907,7 +914,7 @@ class MarketTrendWidget(ctk.CTkFrame):
                     else:
                         direction_text, direction_color = "➡️ 중립", neutral_color
                 else:
-                    direction_text, direction_color = "⏳ 수집 대기", neutral_color
+                    direction_text, direction_color = "⏳ 데이터 연결 중", neutral_color
 
                 if sector_summary:
                     positive = sum(1 for s in sector_summary if float(s.get('avg_change', 0.0)) > 0)
@@ -936,9 +943,33 @@ class MarketTrendWidget(ctk.CTkFrame):
             # 시장 방향
             sentiment = insights.get('sentiment_summary', {})
             if not sentiment:
-                self.trend_chip_direction.configure(text="📊 시장 방향: ⏳ 수집 대기", fg_color=neutral_color)
-                self.trend_chip_funding.configure(text="💰 펀딩비: 수집 대기", fg_color=neutral_color)
-                self.trend_chip_fng.configure(text="😼 공포/탐욕: 수집 대기", fg_color=neutral_color)
+                wait_text = "⏳ 데이터 연결 중"
+                if bool(getattr(self, '_trend_refreshing', False)):
+                    started_at = getattr(self, '_last_refresh_started_at', None)
+                    if started_at:
+                        try:
+                            elapsed_sec = max(1, int((datetime.now() - started_at).total_seconds()))
+                            wait_text = f"⏳ 수집 중({elapsed_sec}s)"
+                        except Exception:
+                            wait_text = "⏳ 수집 중"
+                elif str(getattr(self, '_last_refresh_error', '') or '').strip():
+                    wait_text = "⚠️ 수집 지연"
+
+                daily_changes = [d for d in insights.get('daily_changes', []) if isinstance(d, dict) and 'change' in d]
+                if daily_changes:
+                    avg_change = sum(float(d.get('change', 0.0)) for d in daily_changes) / len(daily_changes)
+                    if avg_change > 0.5:
+                        direction_text, direction_color = "📈 강세", success_color
+                    elif avg_change < -0.5:
+                        direction_text, direction_color = "📉 약세", danger_color
+                    else:
+                        direction_text, direction_color = "➡️ 횡보", neutral_color
+                    self.trend_chip_direction.configure(text=f"📊 시장 방향: {direction_text}", fg_color=direction_color)
+                else:
+                    self.trend_chip_direction.configure(text=f"📊 시장 방향: {wait_text}", fg_color=neutral_color)
+
+                self.trend_chip_funding.configure(text=f"💰 펀딩비: {wait_text}", fg_color=neutral_color)
+                self.trend_chip_fng.configure(text=f"😼 공포/탐욕: {wait_text}", fg_color=neutral_color)
                 return
 
             funding_rate = sentiment.get('funding_rate', 0.0)
@@ -1418,7 +1449,7 @@ class MarketTrendWidget(ctk.CTkFrame):
                     f"  • 온체인 순매수 추정: {'긍정적' if ls_ratio > 1.0 else '부정적'}"
                 )
             except Exception:
-                whale_block = "🐋 기관/고래 활동 분석: 데이터 수집 대기 중"
+                whale_block = "🐋 기관/고래 활동 분석: 데이터 연결 중"
 
             # ── 전략 신뢰도 점수 ───────────────────────────────────
             try:

@@ -2434,7 +2434,23 @@ class AIAssistantWidget(CTkFrame):
                 except Exception as e:
                     context_parts.append(f"AI 학습 데이터: 조회 오류 - {str(e)}")
 
-            # 9. 시스템 상태 (새로 추가)
+            # 9. 최근 로그 요약 (AI 로그 해석 정확도 보강)
+            try:
+                recent_log_lines = []
+                log_widget = getattr(dashboard, 'realtime_log_widget', None)
+                if log_widget and hasattr(log_widget, '_all_logs'):
+                    recent_log_lines = list((getattr(log_widget, '_all_logs', []) or [])[-20:])
+
+                if recent_log_lines:
+                    context_parts.append("최근 로그 요약(최신 20줄):")
+                    for line in recent_log_lines[-8:]:
+                        context_parts.append(f"  {str(line).strip()[:220]}")
+                else:
+                    context_parts.append("최근 로그 요약: 로그 위젯에 아직 수집된 항목이 없습니다.")
+            except Exception as e:
+                context_parts.append(f"최근 로그 요약: 조회 오류 - {str(e)}")
+
+            # 10. 시스템 상태 (새로 추가)
             try:
                 import psutil
                 cpu_percent = psutil.cpu_percent(interval=1)

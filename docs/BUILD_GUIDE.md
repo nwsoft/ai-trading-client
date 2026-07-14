@@ -89,11 +89,11 @@ powershell -ExecutionPolicy Bypass -File scripts/build_windows_safe.ps1 -GatePro
 태그 기반 GitHub 릴리즈를 한 번에 처리하려면 아래 스크립트를 사용합니다.
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File scripts/release_tag_push.ps1 -Version 3.8.9.27 -Branch main -PushBranch
+powershell -ExecutionPolicy Bypass -File scripts/release_tag_push.ps1 -Version 3.8.9.28 -Branch main -PushBranch
 ```
 
 옵션
-- `-Version`: 필수. `3.8.9.27` 또는 `v3.8.9.27` 모두 허용
+- `-Version`: 필수. `3.8.9.28` 또는 `v3.8.9.28` 모두 허용
 - `-Branch`: 기본 `main`
 - `-PushBranch`: 태그 push 전에 브랜치도 함께 push
 - `-StrictBranchPush`: `-PushBranch` 실패 시 즉시 중단(기본은 경고 후 태그/릴리즈 업로드 계속)
@@ -106,7 +106,7 @@ powershell -ExecutionPolicy Bypass -File scripts/release_tag_push.ps1 -Version 3
 1) **가장 안전한 기본 배포(권장)**
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File scripts/release_tag_push.ps1 -Version 3.8.9.27
+powershell -ExecutionPolicy Bypass -File scripts/release_tag_push.ps1 -Version 3.8.9.28
 ```
 
 - 태그 push + GitHub 릴리즈 에셋 업로드까지 수행
@@ -115,7 +115,7 @@ powershell -ExecutionPolicy Bypass -File scripts/release_tag_push.ps1 -Version 3
 2) **브랜치도 같이 push (실패해도 릴리즈는 계속 진행)**
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File scripts/release_tag_push.ps1 -Version 3.8.9.27 -Branch main -PushBranch
+powershell -ExecutionPolicy Bypass -File scripts/release_tag_push.ps1 -Version 3.8.9.28 -Branch main -PushBranch
 ```
 
 - `main` push가 거절돼도 태그/릴리즈 업로드는 계속 진행
@@ -123,7 +123,7 @@ powershell -ExecutionPolicy Bypass -File scripts/release_tag_push.ps1 -Version 3
 3) **브랜치 push 실패 시 즉시 중단(엄격 모드)**
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File scripts/release_tag_push.ps1 -Version 3.8.9.27 -Branch main -PushBranch -StrictBranchPush
+powershell -ExecutionPolicy Bypass -File scripts/release_tag_push.ps1 -Version 3.8.9.28 -Branch main -PushBranch -StrictBranchPush
 ```
 
 - 팀 정책상 브랜치 push 성공이 필수일 때 사용
@@ -131,7 +131,7 @@ powershell -ExecutionPolicy Bypass -File scripts/release_tag_push.ps1 -Version 3
 4) **이미 커밋한 상태에서 태그/릴리즈만 수행**
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File scripts/release_tag_push.ps1 -Version 3.8.9.27 -SkipCommit
+powershell -ExecutionPolicy Bypass -File scripts/release_tag_push.ps1 -Version 3.8.9.28 -SkipCommit
 ```
 
 - 로컬 변경 자동 커밋 없이 현재 HEAD 기준으로 태그/릴리즈 처리
@@ -140,7 +140,7 @@ powershell -ExecutionPolicy Bypass -File scripts/release_tag_push.ps1 -Version 3
 
 ```powershell
 python scripts/generate_release_assets.py --out-dir deploy --exe deploy/AITrading.exe --repo nwsoft/ai-trading-client
-gh release upload v3.8.9.27 deploy/AITrading.exe deploy/version.txt deploy/release_notes.md deploy/release-manifest.json --repo nwsoft/ai-trading-client --clobber
+gh release upload v3.8.9.28 deploy/AITrading.exe deploy/version.txt deploy/release_notes.md deploy/release-manifest.json --repo nwsoft/ai-trading-client --clobber
 ```
 
 - 태그를 새로 만들지 않고 릴리즈 에셋만 교체
@@ -156,7 +156,7 @@ git push origin main
 재정렬 후 릴리즈를 다시 실행합니다.
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File scripts/release_tag_push.ps1 -Version 3.8.9.27 -Branch main -PushBranch
+powershell -ExecutionPolicy Bypass -File scripts/release_tag_push.ps1 -Version 3.8.9.28 -Branch main -PushBranch
 ```
 
 주의

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-데모 모드 상태 위젯
+운영 리플레이 상태 위젯
 """
 
 import customtkinter as ctk
@@ -10,7 +10,7 @@ from typing import Dict, Any, Optional
 
 
 class DemoModeWidget(ctk.CTkFrame):
-    """데모 모드 상태 표시 위젯"""
+    """운영 리플레이 상태 표시 위젯"""
     
     def __init__(self, parent, **kwargs):
         super().__init__(parent, **kwargs)
@@ -24,7 +24,7 @@ class DemoModeWidget(ctk.CTkFrame):
     def _create_widgets(self):
         """위젯 생성"""
         # 스크롤 가능한 메인 컨테이너
-        self.scrollable_frame = ctk.CTkScrollableFrame(self, label_text="🎭 데모 모드 상태")
+        self.scrollable_frame = ctk.CTkScrollableFrame(self, label_text="🎛️ 운영 리플레이 상태")
         self.scrollable_frame.pack(fill="both", expand=True, padx=10, pady=10)
         
         # 상태 표시
@@ -33,10 +33,18 @@ class DemoModeWidget(ctk.CTkFrame):
         
         self.status_label = ctk.CTkLabel(
             self.status_frame,
-            text="데모 모드 비활성화",
+            text="운영 리플레이 비활성화",
             font=ctk.CTkFont(size=14)
         )
         self.status_label.pack(pady=10)
+
+        self.warning_label = ctk.CTkLabel(
+            self.status_frame,
+            text="",
+            font=ctk.CTkFont(size=11),
+            text_color="#d97706"
+        )
+        self.warning_label.pack_forget()
         
         # 가상 잔고 표시
         self.balance_frame = ctk.CTkFrame(self.scrollable_frame)
@@ -108,20 +116,20 @@ class DemoModeWidget(ctk.CTkFrame):
         """화면 업데이트"""
         if not self.is_demo_mode or not self.demo_trader:
             self.status_label.configure(
-                text="데모 모드 비활성화",
+                text="운영 리플레이 비활성화",
                 text_color="gray"
             )
             self.balance_text.delete("1.0", "end")
-            self.balance_text.insert("1.0", "데모 모드가 비활성화되어 있습니다.")
+            self.balance_text.insert("1.0", "운영 리플레이가 비활성화되어 있습니다.")
             self.stats_text.delete("1.0", "end")
-            self.stats_text.insert("1.0", "데모 모드가 비활성화되어 있습니다.")
+            self.stats_text.insert("1.0", "운영 리플레이가 비활성화되어 있습니다.")
             self.trades_text.delete("1.0", "end")
-            self.trades_text.insert("1.0", "데모 모드가 비활성화되어 있습니다.")
+            self.trades_text.insert("1.0", "운영 리플레이가 비활성화되어 있습니다.")
             return
         
         # 상태 업데이트
         self.status_label.configure(
-            text="🎭 데모 모드 활성화",
+            text="🎛️ 운영 리플레이 활성화",
             text_color="green"
         )
         

@@ -15,3 +15,7 @@ data/
 # OS/editor noise
 Thumbs.db
 *.tmp
+
+# Merge/conflict artifacts
+*_Conflict.*
+*.orig

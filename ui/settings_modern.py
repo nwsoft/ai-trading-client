@@ -2831,6 +2831,10 @@ class ModernSettingsWindow:
         )
         paper_switch.pack(anchor="w", padx=20, pady=(4, 12))
 
+        # 관리자 전용: 방송 리플레이 설정
+        self.broadcast_replay_enabled_var = None
+        self.broadcast_replay_source_entry = None
+
         # 상세 거래 로그 출력 스위치
         verbose_val = bool(self.current_settings.get('verbose_trade_logging', False))
         self.verbose_logging_var = ctk.BooleanVar(value=verbose_val)
@@ -2924,7 +2928,8 @@ class ModernSettingsWindow:
                 current_user = get_current_user_account()
                 print(f"🔍 ModernSettingsWindow - get_current_user_account 결과: '{current_user}'")
                 if current_user:
-                    is_admin = current_user.lower() in ['admin', 'nwsoft', 'developer', 'dev']
+                    from utils.admin_utils import is_admin_account
+                    is_admin = is_admin_account(current_user)
                     print(f"🔍 ModernSettingsWindow - get_current_user_account로 관리자 확인: '{current_user}' -> {is_admin}")
 
                     # 개발환경에서 추가 확인
@@ -2943,8 +2948,9 @@ class ModernSettingsWindow:
                     print(f"🔍 ModernSettingsWindow - path_utils로 토큰 파일 확인: 사용자='{token_user}', 경로={token_path}")
 
                     if token_user:
+                        from utils.admin_utils import is_admin_account
                         user_id = token_user.lower()
-                        is_admin = user_id in ['admin', 'nwsoft', 'developer', 'dev']
+                        is_admin = is_admin_account(user_id)
                         current_user = token_user
                         print(f"🔍 ModernSettingsWindow - 토큰 파일로 관리자 확인: '{current_user}' -> {is_admin}")
 
@@ -2965,8 +2971,59 @@ class ModernSettingsWindow:
 
             print(f"🔍 ModernSettingsWindow - 최종 관리자 여부: {is_admin} (사용자: '{current_user}')")
 
-            # 데모 모드 UI는 일반 사용자에게 노출하지 않음 (삭제됨)
-            # 관리자는 settings.json에서 직접 설정 가능
+            if is_admin:
+                replay_group = ctk.CTkFrame(general_group)
+                replay_group.pack(fill="x", padx=20, pady=(0, 12))
+
+                ctk.CTkLabel(
+                    replay_group,
+                    text="🎬 방송 리플레이 설정 (관리자 전용)",
+                    font=ctk.CTkFont(family="Segoe UI", size=13, weight="bold"),
+                    text_color=self._color("text_primary", "#f9fafb")
+                ).pack(anchor="w", padx=10, pady=(10, 6))
+
+                self.broadcast_replay_enabled_var = ctk.BooleanVar(
+                    value=bool(self.current_settings.get('broadcast_replay_enabled', False))
+                )
+                ctk.CTkSwitch(
+                    replay_group,
+                    text="리플레이 읽기 소스 사용",
+                    variable=self.broadcast_replay_enabled_var
+                ).pack(anchor="w", padx=10, pady=(0, 8))
+
+                source_row = ctk.CTkFrame(replay_group)
+                source_row.pack(fill="x", padx=10, pady=(0, 10))
+
+                ctk.CTkLabel(
+                    source_row,
+                    text="소스 계정"
+                ).pack(side="left", padx=(0, 8))
+
+                self.broadcast_replay_source_entry = ctk.CTkEntry(
+                    source_row,
+                    width=180,
+                    placeholder_text="예: nwsoft"
+                )
+                self.broadcast_replay_source_entry.pack(side="left", padx=(0, 8))
+                self.broadcast_replay_source_entry.insert(
+                    0,
+                    str(self.current_settings.get('broadcast_replay_source_account', '') or '')
+                )
+
+                ctk.CTkButton(
+                    source_row,
+                    text="소스 검증",
+                    width=110,
+                    command=self._validate_broadcast_replay_source
+                ).pack(side="left")
+
+                ctk.CTkLabel(
+                    replay_group,
+                    text="현재 계정 데이터는 유지되고, 대시보드 집계 조회만 소스 계정 기준으로 전환됩니다.",
+                    font=ctk.CTkFont(family="Segoe UI", size=11),
+                    text_color=self._color("text_secondary", "#9ca3af"),
+                    justify="left"
+                ).pack(anchor="w", padx=10, pady=(0, 10))
         except Exception as e:
             print(f"❌ ModernSettingsWindow - 데모 모드 토글 생성 실패: {e}")
             import traceback
@@ -3008,6 +3065,37 @@ class ModernSettingsWindow:
             self._update_capital_warning()
         except Exception as e:
             print(f"초기 자금 기준 경고 업데이트 오류: {e}")
+
+    def _validate_broadcast_replay_source(self):
+        """방송 리플레이 소스 계정의 DB 경로 존재 여부를 확인한다."""
+        try:
+            if not hasattr(self, 'broadcast_replay_source_entry') or self.broadcast_replay_source_entry is None:
+                messagebox.showwarning("검증 실패", "소스 계정 입력 필드를 찾을 수 없습니다.")
+                return
+
+            source_account = str(self.broadcast_replay_source_entry.get() or '').strip()
+            if not source_account:
+                messagebox.showwarning("검증 실패", "소스 계정을 입력하세요. 예: nwsoft")
+                return
+
+            from path_utils import get_db_file_path
+            current_db_path = get_db_file_path()
+            current_account_dir = os.path.dirname(current_db_path)
+            data_root_dir = os.path.dirname(current_account_dir)
+            source_db_path = os.path.join(data_root_dir, source_account, 'trading.db')
+
+            if os.path.exists(source_db_path):
+                messagebox.showinfo(
+                    "소스 검증 성공",
+                    f"소스 DB를 찾았습니다.\n\n계정: {source_account}\n경로: {source_db_path}"
+                )
+            else:
+                messagebox.showwarning(
+                    "소스 검증 실패",
+                    f"소스 DB를 찾을 수 없습니다.\n\n계정: {source_account}\n경로: {source_db_path}"
+                )
+        except Exception as e:
+            messagebox.showerror("검증 오류", f"소스 검증 중 오류가 발생했습니다.\n{e}")
     
     def _update_capital_warning(self):
         """초기 자금 기준에 따른 경고 메시지 업데이트"""
@@ -5732,6 +5820,11 @@ class ModernSettingsWindow:
                     self.paper_trading_var.set(bool(self.current_settings.get('paper_trading', False)))
                 if hasattr(self, 'verbose_logging_var'):
                     self.verbose_logging_var.set(bool(self.current_settings.get('verbose_trade_logging', False)))
+                if hasattr(self, 'broadcast_replay_enabled_var') and self.broadcast_replay_enabled_var is not None:
+                    self.broadcast_replay_enabled_var.set(bool(self.current_settings.get('broadcast_replay_enabled', False)))
+                if hasattr(self, 'broadcast_replay_source_entry') and self.broadcast_replay_source_entry is not None:
+                    self.broadcast_replay_source_entry.delete(0, 'end')
+                    self.broadcast_replay_source_entry.insert(0, str(self.current_settings.get('broadcast_replay_source_account', '') or ''))
                 # demo_mode_var 제거됨 - settings.json에서 직접 설정
             except Exception:
                 pass
@@ -6261,9 +6354,21 @@ class ModernSettingsWindow:
                     new_settings['verbose_trade_logging'] = bool(self.current_settings.get('verbose_trade_logging', False))
                 # demo_mode는 UI에서 변경하지 않고 settings.json에서 직접 설정
                 new_settings['demo_mode'] = bool(self.current_settings.get('demo_mode', False))
+
+                if hasattr(self, 'broadcast_replay_enabled_var') and self.broadcast_replay_enabled_var is not None and hasattr(self.broadcast_replay_enabled_var, 'get'):
+                    new_settings['broadcast_replay_enabled'] = bool(self.broadcast_replay_enabled_var.get())
+                else:
+                    new_settings['broadcast_replay_enabled'] = bool(self.current_settings.get('broadcast_replay_enabled', False))
+
+                if hasattr(self, 'broadcast_replay_source_entry') and self.broadcast_replay_source_entry is not None and hasattr(self.broadcast_replay_source_entry, 'get'):
+                    new_settings['broadcast_replay_source_account'] = str(self.broadcast_replay_source_entry.get() or '').strip()
+                else:
+                    new_settings['broadcast_replay_source_account'] = str(self.current_settings.get('broadcast_replay_source_account', '') or '').strip()
             except Exception:
                 new_settings['paper_trading'] = bool(self.current_settings.get('paper_trading', False))
                 new_settings['verbose_trade_logging'] = bool(self.current_settings.get('verbose_trade_logging', False))
+                new_settings['broadcast_replay_enabled'] = bool(self.current_settings.get('broadcast_replay_enabled', False))
+                new_settings['broadcast_replay_source_account'] = str(self.current_settings.get('broadcast_replay_source_account', '') or '').strip()
 
             # UI 설정 저장: 항상 최상단 표시
             try:

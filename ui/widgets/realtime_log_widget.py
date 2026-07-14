@@ -10,7 +10,7 @@ import sys
 import customtkinter as ctk
 import tkinter as tk  # TclError 사용을 위해 추가
 from datetime import datetime
-from typing import List, Dict, Optional
+from typing import List, Dict, Optional, Callable
 import threading
 import time
 
@@ -33,7 +33,7 @@ class RealtimeLogWidget(ctk.CTkFrame):
     기존 파일 tail 기반 로직은 유지 (점진적 마이그레이션)
     """
 
-    def __init__(self, parent, logger, log_stream=None, stream_exchange: str | None = None, **kwargs):
+    def __init__(self, parent, logger, log_stream=None, stream_exchange: str | None = None, on_open_manual: Optional[Callable[[], None]] = None, **kwargs):
         """Realtime log widget
         kwargs are forwarded to CTkFrame to allow styling (e.g., corner_radius, fg_color, border).
         """
@@ -50,6 +50,7 @@ class RealtimeLogWidget(ctk.CTkFrame):
         self._disposed = False
         self._log_stream = log_stream  # LogStreamService 인스턴스 (있으면 구독)
         self._stream_exchange = stream_exchange  # 필터링용(전역 탭은 None)
+        self._on_open_manual = on_open_manual
         self._stream_subscription = None
         # 이동된 드롭다운 초기화 (정적 분석기 경고 방지용)
         self.exchange_combo = None  # type: ignore[assignment]
@@ -221,6 +222,16 @@ class RealtimeLogWidget(ctk.CTkFrame):
         # 고정 폰트 사용
         button_font = ctk.CTkFont(size=12)
 
+        help_btn = ctk.CTkButton(
+            control_frame,
+            text="❓로그도움말",
+            command=self.show_log_help,
+            font=button_font,
+            height=40,
+            corner_radius=12
+        )
+        help_btn.pack(side="left", padx=5, pady=5)
+
         clear_btn = ctk.CTkButton(
             control_frame,
             text="🗑️로그지우기",
@@ -297,6 +308,107 @@ class RealtimeLogWidget(ctk.CTkFrame):
         self.logger.info("로그 지우기 완료")
         if hasattr(self, '_all_logs'):
             self._all_logs.clear()
+
+    def show_log_help(self):
+        """로그 해석 도움말 팝업"""
+        try:
+            help_window = ctk.CTkToplevel(self)
+            help_window.title("로그 도움말")
+            help_window.geometry("760x560")
+            help_window.lift()
+            help_window.attributes("-topmost", True)
+            help_window.after(300, lambda: help_window.attributes("-topmost", False))
+
+            container = ctk.CTkFrame(help_window, fg_color="#0b1120")
+            container.pack(fill="both", expand=True, padx=14, pady=14)
+
+            title = ctk.CTkLabel(
+                container,
+                text="실시간 로그 해석 가이드",
+                font=ctk.CTkFont(size=16, weight="bold")
+            )
+            title.pack(anchor="w", padx=10, pady=(10, 6))
+
+            guide = ctk.CTkTextbox(container, wrap="word")
+            guide.pack(fill="both", expand=True, padx=10, pady=(0, 10))
+            guide.insert("1.0", (
+                "[로그 레벨 의미]\n"
+                "- INFO: 정상 동작/진행 상황 안내\n"
+                "- WARNING: 즉시 중단은 아니지만 점검이 필요한 경고\n"
+                "- ERROR: 기능 실패 또는 예외 발생\n\n"
+                "[자주 나오는 항목]\n"
+                "- 거래소 연결/인증: API 키, 네트워크, 권한 문제 확인\n"
+                "- 주문/체결: 주문 요청, 체결 결과, 실패 사유\n"
+                "- 전략/분석: 신호 생성 이유, 임계값 변화, 리스크 판단\n"
+                "- 시스템: 스케줄러, 데이터 수집, 파일/DB I/O 상태\n\n"
+                "[초심자 추천 읽는 순서]\n"
+                "1. ERROR가 있는지 먼저 확인\n"
+                "2. WARNING 원인을 확인\n"
+                "3. 같은 시각의 INFO를 함께 읽어 전후 맥락 파악\n\n"
+                "[빠른 질문 예시 - AI 어시스턴트]\n"
+                "- '방금 ERROR 로그 원인과 조치 순서를 3단계로 알려줘'\n"
+                "- '이 경고가 주문 실패와 연관 있는지 로그 기준으로 설명해줘'\n"
+                "- '지금 상태에서 바로 확인할 설정 항목만 요약해줘'\n\n"
+                "자세한 운영 정책/용어는 인앱 매뉴얼의 '실시간 거래 로그' 관련 안내에서도 확인할 수 있습니다."
+            ))
+            guide.insert("end", self._build_contextual_log_examples())
+            guide.configure(state="disabled")
+
+            action_frame = ctk.CTkFrame(container, fg_color="#0b1120")
+            action_frame.pack(fill="x", padx=10, pady=(0, 8))
+
+            open_manual_btn = ctk.CTkButton(
+                action_frame,
+                text="📖 사용자 매뉴얼(📅 업데이트) 열기",
+                command=self._open_manual_from_help,
+                height=36,
+                corner_radius=12
+            )
+            open_manual_btn.pack(side="right")
+        except Exception as e:
+            try:
+                self.logger.error(f"로그 도움말 팝업 오류: {e}")
+            except Exception:
+                pass
+
+    def _open_manual_from_help(self):
+        """로그 도움말에서 사용자 매뉴얼 업데이트 탭으로 이동"""
+        try:
+            if callable(self._on_open_manual):
+                self._on_open_manual()
+        except Exception as e:
+            try:
+                self.logger.error(f"매뉴얼 열기 콜백 오류: {e}")
+            except Exception:
+                pass
+
+    def _build_contextual_log_examples(self) -> str:
+        """현재 로그 컨텍스트(코인/증권)에 맞춘 예시 질문을 반환"""
+        ex = str(self._stream_exchange or '').strip().lower()
+        stock_brokers = {'kiwoom', 'shinhan', 'miraeasset', 'koreainvestment'}
+
+        if ex in stock_brokers:
+            return (
+                "\n\n[증권 로그 질문 예시]\n"
+                "- '방금 주문 거부 원인을 계좌/시간/종목 조건 기준으로 설명해줘'\n"
+                "- '오늘 미체결 로그만 추려서 조치 순서 알려줘'\n"
+                "- '실주문 허용 설정과 연결 상태가 정상인지 점검해줘'"
+            )
+
+        if ex:
+            return (
+                "\n\n[코인 로그 질문 예시]\n"
+                "- '펀딩비/시장방향 로그와 진입 신호가 충돌했는지 점검해줘'\n"
+                "- '거래소 인증 오류가 재시도 가능한지 즉시 조치 순서 알려줘'\n"
+                "- '최근 청산 로그 기준으로 리스크 설정 조정 포인트를 알려줘'"
+            )
+
+        return (
+            "\n\n[전역 로그 질문 예시]\n"
+            "- '최근 ERROR만 거래소별로 묶어 우선순위 정리해줘'\n"
+            "- 'WARNING 중 즉시 조치가 필요한 항목만 추려줘'\n"
+            "- '서비스별(코인/증권) 공통 원인인지 분리해서 설명해줘'"
+        )
 
     def _append_all_log(self, line: str):
         """메모리 폭증 방지를 위해 in-memory 로그 버퍼 상한을 유지한다."""

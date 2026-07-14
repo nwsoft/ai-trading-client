@@ -10,7 +10,7 @@ from typing import List, Optional
 
 
 # 관리자/개발자 계정 목록
-ADMIN_ACCOUNTS = ['admin', 'developer', 'dev']
+ADMIN_ACCOUNTS = ['admin', 'developer', 'dev', 'admintest4', 'adminjung']
 
 # 관리자 전용 기능 목록
 ADMIN_FEATURES = {
@@ -148,9 +148,12 @@ def validate_demo_mode_settings(settings: dict) -> bool:
         return True
     
     # 데모 모드가 활성화된 경우 추가 검증
-    if settings.get('paper_trading', False):
-        # 데모 모드와 페이퍼 트레이딩은 동시에 활성화할 수 없음
+    user = (settings.get('user_id') or settings.get('username') or '').strip().lower()
+    if user and user not in ADMIN_ACCOUNTS:
         return False
+
+    # 데모 모드는 실거래 차단을 위해 paper_trading과 함께 사용될 수 있다.
+    # 따라서 동시 활성화를 허용한다.
     
     return True
 
