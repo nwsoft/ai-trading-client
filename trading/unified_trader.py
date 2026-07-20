@@ -566,7 +566,9 @@ class UnifiedTrader:
             # 바이낸스는 unified_trader에서 처리하지 않음
 
             for c in coins:
-                sym = c.get('symbol') if isinstance(c, dict) else None
+                # Evaluator의 극한 폴백은 문자열 목록을 반환할 수 있다.
+                # 3.8.9.28에서 dict만 허용해 OKX 10개가 전부 탈락한 회귀를 복구한다.
+                sym = c.get('symbol') if isinstance(c, dict) else str(c or '').strip()
                 if not sym:
                     continue
                 ok = True
@@ -583,7 +585,12 @@ class UnifiedTrader:
                         cloned['symbol'] = normalized_symbol
                         filtered.append(cloned)
                     else:
-                        filtered.append({'symbol': normalized_symbol})
+                        filtered.append({
+                            'symbol': normalized_symbol,
+                            'is_major': self._symbol_base(normalized_symbol) in {
+                                'BTC', 'ETH', 'BNB', 'SOL', 'ADA', 'XRP', 'DOT', 'LINK', 'AVAX', 'MATIC'
+                            },
+                        })
 
             if len(filtered) != len(coins):
                 try:
@@ -605,6 +612,23 @@ class UnifiedTrader:
             except Exception:
                 pass
             return coins
+
+    @staticmethod
+    def _symbol_base(symbol: str) -> str:
+        """거래소 표기에서 기초자산 코드를 안전하게 추출한다."""
+        value = str(symbol or '').upper().strip()
+        if ':' in value:
+            value = value.split(':', 1)[0]
+        if '/' in value:
+            return value.split('/', 1)[0]
+        if '-' in value:
+            parts = [part for part in value.split('-') if part]
+            if len(parts) >= 2:
+                return parts[1] if parts[0] in {'KRW', 'USD', 'USDT'} else parts[0]
+        for quote in ('USDT', 'USDC', 'KRW', 'USD'):
+            if value.endswith(quote) and len(value) > len(quote):
+                return value[:-len(quote)]
+        return value
 
     def get_all_balances_debug(self):
         """모든 거래소 잔고를 디버그용으로 상세 조회 및 로깅. 0, None, 오류, 연결만 됨 등 모든 상황을 명확하게 구분"""
@@ -1113,7 +1137,18 @@ class UnifiedTrader:
                 mode_text = 'REAL'
 
             # 1. 거래소별 선택 코인 사용 (거래소 간 코인 오염 방지)
-            selected_coins = list(self.selected_coins.get(exchange_name, []) or [])
+            selected_store = getattr(self, 'selected_coins', {}) or {}
+            if isinstance(selected_store, dict):
+                selected_coins = list(selected_store.get(exchange_name, []) or [])
+            elif isinstance(selected_store, list):
+                selected_coins = list(selected_store)
+            else:
+                selected_coins = []
+            # 구버전/최소 구성에서는 선택 목록이 main_app에만 존재할 수 있다.
+            if not selected_coins:
+                legacy_selected = getattr(getattr(self, 'main_app', None), 'selected_coins', []) or []
+                if isinstance(legacy_selected, list):
+                    selected_coins = list(legacy_selected)
             if not selected_coins:
                 self.log_event('system', f"{exchange_name} 선택된 코인 없음 - 코인 선택 필요", exchange=exchange_name, level='WARNING')
                 return
@@ -1138,6 +1173,14 @@ class UnifiedTrader:
                 self.logger.warning(f"⛔ {exchange_name} 수익성 검증 차단: {profitability_report.get('reasons', [])}")
                 self._monitor_exchange_positions(exchange_name)
                 return
+            if profitability_report.get('stage') == 'limited_live_learning':
+                self.logger.info(
+                    f"🌱 {exchange_name} 신규/데이터부족 제한 운용: "
+                    f"거래 {profitability_report.get('total_trades', 0)}/{profitability_report.get('next_review_at_trades')} · "
+                    f"위험배수 {profitability_report.get('risk_multiplier', 0.1):.2f} · "
+                    f"최대포지션 {profitability_report.get('max_positions', 1)} · "
+                    f"최대레버리지 {profitability_report.get('max_leverage', 1)}x"
+                )
 
             self.portfolio_allocation_cache[exchange_name] = self._build_portfolio_allocation_unified(
                 exchange_name,
@@ -1157,6 +1200,8 @@ class UnifiedTrader:
                     break
                 symbol = coin.get('symbol', '')
                 analysis = analysis_results.get(symbol, {})
+                if isinstance(analysis, dict) and profitability_report.get('stage') == 'limited_live_learning':
+                    analysis['_cold_start_profile'] = dict(profitability_report)
 
                 # 🔥 상세 분석 과정 로깅 (거래소 정보 포함)
                 self.logger.info(f"[{symbol}] 분석 과정 상세: (ex={exchange_name})")
@@ -1200,6 +1245,31 @@ class UnifiedTrader:
                 self.logger.info(f"{symbol} 분석 완료 - 시그널: {analysis.get('signal', 'HOLD')} (ex={exchange_name})")
 
                 if analysis.get('signal') in ['LONG', 'SHORT']:
+                    from .declarative_strategy_engine import DeclarativeStrategyEngine
+                    strategy_pool = getattr(self, 'active_custom_strategy_pool', []) or []
+                    if strategy_pool:
+                        custom_entry = DeclarativeStrategyEngine.evaluate_strategy_pool(
+                            strategy_pool,
+                            analysis,
+                            asset_class="crypto",
+                            target=exchange_name,
+                            market_regime=str((getattr(self, 'last_market_regime_by_exchange', {}) or {}).get(exchange_name, 'range')),
+                        )
+                    else:
+                        custom_rules_by_exchange = getattr(self, 'active_custom_strategy_rules_by_exchange', {}) or {}
+                        custom_entry = DeclarativeStrategyEngine.evaluate_entry(
+                            custom_rules_by_exchange.get(exchange_name, {}),
+                            analysis,
+                        )
+                    if not custom_entry.get('allowed', False):
+                        self.logger.info(f"⏭️ {exchange_name} {symbol} AI 커스텀 진입조건 미충족: {custom_entry}")
+                        continue
+                    if custom_entry.get('selected_strategy_name'):
+                        analysis['_custom_engine_settings'] = dict(custom_entry.get('engine_settings') or {})
+                        self.logger.info(
+                            f"🧠 {exchange_name} {symbol} AI 커스텀 선택: "
+                            f"{custom_entry.get('selected_strategy_name')} (국면={custom_entry.get('market_regime')})"
+                        )
                     strategy_allowed, strategy_meta = strategy_engine.should_trade(
                         symbol=symbol,
                         analysis_result={
@@ -1414,12 +1484,18 @@ class UnifiedTrader:
             active_positions = self.active_positions.get(exchange_name, {})
             # max_positions은 AI/동적 파라미터로만 결정 (수동 설정 완전 제거)
             max_positions = self._get_ai_max_positions(exchange_name)
+            cold_start = dict(analysis.get('_cold_start_profile', {}) or {})
+            if cold_start:
+                max_positions = min(max_positions, int(cold_start.get('max_positions', 1) or 1))
 
             if len(active_positions) >= max_positions:
                 return {'status': 'skipped', 'reason': f'최대 포지션 수 초과: {len(active_positions)} >= {max_positions}'}
 
             # AI 강화 파라미터 적용
             optimized_params = self._get_ai_enhanced_parameters_unified(exchange_name, symbol, analysis, pre_entry_analysis)
+            custom_engine_settings = getattr(self, 'custom_engine_settings_by_exchange', {}) or {}
+            optimized_params.update(dict(custom_engine_settings.get(exchange_name, {}) or {}))
+            optimized_params.update(dict(analysis.get('_custom_engine_settings', {}) or {}))
 
             # 거래 실행
             exchange_client = self.get_exchange_client(exchange_name)
@@ -1428,6 +1504,8 @@ class UnifiedTrader:
 
             # 포지션 크기 계산 및 최소 노셔널 보정
             position_size = self._calculate_position_size_unified(exchange_name, symbol, analysis, optimized_params)
+            if cold_start:
+                position_size *= float(cold_start.get('risk_multiplier', 0.10) or 0.10)
             try:
                 current_price_hint = self.exchange_manager.get_current_price(symbol, exchange_name) if hasattr(self, 'exchange_manager') else 0.0
             except Exception:
@@ -1462,6 +1540,8 @@ class UnifiedTrader:
                 # 레버리지 가드레일 적용
                 desired_leverage_raw = optimized_params.get('leverage', self.settings.get('default_leverage', 10))
                 desired_leverage = self._clamp_leverage(exchange_name, desired_leverage_raw)
+                if cold_start:
+                    desired_leverage = min(desired_leverage, int(cold_start.get('max_leverage', 1) or 1))
                 leverage = desired_leverage  # 외부 변수에 할당
                 # 마진 타입 가드레일 적용
                 default_margin_type = str(self.settings.get('default_margin_type', 'ISOLATED')).upper()
@@ -3367,7 +3447,7 @@ class UnifiedTrader:
                 'avg_profit_percent': avg_profit,
                 'avg_loss_percent': avg_loss,
                 'profit_loss_ratio': (avg_profit / avg_loss) if avg_loss > 0 else 0,
-                'current_threshold': self.analyzer.get_user_signal_threshold(),
+                'current_threshold': self.analyzer.get_user_signal_threshold(exchange_name),
                 'market_volatility': volatility,
                 'consecutive_losses': getattr(self.risk_manager, 'consecutive_losses', 0)
             }
@@ -3454,11 +3534,13 @@ Response in JSON format:
                 self.logger.info(f"[{exchange_name}] ✅ AI 분석 완료: 현재 설정({current_threshold}) 유지 권장")
                 return
 
-            # 1. 메모리에 즉시 적용 (analyzer) - 모든 거래소 공통
-            self.analyzer.set_user_signal_threshold(new_threshold)
+            # 1. 메모리에 즉시 적용 - 다른 거래소의 학습 기준을 변경하지 않는다.
+            self.analyzer.set_user_signal_threshold(new_threshold, exchange_name=exchange_name)
 
-            # 2. settings.json에 영구 저장
-            self.settings['analyzer_settings']['user_signal_threshold'] = new_threshold
+            # 2. 거래소별 settings에 영구 저장
+            analyzer_settings = self.settings.setdefault('analyzer_settings', {})
+            exchange_thresholds = analyzer_settings.setdefault('exchange_signal_thresholds', {})
+            exchange_thresholds[str(exchange_name).lower()] = new_threshold
             from config.settings import save_settings
             save_settings(self.settings)
 

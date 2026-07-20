@@ -122,6 +122,22 @@ _DUP_STATE_LOCK = threading.Lock()
 _DUP_STATE: dict[tuple[str, str, str, str], dict[str, float | int]] = {}
 
 
+def flush_pending_logs() -> bool:
+    """enqueue sink에 남은 로그를 프로세스 종료 전 디스크로 보낸다."""
+    try:
+        complete = getattr(_base_logger, 'complete', None)
+        if callable(complete):
+            complete()
+        for handler in list(logging.getLogger().handlers):
+            try:
+                handler.flush()
+            except Exception:
+                pass
+        return True
+    except Exception:
+        return False
+
+
 class _StreamForwardHandler(logging.Handler):
     """표준 logging 레코드를 LogStreamService로 전달하는 핸들러.
     - log_event에서 이미 스트림에 넣은 레코드는 중복 방지(_from_log_event 플래그)로 스킵
@@ -293,7 +309,7 @@ def log_exception(category: str, message: str, *, exchange: Optional[str] = None
         full_msg = f"{message}: {exc}"
     log_event(category, full_msg, exchange=exchange, level="ERROR", logger=logger)
 
-__all__ = ["log_event", "log_exception"]
+__all__ = ["log_event", "log_exception", "flush_pending_logs"]
 
 # --- 전역 핸들러 장착: 애플리케이션 로거들의 표준 로그를 실시간 스트림으로 포워딩 ---
 try:

@@ -152,12 +152,13 @@ class TestServiceTabStructureInvariance:
         assert snap['detail_tabs'] == ['📝 AI 요약 리포트', '🧪 시나리오 점검']
 
     def test_common_trading_tabs_snapshot(self):
-        """COMMON_TRADING_TABS 4개 고정 탭 불변성 확인."""
+        """COMMON_TRADING_TABS 5개 고정 탭 불변성 확인."""
         expected = {
             '📊 실시간 거래 로그',
             '📚 AI 학습',
             '📊 AI 리포트',
             '💬 AI 어시스턴트',
+            '🧠 AI 커스텀',
         }
         assert COMMON_TRADING_TABS == expected
 
@@ -397,4 +398,3 @@ class TestAIAssistantContextSync:
             mock_widget.set_service_context('ai_analyst', announce=True)
         except Exception as e:
             pytest.fail(f"set_service_context 예외 발생: {e}")
-

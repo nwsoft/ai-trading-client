@@ -118,6 +118,9 @@ a = Analysis(
         'onnxruntime',
         'paddleocr',
         'paddlepaddle',
+        'pypdf',
+        'youtube_transcript_api',
+        'yt_dlp',
     ],
     hookspath=[],
     hooksconfig={},
@@ -170,5 +173,5 @@ exe = EXE(
     codesign_identity=None,
     entitlements_file=None,
     icon='icon.ico',
-    version_file=None,  # Version info file (optional)
+    version='config/windows_version_info.txt',
 )

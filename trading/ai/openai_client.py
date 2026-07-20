@@ -5,7 +5,9 @@ OpenAI 클라이언트 래퍼
 """
 
 from typing import Optional, Dict, Any, List
+import base64
 import json
+import mimetypes
 import os
 
 try:
@@ -34,6 +36,37 @@ class OpenAIClient:
     def is_ready(self) -> bool:
         return self._client is not None
 
+    def list_chat_models(self) -> List[str]:
+        """현재 API 키/조직에서 실제 사용할 수 있는 텍스트 모델을 반환한다."""
+        if not self._client:
+            return []
+        try:
+            response = self._client.models.list()
+            excluded = (
+                'audio', 'realtime', 'transcribe', 'tts', 'whisper', 'embedding',
+                'moderation', 'image', 'dall-e', 'sora', 'search', 'codex', 'chatgpt',
+            )
+            models = []
+            for item in getattr(response, 'data', []) or []:
+                model_id = str(getattr(item, 'id', '') or '')
+                lower = model_id.lower()
+                if not lower.startswith(('gpt-', 'o1', 'o3', 'o4')):
+                    continue
+                if any(token in lower for token in excluded):
+                    continue
+                models.append(model_id)
+            return sorted(set(models), reverse=True)
+        except Exception:
+            return []
+
+    @staticmethod
+    def _completion_limits(model: str, max_tokens: int) -> Dict[str, Any]:
+        """신형 reasoning 모델과 구형 Chat Completions 파라미터 차이를 흡수한다."""
+        lower = str(model or '').lower()
+        if lower.startswith(('gpt-5', 'o1', 'o3', 'o4')):
+            return {'max_completion_tokens': max_tokens}
+        return {'max_tokens': max_tokens}
+
     def chat_json(self,
                   system_prompt: str,
                   user_prompt: str,
@@ -43,17 +76,61 @@ class OpenAIClient:
         if not self._client:
             return None
         try:
-            completion = self._client.chat.completions.create(
-                model=model or self.model,
-                messages=[
+            use_model = model or self.model
+            request_kwargs: Dict[str, Any] = {
+                'model': use_model,
+                'messages': [
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": user_prompt}
                 ],
-                temperature=temperature,
-                max_tokens=max_tokens
+                **self._completion_limits(use_model, max_tokens),
+            }
+            if not str(use_model).lower().startswith(('gpt-5', 'o1', 'o3', 'o4')):
+                request_kwargs['temperature'] = temperature
+            completion = self._client.chat.completions.create(
+                **request_kwargs,
             )
             content = completion.choices[0].message.content
             text = (content or "").strip()
+            return self._safe_parse_json(text)
+        except Exception:
+            return None
+
+    def vision_json(
+        self,
+        system_prompt: str,
+        user_prompt: str,
+        image_paths: List[str],
+        *,
+        max_tokens: int = 1800,
+        model: Optional[str] = None,
+    ) -> Optional[Dict[str, Any]]:
+        """사용자 로컬 차트 이미지를 멀티모달 입력으로 분석해 JSON을 반환한다."""
+        if not self._client:
+            return None
+        content: List[Dict[str, Any]] = [{"type": "text", "text": user_prompt}]
+        try:
+            for path in image_paths[:4]:
+                mime = mimetypes.guess_type(path)[0] or "image/jpeg"
+                with open(path, "rb") as image_file:
+                    encoded = base64.b64encode(image_file.read()).decode("ascii")
+                content.append({
+                    "type": "image_url",
+                    "image_url": {"url": f"data:{mime};base64,{encoded}", "detail": "high"},
+                })
+            use_model = model or self.model
+            request_kwargs: Dict[str, Any] = {
+                "model": use_model,
+                "messages": [
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": content},
+                ],
+                **self._completion_limits(use_model, max_tokens),
+            }
+            if not str(use_model).lower().startswith(('gpt-5', 'o1', 'o3', 'o4')):
+                request_kwargs["temperature"] = 0.1
+            completion = self._client.chat.completions.create(**request_kwargs)
+            text = str(completion.choices[0].message.content or "").strip()
             return self._safe_parse_json(text)
         except Exception:
             return None
@@ -74,6 +151,11 @@ class OpenAIClient:
         try:
             # 사용할 모델 결정
             use_model = model or self.model
+            request_options = dict(kwargs)
+            if str(use_model).lower().startswith(('gpt-5', 'o1', 'o3', 'o4')):
+                if 'max_tokens' in request_options and 'max_completion_tokens' not in request_options:
+                    request_options['max_completion_tokens'] = request_options.pop('max_tokens')
+                request_options.pop('temperature', None)
             
             import logging
             logger = logging.getLogger(__name__)
@@ -85,7 +167,7 @@ class OpenAIClient:
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": user_prompt}
                 ],
-                **kwargs
+                **request_options
             )
             content = completion.choices[0].message.content
             result = (content.strip() if content else None)
@@ -135,4 +217,3 @@ class OpenAIClient:
             return json.loads(t)
         except Exception:
             return None
-

@@ -11,6 +11,9 @@ from datetime import datetime, time
 from typing import Dict, List, Optional, Any, Callable
 from dataclasses import dataclass, asdict
 from enum import Enum
+from uuid import uuid4
+
+from trading.custom_strategy_pipeline import CustomStrategyPipeline
 
 class StrategyType(Enum):
     """전략 타입"""
@@ -60,7 +63,16 @@ class RiskAdaptiveStrategy:
 class StrategyCustomizer:
     """전략 커스터마이저"""
     
-    def __init__(self, analyzer, trader, evaluator, risk_manager):
+    def __init__(
+        self,
+        analyzer,
+        trader,
+        evaluator,
+        risk_manager,
+        *,
+        storage_path: Optional[str] = None,
+        min_paper_trades: int = 3,
+    ):
         self.analyzer = analyzer
         self.trader = trader
         self.evaluator = evaluator
@@ -73,6 +85,17 @@ class StrategyCustomizer:
         
         # 전략 실행 이력
         self.strategy_performance: Dict[str, Dict] = {}
+
+        # 사용자 전략은 최대 10개 버전으로 보관하며, 승인과 모의거래를
+        # 통과하기 전에는 실거래 설정에 반영하지 않는다.
+        self.custom_pipeline = CustomStrategyPipeline(
+            storage_path=storage_path,
+            max_versions=10,
+            min_paper_trades=min_paper_trades,
+            logger=self.logger,
+        )
+        self._hydrate_persisted_strategies()
+        self._refresh_runtime_strategy_pool()
         
         # 동적 조절 함수들
         self.dynamic_adjusters: Dict[str, Callable] = {
@@ -87,18 +110,40 @@ class StrategyCustomizer:
     def create_custom_strategy(self, strategy_config: Dict) -> str:
         """맞춤형 전략 생성"""
         try:
-            strategy_id = f"custom_{int(datetime.now().timestamp())}"
+            strategy_id = f"custom_{uuid4().hex[:12]}"
+            trusted_system = bool(strategy_config.get("trusted_system", False))
+            source_kind = str(strategy_config.get("source_kind", "text") or "text").strip().lower()
             
+            rules = dict(strategy_config.get("rules", {}) or {})
+            base_params = dict(strategy_config.get("base_params", {}) or {})
+            if base_params and "engine_settings" not in rules:
+                rules["engine_settings"] = dict(base_params)
+            # 기존 내부 프리셋/테스트는 빈 범위로 직접 trader에 적용하고,
+            # 대시보드 AI 커스텀은 항상 명시적 target_scope를 전달한다.
+            target_scope = str(strategy_config.get("target_scope", "") or "").lower()
+            rules["target_scope"] = target_scope
+            rules["target_exchange"] = str(strategy_config.get("target_exchange", "") or "").lower()
+            rules["market_regimes"] = list(strategy_config.get("market_regimes", ["all"]) or ["all"])
+            rules["priority"] = max(1, min(int(strategy_config.get("priority", 5) or 5), 10))
+
             # 기본 전략 구조
             custom_strategy = {
                 "id": strategy_id,
                 "name": strategy_config.get("name", f"Custom Strategy {strategy_id[-6:]}"),
                 "created_at": datetime.now().isoformat(),
-                "base_params": strategy_config.get("base_params", {}),
+                "base_params": base_params,
                 "filters": strategy_config.get("filters", {}),
                 "time_rules": strategy_config.get("time_rules", {}),
                 "risk_rules": strategy_config.get("risk_rules", {}),
                 "dynamic_adjustments": strategy_config.get("dynamic_adjustments", []),
+                "rules": rules,
+                "source_kind": source_kind,
+                "source_reference": str(strategy_config.get("source_reference", "") or ""),
+                "target_exchange": str(strategy_config.get("target_exchange", "") or "").lower(),
+                "target_scope": target_scope,
+                "market_regimes": list(strategy_config.get("market_regimes", ["all"]) or ["all"]),
+                "priority": max(1, min(int(strategy_config.get("priority", 5) or 5), 10)),
+                "trusted_system": trusted_system,
                 "backtesting_results": None,
                 "live_performance": {
                     "total_trades": 0,
@@ -113,6 +158,26 @@ class StrategyCustomizer:
             validation_result = self._validate_strategy(custom_strategy)
             if not validation_result["valid"]:
                 raise ValueError(f"전략 검증 실패: {validation_result['reason']}")
+
+            if trusted_system:
+                custom_strategy["status"] = "trusted_system"
+                custom_strategy["pipeline_strategy_key"] = None
+                custom_strategy["pipeline_version_id"] = None
+            else:
+                version = self.custom_pipeline.submit(
+                    name=custom_strategy["name"],
+                    rules=custom_strategy["rules"],
+                    source_kind=source_kind,
+                    source_reference=custom_strategy["source_reference"],
+                    strategy_key=strategy_config.get("strategy_key"),
+                )
+                custom_strategy["status"] = version["status"]
+                custom_strategy["pipeline_strategy_key"] = version["strategy_key"]
+                custom_strategy["pipeline_version_id"] = version["version_id"]
+                custom_strategy["version"] = version["version"]
+                custom_strategy["xai"] = version["xai"]
+                custom_strategy["missing_conditions"] = version["missing_conditions"]
+                self._prune_unpersisted_strategy_records(version["strategy_key"])
             
             # 전략 저장
             self.user_strategies[strategy_id] = custom_strategy
@@ -123,14 +188,106 @@ class StrategyCustomizer:
         except Exception as e:
             self.logger.error(f"맞춤형 전략 생성 오류: {e}")
             raise
+
+    def _hydrate_persisted_strategies(self) -> None:
+        """계정별 저장소의 전략 버전을 대시보드/롤백에서 다시 사용할 수 있게 복원한다."""
+        for strategy_key, versions in self.custom_pipeline.strategies.items():
+            for version in versions:
+                version_id = str(version.get("version_id", "") or "")
+                if not version_id:
+                    continue
+                rules = dict(version.get("rules", {}) or {})
+                engine_settings = dict(rules.get("engine_settings", {}) or {})
+                strategy_id = f"persisted_{version_id}"
+                self.user_strategies[strategy_id] = {
+                    "id": strategy_id,
+                    "name": version.get("name", "저장된 사용자 전략"),
+                    "created_at": version.get("created_at", datetime.now().isoformat()),
+                    "base_params": engine_settings,
+                    "filters": dict(rules.get("filters", {}) or {}),
+                    "time_rules": dict(rules.get("time_rules", {}) or {}),
+                    "risk_rules": dict(rules.get("risk_rules", {}) or {}),
+                    "dynamic_adjustments": list(rules.get("dynamic_adjustments", []) or []),
+                    "rules": rules,
+                    "source_kind": version.get("source_kind", "text"),
+                    "source_reference": version.get("source_reference", ""),
+                    "target_exchange": str(rules.get("target_exchange", "") or "").lower(),
+                    "target_scope": str(rules.get("target_scope", "asset:crypto") or "asset:crypto").lower(),
+                    "market_regimes": list(rules.get("market_regimes", ["all"]) or ["all"]),
+                    "priority": max(1, min(int(rules.get("priority", 5) or 5), 10)),
+                    "trusted_system": False,
+                    "status": version.get("status", "unknown"),
+                    "pipeline_strategy_key": strategy_key,
+                    "pipeline_version_id": version_id,
+                    "version": version.get("version"),
+                    "xai": dict(version.get("xai", {}) or {}),
+                    "missing_conditions": list(version.get("missing_conditions", []) or []),
+                    "paper_validation": version.get("paper_validation"),
+                    "execution_validation": version.get("execution_validation"),
+                    "backtesting_results": None,
+                    "live_performance": {},
+                }
+                if version.get("status") == "active":
+                    self.active_strategy_id = strategy_id
+
+    def _prune_unpersisted_strategy_records(self, strategy_key: str) -> None:
+        """10개 제한으로 저장소에서 제거된 버전을 메모리 목록에서도 제거한다."""
+        valid_ids = {
+            item.get("version_id")
+            for item in self.custom_pipeline.list_versions(strategy_key)
+        }
+        for strategy_id, strategy in list(self.user_strategies.items()):
+            if strategy.get("pipeline_strategy_key") != strategy_key:
+                continue
+            if strategy.get("pipeline_version_id") not in valid_ids:
+                self.user_strategies.pop(strategy_id, None)
+
+    def _sync_pipeline_statuses(self, strategy_key: str) -> None:
+        statuses = {
+            item.get("version_id"): item.get("status", "unknown")
+            for item in self.custom_pipeline.list_versions(strategy_key)
+        }
+        for strategy_id, strategy in self.user_strategies.items():
+            if strategy.get("pipeline_strategy_key") != strategy_key:
+                continue
+            strategy["status"] = statuses.get(strategy.get("pipeline_version_id"), strategy.get("status", "unknown"))
+            if strategy["status"] == "active":
+                self.active_strategy_id = strategy_id
+
+    @staticmethod
+    def _has_executable_settings(strategy: Dict[str, Any]) -> bool:
+        """자연어 규칙만 저장된 전략을 실행 완료로 오인하지 않게 한다."""
+        declarative = dict((strategy.get("rules") or {}).get("executable_entry", {}) or {})
+        has_declarative = bool(declarative.get("all") or declarative.get("any"))
+        return has_declarative or any(
+            bool(strategy.get(field))
+            for field in ("base_params", "filters", "time_rules", "risk_rules")
+        )
     
     def apply_strategy(self, strategy_id: str) -> bool:
-        """전략 적용"""
+        """전략 적용. 사용자 전략은 활성화 상태가 아니면 우회 적용을 차단한다."""
         try:
             if strategy_id not in self.user_strategies:
                 raise ValueError(f"전략을 찾을 수 없습니다: {strategy_id}")
             
             strategy = self.user_strategies[strategy_id]
+
+            if not strategy.get("trusted_system", False) and strategy.get("status") != "active":
+                self.logger.warning(
+                    "사용자 전략 적용 차단: XAI 승인·모의거래·소액 실거래 확인 필요 "
+                    f"({strategy_id}, status={strategy.get('status')})"
+                )
+                return False
+
+            return self._apply_strategy_values(strategy_id, strategy)
+
+        except Exception as e:
+            self.logger.error(f"전략 적용 오류: {e}")
+            return False
+
+    def _apply_strategy_values(self, strategy_id: str, strategy: Dict[str, Any]) -> bool:
+        """승인된 전략 값을 실제 런타임 컴포넌트에 반영한다."""
+        try:
             
             # 1. 기본 파라미터 적용
             base_params = strategy["base_params"]
@@ -143,11 +300,25 @@ class StrategyCustomizer:
                 if "sl_percent" in base_params:
                     trader_settings["default_sl"] = base_params["sl_percent"]
                 
-                self.trader.update_settings(trader_settings)
+                target_exchange = str(strategy.get("target_exchange", "") or "").lower()
+                target_scope = str(strategy.get("target_scope", "") or "").lower()
+                if target_scope.startswith("exchange:") and target_exchange and target_exchange != "binance":
+                    per_exchange_settings = getattr(self.trader, "custom_engine_settings_by_exchange", {}) or {}
+                    per_exchange_settings[target_exchange] = dict(base_params)
+                    setattr(self.trader, "custom_engine_settings_by_exchange", per_exchange_settings)
+                elif target_scope in {"exchange:binance", ""}:
+                    self.trader.update_settings(trader_settings)
             
             # 2. 분석기 설정 적용
             if self.analyzer and "signal_threshold" in base_params:
-                self.analyzer.set_user_signal_threshold(base_params["signal_threshold"])
+                target_exchange = str(strategy.get("target_exchange", "") or "").lower()
+                try:
+                    self.analyzer.set_user_signal_threshold(
+                        base_params["signal_threshold"],
+                        exchange_name=target_exchange or None,
+                    )
+                except TypeError:
+                    self.analyzer.set_user_signal_threshold(base_params["signal_threshold"])
             
             # 3. 코인 필터 적용
             if "filters" in strategy and self.evaluator:
@@ -158,7 +329,17 @@ class StrategyCustomizer:
                 self._apply_risk_rules(strategy["risk_rules"])
             
             # 5. 활성 전략 설정
+            if self.trader is not None:
+                target_exchange = str(strategy.get("target_exchange", "") or "").lower()
+                target_scope = str(strategy.get("target_scope", "") or "").lower()
+                if target_scope.startswith("exchange:") and target_exchange and target_exchange != "binance":
+                    per_exchange = getattr(self.trader, "active_custom_strategy_rules_by_exchange", {}) or {}
+                    per_exchange[target_exchange] = dict(strategy.get("rules", {}) or {})
+                    setattr(self.trader, "active_custom_strategy_rules_by_exchange", per_exchange)
+                elif target_scope in {"exchange:binance", ""}:
+                    setattr(self.trader, "active_custom_strategy_rules", dict(strategy.get("rules", {}) or {}))
             self.active_strategy_id = strategy_id
+            self._refresh_runtime_strategy_pool()
             
             self.logger.info(f"전략 적용 완료: {strategy['name']} ({strategy_id})")
             return True
@@ -166,6 +347,160 @@ class StrategyCustomizer:
         except Exception as e:
             self.logger.error(f"전략 적용 오류: {e}")
             return False
+
+    def _strategy_for_version(self, strategy_key: str, version_id: str) -> tuple[str, Dict[str, Any]]:
+        for strategy_id, strategy in self.user_strategies.items():
+            if (
+                strategy.get("pipeline_strategy_key") == strategy_key
+                and strategy.get("pipeline_version_id") == version_id
+            ):
+                return strategy_id, strategy
+        raise ValueError(f"전략 버전 매핑을 찾을 수 없습니다: {strategy_key}/{version_id}")
+
+    def clarify_custom_strategy(self, strategy_key: str, version_id: str, answers: Dict[str, Any]) -> Dict[str, Any]:
+        """누락 조건을 사용자 답변으로만 보완한다."""
+        version = self.custom_pipeline.clarify(strategy_key, version_id, answers)
+        _, strategy = self._strategy_for_version(strategy_key, version_id)
+        strategy["rules"] = dict(version["rules"])
+        strategy["status"] = version["status"]
+        strategy["missing_conditions"] = list(version["missing_conditions"])
+        self._sync_pipeline_statuses(strategy_key)
+        return version
+
+    def approve_custom_strategy(self, strategy_key: str, version_id: str, *, approved_by: str) -> Dict[str, Any]:
+        """XAI 내용을 확인한 사용자 승인을 기록한다."""
+        version = self.custom_pipeline.approve(strategy_key, version_id, approved_by=approved_by)
+        _, strategy = self._strategy_for_version(strategy_key, version_id)
+        strategy["status"] = version["status"]
+        self._sync_pipeline_statuses(strategy_key)
+        return version
+
+    def record_paper_validation(
+        self,
+        strategy_key: str,
+        version_id: str,
+        *,
+        trades: int,
+        guardrail_violations: int = 0,
+        metrics: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        """백테스트가 아닌 필수 모의거래 결과를 기록한다."""
+        version = self.custom_pipeline.record_paper_validation(
+            strategy_key,
+            version_id,
+            trades=trades,
+            guardrail_violations=guardrail_violations,
+            metrics=metrics,
+        )
+        _, strategy = self._strategy_for_version(strategy_key, version_id)
+        strategy["status"] = version["status"]
+        strategy["paper_validation"] = version["paper_validation"]
+        self._sync_pipeline_statuses(strategy_key)
+        return version
+
+    def record_execution_validation(
+        self,
+        strategy_key: str,
+        version_id: str,
+        *,
+        decisions: int,
+        guardrail_violations: int = 0,
+        metrics: Optional[Dict[str, Any]] = None,
+        mode: str = "live_observation",
+    ) -> Dict[str, Any]:
+        """거래 엔진의 관찰학습/제한운용 결과를 전략 버전에 연결한다."""
+        version = self.custom_pipeline.record_execution_validation(
+            strategy_key,
+            version_id,
+            decisions=decisions,
+            guardrail_violations=guardrail_violations,
+            metrics=metrics,
+            mode=mode,
+        )
+        _, strategy = self._strategy_for_version(strategy_key, version_id)
+        strategy["status"] = version["status"]
+        strategy["execution_validation"] = version["execution_validation"]
+        self._sync_pipeline_statuses(strategy_key)
+        return version
+
+    def _guardrail_allows(self, version: Dict[str, Any]) -> bool:
+        """전략 종류와 무관하게 공통 리스크 엔진을 마지막 우선순위로 강제한다."""
+        if self.risk_manager is None:
+            return True
+        validator = getattr(self.risk_manager, "validate_custom_strategy", None)
+        if callable(validator):
+            result = validator(version)
+            return bool(result.get("allowed", False)) if isinstance(result, dict) else bool(result)
+        return True
+
+    def activate_custom_strategy(
+        self,
+        strategy_key: str,
+        version_id: str,
+        *,
+        live_confirmation: bool,
+    ) -> Dict[str, Any]:
+        """실행 검증 통과 버전을 최종 확인 후 런타임에 적용한다."""
+        strategy_id, strategy = self._strategy_for_version(strategy_key, version_id)
+        active_ids = [
+            sid for sid, item in self.user_strategies.items()
+            if item.get("status") == "active" and sid != strategy_id
+        ]
+        if len(active_ids) >= 10:
+            raise ValueError("활성 전략 풀은 최대 10개입니다. 기존 전략을 해제한 뒤 다시 적용하세요.")
+        if not self._has_executable_settings(strategy):
+            raise ValueError("전략은 분석됐지만 실행 엔진 설정으로 변환되지 않았습니다. 누락 조건을 확인해 주세요.")
+        version = self.custom_pipeline.activate(
+            strategy_key,
+            version_id,
+            live_confirmation=live_confirmation,
+            guardrail_check=self._guardrail_allows,
+        )
+        strategy["status"] = "active"
+        if not self._apply_strategy_values(strategy_id, strategy):
+            raise RuntimeError("승인된 전략의 런타임 적용에 실패했습니다.")
+        self._sync_pipeline_statuses(strategy_key)
+        return version
+
+    def rollback_custom_strategy(
+        self,
+        strategy_key: str,
+        target_version_id: str,
+        *,
+        approved_by: str,
+    ) -> Dict[str, Any]:
+        """모의거래 통과 이력이 있는 이전 버전으로만 롤백한다."""
+        version = self.custom_pipeline.rollback(
+            strategy_key,
+            target_version_id,
+            approved_by=approved_by,
+        )
+        strategy_id, strategy = self._strategy_for_version(strategy_key, target_version_id)
+        strategy["status"] = "active"
+        if not self._apply_strategy_values(strategy_id, strategy):
+            raise RuntimeError("롤백 전략의 런타임 적용에 실패했습니다.")
+        self._sync_pipeline_statuses(strategy_key)
+        return version
+
+    def deactivate_custom_strategy(self, strategy_key: str, version_id: str, *, approved_by: str) -> Dict[str, Any]:
+        """사용자 확인으로 활성 전략을 풀에서 제거한다."""
+        version = self.custom_pipeline.deactivate(strategy_key, version_id, approved_by=approved_by)
+        strategy_id, strategy = self._strategy_for_version(strategy_key, version_id)
+        strategy["status"] = version["status"]
+        target_scope = str(strategy.get("target_scope", "") or "").lower()
+        target_exchange = str(strategy.get("target_exchange", "") or "").lower()
+        if self.trader is not None:
+            if target_scope == "exchange:binance":
+                setattr(self.trader, "active_custom_strategy_rules", {})
+            elif target_scope.startswith("exchange:") and target_exchange:
+                rules_by_exchange = getattr(self.trader, "active_custom_strategy_rules_by_exchange", {}) or {}
+                rules_by_exchange.pop(target_exchange, None)
+                setattr(self.trader, "active_custom_strategy_rules_by_exchange", rules_by_exchange)
+        if self.active_strategy_id == strategy_id:
+            self.active_strategy_id = None
+        self._refresh_runtime_strategy_pool()
+        self._sync_pipeline_statuses(strategy_key)
+        return version
     
     def _validate_strategy(self, strategy: Dict) -> Dict[str, Any]:
         """전략 검증"""
@@ -557,6 +892,15 @@ class StrategyCustomizer:
                     "name": strategy["name"],
                     "created_at": strategy["created_at"],
                     "active": strategy_id == self.active_strategy_id,
+                    "status": strategy.get("status", "unknown"),
+                    "version": strategy.get("version"),
+                    "strategy_key": strategy.get("pipeline_strategy_key"),
+                    "version_id": strategy.get("pipeline_version_id"),
+                    "missing_conditions": strategy.get("missing_conditions", []),
+                    "target_exchange": strategy.get("target_exchange", ""),
+                    "target_scope": strategy.get("target_scope", "asset:crypto"),
+                    "market_regimes": list(strategy.get("market_regimes", ["all"]) or ["all"]),
+                    "priority": int(strategy.get("priority", 5) or 5),
                     "performance": strategy.get("live_performance", {})
                 }
                 for strategy_id, strategy in self.user_strategies.items()
@@ -565,6 +909,29 @@ class StrategyCustomizer:
         except Exception as e:
             self.logger.error(f"전략 목록 조회 오류: {e}")
             return []
+
+    def get_active_strategy_pool(self) -> List[Dict[str, Any]]:
+        """거래 직전 상황 매칭에 사용할 활성 전략을 우선순위순 최대 10개 반환한다."""
+        pool: List[Dict[str, Any]] = []
+        for strategy_id, strategy in self.user_strategies.items():
+            if strategy.get("status") != "active":
+                continue
+            pool.append({
+                "id": strategy_id,
+                "name": strategy.get("name", "사용자 전략"),
+                "rules": dict(strategy.get("rules", {}) or {}),
+                "engine_settings": dict(strategy.get("base_params", {}) or {}),
+                "target_scope": strategy.get("target_scope", "asset:crypto"),
+                "market_regimes": list(strategy.get("market_regimes", ["all"]) or ["all"]),
+                "priority": int(strategy.get("priority", 5) or 5),
+                "strategy_key": strategy.get("pipeline_strategy_key"),
+                "version_id": strategy.get("pipeline_version_id"),
+            })
+        return sorted(pool, key=lambda item: int(item.get("priority", 5)), reverse=True)[:10]
+
+    def _refresh_runtime_strategy_pool(self) -> None:
+        if self.trader is not None:
+            setattr(self.trader, "active_custom_strategy_pool", self.get_active_strategy_pool())
     
     def backup_strategy(self, strategy_id: str) -> bool:
         """전략 백업"""

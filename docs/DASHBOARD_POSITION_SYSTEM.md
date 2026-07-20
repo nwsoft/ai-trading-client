@@ -1,117 +1,78 @@
-# 대시보드 포지션 표시 시스템 가이드
+# 대시보드 잔고·포지션 표시 시스템 가이드
 
-## 🚨 중요: 바이낸스와 CCXT 거래소의 아키텍처 차이
+기준 버전: v3.8.9.29  
+기준일: 2026-07-19
 
-### 문제 상황
-- **바이낸스**: `Trader` 클래스 사용 → 포지션은 `main_app.trader.active_positions`에 저장
-- **CCXT 거래소**: `UnifiedTrader` 클래스 사용 → 포지션은 `unified_trader.active_positions`에 저장
-- **대시보드**: 기존에는 `UnifiedTrader`만 참조하여 바이낸스 포지션이 표시되지 않음
+## 사용자 화면 기준
 
-### 해결 방법
+거래소·증권사 전용 탭의 왼쪽 영역은 다음 우선순위로 배치한다.
 
-#### 1. 포지션 표시 로직 수정
-```python
-# ui/dashboard_modern.py - create_exchange_positions_section()
-def refresh_once():
-    positions = {}
-    
-    # 바이낸스는 Trader 클래스에서 포지션 조회
-    if exchange == 'binance':
-        if hasattr(self, 'main_app') and hasattr(self.main_app, 'trader') and self.main_app.trader:
-            positions = getattr(self.main_app.trader, 'active_positions', {})
-    else:
-        # CCXT 거래소들은 UnifiedTrader에서 조회
-        if hasattr(self, 'unified_trader') and self.unified_trader:
-            positions = getattr(self.unified_trader, 'active_positions', {}).get(exchange, {})
-```
+1. 거래소 시작/중지 및 연결 상태
+2. 잔고 핵심값 3개
+3. 활성 포지션 또는 보유 종목
+4. 슬림 거래 통계
 
-#### 2. 거래 현황 통계 통합
-```python
-# ui/dashboard_modern.py - _refresh_trading_summary()
-# 바이낸스 통계 (Trader 클래스)
-if hasattr(self, 'main_app') and hasattr(self.main_app, 'trader') and self.main_app.trader:
-    binance_positions = getattr(self.main_app.trader, 'active_positions', {})
-    active_positions += len(binance_positions)
+포지션 가시성이 거래 통계보다 우선이다. 포지션 영역은 최소 230px, 거래 통계는 88px로 유지한다. 포지션 한 건은 높이 52px 카드로 표시하므로 멀티 포지션 3개를 기본 화면에서 동시에 확인할 수 있다. 4개 이상은 포지션 영역 안에서 스크롤한다.
 
-# CCXT 거래소 통계 (UnifiedTrader 클래스)
-unified_trader = getattr(self, 'unified_trader', None)
-if unified_trader:
-    stats = unified_trader.get_all_statistics()
-    # CCXT 거래소 통계 추가
-```
+## 표시 항목
 
-#### 3. 시장 트렌드 위젯 수정
-```python
-# ui/widgets/market_trend_widget.py - _update_portfolio_section()
-# 바이낸스 통계 (Trader 클래스)
-if self.dashboard_ref and hasattr(self.dashboard_ref, 'main_app'):
-    main_app = getattr(self.dashboard_ref, 'main_app', None)
-    if main_app and hasattr(main_app, 'trader') and main_app.trader:
-        binance_positions = getattr(main_app.trader, 'active_positions', {})
-        active_positions += len(binance_positions)
+### 잔고
 
-# CCXT 거래소 통계 (UnifiedTrader 클래스)
-unified_trader = getattr(self.dashboard_ref, 'unified_trader', None)
-if unified_trader:
-    # CCXT 거래소 통계 추가
-```
+- 거래소 응답에서 USDT/KRW, 총 자산, 가용 잔고, 미실현 PnL, BTC, ETH 순으로 최대 3개를 선택한다.
+- USDT 선물 거래소는 USDT를, 업비트·빗썸과 국내 증권사는 KRW를 우선한다.
+- 서로 다른 응답 키(`total_balance`, `equity`, `available_balance`, `free` 등)는 공통 지표명으로 정규화한다.
+- 7초마다 갱신하며 연결 대기, 조회 실패, 갱신 완료 상태를 제목 오른쪽에 표시한다.
 
-## 📋 개발 시 체크리스트
+### 포지션/보유 종목
 
-### 새 거래소 추가 시
-- [ ] 거래소가 CCXT 기반인지 확인
-- [ ] CCXT 기반이면 `UnifiedTrader` 사용
-- [ ] 바이낸스 전용이면 `Trader` 사용
-- [ ] 대시보드 포지션 표시 로직에 올바른 분기 추가
+각 카드는 다음 정보를 한 화면에 표시한다.
 
-### 포지션 표시 수정 시
-- [ ] 거래소 타입 확인 (바이낸스 vs CCXT)
-- [ ] 올바른 객체 참조 사용
-  - 바이낸스: `main_app.trader.active_positions`
-  - CCXT: `unified_trader.active_positions[exchange]`
-- [ ] 통계 수집 시 두 시스템 모두 고려
+- 종목 심볼
+- LONG/SHORT 또는 보유 상태
+- 수량
+- 진입가
+- 레버리지(제공되는 경우)
+- 미실현 PnL 또는 평가손익
 
-### 통계 수집 시
-- [ ] 바이낸스와 CCXT 거래소 데이터 분리 처리
-- [ ] 포지션 수는 두 시스템 합산
-- [ ] 거래 수와 손익은 각각의 시스템에서 조회
-- [ ] 승률은 더 많은 거래 데이터를 가진 시스템 기준
+긴 소수점은 자산 규모에 맞게 축약하고, 손익은 양수 녹색·음수 빨간색으로 구분한다. 텍스트가 흐르거나 자동으로 이동하는 방식은 사용하지 않는다.
 
-## 🔍 디버깅 가이드
+## 거래소별 데이터 분리
 
-### 포지션이 표시되지 않는 경우
-1. **바이낸스 포지션 미표시**:
-   - `main_app.trader` 객체 존재 확인
-   - `main_app.trader.active_positions` 내용 확인
-   - 거래 실행 로그에서 포지션 기록 확인
+- Binance 선물: 거래소 API `futures_position_information()`의 실제 비영(0이 아닌) 포지션을 우선 조회하고 `Trader.active_positions`를 폴백으로 사용한다.
+- Bybit/OKX/Bitget: 해당 거래소의 futures 어댑터 `get_positions()`를 조회하고 `UnifiedTrader.active_positions[exchange]`를 폴백으로 사용한다.
+- Upbit/Bithumb: 해당 spot 어댑터와 KRW 표시 규칙을 사용한다.
+- 증권사: 선택한 증권사 어댑터의 `get_balance()`와 `get_positions()`만 사용한다.
 
-2. **CCXT 거래소 포지션 미표시**:
-   - `unified_trader` 객체 존재 확인
-   - `unified_trader.active_positions[exchange]` 내용 확인
-   - 거래소별 활성화 상태 확인
+한 거래소 탭의 잔고·포지션이 다른 거래소 데이터와 섞이지 않도록 거래소 키를 조회 시작부터 렌더링까지 유지한다.
 
-### 통계가 정확하지 않은 경우
-1. **활성 포지션 수 부정확**:
-   - 바이낸스와 CCXT 거래소 포지션 수 모두 합산되는지 확인
-   - 각 시스템의 `active_positions` 길이 확인
+## 거래 통계
 
-2. **거래 수나 손익 부정확**:
-   - CCXT 거래소 통계가 올바르게 조회되는지 확인
-   - 바이낸스 통계는 별도 시스템에서 관리되는지 확인
+- 거래소: 총 거래, 승률, 순손익, 수수료
+- 증권사: 총 거래, 오늘 체결, 실현손익, 미체결
+- 4개 지표는 88px 높이의 한 줄 4열 카드로 표시한다.
+- 거래소 통계는 `trade_log`의 종료 거래와 `exchange` 값을 기준으로 집계한다.
+- 과거 `exchange=NULL` 데이터는 Binance에서만 `legacy포함`으로 명시하여 합산한다.
 
-## 📚 관련 파일
+## 갱신 주기
 
-- `ui/dashboard_modern.py`: 메인 대시보드 포지션 표시
-- `ui/widgets/market_trend_widget.py`: 시장 트렌드 위젯 통계
-- `trading/trader.py`: 바이낸스 거래 시스템
-- `trading/unified_trader.py`: CCXT 거래소 통합 시스템
-- `main.py`: 거래 시스템 초기화 및 관리
+- 잔고: 7초
+- 포지션: 거래소 3초, 증권사 5초
+- 거래 통계: 5초
 
-## ⚠️ 주의사항
+## 점검 체크리스트
 
-1. **객체 참조 안전성**: `hasattr()` 체크 후 접근
-2. **거래소 타입 확인**: `exchange == 'binance'` 분기 필수
-3. **통계 통합**: 두 시스템의 데이터를 올바르게 합산
-4. **성능 고려**: 불필요한 API 호출 최소화
+- [ ] 멀티 포지션 3개가 스크롤 없이 모두 보이는가
+- [ ] 4개 이상에서 포지션 영역 내부 스크롤이 동작하는가
+- [ ] LONG/SHORT 및 손익 색상이 올바른가
+- [ ] 잔고 통화가 USDT/KRW 시장에 맞게 표시되는가
+- [ ] 거래소를 바꾸어도 잔고·포지션·통계가 혼합되지 않는가
+- [ ] 거래 통계가 포지션 영역을 침범하지 않는가
+- [ ] API 미연결·조회 실패 상태에서도 UI가 깨지지 않는가
 
-이 가이드를 따라하면 바이낸스와 CCXT 거래소의 포지션이 모두 정상적으로 표시됩니다.
+## 관련 코드
+
+- `ui/dashboard_modern.py`: 잔고·포지션·통계 컴포넌트와 갱신
+- `scripts/ui_v38929_verify.py`: 실계정/네트워크 없는 UI 렌더링 검증
+- `tests/test_v38929_dashboard_custom_coldstart.py`: 레이아웃·정규화 회귀 테스트
+- `trading/trader.py`: Binance 실행/폴백 상태
+- `trading/unified_trader.py`: 다중 거래소 분리 상태

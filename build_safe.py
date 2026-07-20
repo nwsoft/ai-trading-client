@@ -94,6 +94,8 @@ def create_safe_spec_file(target_platform: str):
         # OCR (포터블 우선)
         'rapidocr_onnxruntime', 'onnxruntime',
         'paddleocr', 'paddlepaddle',
+        # AI 커스텀 문서/영상/YouTube 입력
+        'pypdf', 'youtube_transcript_api', 'yt_dlp',
         # 음성 STT (옵션)
         'speech_recognition',
     ]
@@ -223,7 +225,7 @@ exe = EXE(
     codesign_identity=None,
     entitlements_file=None,
     {"icon='icon.ico'," if icon_win and target_platform == 'windows' else ''} # type: ignore
-    version_file=None,
+    version='config/windows_version_info.txt',
 )
 '''
 

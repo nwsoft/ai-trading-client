@@ -15,6 +15,7 @@ COMMON_TRADING_TABS: Set[str] = {
     "📚 AI 학습",
     "📊 AI 리포트",
     "💬 AI 어시스턴트",
+    "🧠 AI 커스텀",
 }
 
 SERVICE_TAB_SPECS: Dict[str, Dict[str, List[str]]] = {

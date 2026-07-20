@@ -1,11 +1,13 @@
 # NoahAI 마스터 문서 (운영 참조 인덱스)
 
-> **최신 동기화 기준: 2026-07-10 · v3.8.9.28**
+> **최신 동기화 기준: 2026-07-19 · v3.8.9.29**
 >
 > 본 파일은 **정본 문서 인덱스**입니다.
 > 실제 내용은 아래 링크한 정본 문서를 직접 참조하세요.
 > 2025~2026 이전 이력은 하단 레거시 섹션을 참고하세요.
-> 2026-07-10 갱신: 배포 버전 단일 소스 `config/app_version.py` 기준 `v3.8.9.28`로 동기화
+> 2026-07-19 갱신: 배포 버전 단일 소스 `config/app_version.py` 기준 `v3.8.9.29`로 동기화
+>
+> AI 커스텀/PnL 콜드스타트/거래소 분리 정본: `AI_CUSTOM_STRATEGY_ARCHITECTURE_v3.8.9.29.md`, `V38929_IMPLEMENTATION_RECORD_20260719.md`
 > 2026-07-10 반영: 코인 우선 1단계 실행 기준선(UPDATE_PLAN/BUSINESS_PROPOSAL/ARCHITECTURE/CHANGELOG/USER_GUIDE/인앱 매뉴얼) 정합 고정
 
 ---
@@ -18,6 +20,8 @@
 | 사용자 가이드 | `docs/USER_GUIDE.md` | 기능 설명·단계별 사용법 (외부 공개 가능) |
 | 인앱 매뉴얼 | `ui/widgets/user_manual_widget.py` | 대시보드 내 사용설명서 위젯 |
 | 아키텍처 / 책임 경계 | `docs/ARCHITECTURE.md` | 판단·기록·검증·환류 파이프라인 구조 |
+| 사업 제안 정본 | `docs/BUSINESS_PROPOSAL_2026.md` | 대외 사업 설명/범위/상태값 기준 |
+| 기술 백서 정본 | `docs/NOAHAI_TECHNICAL_WHITEPAPER.md` | 기술 철학/경계/구조 설명의 공식본 |
 | 개발 계획 / 로드맵 | `docs/UPDATE_PLAN.md` | 기술 확장 계획 (개발팀용) |
 | 테스트 현황 | `docs/TEST_STATUS.md` | 최신 pytest 결과 + 신규 테스트 그룹 |
 | API 참조 | `docs/API_REFERENCE.md` | REST·WebSocket 엔드포인트 |

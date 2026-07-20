@@ -1668,6 +1668,21 @@ class Trader:
                     'profitability_validation': profitability_report,
                 }
                 return
+            cold_start_profile = (
+                dict(profitability_report)
+                if profitability_report.get('stage') == 'limited_live_learning'
+                else {}
+            )
+            if cold_start_profile:
+                self.log_event(
+                    'trade',
+                    f"🌱 바이낸스 신규/데이터부족 제한 운용: 거래 "
+                    f"{cold_start_profile.get('total_trades', 0)}/{cold_start_profile.get('next_review_at_trades')} · "
+                    f"위험배수 {cold_start_profile.get('risk_multiplier', 0.1):.2f} · "
+                    f"최대포지션 {cold_start_profile.get('max_positions', 1)} · "
+                    f"최대레버리지 {cold_start_profile.get('max_leverage', 1)}x",
+                    exchange='binance',
+                )
 
             strategy_runtime_state = self._build_strategy_runtime_state_binance(recent_trades)
             strategy_engine = StrategyEngine()
@@ -1754,6 +1769,8 @@ class Trader:
             # 직후 사용될 설정 파싱
             position_mode = self.settings.get('position_mode', 'multi')
             max_positions = int(self.settings.get('max_positions', 3))
+            if cold_start_profile:
+                max_positions = min(max_positions, int(cold_start_profile.get('max_positions', 1) or 1))
 
             # 단일모드(집중모드)일 때: 포지션이 있으면 전체 스킵
             if (position_mode == 'single' or max_positions == 1) and len(active_positions) > 0:
@@ -1819,7 +1836,6 @@ class Trader:
                 for i, coin in enumerate(selected_coins):
                     # 🔥 분석 사이 딜레이 (과도한 API 호출 방지) - 첫 번째 코인 제외
                     if i > 0:  # 첫 번째 코인이 아닐 때만 딜레이 적용
-                        import time
                         self.log_event('system', f'⏱️ 코인 분석 사이 딜레이 적용: 3초 대기 중... ({i}/{len(selected_coins)})')
                         time.sleep(3)  # 3초 딜레이
 
@@ -1944,6 +1960,32 @@ class Trader:
                         self._generate_ai_learning_data('binance', symbol, signal_data)
 
                         if signal in ['LONG', 'SHORT']:
+                            from .declarative_strategy_engine import DeclarativeStrategyEngine
+                            strategy_pool = getattr(self, 'active_custom_strategy_pool', []) or []
+                            if strategy_pool:
+                                custom_entry = DeclarativeStrategyEngine.evaluate_strategy_pool(
+                                    strategy_pool,
+                                    signal_data,
+                                    asset_class="crypto",
+                                    target="binance",
+                                    market_regime=str(getattr(self, 'last_market_regime', 'range') or 'range'),
+                                )
+                            else:
+                                custom_entry = DeclarativeStrategyEngine.evaluate_entry(
+                                    getattr(self, 'active_custom_strategy_rules', {}) or {},
+                                    signal_data,
+                                )
+                            if not custom_entry.get('allowed', False):
+                                self.log_event('trade', f"⏭️ {symbol} AI 커스텀 진입조건 미충족: {custom_entry}", exchange='binance')
+                                continue
+                            if custom_entry.get('selected_strategy_name'):
+                                signal_data['_custom_engine_settings'] = dict(custom_entry.get('engine_settings') or {})
+                                self.log_event(
+                                    'strategy',
+                                    f"🧠 {symbol} AI 커스텀 선택: {custom_entry.get('selected_strategy_name')} "
+                                    f"(국면={custom_entry.get('market_regime')})",
+                                    exchange='binance',
+                                )
                             strategy_allowed, strategy_meta = strategy_engine.should_trade(
                                 symbol=symbol,
                                 analysis_result={
@@ -2011,6 +2053,12 @@ class Trader:
 
                             # AI 강화 파라미터 최적화 (기존 시스템 스타일)
                             optimized_params = self._get_ai_enhanced_parameters(symbol, signal_data, pre_entry_analysis)
+                            if cold_start_profile:
+                                optimized_params['risk_multiplier'] = float(cold_start_profile.get('risk_multiplier', 0.10) or 0.10)
+                                optimized_params['leverage'] = min(
+                                    int(optimized_params.get('leverage', 1) or 1),
+                                    int(cold_start_profile.get('max_leverage', 1) or 1),
+                                )
                             optimized_params['confidence'] = float(confidence or 0.0)
                             optimized_params['volatility'] = max(0.005, abs(float(signal_data.get('volatility', 0.5) or 0.5)) / 100.0)
 
@@ -2218,7 +2266,8 @@ class Trader:
                         'volatility': float(trade_config.get('volatility', 0.02) or 0.02),
                         'mode': trade_config.get('mode', 'optimized'),
                         'orderType': trade_config.get('orderType', 'MARKET'),
-                        'filters': trade_config.get('filters')  # ✅ 추가
+                        'filters': trade_config.get('filters'),  # ✅ 추가
+                        'risk_multiplier': float(trade_config.get('risk_multiplier', 1.0) or 1.0),
                     }
 
                     self.log_event('trade', f"[{symbol}] 🔍 최종 거래 파라미터: {trade_params}")
@@ -2646,7 +2695,10 @@ class Trader:
                 # _compute_quantity_once가 min_notional을 고려하여 수량을 조정하므로
                 # 슬리피지 적용 후에도 min_notional을 만족하는 수량을 보장함
                 self.log_event('trade', f"[{symbol}] 🔍 _compute_quantity_once 호출 시작 (symbol={symbol}, side={side}, leverage={leverage}, ref_price={ref_price:.6f})")
-                computed_qty, computed_price = self._compute_quantity_once(symbol, side, leverage, ref_price)
+                computed_qty, computed_price = self._compute_quantity_once(
+                    symbol, side, leverage, ref_price,
+                    risk_multiplier=float(trade_params.get('risk_multiplier', 1.0) or 1.0),
+                )
 
                 if computed_qty is None or computed_price is None:
                     self.log_event('trade', f"[{symbol}] ❌ 수량 계산 실패: computed_qty={computed_qty}, computed_price={computed_price}", level='ERROR')
@@ -4616,6 +4668,7 @@ class Trader:
 
             # AI 기반 강화 적용
             enhanced_params = base_params.copy()
+            selected_custom = dict(signal_data.get('_custom_engine_settings', {}) or {})
 
             # 1. 동적 레버리지 조정 (기존: 고정 1x → 개선: 1~3x)
             if self.analyzer:
@@ -4684,6 +4737,8 @@ class Trader:
                     except Exception:
                         pass
 
+            # 상황 매칭으로 선택된 승인 전략의 설정값을 최종 사용자 전략 오버레이로 적용한다.
+            enhanced_params.update(selected_custom)
             self.logger.info(f"{symbol} AI 강화 파라미터: 레버리지={enhanced_params.get('leverage', 1)}x, "
                             f"포지션={format_percent(enhanced_params.get('position_size', 0.1), 1)}, "
                             f"TP={format_percent(enhanced_params.get('tp_percent', 0.18), 3)}, "
@@ -5818,12 +5873,13 @@ class Trader:
         except Exception as e:
             self.logger.warning(f"⚠️ flush_to_db 실패 (무시됨): {e}")
 
-    def _compute_quantity_once(self, symbol: str, side: str, leverage: float, ref_price: float):
+    def _compute_quantity_once(self, symbol: str, side: str, leverage: float, ref_price: float, risk_multiplier: float = 1.0):
         """수량 계산 단일화 (한 번만 계산하고 하위로 전달) - 정밀도 규칙 강화"""
         try:
             # 기존 로직 그대로 오지만, 이 함수만이 "단일 권위"
             # step_size 반올림 포함
-            target_value = self.settings.get('min_trade_amount', 5.0)
+            target_value = float(self.settings.get('min_trade_amount', 5.0) or 5.0)
+            target_value *= max(0.01, min(float(risk_multiplier or 1.0), 1.0))
 
             # 심볼 정보 조회
             symbol_info = self.binance_client.get_symbol_info_direct(symbol)

@@ -14,6 +14,7 @@ from enum import Enum
 from dataclasses import dataclass
 import time
 import os
+import threading
 
 
 def format_percent(value: float, decimal_places: int = 2) -> str:
@@ -133,7 +134,8 @@ class Analyzer:
         self.data_cache = {}
         self.cache_timeout = 300  # 5분 캐시 (성능 개선)
 
-        # 현재 호출 컨텍스트의 거래소명(거래소별 임계값 적용용)
+        # 거래소별 모니터링 스레드가 동시에 분석해도 컨텍스트가 섞이지 않게 한다.
+        self._exchange_context_local = threading.local()
         self._exchange_context = None
 
         # 연속 손실/익절 추적
@@ -150,6 +152,11 @@ class Analyzer:
         # 설정 파일에서 analyzer 설정 읽기
         analyzer_settings = self.settings.get('analyzer_settings', {})
         self.user_signal_threshold = analyzer_settings.get('user_signal_threshold', 70)
+        self.exchange_signal_thresholds = {
+            str(key).lower(): int(value)
+            for key, value in dict(analyzer_settings.get('exchange_signal_thresholds', {}) or {}).items()
+            if isinstance(value, (int, float)) and 30 <= int(value) <= 90
+        }
 
         self.logger.info("Analyzer 초기화 완료")
 
@@ -158,18 +165,36 @@ class Analyzer:
         self.exchange_manager = exchange_manager
         # 시장 심리 분석기는 binance_client 기반이므로 재초기화 불필요
 
+    @property
+    def _exchange_context(self) -> Optional[str]:
+        local = getattr(self, '_exchange_context_local', None)
+        return getattr(local, 'value', None) if local is not None else None
+
+    @_exchange_context.setter
+    def _exchange_context(self, value: Optional[str]) -> None:
+        local = getattr(self, '_exchange_context_local', None)
+        if local is None:
+            local = threading.local()
+            self._exchange_context_local = local
+        local.value = str(value).lower().strip() if value else None
+
     def _get_current_price(self, symbol: str) -> Optional[float]:
         """현재가 조회(가능하면 ExchangeManager 사용, 폴백은 바이낸스)"""
         try:
             if self.exchange_manager:
-                price = self.exchange_manager.get_current_price(symbol)
+                price = self.exchange_manager.get_current_price(
+                    symbol,
+                    exchange_name=self._exchange_context,
+                )
                 if price and price > 0:
                     return price
         except Exception as e:
             try:
-                self.logger.debug(f"ExchangeManager 현재가 조회 실패, Binance로 폴백: {e}")
+                self.logger.debug(f"ExchangeManager 현재가 조회 실패: {e}")
             except Exception:
                 pass
+        if self._exchange_context and self._exchange_context != 'binance':
+            return None
         try:
             return self.binance_client.get_current_price(symbol)
         except Exception as e:
@@ -180,7 +205,12 @@ class Analyzer:
         """캔들 조회(가능하면 ExchangeManager 사용, 폴백은 바이낸스)"""
         try:
             if self.exchange_manager and hasattr(self.exchange_manager, 'get_klines'):
-                data = self.exchange_manager.get_klines(symbol, interval, limit)
+                data = self.exchange_manager.get_klines(
+                    symbol,
+                    interval,
+                    limit,
+                    exchange_name=self._exchange_context,
+                )
                 if data:
                     self.logger.debug(f"✅ ExchangeManager 캔들 조회 성공: {symbol} ({len(data)}개)")
                     return data
@@ -188,9 +218,11 @@ class Analyzer:
                     self.logger.warning(f"⚠️ ExchangeManager 캔들 조회 결과 없음: {symbol}")
         except Exception as e:
             try:
-                self.logger.debug(f"ExchangeManager 캔들 조회 실패, Binance로 폴백: {e}")
+                self.logger.debug(f"ExchangeManager 캔들 조회 실패: {e}")
             except Exception:
                 pass
+        if self._exchange_context and self._exchange_context != 'binance':
+            return []
         try:
             if self.binance_client and hasattr(self.binance_client, 'get_klines'):
                 data = self.binance_client.get_klines(symbol, interval, limit)
@@ -214,14 +246,19 @@ class Analyzer:
         self.ai_report_manager = ai_report_manager
         self.logger.info("AI 리포트 매니저 설정 완료")
 
-    def set_user_signal_threshold(self, threshold: int):
-        """사용자 신호 점수 기준 설정"""
+    def set_user_signal_threshold(self, threshold: int, exchange_name: Optional[str] = None):
+        """사용자 신호 점수 기준 설정. 거래소가 있으면 해당 거래소에만 적용한다."""
         if 30 <= threshold <= 90:
-            self.user_signal_threshold = threshold
-            self.logger.info(f"AI 신호 점수 기준 변경: {threshold}점")
+            exchange = str(exchange_name or '').lower().strip()
+            if exchange:
+                self.exchange_signal_thresholds[exchange] = int(threshold)
+                self.logger.info(f"AI 신호 점수 기준 변경: {exchange}={threshold}점")
+            else:
+                self.user_signal_threshold = threshold
+                self.logger.info(f"AI 신호 점수 공통 기준 변경: {threshold}점")
 
             # AI 리포트 매니저 모드도 동기화
-            if self.ai_report_manager:
+            if self.ai_report_manager and not exchange:
                 if threshold >= 70:
                     mode = 'conservative'
                 elif threshold >= 60:
@@ -232,9 +269,12 @@ class Analyzer:
         else:
             self.logger.error(f"잘못된 신호 점수 기준: {threshold} (30-90 범위)")
 
-    def get_user_signal_threshold(self) -> int:
-        """현재 사용자 신호 점수 기준 반환"""
-        return self.user_signal_threshold
+    def get_user_signal_threshold(self, exchange_name: Optional[str] = None) -> int:
+        """현재 신호 점수 기준 반환. 거래소별 값이 없으면 공통 기준을 사용한다."""
+        exchange = str(exchange_name or self._exchange_context or '').lower().strip()
+        if exchange:
+            return int(self.exchange_signal_thresholds.get(exchange, self.user_signal_threshold))
+        return int(self.user_signal_threshold)
 
     def get_ai_learning_insights(self, symbol: str, market_state: MarketState) -> Dict:
         """AI 학습 데이터에서 인사이트 조회"""
@@ -1560,7 +1600,10 @@ class Analyzer:
         """시장 데이터 가져오기"""
         try:
             # 캐시 확인
-            cache_key = f"{symbol}_market_data"
+            # 같은 심볼 표기가 거래소별로 다른 데이터를 가리키므로
+            # 캐시도 거래소 컨텍스트를 포함해 교차 오염을 막는다.
+            exchange_context = str(self._exchange_context or 'binance').lower()
+            cache_key = f"{exchange_context}:{symbol}_market_data"
             if cache_key in self.data_cache:
                 cached_data, timestamp = self.data_cache[cache_key]
                 if (datetime.now() - timestamp).seconds < self.cache_timeout:
@@ -1569,7 +1612,12 @@ class Analyzer:
             # 다중 거래소 경로: ExchangeManager가 있으면 우선 사용 (폴백: Binance)
             klines = []
             if self.exchange_manager and hasattr(self.exchange_manager, 'get_klines'):
-                klines = self.exchange_manager.get_klines(symbol, '5m', 50)  # 5분 간격, 50개 캔들 (성능 개선)
+                klines = self.exchange_manager.get_klines(
+                    symbol,
+                    '5m',
+                    50,
+                    exchange_name=exchange_context,
+                )  # 5분 간격, 50개 캔들 (성능 개선)
             if not klines and self.binance_client and hasattr(self.binance_client, 'get_klines'):
                 klines = self._get_klines(symbol, '5m', 50)  # 5분 간격, 50개 캔들 (성능 개선)
 
@@ -2270,10 +2318,11 @@ class Analyzer:
                     reasons.append("AI 학습 기반 권장")
 
             # 최종 판단 (사용자 설정 기준 이상이면 신호 생성)
-            should_signal = signal_score >= self.user_signal_threshold
+            active_threshold = self.get_user_signal_threshold()
+            should_signal = signal_score >= active_threshold
 
             if should_signal:
-                self.logger.info(f"🤖 AI 신호 생성 승인: {signal_score}점 (기준: {self.user_signal_threshold}점)")
+                self.logger.info(f"🤖 AI 신호 생성 승인: {signal_score}점 (기준: {active_threshold}점)")
                 self.logger.info(f"   - 이유: {', '.join(reasons)}")
                 self.logger.info(f"   - 변동성: {current_vol:.4%} (기준: {threshold_vol:.4f}%)")
 
@@ -2282,7 +2331,7 @@ class Analyzer:
                     self._consecutive_holds = {}
                 self._consecutive_holds[symbol] = 0
             else:
-                self.logger.info(f"🤖 AI 신호 생성 거부: {signal_score}점 (필요: {self.user_signal_threshold}점)")
+                self.logger.info(f"🤖 AI 신호 생성 거부: {signal_score}점 (필요: {active_threshold}점)")
                 if reasons:
                     self.logger.info(f"   - 고려 요소: {', '.join(reasons)}")
 

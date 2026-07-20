@@ -1951,6 +1951,7 @@ class StockAnalysisService:
         guardrails: Optional[Dict[str, Any]] = None,
         auto_risk_policy: Optional[Dict[str, Any]] = None,
         exit_policy: Optional[Dict[str, Any]] = None,
+        custom_strategy_pool: Optional[List[Dict[str, Any]]] = None,
     ) -> Dict[str, Any]:
         """주식/ETF 자동매매 1회 사이클을 실행한다 (신호→주문)."""
         normalized_symbols = [str(s or '').strip().upper() for s in symbols or [] if str(s or '').strip()]
@@ -2239,6 +2240,45 @@ class StockAnalysisService:
                     },
                 )
                 continue
+
+            # 승인된 AI 커스텀 전략 풀에서 현재 증권사·시장국면에 맞는 규칙을 선택한다.
+            if custom_strategy_pool:
+                from trading.declarative_strategy_engine import DeclarativeStrategyEngine
+                custom_context = dict(analysis)
+                custom_context.update({
+                    'signal': 'LONG' if signal == 'BUY' else 'SHORT',
+                    'confidence': max(0.0, min(1.0, self._to_float(analysis.get('score')) / 100.0)),
+                    'current_price': self._to_float(analysis.get('current_price')),
+                })
+                custom_entry = DeclarativeStrategyEngine.evaluate_strategy_pool(
+                    custom_strategy_pool,
+                    custom_context,
+                    asset_class='stock',
+                    target=self.broker_name,
+                    market_regime=market_regime,
+                )
+                if not custom_entry.get('allowed', False):
+                    decisions.append({
+                        'symbol': symbol,
+                        'action': 'SKIP',
+                        'reason': 'custom_strategy_not_matched',
+                        'custom_strategy': custom_entry,
+                    })
+                    continue
+                if custom_entry.get('selected_strategy_name'):
+                    engine_settings = dict(custom_entry.get('engine_settings') or {})
+                    if 'signal_threshold' in engine_settings:
+                        custom_threshold = float(engine_settings['signal_threshold'])
+                        if custom_threshold <= 1.0:
+                            custom_threshold *= 100.0
+                        if signal == 'BUY' and self._to_float(analysis.get('score')) < custom_threshold:
+                            decisions.append({
+                                'symbol': symbol, 'action': 'SKIP',
+                                'reason': 'custom_signal_threshold_not_met',
+                                'strategy': custom_entry.get('selected_strategy_name'),
+                            })
+                            continue
+                    analysis['_selected_custom_strategy'] = custom_entry.get('selected_strategy_name')
 
             auto_risk_check = self._evaluate_auto_trade_risk_guard(
                 symbol=symbol,

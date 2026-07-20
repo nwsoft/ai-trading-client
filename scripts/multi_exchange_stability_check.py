@@ -63,7 +63,7 @@ def _check_source_invariants() -> List[str]:
     db = _read_text(db_path)
     ev = _read_text(ev_path)
 
-    if "selected_coins = list(self.selected_coins.get(exchange_name, []) or [])" not in ut:
+    if "selected_coins = list(selected_store.get(exchange_name, []) or [])" not in ut:
         issues.append("unified_trader: 거래소별 selected_coins 우선 사용 코드 누락")
 
     if "new_coins = list(self.select_trading_coins_unified(exchange_name) or [])" not in ut:

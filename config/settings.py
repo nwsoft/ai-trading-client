@@ -732,12 +732,12 @@ def get_default_settings() -> Dict[str, Any]:
             'recent_codes': [],
             'favorites': [],
         },
-        'openai_model': 'gpt-4o-mini',
-        'assistant_ai_model': 'gpt-4o-mini',
+        'openai_model': 'gpt-5.6-luna',
+        'assistant_ai_model': 'gpt-5.6-terra',
         'ai_model_roles': {
             'frequent_cheap': 'gpt-4o-mini',
-            'standard': 'gpt-4o',
-            'premium': 'gpt-4o',
+            'standard': 'gpt-5.6-luna',
+            'premium': 'gpt-5.6-terra',
         },
         'assistant_apply_mode': 'user_confirm',
         'assistant_voice': {
@@ -980,6 +980,7 @@ def get_default_settings() -> Dict[str, Any]:
 
         'analyzer_settings': {
             'user_signal_threshold': 68,
+            'exchange_signal_thresholds': {},
             'coin_multipliers': {
                 'major': 0.65,
                 'altcoin': 0.8

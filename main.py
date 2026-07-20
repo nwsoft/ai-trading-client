@@ -119,6 +119,12 @@ def _graceful_shutdown():
     try:
         d = _DASHBOARD_REF.get("obj")
         if d and d.winfo_exists():
+            try:
+                app = getattr(d, 'main_app', None)
+                if app and hasattr(app, 'shutdown_for_exit'):
+                    app.shutdown_for_exit()
+            except Exception:
+                pass
             # UI 스레드에서 안전하게 종료 (원래 방식 복원)
             try:
                 d.after(0, d.on_closing)
@@ -134,6 +140,11 @@ def _graceful_shutdown():
     # 🔥 중요: atexit 핸들러에서 재시작하지 않도록 플래그 설정
     global _SHUTDOWN_IN_PROGRESS
     _SHUTDOWN_IN_PROGRESS = True
+    try:
+        from log_system.log_adapter import flush_pending_logs
+        flush_pending_logs()
+    except Exception:
+        pass
 
 # atexit 등록은 프로그램 시작 후에 수행 (atexit.register 제거)
 
@@ -1095,16 +1106,7 @@ class NoahAIClient:
                 if logger is not None:
                     logger.warning("프로그램 안전 종료 시작...")
 
-            # 트레이딩 중지 (Optional 가드) - stop() 메서드 사용
-            tw = getattr(self, 'trading_worker', None)
-            if tw and hasattr(tw, 'stop'):
-                try:
-                    tw.stop()  # 🔥 중복 제거: stop_trading() → stop() 통합
-                except Exception as e:
-                    logger = self._get_main_logger()
-                    if logger:
-                        if logger is not None:
-                            logger.warning(f"trading_worker.stop() 실패: {e}")
+            self.shutdown_for_exit()
 
             # 메모리 정리
             import gc
@@ -1120,6 +1122,11 @@ class NoahAIClient:
         except Exception as e:
             logger = self._get_main_logger(); logger.error(f'종료 중 오류: {e}')
         finally:
+            try:
+                from log_system.log_adapter import flush_pending_logs
+                flush_pending_logs()
+            except Exception:
+                pass
             os._exit(0)
 
     def show_login(self):
@@ -2668,11 +2675,7 @@ class NoahAIClient:
                 logger.warning(
                     f"{ex} 자동거래 시작은 지원되지 않습니다. 증권 탭에서 연결/분석 기능을 사용하세요."
                 )
-                try:
-                    if hasattr(self, 'dashboard') and self.dashboard and hasattr(self.dashboard, 'set_trading_status'):
-                        self.dashboard.set_trading_status("IDLE")
-                except Exception:
-                    pass
+                self._schedule_dashboard_trading_status("IDLE")
                 return False
 
             # 🔥 상태 우선 검사 (다중 거래소 병렬 시작 허용)
@@ -2719,15 +2722,16 @@ class NoahAIClient:
                 # UI 동기화는 상태에서 내려주기
                 if hasattr(self, 'dashboard') and self.dashboard:
                     self.dashboard.is_auto_trading = auto
-                    if hasattr(self.dashboard, 'set_trading_status'):
-                        self.dashboard.set_trading_status("RUNNING")
+                    try:
+                        if hasattr(self.dashboard, 'thread_safe_after'):
+                            self.dashboard.thread_safe_after(0, lambda: self.dashboard.set_trading_status("RUNNING"))
+                    except Exception as ui_e:
+                        logger.warning(f"{ex} 시작 UI 갱신 예약 생략: {ui_e}")
                 logger.info(f"✅ {ex} 거래 시작 성공")
             else:
                 if not allow_parallel_start:
                     self.state.mark_idle()
-                if hasattr(self, 'dashboard') and self.dashboard:
-                    if hasattr(self.dashboard, 'set_trading_status'):
-                        self.dashboard.set_trading_status("IDLE")
+                self._schedule_dashboard_trading_status("IDLE")
                 logger.warning(f"❌ {ex} 거래 시작 실패")
 
             return ok
@@ -2740,6 +2744,20 @@ class NoahAIClient:
             if hasattr(self, 'state'):
                 self.state.mark_idle()
             return False
+
+    def _schedule_dashboard_trading_status(self, status: str) -> None:
+        """Tk 위젯 상태 변경을 반드시 UI 스레드에서 실행한다."""
+        try:
+            dashboard = getattr(self, 'dashboard', None)
+            if dashboard is None or not hasattr(dashboard, 'set_trading_status'):
+                return
+            callback = lambda: dashboard.set_trading_status(status)
+            if hasattr(dashboard, 'thread_safe_after'):
+                dashboard.thread_safe_after(0, callback)
+            elif hasattr(dashboard, 'after'):
+                dashboard.after(0, callback)
+        except Exception:
+            pass
 
     def _start_binance_trading(self) -> bool:
         """바이낸스 거래 시작 (trader.py 사용)"""
@@ -2851,18 +2869,23 @@ class NoahAIClient:
         try:
             from strategy_customizer import StrategyCustomizer
             from ai_chat_strategy import AITradingChatbot
+            from path_utils import get_app_data_dir
+
+            strategy_store_dir = os.path.join(get_app_data_dir(), 'custom_strategies')
 
             self.strategy_customizer = StrategyCustomizer(
                 getattr(self, 'analyzer', None),
                 getattr(self, 'trader', None),
                 getattr(self, 'evaluator', None),
                 getattr(self, 'risk_manager', None),
+                storage_path=os.path.join(strategy_store_dir, 'binance_private.json'),
             )
             self.strategy_customizer_unified = StrategyCustomizer(
                 getattr(self, 'analyzer', None),
                 getattr(self, 'unified_trader', None),
                 getattr(self, 'evaluator', None),
                 getattr(self, 'risk_manager', None),
+                storage_path=os.path.join(strategy_store_dir, 'unified_private.json'),
             )
             self.ai_trading_chatbot = AITradingChatbot(
                 getattr(self, 'analyzer', None),
@@ -2876,6 +2899,8 @@ class NoahAIClient:
             if hasattr(self, 'unified_trader') and self.unified_trader and hasattr(self.unified_trader, 'configure_strategy_runtime'):
                 self.unified_trader.configure_strategy_runtime(self.strategy_customizer_unified, self.ai_trading_chatbot)
 
+            self.sync_custom_strategy_runtime_pools()
+
             self._apply_runtime_strategy_profile()
 
             if logger:
@@ -2883,6 +2908,26 @@ class NoahAIClient:
         except Exception as e:
             if logger:
                 logger.warning(f"전략 런타임 브리지 연결 실패: {e}")
+
+    def sync_custom_strategy_runtime_pools(self):
+        """개별/공통 범위의 활성 전략 풀을 코인·주식 실행 경로가 함께 보도록 동기화한다."""
+        combined = []
+        for attr in ("strategy_customizer", "strategy_customizer_unified"):
+            customizer = getattr(self, attr, None)
+            if customizer and hasattr(customizer, "get_active_strategy_pool"):
+                combined.extend(customizer.get_active_strategy_pool())
+        dedup = {}
+        for item in combined:
+            key = str(item.get("version_id") or item.get("id") or "")
+            if key:
+                dedup[key] = item
+        pool = sorted(dedup.values(), key=lambda item: int(item.get("priority", 5) or 5), reverse=True)[:10]
+        if getattr(self, "trader", None) is not None:
+            self.trader.active_custom_strategy_pool = list(pool)
+        if getattr(self, "unified_trader", None) is not None:
+            self.unified_trader.active_custom_strategy_pool = list(pool)
+        self.active_custom_strategy_pool = list(pool)
+        return pool
 
     def _apply_runtime_strategy_profile(self):
         """설정 기반 런타임 전략 프로파일을 적용한다."""
@@ -2932,6 +2977,8 @@ class NoahAIClient:
                 if not strategy_id and hasattr(customizer, 'create_custom_strategy'):
                     strategy_id = customizer.create_custom_strategy({
                         'name': strategy_name,
+                        'trusted_system': True,
+                        'source_kind': 'system_preset',
                         'base_params': dict(base_params),
                         'filters': {},
                         'time_rules': {},
@@ -2958,10 +3005,18 @@ class NoahAIClient:
             if hasattr(self, 'state') and hasattr(self.state, 'can_stop'):
                 can_stop = self.state.can_stop()
 
-            # 🔥 워커가 실행 중이면 상태와 무관하게 정지 허용
-            if not can_stop and hasattr(self, 'trading_worker') and self.trading_worker and self.trading_worker.running:
+            # 실제 대상 엔진이 실행 중이면 상태머신 캐시와 무관하게 정지 허용
+            target_running = False
+            if ex == 'binance':
+                target_running = bool(getattr(getattr(self, 'trading_worker', None), 'running', False))
+                thread = getattr(self, 'trading_thread', None)
+                target_running = target_running or bool(thread is not None and thread.is_alive())
+            else:
+                flags = getattr(getattr(self, 'unified_trader', None), 'monitoring_flags', {}) or {}
+                target_running = bool(flags.get(ex, False))
+            if not can_stop and target_running:
                 can_stop = True
-                logger.info(f"🔥 워커 실행 중 - 강제 정지 허용")
+                logger.info(f"🔥 {ex} 실제 엔진 실행 중 - 정지 허용")
 
             if not can_stop:
                 logger.warning(f"Cannot stop: current state={getattr(self.state, 'state', 'NO_STATE')}")
@@ -2978,16 +3033,30 @@ class NoahAIClient:
 
             # 모두 끝난 뒤에:
             if ok:
-                self.state.mark_stopped()  # 🔥 STOPPED 상태로 변경
+                flags = getattr(getattr(self, 'unified_trader', None), 'monitoring_flags', {}) or {}
+                unified_running = [name for name, running in flags.items() if running]
+                binance_thread = getattr(self, 'trading_thread', None)
+                binance_running = bool(binance_thread is not None and binance_thread.is_alive())
+                running_any = binance_running or bool(unified_running)
+                if running_any:
+                    self.state.mark_running()
+                    self.state.exchange = 'binance' if binance_running else unified_running[0]
+                else:
+                    self.state.mark_stopped()
                 if hasattr(self, 'dashboard') and self.dashboard:
-                    self.dashboard.is_auto_trading = False
-                    if hasattr(self.dashboard, 'set_trading_status'):
-                        self.dashboard.set_trading_status("STOPPED")
-                    if hasattr(self.dashboard, 'update_status_display'):
-                        self.dashboard.update_status_display(force_refresh=True)
+                    self.dashboard.is_auto_trading = bool(running_any)
+                    self._schedule_dashboard_trading_status("RUNNING" if running_any else "STOPPED")
                 logger.info(f"✅ {ex} 거래 정지 성공")
             else:
                 logger.warning(f"❌ {ex} 거래 정지 실패")
+                # STOP_PENDING에 고정되지 않도록 실제 엔진 상태로 복구한다.
+                if target_running:
+                    self.state.mark_running()
+                    self.state.exchange = ex
+                    self._schedule_dashboard_trading_status("RUNNING")
+                else:
+                    self.state.mark_stopped()
+                    self._schedule_dashboard_trading_status("STOPPED")
 
             return ok
 
@@ -2995,9 +3064,19 @@ class NoahAIClient:
             logger = self._get_main_logger()
             if logger:
                 logger.error(f"❌ 거래소 정지 실패: {e}")
-            # 오류 시 상태를 IDLE로 복구
+            # 오류 시에도 실제 엔진 상태를 우선 반영한다.
             if hasattr(self, 'state'):
-                self.state.mark_idle()
+                try:
+                    flags = getattr(getattr(self, 'unified_trader', None), 'monitoring_flags', {}) or {}
+                    binance_thread = getattr(self, 'trading_thread', None)
+                    running_any = bool(binance_thread is not None and binance_thread.is_alive()) or any(flags.values())
+                    if running_any:
+                        self.state.mark_running()
+                    else:
+                        self.state.mark_stopped()
+                    self._schedule_dashboard_trading_status("RUNNING" if running_any else "STOPPED")
+                except Exception:
+                    self.state.mark_idle()
             return False
 
     def _stop_binance_trading(self) -> bool:
@@ -3670,6 +3749,60 @@ class NoahAIClient:
                 except Exception:
                     pass
         return False
+
+    def shutdown_for_exit(self) -> bool:
+        """명시적 종료/창 닫기/콘솔 종료의 공통 안전 정리 경로."""
+        global _SHUTDOWN_IN_PROGRESS
+        if _SHUTDOWN_IN_PROGRESS:
+            return True
+        _SHUTDOWN_IN_PROGRESS = True
+        logger = self._get_main_logger()
+        ok = True
+        try:
+            if logger:
+                logger.info("🛡️ 안전 종료: 신규 진입 차단 및 거래 루프 정리 시작")
+
+            unified = getattr(self, 'unified_trader', None)
+            if unified is not None:
+                flags = dict(getattr(unified, 'monitoring_flags', {}) or {})
+                for exchange_name, running in flags.items():
+                    if not running:
+                        continue
+                    try:
+                        unified.stop_trading(exchange_name)
+                    except Exception as exc:
+                        ok = False
+                        if logger:
+                            logger.warning(f"{exchange_name} 종료 정리 실패: {exc}")
+
+            try:
+                thread = getattr(self, 'trading_thread', None)
+                worker = getattr(self, 'trading_worker', None)
+                if (thread is not None and thread.is_alive()) or bool(getattr(worker, 'running', False)):
+                    self.stop_trading_loop()
+            except Exception as exc:
+                ok = False
+                if logger:
+                    logger.warning(f"바이낸스 종료 정리 실패: {exc}")
+
+            recorder = getattr(self, 'recorder', None)
+            if recorder is not None and hasattr(recorder, 'flush_to_db'):
+                try:
+                    recorder.flush_to_db()
+                except Exception as exc:
+                    ok = False
+                    if logger:
+                        logger.warning(f"DB flush 경고: {exc}")
+
+            if logger:
+                logger.info("✅ 안전 종료: 거래/DB 정리 완료")
+        finally:
+            try:
+                from log_system.log_adapter import flush_pending_logs
+                flush_pending_logs()
+            except Exception:
+                ok = False
+        return ok
 
     # 🔥 사용되지 않는 거래 실행 함수들 제거됨 (2025-10-20):
     # - _execute_trading_signal() (라인 2975-2988): 정의만 있고 실제로 호출되지 않음

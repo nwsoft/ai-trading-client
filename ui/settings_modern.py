@@ -32,6 +32,12 @@ import threading
 class ModernSettingsWindow:
     """현대적 설정 창 - 고정 스킨 디자인"""
 
+    _AI_MODEL_FALLBACKS = [
+        "gpt-4o-mini", "gpt-4o", "gpt-4.1-mini", "gpt-4.1", "gpt-5-mini", "gpt-5",
+        "gpt-5.4-nano", "gpt-5.4-mini", "gpt-5.4", "gpt-5.5",
+        "gpt-5.6-luna", "gpt-5.6-terra", "gpt-5.6-sol", "gpt-5.6",
+    ]
+
     _STOCK_BROKER_CHECKLIST_RELATIVE_PATH = os.path.join(
         'docs', 'STOCK_BROKER_WINDOWS_CONNECTION_CHECKLIST_20260611.md'
     )
@@ -70,6 +76,7 @@ class ModernSettingsWindow:
         self.root.title("NoahAI Trading - 설정")
         self.root.geometry("900x800")
         self.root.resizable(True, True)
+        self._apply_window_branding(self.root)
 
         # 모달 창 설정
         if parent:
@@ -109,6 +116,111 @@ class ModernSettingsWindow:
     def _color(self, key: str, fallback: str = "#9ca3af") -> str:
         """고정 색상 접근 헬퍼"""
         return FIXED_COLORS.get(key, fallback)
+
+    def _apply_window_branding(self, window) -> None:
+        """설정/확인창에 Python 기본 아이콘 대신 NoahAI 아이콘을 적용한다."""
+        try:
+            root_dir = Path(__file__).resolve().parents[1]
+            ico_path = root_dir / "icon.ico"
+            png_path = root_dir / "icon.png"
+            if sys.platform.startswith("win") and ico_path.exists():
+                window.iconbitmap(str(ico_path))
+            if png_path.exists():
+                photo = tk.PhotoImage(file=str(png_path))
+                window.iconphoto(True, photo)
+                refs = getattr(self, "_branding_image_refs", [])
+                refs.append(photo)
+                self._branding_image_refs = refs
+        except Exception:
+            pass
+
+    def _add_tab_save_bar(self, tab, section_name: str) -> None:
+        """긴 설정 탭에서도 저장 동작을 즉시 찾을 수 있는 고정 상단 바를 만든다."""
+        bar = ctk.CTkFrame(
+            tab, height=44, fg_color="#111827", corner_radius=10,
+            border_width=1, border_color="#273449",
+        )
+        bar.pack(fill="x", padx=20, pady=(12, 0))
+        ctk.CTkLabel(
+            bar,
+            text=f"{section_name} · 변경 후 저장을 눌러야 적용됩니다.",
+            font=ctk.CTkFont(family="Segoe UI", size=12),
+            text_color="#a9bad0",
+        ).pack(side="left", padx=14, pady=9)
+        ctk.CTkButton(
+            bar,
+            text="💾 현재 설정 저장",
+            width=150,
+            height=32,
+            font=ctk.CTkFont(family="Segoe UI", size=13, weight="bold"),
+            fg_color=self._color("success", "#10b981"),
+            hover_color="#059669",
+            command=self.save_settings,
+        ).pack(side="right", padx=8, pady=6)
+
+    def _ask_save_on_close(self):
+        """NoahAI 브랜딩을 유지하는 저장/폐기/계속 편집 대화상자."""
+        result = {"choice": None}
+        dialog = ctk.CTkToplevel(self.root)
+        dialog.title("NoahAI 설정")
+        dialog.geometry("520x270")
+        dialog.resizable(False, False)
+        dialog.transient(self.root)
+        dialog.grab_set()
+        self._apply_window_branding(dialog)
+
+        card = ctk.CTkFrame(
+            dialog, fg_color="#0b1120", corner_radius=16,
+            border_width=1, border_color="#273449",
+        )
+        card.pack(fill="both", expand=True, padx=14, pady=14)
+        title_row = ctk.CTkFrame(card, fg_color="transparent")
+        title_row.pack(fill="x", padx=18, pady=(18, 8))
+        try:
+            logo_path = Path(__file__).resolve().parents[1] / "icon.png"
+            from PIL import Image
+            source_logo = Image.open(logo_path)
+            logo = ctk.CTkImage(light_image=source_logo, dark_image=source_logo, size=(42, 42))
+            self._branding_image_refs.append(logo)
+            ctk.CTkLabel(title_row, text="", image=logo, width=42).pack(side="left", padx=(0, 10))
+        except Exception:
+            pass
+        ctk.CTkLabel(
+            title_row, text="변경한 설정을 저장할까요?",
+            font=ctk.CTkFont(family="Segoe UI", size=19, weight="bold"),
+            text_color="#f8fafc",
+        ).pack(side="left")
+        ctk.CTkLabel(
+            card,
+            text="저장 후 닫기, 저장하지 않고 닫기, 계속 편집 중 하나를 선택하세요.",
+            font=ctk.CTkFont(family="Segoe UI", size=12),
+            text_color="#a9bad0",
+        ).pack(anchor="w", padx=20, pady=(0, 18))
+
+        def finish(choice):
+            result["choice"] = choice
+            dialog.destroy()
+
+        buttons = ctk.CTkFrame(card, fg_color="transparent")
+        buttons.pack(fill="x", padx=18, pady=(0, 18))
+        ctk.CTkButton(
+            buttons, text="💾 저장 후 닫기", width=145, height=42,
+            fg_color="#10b981", hover_color="#059669",
+            command=lambda: finish(True),
+        ).pack(side="left", padx=4)
+        ctk.CTkButton(
+            buttons, text="저장하지 않고 닫기", width=155, height=42,
+            fg_color="#dc2626", hover_color="#b91c1c",
+            command=lambda: finish(False),
+        ).pack(side="left", padx=4)
+        ctk.CTkButton(
+            buttons, text="계속 편집", width=120, height=42,
+            fg_color="#334155", hover_color="#475569",
+            command=lambda: finish(None),
+        ).pack(side="right", padx=4)
+        dialog.protocol("WM_DELETE_WINDOW", lambda: finish(None))
+        self.root.wait_window(dialog)
+        return result["choice"]
 
     @staticmethod
     def _shade_color(hex_color: str, factor: float = 0.85) -> str:
@@ -1806,6 +1918,7 @@ class ModernSettingsWindow:
     def create_openai_tab(self):
         """OpenAI API 설정 탭 - 기존 구조 정확히 재현"""
         tab = self.tabview.add("OpenAI API")
+        self._add_tab_save_bar(tab, "OpenAI API")
 
         # 스크롤 가능한 프레임
         scroll_frame = ctk.CTkScrollableFrame(tab)
@@ -1824,14 +1937,7 @@ class ModernSettingsWindow:
         )
         openai_title.pack(pady=(20, 15), padx=20)
 
-        _ai_models = [
-            "gpt-4o-mini",
-            "gpt-4o",
-            "gpt-4.1-mini",
-            "gpt-4.1",
-            "gpt-5-mini",
-            "gpt-5",
-        ]
+        _ai_models = list(self._AI_MODEL_FALLBACKS)
 
         quick_help_row = ctk.CTkFrame(openai_group, fg_color="transparent")
         quick_help_row.pack(fill="x", padx=20, pady=(0, 10))
@@ -1999,6 +2105,23 @@ class ModernSettingsWindow:
             corner_radius=8
         )
         self.assistant_ai_model_combo.pack(fill="x", padx=20, pady=(0, 20))
+
+        catalog_row = ctk.CTkFrame(openai_group, fg_color="transparent")
+        catalog_row.pack(fill="x", padx=20, pady=(0, 14))
+        self.ai_catalog_status_label = ctk.CTkLabel(
+            catalog_row,
+            text="GPT-5.6 Sol/Terra/Luna 포함 · 계정별 사용 가능 모델은 API에서 확인",
+            font=ctk.CTkFont(family="Segoe UI", size=11),
+            text_color=self._color("text_secondary", "#9ca3af"),
+        )
+        self.ai_catalog_status_label.pack(side="left")
+        ctk.CTkButton(
+            catalog_row,
+            text="사용 가능 모델 새로고침",
+            width=170,
+            height=30,
+            command=self._refresh_ai_model_catalog,
+        ).pack(side="right")
 
         # ── AI 모델 비용 티어 배치 ──────────────────────────────────────────
         tier_title_label = ctk.CTkLabel(
@@ -2263,35 +2386,82 @@ class ModernSettingsWindow:
         )
         info_label.pack(fill="x", pady=(0, 20))
 
+    def _refresh_ai_model_catalog(self):
+        """API 키에 실제 허용된 모델 목록을 비동기로 조회해 모든 모델 선택기에 반영한다."""
+        api_key = self.openai_api_key_entry.get().strip() if hasattr(self, 'openai_api_key_entry') else ''
+        if not api_key:
+            messagebox.showwarning("API 키 필요", "사용 가능 모델 조회를 위해 OpenAI API 키를 먼저 입력하세요.")
+            return
+        if hasattr(self, 'ai_catalog_status_label'):
+            self.ai_catalog_status_label.configure(text="모델 카탈로그 조회 중...", text_color="#38bdf8")
+
+        def worker():
+            try:
+                from trading.ai.openai_client import OpenAIClient
+                base_url = self.openai_base_url_entry.get().strip() if hasattr(self, 'openai_base_url_entry') else ''
+                client = OpenAIClient(api_key=api_key, base_url=base_url or None)
+                discovered = client.list_chat_models()
+                self.root.after(0, lambda: self._apply_ai_model_catalog(discovered))
+            except Exception as exc:
+                self.root.after(0, lambda: self._apply_ai_model_catalog([], error=str(exc)))
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _apply_ai_model_catalog(self, discovered: List[str], error: str = ''):
+        current_values = []
+        combo_names = ('openai_model_combo', 'assistant_ai_model_combo', 'ai_role_cheap_combo', 'ai_role_standard_combo', 'ai_role_premium_combo')
+        for combo_name in combo_names:
+            combo = getattr(self, combo_name, None)
+            if combo is not None:
+                current_values.append(combo.get())
+        models = list(dict.fromkeys(list(self._AI_MODEL_FALLBACKS) + list(discovered or []) + current_values))
+        for combo_name in combo_names:
+            combo = getattr(self, combo_name, None)
+            if combo is not None:
+                selected = combo.get()
+                combo.configure(values=models)
+                combo.set(selected)
+        if hasattr(self, 'ai_catalog_status_label'):
+            if discovered:
+                self.ai_catalog_status_label.configure(
+                    text=f"API 계정에서 텍스트 모델 {len(discovered)}개 확인 · 선택 목록 갱신 완료",
+                    text_color="#22c55e",
+                )
+            else:
+                self.ai_catalog_status_label.configure(
+                    text=f"API 조회 실패 · 공식 기본 목록 유지{': ' + error if error else ''}",
+                    text_color="#f59e0b",
+                )
+
     def _apply_ai_model_preset(self, preset_name: str):
         """OpenAI API 탭의 모델 프리셋을 콤보 UI에 즉시 반영한다."""
         presets: Dict[str, Dict[str, str]] = {
             'cost_save': {
                 'openai_model': 'gpt-4o-mini',
                 'assistant_ai_model': 'gpt-4o-mini',
-                'frequent_cheap': 'gpt-3.5-turbo',
+                'frequent_cheap': 'gpt-4o-mini',
                 'standard': 'gpt-4o-mini',
-                'premium': 'gpt-4o',
+                'premium': 'gpt-5.6-luna',
                 'label': '절약형',
                 'desc': 'API 비용을 최소화하려는 사용자에게 적합합니다.',
                 'cost_level': '낮음',
             },
             'balanced': {
-                'openai_model': 'gpt-4o-mini',
-                'assistant_ai_model': 'gpt-4o',
+                'openai_model': 'gpt-5.6-luna',
+                'assistant_ai_model': 'gpt-5.6-terra',
                 'frequent_cheap': 'gpt-4o-mini',
-                'standard': 'gpt-4o',
-                'premium': 'gpt-4o',
+                'standard': 'gpt-5.6-luna',
+                'premium': 'gpt-5.6-terra',
                 'label': '균형형',
                 'desc': '비용/품질 균형이 좋아 초보 포함 대부분 사용자에게 권장됩니다.',
                 'cost_level': '중간',
             },
             'quality': {
-                'openai_model': 'gpt-4o',
-                'assistant_ai_model': 'gpt-4o',
-                'frequent_cheap': 'gpt-4o-mini',
-                'standard': 'gpt-4o',
-                'premium': 'gpt-5',
+                'openai_model': 'gpt-5.6-terra',
+                'assistant_ai_model': 'gpt-5.6-sol',
+                'frequent_cheap': 'gpt-5.6-luna',
+                'standard': 'gpt-5.6-terra',
+                'premium': 'gpt-5.6-sol',
                 'label': '정밀형',
                 'desc': '복잡한 진단 정확도를 우선할 때 적합하지만 비용이 증가할 수 있습니다.',
                 'cost_level': '높음',
@@ -2804,6 +2974,7 @@ class ModernSettingsWindow:
     def create_general_tab(self):
         """일반 설정 탭: 페이퍼 트레이딩 토글 등 공통 옵션"""
         tab = self.tabview.add("일반")
+        self._add_tab_save_bar(tab, "일반 설정")
 
         # 스크롤 가능한 프레임
         scroll_frame = ctk.CTkScrollableFrame(tab)
@@ -3154,6 +3325,7 @@ class ModernSettingsWindow:
     def create_exchange_api_tab(self):
         """거래소 API 설정 탭 - 기존 구조 정확히 재현"""
         tab = self.tabview.add("거래소 API")
+        self._add_tab_save_bar(tab, "거래소·증권사 API")
 
         # 스크롤 가능한 프레임
         scroll_frame = ctk.CTkScrollableFrame(tab)
@@ -4470,6 +4642,7 @@ class ModernSettingsWindow:
     def create_ai_settings_tab(self):
         """AI 설정 탭 - 안전한 정보만 표시 (위험한 설정 제거)"""
         tab = self.tabview.add("AI 시스템 상태")
+        self._add_tab_save_bar(tab, "AI 시스템·시장국면")
 
         # 스크롤 가능한 프레임
         scroll_frame = ctk.CTkScrollableFrame(tab)
@@ -4735,6 +4908,7 @@ class ModernSettingsWindow:
     def create_exchange_selection_tab(self):
         """거래소 선택 탭 - 기존 구조 정확히 재현"""
         tab = self.tabview.add("거래소 선택")
+        self._add_tab_save_bar(tab, "거래소·증권사 선택")
 
         # 스크롤 가능한 프레임
         scroll_frame = ctk.CTkScrollableFrame(tab)
@@ -5267,9 +5441,9 @@ class ModernSettingsWindow:
         # 저장 버튼
         save_button = ctk.CTkButton(
             button_frame,
-            text="💾 저장",
+            text="💾 전체 설정 저장",
             height=50,
-            width=120,
+            width=170,
             font=ctk.CTkFont(family="Segoe UI", size=16, weight="bold"),
             fg_color=self._color("success", "#10b981"),
             text_color="white",
@@ -5520,33 +5694,27 @@ class ModernSettingsWindow:
             print(f"❌ 거래소 변경 처리 오류: {e}")
 
     def on_closing(self):
-        """창 닫기 처리 - API 키가 없으면 프로그램 종료"""
+        """X 닫기에서도 저장/폐기/계속 편집을 명시적으로 선택한다."""
         try:
             print("🚪 설정 창 닫기")
-            # 타이머 정리
+            choice = self._ask_save_on_close()
+            if choice is None:
+                return
+
+            # 실제로 닫을 때만 타이머를 정리한다.
             try:
                 if hasattr(self, '_ai_status_timer') and self._ai_status_timer:
                     self.root.after_cancel(self._ai_status_timer)
             except Exception:
                 pass
-
-            # API 키 검증
-            openai_key = self.openai_api_key_entry.get().strip()
-            if not openai_key:
-                print("❌ OpenAI API 키가 입력되지 않음 - 프로그램을 종료합니다.")
-                self.root.destroy()
-                import sys
-                sys.exit(0)
-            else:
-                # 설정 저장 후 창 닫기
+            if choice is True:
                 self.save_settings()
+            else:
                 self.root.destroy()
 
         except Exception as e:
             print(f"❌ 설정 창 닫기 처리 오류: {e}")
-            self.root.destroy()
-            import sys
-            sys.exit(0)
+            # 닫기 확인 실패가 프로그램 전체 종료로 이어지지 않게 한다.
 
     def load_current_settings(self):
         """현재 설정을 UI에 로드 - 기존 PyQt5 설정 창과 동일한 로직"""
@@ -5572,16 +5740,16 @@ class ModernSettingsWindow:
 
             # OpenAI 모델 설정
             openai_model = self.current_settings.get('openai_model', 'gpt-4o-mini')
-            if openai_model in ["gpt-4o-mini", "gpt-4o", "gpt-4.1-mini", "gpt-4.1", "gpt-5-mini", "gpt-5"]:
+            if openai_model:
                 self.openai_model_combo.set(openai_model)
 
             assistant_model = self.current_settings.get('assistant_ai_model', 'gpt-4o-mini')
-            if assistant_model in ["gpt-4o-mini", "gpt-4o", "gpt-4.1-mini", "gpt-4.1", "gpt-5-mini", "gpt-5"]:
+            if assistant_model:
                 self.assistant_ai_model_combo.set(assistant_model)
 
             # 역할별 모델 티어 복원
             _ai_roles = self.current_settings.get('ai_model_roles', {})
-            _tier_allowed = ["gpt-4o-mini", "gpt-4o", "gpt-4.1-mini", "gpt-4.1", "gpt-5-mini", "gpt-5"]
+            _tier_allowed = list(self._AI_MODEL_FALLBACKS)
             if hasattr(self, 'ai_role_cheap_combo'):
                 v = _ai_roles.get('frequent_cheap', 'gpt-4o-mini')
                 self.ai_role_cheap_combo.set(v if v in _tier_allowed else 'gpt-4o-mini')
@@ -5908,6 +6076,7 @@ class ModernSettingsWindow:
     def create_update_info_tab(self):
         """업데이트 정보 탭 - 버전 및 새로운 기능 안내"""
         tab = self.tabview.add("📋 업데이트")
+        self._add_tab_save_bar(tab, "업데이트 설정")
 
         # 스크롤 가능한 프레임
         scroll_frame = ctk.CTkScrollableFrame(tab)
@@ -7101,6 +7270,7 @@ class ModernSettingsWindow:
     def create_advanced_layers_tab(self):
         """고급 자동매매 계층 설정 탭 - 프리셋 전환 + 개별 ON/OFF"""
         tab = self.tabview.add("🔧 고급 매매 계층")
+        self._add_tab_save_bar(tab, "고급 매매 계층")
 
         scroll_frame = ctk.CTkScrollableFrame(tab)
         scroll_frame.pack(fill="both", expand=True, padx=20, pady=20)
@@ -7275,6 +7445,7 @@ class ModernSettingsWindow:
     def create_alphaarena_tab(self):
         """AlphaArena 모드 설정 탭 (새로운 alpha_arena 구조 적용)"""
         tab = self.tabview.add("⚔️ AlphaArena")
+        self._add_tab_save_bar(tab, "AlphaArena")
 
         # 스크롤 가능한 프레임
         scroll_frame = ctk.CTkScrollableFrame(tab)

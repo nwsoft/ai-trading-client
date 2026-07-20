@@ -964,7 +964,20 @@ class Evaluator:
                 self.logger.warning("마켓 정보를 가져올 수 없음")
                 return []
 
-            # USDT 선물/스왑만
+            # USDT 선물/스왑만. 일부 거래소의 토큰증권/원자재
+            # 선물은 암호화폐 코인 선정 목적에서 제외한다.
+            tokenized_non_crypto_bases = {
+                'AAPL', 'AMZN', 'BABA', 'BILL', 'CL', 'COIN', 'EWY', 'GOOG', 'GOOGL',
+                'IBM', 'INTC', 'LAB', 'META', 'MSFT', 'MSTR', 'NVDA', 'SAMSUNG',
+                'SNDK', 'SKHY', 'TSLA', 'TSEM',
+            }
+            configured_exclusions = {
+                str(x or '').upper().strip()
+                for x in (fs_cfg.get('excluded_bases', []) if isinstance(fs_cfg, dict) else [])
+                if str(x or '').strip()
+            }
+            excluded_bases = tokenized_non_crypto_bases | configured_exclusions
+
             candidates = []
             for sym, m in markets.items():
                 try:
@@ -973,6 +986,9 @@ class Evaluator:
                     if not (m.get('swap') or m.get('future') or m.get('contract')):
                         continue
                     if str(m.get('quote') or '').upper() != 'USDT':
+                        continue
+                    base = str(m.get('base') or '').upper().strip()
+                    if not base or base in excluded_bases:
                         continue
                     candidates.append((sym, m))
                 except Exception:

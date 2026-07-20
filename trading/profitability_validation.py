@@ -57,6 +57,11 @@ class ProfitabilityValidator:
         "min_expectancy": 0.0,
         "walkforward_splits": 4,
         "min_walkforward_pass_rate": 0.40,
+        # 신규 사용자는 영구 HOLD가 아니라 거래소 최소 주문 단위의 제한 운용으로 학습한다.
+        "cold_start_enabled": True,
+        "cold_start_max_positions": 1,
+        "cold_start_max_leverage": 1,
+        "cold_start_initial_risk_multiplier": 0.10,
     }
 
     @staticmethod
@@ -154,12 +159,24 @@ class ProfitabilityValidator:
 
         reasons: List[str] = []
         if total_trades < int(effective.get("min_trades", 20) or 20):
-            # 거래 데이터가 min_trades 미만이면 초기 학습 기간으로 간주 → bypass(차단 없음)
+            # 거래 데이터가 부족해도 영구 차단하지 않는다. 시장 데이터/가드레일이 통과하면
+            # 거래소 최소 주문 단위의 제한 운용으로 체결·비용·PnL을 학습한다.
+            min_trades = max(1, int(effective.get("min_trades", 20) or 20))
+            progress = total_trades / min_trades
+            initial = max(0.01, min(float(effective.get("cold_start_initial_risk_multiplier", 0.10) or 0.10), 1.0))
+            risk_multiplier = min(0.50, initial + (0.40 * progress))
             return {
                 "enabled": True,
                 "bypassed": True,
                 "reason": "insufficient_trades",
                 "total_trades": total_trades,
+                "stage": "limited_live_learning" if bool(effective.get("cold_start_enabled", True)) else "legacy_bypass",
+                "learning_progress": round(progress, 4),
+                "risk_multiplier": round(risk_multiplier, 4),
+                "max_positions": max(1, int(effective.get("cold_start_max_positions", 1) or 1)),
+                "max_leverage": max(1, int(effective.get("cold_start_max_leverage", 1) or 1)),
+                "next_review_at_trades": min_trades,
+                "note": "시장데이터와 공통 가드레일 통과 시 최소 단위 제한 운용 후 거래소별 PnL로 재평가",
             }
         if win_rate < self._to_float(effective.get("min_win_rate", 0.48), 0.48):
             reasons.append("win_rate_below_threshold")

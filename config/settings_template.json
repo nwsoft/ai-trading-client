@@ -277,13 +277,13 @@
       "id": ""
     }
   },
-  "openai_model": "gpt-4o-mini",
-  "assistant_ai_model": "gpt-4o-mini",
+  "openai_model": "gpt-5.6-luna",
+  "assistant_ai_model": "gpt-5.6-terra",
   "ai_model_roles": {
     "_comment": "역할별 AI 모델 배치 - 빈도·중요도에 따라 모델 티어를 분리해 비용 최적화",
     "frequent_cheap": "gpt-4o-mini",
-    "standard": "gpt-4o",
-    "premium": "gpt-4o"
+    "standard": "gpt-5.6-luna",
+    "premium": "gpt-5.6-terra"
   },
   "assistant_voice": {
     "enabled": false,
@@ -571,6 +571,7 @@
   },
   "analyzer_settings": {
     "user_signal_threshold": 68,
+    "exchange_signal_thresholds": {},
     "coin_multipliers": {
       "major": 0.65,
       "altcoin": 0.8
