@@ -627,6 +627,12 @@ def get_default_settings() -> Dict[str, Any]:
         'demo_mode': False,
         'broadcast_replay_enabled': False,
         'broadcast_replay_source_account': '',
+        'broadcast_display_override_enabled': False,
+        'broadcast_display_balance_usdt': None,
+        'broadcast_display_total_trades': None,
+        'broadcast_display_win_rate_percent': None,
+        'broadcast_display_total_pnl_usdt': None,
+        'broadcast_display_total_fees_usdt': None,
         'ai_enabled': True,
         # API 설정
         'binance_api_key': '',

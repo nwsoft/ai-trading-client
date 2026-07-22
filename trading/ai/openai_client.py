@@ -135,6 +135,31 @@ class OpenAIClient:
         except Exception:
             return None
 
+    def transcribe_audio(
+        self,
+        audio_path: str,
+        *,
+        model: Optional[str] = None,
+        language: Optional[str] = None,
+    ) -> str:
+        """사용자가 분석을 요청한 영상 음성을 전략 근거용 텍스트로 전사한다."""
+        if not self._client:
+            return ""
+        try:
+            request: Dict[str, Any] = {
+                "model": model or os.getenv("OPENAI_TRANSCRIPTION_MODEL", "gpt-4o-mini-transcribe"),
+                "response_format": "json",
+            }
+            if language:
+                request["language"] = language
+            with open(audio_path, "rb") as audio_file:
+                response = self._client.audio.transcriptions.create(file=audio_file, **request)
+            if isinstance(response, str):
+                return response.strip()
+            return str(getattr(response, "text", "") or "").strip()
+        except Exception:
+            return ""
+
     def chat(self, system_prompt: str, user_prompt: str, model: Optional[str] = None, **kwargs) -> Optional[str]:
         """일반 채팅 완성 (빌드 환경 대응 에러 로깅 강화)"""
         import logging

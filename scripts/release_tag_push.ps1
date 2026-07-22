@@ -28,6 +28,35 @@ function TryRunGit([string[]]$GitArgs) {
     return ($LASTEXITCODE -eq 0)
 }
 
+function Invoke-GhWithRetry([scriptblock]$Command, [string]$Label, [int]$MaxAttempts = 4, [int]$InitialDelaySec = 2) {
+    for ($attempt = 1; $attempt -le $MaxAttempts; $attempt++) {
+        & $Command
+        if ($LASTEXITCODE -eq 0) {
+            if ($attempt -gt 1) {
+                Write-Host "[RELEASE_TAG] $Label recovered on attempt $attempt/$MaxAttempts"
+            }
+            return $true
+        }
+
+        if ($attempt -lt $MaxAttempts) {
+            $delay = [Math]::Min(30, $InitialDelaySec * [Math]::Pow(2, $attempt - 1))
+            Write-Warning "[RELEASE_TAG] $Label failed (attempt $attempt/$MaxAttempts). retrying in $delay sec..."
+            Start-Sleep -Seconds $delay
+            continue
+        }
+    }
+    return $false
+}
+
+function Test-GhReleaseExists([string]$Tag, [string]$RepoSlug) {
+    try {
+        & gh release view $Tag --repo $RepoSlug 1>$null 2>$null
+        return ($LASTEXITCODE -eq 0)
+    } catch {
+        return $false
+    }
+}
+
 function Get-RepoSlugFromRemote([string]$RemoteUrl) {
     if ($RemoteUrl -match '^https://github\.com/([^/]+)/([^/]+?)(?:\.git)?$') {
         return "$($Matches[1])/$($Matches[2])"
@@ -136,15 +165,29 @@ if (-not $SkipCommit) {
 }
 
 $existingTag = (& git tag --list $tag)
-if (-not [string]::IsNullOrWhiteSpace($existingTag)) {
-    Fail "tag already exists locally: $tag"
+if ([string]::IsNullOrWhiteSpace($existingTag)) {
+    RunGit @("tag", $tag)
+    Write-Host "[RELEASE_TAG] Created tag $tag"
+} else {
+    Write-Warning "[RELEASE_TAG] Local tag already exists: $tag (continuing)"
 }
 
-RunGit @("tag", $tag)
-Write-Host "[RELEASE_TAG] Created tag $tag"
+$localTagObject = (& git rev-list -n 1 $tag 2>$null).Trim()
+if ([string]::IsNullOrWhiteSpace($localTagObject)) {
+    Fail "failed to resolve local tag object for $tag"
+}
 
-RunGit @("push", "origin", $tag)
-Write-Host "[RELEASE_TAG] Pushed tag $tag"
+$remoteTagLine = (& git ls-remote --tags origin $tag 2>$null | Select-Object -First 1)
+if ([string]::IsNullOrWhiteSpace($remoteTagLine)) {
+    RunGit @("push", "origin", $tag)
+    Write-Host "[RELEASE_TAG] Pushed tag $tag"
+} else {
+    $remoteTagObject = ($remoteTagLine -split "\s+")[0]
+    if ($remoteTagObject -ne $localTagObject) {
+        Fail "remote tag already exists with different object: $tag (local=$localTagObject, remote=$remoteTagObject)"
+    }
+    Write-Host "[RELEASE_TAG] Remote tag already exists and matches local: $tag"
+}
 
 if ($PushBranch) {
     if (TryRunGit @("push", "origin", $Branch)) {
@@ -175,26 +218,32 @@ if (-not $SkipReleaseUpload) {
         }
     }
 
-    $exists = $false
-    try {
-        & gh release view $tag --repo $repoSlug 1>$null 2>$null
-        $exists = ($LASTEXITCODE -eq 0)
-    } catch {
-        $exists = $false
-    }
+    $exists = Test-GhReleaseExists -Tag $tag -RepoSlug $repoSlug
 
-    if ($exists) {
-        Write-Host "[RELEASE_TAG] Release exists. Uploading assets with overwrite..."
-        & gh release upload $tag @assets --repo $repoSlug --clobber
-        if ($LASTEXITCODE -ne 0) {
-            Fail "gh release upload failed"
+    if (-not $exists) {
+        Write-Host "[RELEASE_TAG] Creating release..."
+        $created = Invoke-GhWithRetry -Label "gh release create" -Command {
+            & gh release create $tag --repo $repoSlug --title $tag --notes-file "deploy/release_notes.md"
+        }
+
+        if (-not $created) {
+            # GitHub API 5xx can fail after side effects; re-check release presence.
+            if (-not (Test-GhReleaseExists -Tag $tag -RepoSlug $repoSlug)) {
+                Fail "gh release create failed"
+            }
+            Write-Warning "[RELEASE_TAG] release create returned failure but release exists. continuing to asset upload."
         }
     } else {
-        Write-Host "[RELEASE_TAG] Creating release and uploading assets..."
-        & gh release create $tag @assets --repo $repoSlug --title $tag --notes-file "deploy/release_notes.md"
-        if ($LASTEXITCODE -ne 0) {
-            Fail "gh release create failed"
-        }
+        Write-Host "[RELEASE_TAG] Release exists. Reusing existing release."
+    }
+
+    Write-Host "[RELEASE_TAG] Uploading assets with overwrite..."
+    $uploaded = Invoke-GhWithRetry -Label "gh release upload" -Command {
+        & gh release upload $tag @assets --repo $repoSlug --clobber
+    }
+
+    if (-not $uploaded) {
+        Fail "gh release upload failed"
     }
 }
 

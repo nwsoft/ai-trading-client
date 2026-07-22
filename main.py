@@ -261,7 +261,7 @@ from utils.auto_update_manager import AutoUpdateManager
 class NoahAIClient:
     """Noah AI 클라이언트 메인 클래스"""
 
-    ALLOWED_USER_GRADES = {"normal", "pro", "premium"}
+    ALLOWED_USER_GRADES = {"pro_coin", "pro_stock", "premium"}
 
 
     def __init__(self):
@@ -284,7 +284,7 @@ class NoahAIClient:
         # 설정은 항상 Dict로 취급 (Optional 경고 제거 및 호출부 안정화)
         self.settings: Dict[str, Any] = {}
         self.auto_update_manager: Optional[AutoUpdateManager] = None
-        self.current_user_grade: str = "normal"
+        self.current_user_grade: str = "pro_coin"
 
         # 🔥 로그인 성공 처리 플래그 초기화
         self._login_success_processed = False
@@ -516,7 +516,7 @@ class NoahAIClient:
 
             # user_info에 username 필드 추가 (다른 모듈에서 사용)
             user_info['username'] = username
-            user_info['user_grade'] = self._normalize_user_grade(user_info.get('user_grade', 'normal'))
+            user_info['user_grade'] = self._normalize_user_grade(user_info.get('user_grade', 'pro_coin'))
             self.current_user_grade = user_info['user_grade']
 
             set_current_user_account(username)
@@ -692,20 +692,31 @@ class NoahAIClient:
     def _normalize_user_grade(self, raw_grade: Any) -> str:
         grade = str(raw_grade or "").strip().lower()
         alias_map = {
-            "general": "normal",
-            "basic": "normal",
-            "coin_start": "normal",
-            "coin-start": "normal",
-            "alltrading": "pro",
-            "all_trading": "pro",
-            "all-trading": "pro",
-            "middle": "pro",
+            "normal": "pro_coin",
+            "general": "pro_coin",
+            "basic": "pro_coin",
+            "coin_start": "pro_coin",
+            "coin-start": "pro_coin",
+            "pro_coin": "pro_coin",
+            "pro-coin": "pro_coin",
+            "stock": "pro_stock",
+            "stocks": "pro_stock",
+            "etf": "pro_stock",
+            "pro_stock": "pro_stock",
+            "pro-stock": "pro_stock",
+            "alltrading": "premium",
+            "all_trading": "premium",
+            "all-trading": "premium",
+            "middle": "premium",
+            "pro": "premium",
             "signature": "premium",
             "signature_federated": "premium",
+            "premium_all": "premium",
+            "premium-all": "premium",
         }
         grade = alias_map.get(grade, grade)
         if grade not in self.ALLOWED_USER_GRADES:
-            return "normal"
+            return "pro_coin"
         return grade
 
     def _apply_membership_feature_limits(self, user_grade: Any) -> bool:
@@ -736,7 +747,7 @@ class NoahAIClient:
         federated_learning = self.settings.get('federated_learning', {})
         saas_prep = self.settings.get('saas_preparation', {})
 
-        if grade == 'normal':
+        if grade == 'pro_coin':
             if self.settings.get('enabled_stock_brokers') != []:
                 self.settings['enabled_stock_brokers'] = []
                 changed = True
@@ -761,13 +772,20 @@ class NoahAIClient:
                 stock_auto_trading['auto_start'] = False
                 changed = True
 
-        if grade in {'normal', 'pro'}:
+        if grade == 'pro_stock':
+            raw_enabled_exchanges = self.settings.get('enabled_exchanges', [])
+            enabled_exchanges = raw_enabled_exchanges if isinstance(raw_enabled_exchanges, list) else []
+            if enabled_exchanges:
+                self.settings['enabled_exchanges'] = []
+                changed = True
+
+        if grade in {'pro_coin', 'pro_stock'}:
             for key in ('enabled', 'batch_enabled', 'upload_enabled'):
                 if bool(federated_learning.get(key, False)):
                     federated_learning[key] = False
                     changed = True
 
-        target_tier = 'starter' if grade == 'normal' else 'plus' if grade == 'pro' else 'pro'
+        target_tier = 'starter' if grade == 'pro_coin' else 'plus' if grade == 'pro_stock' else 'pro'
         if str(saas_prep.get('subscription_tier', '') or '') != target_tier:
             saas_prep['subscription_tier'] = target_tier
             changed = True
@@ -1221,7 +1239,7 @@ class NoahAIClient:
 
             # 사용자 정보 설정 (token.json에서 불러온 user_info 사용)
             user_id = user_info.get('id', 'Unknown')
-            user_grade = self._normalize_user_grade(user_info.get('user_grade', 'normal'))
+            user_grade = self._normalize_user_grade(user_info.get('user_grade', 'pro_coin'))
             user_email = user_info.get('email', '')
             user_info['user_grade'] = user_grade
             self.current_user_grade = user_grade

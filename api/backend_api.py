@@ -83,7 +83,7 @@ class BackendAPI:
         
         # 사용자 정보
         self.user_id = None
-        self.user_grade = "normal"
+        self.user_grade = "pro_coin"
         self.user_email = None
         
         self.logger.info("BackendAPI 초기화 완료")
@@ -93,11 +93,11 @@ class BackendAPI:
         self.config = new_config
         self.logger.info("백엔드 설정 업데이트 완료")
         
-    def set_user_info(self, user_id: Optional[str], user_grade: Optional[str] = "normal", user_email: Optional[str] = None):
+    def set_user_info(self, user_id: Optional[str], user_grade: Optional[str] = "pro_coin", user_email: Optional[str] = None):
         """사용자 정보 설정"""
         # None이 들어올 수 있으므로 안전하게 문자열로 변환
         self.user_id = user_id if user_id is not None else "Unknown"
-        self.user_grade = user_grade if user_grade is not None else "normal"
+        self.user_grade = user_grade if user_grade is not None else "pro_coin"
         self.user_email = user_email if user_email is not None else ""
         self.logger.info(f"사용자 정보 설정 완료: {self.user_id} ({self.user_grade})")
         

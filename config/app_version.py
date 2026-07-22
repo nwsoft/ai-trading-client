@@ -7,7 +7,7 @@
 - 문서 동기화만으로는 RELEASE_VERSION을 변경하지 않는다.
 """
 
-RELEASE_VERSION = "3.8.9.29"
+RELEASE_VERSION = "3.9.0.0"
 
 DASHBOARD_TITLE = f"Noah AI Client - 대시보드 Beta {RELEASE_VERSION}"
 USER_MANUAL_TITLE = f"📖 NoahAI 사용메뉴얼 v{RELEASE_VERSION}"

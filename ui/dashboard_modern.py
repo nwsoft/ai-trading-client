@@ -14,6 +14,7 @@ from datetime import datetime, timedelta
 import math
 import threading
 import time
+import queue
 from typing import List, Dict, Any, Optional, Tuple, Callable, cast
 import webbrowser
 
@@ -227,6 +228,7 @@ class ModernDashboard(ctk.CTk):
         self.after_jobs = []  # after() 작업 추적
         self._is_destroying = False  # 종료 플래그
         self._stock_auto_loop_running = False
+        self._ui_call_queue: "queue.Queue[Callable[[], None]]" = queue.Queue()
 
         # 계단식 탭 구조: 서비스별 하위 탭 관리
         self.service_sub_tabs = {
@@ -279,6 +281,12 @@ class ModernDashboard(ctk.CTk):
 
         # UI 초기화
         self.init_ui()
+
+        # 백그라운드 스레드에서 들어온 UI 반영 콜백을 메인 스레드에서 안전하게 실행
+        try:
+            self.safe_after(50, self._drain_ui_call_queue)
+        except Exception:
+            pass
 
         # 거래소 정보 업데이트
         self.update_exchange_info()
@@ -1230,6 +1238,20 @@ class ModernDashboard(ctk.CTk):
 
     def _balance_metric_items(self, exchange: str, balance: Any) -> List[tuple[str, str]]:
         """서로 다른 거래소 잔고 응답을 최대 3개의 짧은 지표로 정규화한다."""
+        # 방송 리플레이가 켜진 경우, Binance 계열 잔고 표시에 오버레이를 우선 적용한다.
+        try:
+            ex_l = str(exchange or '').strip().lower()
+            override_balance = self._get_broadcast_display_overrides().get('balance_usdt')
+            if override_balance is not None and ex_l.startswith('binance') and isinstance(balance, dict):
+                patched = dict(balance)
+                patched['USDT'] = float(override_balance)
+                patched['TOTAL'] = float(override_balance)
+                patched['TOTAL_USDT'] = float(override_balance)
+                patched['Total'] = float(override_balance)
+                balance = patched
+        except Exception:
+            pass
+
         if isinstance(balance, (int, float, str)):
             return [("총 자산", self._format_balance_number(balance))]
         if not isinstance(balance, dict) or not balance:
@@ -1415,6 +1437,9 @@ class ModernDashboard(ctk.CTk):
             if not hasattr(self, 'balance_display'):
                 return
             lines: List[str] = ["💰 통합 잔고 요약", "", "• 거래소/증권사별 현황"]
+            display_overrides = self._get_broadcast_display_overrides()
+            override_balance = display_overrides.get('balance_usdt')
+            override_balance_applied = False
             total_sources = len(all_balances or {})
             valid_sources = 0
             
@@ -1430,6 +1455,13 @@ class ModernDashboard(ctk.CTk):
 
                 # USDT 잔고 확인 (BinanceFuturesAdapter는 이미 평탄화된 구조)
                 usdt_balance = bal.get('USDT') or bal.get('total') or bal.get('Total')
+                if (
+                    override_balance is not None
+                    and not override_balance_applied
+                    and str(ex_key or '').strip().lower().startswith('binance')
+                ):
+                    usdt_balance = override_balance
+                    override_balance_applied = True
                 
                 # KRW 잔고 확인 (현물 거래소용)
                 krw_balance = bal.get('KRW') or 0.0
@@ -1472,6 +1504,8 @@ class ModernDashboard(ctk.CTk):
                     lines.append(f"  - {ex_key}: {preview}")
 
             # 통합 합계 표시
+            if override_balance is not None:
+                total_usdt = float(override_balance)
             if total_usdt > 0 or total_krw > 0:
                 lines.append("")
                 lines.append("• 통합 합계(통화별)")
@@ -5066,6 +5100,22 @@ class ModernDashboard(ctk.CTk):
                     grand_wins = sum(int(row[3] or 0) for row in rows)
                     grand_pnl = sum(float(row[6] or 0.0) for row in rows)
                     grand_fees = sum(float(row[7] or 0.0) for row in rows)
+                    display_overrides = self._get_broadcast_display_overrides()
+                    override_trades = display_overrides.get('total_trades')
+                    override_win_rate = display_overrides.get('win_rate_percent')
+                    override_pnl = display_overrides.get('total_pnl_usdt')
+                    override_fees = display_overrides.get('total_fees_usdt')
+
+                    if override_trades is not None:
+                        grand_total = int(round(float(override_trades)))
+                    if override_win_rate is not None and grand_total > 0:
+                        # 카드 승률 표시는 wins/total 기반이므로 오버레이 win_rate를 역산하여 적용
+                        grand_wins = int(round(grand_total * (float(override_win_rate) / 100.0)))
+                    if override_pnl is not None:
+                        grand_pnl = float(override_pnl)
+                    if override_fees is not None:
+                        grand_fees = float(override_fees)
+
                     exchange_names = {str(row[0] or '').upper() for row in rows}
                     has_krw = bool(exchange_names & {"UPBIT", "BITHUMB"})
                     has_non_krw = bool(exchange_names - {"UPBIT", "BITHUMB"})
@@ -5152,6 +5202,11 @@ class ModernDashboard(ctk.CTk):
                                 lbl.grid(row=0, column=col_idx, padx=7, pady=9, sticky="ew")
                                 row_frame.grid_columnconfigure(col_idx, weight=1)
 
+                    if override_trades is not None:
+                        all_trades = int(round(float(override_trades)))
+                    if override_fees is not None:
+                        all_fees = float(override_fees)
+
                     summary_exchange = exchange_filter_value if exchange_filter_value not in ("전체", "ALL") else "전체"
                     summary_unit = (
                         "KRW" if summary_exchange in {"UPBIT", "BITHUMB"}
@@ -5179,6 +5234,12 @@ class ModernDashboard(ctk.CTk):
         try:
             labels = getattr(self, 'trading_stats_kpi_labels', {}) or {}
             win_rate = (float(wins) / float(total) * 100.0) if total else 0.0
+            try:
+                override_win_rate = self._get_broadcast_display_overrides().get('win_rate_percent')
+                if override_win_rate is not None:
+                    win_rate = float(override_win_rate)
+            except Exception:
+                pass
             values = {
                 'trades': f"{int(total):,}건",
                 'win_rate': f"{win_rate:.1f}%",
@@ -5228,6 +5289,76 @@ class ModernDashboard(ctk.CTk):
                 return get_db_file_path()
             except Exception:
                 return ''
+
+    def _get_dashboard_replay_log_file_path(self, exchange: str) -> Optional[str]:
+        """관리자 방송 리플레이용 로그 파일 경로를 반환한다."""
+        try:
+            from path_utils import get_current_user_account, get_app_base_dir
+            from utils.admin_utils import is_admin_account
+
+            settings = self.settings if isinstance(self.settings, dict) else {}
+            replay_enabled = bool(settings.get('broadcast_replay_enabled', False))
+            replay_source = str(settings.get('broadcast_replay_source_account', '') or '').strip()
+            if not replay_enabled or not replay_source:
+                return None
+
+            current_user = (
+                get_current_user_account()
+                or settings.get('user_id')
+                or settings.get('username')
+                or ''
+            )
+            if not is_admin_account(str(current_user or '').strip()):
+                return None
+
+            base_log_dir = os.path.join(get_app_base_dir(), 'data', replay_source, 'logs')
+            ex = str(exchange or '').strip().lower()
+            candidates = [
+                os.path.join(base_log_dir, f'trading_{ex}.log'),
+                os.path.join(base_log_dir, 'trading.log'),
+            ]
+            for path in candidates:
+                if os.path.exists(path):
+                    return path
+            return None
+        except Exception:
+            return None
+
+    def _get_broadcast_display_overrides(self) -> Dict[str, Optional[float]]:
+        """관리자 방송 시 화면 표시용 잔고/손익 오버레이 값을 반환한다."""
+        result: Dict[str, Optional[float]] = {
+            'balance_usdt': None,
+            'total_pnl_usdt': None,
+            'total_trades': None,
+            'win_rate_percent': None,
+            'total_fees_usdt': None,
+        }
+        try:
+            settings = self.settings if isinstance(self.settings, dict) else {}
+            # 방송 리플레이 토글 하나로 오버레이 표시도 함께 ON/OFF 되도록 연동
+            replay_enabled = bool(settings.get('broadcast_replay_enabled', False))
+            if not replay_enabled:
+                return result
+
+            raw_balance = settings.get('broadcast_display_balance_usdt', None)
+            raw_pnl = settings.get('broadcast_display_total_pnl_usdt', None)
+            raw_trades = settings.get('broadcast_display_total_trades', None)
+            raw_win_rate = settings.get('broadcast_display_win_rate_percent', None)
+            raw_fees = settings.get('broadcast_display_total_fees_usdt', None)
+
+            if raw_balance not in (None, ''):
+                result['balance_usdt'] = float(raw_balance)
+            if raw_pnl not in (None, ''):
+                result['total_pnl_usdt'] = float(raw_pnl)
+            if raw_trades not in (None, ''):
+                result['total_trades'] = float(raw_trades)
+            if raw_win_rate not in (None, ''):
+                result['win_rate_percent'] = float(raw_win_rate)
+            if raw_fees not in (None, ''):
+                result['total_fees_usdt'] = float(raw_fees)
+        except Exception:
+            pass
+        return result
 
     # ===== 빠른 이동 메서드들 =====
     def _jump_to_ai_learning(self) -> None:
@@ -8634,6 +8765,67 @@ class ModernDashboard(ctk.CTk):
 
             def refresh_once():
                 try:
+                    # 방송 리플레이 모드에서는 실API 대신 리플레이 DB의 미청산 포지션을 우선 표시
+                    try:
+                        replay_db_path = self._get_dashboard_read_db_path()
+                        settings = self.settings if isinstance(self.settings, dict) else {}
+                        replay_enabled = bool(settings.get('broadcast_replay_enabled', False))
+                        if replay_enabled and replay_db_path and os.path.exists(replay_db_path):
+                            import sqlite3
+                            with sqlite3.connect(replay_db_path) as conn:
+                                cur = conn.cursor()
+                                ex_l = str(exchange or '').strip().lower()
+                                if ex_l == 'binance':
+                                    cur.execute(
+                                        """
+                                        SELECT symbol, side, quantity, entry_price, pnl, leverage
+                                        FROM trade_log
+                                        WHERE exit_time IS NULL
+                                          AND (LOWER(COALESCE(exchange, 'binance')) = 'binance' OR TRIM(COALESCE(exchange, '')) = '')
+                                        ORDER BY id DESC
+                                        """
+                                    )
+                                else:
+                                    cur.execute(
+                                        """
+                                        SELECT symbol, side, quantity, entry_price, pnl, leverage
+                                        FROM trade_log
+                                        WHERE exit_time IS NULL
+                                          AND LOWER(COALESCE(exchange, 'unknown')) = ?
+                                        ORDER BY id DESC
+                                        """,
+                                        (ex_l,),
+                                    )
+                                rows = cur.fetchall() or []
+
+                            replay_positions = {}
+                            for symbol, side, quantity, entry_price, pnl, leverage in rows:
+                                sym = str(symbol or '').strip()
+                                if not sym:
+                                    continue
+                                replay_positions[sym] = {
+                                    'side': str(side or 'LONG').upper(),
+                                    'quantity': float(quantity or 0),
+                                    'entry_price': float(entry_price or 0),
+                                    'unrealized_pnl': float(pnl or 0),
+                                    'leverage': leverage,
+                                }
+
+                            quote = 'KRW' if exchange in {'upbit', 'bithumb'} else 'USDT'
+                            self._render_position_cards(body, count_label, replay_positions, quote=quote)
+                            try:
+                                count_label.configure(text=f"{len(replay_positions)}개 리플레이", text_color="#60a5fa")
+                            except Exception:
+                                pass
+
+                            try:
+                                self.thread_safe_after(3000, refresh_once)
+                            except Exception:
+                                pass
+                            return
+                    except Exception:
+                        pass
+
                     positions = {}
 
                     # 바이낸스는 거래소 API에서 직접 포지션 조회 (실제 상태 반영)
@@ -8813,7 +9005,29 @@ class ModernDashboard(ctk.CTk):
                             winning_trades = row[1] or 0
                             total_pnl = row[2] or 0.0
                             total_fees = row[3] or 0.0
-                            win_rate = (winning_trades / total_trades * 100) if total_trades > 0 else 0.0
+
+                            # 방송 리플레이 표시 오버레이를 거래소 탭 KPI에도 동일 적용
+                            try:
+                                display_overrides = self._get_broadcast_display_overrides()
+                                override_trades = display_overrides.get('total_trades')
+                                override_win_rate = display_overrides.get('win_rate_percent')
+                                override_pnl = display_overrides.get('total_pnl_usdt')
+                                override_fees = display_overrides.get('total_fees_usdt')
+
+                                if override_trades is not None:
+                                    total_trades = int(round(float(override_trades)))
+                                if override_pnl is not None:
+                                    total_pnl = float(override_pnl)
+                                if override_fees is not None:
+                                    total_fees = float(override_fees)
+
+                                if override_win_rate is not None:
+                                    win_rate = float(override_win_rate)
+                                else:
+                                    win_rate = (winning_trades / total_trades * 100) if total_trades > 0 else 0.0
+                            except Exception:
+                                win_rate = (winning_trades / total_trades * 100) if total_trades > 0 else 0.0
+
                             value_labels['total'].configure(text=f"{total_trades:,}건")
                             value_labels['win_rate'].configure(text=f"{win_rate:.1f}%")
                             value_labels['pnl'].configure(
@@ -8850,6 +9064,11 @@ class ModernDashboard(ctk.CTk):
             except Exception:
                 _stream = None  # 폴백: 파일 기반 모드로 동작
 
+            replay_log_file = self._get_dashboard_replay_log_file_path(exchange)
+            if replay_log_file:
+                # 방송 리플레이 모드에서는 소스 계정 로그 파일을 고정 표시한다.
+                _stream = None
+
             # 로그 영역을 카드 프레임으로 감싸서 둥근 모서리가 명확히 보이도록 처리
             log_card = self._create_card_frame(parent, corner_radius=12)
             log_card.pack(fill="both", expand=True, padx=4, pady=(4, 8))
@@ -8860,6 +9079,7 @@ class ModernDashboard(ctk.CTk):
                 logger=self.logger,
                 log_stream=_stream,
                 stream_exchange=exchange,
+                log_file_override_path=replay_log_file,
                 on_open_manual=lambda: self._open_manual_modal("📅 업데이트"),
                 # 카드 위에 직접 배치되는 프레임(자체)을 투명으로 두어 카드 모서리가 보이도록
                 fg_color="#0b1120",
@@ -10332,12 +10552,43 @@ class ModernDashboard(ctk.CTk):
                 # 메인 스레드에서 직접 호출
                 return self.safe_after(delay, func, *args, **kwargs)
             else:
-                # 백그라운드 스레드에서 호출 시 무시 (안전하게)
-                # print(f"⚠️ 백그라운드 스레드에서 UI 업데이트 시도 무시: {current_thread.name}")  # 로그 제거
+                # 백그라운드 스레드에서는 큐에 넣고 메인 스레드 루프가 실행한다.
+                def queued_call():
+                    try:
+                        self.safe_after(delay, func, *args, **kwargs)
+                    except Exception:
+                        pass
+                try:
+                    self._ui_call_queue.put_nowait(queued_call)
+                except Exception:
+                    pass
                 return None
         except Exception as e:
             print(f"⚠️ thread_safe_after 오류: {e}")
             return None
+
+    def _drain_ui_call_queue(self):
+        """백그라운드 큐에 쌓인 UI 콜백을 메인 스레드에서 순차 실행한다."""
+        try:
+            processed = 0
+            while processed < 200:
+                try:
+                    callback = self._ui_call_queue.get_nowait()
+                except queue.Empty:
+                    break
+                try:
+                    callback()
+                except Exception:
+                    pass
+                processed += 1
+        except Exception:
+            pass
+        finally:
+            try:
+                if not getattr(self, '_is_destroying', False) and self.winfo_exists():
+                    self.safe_after(50, self._drain_ui_call_queue)
+            except Exception:
+                pass
 
     def cleanup_after_jobs(self):
         """모든 after() 작업 정리 - TclError 방지"""
@@ -10531,14 +10782,23 @@ class ModernDashboard(ctk.CTk):
             user_id = self.get_user_id_from_login_data()
             user_grade = self.get_user_grade_from_token()
             normalized_grade = str(user_grade or '').strip().lower()
+            if normalized_grade in {
+                'normal', 'basic', 'general', 'coin_start', 'coin-start', 'pro_coin', 'pro-coin'
+            }:
+                normalized_grade = 'pro_coin'
+            elif normalized_grade in {'stock', 'stocks', 'etf', 'pro_stock', 'pro-stock'}:
+                normalized_grade = 'pro_stock'
             if normalized_grade in {'signature', 'signature_federated'}:
                 normalized_grade = 'premium'
             if normalized_grade in {'pro', 'all_trading', 'all-trading', 'alltrading', 'middle'}:
-                grade_badge = "프로"
-            elif normalized_grade == 'premium':
+                normalized_grade = 'premium'
+
+            if normalized_grade == 'premium':
                 grade_badge = "프리미엄"
+            elif normalized_grade in {'pro_coin', 'pro_stock'}:
+                grade_badge = "프로"
             else:
-                grade_badge = "일반"
+                grade_badge = "프로"
             try:
                 # 기존 스타일 유지하면서 텍스트만 업데이트
                 self.user_info_label.configure(
@@ -10601,10 +10861,10 @@ class ModernDashboard(ctk.CTk):
                 with open(token_path, 'r', encoding='utf-8') as f:
                     token_data = json.load(f)
                 user_info = token_data.get('user_info', {})
-                return user_info.get('user_grade', 'normal')
+                return user_info.get('user_grade', 'pro_coin')
         except Exception:
             pass
-        return 'normal'
+        return 'pro_coin'
 
     def update_trading_status(self):
         """자동거래 상태 업데이트"""
@@ -11008,6 +11268,22 @@ class ModernDashboard(ctk.CTk):
             try:
                 if total_trades > 0:
                     win_rate = (_wins_sum / total_trades) * 100.0
+            except Exception:
+                pass
+
+            # 관리자 방송 모드에서는 화면 표시용 손익 오버레이를 적용한다.
+            try:
+                display_overrides = self._get_broadcast_display_overrides()
+                override_pnl = display_overrides.get('total_pnl_usdt')
+                override_trades = display_overrides.get('total_trades')
+                override_win_rate = display_overrides.get('win_rate_percent')
+
+                if override_trades is not None:
+                    total_trades = int(round(float(override_trades)))
+                if override_pnl is not None:
+                    total_pnl = float(override_pnl)
+                if override_win_rate is not None:
+                    win_rate = float(override_win_rate)
             except Exception:
                 pass
 

@@ -75,20 +75,32 @@ def check_release_version_markers(text_map: Dict[str, str]) -> List[str]:
 
 def check_for_higher_version_mentions(text_map: Dict[str, str]) -> List[str]:
     errors: List[str] = []
-    # RELEASE_VERSION보다 큰 3.8.9.x 버전 표기가 핵심 문서에 있으면 실패
-    try:
-        release_patch = int(RELEASE_VERSION.split(".")[-1])
-    except Exception:
-        release_patch = 0
-    version_regex = re.compile(r"v?3\.8\.9\.(\d+)")
+    # RELEASE_VERSION보다 큰 vX.Y.Z.W 형태 표기가 핵심 문서에 있으면 실패
+    release_tuple = parse_version_tuple(RELEASE_VERSION)
+    if release_tuple is None:
+        return [f"[VERSION_PARSE] RELEASE_VERSION 형식 오류: {RELEASE_VERSION}"]
+
+    version_regex = re.compile(r"v?(\d+)\.(\d+)\.(\d+)\.(\d+)")
 
     for key in ("user_guide", "changelog", "policy"):
         text = text_map.get(key, "")
         for m in version_regex.finditer(text):
-            detected_patch = int(m.group(1))
-            if detected_patch > release_patch:
+            detected = (
+                int(m.group(1)),
+                int(m.group(2)),
+                int(m.group(3)),
+                int(m.group(4)),
+            )
+            if detected > release_tuple:
                 errors.append(f"[VERSION_HIGH] {key}: 배포 버전(v{RELEASE_VERSION})보다 높은 표기 감지 -> {m.group(0)}")
     return errors
+
+
+def parse_version_tuple(version: str) -> tuple[int, int, int, int] | None:
+    m = re.fullmatch(r"(\d+)\.(\d+)\.(\d+)\.(\d+)", version.strip())
+    if not m:
+        return None
+    return (int(m.group(1)), int(m.group(2)), int(m.group(3)), int(m.group(4)))
 
 
 def main() -> int:

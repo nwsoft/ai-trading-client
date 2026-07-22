@@ -122,7 +122,7 @@ a = Analysis(
         'youtube_transcript_api',
         'yt_dlp',
     ],
-    hookspath=[],
+    hookspath=['hooks'],
     hooksconfig={},
     runtime_hooks=[],
     excludes=[

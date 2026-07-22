@@ -363,7 +363,7 @@ class LoginWindow:
                     'email': response.get('email'),
                     'session_id': response.get('session_id'),
                     'token_type': response.get('token_type'),
-                    'user_grade': response.get('user_grade', 'normal')
+                    'user_grade': response.get('user_grade', 'pro_coin')
                 }
 
                 # 로그인 정보 저장 (아이디 + 패스워드)

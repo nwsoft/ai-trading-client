@@ -6529,6 +6529,9 @@ class ModernSettingsWindow:
                 else:
                     new_settings['broadcast_replay_enabled'] = bool(self.current_settings.get('broadcast_replay_enabled', False))
 
+                # 방송 리플레이 토글과 화면 오버레이 토글을 항상 동일하게 유지
+                new_settings['broadcast_display_override_enabled'] = bool(new_settings['broadcast_replay_enabled'])
+
                 if hasattr(self, 'broadcast_replay_source_entry') and self.broadcast_replay_source_entry is not None and hasattr(self.broadcast_replay_source_entry, 'get'):
                     new_settings['broadcast_replay_source_account'] = str(self.broadcast_replay_source_entry.get() or '').strip()
                 else:
@@ -6537,6 +6540,7 @@ class ModernSettingsWindow:
                 new_settings['paper_trading'] = bool(self.current_settings.get('paper_trading', False))
                 new_settings['verbose_trade_logging'] = bool(self.current_settings.get('verbose_trade_logging', False))
                 new_settings['broadcast_replay_enabled'] = bool(self.current_settings.get('broadcast_replay_enabled', False))
+                new_settings['broadcast_display_override_enabled'] = bool(new_settings['broadcast_replay_enabled'])
                 new_settings['broadcast_replay_source_account'] = str(self.current_settings.get('broadcast_replay_source_account', '') or '').strip()
 
             # UI 설정 저장: 항상 최상단 표시

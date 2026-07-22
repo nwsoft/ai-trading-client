@@ -187,7 +187,7 @@ a = Analysis(
     hiddenimports=[
         {hiddenimports_str}
     ],
-    hookspath=[],
+    hookspath=['hooks'],
     hooksconfig={{}},
     runtime_hooks=[],
     excludes=[

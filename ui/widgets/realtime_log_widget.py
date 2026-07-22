@@ -13,6 +13,7 @@ from datetime import datetime
 from typing import List, Dict, Optional, Callable
 import threading
 import time
+import re
 
 # 고정 색상 사용 (테마 제거)
 try:
@@ -33,7 +34,7 @@ class RealtimeLogWidget(ctk.CTkFrame):
     기존 파일 tail 기반 로직은 유지 (점진적 마이그레이션)
     """
 
-    def __init__(self, parent, logger, log_stream=None, stream_exchange: str | None = None, on_open_manual: Optional[Callable[[], None]] = None, **kwargs):
+    def __init__(self, parent, logger, log_stream=None, stream_exchange: str | None = None, on_open_manual: Optional[Callable[[], None]] = None, log_file_override_path: Optional[str] = None, replay_playback_active_getter: Optional[Callable[[], bool]] = None, **kwargs):
         """Realtime log widget
         kwargs are forwarded to CTkFrame to allow styling (e.g., corner_radius, fg_color, border).
         """
@@ -50,6 +51,11 @@ class RealtimeLogWidget(ctk.CTkFrame):
         self._disposed = False
         self._log_stream = log_stream  # LogStreamService 인스턴스 (있으면 구독)
         self._stream_exchange = stream_exchange  # 필터링용(전역 탭은 None)
+        self._log_file_override_path = log_file_override_path  # 리플레이/특수 로그 파일 경로 우선 사용
+        self._replay_playback_active_getter = replay_playback_active_getter
+        self._replay_refresh_interval = 40  # 리플레이 파일은 일반 실시간보다 충분히 느리게 갱신
+        self._replay_recent_line_limit = 8  # 리플레이 화면에 보여줄 최근 라인 수
+        self._replay_line_stride = 30  # 리플레이 신규 로그는 30줄 중 1줄만 반영
         self._on_open_manual = on_open_manual
         self._stream_subscription = None
         # 이동된 드롭다운 초기화 (정적 분석기 경고 방지용)
@@ -75,6 +81,27 @@ class RealtimeLogWidget(ctk.CTkFrame):
 
         # 초기화 완료 후 대기 중인 로그 처리
         self.safe_after(100, self._process_pending_logs)
+
+    def _normalize_replay_log_line(self, log_line: str) -> str:
+        """리플레이 로그의 날짜만 오늘로 정규화해서 화면상 시각을 현재처럼 보이게 한다."""
+        try:
+            if not self._log_file_override_path:
+                return log_line
+            today = datetime.now().strftime('%Y-%m-%d')
+            return re.sub(r'^\d{4}-\d{2}-\d{2}', today, str(log_line), count=1)
+        except Exception:
+            return log_line
+
+    def _is_replay_playback_active(self) -> bool:
+        """리플레이 재생 활성 상태를 반환한다. getter가 없으면 기본 활성로 처리한다."""
+        try:
+            if not self._log_file_override_path:
+                return True
+            if callable(self._replay_playback_active_getter):
+                return bool(self._replay_playback_active_getter())
+            return True
+        except Exception:
+            return True
 
     # --- Theme helpers - 고정 색상만 사용
     def _color(self, key: str, fallback: Optional[str] = None) -> str:
@@ -474,7 +501,7 @@ class RealtimeLogWidget(ctk.CTkFrame):
                 show_lines = []
                 lines_all = []
                 for e in events:
-                    line = e.format_line()+"\n"
+                    line = self._normalize_replay_log_line(e.format_line()) + "\n"
                     lines_all.append(line)
                     # 거래소별 탭은 메타(exchange)와 텍스트 패턴을 모두 허용하여 누락을 줄인다.
                     if self._stream_exchange:
@@ -537,7 +564,8 @@ class RealtimeLogWidget(ctk.CTkFrame):
             if log_file and os.path.exists(log_file):
                 with open(log_file, 'r', encoding='utf-8') as f:
                     lines = f.readlines()
-                    recent_lines = lines[-100:]  # 최근 100줄
+                    recent_limit = self._replay_recent_line_limit if self._log_file_override_path else 100
+                    recent_lines = lines[-recent_limit:]  # 최근 N줄
 
                 # 로그 필터링 적용 (+ 거래소별 필터)
                 filtered_lines = []
@@ -547,7 +575,7 @@ class RealtimeLogWidget(ctk.CTkFrame):
                         continue
                     if self._stream_exchange and not self._matches_exchange(s):
                         continue
-                    filtered_lines.append(line)
+                    filtered_lines.append(self._normalize_replay_log_line(line))
 
                 # 필터링된 로그 표시
                 self.realtime_log_display.delete("1.0", "end")
@@ -576,6 +604,9 @@ class RealtimeLogWidget(ctk.CTkFrame):
     def get_log_file_path(self):
         """실제 로그 파일 경로 가져오기 - 거래소별 탭에서는 해당 거래소 로그 파일 사용"""
         try:
+            if self._log_file_override_path:
+                return self._log_file_override_path
+
             # path_utils를 통해 로그 파일 경로 가져오기
             from path_utils import get_log_file_path, get_exchange_log_file_path
 
@@ -865,6 +896,9 @@ class RealtimeLogWidget(ctk.CTkFrame):
             while self._monitoring:
                 log_file = self.get_log_file_path()
                 if log_file and os.path.exists(log_file):
+                    if self._log_file_override_path and not self._is_replay_playback_active():
+                        time.sleep(1)
+                        continue
                     current_size = os.path.getsize(log_file)
 
                     # 파일 크기가 변경되었으면 새 로그 읽기
@@ -876,7 +910,8 @@ class RealtimeLogWidget(ctk.CTkFrame):
                         self._last_file_size = 0
                         self.refresh_logs()
 
-                time.sleep(1)  # 1초마다 체크
+                # 리플레이 파일은 너무 자주 훑지 않도록 약간 천천히 갱신한다.
+                time.sleep(self._replay_refresh_interval if self._log_file_override_path else 1)
 
         except Exception as e:
             self.logger.error(f"로그 파일 모니터링 오류: {e}")
@@ -888,9 +923,13 @@ class RealtimeLogWidget(ctk.CTkFrame):
                 f.seek(last_position)
                 new_lines = f.readlines()
 
+                if self._log_file_override_path and new_lines:
+                    stride = max(1, int(getattr(self, '_replay_line_stride', 10)))
+                    new_lines = new_lines[::stride]
+
                 for line in new_lines:
                     if line.strip():
-                        self.add_log(line.strip(), "INFO")
+                        self.add_log(self._normalize_replay_log_line(line.strip()), "INFO")
 
         except Exception as e:
             self.logger.error(f"새 로그 읽기 오류: {e}")
@@ -915,7 +954,7 @@ class RealtimeLogWidget(ctk.CTkFrame):
                 return
 
             # 파일 로그와 동일한 형식으로 통일
-            log_entry = f"{message}\n"
+            log_entry = f"{self._normalize_replay_log_line(message)}\n"
 
             # 모든 로그 저장 (필터링용)
             if not hasattr(self, '_all_logs'):
