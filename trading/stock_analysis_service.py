@@ -20,10 +20,18 @@ from __future__ import annotations
 import logging
 import hashlib
 import time as pytime
-from datetime import datetime, time as dtime, timedelta
+from datetime import datetime, time as dtime, timedelta, timezone
 from typing import Any, Dict, List, Optional
 from log_system.log_adapter import log_event
 from api.kpi_client import emit_kpi_event
+from api.position_kpi import (
+    as_utc,
+    emit_position_closed,
+    emit_position_opened,
+    emit_position_reduced,
+    make_position_id,
+    utc_now,
+)
 from trading.stock_risk_governance import evaluate_stock_risk_governance
 from trading.execution_optimizer import ExecutionOptimizer
 from trading.ops_automation import OpsAutomationEngine
@@ -1512,42 +1520,256 @@ class StockAnalysisService:
         price: float,
         score: float,
         momentum: float,
-    ) -> None:
-        """자동매매 성공 주문을 trade_log에 즉시 기록한다."""
+        *,
+        asset_class: str = 'stock',
+        execution_mode: str = 'live',
+        order_result: Optional[Dict[str, Any]] = None,
+        close_reason: str = '',
+    ) -> Optional[Dict[str, Any]]:
+        """자동매매 체결을 포지션 생명주기로 저장하고 KPI를 전송한다."""
         recorder = self._get_recorder()
         if recorder is None:
-            return
+            return None
 
         try:
             from trading.recorder import TradeLog
         except Exception:
-            return
+            return None
 
         try:
             side_upper = str(side or '').upper()
-            trade_side = 'LONG' if side_upper == 'BUY' else 'SHORT'
-            log_row = TradeLog(
-                id=None,
-                symbol=symbol,
-                entry_price=price,
-                exit_price=price,
-                quantity=quantity,
-                leverage=1,
-                pnl=0.0,
-                pnl_percent=None,
-                entry_time=datetime.now(),
-                exit_time=datetime.now(),
-                reason=f'stock_auto_{side_upper.lower()}_score_{score:.1f}_mom_{momentum:+.2f}',
-                side=trade_side,
-                tp_price=None,
-                sl_price=None,
-                fees=0.0,
-                slippage=0.0,
-                exchange=self.broker_name,
+            result = order_result if isinstance(order_result, dict) else {}
+            order_id = (
+                result.get('order_id')
+                or result.get('orderId')
+                or result.get('id')
+                or result.get('odno')
             )
-            recorder.insert_trade_log(log_row)
-        except Exception:
-            return
+            filled_price = self._to_float(
+                result.get('filled_price', result.get('price', price)),
+                default=price,
+            )
+            event_at = utc_now()
+            reason = (
+                close_reason
+                or f'stock_auto_{side_upper.lower()}_score_{score:.1f}_mom_{momentum:+.2f}'
+            )
+
+            if side_upper == 'BUY':
+                log_row = TradeLog(
+                    id=None,
+                    symbol=symbol,
+                    entry_price=filled_price,
+                    exit_price=None,
+                    quantity=quantity,
+                    leverage=1,
+                    pnl=None,
+                    pnl_percent=None,
+                    entry_time=event_at,
+                    exit_time=None,
+                    reason=reason,
+                    side='LONG',
+                    tp_price=None,
+                    sl_price=None,
+                    fees=0.0,
+                    slippage=0.0,
+                    exchange=self.broker_name,
+                    order_id=str(order_id) if order_id not in (None, '') else None,
+                )
+                inserted_id = recorder.insert_trade_log(log_row)
+                entry_identity = order_id or f'trade-log:{inserted_id}'
+                position_id = make_position_id(
+                    venue=self.broker_name,
+                    symbol=symbol,
+                    opened_at=event_at,
+                    entry_order_id=entry_identity,
+                )
+                emitted, position_id = emit_position_opened(
+                    asset_class=asset_class,
+                    venue=self.broker_name,
+                    symbol=symbol,
+                    side='LONG',
+                    opened_at=event_at,
+                    entry_price=filled_price,
+                    quantity=quantity,
+                    position_id=position_id,
+                    entry_order_id=entry_identity,
+                    execution_mode=execution_mode,
+                    source='noahai_client_stock_position',
+                )
+                return {
+                    'event': 'opened',
+                    'position_id': position_id,
+                    'emitted': emitted,
+                    'trade_log_id': inserted_id,
+                }
+
+            open_rows = recorder.execute_query(
+                """
+                SELECT id, entry_price, quantity, entry_time, order_id, fees
+                FROM trade_log
+                WHERE symbol = ?
+                  AND exchange = ?
+                  AND side = 'LONG'
+                  AND exit_time IS NULL
+                ORDER BY entry_time ASC, id ASC
+                """,
+                (symbol, self.broker_name),
+            )
+            if not open_rows:
+                logger.warning(
+                    "주식 포지션 종료 KPI 보류: %s %s의 검증 가능한 진입 로그가 없습니다.",
+                    self.broker_name,
+                    symbol,
+                )
+                return None
+
+            quantity_to_close = float(quantity)
+            lifecycle_events: List[Dict[str, Any]] = []
+            for (
+                trade_id,
+                entry_price,
+                open_quantity,
+                opened_at_raw,
+                entry_order_id,
+                entry_fees,
+            ) in open_rows:
+                if quantity_to_close <= 1e-9:
+                    break
+                opened_at = as_utc(opened_at_raw)
+                if opened_at is None or float(open_quantity or 0.0) <= 0:
+                    continue
+
+                close_quantity = min(quantity_to_close, float(open_quantity))
+                remaining_quantity = max(0.0, float(open_quantity) - close_quantity)
+                quantity_to_close -= close_quantity
+                gross_pnl = (filled_price - float(entry_price)) * close_quantity
+                pnl_percent = (
+                    (filled_price - float(entry_price)) / float(entry_price) * 100.0
+                    if float(entry_price) > 0
+                    else 0.0
+                )
+                fee_ratio = close_quantity / float(open_quantity)
+                allocated_entry_fee = float(entry_fees or 0.0) * fee_ratio
+                remaining_entry_fee = max(0.0, float(entry_fees or 0.0) - allocated_entry_fee)
+                entry_identity = entry_order_id or f'trade-log:{trade_id}'
+                position_id = make_position_id(
+                    venue=self.broker_name,
+                    symbol=symbol,
+                    opened_at=opened_at,
+                    entry_order_id=entry_identity,
+                )
+                if not position_id:
+                    continue
+
+                if remaining_quantity <= 1e-9:
+                    recorder.execute_query(
+                        """
+                        UPDATE trade_log
+                        SET exit_price = ?, exit_time = ?, pnl = ?, pnl_percent = ?,
+                            reason = ?, exit_order_id = ?
+                        WHERE id = ?
+                        """,
+                        (
+                            filled_price,
+                            event_at.isoformat(),
+                            gross_pnl,
+                            pnl_percent,
+                            reason,
+                            str(order_id) if order_id not in (None, '') else None,
+                            trade_id,
+                        ),
+                    )
+                    emitted = emit_position_closed(
+                        asset_class=asset_class,
+                        venue=self.broker_name,
+                        symbol=symbol,
+                        side='LONG',
+                        opened_at=opened_at,
+                        closed_at=event_at,
+                        entry_price=float(entry_price),
+                        exit_price=filled_price,
+                        closed_quantity=close_quantity,
+                        close_reason=reason,
+                        position_id=position_id,
+                        entry_order_id=entry_identity,
+                        exit_order_id=order_id,
+                        execution_mode=execution_mode,
+                        source='noahai_client_stock_position',
+                        gross_pnl=gross_pnl,
+                        net_pnl=gross_pnl - allocated_entry_fee,
+                        fees=allocated_entry_fee,
+                    )
+                    lifecycle_events.append(
+                        {'event': 'closed', 'position_id': position_id, 'emitted': emitted}
+                    )
+                    continue
+
+                recorder.execute_query(
+                    "UPDATE trade_log SET quantity = ?, fees = ? WHERE id = ?",
+                    (remaining_quantity, remaining_entry_fee, trade_id),
+                )
+                closed_lot = TradeLog(
+                    id=None,
+                    symbol=symbol,
+                    entry_price=float(entry_price),
+                    exit_price=filled_price,
+                    quantity=close_quantity,
+                    leverage=1,
+                    pnl=gross_pnl,
+                    pnl_percent=pnl_percent,
+                    entry_time=opened_at,
+                    exit_time=event_at,
+                    reason=reason,
+                    side='LONG',
+                    tp_price=None,
+                    sl_price=None,
+                    fees=allocated_entry_fee,
+                    slippage=0.0,
+                    exchange=self.broker_name,
+                    order_id=str(entry_order_id) if entry_order_id not in (None, '') else None,
+                    exit_order_id=str(order_id) if order_id not in (None, '') else None,
+                )
+                recorder.insert_trade_log(closed_lot)
+                emitted = emit_position_reduced(
+                    asset_class=asset_class,
+                    venue=self.broker_name,
+                    symbol=symbol,
+                    side='LONG',
+                    opened_at=opened_at,
+                    event_at=event_at,
+                    closed_quantity=close_quantity,
+                    remaining_quantity=remaining_quantity,
+                    position_id=position_id,
+                    exit_order_id=order_id,
+                    execution_mode=execution_mode,
+                    source='noahai_client_stock_position',
+                    extra={
+                        'entry_price': float(entry_price),
+                        'exit_price': filled_price,
+                        'gross_pnl': gross_pnl,
+                        'close_reason': reason,
+                    },
+                )
+                lifecycle_events.append(
+                    {'event': 'reduced', 'position_id': position_id, 'emitted': emitted}
+                )
+
+            if quantity_to_close > 1e-9:
+                logger.warning(
+                    "주식 포지션 종료 일부 미연결: %s %s 수량 %.8f",
+                    self.broker_name,
+                    symbol,
+                    quantity_to_close,
+                )
+            return {
+                'event': 'sell',
+                'events': lifecycle_events,
+                'unmatched_quantity': max(0.0, quantity_to_close),
+            }
+        except Exception as exc:
+            logger.warning("주식 포지션 생명주기 기록 실패 (%s %s): %s", self.broker_name, symbol, exc)
+            return None
 
     def _get_recent_trade_samples(self, limit: int = 50) -> List[Dict[str, Any]]:
         """최근 체결/거래 샘플을 수집한다."""
@@ -1919,6 +2141,7 @@ class StockAnalysisService:
                     'broker': self.broker_name,
                     'symbol': symbol,
                     'side': 'SELL',
+                    'close': True,
                     'reason': exit_decision.get('reason', ''),
                     'execution_mode': execution_mode,
                     'executed_price': current_price,
@@ -1934,6 +2157,10 @@ class StockAnalysisService:
                     price=current_price,
                     score=self._to_float(analysis.get('score')),
                     momentum=self._to_float(analysis.get('momentum')),
+                    asset_class='etf' if bool(analysis.get('is_etf')) else 'stock',
+                    execution_mode=execution_mode,
+                    order_result=order_result if isinstance(order_result, dict) else {},
+                    close_reason=str(exit_decision.get('reason') or 'exit_policy_triggered'),
                 )
 
         return decisions, executed_orders
@@ -2207,6 +2434,46 @@ class StockAnalysisService:
                 buy_threshold=effective_buy_threshold,
                 sell_threshold=effective_sell_threshold,
             )
+            # 활성 커스텀 전략은 기존 AI 확인·필터 또는 독립 신호 방식으로 동작한다.
+            if custom_strategy_pool:
+                from trading.declarative_strategy_engine import DeclarativeStrategyEngine
+                custom_context = dict(analysis)
+                custom_context.update({
+                    'signal': {'BUY': 'LONG', 'SELL': 'SHORT'}.get(signal, 'HOLD'),
+                    'confidence': max(0.0, min(1.0, self._to_float(analysis.get('score')) / 100.0)),
+                    'current_price': self._to_float(analysis.get('current_price')),
+                })
+                custom_entry = DeclarativeStrategyEngine.evaluate_strategy_pool(
+                    custom_strategy_pool,
+                    custom_context,
+                    asset_class='stock',
+                    target=self.broker_name,
+                    market_regime=market_regime,
+                )
+                if not custom_entry.get('allowed', False):
+                    decisions.append({
+                        'symbol': symbol, 'action': 'SKIP',
+                        'reason': 'custom_strategy_not_matched', 'custom_strategy': custom_entry,
+                    })
+                    continue
+                if custom_entry.get('selected_strategy_name'):
+                    if custom_entry.get('signal_mode') == 'independent':
+                        signal = 'BUY' if custom_entry.get('entry_signal') == 'LONG' else 'SELL'
+                    engine_settings = dict(custom_entry.get('engine_settings') or {})
+                    if 'signal_threshold' in engine_settings:
+                        custom_threshold = float(engine_settings['signal_threshold'])
+                        if custom_threshold <= 1.0:
+                            custom_threshold *= 100.0
+                        if self._to_float(analysis.get('score')) < custom_threshold:
+                            decisions.append({
+                                'symbol': symbol, 'action': 'SKIP',
+                                'reason': 'custom_signal_threshold_not_met',
+                                'strategy': custom_entry.get('selected_strategy_name'),
+                            })
+                            continue
+                    analysis['_selected_custom_strategy'] = custom_entry.get('selected_strategy_name')
+                    analysis['_custom_engine_settings'] = engine_settings
+                    analysis['_custom_operation_mode'] = custom_entry.get('operation_mode', 'standard')
             if signal == 'HOLD':
                 decisions.append({
                     'symbol': symbol,
@@ -2240,45 +2507,6 @@ class StockAnalysisService:
                     },
                 )
                 continue
-
-            # 승인된 AI 커스텀 전략 풀에서 현재 증권사·시장국면에 맞는 규칙을 선택한다.
-            if custom_strategy_pool:
-                from trading.declarative_strategy_engine import DeclarativeStrategyEngine
-                custom_context = dict(analysis)
-                custom_context.update({
-                    'signal': 'LONG' if signal == 'BUY' else 'SHORT',
-                    'confidence': max(0.0, min(1.0, self._to_float(analysis.get('score')) / 100.0)),
-                    'current_price': self._to_float(analysis.get('current_price')),
-                })
-                custom_entry = DeclarativeStrategyEngine.evaluate_strategy_pool(
-                    custom_strategy_pool,
-                    custom_context,
-                    asset_class='stock',
-                    target=self.broker_name,
-                    market_regime=market_regime,
-                )
-                if not custom_entry.get('allowed', False):
-                    decisions.append({
-                        'symbol': symbol,
-                        'action': 'SKIP',
-                        'reason': 'custom_strategy_not_matched',
-                        'custom_strategy': custom_entry,
-                    })
-                    continue
-                if custom_entry.get('selected_strategy_name'):
-                    engine_settings = dict(custom_entry.get('engine_settings') or {})
-                    if 'signal_threshold' in engine_settings:
-                        custom_threshold = float(engine_settings['signal_threshold'])
-                        if custom_threshold <= 1.0:
-                            custom_threshold *= 100.0
-                        if signal == 'BUY' and self._to_float(analysis.get('score')) < custom_threshold:
-                            decisions.append({
-                                'symbol': symbol, 'action': 'SKIP',
-                                'reason': 'custom_signal_threshold_not_met',
-                                'strategy': custom_entry.get('selected_strategy_name'),
-                            })
-                            continue
-                    analysis['_selected_custom_strategy'] = custom_entry.get('selected_strategy_name')
 
             auto_risk_check = self._evaluate_auto_trade_risk_guard(
                 symbol=symbol,
@@ -2412,6 +2640,13 @@ class StockAnalysisService:
                         'analysis_reasoning': analysis.get('reasoning', ''),
                     })
                     continue
+
+            custom_position = self._to_float(
+                (analysis.get('_custom_engine_settings') or {}).get('position_size'), default=0.0
+            )
+            if custom_position > 0:
+                # 주식 주문 수량을 키우지 않고 사용자 전략 비중을 상한으로만 적용한다.
+                effective_qty *= min(1.0, custom_position / 0.10)
 
             execution_optimizer = ExecutionOptimizer()
             signal_strength = max(0.0, min(1.0, self._to_float(analysis.get('score'), default=0.0) / 100.0))
@@ -2564,6 +2799,9 @@ class StockAnalysisService:
                     price=current_price,
                     score=self._to_float(analysis.get('score')),
                     momentum=self._to_float(analysis.get('momentum')),
+                    asset_class='etf' if bool(analysis.get('is_etf')) else 'stock',
+                    execution_mode=execution_mode,
+                    order_result=order_result if isinstance(order_result, dict) else {},
                 )
                 if recorder is not None:
                     try:
@@ -2612,6 +2850,7 @@ class StockAnalysisService:
                     'broker': self.broker_name,
                     'symbol': symbol,
                     'side': signal,
+                    'close': bool(signal == 'SELL'),
                     'execution_mode': execution_mode,
                     'order_type': selected_order_type,
                     'score': self._to_float(analysis.get('score')),

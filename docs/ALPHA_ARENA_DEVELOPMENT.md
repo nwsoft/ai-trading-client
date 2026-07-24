@@ -1,10 +1,22 @@
 # Alpha Arena 모드 개발 진행 문서
 
-**시작일**: 2025-01-XX  
-**상태**: 개발 완료 (가드레일 통합 테스트 통과 기준)  
-**참고 문서**: `docs/ALPHA_ARENA_MODE.md`
+**시작일**: 2025-01  
+**최신 동기화**: 2026-07-24 · v3.9.0.1  
+**상태**: 기본 제공. 실제 활성화와 주문은 사용자 설정·API 연결·가드레일 조건을 모두 충족해야 함  
+**정본**: AlphaArena의 현행 설계·개발·운영 설명은 이 문서 하나로 관리  
+**과거 자료**: 초기 설계·프롬프트 분석·검증 보고서는 `docs/archive/alpha_arena/`
 
 ---
+
+## 현재 동작 기준
+
+- 실행기: `trading/alpha_arena/runner.py`
+- 시장 입력: `prompt_builder.py`의 3분봉 시계열과 4시간 컨텍스트
+- 기본 호출: `config/settings.py`의 `tick_interval_sec=60`, `tick_trigger=interval`
+- 실행 경계: 모델 판단만으로 주문이 보장되지 않으며 파서·주문 실행기·거래소 제약·가드레일을 순서대로 통과해야 함
+- 사용자 동선: 대시보드 `AlphaArena` 탭과 인앱 사용자 매뉴얼
+
+아래 단계별 기록은 개발 이력입니다. 현재 동작 여부는 위 코드 경로와 `TEST_STATUS.md`의 최신 검증 결과를 우선합니다.
 
 ## 📋 개발 원칙
 
@@ -217,7 +229,7 @@ main.py                  # AlphaArena 초기화 (선택적)
 
 #### 2. 기능 검토
 - [ ] 요구사항 충족 여부 확인
-- [ ] 설계 문서(`ALPHA_ARENA_MODE.md`)와 일치 여부 확인
+- [x] 초기 설계 이력(`archive/alpha_arena/ALPHA_ARENA_MODE.md`)과 비교 완료
 - [ ] 엣지 케이스 처리 확인 (None, 빈 값, 오류 등)
 - [ ] 입력 검증 완전성 확인
 
@@ -342,7 +354,7 @@ main.py                  # AlphaArena 초기화 (선택적)
 - [x] 코드 품질 검토 완료
 - [x] 통합 상태 확인 완료
 - [x] 문서 동기화 확인 완료
-- [x] 전체 검토 보고서 작성 (`ALPHA_ARENA_FINAL_REVIEW.md`)
+- [x] 전체 검토 보고서 보관 (`archive/alpha_arena/ALPHA_ARENA_FINAL_REVIEW.md`)
 
 **검토 결과**: ✅ 모든 항목 통과
 
@@ -386,7 +398,7 @@ main.py                  # AlphaArena 초기화 (선택적)
 **검토 결과**: ✅ 통과 (타입 힌트 호환성 개선 완료)
 
 #### 2. 기능 검토
-- [x] 요구사항 충족 여부 확인: `ALPHA_ARENA_MODE.md`의 Phase 1 요구사항 모두 충족
+- [x] 초기 설계 이력의 Phase 1 요구사항 검토 완료
 - [x] 설계 문서와 일치 여부 확인: 프롬프트 형식, 심볼 리스트, 검증 규칙 일치
 - [x] 엣지 케이스 처리 확인:
   - `binance_client` None 처리 ✅
@@ -435,7 +447,7 @@ main.py                  # AlphaArena 초기화 (선택적)
 **검토 결과**: ✅ 통과
 
 #### 2. 기능 검토
-- [x] 요구사항 충족 여부 확인: `ALPHA_ARENA_MODE.md`의 Phase 2 요구사항 모두 충족
+- [x] 초기 설계 이력의 Phase 2 요구사항 검토 완료
 - [x] 설계 문서와 일치 여부 확인:
   - Binance 주문 매핑 규칙 일치 ✅
   - TP/SL 생성 규칙 일치 ✅
@@ -502,7 +514,7 @@ main.py                  # AlphaArena 초기화 (선택적)
 **검토 결과**: ✅ 통과 (코드 오류 수정 완료)
 
 #### 2. 기능 검토
-- [x] 요구사항 충족 여부 확인: `ALPHA_ARENA_MODE.md`의 Phase 3 요구사항 모두 충족
+- [x] 초기 설계 이력의 Phase 3 요구사항 검토 완료
 - [x] 설계 문서와 일치 여부 확인:
   - 실행 루프 구조 일치 ✅
   - 틱 주기 관리 일치 ✅
@@ -565,7 +577,7 @@ main.py                  # AlphaArena 초기화 (선택적)
 **검토 결과**: ✅ 통과
 
 #### 2. 기능 검토
-- [x] 요구사항 충족 여부 확인: `ALPHA_ARENA_MODE.md`의 Phase 4 요구사항 모두 충족
+- [x] 초기 설계 이력의 Phase 4 요구사항 검토 완료
 - [x] 설계 문서와 일치 여부 확인:
   - 모달 안내 일치 ✅
   - 엔진 선택 UI 일치 ✅
@@ -620,7 +632,6 @@ main.py                  # AlphaArena 초기화 (선택적)
 
 ## 🔗 관련 문서
 
-- `docs/ALPHA_ARENA_MODE.md`: Alpha Arena 모드 설계서
+- `docs/archive/alpha_arena/ALPHA_ARENA_MODE.md`: 초기 설계 이력
 - `docs/MASTER_DOCUMENTATION.md`: 전체 시스템 문서
 - `docs/CODE_CHANGE_LOG.md`: 코드 변경 이력
-

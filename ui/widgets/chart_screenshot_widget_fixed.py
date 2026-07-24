@@ -58,7 +58,7 @@ class ChartScreenshotWidget(ctk.CTkFrame):
         self.grid_columnconfigure(0, weight=1)
 
         # 제목
-        title = ctk.CTkLabel(self, text="📊 차트 스크린샷 자동 AI 분석 시스템", 
+        title = ctk.CTkLabel(self, text="차트 스크린샷 자동 AI 분석 시스템", 
                             font=ctk.CTkFont(size=14, weight="bold"))
         title.grid(row=0, column=0, sticky="w", pady=(8, 6), padx=10)
 
@@ -160,7 +160,7 @@ class ChartScreenshotWidget(ctk.CTkFrame):
         summary_frame = ctk.CTkFrame(self.result_frame)
         summary_frame.pack(fill="x", padx=10, pady=5)
 
-        title = ctk.CTkLabel(summary_frame, text="📈 분석 결과", 
+        title = ctk.CTkLabel(summary_frame, text="분석 결과", 
                            font=ctk.CTkFont(size=13, weight="bold"))
         title.pack(anchor="w", padx=10, pady=(10, 5))
 
@@ -177,7 +177,7 @@ class ChartScreenshotWidget(ctk.CTkFrame):
             plan_frame = ctk.CTkFrame(self.result_frame)
             plan_frame.pack(fill="x", padx=10, pady=5)
 
-            plan_title = ctk.CTkLabel(plan_frame, text="📊 거래 계획", 
+            plan_title = ctk.CTkLabel(plan_frame, text="거래 계획", 
                                      font=ctk.CTkFont(size=13, weight="bold"))
             plan_title.pack(anchor="w", padx=10, pady=(10, 5))
 
@@ -233,7 +233,7 @@ class ChartScreenshotWidget(ctk.CTkFrame):
         """사용 가이드 모달 열기"""
         try:
             modal = ctk.CTkToplevel(self)
-            modal.title("📚 차트 스크린샷 분석 사용 가이드")
+            modal.title("차트 스크린샷 분석 사용 가이드")
             modal.geometry("820x720")
             try:
                 modal.update_idletasks()
@@ -249,29 +249,29 @@ class ChartScreenshotWidget(ctk.CTkFrame):
             tabs.pack(fill="both", expand=True, padx=10, pady=10)
 
             # 사용법 탭
-            usage_tab = tabs.add("📖 사용법")
+            usage_tab = tabs.add("사용법")
             usage_text = """
-📊 차트 스크린샷 AI 분석 시스템
+차트 스크린샷 AI 분석 시스템
 
-1️⃣ 이미지 준비
+1⃣ 이미지 준비
    • 거래소 차트 스크린샷 (JPG/PNG)
    • 캔들, 이동평균선, 지표가 보이는 차트
 
-2️⃣ 분석 실행
+2⃣ 분석 실행
    • "이미지 선택" 버튼 클릭
    • 차트 이미지 파일 선택
    • 자동 분석 시작 (10-30초 소요)
 
-3️⃣ 결과 확인
+3⃣ 결과 확인
    • AI 분석 요약 (시장 상황, 추세, 패턴)
    • 거래 계획 (진입가, 손절가, 목표가)
    • JSON 데이터 (상세 정보)
 
-4️⃣ 옵션 설정
+4⃣ 옵션 설정
    • OCR 비활성화: LLM만 사용 (빠름)
    • OCR 활성화: 텍스트 추출 + LLM (정확)
 
-5️⃣ 결과 활용
+5⃣ 결과 활용
    • "결과 복사": 클립보드에 복사
    • "원본 열기": 이미지 다시 보기
    • "JSON 보기": 상세 데이터 확인
@@ -282,9 +282,9 @@ class ChartScreenshotWidget(ctk.CTkFrame):
             usage_box.configure(state="disabled")
 
             # 예제 탭
-            example_tab = tabs.add("📸 예제")
+            example_tab = tabs.add("예제")
             example_text = """
-✅ 좋은 차트 예제:
+좋은 차트 예제:
 
 1. 명확한 캔들스틱 패턴
 2. 이동평균선 표시
@@ -292,14 +292,14 @@ class ChartScreenshotWidget(ctk.CTkFrame):
 4. 주요 지표 (RSI, MACD 등)
 5. 고해상도 이미지
 
-❌ 피해야 할 차트:
+피해야 할 차트:
 
 1. 너무 작거나 흐릿한 이미지
 2. 차트가 일부만 보이는 경우
 3. 과도한 편집이나 필터
 4. 여러 차트가 섞인 이미지
 
-💡 팁:
+팁:
 • 전체 화면 차트 스크린샷 권장
 • PNG 형식 권장 (JPG도 가능)
 • 1920x1080 이상 해상도 권장
@@ -310,7 +310,7 @@ class ChartScreenshotWidget(ctk.CTkFrame):
             example_box.configure(state="disabled")
 
             # JSON 샘플 탭
-            json_tab = tabs.add("📋 JSON 샘플")
+            json_tab = tabs.add("JSON 샘플")
             json_example = {
                 "analysis": {
                     "summary": "비트코인 4시간봉 차트 분석. 상승 추세 지속 중이나 과매수 구간 진입...",

@@ -22,7 +22,9 @@ from .ops_automation import OpsAutomationEngine
 from .portfolio_orchestrator import PortfolioOrchestrator
 from .profitability_validation import ProfitabilityValidator
 from .strategy_engine import StrategyEngine
+from .custom_strategy_runtime import apply_engine_settings_to_trade_config
 from api.kpi_client import emit_kpi_event
+from api.position_kpi import emit_position_closed, emit_position_opened, utc_now
 
 
 class PositionSide(Enum):
@@ -46,6 +48,8 @@ class Position:
     tp_price: Optional[float] = None
     sl_price: Optional[float] = None
     position_id: Optional[str] = None
+    entry_time_source: str = "execution"
+    execution_mode: str = "live"
 
 
 @dataclass
@@ -1003,8 +1007,24 @@ class Trader:
         except Exception:
             pass
 
-    def _log_trade_entry(self, symbol: str, side: str, actual_entry_price: float,
-                         tp_price: float, sl_price: float, leverage: int, mode: str, manual: bool = False):
+    def _log_trade_entry(
+        self,
+        symbol: str,
+        side: str,
+        actual_entry_price: float,
+        tp_price: float,
+        sl_price: float,
+        leverage: int,
+        mode: str,
+        manual: bool = False,
+        *,
+        order_id: Optional[str] = None,
+        fees: float = 0.0,
+        fee_asset: Optional[str] = None,
+        fee_source: Optional[str] = None,
+        model_version: Optional[str] = None,
+        strategy_variant: Optional[str] = None,
+    ):
         """거래 진입 로그 저장 헬퍼 함수 (중복 제거)"""
         try:
             mode_suffix = "_manual" if manual else ""
@@ -1053,9 +1073,14 @@ class Trader:
                 side=side,
                 tp_price=tp_price,  # 🔥 검증된 값 사용
                 sl_price=sl_price,  # 🔥 검증된 값 사용
-                fees=0.0,  # 진입 시에는 수수료 0
+                fees=max(0.0, float(fees or 0.0)),
                 slippage=0.0,
-                exchange=self.settings.get('selected_exchange', 'binance')
+                exchange=self.settings.get('selected_exchange', 'binance'),
+                order_id=str(order_id) if order_id is not None else None,
+                model_version=model_version,
+                strategy_variant=strategy_variant,
+                fee_asset=fee_asset,
+                fee_source=fee_source,
             )
 
             self.recorder.insert_trade_log(trade_log)
@@ -1071,20 +1096,54 @@ class Trader:
         except Exception as e:
             self.log_event('trade', f"[{symbol}] 거래 로그 저장 실패: {e}", level='ERROR')
 
+    def _get_order_commission(
+        self,
+        symbol: str,
+        order_id: Optional[Any],
+        *,
+        attempts: int = 2,
+    ) -> tuple[float, Optional[str], str]:
+        """거래소 체결내역에서 주문 수수료를 조회한다. 추정값은 저장하지 않는다."""
+        if order_id in (None, "") or not self.binance_client:
+            return 0.0, None, "unavailable"
+        target = str(order_id)
+        for attempt in range(max(1, attempts)):
+            try:
+                rows = self.binance_client.get_trade_history(symbol, limit=200) or []
+                fills = [row for row in rows if str(row.get("order_id", "")) == target]
+                if fills:
+                    assets = {
+                        str(row.get("commission_asset", "") or "").upper()
+                        for row in fills
+                        if row.get("commission_asset")
+                    }
+                    asset = next(iter(assets)) if len(assets) == 1 else ("MIXED" if assets else None)
+                    return (
+                        sum(max(0.0, float(row.get("commission", 0.0) or 0.0)) for row in fills),
+                        asset,
+                        "exchange_fill",
+                    )
+            except Exception:
+                pass
+            if attempt + 1 < attempts:
+                time.sleep(0.25)
+        return 0.0, None, "unavailable"
+
     def _normalize_tp_sl_settings(self):
-        """TP/SL 설정값 정규화 (퍼센트 → 소수 변환)"""
+        """TP/SL 설정값을 공통 fraction 범위로 정규화한다."""
         try:
-            default_tp = self.settings.get('default_tp', 0.0018)
-            default_sl = self.settings.get('default_sl', 0.002)
-
-            # 설정값이 퍼센트(0.18=18%)로 들어와도 자동 소수 변환
-            if default_tp > 0.05:  # 5% 초과면 퍼센트로 판단
-                self.log_event('settings', f"default_tp={default_tp} looks like percent; normalizing by /100", level='WARNING')
-                self.settings['default_tp'] = default_tp / 100.0
-
-            if default_sl > 0.05:
-                self.log_event('settings', f"default_sl={default_sl} looks like percent; normalizing by /100", level='WARNING')
-                self.settings['default_sl'] = default_sl / 100.0
+            from config.settings import normalize_trade_rate
+            old_tp = self.settings.get('default_tp', 0.0018)
+            old_sl = self.settings.get('default_sl', 0.002)
+            self.settings['default_tp'], tp_changed = normalize_trade_rate(old_tp, kind="tp")
+            self.settings['default_sl'], sl_changed = normalize_trade_rate(old_sl, kind="sl")
+            if tp_changed or sl_changed:
+                self.log_event(
+                    'settings',
+                    f"TP/SL 비정상 단위·범위 차단: tp={old_tp}, sl={old_sl} "
+                    f"→ tp={self.settings['default_tp']}, sl={self.settings['default_sl']}",
+                    level='WARNING',
+                )
 
             self.log_event('settings', f"✅ TP/SL 설정 정규화 완료: tp={self.settings['default_tp']:.6f}, sl={self.settings['default_sl']:.6f}")
 
@@ -1153,8 +1212,25 @@ class Trader:
 
     def update_settings(self, new_settings: Dict):
         """설정 업데이트"""
-        self.settings.update(new_settings)
-        self.log_event('settings', f"거래 설정 업데이트: {new_settings}")
+        sanitized = dict(new_settings or {})
+        from config.settings import normalize_trade_rate
+        for key, kind in (("default_tp", "tp"), ("default_sl", "sl")):
+            if key in sanitized:
+                fallback, _ = normalize_trade_rate(
+                    self.settings.get(key, 0.0018 if kind == "tp" else 0.0020),
+                    kind=kind,
+                )
+                sanitized[key], changed = normalize_trade_rate(
+                    sanitized[key], kind=kind, fallback=fallback
+                )
+                if changed:
+                    self.log_event(
+                        'settings',
+                        f"{key} 입력 단위/범위 정규화: {new_settings[key]} → {sanitized[key]}",
+                        level='WARNING',
+                    )
+        self.settings.update(sanitized)
+        self.log_event('settings', f"거래 설정 업데이트: {sanitized}")
 
     def _check_and_reselect_coins_optimized(self):
         """최적화된 코인 재선택 로직 (빠른 시장 분석)"""
@@ -1670,13 +1746,18 @@ class Trader:
                 return
             cold_start_profile = (
                 dict(profitability_report)
-                if profitability_report.get('stage') == 'limited_live_learning'
+                if profitability_report.get('stage') in {'limited_live_learning', 'recovery_learning'}
                 else {}
             )
             if cold_start_profile:
+                stage_label = (
+                    '성과회복 제한 운용'
+                    if cold_start_profile.get('stage') == 'recovery_learning'
+                    else '신규/데이터부족 제한 운용'
+                )
                 self.log_event(
                     'trade',
-                    f"🌱 바이낸스 신규/데이터부족 제한 운용: 거래 "
+                    f"🌱 바이낸스 {stage_label}: 거래 "
                     f"{cold_start_profile.get('total_trades', 0)}/{cold_start_profile.get('next_review_at_trades')} · "
                     f"위험배수 {cold_start_profile.get('risk_multiplier', 0.1):.2f} · "
                     f"최대포지션 {cold_start_profile.get('max_positions', 1)} · "
@@ -1740,7 +1821,8 @@ class Trader:
                                 entry_time=datetime.now(timezone.utc),
                                 leverage=pos.leverage,
                                 tp_price=0.0,
-                                sl_price=0.0
+                                sl_price=0.0,
+                                entry_time_source="restored_unverified",
                             )
                             self.active_positions[pos.symbol] = position
                             self.log_event('trade', f"[{pos.symbol}] 실제 포지션 발견 - 메모리에 추가", level='INFO')
@@ -1887,6 +1969,11 @@ class Trader:
                                     'exchange': 'binance',
                                     'symbol': symbol,
                                     'signal': str(signal_data.get('signal', 'HOLD')),
+                                    'ai_call_mode': str(signal_data.get('ai_call_mode', 'unknown')),
+                                    'ai_model': str(signal_data.get('ai_model', '')),
+                                    'strategy_variant': str(signal_data.get('strategy_variant', 'unknown')),
+                                    'input_tokens': int((signal_data.get('ai_usage', {}) or {}).get('input_tokens', 0) or 0),
+                                    'output_tokens': int((signal_data.get('ai_usage', {}) or {}).get('output_tokens', 0) or 0),
                                 },
                             )
                             self._log_trade_event('analysis', f"✅ {symbol} 신호 생성 성공: {signal_data}", verbose_only=True)
@@ -1959,33 +2046,45 @@ class Trader:
                         # 🤖 AI 학습 데이터 저장 (ExchangeLearningManager 사용 - CCXT 거래소와 동일)
                         self._generate_ai_learning_data('binance', symbol, signal_data)
 
+                        from .declarative_strategy_engine import DeclarativeStrategyEngine
+                        strategy_pool = getattr(self, 'active_custom_strategy_pool', []) or []
+                        if strategy_pool:
+                            custom_entry = DeclarativeStrategyEngine.evaluate_strategy_pool(
+                                strategy_pool,
+                                signal_data,
+                                asset_class="crypto",
+                                target="binance",
+                                market_regime=str(getattr(self, 'last_market_regime', 'range') or 'range'),
+                            )
+                        elif signal in ['LONG', 'SHORT']:
+                            custom_entry = DeclarativeStrategyEngine.evaluate_entry(
+                                getattr(self, 'active_custom_strategy_rules', {}) or {}, signal_data,
+                            )
+                        else:
+                            custom_entry = {'allowed': True, 'bypassed': True, 'reason': 'no_base_signal'}
+                        if not custom_entry.get('allowed', False):
+                            self.log_event(
+                                'trade',
+                                f"⏸️ {symbol} AI 커스텀 HOLD - 현재 범위·국면·진입조건 미충족: {custom_entry.get('reason')}",
+                                exchange='binance', level='INFO',
+                            )
+                            continue
+                        if custom_entry.get('selected_strategy_name'):
+                            if custom_entry.get('signal_mode') == 'independent':
+                                signal = str(custom_entry.get('entry_signal') or '').upper()
+                                signal_data['signal'] = signal
+                            signal_data['_custom_engine_settings'] = dict(custom_entry.get('engine_settings') or {})
+                            signal_data['_selected_custom_strategy'] = custom_entry.get('selected_strategy_name')
+                            signal_data['_custom_operation_mode'] = custom_entry.get('operation_mode', 'standard')
+                            self.log_event(
+                                'strategy',
+                                f"🧠 {symbol} AI 커스텀 선택: {custom_entry.get('selected_strategy_name')} "
+                                f"(방식={custom_entry.get('signal_mode', 'confirm')}, "
+                                f"운용={custom_entry.get('operation_mode', 'standard')}, 국면={custom_entry.get('market_regime')})",
+                                exchange='binance',
+                            )
+
                         if signal in ['LONG', 'SHORT']:
-                            from .declarative_strategy_engine import DeclarativeStrategyEngine
-                            strategy_pool = getattr(self, 'active_custom_strategy_pool', []) or []
-                            if strategy_pool:
-                                custom_entry = DeclarativeStrategyEngine.evaluate_strategy_pool(
-                                    strategy_pool,
-                                    signal_data,
-                                    asset_class="crypto",
-                                    target="binance",
-                                    market_regime=str(getattr(self, 'last_market_regime', 'range') or 'range'),
-                                )
-                            else:
-                                custom_entry = DeclarativeStrategyEngine.evaluate_entry(
-                                    getattr(self, 'active_custom_strategy_rules', {}) or {},
-                                    signal_data,
-                                )
-                            if not custom_entry.get('allowed', False):
-                                self.log_event('trade', f"⏭️ {symbol} AI 커스텀 진입조건 미충족: {custom_entry}", exchange='binance')
-                                continue
-                            if custom_entry.get('selected_strategy_name'):
-                                signal_data['_custom_engine_settings'] = dict(custom_entry.get('engine_settings') or {})
-                                self.log_event(
-                                    'strategy',
-                                    f"🧠 {symbol} AI 커스텀 선택: {custom_entry.get('selected_strategy_name')} "
-                                    f"(국면={custom_entry.get('market_regime')})",
-                                    exchange='binance',
-                                )
                             strategy_allowed, strategy_meta = strategy_engine.should_trade(
                                 symbol=symbol,
                                 analysis_result={
@@ -1996,7 +2095,12 @@ class Trader:
                                 policy=dict(layer_settings.get('strategy_engine', {}) or {}),
                             )
                             if not strategy_allowed:
-                                self.log_event('trade', f"⏭️ {symbol} 전략엔진 차단: {strategy_meta.get('reasons', [])}", exchange='binance')
+                                custom_name = signal_data.get('_selected_custom_strategy', '기본 AI')
+                                self.log_event(
+                                    'trade',
+                                    f"⛔ {symbol} {custom_name} HOLD - 후행 전략 가드레일 차단: {strategy_meta.get('reasons', [])}",
+                                    exchange='binance', level='WARNING',
+                                )
                                 continue
 
                         if signal in ['LONG', 'SHORT']:
@@ -2061,6 +2165,10 @@ class Trader:
                                 )
                             optimized_params['confidence'] = float(confidence or 0.0)
                             optimized_params['volatility'] = max(0.005, abs(float(signal_data.get('volatility', 0.5) or 0.5)) / 100.0)
+                            optimized_params['model_version'] = str(signal_data.get('ai_model', '') or 'local')
+                            optimized_params['strategy_variant'] = str(
+                                signal_data.get('strategy_variant', 'unknown') or 'unknown'
+                            )
 
                             allocation_result = self._build_portfolio_allocation_binance(symbol, signal_data, layer_settings)
                             self.portfolio_allocation_cache[symbol] = allocation_result
@@ -2211,6 +2319,15 @@ class Trader:
                 if not isinstance(trade_config.get('tp'), (int, float)) or not isinstance(trade_config.get('sl'), (int, float)):
                     self.log_event('trade', f"[{symbol}] ❌ tp/sl 타입 오류 - 숫자 아님: tp={type(trade_config.get('tp'))}, sl={type(trade_config.get('sl'))}", level='ERROR')
                     continue
+                raw_tp = float(trade_config.get('tp'))
+                raw_sl = float(trade_config.get('sl'))
+                if not (0.0005 <= raw_tp <= 0.05 and 0.0005 <= raw_sl <= 0.03):
+                    self.log_event(
+                        'trade',
+                        f"[{symbol}] ❌ TP/SL 실행 범위 위반 - tp={raw_tp}, sl={raw_sl}. 거래 스킵",
+                        level='ERROR',
+                    )
+                    continue
 
                 # ✅ 통일된 로그 출력 (trade_config 기준) - 거래 실행 전에 출력
                 if trade_config:
@@ -2268,6 +2385,8 @@ class Trader:
                         'orderType': trade_config.get('orderType', 'MARKET'),
                         'filters': trade_config.get('filters'),  # ✅ 추가
                         'risk_multiplier': float(trade_config.get('risk_multiplier', 1.0) or 1.0),
+                        'model_version': str(trade_config.get('model_version', '') or 'local'),
+                        'strategy_variant': str(trade_config.get('strategy_variant', 'unknown') or 'unknown'),
                     }
 
                     self.log_event('trade', f"[{symbol}] 🔍 최종 거래 파라미터: {trade_params}")
@@ -2540,6 +2659,13 @@ class Trader:
                 sl = float(sl_val)
             else:
                 self.log_event('trade', f"[{symbol}] ❌ execute_single_trade: tp/sl 누락 - Optimizer 단일 소스 정책 위반", level='ERROR')
+                return False
+            if not (0.0005 <= tp <= 0.05 and 0.0005 <= sl <= 0.03):
+                self.log_event(
+                    'trade',
+                    f"[{symbol}] ❌ execute_single_trade TP/SL 범위 위반: tp={tp}, sl={sl}",
+                    level='ERROR',
+                )
                 return False
             mode = trade_params.get('mode', 'optimized')
 
@@ -3407,6 +3533,7 @@ class Trader:
                         # 🔥 포지션 정보 저장 (TP/SL은 보조 장치, 실패해도 거래 진행)
                         # 원래 설계: TP/SL은 보험 기능, 실시간 모니터링이 주 역할
                         # watchdog가 주기적으로 TP/SL 재설정 시도
+                        entry_order_id = order_result.get('order_id') if isinstance(order_result, dict) else None
                         position = Position(
                             symbol=symbol,
                             side=PositionSide.LONG if side == 'BUY' else PositionSide.SHORT,  # 🔥 BUY/SELL에 맞춤
@@ -3416,18 +3543,52 @@ class Trader:
                             leverage=leverage,
                             unrealized_pnl=0.0,
                             unrealized_pnl_percent=0.0,
-                            entry_time=datetime.now(),
+                            entry_time=utc_now(),
                             tp_price=final_tp_price,  # 🔥 실제 거래소에서 조회한 값 또는 계산된 값
-                            sl_price=final_sl_price   # 🔥 실제 거래소에서 조회한 값 또는 계산된 값
+                            sl_price=final_sl_price,  # 🔥 실제 거래소에서 조회한 값 또는 계산된 값
+                            position_id=None,
+                            execution_mode=str(mode or 'live'),
                         )
 
                         self.active_positions[symbol] = position
+                        _, position.position_id = emit_position_opened(
+                            asset_class='crypto',
+                            venue='binance',
+                            symbol=symbol,
+                            side=position.side.value,
+                            opened_at=position.entry_time,
+                            entry_price=position.entry_price,
+                            quantity=position.quantity,
+                            position_id=position.position_id,
+                            entry_order_id=entry_order_id,
+                            execution_mode=str(mode or 'live'),
+                            source='noahai_client_trader_position',
+                            extra={'leverage': int(leverage or 1)},
+                        )
 
                         # 🔥 거래 로그 저장 (포지션 생성 직후, TP/SL 성공 여부와 무관하게 저장)
                         # 포지션이 생성되었으면 거래 로그는 반드시 저장되어야 함
                         # 동기화된 TP/SL 가격 사용 (실제 거래소에서 조회한 값 또는 계산된 값)
                         try:
-                            self._log_trade_entry(symbol, side, actual_entry_price, final_tp_price, final_sl_price, leverage, mode, manual=False)
+                            entry_fee, entry_fee_asset, entry_fee_source = self._get_order_commission(
+                                symbol, entry_order_id
+                            )
+                            self._log_trade_entry(
+                                symbol,
+                                side,
+                                actual_entry_price,
+                                final_tp_price,
+                                final_sl_price,
+                                leverage,
+                                mode,
+                                manual=False,
+                                order_id=entry_order_id,
+                                fees=entry_fee,
+                                fee_asset=entry_fee_asset,
+                                fee_source=entry_fee_source,
+                                model_version=str(trade_params.get('model_version', '') or 'local'),
+                                strategy_variant=str(trade_params.get('strategy_variant', 'unknown') or 'unknown'),
+                            )
                             self.log_event('trade', f"[{symbol}] ✅ 거래 로그 DB 저장 완료 (TP:{final_tp_price:.6f}, SL:{final_sl_price:.6f})")
                         except Exception as e:
                             self.log_event('trade', f"[{symbol}] ❌ 거래 로그 저장 실패: {e}", level='ERROR')
@@ -4155,6 +4316,14 @@ class Trader:
             all_trades_count = 0
             if self.risk_manager and hasattr(self.risk_manager, 'coin_trade_history'):
                 all_trades_count = sum(len(history) for history in self.risk_manager.coin_trade_history.values())
+            # 메모리 이력은 재시작 때 비워지므로 실제 DB 종료 거래를 함께 사용한다.
+            # 장기 사용자에게 매번 첫 사용자 완화 정책이 적용되는 문제를 막는다.
+            try:
+                if self.recorder and hasattr(self.recorder, 'count_closed_trades'):
+                    persisted_count = self.recorder.count_closed_trades(exchange='binance')
+                    all_trades_count = max(all_trades_count, persisted_count)
+            except Exception as history_error:
+                self.logger.debug(f"지속 거래 이력 조회 실패, 메모리 이력 사용: {history_error}")
             
             # 해당 코인의 거래 이력 확인
             coin_trades_count = pattern_analysis.get('recent_trades', 0)
@@ -4664,7 +4833,11 @@ class Trader:
         """AI 강화 거래 파라미터 생성 (기존 시스템 스타일)"""
         try:
             # 기존 최적화 결과 가져오기 (optimizer.py의 AI 캐싱 시스템 사용)
-            base_params = self.optimizer.optimize_parameters(symbol, signal_data)
+            optimizer_result = self.optimizer.optimize_parameters(symbol, signal_data)
+            if isinstance(optimizer_result, dict) and isinstance(optimizer_result.get(symbol), dict):
+                base_params = dict(optimizer_result[symbol])
+            else:
+                base_params = dict(optimizer_result or {})
 
             # AI 기반 강화 적용
             enhanced_params = base_params.copy()
@@ -4738,7 +4911,7 @@ class Trader:
                         pass
 
             # 상황 매칭으로 선택된 승인 전략의 설정값을 최종 사용자 전략 오버레이로 적용한다.
-            enhanced_params.update(selected_custom)
+            enhanced_params = apply_engine_settings_to_trade_config(enhanced_params, selected_custom)
             self.logger.info(f"{symbol} AI 강화 파라미터: 레버리지={enhanced_params.get('leverage', 1)}x, "
                             f"포지션={format_percent(enhanced_params.get('position_size', 0.1), 1)}, "
                             f"TP={format_percent(enhanced_params.get('tp_percent', 0.18), 3)}, "
@@ -5259,13 +5432,13 @@ class Trader:
                 ))
 
             if order_success:
+                exit_order_id = order_result.get('order_id') if isinstance(order_result, dict) else None
+                exit_fee, exit_fee_asset, exit_fee_source = self._get_order_commission(
+                    symbol, exit_order_id
+                )
                 # PnL 계산
                 pnl_percent = self._calc_pnl_percent(position, current_price)
-                hold_seconds = 0.0
-                try:
-                    hold_seconds = max(0.0, (datetime.now(timezone.utc) - position.entry_time).total_seconds())
-                except Exception:
-                    hold_seconds = 0.0
+                closed_at = utc_now()
 
                 # 🔥 PnL USDT 계산 (통계용)
                 pnl_usdt = (pnl_percent / 100.0) * position.quantity * position.entry_price
@@ -5287,11 +5460,35 @@ class Trader:
                         'side': 'CLOSE',
                         'close': True,
                         'reason': reason,
-                        'hold_seconds': round(hold_seconds, 2),
                         'executed_price': float(current_price or 0.0),
                         'notional_estimate': float(position.quantity) * float(current_price or 0.0),
                     },
                 )
+                if getattr(position, 'entry_time_source', 'execution') == 'execution':
+                    emit_position_closed(
+                        asset_class='crypto',
+                        venue='binance',
+                        symbol=symbol,
+                        side=position.side.value,
+                        opened_at=position.entry_time,
+                        closed_at=closed_at,
+                        entry_price=position.entry_price,
+                        exit_price=float(current_price or 0.0),
+                        closed_quantity=position.quantity,
+                        close_reason=str(reason or 'auto_close'),
+                        position_id=position.position_id,
+                        exit_order_id=exit_order_id,
+                        execution_mode='live',
+                        source='noahai_client_trader_position',
+                        gross_pnl=pnl_usdt,
+                        net_pnl=pnl_usdt - float(exit_fee or 0.0),
+                        fees=float(exit_fee or 0.0),
+                        extra={
+                            'leverage': int(position.leverage or 1),
+                            'fee_asset': exit_fee_asset,
+                            'fee_source': exit_fee_source,
+                        },
+                    )
 
                 if pnl_percent > 0:
                     self.trade_stats['winning_trades'] += 1
@@ -5326,7 +5523,11 @@ class Trader:
                             pnl_percent=pnl_percent,
                             pnl_usdt=pnl_usdt,
                             exit_reason=reason,
-                            position=position  # 🔥 position 객체 전달 (문제 1 해결)
+                            position=position,  # 🔥 position 객체 전달 (문제 1 해결)
+                            additional_fees=exit_fee,
+                            exit_order_id=str(exit_order_id) if exit_order_id is not None else None,
+                            fee_asset=exit_fee_asset,
+                            fee_source=exit_fee_source,
                         )
 
                         self.log_event('debug', f"🔍 [DEBUG] update_trade_log 결과: {result}")
@@ -5467,11 +5668,7 @@ class Trader:
                             # 거래 통계 업데이트
                             self.trade_stats['total_trades'] += 1
                             self.trade_stats['total_pnl'] += pnl_usdt
-                            hold_seconds = 0.0
-                            try:
-                                hold_seconds = max(0.0, (datetime.now(timezone.utc) - position.entry_time).total_seconds())
-                            except Exception:
-                                hold_seconds = 0.0
+                            closed_at = utc_now()
 
                             emit_kpi_event(
                                 event_type='trade_order_executed',
@@ -5486,11 +5683,30 @@ class Trader:
                                     'side': 'CLOSE',
                                     'close': True,
                                     'reason': f"{reason}_position_confirmed",
-                                    'hold_seconds': round(hold_seconds, 2),
                                     'executed_price': float(current_price or 0.0),
                                     'notional_estimate': float(position.quantity) * float(current_price or 0.0),
                                 },
                             )
+                            if getattr(position, 'entry_time_source', 'execution') == 'execution':
+                                emit_position_closed(
+                                    asset_class='crypto',
+                                    venue='binance',
+                                    symbol=symbol,
+                                    side=position.side.value,
+                                    opened_at=position.entry_time,
+                                    closed_at=closed_at,
+                                    entry_price=position.entry_price,
+                                    exit_price=float(current_price or 0.0),
+                                    closed_quantity=position.quantity,
+                                    close_reason=f"{reason}_position_confirmed",
+                                    position_id=position.position_id,
+                                    execution_mode='live',
+                                    source='noahai_client_trader_position',
+                                    gross_pnl=pnl_usdt,
+                                    net_pnl=pnl_usdt,
+                                    fees=0.0,
+                                    extra={'leverage': int(position.leverage or 1)},
+                                )
                             if pnl_percent > 0:
                                 self.trade_stats['winning_trades'] += 1
                             else:
@@ -6016,7 +6232,8 @@ class Trader:
                                 entry_time=datetime.now(timezone.utc),  # 정확한 시간은 알 수 없음
                                 leverage=pos.leverage,
                                 tp_price=0.0,  # TP/SL 정보는 별도 조회 필요
-                                sl_price=0.0
+                                sl_price=0.0,
+                                entry_time_source="restored_unverified",
                             )
 
                             # PnL 계산

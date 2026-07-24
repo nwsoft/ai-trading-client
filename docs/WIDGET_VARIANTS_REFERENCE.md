@@ -179,7 +179,7 @@ copy ui\widgets\legacy\ai_report_widget.py.backup ui\widgets\ai_report_widget.py
 
 ### 상세 문서
 통합 프로젝트의 전체 내용은 다음 문서를 참고하세요:
-- **기술 보고서**: `docs/WIDGET_CONSOLIDATION_REPORT.md`
+- **기술 보고서**: `docs/archive/history/WIDGET_CONSOLIDATION_REPORT.md`
 - **변경 로그**: `docs/CODE_CHANGE_LOG.md` (2025-10-30 섹션)
 - **사용자 매뉴얼**: 모달창 → "📅 업데이트" 탭 → v3.8.9
 

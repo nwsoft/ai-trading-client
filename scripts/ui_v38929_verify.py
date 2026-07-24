@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""v3.8.9.29 UI를 실계정/네트워크 없이 렌더링하는 개발 검증 화면."""
+"""v3.9.0.0 UI를 실계정/네트워크 없이 렌더링하는 개발 검증 화면."""
 
 from pathlib import Path
 import sys
@@ -85,7 +85,7 @@ class StatsHarness(ctk.CTkFrame):
 def main():
     ctk.set_appearance_mode("dark")
     root = ctk.CTk()
-    root.title("NoahAI v3.8.9.29 UI Verification")
+    root.title("NoahAI v3.9.0.0 UI Verification")
     root.geometry("1280x820")
     root.lift()
     root.attributes("-topmost", True)

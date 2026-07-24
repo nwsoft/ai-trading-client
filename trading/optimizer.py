@@ -152,8 +152,21 @@ class Optimizer:
         # 기존 설정 백업
         old_settings = self.settings.copy()
         
-        # 새 설정으로 업데이트
-        self.settings.update(new_settings)
+        # 새 설정으로 업데이트. TP/SL은 모든 입력 경계에서 fraction으로 고정한다.
+        sanitized = dict(new_settings)
+        from config.settings import normalize_trade_rate
+        for key, kind in (("default_tp", "tp"), ("default_sl", "sl")):
+            if key in sanitized:
+                fallback, _ = normalize_trade_rate(
+                    self.settings.get(key, 0.0018 if kind == "tp" else 0.0020),
+                    kind=kind,
+                )
+                sanitized[key], changed = normalize_trade_rate(
+                    sanitized[key], kind=kind, fallback=fallback
+                )
+                if changed:
+                    self.logger.warning(f"⚠️ {key} 입력 단위/범위 정규화: {new_settings[key]} → {sanitized[key]}")
+        self.settings.update(sanitized)
         
         # 🔥 중요 설정값 검증
         min_trade_amount = self.settings.get('min_trade_amount', 5.0)
@@ -163,7 +176,7 @@ class Optimizer:
         
         # 변경된 설정값 로깅
         changed_settings = {}
-        for key, value in new_settings.items():
+        for key, value in sanitized.items():
             if key in old_settings and old_settings[key] != value:
                 changed_settings[key] = {'old': old_settings[key], 'new': value}
         
@@ -622,8 +635,9 @@ class Optimizer:
         """
         # 기본값
         default_leverage = int(self.settings.get('default_leverage', 1))  # ✅ 설정 파일과 일치
-        default_tp = float(self.settings.get('default_tp', 0.0018))   # fraction
-        default_sl = float(self.settings.get('default_sl', 0.0020))   # fraction
+        from config.settings import normalize_trade_rate
+        default_tp, _ = normalize_trade_rate(self.settings.get('default_tp', 0.0018), kind="tp")
+        default_sl, _ = normalize_trade_rate(self.settings.get('default_sl', 0.0020), kind="sl")
         min_trade_amount = float(self.settings.get('min_trade_amount', 5.0))  # 🔥 설정 파일에서 가져오고, 없으면 5.0 (최소값)
         if min_trade_amount < 5.0:
             self.logger.warning(f"⚠️ min_trade_amount가 너무 작음: {min_trade_amount}, 5.0으로 조정")
@@ -849,8 +863,17 @@ class Optimizer:
                 return {}
 
         # TP/SL 비율 (fraction) 확정
-        tp_frac = default_tp if tp_ratio is None else float(tp_ratio)
-        sl_frac = default_sl if sl_ratio is None else float(sl_ratio)
+        tp_frac, tp_changed = normalize_trade_rate(
+            default_tp if tp_ratio is None else tp_ratio, kind="tp", fallback=default_tp
+        )
+        sl_frac, sl_changed = normalize_trade_rate(
+            default_sl if sl_ratio is None else sl_ratio, kind="sl", fallback=default_sl
+        )
+        if tp_changed or sl_changed:
+            self.logger.warning(
+                f"[{symbol}] 비정상 TP/SL 실행값 차단·정규화: tp={tp_ratio}, sl={sl_ratio} "
+                f"→ tp={tp_frac}, sl={sl_frac}"
+            )
 
         # 신뢰도 기반의 경미한 조정(선택)
         if confidence < 0.6:
@@ -1082,34 +1105,43 @@ class Optimizer:
             losing_trades = [trade for trade in trade_data if trade['pnl'] < 0]
             
             if not profitable_trades:
-                # settings.json에서 기본값 가져오기
-                default_tp = getattr(self, 'settings', {}).get('default_tp', 0.0018)
-                default_sl = getattr(self, 'settings', {}).get('default_sl', 0.002)
+                from config.settings import normalize_trade_rate
+                default_tp, _ = normalize_trade_rate(
+                    getattr(self, 'settings', {}).get('default_tp', 0.0018), kind="tp"
+                )
+                default_sl, _ = normalize_trade_rate(
+                    getattr(self, 'settings', {}).get('default_sl', 0.002), kind="sl"
+                )
                 return {'optimal_tp_ratio': default_tp, 'optimal_sl_ratio': default_sl}
                 
             # 수익 거래의 평균 수익률 분석
-            avg_profit = np.mean([trade['pnl_percent'] for trade in profitable_trades])
-            max_profit = np.max([trade['pnl_percent'] for trade in profitable_trades])
+            # DB pnl_percent는 0.63 == 0.63%인 퍼센트 포인트다.
+            avg_profit_pct = np.mean([trade['pnl_percent'] for trade in profitable_trades])
+            max_profit_pct = np.max([trade['pnl_percent'] for trade in profitable_trades])
             
             # 손실 거래의 평균 손실률 분석
-            avg_loss = np.mean([abs(trade['pnl_percent']) for trade in losing_trades]) if losing_trades else 0.2
+            avg_loss_pct = np.mean([abs(trade['pnl_percent']) for trade in losing_trades]) if losing_trades else 0.2
             
             # 최적 TP/SL 비율 계산
-            optimal_tp_ratio = min(max_profit * 0.8, avg_profit * 1.2)
-            optimal_sl_ratio = min(avg_loss * 1.1, 0.5)  # 최대 0.5%
+            optimal_tp_ratio = max(0.0005, min(min(max_profit_pct * 0.8, avg_profit_pct * 1.2) / 100.0, 0.05))
+            optimal_sl_ratio = max(0.0005, min((avg_loss_pct * 1.1) / 100.0, 0.03))
             
             return {
                 'optimal_tp_ratio': optimal_tp_ratio,
                 'optimal_sl_ratio': optimal_sl_ratio,
-                'avg_profit': avg_profit,
-                'avg_loss': avg_loss
+                'avg_profit': avg_profit_pct,
+                'avg_loss': avg_loss_pct
             }
             
         except Exception as e:
             self.logger.error(f"TP/SL 최적화 중 오류: {e}")
-            # settings.json에서 기본값 가져오기
-            default_tp = getattr(self, 'settings', {}).get('default_tp', 0.0018)
-            default_sl = getattr(self, 'settings', {}).get('default_sl', 0.002)
+            from config.settings import normalize_trade_rate
+            default_tp, _ = normalize_trade_rate(
+                getattr(self, 'settings', {}).get('default_tp', 0.0018), kind="tp"
+            )
+            default_sl, _ = normalize_trade_rate(
+                getattr(self, 'settings', {}).get('default_sl', 0.002), kind="sl"
+            )
             return {'optimal_tp_ratio': default_tp, 'optimal_sl_ratio': default_sl}
             
     def optimize_position_size(self, trade_data: List[Dict]) -> Dict:
@@ -1338,7 +1370,9 @@ class Optimizer:
         """최근 거래 데이터 가져오기"""
         try:
             query = """
-                SELECT * FROM trade_log 
+                SELECT symbol, entry_price, exit_price, quantity, leverage,
+                       pnl, pnl_percent, entry_time, exit_time, reason
+                FROM trade_log 
                 WHERE symbol = ? 
                 AND exit_time > datetime('now', '-7 days')
                 ORDER BY exit_time DESC
@@ -1349,16 +1383,16 @@ class Optimizer:
             trade_data = []
             for trade in trades:
                 trade_data.append({
-                    'symbol': trade[1],
-                    'entry_price': trade[2],
-                    'exit_price': trade[3],
-                    'quantity': trade[4],
-                    'leverage': trade[5],
-                    'pnl': trade[6],
-                    'pnl_percent': trade[7],
-                    'entry_time': datetime.fromisoformat(trade[8]),
-                    'exit_time': datetime.fromisoformat(trade[9]),
-                    'reason': trade[10]
+                    'symbol': trade[0],
+                    'entry_price': trade[1],
+                    'exit_price': trade[2],
+                    'quantity': trade[3],
+                    'leverage': trade[4],
+                    'pnl': trade[5],
+                    'pnl_percent': trade[6],
+                    'entry_time': datetime.fromisoformat(trade[7]),
+                    'exit_time': datetime.fromisoformat(trade[8]),
+                    'reason': trade[9]
                 })
                 
             return trade_data

@@ -108,7 +108,7 @@ class DeclarativeStrategyEngine:
         target: str,
         market_regime: str = "range",
     ) -> Dict[str, Any]:
-        """최대 10개 활성 전략 중 적용범위·국면·진입조건이 맞는 전략을 선택한다."""
+        """최대 10개 활성 전략 중 범위·국면·모드·진입조건이 맞는 한 전략을 선택한다."""
         if not strategies:
             return {"allowed": True, "bypassed": True, "reason": "no_active_strategy_pool"}
         regime = cls.REGIME_ALIASES.get(str(market_regime or "").upper(), str(market_regime or "range").lower())
@@ -118,29 +118,72 @@ class DeclarativeStrategyEngine:
             reverse=True,
         )[:10]
         evaluated = []
+        scoped = []
         for item in candidates:
             if not cls._scope_matches(item.get("target_scope", ""), asset_class=asset_class, target=target):
                 continue
+            scoped.append(item)
             regimes = [str(value).strip().lower() for value in (item.get("market_regimes") or ["all"])]
             if "all" not in regimes and regime not in regimes:
                 continue
-            entry = cls.evaluate_entry(dict(item.get("rules") or {}), context)
+            rules = dict(item.get("rules") or {})
+            signal_mode = str(item.get("signal_mode") or rules.get("signal_mode") or "confirm").lower()
+            entry_signal = str(item.get("entry_signal") or rules.get("entry_signal") or "").upper()
+            evaluation_context = dict(context or {})
+            base_signal = str(evaluation_context.get("signal") or "HOLD").upper()
+            if signal_mode == "independent":
+                if entry_signal not in {"LONG", "SHORT"}:
+                    evaluated.append({
+                        "name": item.get("name", "사용자 전략"),
+                        "result": {"allowed": False, "reason": "independent_entry_signal_missing"},
+                    })
+                    continue
+                evaluation_context["signal"] = entry_signal
+            elif "signal" in evaluation_context and base_signal not in {"LONG", "SHORT"}:
+                continue
+            entry = cls.evaluate_entry(rules, evaluation_context)
             evaluated.append({"name": item.get("name", "사용자 전략"), "result": entry})
             if entry.get("allowed", False):
+                from .custom_strategy_runtime import derive_strategy_risk_settings
+                engine_settings = derive_strategy_risk_settings(
+                    item.get("engine_settings"),
+                    rules.get("risk_model"),
+                    evaluation_context,
+                )
                 return {
                     **entry,
                     "selected_strategy_id": item.get("id"),
                     "selected_strategy_name": item.get("name", "사용자 전략"),
-                    "engine_settings": dict(item.get("engine_settings") or {}),
+                    "engine_settings": engine_settings,
                     "target_scope": item.get("target_scope"),
                     "market_regime": regime,
+                    "signal_mode": signal_mode,
+                    "entry_signal": entry_signal if signal_mode == "independent" else base_signal,
+                    "operation_mode": str(item.get("operation_mode") or "standard"),
                     "evaluated": evaluated,
                 }
         if not evaluated:
+            transition = "delegate_to_noah"
+            for item in scoped:
+                item_rules = dict(item.get("rules") or {})
+                policy = str(item_rules.get("regime_transition", "delegate_to_noah") or "delegate_to_noah").lower()
+                if policy == "pause":
+                    transition = "pause"
+                    break
+            if transition == "pause":
+                return {
+                    "allowed": False,
+                    "bypassed": False,
+                    "reason": "custom_paused_outside_selected_regime",
+                    "transition_action": "pause",
+                    "market_regime": regime,
+                    "evaluated": [],
+                }
             return {
                 "allowed": True,
                 "bypassed": True,
-                "reason": "no_strategy_for_current_scope_or_regime",
+                "reason": "delegated_to_noah_outside_selected_regime",
+                "transition_action": "delegate_to_noah",
                 "market_regime": regime,
                 "evaluated": [],
             }

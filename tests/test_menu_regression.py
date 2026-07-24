@@ -76,7 +76,7 @@ class TestServiceTabProtectionPolicy:
 
     def test_blockchain_includes_primary_tabs(self):
         protected = get_service_protected_tabs('blockchain')
-        assert '🪙 코인 정보' in protected
+        assert '코인 정보' in protected
         assert 'AlphaArena' in protected
 
     def test_stock_includes_common_trading_tabs(self):
@@ -86,31 +86,31 @@ class TestServiceTabProtectionPolicy:
 
     def test_stock_includes_primary_tabs(self):
         protected = get_service_protected_tabs('stock')
-        assert '🪙 종목 정보' in protected
-        assert '📈 거래 통계' in protected
-        assert '📈 시장 트렌드' in protected
+        assert '종목 정보' in protected
+        assert '거래 통계' in protected
+        assert '시장 트렌드' in protected
 
     def test_real_estate_does_not_include_trading_log(self):
         """real_estate는 거래 로그 탭을 가지지 않는다."""
         protected = get_service_protected_tabs('real_estate')
-        assert '📊 실시간 거래 로그' not in protected
+        assert '실시간 거래 로그' not in protected
 
     def test_real_estate_includes_asset_insight(self):
         protected = get_service_protected_tabs('real_estate')
-        assert '🧭 자산 통합 인사이트' in protected
+        assert '자산 통합 인사이트' in protected
 
     def test_other_investment_includes_life_finance(self):
         protected = get_service_protected_tabs('other_investment')
-        assert '💳 생활금융 서비스' in protected
+        assert '생활금융 서비스' in protected
 
     def test_ai_analyst_includes_ai_tabs(self):
         protected = get_service_protected_tabs('ai_analyst')
-        assert '🤖 AI 애널리스트' in protected
-        assert '🧪 시나리오 점검' in protected
+        assert 'AI 애널리스트' in protected
+        assert '시나리오 점검' in protected
 
     def test_ai_analyst_does_not_include_trading_log(self):
         protected = get_service_protected_tabs('ai_analyst')
-        assert '📊 실시간 거래 로그' not in protected
+        assert '실시간 거래 로그' not in protected
 
     def test_all_services_return_non_empty_protected_tabs(self):
         """모든 서비스에서 보호 탭이 최소 1개 이상."""
@@ -133,32 +133,32 @@ class TestServiceTabStructureInvariance:
 
     def test_blockchain_primary_tabs_snapshot(self):
         snap = get_service_tab_snapshot('blockchain')
-        assert snap['primary_tabs'] == ['🪙 코인 정보', '📈 거래 통계', '📈 시장 트렌드', 'AlphaArena']
+        assert snap['primary_tabs'] == ['코인 정보', '거래 통계', '시장 트렌드', '금융 인텔리전스', 'AlphaArena']
 
     def test_stock_primary_tabs_snapshot(self):
         snap = get_service_tab_snapshot('stock')
-        assert snap['primary_tabs'] == ['🪙 종목 정보', '📈 거래 통계', '📈 시장 트렌드']
+        assert snap['primary_tabs'] == ['종목 정보', '거래 통계', '시장 트렌드', '금융 인텔리전스']
 
     def test_real_estate_detail_tabs_snapshot(self):
         snap = get_service_tab_snapshot('real_estate')
-        assert snap['detail_tabs'] == ['📊 자산 배분 진단', '⚠️ 리스크 브리핑']
+        assert snap['detail_tabs'] == ['자산 배분 진단', '리스크 브리핑', '성과·위험 분석']
 
     def test_other_investment_detail_tabs_snapshot(self):
         snap = get_service_tab_snapshot('other_investment')
-        assert snap['detail_tabs'] == ['📉 현금흐름 분석', '🎯 생활금융 목표', '🚨 보안 경고', '💰 세금 계산']
+        assert snap['detail_tabs'] == ['현금흐름 분석', '생활금융 목표', '보안 경고', '세금 계산']
 
     def test_ai_analyst_detail_tabs_snapshot(self):
         snap = get_service_tab_snapshot('ai_analyst')
-        assert snap['detail_tabs'] == ['📝 AI 요약 리포트', '🧪 시나리오 점검']
+        assert snap['detail_tabs'] == ['AI 요약 리포트', '시나리오 점검', '금융 인텔리전스 허브']
 
     def test_common_trading_tabs_snapshot(self):
         """COMMON_TRADING_TABS 5개 고정 탭 불변성 확인."""
         expected = {
-            '📊 실시간 거래 로그',
-            '📚 AI 학습',
-            '📊 AI 리포트',
-            '💬 AI 어시스턴트',
-            '🧠 AI 커스텀',
+            '실시간 거래 로그',
+            'AI 학습',
+            'AI 리포트',
+            'AI 어시스턴트',
+            'AI 커스텀',
         }
         assert COMMON_TRADING_TABS == expected
 
@@ -270,9 +270,9 @@ class TestServiceSwitchContextSync:
         assert detail == []
 
     def test_service_detail_tabs_real_estate_populated(self):
-        """real_estate 서비스는 detail_tabs 2개."""
+        """real_estate 서비스는 금융 성과 탭을 포함한 detail_tabs 3개."""
         detail = get_service_detail_tabs('real_estate')
-        assert len(detail) == 2
+        assert len(detail) == 3
 
     def test_service_detail_tabs_other_investment_populated(self):
         """other_investment 서비스는 detail_tabs 4개."""
@@ -280,9 +280,9 @@ class TestServiceSwitchContextSync:
         assert len(detail) == 4
 
     def test_service_detail_tabs_ai_analyst_populated(self):
-        """ai_analyst 서비스는 detail_tabs 2개."""
+        """ai_analyst 서비스는 금융 인텔리전스 허브를 포함한 detail_tabs 3개."""
         detail = get_service_detail_tabs('ai_analyst')
-        assert len(detail) == 2
+        assert len(detail) == 3
 
     def test_protected_tabs_union_covers_primary_and_common(self):
         """보호 탭이 primary + COMMON 의 합집합을 포함한다."""

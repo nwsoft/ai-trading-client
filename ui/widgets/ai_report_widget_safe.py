@@ -38,9 +38,9 @@ class AIReportWidgetSafe(CTkFrame):
         try:
             self.init_ui()
             self.is_initialized = True
-            print("✅ AI 리포트 위젯 초기화 완료")
+            print("AI 리포트 위젯 초기화 완료")
         except Exception as e:
-            print(f"❌ AI 리포트 위젯 초기화 실패: {e}")
+            print(f"AI 리포트 위젯 초기화 실패: {e}")
             self.create_error_ui(str(e))
         
         # 자동 리포트 생성 타이머
@@ -70,7 +70,7 @@ class AIReportWidgetSafe(CTkFrame):
         # 제목
         title_label = ctk.CTkLabel(
             self,
-            text="📊 AI 자동 리포트",
+            text="AI 자동 리포트",
             font=ctk.CTkFont(size=20, weight="bold")
         )
         title_label.grid(row=0, column=0, pady=(10, 5))
@@ -78,7 +78,7 @@ class AIReportWidgetSafe(CTkFrame):
         # 설명
         desc_label = ctk.CTkLabel(
             self,
-            text="🤖 AI가 자동으로 생성하는 거래 리포트입니다. 실시간으로 업데이트됩니다.",
+            text="AI가 자동으로 생성하는 거래 리포트입니다. 실시간으로 업데이트됩니다.",
             font=ctk.CTkFont(size=12),
             text_color=self._color("text_secondary", "#7f8c8d")
         )
@@ -89,21 +89,21 @@ class AIReportWidgetSafe(CTkFrame):
         self.report_tabs.grid(row=2, column=0, sticky="nsew", padx=10, pady=5)
         
         # 오늘 리포트 탭
-        self.today_tab = self.report_tabs.add("📅 오늘")
+        self.today_tab = self.report_tabs.add("오늘")
         self.create_today_report_tab()
         
         # 주간 리포트 탭
-        self.weekly_tab = self.report_tabs.add("📊 주간")
+        self.weekly_tab = self.report_tabs.add("주간")
         self.create_weekly_report_tab()
         
         # 월간 리포트 탭
-        self.monthly_tab = self.report_tabs.add("📈 월간")
+        self.monthly_tab = self.report_tabs.add("월간")
         self.create_monthly_report_tab()
         
         # 새로고침 버튼
         refresh_btn = ctk.CTkButton(
             self,
-            text="🔄 새로고침",
+            text="새로고침",
             command=self.auto_generate_reports,
             width=120,
             height=35
@@ -119,7 +119,7 @@ class AIReportWidgetSafe(CTkFrame):
         
         error_label = ctk.CTkLabel(
             error_frame,
-            text=f"❌ AI 리포트 위젯 로드 실패\n{error_msg}",
+            text=f"AI 리포트 위젯 로드 실패\n{error_msg}",
             font=ctk.CTkFont(size=14),
             text_color=self._color("danger", "#ef4444")
         )
@@ -134,7 +134,7 @@ class AIReportWidgetSafe(CTkFrame):
         # 요약 제목
         summary_title = ctk.CTkLabel(
             summary_frame,
-            text="📊 오늘 거래 요약",
+            text="오늘 거래 요약",
             font=ctk.CTkFont(size=16, weight="bold")
         )
         summary_title.pack(pady=10)
@@ -154,7 +154,7 @@ class AIReportWidgetSafe(CTkFrame):
         # 상세 제목
         detail_title = ctk.CTkLabel(
             detail_frame,
-            text="📈 상세 거래 내역",
+            text="상세 거래 내역",
             font=ctk.CTkFont(size=16, weight="bold")
         )
         detail_title.pack(pady=10)
@@ -175,7 +175,7 @@ class AIReportWidgetSafe(CTkFrame):
         # 요약 제목
         summary_title = ctk.CTkLabel(
             summary_frame,
-            text="📊 주간 거래 요약",
+            text="주간 거래 요약",
             font=ctk.CTkFont(size=16, weight="bold")
         )
         summary_title.pack(pady=10)
@@ -195,7 +195,7 @@ class AIReportWidgetSafe(CTkFrame):
         # 상세 제목
         detail_title = ctk.CTkLabel(
             detail_frame,
-            text="📈 주간 상세 분석",
+            text="주간 상세 분석",
             font=ctk.CTkFont(size=16, weight="bold")
         )
         detail_title.pack(pady=10)
@@ -216,7 +216,7 @@ class AIReportWidgetSafe(CTkFrame):
         # 요약 제목
         summary_title = ctk.CTkLabel(
             summary_frame,
-            text="📊 월간 거래 요약",
+            text="월간 거래 요약",
             font=ctk.CTkFont(size=16, weight="bold")
         )
         summary_title.pack(pady=10)
@@ -236,7 +236,7 @@ class AIReportWidgetSafe(CTkFrame):
         # 상세 제목
         detail_title = ctk.CTkLabel(
             detail_frame,
-            text="📈 월간 상세 분석",
+            text="월간 상세 분석",
             font=ctk.CTkFont(size=16, weight="bold")
         )
         detail_title.pack(pady=10)
@@ -258,7 +258,7 @@ class AIReportWidgetSafe(CTkFrame):
             self.after(100, self._generate_reports_async)
             
         except Exception as e:
-            print(f"❌ AI 리포트 생성 오류: {e}")
+            print(f"AI 리포트 생성 오류: {e}")
     
     def _generate_reports_async(self):
         """비동기 리포트 생성"""
@@ -275,10 +275,10 @@ class AIReportWidgetSafe(CTkFrame):
             # 월간 리포트 생성
             self._generate_monthly_report(trading_data)
             
-            print("✅ AI 리포트 생성 완료")
+            print("AI 리포트 생성 완료")
             
         except Exception as e:
-            print(f"❌ AI 리포트 생성 오류: {e}")
+            print(f"AI 리포트 생성 오류: {e}")
     
     def _load_trading_data(self):
         """거래 데이터 로드"""
@@ -306,7 +306,7 @@ class AIReportWidgetSafe(CTkFrame):
             return data
             
         except Exception as e:
-            print(f"❌ 거래 데이터 로드 오류: {e}")
+            print(f"거래 데이터 로드 오류: {e}")
             return []
     
     def _generate_today_report(self, trading_data):
@@ -321,15 +321,15 @@ class AIReportWidgetSafe(CTkFrame):
             win_rate = (profitable_trades / total_trades * 100) if total_trades > 0 else 0
             total_profit = sum(row[4] for row in today_data)  # total profit
             
-            summary_text = f"""📊 오늘 거래 요약 ({today.strftime('%Y-%m-%d')})
+            summary_text = f"""오늘 거래 요약 ({today.strftime('%Y-%m-%d')})
 
-🔢 총 거래 수: {total_trades}건
-✅ 수익 거래: {profitable_trades}건
-📈 승률: {win_rate:.1f}%
-💰 총 수익: {total_profit:.2f} USDT
+총 거래 수: {total_trades}건
+수익 거래: {profitable_trades}건
+승률: {win_rate:.1f}%
+총 수익: {total_profit:.2f} USDT
 ⏰ 마지막 거래: {today_data[0][1] if today_data else 'N/A'}
 
-🤖 AI 분석:
+AI 분석:
 - 시장 상황: {'상승' if total_profit > 0 else '하락'}
 - 거래 패턴: {'안정적' if win_rate > 50 else '불안정'}
 - 추천: {'계속 거래' if total_profit > 0 else '거래 중단 고려'}
@@ -339,7 +339,7 @@ class AIReportWidgetSafe(CTkFrame):
             self.today_summary.insert("1.0", summary_text)
             
             # 상세 내역
-            detail_text = "📈 상세 거래 내역\n\n"
+            detail_text = "상세 거래 내역\n\n"
             for i, row in enumerate(today_data[:20]):  # 최근 20건만 표시
                 timestamp = row[1]
                 symbol = row[2]
@@ -354,7 +354,7 @@ class AIReportWidgetSafe(CTkFrame):
             self.today_detail.insert("1.0", detail_text)
             
         except Exception as e:
-            print(f"❌ 오늘 리포트 생성 오류: {e}")
+            print(f"오늘 리포트 생성 오류: {e}")
     
     def _generate_weekly_report(self, trading_data):
         """주간 리포트 생성"""
@@ -368,15 +368,15 @@ class AIReportWidgetSafe(CTkFrame):
             win_rate = (profitable_trades / total_trades * 100) if total_trades > 0 else 0
             total_profit = sum(row[4] for row in weekly_data)
             
-            summary_text = f"""📊 주간 거래 요약 (최근 7일)
+            summary_text = f"""주간 거래 요약 (최근 7일)
 
-🔢 총 거래 수: {total_trades}건
-✅ 수익 거래: {profitable_trades}건
-📈 승률: {win_rate:.1f}%
-💰 총 수익: {total_profit:.2f} USDT
-📊 일평균: {total_profit/7:.2f} USDT
+총 거래 수: {total_trades}건
+수익 거래: {profitable_trades}건
+승률: {win_rate:.1f}%
+총 수익: {total_profit:.2f} USDT
+일평균: {total_profit/7:.2f} USDT
 
-🤖 AI 분석:
+AI 분석:
 - 주간 성과: {'우수' if total_profit > 100 else '보통' if total_profit > 0 else '부진'}
 - 거래 빈도: {'높음' if total_trades > 50 else '보통' if total_trades > 20 else '낮음'}
 - 추천: {'전략 유지' if win_rate > 60 else '전략 재검토'}
@@ -386,8 +386,8 @@ class AIReportWidgetSafe(CTkFrame):
             self.weekly_summary.insert("1.0", summary_text)
             
             # 상세 분석
-            detail_text = "📈 주간 상세 분석\n\n"
-            detail_text += f"📅 분석 기간: {week_ago.strftime('%Y-%m-%d')} ~ {datetime.now().strftime('%Y-%m-%d')}\n\n"
+            detail_text = "주간 상세 분석\n\n"
+            detail_text += f"분석 기간: {week_ago.strftime('%Y-%m-%d')} ~ {datetime.now().strftime('%Y-%m-%d')}\n\n"
             
             # 코인별 성과
             coin_performance = {}
@@ -399,7 +399,7 @@ class AIReportWidgetSafe(CTkFrame):
                 coin_performance[symbol]['trades'] += 1
                 coin_performance[symbol]['profit'] += profit
             
-            detail_text += "🏆 코인별 성과 (상위 10개):\n"
+            detail_text += "코인별 성과 (상위 10개):\n"
             sorted_coins = sorted(coin_performance.items(), key=lambda x: x[1]['profit'], reverse=True)
             for i, (symbol, data) in enumerate(sorted_coins[:10]):
                 detail_text += f"{i+1:2d}. {symbol:8s} | {data['trades']:3d}건 | {data['profit']:8.2f} USDT\n"
@@ -408,7 +408,7 @@ class AIReportWidgetSafe(CTkFrame):
             self.weekly_detail.insert("1.0", detail_text)
             
         except Exception as e:
-            print(f"❌ 주간 리포트 생성 오류: {e}")
+            print(f"주간 리포트 생성 오류: {e}")
     
     def _generate_monthly_report(self, trading_data):
         """월간 리포트 생성"""
@@ -422,15 +422,15 @@ class AIReportWidgetSafe(CTkFrame):
             win_rate = (profitable_trades / total_trades * 100) if total_trades > 0 else 0
             total_profit = sum(row[4] for row in monthly_data)
             
-            summary_text = f"""📊 월간 거래 요약 (최근 30일)
+            summary_text = f"""월간 거래 요약 (최근 30일)
 
-🔢 총 거래 수: {total_trades}건
-✅ 수익 거래: {profitable_trades}건
-📈 승률: {win_rate:.1f}%
-💰 총 수익: {total_profit:.2f} USDT
-📊 일평균: {total_profit/30:.2f} USDT
+총 거래 수: {total_trades}건
+수익 거래: {profitable_trades}건
+승률: {win_rate:.1f}%
+총 수익: {total_profit:.2f} USDT
+일평균: {total_profit/30:.2f} USDT
 
-🤖 AI 분석:
+AI 분석:
 - 월간 성과: {'우수' if total_profit > 500 else '보통' if total_profit > 0 else '부진'}
 - 거래 안정성: {'높음' if win_rate > 60 else '보통' if win_rate > 40 else '낮음'}
 - 추천: {'전략 확장' if total_profit > 1000 else '전략 유지' if total_profit > 0 else '전략 변경'}
@@ -440,8 +440,8 @@ class AIReportWidgetSafe(CTkFrame):
             self.monthly_summary.insert("1.0", summary_text)
             
             # 상세 분석
-            detail_text = "📈 월간 상세 분석\n\n"
-            detail_text += f"📅 분석 기간: {month_ago.strftime('%Y-%m-%d')} ~ {datetime.now().strftime('%Y-%m-%d')}\n\n"
+            detail_text = "월간 상세 분석\n\n"
+            detail_text += f"분석 기간: {month_ago.strftime('%Y-%m-%d')} ~ {datetime.now().strftime('%Y-%m-%d')}\n\n"
             
             # 주간별 성과
             weekly_profits = {}
@@ -452,7 +452,7 @@ class AIReportWidgetSafe(CTkFrame):
                     weekly_profits[week_key] = 0
                 weekly_profits[week_key] += row[4]
             
-            detail_text += "📊 주간별 수익 현황:\n"
+            detail_text += "주간별 수익 현황:\n"
             for week, profit in sorted(weekly_profits.items()):
                 detail_text += f"  {week} ~ {profit:8.2f} USDT\n"
             
@@ -460,4 +460,4 @@ class AIReportWidgetSafe(CTkFrame):
             self.monthly_detail.insert("1.0", detail_text)
             
         except Exception as e:
-            print(f"❌ 월간 리포트 생성 오류: {e}")
+            print(f"월간 리포트 생성 오류: {e}")

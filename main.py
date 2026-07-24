@@ -1443,6 +1443,8 @@ class NoahAIClient:
 
             # 메모리 설정 갱신 및 디스크 저장
             self.settings.update(new_settings)
+            if 'ai_custom_runtime' in new_settings:
+                self.sync_custom_strategy_runtime_pools()
             self._apply_membership_feature_limits(self.current_user_grade)
             if self.auto_update_manager is not None:
                 self.auto_update_manager.update_settings(self.settings)
@@ -2930,6 +2932,8 @@ class NoahAIClient:
     def sync_custom_strategy_runtime_pools(self):
         """개별/공통 범위의 활성 전략 풀을 코인·주식 실행 경로가 함께 보도록 동기화한다."""
         combined = []
+        runtime_cfg = dict((getattr(self, 'settings', {}) or {}).get('ai_custom_runtime', {}) or {})
+        runtime_enabled = bool(runtime_cfg.get('enabled', False))
         for attr in ("strategy_customizer", "strategy_customizer_unified"):
             customizer = getattr(self, attr, None)
             if customizer and hasattr(customizer, "get_active_strategy_pool"):
@@ -2939,7 +2943,10 @@ class NoahAIClient:
             key = str(item.get("version_id") or item.get("id") or "")
             if key:
                 dedup[key] = item
-        pool = sorted(dedup.values(), key=lambda item: int(item.get("priority", 5) or 5), reverse=True)[:10]
+        pool = (
+            sorted(dedup.values(), key=lambda item: int(item.get("priority", 5) or 5), reverse=True)[:10]
+            if runtime_enabled else []
+        )
         if getattr(self, "trader", None) is not None:
             self.trader.active_custom_strategy_pool = list(pool)
         if getattr(self, "unified_trader", None) is not None:

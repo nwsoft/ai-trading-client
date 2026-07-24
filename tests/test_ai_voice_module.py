@@ -50,11 +50,11 @@ def test_speak_darwin_calls_say():
         run_mock.assert_called_once()
 
 
-def test_transcribe_not_implemented():
+def test_transcribe_missing_file_is_structured_not_available():
     m = AIVoiceModule(VoiceConfig(enabled=True))
     result = m.transcribe('/tmp/audio.wav')
-    assert result['status'] == 'not_implemented'
-    assert result['reason'] == 'stt_engine_not_configured'
+    assert result['status'] == 'not_available'
+    assert result['reason'] == 'audio_file_not_found'
 
 
 def test_stt_engine_none_without_dependency():

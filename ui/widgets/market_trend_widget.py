@@ -94,9 +94,9 @@ class MarketTrendWidget(ctk.CTkFrame):
                 return lbl
 
             # 메트릭 칩 - 서비스 컨텍스트별로 나중에 업데이트됨
-            self.trend_chip_direction = _chip(metrics_frame, "📊 시장 방향: 연결 중", "info", "#1f538d")
-            self.trend_chip_funding = _chip(metrics_frame, "💰 펀딩비: 연결 중", "success", "#2b7a0b")
-            self.trend_chip_fng = _chip(metrics_frame, "😼 공포/탐욕: 연결 중", "border", "#6b7280")
+            self.trend_chip_direction = _chip(metrics_frame, "시장 방향: 연결 중", "info", "#1f538d")
+            self.trend_chip_funding = _chip(metrics_frame, "펀딩비: 연결 중", "success", "#2b7a0b")
+            self.trend_chip_fng = _chip(metrics_frame, "공포/탐욕: 연결 중", "border", "#6b7280")
         except Exception:
             pass
 
@@ -110,7 +110,7 @@ class MarketTrendWidget(ctk.CTkFrame):
         except Exception:
             pass
 
-        def _add_section(key: str, title: str, placeholder: str, icon: str = "📌", chip_color_key: str = "primary", chip_fallback: str = "#14375e", height: int = 220) -> None:
+        def _add_section(key: str, title: str, placeholder: str, icon: str = "", chip_color_key: str = "primary", chip_fallback: str = "#14375e", height: int = 220) -> None:
             # 2열 그리드 위치 계산
             idx = len(sections)
             row, col = divmod(idx, 2)
@@ -154,7 +154,7 @@ class MarketTrendWidget(ctk.CTkFrame):
             "• 일간/주간 주요 지수와 수익률 요약을 표시합니다.\n"
             "• 서비스 컨텍스트(블록체인/주식)에 맞는 대표 심볼 기준으로 해석합니다.\n"
             "• 데이터 수집이 없으면 연결 중 상태를 표시합니다.",
-            icon="🧭",
+            icon="",
             chip_color_key="info",
             chip_fallback="#1f538d"
         )
@@ -165,7 +165,7 @@ class MarketTrendWidget(ctk.CTkFrame):
             "• BTC, ETH, 시총 상위 알트의 단기/중기/장기 추세 비교가 표시됩니다.\n"
             "• 디파이·메타버스·AI 등 섹터별 평균 수익률을 시각화하여 제공합니다.\n"
             "• 섹터별 성과를 색상으로 구분하여 표시 (녹색: 상승, 빨간색: 하락).",
-            icon="📊",
+            icon="",
             chip_color_key="success",
             chip_fallback="#2b7a0b"
         )
@@ -176,7 +176,7 @@ class MarketTrendWidget(ctk.CTkFrame):
             "• 거래량 증감률, 펀딩비, 롱/숏 비율 등 심리 지표를 표시합니다.\n"
             "• 블록체인 컨텍스트에서는 온체인/파생 지표를 우선 반영합니다.\n"
             "• 주식 컨텍스트에서는 일반 거래량/수급 관점 설명으로 전환합니다.",
-            icon="📈",
+            icon="",
             chip_color_key="warning",
             chip_fallback="#92400e"
         )
@@ -187,7 +187,7 @@ class MarketTrendWidget(ctk.CTkFrame):
             "• 활성 포지션, 거래 이력, 누적 손익 등 현재 조회 가능한 지표를 표시합니다.\n"
             "• 거래 데이터가 없으면 미집계 상태를 명확히 안내합니다.\n"
             "• 제공되지 않는 지표는 예정 문구 대신 미제공으로 표시합니다.",
-            icon="🧠",
+            icon="",
             chip_color_key="success",
             chip_fallback="#0f766e"
         )
@@ -198,7 +198,7 @@ class MarketTrendWidget(ctk.CTkFrame):
             "• 현재 제공되는 AI 기능과 미제공 기능을 구분해 보여줍니다.\n"
             "• 전략 신호, 임계값 조정, TP/SL 보정 등 현재 동작 범위를 안내합니다.\n"
             "• 일정 약속 문구 없이 실제 배포 기능 기준으로 표시합니다.",
-            icon="🤖",
+            icon="",
             chip_color_key="accent",
             chip_fallback="#6b21a8"
         )
@@ -266,7 +266,7 @@ class MarketTrendWidget(ctk.CTkFrame):
             # 데이터 즉시 재수집
             self.collect_and_update()
         except Exception as e:
-            print(f"⚠️ MarketTrendWidget set_service_context 오류: {e}")
+            print(f"MarketTrendWidget set_service_context 오류: {e}")
 
     def _get_cache_key(self) -> str:
         """서비스 컨텍스트별 캐시 키 반환"""
@@ -313,11 +313,11 @@ class MarketTrendWidget(ctk.CTkFrame):
         """주식/ETF 모드에 맞게 섹션 레이블 업데이트"""
         try:
             label_map = {
-                "market_momentum": ("🧭 주식 시장 방향성", "• KOSPI/KOSDAQ 지수 흐름, 외국인/기관 순매수 동향\n• 섹터 로테이션 및 업종별 강도 분석"),
-                "coin_sector":      ("📊 업종·섹터 흐름",   "• IT·바이오·금융·에너지 등 업종별 수익률 비교\n• 코스피200 대비 개별 종목 상대 강도"),
-                "sentiment_volume": ("📈 투자 심리 · 거래량", "• 신용잔고·공매도·외국인 보유율 지표\n• 주요 종목 거래대금 이상 급등·급락 감지"),
-                "portfolio_trend":  ("🧠 내 포트폴리오 트렌드", "• 보유 종목 수익률, 평가손익, 리밸런싱 신호\n• 업종 편중도 및 위험 분산 지표"),
-                "ai_strategy":      ("🤖 AI 전략 상태", "• AI 기반 매수/매도 시그널, 종목 스코어링\n• 실적 시즌·공시 이벤트 대응 전략 안내"),
+                "market_momentum": ("주식 시장 방향성", "• KOSPI/KOSDAQ 지수 흐름, 외국인/기관 순매수 동향\n• 섹터 로테이션 및 업종별 강도 분석"),
+                "coin_sector":      ("업종·섹터 흐름",   "• IT·바이오·금융·에너지 등 업종별 수익률 비교\n• 코스피200 대비 개별 종목 상대 강도"),
+                "sentiment_volume": ("투자 심리 · 거래량", "• 신용잔고·공매도·외국인 보유율 지표\n• 주요 종목 거래대금 이상 급등·급락 감지"),
+                "portfolio_trend":  ("내 포트폴리오 트렌드", "• 보유 종목 수익률, 평가손익, 리밸런싱 신호\n• 업종 편중도 및 위험 분산 지표"),
+                "ai_strategy":      ("AI 전략 상태", "• AI 기반 매수/매도 시그널, 종목 스코어링\n• 실적 시즌·공시 이벤트 대응 전략 안내"),
             }
             self._apply_section_label_map(label_map)
         except Exception:
@@ -327,11 +327,11 @@ class MarketTrendWidget(ctk.CTkFrame):
         """블록체인/암호화폐 모드에 맞게 섹션 레이블 복원"""
         try:
             label_map = {
-                "market_momentum": ("🧭 시장 방향성",       "• 이동평균, MACD, RSI 기반의 방향성 분석\n• 상승/하락 전환 구간 자동 감지"),
-                "coin_sector":      ("📊 대표 코인 · 섹터 흐름", "• BTC, ETH, 시총 상위 알트 단기/중기/장기 추세\n• 디파이·메타버스·AI 섹터별 평균 수익률"),
-                "sentiment_volume": ("📈 시장 심리 · 거래량 지표", "• 거래소별 거래량 증감률, 펀딩비, 공매도 비율\n• 고래 순매수/순매도, 온체인 순유입·순유출"),
-                "portfolio_trend":  ("🧠 나의 포트폴리오 트렌드", "• 총 자산 곡선, 변동성, 샤프 지수\n• 최근 7일 손익, 활성 포지션 추세 분석"),
-                "ai_strategy":      ("🤖 AI 전략 상태", "• 거래소별 트렌드 스코어, 신호 분포\n• 커스텀 지표 연결 및 AI 추천 전략"),
+                "market_momentum": ("시장 방향성",       "• 이동평균, MACD, RSI 기반의 방향성 분석\n• 상승/하락 전환 구간 자동 감지"),
+                "coin_sector":      ("대표 코인 · 섹터 흐름", "• BTC, ETH, 시총 상위 알트 단기/중기/장기 추세\n• 디파이·메타버스·AI 섹터별 평균 수익률"),
+                "sentiment_volume": ("시장 심리 · 거래량 지표", "• 거래소별 거래량 증감률, 펀딩비, 공매도 비율\n• 고래 순매수/순매도, 온체인 순유입·순유출"),
+                "portfolio_trend":  ("나의 포트폴리오 트렌드", "• 총 자산 곡선, 변동성, 샤프 지수\n• 최근 7일 손익, 활성 포지션 추세 분석"),
+                "ai_strategy":      ("AI 전략 상태", "• 거래소별 트렌드 스코어, 신호 분포\n• 커스텀 지표 연결 및 AI 추천 전략"),
             }
             self._apply_section_label_map(label_map)
         except Exception:
@@ -417,7 +417,7 @@ class MarketTrendWidget(ctk.CTkFrame):
                     # 메인 스레드에서 UI 업데이트
                     self.safe_after(0, lambda: self._update_ui_with_data(insights))
                 except Exception as e:
-                    print(f"❌ 데이터 수집 오류: {e}")
+                    print(f"데이터 수집 오류: {e}")
                     self._last_refresh_error = str(e)
                     log_ui_perf_metric("market_trend", "fetch_error", error=str(e)[:120])
                 finally:
@@ -428,12 +428,12 @@ class MarketTrendWidget(ctk.CTkFrame):
             thread.start()
 
         except Exception as e:
-            print(f"❌ collect_and_update 오류: {e}")
+            print(f"collect_and_update 오류: {e}")
             self._trend_refreshing = False
 
     def _gather_market_trend_data(self) -> Dict[str, Any]:
         """시장 트렌드 데이터 수집"""
-        print("🔥 _gather_market_trend_data 시작!")
+        print("_gather_market_trend_data 시작!")
         try:
             service_context = getattr(self, '_service_context', 'blockchain')
             # 기본 거래소 확인
@@ -441,7 +441,7 @@ class MarketTrendWidget(ctk.CTkFrame):
             if not primary_exchange:
                 return {}
 
-            print(f"🔥 주요 거래소: {primary_exchange}, 서비스: {service_context}")
+            print(f"주요 거래소: {primary_exchange}, 서비스: {service_context}")
 
             # 데이터 수집
             insights = {
@@ -463,14 +463,14 @@ class MarketTrendWidget(ctk.CTkFrame):
 
             # 일간 데이터 수집
             for symbol in major_symbols:
-                print(f"🔥 일간 데이터 수집: {symbol}")
+                print(f"일간 데이터 수집: {symbol}")
                 trend_data = self._compute_symbol_trend(symbol, primary_exchange, '1d')
                 if trend_data:
                     insights['daily_changes'].append(trend_data)
 
             # 주간 데이터 수집
             for symbol in major_symbols:
-                print(f"🔥 주간 데이터 수집: {symbol}")
+                print(f"주간 데이터 수집: {symbol}")
                 weekly_data = self._compute_multi_period_change(symbol, primary_exchange, '1w')
                 if weekly_data:
                     insights['weekly_changes'].append(weekly_data)
@@ -478,25 +478,25 @@ class MarketTrendWidget(ctk.CTkFrame):
             # 섹터 데이터 수집
             sectors = self._get_sectors_for_exchange(primary_exchange, service_context)
             for sector_name, symbols in sectors.items():
-                print(f"🔥 섹터 데이터 수집: {sector_name}")
+                print(f"섹터 데이터 수집: {sector_name}")
                 sector_data = self._compute_sector_trend(sector_name, symbols, primary_exchange)
                 if sector_data:
                     insights['sector_summary'].append(sector_data)
 
             # 시장 심리 데이터 수집 (블록체인 컨텍스트에서만)
             if collect_sentiment:
-                print("🔥 시장 심리 데이터 수집 시작...")
+                print("시장 심리 데이터 수집 시작...")
                 sentiment_data = self._fetch_sentiment_summary('BTCUSDT')
                 if sentiment_data:
                     insights['sentiment_summary'] = sentiment_data
-                    print("🔥 시장 심리 데이터 수집 성공!")
+                    print("시장 심리 데이터 수집 성공!")
 
-            print(f"🔥 수집된 데이터: 일간={len(insights['daily_changes'])}, 주간={len(insights['weekly_changes'])}, 섹터={len(insights['sector_summary'])}")
+            print(f"수집된 데이터: 일간={len(insights['daily_changes'])}, 주간={len(insights['weekly_changes'])}, 섹터={len(insights['sector_summary'])}")
 
             return insights
 
         except Exception as e:
-            print(f"❌ _gather_market_trend_data 오류: {e}")
+            print(f"_gather_market_trend_data 오류: {e}")
             return {}
 
     def _get_primary_exchange(self) -> Optional[str]:
@@ -543,7 +543,7 @@ class MarketTrendWidget(ctk.CTkFrame):
                 'ma7_slope': ma7_slope
             }
         except Exception as e:
-            print(f"❌ _compute_symbol_trend 오류: {e}")
+            print(f"_compute_symbol_trend 오류: {e}")
             return None
 
     def _compute_multi_period_change(self, symbol: str, exchange: str, period: str) -> Optional[Dict[str, Any]]:
@@ -648,7 +648,7 @@ class MarketTrendWidget(ctk.CTkFrame):
 
             return None
         except Exception as e:
-            print(f"❌ _safe_fetch_klines 오류: {e}")
+            print(f"_safe_fetch_klines 오류: {e}")
             return None
 
     def _fetch_binance_klines_public_with_retry(self, symbol: str, interval: str, limit: int) -> Optional[List[List[Any]]]:
@@ -659,7 +659,7 @@ class MarketTrendWidget(ctk.CTkFrame):
                 if result:
                     return result
             except Exception as e:
-                print(f"❌ 바이낸스 K라인 조회 실패 (시도 {attempt+1}): {e}")
+                print(f"바이낸스 K라인 조회 실패 (시도 {attempt+1}): {e}")
                 if attempt < 1:
                     import time
                     time.sleep(1)
@@ -817,7 +817,7 @@ class MarketTrendWidget(ctk.CTkFrame):
         try:
             import requests, time
             summary: Dict[str, Any] = {}
-            print(f"🔥 바이낸스 API 호출 시작: {symbol}")
+            print(f"바이낸스 API 호출 시작: {symbol}")
 
             # 펀딩비 (최근 1개) - 재시도 로직 포함
             for attempt in range(2):
@@ -828,10 +828,10 @@ class MarketTrendWidget(ctk.CTkFrame):
                     )
                     if fr.status_code == 200 and isinstance(fr.json(), list) and fr.json():
                         summary['funding_rate'] = float(fr.json()[0].get('fundingRate', 0.0))
-                        print(f"🔥 펀딩비 수집 성공: {summary['funding_rate']}")
+                        print(f"펀딩비 수집 성공: {summary['funding_rate']}")
                         break
                 except Exception as e:
-                    print(f"❌ 펀딩비 수집 오류 (시도 {attempt+1}): {e}")
+                    print(f"펀딩비 수집 오류 (시도 {attempt+1}): {e}")
                     if attempt < 1:
                         time.sleep(1)
                     pass
@@ -871,7 +871,7 @@ class MarketTrendWidget(ctk.CTkFrame):
                 return summary
 
         except Exception as e:
-            print(f"❌ 시장 심리 데이터 수집 오류: {e}")
+            print(f"시장 심리 데이터 수집 오류: {e}")
 
         return None
 
@@ -889,7 +889,7 @@ class MarketTrendWidget(ctk.CTkFrame):
             self._update_ai_strategy_section(insights)
 
         except Exception as e:
-            print(f"❌ UI 업데이트 오류: {e}")
+            print(f"UI 업데이트 오류: {e}")
 
     def _update_metric_chips(self, insights: Dict[str, Any]):
         """메트릭 칩 업데이트"""
@@ -908,11 +908,11 @@ class MarketTrendWidget(ctk.CTkFrame):
                 if daily_changes:
                     avg_change = sum(float(d.get('change', 0.0)) for d in daily_changes) / len(daily_changes)
                     if avg_change > 0.5:
-                        direction_text, direction_color = "📈 강세", success_color
+                        direction_text, direction_color = "강세", success_color
                     elif avg_change < -0.5:
-                        direction_text, direction_color = "📉 약세", danger_color
+                        direction_text, direction_color = "약세", danger_color
                     else:
-                        direction_text, direction_color = "➡️ 중립", neutral_color
+                        direction_text, direction_color = "중립", neutral_color
                 else:
                     direction_text, direction_color = "⏳ 데이터 연결 중", neutral_color
 
@@ -925,8 +925,8 @@ class MarketTrendWidget(ctk.CTkFrame):
                     breadth_text = "연동 대기"
                     breadth_color = neutral_color
 
-                self.trend_chip_direction.configure(text=f"📊 시장 방향: {direction_text}", fg_color=direction_color)
-                self.trend_chip_funding.configure(text=f"📦 섹터 브레드스: {breadth_text}", fg_color=breadth_color)
+                self.trend_chip_direction.configure(text=f"시장 방향: {direction_text}", fg_color=direction_color)
+                self.trend_chip_funding.configure(text=f"섹터 브레드스: {breadth_text}", fg_color=breadth_color)
                 # KOSPI/KOSDAQ 지수 표시
                 index_data = dict(insights.get('index_data', {}) or {})
                 if index_data:
@@ -935,9 +935,9 @@ class MarketTrendWidget(ctk.CTkFrame):
                     kospi_price = float(kospi.get('price', 0) or 0)
                     idx_text = f"KOSPI {kospi_price:,.2f} ({kospi_chg:+.2f}%)" if kospi_price > 0 else "KOSPI 조회 중"
                     idx_color = success_color if kospi_chg > 0 else danger_color if kospi_chg < 0 else neutral_color
-                    self.trend_chip_fng.configure(text=f"📋 {idx_text}", fg_color=idx_color)
+                    self.trend_chip_fng.configure(text=f"{idx_text}", fg_color=idx_color)
                 else:
-                    self.trend_chip_fng.configure(text="📋 KOSPI/KOSDAQ: 연결 중", fg_color=info_color)
+                    self.trend_chip_fng.configure(text="KOSPI/KOSDAQ: 연결 중", fg_color=info_color)
                 return
 
             # 시장 방향
@@ -953,38 +953,38 @@ class MarketTrendWidget(ctk.CTkFrame):
                         except Exception:
                             wait_text = "⏳ 수집 중"
                 elif str(getattr(self, '_last_refresh_error', '') or '').strip():
-                    wait_text = "⚠️ 수집 지연"
+                    wait_text = "수집 지연"
 
                 daily_changes = [d for d in insights.get('daily_changes', []) if isinstance(d, dict) and 'change' in d]
                 if daily_changes:
                     avg_change = sum(float(d.get('change', 0.0)) for d in daily_changes) / len(daily_changes)
                     if avg_change > 0.5:
-                        direction_text, direction_color = "📈 강세", success_color
+                        direction_text, direction_color = "강세", success_color
                     elif avg_change < -0.5:
-                        direction_text, direction_color = "📉 약세", danger_color
+                        direction_text, direction_color = "약세", danger_color
                     else:
-                        direction_text, direction_color = "➡️ 횡보", neutral_color
-                    self.trend_chip_direction.configure(text=f"📊 시장 방향: {direction_text}", fg_color=direction_color)
+                        direction_text, direction_color = "횡보", neutral_color
+                    self.trend_chip_direction.configure(text=f"시장 방향: {direction_text}", fg_color=direction_color)
                 else:
-                    self.trend_chip_direction.configure(text=f"📊 시장 방향: {wait_text}", fg_color=neutral_color)
+                    self.trend_chip_direction.configure(text=f"시장 방향: {wait_text}", fg_color=neutral_color)
 
-                self.trend_chip_funding.configure(text=f"💰 펀딩비: {wait_text}", fg_color=neutral_color)
-                self.trend_chip_fng.configure(text=f"😼 공포/탐욕: {wait_text}", fg_color=neutral_color)
+                self.trend_chip_funding.configure(text=f"펀딩비: {wait_text}", fg_color=neutral_color)
+                self.trend_chip_fng.configure(text=f"공포/탐욕: {wait_text}", fg_color=neutral_color)
                 return
 
             funding_rate = sentiment.get('funding_rate', 0.0)
 
             if funding_rate > 0.01:
-                direction_text = "📈 상승세"
+                direction_text = "상승세"
                 direction_color = success_color
             elif funding_rate < -0.01:
-                direction_text = "📉 하락세"
+                direction_text = "하락세"
                 direction_color = danger_color
             else:
-                direction_text = "➡️ 횡보"
+                direction_text = "횡보"
                 direction_color = neutral_color
 
-            self.trend_chip_direction.configure(text=f"📊 시장 방향: {direction_text}", fg_color=direction_color)
+            self.trend_chip_direction.configure(text=f"시장 방향: {direction_text}", fg_color=direction_color)
 
             # 펀딩비
             funding_text = f"{funding_rate:.4f}"
@@ -995,24 +995,24 @@ class MarketTrendWidget(ctk.CTkFrame):
             else:
                 funding_color = success_color  # 정상
 
-            self.trend_chip_funding.configure(text=f"💰 펀딩비: {funding_text}", fg_color=funding_color)
+            self.trend_chip_funding.configure(text=f"펀딩비: {funding_text}", fg_color=funding_color)
 
             # 공포/탐욕
             ls_ratio = sentiment.get('ls_account_ratio', 1.0)
             if ls_ratio > 1.2:
-                fng_text = "😈 탐욕"
+                fng_text = "탐욕"
                 fng_color = danger_color
             elif ls_ratio < 0.8:
-                fng_text = "😰 공포"
+                fng_text = "공포"
                 fng_color = self._color('info', '#2563eb')
             else:
-                fng_text = "😐 중립"
+                fng_text = "중립"
                 fng_color = neutral_color
 
-            self.trend_chip_fng.configure(text=f"😼 공포/탐욕: {fng_text}", fg_color=fng_color)
+            self.trend_chip_fng.configure(text=f"공포/탐욕: {fng_text}", fg_color=fng_color)
 
         except Exception as e:
-            print(f"❌ 메트릭 칩 업데이트 오류: {e}")
+            print(f"메트릭 칩 업데이트 오류: {e}")
 
     def _update_market_momentum_section(self, insights: Dict[str, Any]):
         """시장 방향 · 모멘텀 섹션 업데이트"""
@@ -1028,15 +1028,15 @@ class MarketTrendWidget(ctk.CTkFrame):
                 index_data = dict(insights.get('index_data', {}) or {})
                 daily_changes = [d for d in insights.get('daily_changes', []) if isinstance(d, dict)]
 
-                content = "🧭 한국 주식 시장 방향·모멘텀\n\n"
+                content = "한국 주식 시장 방향·모멘텀\n\n"
 
                 # 지수 섹션
                 if index_data:
-                    content += "📈 주요 지수:\n"
+                    content += "주요 지수:\n"
                     for idx_name, idx_info in index_data.items():
                         price = float(idx_info.get('price', 0) or 0)
                         change = float(idx_info.get('change', 0) or 0)
-                        em = "📈" if change > 0 else "📉" if change < 0 else "➡️"
+                        em = "" if change > 0 else "" if change < 0 else ""
                         price_str = f"{price:,.2f}" if price > 0 else "—"
                         content += f"  {em} {idx_name}: {price_str}  ({change:+.2f}%)\n"
                     content += "\n"
@@ -1044,18 +1044,18 @@ class MarketTrendWidget(ctk.CTkFrame):
                     status = getattr(self, '_last_stock_index_fetch_status', {}) or {}
                     msg = status.get('message', '현재 지수 정보를 불러오지 못했습니다.')
                     action = status.get('action', '잠시 후 새로고침해 주세요.')
-                    content += f"📈 주요 지수: {msg}\n"
+                    content += f"주요 지수: {msg}\n"
                     content += f"  → 안내: {action}\n\n"
 
                 # 대표 종목 섹션
-                content += "🏢 대표 종목 일간 변화율:\n"
+                content += "대표 종목 일간 변화율:\n"
                 available = [d for d in daily_changes if not d.get('no_data')]
                 if available:
                     for stock in available[:6]:
                         name = stock.get('name', stock.get('symbol', ''))
                         change = float(stock.get('change', 0) or 0)
                         price = float(stock.get('price', 0) or 0)
-                        em = "📈" if change > 0 else "📉" if change < 0 else "➡️"
+                        em = "" if change > 0 else "" if change < 0 else ""
                         price_str = f"{price:,}" if price > 0 else "—"
                         content += f"  {em} {name}({stock.get('symbol', '')}): {price_str}원  {change:+.2f}%\n"
                 else:
@@ -1100,7 +1100,7 @@ class MarketTrendWidget(ctk.CTkFrame):
                         coin_symbols.append(str(coin))
                 selected_coins_text = ", ".join(coin_symbols)
 
-            content = f"""🧭 시장 방향·모멘텀
+            content = f"""시장 방향·모멘텀
 
 • 현재 선정된 주요 코인: {selected_coins_text}
 
@@ -1110,13 +1110,13 @@ class MarketTrendWidget(ctk.CTkFrame):
                 try:
                     # 딕셔너리인지 확인
                     if isinstance(coin, dict):
-                        change_emoji = "📈" if coin['change'] > 0 else "📉" if coin['change'] < 0 else "➡️"
+                        change_emoji = "" if coin['change'] > 0 else "" if coin['change'] < 0 else ""
                         content += f"\n  {change_emoji} {coin['symbol']}: {coin['change']:+.2f}% (MA7 기울기 {coin['ma7_slope']:+.2f})"
                     else:
                         # 문자열인 경우
-                        content += f"\n  ➡️ {coin}: 분석 중..."
+                        content += f"\n  {coin}: 분석 중..."
                 except Exception as e:
-                    print(f"⚠️ 코인 데이터 처리 오류: {coin} - {e}")
+                    print(f"코인 데이터 처리 오류: {coin} - {e}")
                     pass
 
             if not insights.get('daily_changes'):
@@ -1126,14 +1126,14 @@ class MarketTrendWidget(ctk.CTkFrame):
             if total_trades > 0:
                 content += f"""
 
-📊 나의 거래 현황:
+나의 거래 현황:
 • 총 거래 수: {total_trades}회
 • 누적 손익: {total_pnl:+.2f}%
 • 승률: {win_rate:.1f}%"""
             else:
                 content += f"""
 
-📊 나의 거래 현황:
+나의 거래 현황:
 • 아직 거래 이력이 없습니다
 • 거래 시작 후 실시간 통계가 표시됩니다"""
 
@@ -1143,14 +1143,14 @@ class MarketTrendWidget(ctk.CTkFrame):
             section.configure(state="disabled")
 
         except Exception as e:
-            print(f"❌ 시장 모멘텀 섹션 업데이트 오류: {e}")
+            print(f"시장 모멘텀 섹션 업데이트 오류: {e}")
             # 안전한 기본값으로 설정
             try:
                 section = self._get_section_textbox('market_momentum')
                 if section:
                     section.configure(state="normal")
                     section.delete("1.0", "end")
-                    section.insert("1.0", "🧭 시장 방향·모멘텀\n\n• 시장 분석 중...")
+                    section.insert("1.0", "시장 방향·모멘텀\n\n• 시장 분석 중...")
                     section.configure(state="disabled")
             except Exception:
                 pass
@@ -1166,9 +1166,9 @@ class MarketTrendWidget(ctk.CTkFrame):
             sectors = insights.get('sector_summary', [])
 
             if service_context == 'stock':
-                content = "📊 한국 주식 업종·섹터 흐름:\n\n"
+                content = "한국 주식 업종·섹터 흐름:\n\n"
             else:
-                content = "📊 섹터별 평균 변화율:\n"
+                content = "섹터별 평균 변화율:\n"
 
             # 섹터 데이터 처리
             for sector in sectors:
@@ -1178,19 +1178,19 @@ class MarketTrendWidget(ctk.CTkFrame):
 
                     if avg_change > 2.0:
                         status = "[강세]"
-                        color_indicator = "🟢"
+                        color_indicator = ""
                     elif avg_change > 0:
                         status = "[소폭 상승]"
-                        color_indicator = "🔵"
+                        color_indicator = ""
                     elif avg_change < -2.0:
                         status = "[약세]"
-                        color_indicator = "🔴"
+                        color_indicator = ""
                     elif avg_change < 0:
                         status = "[소폭 하락]"
-                        color_indicator = "🟠"
+                        color_indicator = ""
                     else:
                         status = "[보통]"
-                        color_indicator = "🟡"
+                        color_indicator = ""
 
                     content += f"  {color_indicator} {sector_name}: {avg_change:+.2f}% {status}\n"
                 except Exception:
@@ -1210,7 +1210,7 @@ class MarketTrendWidget(ctk.CTkFrame):
             section.configure(state="disabled")
 
         except Exception as e:
-            print(f"❌ 코인 섹터 섹션 업데이트 오류: {e}")
+            print(f"코인 섹터 섹션 업데이트 오류: {e}")
 
     def _update_sentiment_section(self, insights: Dict[str, Any]):
         """시장 심리 · 거래량 지표 섹션 업데이트"""
@@ -1221,7 +1221,7 @@ class MarketTrendWidget(ctk.CTkFrame):
 
             service_context = insights.get('service_context') or getattr(self, '_service_context', 'blockchain')
             if service_context == 'stock':
-                content = "📈 투자 심리·거래량\n\n"
+                content = "투자 심리·거래량\n\n"
                 content += "• 현재 화면은 대표 종목/업종 흐름 중심으로 먼저 제공합니다.\n"
                 content += "• 주식 심리·수급 지표는 제공처/연동 상태에 따라 순차 표시됩니다.\n"
                 content += "• 지금 할 일: 대표 종목 변화율 + 섹터 흐름 + 내 포트폴리오 손익을 함께 확인하세요.\n"
@@ -1235,7 +1235,7 @@ class MarketTrendWidget(ctk.CTkFrame):
 
             sentiment = insights.get('sentiment_summary', {})
 
-            content = "📈 시장 심리·거래량 지표\n\n"
+            content = "시장 심리·거래량 지표\n\n"
 
             # 펀딩비 분석
             funding_rate = sentiment.get('funding_rate', 0.0)
@@ -1291,7 +1291,7 @@ class MarketTrendWidget(ctk.CTkFrame):
             section.configure(state="disabled")
 
         except Exception as e:
-            print(f"❌ 시장 심리 섹션 업데이트 오류: {e}")
+            print(f"시장 심리 섹션 업데이트 오류: {e}")
 
     def _update_portfolio_section(self, insights: Dict[str, Any]):
         """나의 포트폴리오 트렌드 섹션 업데이트"""
@@ -1333,7 +1333,7 @@ class MarketTrendWidget(ctk.CTkFrame):
                             total_pnl = row[2] or 0.0
                             win_rate = (winning_trades / total_trades * 100) if total_trades > 0 else 0.0
             except Exception as e:
-                print(f"⚠️ 포트폴리오 통계 조회 오류: {e}")
+                print(f"포트폴리오 통계 조회 오류: {e}")
                 pass
 
             # 메모리에서 활성 포지션 수 조회 (실시간)
@@ -1386,30 +1386,30 @@ class MarketTrendWidget(ctk.CTkFrame):
                 else:
                     winrate_level = "낮음"
 
-                content = f"""💼 나의 포트폴리오 트렌드
+                content = f"""나의 포트폴리오 트렌드
 
 • 활성 포지션 수: {active_positions}
 • 자동 거래 상태: {'실행 중' if running > 0 else '대기'} ({running}/{enabled} 거래소)
 
-📊 포트폴리오 분석:
+포트폴리오 분석:
 • 총 거래 수: {total_trades}회
 • 누적 손익: {total_pnl:+.2f} USDT
 • 승률: {win_rate:.1f}% ({winrate_level})
 • 성과 평가: {performance}
 
-ℹ️ 현재 제공 범위:
+ℹ현재 제공 범위:
 • 총 자산 곡선/샤프 지수는 아직 제공되지 않습니다.
 • 본 섹션은 거래 이력·손익·활성 포지션 중심으로 동작합니다."""
             else:
-                content = """💼 나의 포트폴리오 트렌드
+                content = """나의 포트폴리오 트렌드
 
 • 활성 포지션 수: 0
 • 자동 거래 상태: 대기 (0/1 거래소)
 
-📊 포트폴리오 분석:
+포트폴리오 분석:
 • 아직 거래 이력이 없습니다
 
-ℹ️ 현재 제공 범위:
+ℹ현재 제공 범위:
 • 거래 이력 생성 전에는 성과 지표가 비어 있을 수 있습니다.
 • 총 자산 곡선/샤프 지수는 아직 제공되지 않습니다."""
 
@@ -1419,7 +1419,7 @@ class MarketTrendWidget(ctk.CTkFrame):
             section.configure(state="disabled")
 
         except Exception as e:
-            print(f"❌ 포트폴리오 섹션 업데이트 오류: {e}")
+            print(f"포트폴리오 섹션 업데이트 오류: {e}")
 
     def _update_ai_strategy_section(self, insights: Dict[str, Any]):
         """AI 전략 상태 섹션 업데이트 (커스텀 지표/고래분석/전략신뢰도 포함)"""
@@ -1432,24 +1432,24 @@ class MarketTrendWidget(ctk.CTkFrame):
             custom_indicators = getattr(self, '_custom_indicators', [])
             if custom_indicators:
                 custom_lines = "\n".join(f"  [{i+1}] {ind}" for i, ind in enumerate(custom_indicators))
-                custom_block = f"⚙️ 커스텀 지표 ({len(custom_indicators)}개 등록):\n{custom_lines}"
+                custom_block = f"커스텀 지표 ({len(custom_indicators)}개 등록):\n{custom_lines}"
             else:
-                custom_block = "⚙️ 커스텀 지표: 없음 (AI 어시스턴트에서 '지표 추가 [지표명]'으로 등록)"
+                custom_block = "커스텀 지표: 없음 (AI 어시스턴트에서 '지표 추가 [지표명]'으로 등록)"
 
             # ── 고래/기관 활동 분석 ────────────────────────────────
             try:
                 ls_ratio = float(insights.get('long_short_ratio', 1.0) or 1.0)
                 oi = insights.get('open_interest', None)
-                whale_dir = "고래 매수 우세 🟢" if ls_ratio > 1.05 else ("고래 매도 우세 🔴" if ls_ratio < 0.95 else "고래 중립 ⚪")
+                whale_dir = "고래 매수 우세 " if ls_ratio > 1.05 else ("고래 매도 우세 " if ls_ratio < 0.95 else "고래 중립 ")
                 oi_txt = f"{float(oi):,.0f}" if oi else "정보 없음"
                 whale_block = (
-                    f"🐋 기관/고래 활동 분석:\n"
+                    f"기관/고래 활동 분석:\n"
                     f"  • 롱/숏 비율: {ls_ratio:.2f} → {whale_dir}\n"
                     f"  • 미결제약정(OI): {oi_txt}\n"
                     f"  • 온체인 순매수 추정: {'긍정적' if ls_ratio > 1.0 else '부정적'}"
                 )
             except Exception:
-                whale_block = "🐋 기관/고래 활동 분석: 데이터 연결 중"
+                whale_block = "기관/고래 활동 분석: 데이터 연결 중"
 
             # ── 전략 신뢰도 점수 ───────────────────────────────────
             try:
@@ -1466,25 +1466,25 @@ class MarketTrendWidget(ctk.CTkFrame):
                     raw_score = round((indicators_ok / 5.0) * 100)
                 score = max(0, min(100, int(raw_score)))
                 bar = "█" * (score // 10) + "░" * (10 - score // 10)
-                level = "높음 ✅" if score >= 70 else ("중간 🟡" if score >= 40 else "낮음 ⚠️")
+                level = "높음 " if score >= 70 else ("중간 " if score >= 40 else "낮음 ")
                 confidence_block = (
-                    f"📊 전략 신뢰도 점수: {score}% [{bar}]\n"
+                    f"전략 신뢰도 점수: {score}% [{bar}]\n"
                     f"  • 신뢰도 수준: {level}\n"
                     f"  • 가용 지표 수: {indicators_ok if 'indicators_ok' in dir() else '?'}/5\n"
                     f"  • 권장 행동: {'현재 전략 유지' if score >= 70 else ('신중하게 접근' if score >= 40 else '관망 권장')}"
                 )
             except Exception:
-                confidence_block = "📊 전략 신뢰도 점수: 계산 불가 (지표 데이터 부족)"
+                confidence_block = "전략 신뢰도 점수: 계산 불가 (지표 데이터 부족)"
 
             # ── 현재 AI 기능 요약 ──────────────────────────────────
-            content = f"""🤖 AI 전략 상태
+            content = f"""AI 전략 상태
 
-📌 현재 AI 기능:
-• 실시간 시장 분석 및 신호 생성 ✅
-• 동적 임계값 조정 (시장 변동성 기반) ✅
-• 동적 TP/SL 조정 (패턴 기반) ✅
-• 확장된 학습 데이터 (50회 거래 분석) ✅
-• AI 모니터링 중심 거래 시스템 ✅
+현재 AI 기능:
+• 실시간 시장 분석 및 신호 생성 
+• 동적 임계값 조정 (시장 변동성 기반) 
+• 동적 TP/SL 조정 (패턴 기반) 
+• 확장된 학습 데이터 (50회 거래 분석) 
+• AI 모니터링 중심 거래 시스템 
 
 {confidence_block}
 
@@ -1492,7 +1492,7 @@ class MarketTrendWidget(ctk.CTkFrame):
 
 {custom_block}
 
-💡 AI 어시스턴트 활용:
+AI 어시스턴트 활용:
 • 자연어로 설정 변경 가능
 • '지표 추가 RSI_14' 형태로 커스텀 지표 등록
 • 실시간 거래 상황 문의 및 전략 조언"""
@@ -1503,7 +1503,7 @@ class MarketTrendWidget(ctk.CTkFrame):
             section.configure(state="disabled")
 
         except Exception as e:
-            print(f"❌ AI 전략 섹션 업데이트 오류: {e}")
+            print(f"AI 전략 섹션 업데이트 오류: {e}")
 
 
 
@@ -1528,7 +1528,7 @@ class MarketTrendWidget(ctk.CTkFrame):
                         raise e
                 except Exception as e:
                     if "invalid command name" not in str(e) and "TclError" not in str(e) and "border_parts" not in str(e):
-                        print(f"⚠️ market_trend_widget 콜백 오류: {e}")
+                        print(f"market_trend_widget 콜백 오류: {e}")
 
             job = self.after(delay, safe_callback)
             if job and not hasattr(self, '_after_jobs'):
@@ -1542,7 +1542,7 @@ class MarketTrendWidget(ctk.CTkFrame):
             else:
                 raise e
         except Exception as e:
-            print(f"⚠️ market_trend_widget safe_after 오류: {e}")
+            print(f"market_trend_widget safe_after 오류: {e}")
             return None
 
     def cleanup_after_jobs(self):
@@ -1567,4 +1567,4 @@ class MarketTrendWidget(ctk.CTkFrame):
             else:
                 raise e
         except Exception as e:
-            print(f"⚠️ market_trend_widget cleanup 오류: {e}")
+            print(f"market_trend_widget cleanup 오류: {e}")

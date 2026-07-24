@@ -24,7 +24,7 @@ class DemoModeWidget(ctk.CTkFrame):
     def _create_widgets(self):
         """위젯 생성"""
         # 스크롤 가능한 메인 컨테이너
-        self.scrollable_frame = ctk.CTkScrollableFrame(self, label_text="🎛️ 운영 리플레이 상태")
+        self.scrollable_frame = ctk.CTkScrollableFrame(self, label_text="운영 리플레이 상태")
         self.scrollable_frame.pack(fill="both", expand=True, padx=10, pady=10)
         
         # 상태 표시
@@ -52,7 +52,7 @@ class DemoModeWidget(ctk.CTkFrame):
         
         ctk.CTkLabel(
             self.balance_frame,
-            text="💰 가상 잔고",
+            text="가상 잔고",
             font=ctk.CTkFont(size=12, weight="bold")
         ).pack(pady=(10, 5))
         
@@ -69,7 +69,7 @@ class DemoModeWidget(ctk.CTkFrame):
         
         ctk.CTkLabel(
             self.stats_frame,
-            text="📊 성과 통계",
+            text="성과 통계",
             font=ctk.CTkFont(size=12, weight="bold")
         ).pack(pady=(10, 5))
         
@@ -86,7 +86,7 @@ class DemoModeWidget(ctk.CTkFrame):
         
         ctk.CTkLabel(
             self.trades_frame,
-            text="📈 최근 거래 기록",
+            text="최근 거래 기록",
             font=ctk.CTkFont(size=12, weight="bold")
         ).pack(pady=(10, 5))
         
@@ -100,7 +100,7 @@ class DemoModeWidget(ctk.CTkFrame):
         # 새로고침 버튼
         refresh_btn = ctk.CTkButton(
             self.scrollable_frame,
-            text="🔄 새로고침",
+            text="새로고침",
             command=self._refresh_data,
             width=120
         )
@@ -129,7 +129,7 @@ class DemoModeWidget(ctk.CTkFrame):
         
         # 상태 업데이트
         self.status_label.configure(
-            text="🎛️ 운영 리플레이 활성화",
+            text="운영 리플레이 활성화",
             text_color="green"
         )
         
@@ -151,7 +151,7 @@ class DemoModeWidget(ctk.CTkFrame):
         balance_text = ""
         
         for exchange, balance in balances.items():
-            balance_text += f"🏦 {exchange.upper()}:\n"
+            balance_text += f"{exchange.upper()}:\n"
             for currency, amount in balance.items():
                 if amount > 0:
                     if currency == 'KRW':
@@ -209,10 +209,10 @@ class DemoModeWidget(ctk.CTkFrame):
                     
                     # 수익/손실에 따른 색상 표시
                     if profit_pct > 0:
-                        result_icon = "✅"
+                        result_icon = ""
                         result_color = "green"
                     else:
-                        result_icon = "❌"
+                        result_icon = ""
                         result_color = "red"
                     
                     trades_text += f"{result_icon} {timestamp} | {symbol} {side.upper()}\n"

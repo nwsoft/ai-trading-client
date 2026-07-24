@@ -9,6 +9,7 @@ import os
 import sys
 import copy
 import shutil
+import math
 from typing import Dict, Any, List
 
 # 🔒 보호할 설정 항목 리스트 (템플릿 병합 시 덮어쓰지 않음)
@@ -34,6 +35,53 @@ LEGACY_PROFITABILITY_POLICY = {
     'min_expectancy': 0.0,
     'min_walkforward_pass_rate': 0.50,
 }
+
+
+def _repair_trade_rate(value: Any, fallback: float, maximum: float) -> tuple[float, bool]:
+    """TP/SL을 런타임 fraction으로 복구한다.
+
+    0.18처럼 퍼센트 포인트로 저장된 값은 0.0018로 변환하고,
+    가격값처럼 비정상적으로 큰 값은 안전한 기본값으로 되돌린다.
+    """
+    try:
+        raw = float(value)
+    except Exception:
+        return float(fallback), True
+    if not math.isfinite(raw) or raw <= 0 or raw > 5.0:
+        return float(fallback), True
+    normalized = raw / 100.0 if raw > maximum else raw
+    normalized = max(0.0005, min(normalized, maximum))
+    return normalized, not math.isclose(raw, normalized, rel_tol=0.0, abs_tol=1e-12)
+
+
+def normalize_trade_rate(
+    value: Any,
+    *,
+    kind: str = "tp",
+    fallback: float | None = None,
+) -> tuple[float, bool]:
+    """외부/AI/사용자 입력 TP·SL을 런타임 fraction으로 정규화한다."""
+    rate_kind = str(kind or "tp").strip().lower()
+    if rate_kind == "sl":
+        return _repair_trade_rate(value, 0.0020 if fallback is None else fallback, 0.03)
+    return _repair_trade_rate(value, 0.0018 if fallback is None else fallback, 0.05)
+
+
+def _repair_tp_sl_settings(settings: Dict[str, Any]) -> bool:
+    changed = False
+    for key, fallback, maximum in (
+        ("default_tp", 0.0018, 0.05),
+        ("default_sl", 0.0020, 0.03),
+    ):
+        normalized, was_changed = normalize_trade_rate(
+            settings.get(key, fallback),
+            kind="tp" if key == "default_tp" else "sl",
+            fallback=fallback,
+        )
+        if was_changed:
+            settings[key] = normalized
+            changed = True
+    return changed
 
 RECOMMENDED_PROFITABILITY_POLICY = {
     'enabled': True,
@@ -303,6 +351,23 @@ def load_settings() -> Dict[str, Any]:
             settings = update_settings_from_template(settings)
             if settings != loaded_settings_snapshot:
                 needs_save = True
+
+            if _repair_tp_sl_settings(settings):
+                print("🔧 비정상 TP/SL 설정을 fraction 단위로 복구했습니다.")
+                needs_save = True
+
+            # v3.9.0.0 안전 마이그레이션: 업데이트 전 설정에 마커가 없으면
+            # AI 커스텀 실거래와 검증 미통과 제한운용을 최초 1회 명시적으로 OFF한다.
+            # 이후 사용자가 직접 켜고 저장한 값은 다시 덮어쓰지 않는다.
+            safety_marker = '_ai_custom_runtime_safe_default_v3900_applied'
+            if not bool(loaded_settings_snapshot.get(safety_marker, False)):
+                runtime_cfg = dict(settings.get('ai_custom_runtime', {}) or {})
+                runtime_cfg['enabled'] = False
+                runtime_cfg['allow_limited_live'] = False
+                settings['ai_custom_runtime'] = runtime_cfg
+                settings[safety_marker] = True
+                print("🔒 AI 커스텀 실거래·미통과 제한운용 안전 기본값 OFF 적용")
+                needs_save = True
             
             # 🔥 모델명 정규화: 잘못된 모델명 자동 수정
             if 'assistant_ai_model' in settings:
@@ -538,6 +603,9 @@ def save_settings(settings: Dict[str, Any]) -> bool:
     """설정 파일 저장 (PyInstaller 배포 환경 대응)"""
     try:
         config_path, _ = _get_settings_paths()
+        settings_to_save = copy.deepcopy(settings)
+        if _repair_tp_sl_settings(settings_to_save):
+            print("🔧 저장 전 비정상 TP/SL 설정을 복구했습니다.")
 
         # 디렉토리 생성
         os.makedirs(os.path.dirname(config_path), exist_ok=True)
@@ -547,7 +615,7 @@ def save_settings(settings: Dict[str, Any]) -> bool:
             create_settings_backup(retention=3)
 
         with open(config_path, 'w', encoding='utf-8') as f:
-            json.dump(settings, f, ensure_ascii=False, indent=2)
+            json.dump(settings_to_save, f, ensure_ascii=False, indent=2)
 
         print(f"✅ 설정 파일 저장: {config_path}")
         return True
@@ -634,6 +702,18 @@ def get_default_settings() -> Dict[str, Any]:
         'broadcast_display_total_pnl_usdt': None,
         'broadcast_display_total_fees_usdt': None,
         'ai_enabled': True,
+        'ai_cost_control': {
+            'enabled': True,
+            'stable_state_cache_sec': 900,
+            'exploration_interval_sec': 900,
+            'price_change_bps': 15.0,
+            'rsi_event_low': 35.0,
+            'rsi_event_high': 65.0,
+            'max_daily_market_calls': 1200,
+            'max_daily_calls_per_exchange': 300,
+            'max_monthly_market_calls': 30000,
+            'max_cache_entries': 1000,
+        },
         # API 설정
         'binance_api_key': '',
         'binance_secret_key': '',
@@ -653,6 +733,10 @@ def get_default_settings() -> Dict[str, Any]:
         'bybit_secret_key': '',
         'selected_exchange': 'binance',
         'enabled_exchanges': ['binance'],
+        # 비어 있으면 selected_exchange만 실제 주문, enabled_exchanges는 학습/분석에 사용한다.
+        'trade_enabled_exchanges': [],
+        # 비어 있으면 enabled_exchanges 전체를 학습한다.
+        'learning_enabled_exchanges': [],
         'enabled_stock_brokers': [],
         'stock_broker_configs': {
             'kiwoom': {
@@ -745,6 +829,19 @@ def get_default_settings() -> Dict[str, Any]:
             'standard': 'gpt-5.6-luna',
             'premium': 'gpt-5.6-terra',
         },
+        'ai_custom_transcription': {
+            'enabled': True,
+            'model': 'gpt-4o-mini-transcribe',
+            'max_duration_minutes': 45,
+            'max_file_mb': 24,
+        },
+        'ai_custom_runtime': {
+            'enabled': False,
+            'allow_limited_live': False,
+            'limited_max_leverage': 1,
+            'limited_max_position_size': 0.01,
+        },
+        '_ai_custom_runtime_safe_default_v3900_applied': True,
         'assistant_apply_mode': 'user_confirm',
         'assistant_voice': {
             'enabled': False,

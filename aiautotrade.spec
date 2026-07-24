@@ -10,6 +10,7 @@ a = Analysis(
         ('config/settings_template.json', 'config'),
         ('config/token_template.json', 'config'),
         ('config/theme_config.json', 'config'),
+        ('data/finance_products', 'data/finance_products'),
         ('docs', 'docs'),
     # UI Python modules are auto-discovered via imports; do not bundle entire ui folder
         ('trading', 'trading'),

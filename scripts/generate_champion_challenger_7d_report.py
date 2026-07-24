@@ -12,7 +12,7 @@ import argparse
 import json
 import sqlite3
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -50,12 +50,15 @@ class WindowMetrics:
     max_win: float
     max_loss: float
     fees_total: float
+    net_pnl_after_fees: float
+    net_expectancy: float
 
 
 @dataclass
 class Comparison:
     win_rate_delta: float
     total_pnl_delta: float
+    net_pnl_delta: float
     avg_pnl_delta: float
     avg_pnl_percent_delta: float
     trades_delta: int
@@ -135,20 +138,34 @@ def _fetch_window_metrics(conn: sqlite3.Connection, window: str) -> WindowMetric
         max_win=_as_float(row[6] if row else 0.0),
         max_loss=_as_float(row[7] if row else 0.0),
         fees_total=_as_float(row[8] if row else 0.0),
+        net_pnl_after_fees=round(
+            _as_float(row[3] if row else 0.0) - _as_float(row[8] if row else 0.0),
+            4,
+        ),
+        net_expectancy=round(
+            (
+                _as_float(row[3] if row else 0.0) - _as_float(row[8] if row else 0.0)
+            )
+            / trades,
+            6,
+        )
+        if trades
+        else 0.0,
     )
 
 
 def _compare(champion: WindowMetrics, challenger: WindowMetrics) -> Comparison:
     win_rate_delta = round(challenger.win_rate - champion.win_rate, 2)
     total_pnl_delta = round(challenger.total_pnl - champion.total_pnl, 4)
+    net_pnl_delta = round(challenger.net_pnl_after_fees - champion.net_pnl_after_fees, 4)
     avg_pnl_delta = round(challenger.avg_pnl - champion.avg_pnl, 4)
     avg_pnl_percent_delta = round(challenger.avg_pnl_percent - champion.avg_pnl_percent, 4)
     trades_delta = challenger.trades - champion.trades
 
     score = 0
-    if total_pnl_delta > 0:
+    if net_pnl_delta > 0:
         score += 2
-    elif total_pnl_delta < 0:
+    elif net_pnl_delta < 0:
         score -= 2
 
     if win_rate_delta > 0:
@@ -174,6 +191,7 @@ def _compare(champion: WindowMetrics, challenger: WindowMetrics) -> Comparison:
     return Comparison(
         win_rate_delta=win_rate_delta,
         total_pnl_delta=total_pnl_delta,
+        net_pnl_delta=net_pnl_delta,
         avg_pnl_delta=avg_pnl_delta,
         avg_pnl_percent_delta=avg_pnl_percent_delta,
         trades_delta=trades_delta,
@@ -199,11 +217,61 @@ def _to_dict(metrics: WindowMetrics) -> dict[str, Any]:
         "max_win": metrics.max_win,
         "max_loss": metrics.max_loss,
         "fees_total": metrics.fees_total,
+        "net_pnl_after_fees": metrics.net_pnl_after_fees,
+        "net_expectancy": metrics.net_expectancy,
     }
 
 
+def _fetch_variant_breakdown(conn: sqlite3.Connection) -> list[dict[str, Any]]:
+    columns = {
+        str(row[1])
+        for row in conn.execute("PRAGMA table_info(trade_log)").fetchall()
+    }
+    if "strategy_variant" not in columns or "model_version" not in columns:
+        return []
+    rows = conn.execute(
+        """
+        SELECT
+          COALESCE(NULLIF(strategy_variant, ''), 'legacy') AS variant,
+          COALESCE(NULLIF(model_version, ''), 'unknown') AS model,
+          COUNT(*) AS trades,
+          SUM(CASE WHEN COALESCE(pnl, 0) > 0 THEN 1 ELSE 0 END) AS wins,
+          SUM(COALESCE(pnl, 0)) AS gross_pnl,
+          SUM(COALESCE(fees, 0)) AS fees,
+          SUM(CASE WHEN fee_source = 'exchange_fill' THEN 1 ELSE 0 END) AS fee_verified
+        FROM trade_log
+        WHERE exit_time IS NOT NULL
+          AND datetime(exit_time) >= datetime('now', '-14 day')
+        GROUP BY variant, model
+        ORDER BY (SUM(COALESCE(pnl, 0)) - SUM(COALESCE(fees, 0))) DESC
+        """
+    ).fetchall()
+    result: list[dict[str, Any]] = []
+    for row in rows:
+        trades = _as_int(row[2])
+        wins = _as_int(row[3])
+        gross = _as_float(row[4])
+        fees = _as_float(row[5])
+        result.append(
+            {
+                "strategy_variant": str(row[0]),
+                "model_version": str(row[1]),
+                "trades": trades,
+                "win_rate": round((wins / trades) * 100.0, 2) if trades else 0.0,
+                "gross_pnl": round(gross, 4),
+                "fees": round(fees, 4),
+                "net_pnl_after_fees": round(gross - fees, 4),
+                "net_expectancy": round((gross - fees) / trades, 6) if trades else 0.0,
+                "fee_verification_rate": round((_as_int(row[6]) / trades) * 100.0, 2)
+                if trades
+                else 0.0,
+            }
+        )
+    return result
+
+
 def _render_markdown(champion: WindowMetrics, challenger: WindowMetrics, comparison: Comparison) -> str:
-    now = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC")
+    now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
     return f"""# 7일 챔피언-챌린저 리포트
 
 - 생성시각: {now}
@@ -220,6 +288,8 @@ def _render_markdown(champion: WindowMetrics, challenger: WindowMetrics, compari
 | 거래 수 | {champion.trades} | {challenger.trades} | {comparison.trades_delta:+d} |
 | 승률(%) | {champion.win_rate:.2f} | {challenger.win_rate:.2f} | {comparison.win_rate_delta:+.2f} |
 | 총손익(USDT) | {champion.total_pnl:.4f} | {challenger.total_pnl:.4f} | {comparison.total_pnl_delta:+.4f} |
+| 수수료 차감 후 손익(USDT) | {champion.net_pnl_after_fees:.4f} | {challenger.net_pnl_after_fees:.4f} | {comparison.net_pnl_delta:+.4f} |
+| 거래당 순기대값(USDT) | {champion.net_expectancy:.6f} | {challenger.net_expectancy:.6f} | {challenger.net_expectancy - champion.net_expectancy:+.6f} |
 | 평균손익(USDT) | {champion.avg_pnl:.4f} | {challenger.avg_pnl:.4f} | {comparison.avg_pnl_delta:+.4f} |
 | 평균손익률(%) | {champion.avg_pnl_percent:.4f} | {challenger.avg_pnl_percent:.4f} | {comparison.avg_pnl_percent_delta:+.4f} |
 
@@ -239,13 +309,14 @@ def generate_report(db_path: Path, out_dir: Path) -> tuple[Path, Path]:
     conn = sqlite3.connect(str(db_path))
     champion = _fetch_window_metrics(conn, "champion")
     challenger = _fetch_window_metrics(conn, "challenger")
+    variant_breakdown = _fetch_variant_breakdown(conn)
     conn.close()
 
     comparison = _compare(champion, challenger)
 
     payload: dict[str, Any] = {
         "report_type": "champion_challenger_7d",
-        "generated_at_utc": datetime.utcnow().isoformat() + "Z",
+        "generated_at_utc": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
         "source": {
             "db_path": str(db_path),
             "table": "trade_log",
@@ -255,15 +326,17 @@ def generate_report(db_path: Path, out_dir: Path) -> tuple[Path, Path]:
         "comparison": {
             "win_rate_delta": comparison.win_rate_delta,
             "total_pnl_delta": comparison.total_pnl_delta,
+            "net_pnl_delta": comparison.net_pnl_delta,
             "avg_pnl_delta": comparison.avg_pnl_delta,
             "avg_pnl_percent_delta": comparison.avg_pnl_percent_delta,
             "trades_delta": comparison.trades_delta,
             "verdict": comparison.verdict,
             "summary": comparison.summary,
         },
+        "variant_breakdown_latest_14d": variant_breakdown,
     }
 
-    stamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
     json_latest = out_dir / "champion_challenger_7d_latest.json"
     json_dated = out_dir / f"champion_challenger_7d_{stamp}.json"
     md_latest = out_dir / "champion_challenger_7d_latest.md"

@@ -364,6 +364,7 @@ def test_life_finance_advisor_loads_external_catalog(tmp_path):
 
     assert result["best"]["name"] == "테스트 대출"
     assert result["catalog_source"] == str(loan_path)
+    assert result["catalog_source_kind"] == "operator_catalog"
 
 
 def test_binance_order_quality_control_fallbacks_to_market():

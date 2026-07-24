@@ -8,11 +8,11 @@ CI/CD 파이프라인에서 실행 가능하다.
 
 커버리지 목록:
   [서비스 탭 버튼] 5개
-    - 🔗 블록체인 → switch_service("blockchain")
-    - 📈 주식/증권 → switch_service("stock")
-    - 🧭 자산 통합 → switch_service("real_estate")
-    - 💳 생활금융  → switch_service("other_investment")
-    - 🤖 AI애널리스트 → switch_service("ai_analyst")
+    - 블록체인 → switch_service("blockchain")
+    - 주식/증권 → switch_service("stock")
+    - 자산 통합 → switch_service("real_estate")
+    - 생활금융  → switch_service("other_investment")
+    - AI애널리스트 → switch_service("ai_analyst")
 
   [하위 탭 정책] 서비스별 primary/detail/protected 탭 존재 여부
 
@@ -161,29 +161,29 @@ class FakeDashboard:
     # 서비스별 생성되는 탭 목록 (service_tab_policy.py 의 스펙과 동기화)
     SERVICE_TAB_MAP = {
         "blockchain": {
-            "primary": ["🪙 코인 정보", "📈 거래 통계", "📈 시장 트렌드", "AlphaArena"],
+            "primary": ["코인 정보", "거래 통계", "시장 트렌드", "AlphaArena"],
             "detail": [],
         },
         "stock": {
-            "primary": ["🪙 종목 정보", "📈 거래 통계", "📈 시장 트렌드"],
+            "primary": ["종목 정보", "거래 통계", "시장 트렌드"],
             "detail": [],
         },
         "real_estate": {
-            "primary": ["🧭 자산 통합 인사이트"],
-            "detail": ["📊 자산 배분 진단", "⚠️ 리스크 브리핑"],
+            "primary": ["자산 통합 인사이트"],
+            "detail": ["자산 배분 진단", "리스크 브리핑", "성과·위험 분석"],
         },
         "other_investment": {
-            "primary": ["💳 생활금융 서비스"],
-            "detail": ["📉 현금흐름 분석", "🎯 생활금융 목표",
-                       "🚨 보안 경고", "💰 세금 계산"],
+            "primary": ["생활금융 서비스"],
+            "detail": ["현금흐름 분석", "생활금융 목표",
+                       "보안 경고", "세금 계산"],
         },
         "ai_analyst": {
-            "primary": ["🤖 AI 애널리스트"],
-            "detail": ["📝 AI 요약 리포트", "🧪 시나리오 점검"],
+            "primary": ["AI 애널리스트"],
+            "detail": ["AI 요약 리포트", "시나리오 점검", "금융 인텔리전스 허브"],
         },
     }
 
-    PROTECTED_TABS = {"📊 실시간 거래 로그", "📚 AI 학습", "💬 AI 어시스턴트"}
+    PROTECTED_TABS = {"실시간 거래 로그", "AI 학습", "AI 어시스턴트"}
 
     HEADER_BUTTONS = {
         "start_stop": "_on_start_stop_clicked",
@@ -192,11 +192,11 @@ class FakeDashboard:
     }
 
     SERVICE_BUTTONS = {
-        "🔗 블록체인":    "blockchain",
-        "📈 주식/증권":   "stock",
-        "🧭 자산 통합":   "real_estate",
-        "💳 생활금융":    "other_investment",
-        "🤖 AI애널리스트": "ai_analyst",
+        "블록체인":    "blockchain",
+        "주식/증권":   "stock",
+        "자산 통합":   "real_estate",
+        "생활금융":    "other_investment",
+        "AI애널리스트": "ai_analyst",
     }
 
     def __init__(self):
@@ -322,11 +322,11 @@ class TestServiceButtonRouting(_StubbedTestCase):
     def test_all_five_service_buttons_exist_in_label_map(self):
         labels = list(FakeDashboard.SERVICE_BUTTONS.keys())
         self.assertEqual(len(labels), 5)
-        self.assertIn("🔗 블록체인",    labels)
-        self.assertIn("📈 주식/증권",   labels)
-        self.assertIn("🧭 자산 통합",   labels)
-        self.assertIn("💳 생활금융",    labels)
-        self.assertIn("🤖 AI애널리스트", labels)
+        self.assertIn("블록체인",    labels)
+        self.assertIn("주식/증권",   labels)
+        self.assertIn("자산 통합",   labels)
+        self.assertIn("생활금융",    labels)
+        self.assertIn("AI애널리스트", labels)
 
     def test_all_service_values_map_to_known_services(self):
         known = {"blockchain", "stock", "real_estate", "other_investment", "ai_analyst"}
@@ -353,56 +353,56 @@ class TestServiceSubTabPolicy(_StubbedTestCase):
 
     def test_blockchain_primary_tabs(self):
         snap = self.snapshot("blockchain")
-        self.assertIn("🪙 코인 정보", snap["primary_tabs"])
-        self.assertIn("📈 거래 통계", snap["primary_tabs"])
-        self.assertIn("📈 시장 트렌드", snap["primary_tabs"])
+        self.assertIn("코인 정보", snap["primary_tabs"])
+        self.assertIn("거래 통계", snap["primary_tabs"])
+        self.assertIn("시장 트렌드", snap["primary_tabs"])
 
     def test_blockchain_has_common_protected_tabs(self):
         protected = self.protected("blockchain")
-        self.assertIn("💬 AI 어시스턴트", protected)
-        self.assertIn("📚 AI 학습", protected)
+        self.assertIn("AI 어시스턴트", protected)
+        self.assertIn("AI 학습", protected)
 
     def test_stock_primary_tabs(self):
         snap = self.snapshot("stock")
-        self.assertIn("🪙 종목 정보", snap["primary_tabs"])
-        self.assertIn("📈 거래 통계", snap["primary_tabs"])
+        self.assertIn("종목 정보", snap["primary_tabs"])
+        self.assertIn("거래 통계", snap["primary_tabs"])
 
     def test_stock_common_tabs_protected(self):
         protected = self.protected("stock")
-        self.assertIn("📊 실시간 거래 로그", protected)
+        self.assertIn("실시간 거래 로그", protected)
 
     def test_real_estate_detail_tabs(self):
         snap = self.snapshot("real_estate")
-        self.assertIn("📊 자산 배분 진단", snap["detail_tabs"])
-        self.assertIn("⚠️ 리스크 브리핑", snap["detail_tabs"])
+        self.assertIn("자산 배분 진단", snap["detail_tabs"])
+        self.assertIn("리스크 브리핑", snap["detail_tabs"])
 
     def test_other_investment_normalize_alias(self):
         self.assertEqual(self.normalize("other_investment"), "other")
 
     def test_other_investment_detail_tabs(self):
         snap = self.snapshot("other")
-        self.assertIn("📉 현금흐름 분석", snap["detail_tabs"])
-        self.assertIn("🎯 생활금융 목표", snap["detail_tabs"])
-        self.assertIn("🚨 보안 경고", snap["detail_tabs"])
-        self.assertIn("💰 세금 계산", snap["detail_tabs"])
+        self.assertIn("현금흐름 분석", snap["detail_tabs"])
+        self.assertIn("생활금융 목표", snap["detail_tabs"])
+        self.assertIn("보안 경고", snap["detail_tabs"])
+        self.assertIn("세금 계산", snap["detail_tabs"])
 
     def test_ai_analyst_primary_tab(self):
         snap = self.snapshot("ai_analyst")
-        self.assertIn("🤖 AI 애널리스트", snap["primary_tabs"])
+        self.assertIn("AI 애널리스트", snap["primary_tabs"])
 
     def test_ai_analyst_detail_tabs(self):
         snap = self.snapshot("ai_analyst")
-        self.assertIn("🧪 시나리오 점검", snap["detail_tabs"])
-        self.assertIn("📝 AI 요약 리포트", snap["detail_tabs"])
+        self.assertIn("시나리오 점검", snap["detail_tabs"])
+        self.assertIn("AI 요약 리포트", snap["detail_tabs"])
 
     def test_ai_analyst_does_not_expose_trading_log(self):
         protected = self.protected("ai_analyst")
-        self.assertNotIn("📊 실시간 거래 로그", protected)
+        self.assertNotIn("실시간 거래 로그", protected)
 
     def test_all_services_have_ai_assistant_tab(self):
         for svc in ["blockchain", "stock"]:
             protected = self.protected(svc)
-            self.assertIn("💬 AI 어시스턴트", protected,
+            self.assertIn("AI 어시스턴트", protected,
                           msg=f"서비스 '{svc}'에 AI 어시스턴트 탭 없음")
 
 

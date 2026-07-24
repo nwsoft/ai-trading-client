@@ -62,7 +62,7 @@ class ChartScreenshotWidget(ctk.CTkFrame):
 
         title = ctk.CTkLabel(
             self,
-            text="📈 차트 이미지 분석기",
+            text="차트 이미지 분석기",
             font=ctk.CTkFont(size=14, weight="bold"),
             text_color=self._color('text_primary', '#f9fafb')
         )
@@ -210,7 +210,7 @@ class ChartScreenshotWidget(ctk.CTkFrame):
             except Exception:
                 pass
             modal = ctk.CTkToplevel(self)
-            modal.title("📈 차트 스크린샷 분석기 — 사용 가이드")
+            modal.title("차트 스크린샷 분석기 — 사용 가이드")
             modal.geometry("820x720")
             try:
                 modal.update_idletasks()
@@ -274,12 +274,12 @@ class ChartScreenshotWidget(ctk.CTkFrame):
             preview.pack(fill="x", pady=(6,10))
             ctk.CTkLabel(preview, text="추천: LONG", text_color=self._color('success', '#22c55e'), font=ctk.CTkFont(size=14, weight="bold")).pack(anchor="w", padx=6, pady=2)
             ctk.CTkLabel(preview, text="신뢰도: 78%", text_color=self._color('text_secondary', '#9aa0a6')).pack(anchor="w", padx=6)
-            ctk.CTkLabel(preview, text="🎯 트레이딩 플랜", font=ctk.CTkFont(size=12, weight="bold")).pack(anchor="w", padx=6, pady=(6,2))
+            ctk.CTkLabel(preview, text="트레이딩 플랜", font=ctk.CTkFont(size=12, weight="bold")).pack(anchor="w", padx=6, pady=(6,2))
             ctk.CTkLabel(preview, text="진입가: 61,234.5 | 손절: 60,321.0 | 목표: 61,800.0, 62,500.0").pack(anchor="w", padx=6)
-            ctk.CTkLabel(preview, text="📚 시나리오", font=ctk.CTkFont(size=12, weight="bold")).pack(anchor="w", padx=6, pady=(6,2))
+            ctk.CTkLabel(preview, text="시나리오", font=ctk.CTkFont(size=12, weight="bold")).pack(anchor="w", padx=6, pady=(6,2))
             ctk.CTkLabel(preview, text="• 돌파 지속 (55%)").pack(anchor="w", padx=12)
             ctk.CTkLabel(preview, text="• 돌파 실패 (30%)").pack(anchor="w", padx=12)
-            ctk.CTkLabel(preview, text="🧩 추출 정보", font=ctk.CTkFont(size=12, weight="bold")).pack(anchor="w", padx=6, pady=(6,2))
+            ctk.CTkLabel(preview, text="추출 정보", font=ctk.CTkFont(size=12, weight="bold")).pack(anchor="w", padx=6, pady=(6,2))
             ctk.CTkLabel(preview, text="심볼: BTC/USDT | 타임프레임: 1H | MA20: 61,000").pack(anchor="w", padx=6)
 
             # JSON 예시(참고)
@@ -431,9 +431,9 @@ class ChartScreenshotWidget(ctk.CTkFrame):
         warn = (result or {}).get("warning")
         err = (result or {}).get("error")
         if warn:
-            ctk.CTkLabel(root, text=f"⚠️ {warn}", text_color=self._color('warning', '#f59e0b')).pack(anchor="w", pady=(0,4))
+            ctk.CTkLabel(root, text=f"{warn}", text_color=self._color('warning', '#f59e0b')).pack(anchor="w", pady=(0,4))
         if err:
-            ctk.CTkLabel(root, text=f"❌ 오류: {err}", text_color=self._color('danger', '#ef4444')).pack(anchor="w", pady=(0,4))
+            ctk.CTkLabel(root, text=f"오류: {err}", text_color=self._color('danger', '#ef4444')).pack(anchor="w", pady=(0,4))
 
         # 상단 요약 (스탠스/신뢰도)
         head = ctk.CTkFrame(root)
@@ -458,7 +458,7 @@ class ChartScreenshotWidget(ctk.CTkFrame):
         plan = analysis.get("plan") or {}
         block = ctk.CTkFrame(root)
         block.pack(fill="x", pady=(4,6))
-        ctk.CTkLabel(block, text="🎯 트레이딩 플랜", font=ctk.CTkFont(size=13, weight="bold")).pack(anchor="w")
+        ctk.CTkLabel(block, text="트레이딩 플랜", font=ctk.CTkFont(size=13, weight="bold")).pack(anchor="w")
         entry = plan.get("entry")
         stop = plan.get("stop")
         tps = plan.get("tp") or []
@@ -485,7 +485,7 @@ class ChartScreenshotWidget(ctk.CTkFrame):
         if scenarios:
             scf = ctk.CTkFrame(root)
             scf.pack(fill="x", pady=(4,6))
-            ctk.CTkLabel(scf, text="📚 시나리오", font=ctk.CTkFont(size=13, weight="bold")).pack(anchor="w")
+            ctk.CTkLabel(scf, text="시나리오", font=ctk.CTkFont(size=13, weight="bold")).pack(anchor="w")
             for sc in scenarios[:5]:
                 title = sc.get("title") or "-"
                 prob = sc.get("prob")
@@ -506,7 +506,7 @@ class ChartScreenshotWidget(ctk.CTkFrame):
         feat = (result or {}).get("features") or {}
         ff = ctk.CTkFrame(root)
         ff.pack(fill="x", pady=(4,6))
-        ctk.CTkLabel(ff, text="🧩 추출 정보", font=ctk.CTkFont(size=13, weight="bold")).pack(anchor="w")
+        ctk.CTkLabel(ff, text="추출 정보", font=ctk.CTkFont(size=13, weight="bold")).pack(anchor="w")
         self._render_row(ff, "심볼", str(feat.get("symbol") or "-"))
         self._render_row(ff, "타임프레임", str(feat.get("timeframe") or "-"))
         mas = feat.get("moving_averages") or {}

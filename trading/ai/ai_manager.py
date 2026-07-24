@@ -8,6 +8,7 @@ from typing import Optional, Dict, Any, List
 from datetime import datetime
 import json
 import logging
+import math
 import os
 
 from .openai_client import OpenAIClient
@@ -62,6 +63,29 @@ class AIManager:
         try:
             if not self.enabled():
                 return self._get_default_analysis()
+
+            def _read(value: Any, key: str, default: float = 0.0) -> float:
+                try:
+                    raw = value.get(key, default) if isinstance(value, dict) else getattr(value, key, default)
+                    return float(raw)
+                except Exception:
+                    return float(default)
+
+            closes = [_read(row, "close") for row in (market_data or [])[-30:]]
+            closes = [value for value in closes if value > 0]
+            returns = [
+                (closes[index] / closes[index - 1]) - 1.0
+                for index in range(1, len(closes))
+                if closes[index - 1] > 0
+            ]
+            if len(returns) > 1:
+                mean_return = sum(returns) / len(returns)
+                volatility = math.sqrt(
+                    sum((value - mean_return) ** 2 for value in returns) / len(returns)
+                )
+            else:
+                volatility = 0.0
+            volume_ratio = _read(indicators, "volume_ratio", 0.0)
             
             system = "You are an expert cryptocurrency trading analyst. Analyze market conditions and provide optimal trading parameters."
             
@@ -69,28 +93,42 @@ class AIManager:
 Symbol: {symbol}
 
 Market Data Analysis:
-- Current Price: {market_data[-1].close if market_data else 0}
-- RSI: {getattr(indicators, 'rsi', 0)}
-- MACD: {getattr(indicators, 'macd', 0)}
-- Volatility: {getattr(indicators, 'volatility', 0)}
-- Volume: {getattr(indicators, 'volume', 0)}
+- Current Price: {closes[-1] if closes else 0}
+- RSI: {_read(indicators, 'rsi', 0)}
+- MACD: {_read(indicators, 'macd', 0)}
+- Realized Volatility (fraction): {volatility}
+- Volume Ratio vs moving average: {volume_ratio}
 
 Provide JSON response:
 {{
   "entry_confidence": 0.0-1.0,
   "optimal_entry_price": float,
-  "tp_percent": 0.1-1.0,
-  "sl_percent": 0.1-1.0,
+  "tp_percent": 0.0005-0.05,
+  "sl_percent": 0.0005-0.03,
   "leverage": 1-10,
   "signal": "LONG/SHORT/HOLD",
   "reason": "string",
   "market_volatility": "LOW/NORMAL/HIGH",
   "trend_strength": "WEAK/MEDIUM/STRONG"
 }}
+tp_percent and sl_percent MUST be fractions: 0.001 means 0.1%, not 1%.
 """
             
-            result = self.client.chat_json(system, prompt, temperature=0.3, max_tokens=600,
-                                             model=self._get_model_for_role('signal_analysis'))
+            use_model = self._get_model_for_role('signal_analysis')
+            result = self.client.chat_json(system, prompt, temperature=0.3, max_tokens=320,
+                                             model=use_model)
+            if isinstance(result, dict):
+                result["entry_confidence"] = max(
+                    0.0, min(float(result.get("entry_confidence", result.get("confidence", 0.5)) or 0.5), 1.0)
+                )
+                for key, maximum in (("tp_percent", 0.05), ("sl_percent", 0.03)):
+                    value = float(result.get(key, self._get_default_analysis()[key]) or 0.0)
+                    if value > maximum:
+                        value /= 100.0
+                    result[key] = max(0.0005, min(value, maximum))
+                result["leverage"] = max(1, min(int(float(result.get("leverage", 1) or 1)), 10))
+                result["_ai_model"] = use_model
+                result["_ai_usage"] = self.client.get_last_usage()
             return result if result else self._get_default_analysis()
             
         except Exception as e:
@@ -408,8 +446,8 @@ Provide optimized parameters in JSON format:
         return {
             "entry_confidence": 0.5,
             "optimal_entry_price": 0,
-            "tp_percent": 0.18,
-            "sl_percent": 0.20,
+            "tp_percent": 0.0018,
+            "sl_percent": 0.0020,
             "leverage": 1,
             "signal": "HOLD",
             "reason": "기본 설정",
@@ -832,5 +870,3 @@ Please provide optimal position sizing with detailed reasoning.
             self.logger.error(f"AI 채팅 완성 오류: {e}")
             self.logger.error(f"상세 오류 정보:\n{error_detail}")
             return f"AI 응답 생성 중 오류가 발생했습니다: {str(e)}"
-
-

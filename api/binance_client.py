@@ -1577,12 +1577,15 @@ class BinanceClient:
             trade_list = []
             for trade in trades:
                 trade_info = {
+                    'id': trade.get('id'),
+                    'order_id': trade.get('orderId'),
                     'symbol': trade['symbol'],
                     'side': trade['side'],
                     'quantity': float(trade['qty']),
                     'price': float(trade['price']),
                     'realized_pnl': float(trade.get('realizedPnl', 0)),
                     'commission': float(trade.get('commission', 0)),
+                    'commission_asset': trade.get('commissionAsset', ''),
                     'time': trade['time']
                 }
                 trade_list.append(trade_info)
@@ -2681,12 +2684,14 @@ class BinanceClient:
             for trade in trades[-limit:]:  # 최근 거래만
                 trade_history.append({
                     'id': trade['id'],
+                    'order_id': trade.get('orderId'),
                     'symbol': trade['symbol'],
                     'side': trade['side'],
                     'price': float(trade['price']),
                     'quantity': float(trade['qty']),
                     'quote_qty': float(trade['quoteQty']),
                     'commission': float(trade['commission']),
+                    'commission_asset': trade.get('commissionAsset', ''),
                     'time': trade['time']
                 })
 

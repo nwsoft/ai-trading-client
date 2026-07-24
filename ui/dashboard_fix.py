@@ -1,6 +1,6 @@
     def create_status_bar(self):
         """상단 상태 바 생성 - 기존 카드형 구조"""
-        # 🔥 완전 하드코딩 - 로그인 모달처럼
+        # 완전 하드코딩 - 로그인 모달처럼
         self.status_frame = ctk.CTkFrame(
             self.main_frame,
             fg_color="#1d2433",
@@ -24,7 +24,7 @@
         except Exception:
             left_frame.pack(side="left", padx=10, pady=10)
 
-        # 🔥 하드코딩
+        # 하드코딩
         title_frame = ctk.CTkFrame(
             left_frame,
             fg_color="#2c3545",
@@ -36,14 +36,14 @@
         title_frame.pack(side="left", padx=(0, 20))
         self.app_title_label = ctk.CTkLabel(
             title_frame,
-            text="🤝 NoahAI-AI 금융 동반자",
+            text="NoahAI-AI 금융 동반자",
             font=self._get_safe_font("subheading", ctk.CTkFont(size=16, weight="bold")),
             fg_color="transparent",
             text_color="#f9fafb"
         )
         self.app_title_label.pack(fill="both", expand=True)
 
-        # 🔥 하드코딩
+        # 하드코딩
         user_frame = ctk.CTkFrame(
             left_frame,
             fg_color="#2c3545",
@@ -54,14 +54,14 @@
         user_frame.pack(side="left", padx=(0, 8))
         self.user_info_label = ctk.CTkLabel(
             user_frame,
-            text="👤 사용자: 로딩 중...",
+            text="사용자: 로딩 중...",
             font=self._get_safe_font("body", ctk.CTkFont(size=14, weight="bold")),
             fg_color="transparent",
             text_color="#f9fafb"
         )
         self.user_info_label.pack(fill="both", expand=True)
 
-        # 🔥 하드코딩
+        # 하드코딩
         exchange_frame = ctk.CTkFrame(
             left_frame,
             fg_color="#2c3545",
@@ -73,7 +73,7 @@
         exchange_frame.pack(side="left", padx=(0, 8))
         self.exchange_info_label = ctk.CTkLabel(
             exchange_frame,
-            text="🏦 거래소: binance",
+            text="거래소: binance",
             font=self._get_safe_font("body", ctk.CTkFont(size=14, weight="bold")),
             fg_color="transparent",
             text_color="#22c55e"
@@ -90,7 +90,7 @@
         # 현재 활성 서비스 (기본값: 블록체인)
         self.current_service = getattr(self, 'current_service', "blockchain")
 
-        # 🔥 완전 하드코딩
+        # 완전 하드코딩
         active_fg = "#2563eb"
         active_text = "#ffffff"
         active_hover = "#1a5fd1"

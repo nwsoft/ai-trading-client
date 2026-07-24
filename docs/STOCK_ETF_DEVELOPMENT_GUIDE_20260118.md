@@ -422,7 +422,7 @@ def create_service_sub_tabs(self, service_name: str):
 - `docs/EXCHANGE_SETUP.md`: 거래소 설정 가이드
 - `docs/STOCK_ETF_ADDITION_GUIDE.md`: 증권/ETF 기술적 추가 가이드
 - `docs/STOCK_ETF_CURRENT_STATUS_20260118.md`: 현재 개발 현황 및 다음 단계
-- `docs/STOCK_ETF_UI_VERIFICATION_20260118.md`: UI 구조 검증 보고서
+- `docs/archive/history/STOCK_ETF_UI_VERIFICATION_20260118.md`: UI 구조 검증 보고서
 - `docs/AI_API_ARCHITECTURE.md`: **AI API 구조 및 오픈소스 전환 가이드** (필수 참고)
 
 ### 코드 참고

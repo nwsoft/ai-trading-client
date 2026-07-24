@@ -48,8 +48,8 @@ def test_user_strategy_cannot_bypass_approval_and_paper_validation(tmp_path):
 
     assert trader.calls[-1] == {
         "default_leverage": 1,
-        "default_tp": 2.0,
-        "default_sl": 1.0,
+        "default_tp": 0.02,
+        "default_sl": 0.01,
     }
 
 

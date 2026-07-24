@@ -55,6 +55,19 @@
   "broadcast_replay_enabled": false,
   "broadcast_replay_source_account": "",
   "ai_enabled": true,
+  "ai_cost_control": {
+    "_comment": "거래는 계속 유지하고 동일 시장상태의 반복 AI 호출만 줄이는 자동 정책",
+    "enabled": true,
+    "stable_state_cache_sec": 900,
+    "exploration_interval_sec": 900,
+    "price_change_bps": 15.0,
+    "rsi_event_low": 35.0,
+    "rsi_event_high": 65.0,
+    "max_daily_market_calls": 1200,
+    "max_daily_calls_per_exchange": 300,
+    "max_monthly_market_calls": 30000,
+    "max_cache_entries": 1000
+  },
   "binance_api_key": "",
   "binance_secret_key": "",
   "openai_api_key": "",
@@ -74,6 +87,8 @@
   "enabled_exchanges": [
     "binance"
   ],
+  "trade_enabled_exchanges": [],
+  "learning_enabled_exchanges": [],
   "advanced_trading_layers": {
     "profitability_validation": {
       "enabled": true,
@@ -82,7 +97,13 @@
       "min_sharpe": 0.2,
       "max_mdd": 0.3,
       "min_expectancy": 0.0,
-      "min_walkforward_pass_rate": 0.4
+      "min_walkforward_pass_rate": 0.4,
+      "underperformance_mode": "limited_learning",
+      "recovery_risk_multiplier": 0.15,
+      "recovery_max_positions": 1,
+      "recovery_max_leverage": 1,
+      "recovery_review_interval_trades": 20,
+      "hard_stop_mdd": 0.45
     },
     "portfolio_orchestration": {
       "enabled": true,
@@ -104,6 +125,7 @@
     "strategy_engine": {
       "enabled": true,
       "allow_regimes": ["trend", "range"],
+      "high_vol_action": "evaluate",
       "consensus_threshold": 0.6,
       "cooldown_sec": 60
     },
@@ -285,6 +307,20 @@
     "standard": "gpt-5.6-luna",
     "premium": "gpt-5.6-terra"
   },
+  "ai_custom_transcription": {
+    "enabled": true,
+    "model": "gpt-4o-mini-transcribe",
+    "max_duration_minutes": 45,
+    "max_file_mb": 24
+  },
+  "ai_custom_runtime": {
+    "_comment": "AI 커스텀 실제 자동매매 사용 여부와 자동검증 미통과 전략의 사용자 선택형 최소단위 운용 정책",
+    "enabled": false,
+    "allow_limited_live": false,
+    "limited_max_leverage": 1,
+    "limited_max_position_size": 0.01
+  },
+  "_ai_custom_runtime_safe_default_v3900_applied": true,
   "assistant_voice": {
     "enabled": false,
     "auto_tts": false,
@@ -848,6 +884,35 @@
     },
     "help": {
       "on_unknown": "AlphaArena 안내 모달을 먼저 보세요. 설정에도 없으면 관리자에게 문의하세요."
+    }
+  },
+  "financial_intelligence": {
+    "enabled": true,
+    "timeout": 8,
+    "cache_ttl_seconds": 300,
+    "allow_public_market_data": true,
+    "allow_rss_fetch": true,
+    "event_guardrail_auto_apply": false,
+    "news_rss_urls": [],
+    "event_feed_items": [],
+    "macro_indicators": {},
+    "sec_user_agent": "",
+    "dart_api_key": "",
+    "institutional_current": [],
+    "institutional_previous": [],
+    "source_scores": {
+      "company_ir": 0.95,
+      "regulator": 0.95,
+      "exchange_notice": 0.90,
+      "wire": 0.80,
+      "rss": 0.60,
+      "unknown": 0.40
+    },
+    "entity_aliases": {
+      "BTC": ["bitcoin", "비트코인", "btc"],
+      "ETH": ["ethereum", "이더리움", "eth"],
+      "005930": ["삼성전자", "samsung electronics"],
+      "AAPL": ["apple", "애플", "aapl"]
     }
   },
   "ui_settings": {

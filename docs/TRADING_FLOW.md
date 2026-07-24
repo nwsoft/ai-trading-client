@@ -1,7 +1,10 @@
 # 거래 흐름 기술 문서 (Technical Specification)
 
 **작성일:** 2026년 4월 27일  
+**최신 동기화:** 2026-07-24 · v3.9.0.1  
 **목적:** 개발팀이 참고하는 기술 명세서 - 코드 경로, 데이터 흐름, 모듈 구조
+
+> 코인 재선택·거래 실행·TP/SL 흐름의 현행 정본입니다. 2026-01 시점 재선택 분석과 테스트 설명은 `docs/archive/coin/`에 보관합니다. 금융 인텔리전스는 거래 실행을 대체하지 않으며, 분석 결과를 사용자에게 설명하는 별도 계층입니다.
 
 ---
 
@@ -31,7 +34,8 @@
         ┌──────────────────┐
         │ 2. 신호 분석     │ (analyzer.generate_trading_signal)
         │ - 30개+ 기술지표 │
-        │ - AI 평가        │
+        │ - 로컬 신호 선판정│
+        │ - 이벤트 시 AI   │
         └────────┬─────────┘
                  ▼
         ┌──────────────────┐
@@ -105,6 +109,7 @@
 | UI 진입 | `ui/dashboard_modern.py` | `DashboardModern.switch_service()` |
 | 거래 시작 | `main.py` | `Main.on_start_exchange()` |
 | 신호 생성 | `trading/analyzer.py` | `generate_trading_signal()` |
+| AI 호출 정책 | `trading/ai/inference_policy.py` | `OpportunityAwareInferencePolicy` |
 | 암호화폐 거래 | `trading/unified_trader.py` | `UnifiedTrader.execute_signal_trade()` |
 | 바이낸스 거래 | `trading/trader.py` | `Trader.execute_single_trade()` |
 | 포지션 모니터 | 위 파일들 | `_monitor_exchange_positions()` |
@@ -117,11 +122,35 @@
 
 | 데이터 | 위치 | 형식 |
 |--------|------|------|
-| 거래 기록 | `data/trading.db` → `trade_log` | SQLite |
+| 거래 기록 | `data/trading.db` → `trade_log` | SQLite: 주문번호·모델·전략·실체결 수수료 포함 |
 | AI 학습 데이터 | `data/nwsoft/ai_learning_data_*.json` | JSON (거래소별) |
 | 포지션 정보 | 메모리 + `data/*.json` | Python dict |
 | 설정값 | `data/settings.json` | JSON |
 | 로그 파일 | `data/logs/` | 텍스트 |
+
+### v3.9.0.1 거래기회 보존형 비용 제어
+
+- 선택 거래소는 실제 주문, 나머지 활성 거래소는 기본적으로 학습 전용이다.
+- 로컬 LONG/SHORT 신호는 호출 예산이 소진돼도 주문 검증 경로를 계속 통과한다.
+- 안정적인 동일 시장상태는 15분 캐시를 사용한다.
+- 새 캔들·15bp 이상 가격 변화·RSI 구간·MACD 방향·시장 국면 변화는 캐시를 우회한다.
+- 성과 미달은 1포지션·1배·위험배수 0.15 회복 학습으로 전환하고 Hard MDD만 차단한다.
+- 챔피언/챌린저 판정은 총손익이 아니라 실체결 수수료 차감 순PnL과 거래당 순기대값을 우선한다.
+
+### v3.9.0.1 주문·포지션 KPI 흐름
+
+```text
+주문 체결
+  ├─ trade_order_executed: 주문 성공률·거래량
+  └─ trade_position_opened: position_id + UTC opened_at
+         ├─ 부분 청산 → trade_position_reduced + 잔여 수량
+         └─ 전량 청산 → trade_position_closed + UTC closed_at + 검증된 hold_seconds
+```
+
+- 코인은 거래 실행 시 만든 `Position.entry_time`을 UTC aware datetime으로 유지한다.
+- 주식·ETF는 매수 체결을 `exit_time IS NULL`인 열린 로트로 저장하고 매도 수량을 오래된 진입부터 연결한다.
+- 앱 재시작 후 실제 진입시각을 확인할 수 없는 거래소 복구 포지션에는 임의의 현재 시각이나 0초 보유시간을 전송하지 않는다.
+- 클라이언트가 같은 종료 이벤트를 재전송해도 서버가 `event_id`로 한 번만 집계한다.
 
 ---
 

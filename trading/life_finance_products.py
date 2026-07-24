@@ -58,6 +58,11 @@ class FinanceProductAdvisor:
 
     def __init__(self, catalog_paths: Optional[Dict[str, str]] = None,
                  auto_refresh_interval: int = DEFAULT_REFRESH_INTERVAL):
+        self._custom_catalog_types = {
+            product_type
+            for product_type, raw_path in (catalog_paths or {}).items()
+            if raw_path
+        }
         self.catalog_paths = self._resolve_catalog_paths(catalog_paths)
         self.catalog_sources: Dict[str, str] = {}
         self._file_mtimes: Dict[str, float] = {}
@@ -146,18 +151,31 @@ class FinanceProductAdvisor:
                 return False
 
     def get_catalog_status(self) -> Dict[str, object]:
-        """카탈로그 소스 및 파일 수정 시각 요약"""
+        """카탈로그 상태 요약.
+
+        실제 경로는 운영 진단을 위해 내부에 유지하지만 일반 사용자 UI는
+        source_kind만 사용해 로컬 파일 구조를 노출하지 않는다.
+        """
         result: Dict[str, object] = {}
         for product_type, path in self.catalog_paths.items():
             mtime = self._file_mtimes.get(product_type, 0.0)
             result[product_type] = {
                 "source": self.catalog_sources.get(product_type, "unknown"),
+                "source_kind": self._catalog_source_kind(product_type),
                 "path": str(path),
                 "exists": path.exists(),
                 "mtime": mtime,
                 "mtime_str": time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(mtime)) if mtime else "N/A",
             }
         return result
+
+    def _catalog_source_kind(self, product_type: str) -> str:
+        source = self.catalog_sources.get(product_type, "unknown")
+        if source == "built_in_sample":
+            return "built_in_fallback"
+        if product_type in self._custom_catalog_types:
+            return "operator_catalog"
+        return "bundled_catalog"
 
     @staticmethod
     def _resolve_catalog_paths(catalog_paths: Optional[Dict[str, str]]) -> Dict[str, Path]:
@@ -176,10 +194,13 @@ class FinanceProductAdvisor:
     def _load_catalog_records(self, product_type: str) -> List[Dict[str, object]]:
         path = self.catalog_paths.get(product_type)
         if path and path.exists():
-            payload = json.loads(path.read_text(encoding="utf-8"))
-            if isinstance(payload, list):
-                self.catalog_sources[product_type] = str(path)
-                return [record for record in payload if isinstance(record, dict)]
+            try:
+                payload = json.loads(path.read_text(encoding="utf-8"))
+                if isinstance(payload, list):
+                    self.catalog_sources[product_type] = str(path)
+                    return [record for record in payload if isinstance(record, dict)]
+            except (OSError, UnicodeError, json.JSONDecodeError, TypeError, ValueError) as exc:
+                logger.warning("생활금융 상품 데이터 읽기 실패, 앱 내장 예비 데이터 사용 (%s): %s", product_type, exc)
         self.catalog_sources[product_type] = "built_in_sample"
         return []
 
@@ -306,6 +327,7 @@ class FinanceProductAdvisor:
                 "term_months": term_months,
             },
             "catalog_source": self.catalog_sources.get("loan", "unknown"),
+            "catalog_source_kind": self._catalog_source_kind("loan"),
             "alternatives": [
                 {
                     "name": p.name,
@@ -345,6 +367,7 @@ class FinanceProductAdvisor:
                 "deductible": best[0].deductible,
             },
             "catalog_source": self.catalog_sources.get("insurance", "unknown"),
+            "catalog_source_kind": self._catalog_source_kind("insurance"),
             "alternatives": [
                 {
                     "name": p.name,
@@ -381,6 +404,7 @@ class FinanceProductAdvisor:
                 "tax_free": best[0].tax_free,
             },
             "catalog_source": self.catalog_sources.get("savings", "unknown"),
+            "catalog_source_kind": self._catalog_source_kind("savings"),
             "alternatives": [
                 {
                     "name": p.name,

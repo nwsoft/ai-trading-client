@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""실계정 값을 읽지 않고 v3.8.9.29 설정 저장 UX를 렌더링한다."""
+"""실계정 값을 읽지 않고 v3.9.0.0 설정 저장 UX를 렌더링한다."""
 
 from pathlib import Path
 import sys

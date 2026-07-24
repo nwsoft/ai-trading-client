@@ -57,7 +57,7 @@ class AIAssistantWidget(CTkFrame):
         # AI 매니저 주입
         self.ai_manager = ai_manager
         # 어시스턴트용 모델명 (설정에서 주입 가능)
-        # 🔥 설정 파일에서 직접 읽기 시도 (하드코딩 기본값 제거)
+        # 설정 파일에서 직접 읽기 시도 (하드코딩 기본값 제거)
         raw_model_name = assistant_model_name
         assistant_apply_mode = 'user_confirm'
         if not raw_model_name:
@@ -80,7 +80,7 @@ class AIAssistantWidget(CTkFrame):
             except Exception:
                 pass
 
-        # 🔥 모델명 정규화: 잘못된 모델명 자동 수정 (gpt4-4o → gpt-4o)
+        # 모델명 정규화: 잘못된 모델명 자동 수정 (gpt4-4o → gpt-4o)
         # 최후의 fallback으로만 기본값 사용
         self.assistant_model_name = self._normalize_model_name(raw_model_name or 'gpt-4o-mini')
 
@@ -202,7 +202,7 @@ class AIAssistantWidget(CTkFrame):
         # 경고 메시지
         warning_label = CTkLabel(
             self,
-            text="⚠️ AI 기능이 비활성화되었습니다.\nOpenAI API 키를 설정해주세요.",
+            text="AI 기능이 비활성화되었습니다.\nOpenAI API 키를 설정해주세요.",
             font=ctk.CTkFont(size=16, weight="bold"),
             text_color=self._color("danger")
         )
@@ -252,7 +252,7 @@ class AIAssistantWidget(CTkFrame):
         # 경고 제목
         warning_title = CTkLabel(
             self.warning_frame,
-            text="⚠️ 고급 사용자 전용 기능",
+            text="고급 사용자 전용 기능",
             font=ctk.CTkFont(size=16, weight="bold"),
             text_color=self._color("danger")
         )
@@ -263,13 +263,13 @@ class AIAssistantWidget(CTkFrame):
             self.warning_frame,
             text="""이 기능은 고급 사용자를 위한 AI 대화형 전략 조정 시스템입니다.
 
-🚨 주의사항:
+주의사항:
 • AI의 제안은 참고용이며, 투자 손실에 대한 책임은 사용자에게 있습니다
 • 과도한 레버리지나 포지션 크기는 큰 손실을 초래할 수 있습니다
 • 시장 상황이 급변할 경우 AI 분석이 부정확할 수 있습니다
 • 언제든지 기본 설정으로 복원할 수 있습니다
 
-💡 권장사항:
+권장사항:
 • 소액으로 먼저 테스트해보세요
 • AI 제안을 맹신하지 말고 본인 판단을 우선하세요
 • 손실 허용 범위 내에서만 거래하세요""",
@@ -325,9 +325,8 @@ class AIAssistantWidget(CTkFrame):
         self.chat_messages_frame.pack(fill="both", expand=True, padx=5, pady=5)
 
         # 초기 메시지 (채팅창 안에 표시)
-        self.add_ai_message("🤖 AI Trading Assistant에 오신 것을 환영합니다!")
-        self.add_ai_message("")
-        self.add_ai_message("💡 아래 입력창에 질문을 입력하면 AI가 도와드립니다.")
+        self.add_ai_message("AI Trading Assistant에 오신 것을 환영합니다!")
+        self.add_ai_message("아래 입력창에 질문을 입력하면 AI가 도와드립니다.")
 
         # 사용자 입력 영역
         input_frame = CTkFrame(
@@ -359,7 +358,7 @@ class AIAssistantWidget(CTkFrame):
 
         self.voice_input_button = CTkButton(
             input_frame,
-            text="🎤 음성입력",
+            text="음성입력",
             command=self.on_voice_input_clicked,
             width=100,
             height=35,
@@ -381,7 +380,7 @@ class AIAssistantWidget(CTkFrame):
 
         chart_button = CTkButton(
             input_frame,
-            text="📊 차트분석",
+            text="차트분석",
             command=self.open_chart_analyzer,
             width=120,
             height=35,
@@ -394,16 +393,16 @@ class AIAssistantWidget(CTkFrame):
     def on_voice_input_clicked(self):
         """음성 입력(STT) 실행."""
         if not self.voice_module:
-            self.add_ai_message("⚠️ 음성 모듈을 사용할 수 없습니다.")
+            self.add_ai_message("음성 모듈을 사용할 수 없습니다.")
             return
 
         try:
             if hasattr(self, 'voice_input_button') and self.voice_input_button:
-                self.voice_input_button.configure(state='disabled', text='🎤 듣는 중...')
+                self.voice_input_button.configure(state='disabled', text='듣는 중...')
         except Exception:
             pass
 
-        self.add_ai_message("🎙️ 음성 입력을 시작합니다. 말씀해 주세요...")
+        self.add_ai_message("음성 입력을 시작합니다. 말씀해 주세요...")
         thread = threading.Thread(target=self._voice_transcribe_worker, daemon=True)
         thread.start()
 
@@ -441,25 +440,25 @@ class AIAssistantWidget(CTkFrame):
                     )
                     confirm = bool(messagebox.askyesno(risk_header, confirm_message))
                     if not confirm:
-                        self.add_ai_message("↩️ 음성 설정 변경 요청이 취소되었습니다.")
+                        self.add_ai_message("↩음성 설정 변경 요청이 취소되었습니다.")
                         return
 
                 self.chat_input.delete(0, 'end')
                 self.chat_input.insert(0, text)
-                self.add_ai_message(f"📝 음성 인식 결과: {text}")
+                self.add_ai_message(f"음성 인식 결과: {text}")
             elif status == 'not_available':
                 if reason == 'voice_disabled':
-                    self.add_ai_message("⚠️ 음성 기능이 비활성화되어 있습니다. 설정에서 AI 음성을 먼저 켜주세요.")
+                    self.add_ai_message("음성 기능이 비활성화되어 있습니다. 설정에서 AI 음성을 먼저 켜주세요.")
                 elif reason == 'pyaudio_not_installed':
-                    self.add_ai_message("⚠️ 마이크 인식 백엔드(PyAudio)가 없습니다. 배포 가이드의 음성 의존성 설치를 진행해주세요.")
+                    self.add_ai_message("마이크 인식 백엔드(PyAudio)가 없습니다. 배포 가이드의 음성 의존성 설치를 진행해주세요.")
                 else:
-                    self.add_ai_message("⚠️ STT 엔진이 준비되지 않았습니다. SpeechRecognition 설치 후 다시 시도하세요.")
+                    self.add_ai_message("STT 엔진이 준비되지 않았습니다. SpeechRecognition 설치 후 다시 시도하세요.")
             else:
-                self.add_ai_message(f"❌ 음성 인식 실패: {reason or '알 수 없는 오류'}")
+                self.add_ai_message(f"음성 인식 실패: {reason or '알 수 없는 오류'}")
         finally:
             try:
                 if hasattr(self, 'voice_input_button') and self.voice_input_button:
-                    self.voice_input_button.configure(state='normal', text='🎤 음성입력')
+                    self.voice_input_button.configure(state='normal', text='음성입력')
             except Exception:
                 pass
 
@@ -514,7 +513,7 @@ class AIAssistantWidget(CTkFrame):
             # 전체 복사 버튼
             copy_all_btn = CTkButton(
                 self.info_frame,
-                text="📋 전체 복사",
+                text="전체 복사",
                 command=self.copy_all_chat,
                 width=90,
                 height=24,
@@ -527,7 +526,7 @@ class AIAssistantWidget(CTkFrame):
             # TXT 저장 버튼
             export_txt_btn = CTkButton(
                 self.info_frame,
-                text="📄 TXT 저장",
+                text="TXT 저장",
                 command=self.export_chat_to_txt,
                 width=90,
                 height=24,
@@ -545,21 +544,21 @@ class AIAssistantWidget(CTkFrame):
         """전체 대화 내용을 클립보드에 복사"""
         try:
             if not self._chat_history_log:
-                self.add_ai_message("ℹ️ 복사할 대화 내용이 없습니다.")
+                self.add_ai_message("ℹ복사할 대화 내용이 없습니다.")
                 return
             text = "\n".join(self._chat_history_log)
             self.clipboard_clear()
             self.clipboard_append(text)
-            self.add_ai_message(f"✅ 전체 대화 내용({len(self._chat_history_log)}줄)이 클립보드에 복사되었습니다.")
+            self.add_ai_message(f"전체 대화 내용({len(self._chat_history_log)}줄)이 클립보드에 복사되었습니다.")
         except Exception as e:
             self.logger.error(f"전체 복사 오류: {e}")
-            self.add_ai_message(f"❌ 복사 중 오류가 발생했습니다: {e}")
+            self.add_ai_message(f"복사 중 오류가 발생했습니다: {e}")
 
     def export_chat_to_txt(self):
         """전체 대화 내용을 TXT 파일로 저장"""
         try:
             if not self._chat_history_log:
-                self.add_ai_message("ℹ️ 저장할 대화 내용이 없습니다.")
+                self.add_ai_message("ℹ저장할 대화 내용이 없습니다.")
                 return
 
             from tkinter import filedialog
@@ -583,10 +582,10 @@ class AIAssistantWidget(CTkFrame):
             content = header + "\n".join(self._chat_history_log)
             with open(file_path, 'w', encoding='utf-8') as f:
                 f.write(content)
-            self.add_ai_message(f"✅ 대화 내용이 저장되었습니다:\n{file_path}")
+            self.add_ai_message(f"대화 내용이 저장되었습니다:\n{file_path}")
         except Exception as e:
             self.logger.error(f"TXT 저장 오류: {e}")
-            self.add_ai_message(f"❌ 저장 중 오류가 발생했습니다: {e}")
+            self.add_ai_message(f"저장 중 오류가 발생했습니다: {e}")
 
     def create_quick_question_buttons(self):
         """자주 하는 질문 버튼들 생성"""
@@ -653,7 +652,7 @@ class AIAssistantWidget(CTkFrame):
         if svc == "stock":
             return {
                 "label": "주식/ETF",
-                "quick_title": "💡 주식/ETF 자주 묻는 질문",
+                "quick_title": "주식/ETF 자주 묻는 질문",
                 "input_placeholder": "주식/ETF 관련 질문을 입력하세요... (예: 섹터 점검, ETF 비교, 리스크 점검)",
                 "expert_role": "당신은 주식·ETF 투자 분석 전문가입니다.",
                 "quick_questions": [
@@ -672,7 +671,7 @@ class AIAssistantWidget(CTkFrame):
         if svc in ("real_estate", "asset"):
             return {
                 "label": "자산통합",
-                "quick_title": "💡 자산통합 AI 상담",
+                "quick_title": "자산통합 AI 상담",
                 "input_placeholder": "자산 배분, 부동산, 포트폴리오 관련 질문을 입력하세요...",
                 "expert_role": "당신은 개인 자산관리(PB) 전문가로서 부동산·금융자산을 통합적으로 분석합니다.",
                 "quick_questions": [
@@ -691,7 +690,7 @@ class AIAssistantWidget(CTkFrame):
         if svc in ("other_investment", "other", "life_finance"):
             return {
                 "label": "생활금융",
-                "quick_title": "💡 생활금융 AI 상담",
+                "quick_title": "생활금융 AI 상담",
                 "input_placeholder": "대출·보험·적금·생활비 관련 질문을 입력하세요...",
                 "expert_role": "당신은 생활금융 전문 상담사로서 대출·보험·저축·현금흐름을 분석합니다.",
                 "quick_questions": [
@@ -710,7 +709,7 @@ class AIAssistantWidget(CTkFrame):
         if svc == "ai_analyst":
             return {
                 "label": "AI 애널리스트",
-                "quick_title": "💡 AI 애널리스트 질문",
+                "quick_title": "AI 애널리스트 질문",
                 "input_placeholder": "시장 분석, 투자 아이디어, 종합 전략을 질문하세요...",
                 "expert_role": "당신은 멀티에셋 AI 투자 애널리스트입니다.",
                 "quick_questions": [
@@ -724,7 +723,7 @@ class AIAssistantWidget(CTkFrame):
 
         return {
             "label": "암호화폐",
-            "quick_title": "💡 자주 하는 질문",
+            "quick_title": "자주 하는 질문",
             "input_placeholder": "AI에게 질문하거나 요청사항을 입력하세요...",
             "expert_role": "당신은 암호화폐 거래 전문가입니다.",
             "quick_questions": [
@@ -758,7 +757,7 @@ class AIAssistantWidget(CTkFrame):
 
             if announce and prev != self.assistant_service_context:
                 profile = self._get_service_profile(self.assistant_service_context)
-                self.add_ai_message(f"🔄 AI 어시스턴트가 {profile['label']} 분석 모드로 전환되었습니다.")
+                self.add_ai_message(f"AI 어시스턴트가 {profile['label']} 분석 모드로 전환되었습니다.")
         except Exception as e:
             self.logger.debug(f"서비스 컨텍스트 전환 실패: {e}")
 
@@ -825,7 +824,7 @@ class AIAssistantWidget(CTkFrame):
         if self._onboarding_step < 0 or self._onboarding_step >= len(questions):
             return ""
         q = questions[self._onboarding_step]
-        lines = [f"🧩 {q['title']}", q['prompt']] + [f"- {opt}" for opt in q['options']] + [f"입력 가이드: {q['hint']}"]
+        lines = [f"{q['title']}", q['prompt']] + [f"- {opt}" for opt in q['options']] + [f"입력 가이드: {q['hint']}"]
         return "\n".join(lines)
 
     def start_initial_onboarding(self, source: str = "assistant"):
@@ -835,8 +834,8 @@ class AIAssistantWidget(CTkFrame):
         self._onboarding_source = source
         self._onboarding_answers = {}
 
-        self.add_ai_message("🧭 초기 AI 설정 가이드를 시작합니다. 총 5문항이며 1~2분 내 완료됩니다.")
-        self.add_ai_message("ℹ️ 진행 중에는 '취소' 또는 '중단' 입력으로 언제든 종료할 수 있습니다.")
+        self.add_ai_message("초기 AI 설정 가이드를 시작합니다. 총 5문항이며 1~2분 내 완료됩니다.")
+        self.add_ai_message("ℹ진행 중에는 '취소' 또는 '중단' 입력으로 언제든 종료할 수 있습니다.")
         self.add_ai_message(self._format_onboarding_question())
 
     def _parse_onboarding_answer(self, key: str, message: str) -> Optional[str]:
@@ -957,7 +956,7 @@ class AIAssistantWidget(CTkFrame):
         risk_label = {'low': '낮음', 'mid': '중간', 'high': '높음(요청)'}.get(answers.get('risk', 'mid'), '중간')
 
         explain_lines = [
-            "📝 초기 온보딩 결과 요약",
+            "초기 온보딩 결과 요약",
             f"- 목표: {goal_label}",
             f"- 리스크 허용도: {risk_label}",
             f"- 예상 비용 레벨: {selected_preset.get('cost_level', '-')}",
@@ -975,13 +974,13 @@ class AIAssistantWidget(CTkFrame):
 
         try:
             if not self._confirm_settings_apply(settings_payload):
-                self.add_ai_message("↩️ 초기 온보딩 적용이 취소되었습니다. 기존 설정은 유지됩니다.")
+                self.add_ai_message("↩초기 온보딩 적용이 취소되었습니다. 기존 설정은 유지됩니다.")
                 return
             self._apply_settings_automatically(settings_payload, "초기 AI 온보딩")
-            self.add_ai_message(f"✅ 초기 설정 가이드 적용이 완료되었습니다. 다음 점검 시점: {recheck_text}")
+            self.add_ai_message(f"초기 설정 가이드 적용이 완료되었습니다. 다음 점검 시점: {recheck_text}")
         except Exception as e:
             self.logger.error(f"초기 온보딩 적용 실패: {e}")
-            self.add_ai_message(f"❌ 초기 온보딩 적용 중 오류가 발생했습니다: {e}")
+            self.add_ai_message(f"초기 온보딩 적용 중 오류가 발생했습니다: {e}")
 
     def _consume_onboarding_answer(self, message: str) -> bool:
         """온보딩 진행 중 사용자 입력을 처리한다."""
@@ -993,7 +992,7 @@ class AIAssistantWidget(CTkFrame):
             self._onboarding_active = False
             self._onboarding_step = 0
             self._onboarding_answers = {}
-            self.add_ai_message("↩️ 초기 AI 설정 가이드를 중단했습니다. 기존 설정은 변경되지 않았습니다.")
+            self.add_ai_message("↩초기 AI 설정 가이드를 중단했습니다. 기존 설정은 변경되지 않았습니다.")
             return True
 
         questions = self._get_onboarding_questions()
@@ -1004,7 +1003,7 @@ class AIAssistantWidget(CTkFrame):
         current = questions[self._onboarding_step]
         parsed = self._parse_onboarding_answer(current['key'], message)
         if parsed is None:
-            self.add_ai_message(f"⚠️ 입력을 이해하지 못했습니다. {current['hint']} 형태로 다시 입력해 주세요.")
+            self.add_ai_message(f"입력을 이해하지 못했습니다. {current['hint']} 형태로 다시 입력해 주세요.")
             self.add_ai_message(self._format_onboarding_question())
             return True
 
@@ -1058,13 +1057,13 @@ class AIAssistantWidget(CTkFrame):
         """런타임에 어시스턴트 모델을 재설정하고 캡션을 갱신합니다."""
         try:
             model_name = (model_name or '').strip() or 'gpt-4o-mini'
-            # 🔥 모델명 정규화 적용
+            # 모델명 정규화 적용
             normalized_model = self._normalize_model_name(model_name)
             prev = getattr(self, 'assistant_model_name', None)
             self.assistant_model_name = normalized_model
             self.update_model_caption()
             if announce and prev and (prev != normalized_model):
-                self.add_ai_message(f"🔁 어시스턴트 모델이 '{prev}' → '{normalized_model}' 로 변경되었습니다.")
+                self.add_ai_message(f"어시스턴트 모델이 '{prev}' → '{normalized_model}' 로 변경되었습니다.")
         except Exception:
             pass
 
@@ -1076,9 +1075,9 @@ class AIAssistantWidget(CTkFrame):
             else:
                 self.ai_chat_enabled = True
             if self.ai_chat_enabled:
-                self.add_ai_message("✅ AI 대화 기능이 활성화되었습니다. 자유롭게 질문해 보세요!")
+                self.add_ai_message("AI 대화 기능이 활성화되었습니다. 자유롭게 질문해 보세요!")
             else:
-                self.add_ai_message("❌ AI 대화 기능이 비활성화되었습니다.")
+                self.add_ai_message("AI 대화 기능이 비활성화되었습니다.")
         except Exception:
             pass
 
@@ -1111,7 +1110,7 @@ class AIAssistantWidget(CTkFrame):
                 )
                 label.grid(row=0, column=0, sticky="w", padx=(0, 4))
 
-                # 📋 복사 버튼 (클립보드에 메시지 전체 복사)
+                # 복사 버튼 (클립보드에 메시지 전체 복사)
                 def _copy_msg(msg=message):
                     try:
                         self.clipboard_clear()
@@ -1121,8 +1120,8 @@ class AIAssistantWidget(CTkFrame):
 
                 copy_btn = CTkButton(
                     msg_row,
-                    text="📋",
-                    width=30,
+                    text="복사",
+                    width=46,
                     height=22,
                     font=ctk.CTkFont(size=11),
                     fg_color="transparent",
@@ -1142,7 +1141,7 @@ class AIAssistantWidget(CTkFrame):
                 try:
                     from datetime import datetime as _dt
                     ts = _dt.now().strftime('%H:%M')
-                    self._chat_history_log.append(f"[{ts}] 🤖 AI: {message}")
+                    self._chat_history_log.append(f"[{ts}] AI: {message}")
                 except Exception:
                     pass
 
@@ -1150,7 +1149,7 @@ class AIAssistantWidget(CTkFrame):
             try:
                 if self.voice_module and getattr(self.voice_module, 'config', None):
                     if self.voice_module.config.auto_tts and message and message.strip():
-                        speech_text = str(message).replace('🤖 AI 분석 결과:\n', '').strip()
+                        speech_text = str(message).replace('AI 분석 결과:\n', '').strip()
                         self.voice_module.speak(speech_text)
             except Exception:
                 pass
@@ -1175,7 +1174,7 @@ class AIAssistantWidget(CTkFrame):
         # 사용자 메시지 추가
         user_message_label = CTkLabel(
             self.chat_messages_frame,
-            text=f"👤 사용자: {message}",
+            text=f"사용자: {message}",
             font=ctk.CTkFont(size=12),
             text_color=self._color("success"),
             justify="left",
@@ -1198,7 +1197,7 @@ class AIAssistantWidget(CTkFrame):
         try:
             from datetime import datetime as _dt
             ts = _dt.now().strftime('%H:%M')
-            self._chat_history_log.append(f"[{ts}] 👤 사용자: {message}")
+            self._chat_history_log.append(f"[{ts}] 사용자: {message}")
         except Exception:
             pass
 
@@ -1224,7 +1223,7 @@ class AIAssistantWidget(CTkFrame):
                     result = self._handle_add_custom_indicator(indicator_name)
                     self.add_ai_message(result)
                 else:
-                    self.add_ai_message("⚠️ 지표 이름을 입력해 주세요. 예: '지표 추가 RSI_14'")
+                    self.add_ai_message("지표 이름을 입력해 주세요. 예: '지표 추가 RSI_14'")
                 return
             if msg_lower.startswith("지표 삭제") or msg_lower.startswith("지표 제거"):
                 indicator_name = message.strip()[5:].strip()
@@ -1345,7 +1344,7 @@ class AIAssistantWidget(CTkFrame):
   mock 모드에서는 실제 주문 없이 연결 테스트 가능
 
 ■ 실주문 허용 설정 위치
-    설정 → 거래소 선택 탭 → "⚙️ 증권 자동매매 제어" 섹션 → "실주문 허용 (enable_stock_live_order)" 체크박스
+    설정 → 거래소 선택 탭 → "증권 자동매매 제어" 섹션 → "실주문 허용 (enable_stock_live_order)" 체크박스
   OFF(기본값): 실제 주문 없음 / ON: 실제 매매 실행
 
 ■ pykiwoom / PyQt5 라이브러리 누락 시
@@ -1369,7 +1368,7 @@ class AIAssistantWidget(CTkFrame):
 
             # AI 어시스턴트용 모델 사용 (설정에서 전달된 모델 우선)
             assistant_model = getattr(self, 'assistant_model_name', None) or 'gpt-4o-mini'
-            # 🔥 모델명 정규화 적용
+            # 모델명 정규화 적용
             assistant_model = self._normalize_model_name(assistant_model)
 
             # 디버그 로그 추가 (빌드 환경 문제 진단용)
@@ -1399,14 +1398,14 @@ class AIAssistantWidget(CTkFrame):
                         self._show_settings_proposal(ai_response, parsed_settings, message)
                     else:
                         # JSON 파싱 실패 → 텍스트 조언만 표시
-                        self.add_ai_message(f"🤖 AI 분석 결과:\n{ai_response}")
+                        self.add_ai_message(f"AI 분석 결과:\n{ai_response}")
                         recommended_settings = self._extract_recommended_settings(ai_response, message)
                         if recommended_settings:
                             self.current_recommended_settings = recommended_settings
-                            self.add_ai_message("💡 위 분석을 참고하여 설정관리 버튼에서 직접 변경하실 수 있습니다.")
+                            self.add_ai_message("위 분석을 참고하여 설정관리 버튼에서 직접 변경하실 수 있습니다.")
                 else:
                     # 일반 질문인 경우 기존 방식
-                    self.add_ai_message(f"🤖 AI 분석 결과:\n{ai_response}")
+                    self.add_ai_message(f"AI 분석 결과:\n{ai_response}")
 
                     # 설정 제안이 포함된 경우 권장 설정 생성
                     if "권장 설정" in ai_response or "설정" in ai_response:
@@ -1430,17 +1429,17 @@ class AIAssistantWidget(CTkFrame):
                 self._custom_indicators = []
             name = name.strip()
             if name in self._custom_indicators:
-                return f"ℹ️ '{name}' 지표는 이미 등록되어 있습니다.\n현재 등록 지표: {', '.join(self._custom_indicators)}"
+                return f"ℹ'{name}' 지표는 이미 등록되어 있습니다.\n현재 등록 지표: {', '.join(self._custom_indicators)}"
             self._custom_indicators.append(name)
             # MarketTrendWidget에 동기화
             self._sync_custom_indicators_to_trend_widget()
             return (
-                f"✅ 커스텀 지표 '{name}'이(가) 등록되었습니다.\n"
+                f"커스텀 지표 '{name}'이(가) 등록되었습니다.\n"
                 f"시장 트렌드 → AI 전략 상태 섹션에서 확인할 수 있습니다.\n"
                 f"현재 등록 지표 ({len(self._custom_indicators)}개): {', '.join(self._custom_indicators)}"
             )
         except Exception as e:
-            return f"⚠️ 지표 등록 중 오류 발생: {e}"
+            return f"지표 등록 중 오류 발생: {e}"
 
     def _handle_remove_custom_indicator(self, name: str) -> str:
         """커스텀 지표 삭제"""
@@ -1451,18 +1450,18 @@ class AIAssistantWidget(CTkFrame):
             if name in self._custom_indicators:
                 self._custom_indicators.remove(name)
                 self._sync_custom_indicators_to_trend_widget()
-                return f"🗑️ '{name}' 지표가 삭제되었습니다.\n남은 지표 ({len(self._custom_indicators)}개): {', '.join(self._custom_indicators) or '없음'}"
-            return f"ℹ️ '{name}' 지표를 찾을 수 없습니다.\n현재 등록 지표: {', '.join(self._custom_indicators) or '없음'}"
+                return f"'{name}' 지표가 삭제되었습니다.\n남은 지표 ({len(self._custom_indicators)}개): {', '.join(self._custom_indicators) or '없음'}"
+            return f"ℹ'{name}' 지표를 찾을 수 없습니다.\n현재 등록 지표: {', '.join(self._custom_indicators) or '없음'}"
         except Exception as e:
-            return f"⚠️ 지표 삭제 중 오류 발생: {e}"
+            return f"지표 삭제 중 오류 발생: {e}"
 
     def _handle_list_custom_indicators(self) -> str:
         """등록된 커스텀 지표 목록 반환"""
         indicators = getattr(self, '_custom_indicators', [])
         if indicators:
             lines = "\n".join(f"  [{i+1}] {ind}" for i, ind in enumerate(indicators))
-            return f"📋 등록된 커스텀 지표 ({len(indicators)}개):\n{lines}\n\n삭제: '지표 삭제 [지표명]'"
-        return "📋 등록된 커스텀 지표가 없습니다.\n추가: '지표 추가 RSI_14' 형태로 입력하세요."
+            return f"등록된 커스텀 지표 ({len(indicators)}개):\n{lines}\n\n삭제: '지표 삭제 [지표명]'"
+        return "등록된 커스텀 지표가 없습니다.\n추가: '지표 추가 RSI_14' 형태로 입력하세요."
 
     def _sync_custom_indicators_to_trend_widget(self):
         """MarketTrendWidget._custom_indicators에 현재 목록 동기화"""
@@ -1501,13 +1500,13 @@ class AIAssistantWidget(CTkFrame):
 
             short_context = "\n".join(context.splitlines()[:12]) if context else "거래 상황 요약을 불러오지 못했습니다."
             return (
-                f"⚠️ AI 실시간 응답이 일시적으로 불안정하여 로컬 진단으로 안내합니다.\n"
+                f"AI 실시간 응답이 일시적으로 불안정하여 로컬 진단으로 안내합니다.\n"
                 f"사유: {reason}\n\n"
                 + "\n".join(tips)
                 + f"\n\n현재 확인된 정보:\n{short_context}"
             )
         except Exception:
-            return f"⚠️ AI 응답이 일시적으로 불안정합니다. 사유: {reason}"
+            return f"AI 응답이 일시적으로 불안정합니다. 사유: {reason}"
 
     def _normalize_coins_for_analysis(self, coins: Any) -> List[Dict[str, str]]:
         """분석기에 전달할 코인 리스트를 표준 형태로 정규화합니다.
@@ -1537,19 +1536,19 @@ class AIAssistantWidget(CTkFrame):
     def undo_last_settings_change(self):
         """마지막 설정 변경 되돌리기"""
         if not self.settings_change_history:
-            self.add_ai_message("❌ 되돌릴 설정 변경이 없습니다.")
+            self.add_ai_message("되돌릴 설정 변경이 없습니다.")
             return
 
         last_change = self.settings_change_history[-1]
         before_settings = last_change.get('before_full') or last_change.get('before')
         if not before_settings:
-            self.add_ai_message("❌ 이전 설정 스냅샷이 없어 되돌릴 수 없습니다.\n(이 항목은 이전 버전에서 기록된 이력입니다)")
+            self.add_ai_message("이전 설정 스냅샷이 없어 되돌릴 수 없습니다.\n(이 항목은 이전 버전에서 기록된 이력입니다)")
             return
 
         try:
             dashboard = getattr(self, 'parent_dashboard', None)
             if not dashboard:
-                self.add_ai_message("❌ 대시보드에 연결되지 않아 설정을 적용할 수 없습니다.")
+                self.add_ai_message("대시보드에 연결되지 않아 설정을 적용할 수 없습니다.")
                 return
 
             from config.settings import save_settings
@@ -1565,20 +1564,20 @@ class AIAssistantWidget(CTkFrame):
                 self.settings_change_history.pop()  # 되돌린 항목 제거
                 self.update_strategy_status(getattr(dashboard, 'settings', {}))
                 self._update_settings_modal_ui_state()
-                self.add_ai_message("✅ 마지막 설정 변경을 성공적으로 되돌렸습니다.")
+                self.add_ai_message("마지막 설정 변경을 성공적으로 되돌렸습니다.")
             else:
-                self.add_ai_message("❌ 설정 저장에 실패했습니다.")
+                self.add_ai_message("설정 저장에 실패했습니다.")
         except Exception as e:
             self.logger.error(f"undo_last_settings_change 오류: {e}")
-            self.add_ai_message(f"❌ 되돌리기 중 오류가 발생했습니다: {e}")
+            self.add_ai_message(f"되돌리기 중 오류가 발생했습니다: {e}")
 
     def show_settings_history(self):
         """설정 변경 이력 표시"""
         if not self.settings_change_history:
-            self.add_ai_message("📋 설정 변경 이력이 없습니다.")
+            self.add_ai_message("설정 변경 이력이 없습니다.")
             return
 
-        history_text = "📋 설정 변경 이력 (최근 5개):\n"
+        history_text = "설정 변경 이력 (최근 5개):\n"
         for i, change in enumerate(self.settings_change_history[-5:], 1):
             ts = change.get('timestamp', '?')
             changed = change.get('settings') or change.get('changes') or {}
@@ -1603,10 +1602,10 @@ class AIAssistantWidget(CTkFrame):
                 "모든 설정을 초기 기본값으로 되돌리겠습니까?\n거래 설정(레버리지, TP/SL 등)이 모두 초기화됩니다."
             )
             if not confirm:
-                self.add_ai_message("ℹ️ 기본 전략 복구가 취소되었습니다.")
+                self.add_ai_message("ℹ기본 전략 복구가 취소되었습니다.")
                 return
 
-            self.add_ai_message("🏠 기본 전략으로 복구 중...")
+            self.add_ai_message("기본 전략으로 복구 중...")
             try:
                 reset_with_options = getattr(settings_module, 'reset_settings_with_options', None)
                 if callable(reset_with_options):
@@ -1626,16 +1625,16 @@ class AIAssistantWidget(CTkFrame):
                 self.update_strategy_status(restored)
                 self._update_settings_modal_ui_state()
                 self.add_ai_message(
-                    f"✅ 기본 전략으로 복구 완료!\n"
+                    f"기본 전략으로 복구 완료!\n"
                     f"  레버리지: {restored.get('default_leverage', '?')}x\n"
                     f"  익절: {restored.get('default_tp', 0)*100:.2f}%\n"
                     f"  손절: {restored.get('default_sl', 0)*100:.2f}%"
                 )
             else:
-                self.add_ai_message("❌ 기본 설정 저장에 실패했습니다.")
+                self.add_ai_message("기본 설정 저장에 실패했습니다.")
         except Exception as e:
             self.logger.error(f"restore_default_strategy 오류: {e}")
-            self.add_ai_message(f"❌ 기본 전략 복구 중 오류가 발생했습니다: {e}")
+            self.add_ai_message(f"기본 전략 복구 중 오류가 발생했습니다: {e}")
 
     def update_strategy_status(self, settings: dict):
         """전략 상태 업데이트"""
@@ -1661,14 +1660,14 @@ class AIAssistantWidget(CTkFrame):
             except Exception:
                 balance_limit_pct = 25.0
 
-            status_text = f"""🎯 전략: {strategy_mode} 모드
-⚡ 레버리지: {leverage}x
-📊 잔고 활용 한도: {balance_limit_pct:.0f}%
-📈 익절 목표: {tp*100:.1f}%
-📉 손절 라인: {sl*100:.1f}%
-🎲 신호 임계값: 70점
+            status_text = f"""전략: {strategy_mode} 모드
+레버리지: {leverage}x
+잔고 활용 한도: {balance_limit_pct:.0f}%
+익절 목표: {tp*100:.1f}%
+손절 라인: {sl*100:.1f}%
+신호 임계값: 70점
 
-🤖 AI 상태: {ai_status}"""
+AI 상태: {ai_status}"""
 
             self.strategy_status_label.configure(text=status_text, text_color=ai_status_color)
 
@@ -1712,21 +1711,21 @@ class AIAssistantWidget(CTkFrame):
                 self._settings_modal_undo_btn.configure(state="normal" if has_undoable else "disabled")
 
             if hasattr(self, '_settings_modal_info_text') and self._settings_modal_info_text:
-                info_content = f"""🔧 설정 관리 기능 설명
+                info_content = f"""설정 관리 기능 설명
 
-1. 🔄 마지막 설정 되돌리기
+1. 마지막 설정 되돌리기
    • AI가 제안한 마지막 설정 변경을 되돌립니다
    • 현재 상태: {history_status}
 
-2. 📋 설정 변경 이력
+2. 설정 변경 이력
    • AI가 제안한 모든 설정 변경 내역을 확인할 수 있습니다
    • 최근 50개 변경 이력까지 저장됩니다
 
-3. 🏠 기본 전략 복구
+3. 기본 전략 복구
    • 모든 설정을 초기 기본값으로 되돌립니다
    • 확인 대화상자 표시 후 적용
 
-4. 🎛️ AI 모델 프리셋 (초보자 추천)
+4. AI 모델 프리셋 (초보자 추천)
     • 절약형: 비용 우선 (호출량이 많아도 비용 부담 최소화)
     • 균형형: 기본 권장 (대부분 사용자에게 무난)
     • 정밀형: 분석 품질 우선 (비용 증가 가능)
@@ -1737,7 +1736,7 @@ class AIAssistantWidget(CTkFrame):
 • 아직 잘 모르겠다 → 균형형
 • 진단 정확도를 가장 중시한다 → 정밀형
 
-⚠️ 주의사항:
+주의사항:
 • 설정 변경은 거래에 직접적인 영향을 미칩니다
 • 문제 발생 시 언제든지 기본 설정으로 복원 가능합니다"""
                 self._settings_modal_info_text.configure(state="normal")
@@ -1752,7 +1751,7 @@ class AIAssistantWidget(CTkFrame):
         try:
             # 모달창 생성
             modal = ctk.CTkToplevel(self)
-            modal.title("⚙️ 설정 관리")
+            modal.title("설정 관리")
             modal.geometry("600x500")
             # 모달을 최상위 윈도우에 종속시킵니다 (타입 안전)
             try:
@@ -1774,7 +1773,7 @@ class AIAssistantWidget(CTkFrame):
             # 제목
             title_label = CTkLabel(
                 main_frame,
-                text="⚙️ AI 설정 관리",
+                text="AI 설정 관리",
                 font=ctk.CTkFont(size=18, weight="bold")
             )
             title_label.pack(pady=20)
@@ -1791,7 +1790,7 @@ class AIAssistantWidget(CTkFrame):
 
             status_title = CTkLabel(
                 status_frame,
-                text="📋 현재 전략 상태",
+                text="현재 전략 상태",
                 font=ctk.CTkFont(size=14, weight="bold")
             )
             status_title.pack(pady=5)
@@ -1836,7 +1835,7 @@ class AIAssistantWidget(CTkFrame):
 
             preset_title = CTkLabel(
                 preset_frame,
-                text="🎛️ AI 모델 프리셋",
+                text="AI 모델 프리셋",
                 font=ctk.CTkFont(size=13, weight="bold")
             )
             preset_title.pack(anchor="w", padx=10, pady=(8, 4))
@@ -1864,7 +1863,7 @@ class AIAssistantWidget(CTkFrame):
 
             preview_btn = CTkButton(
                 quick_action_row,
-                text="🧪 미리보기만",
+                text="미리보기만",
                 width=130,
                 height=30,
                 fg_color=self._color("secondary"),
@@ -1875,7 +1874,7 @@ class AIAssistantWidget(CTkFrame):
 
             quick_apply_btn = CTkButton(
                 quick_action_row,
-                text="✅ 균형형 바로 적용",
+                text="균형형 바로 적용",
                 width=160,
                 height=30,
                 fg_color=self._color("primary"),
@@ -2061,19 +2060,19 @@ class AIAssistantWidget(CTkFrame):
 
         try:
             if not self._confirm_settings_apply(settings_payload):
-                self.add_ai_message("↩️ 모델 프리셋 적용이 최종 확인에서 취소되었습니다.")
+                self.add_ai_message("↩모델 프리셋 적용이 최종 확인에서 취소되었습니다.")
                 return
             self._apply_settings_automatically(settings_payload, f"모델 프리셋 적용: {selected['label']}")
-            self.add_ai_message(f"ℹ️ 선택 프리셋: {selected['label']} (예상 비용 레벨: {selected.get('cost_level', '-')})")
+            self.add_ai_message(f"ℹ선택 프리셋: {selected['label']} (예상 비용 레벨: {selected.get('cost_level', '-')})")
         except Exception as e:
             self.logger.error(f"어시스턴트 모델 프리셋 적용 실패: {e}")
-            self.add_ai_message(f"❌ 모델 프리셋 적용 중 오류가 발생했습니다: {e}")
+            self.add_ai_message(f"모델 프리셋 적용 중 오류가 발생했습니다: {e}")
 
     def _preview_optimization_without_apply(self):
         """설정 변경 없이 현재 최적화 안내만 표시한다."""
         try:
             self.add_ai_message(
-                "🧪 미리보기 모드입니다. 현재는 설정을 저장하지 않았습니다. "
+                "미리보기 모드입니다. 현재는 설정을 저장하지 않았습니다. "
                 "프리셋 버튼(절약형/균형형/정밀형 또는 균형형 바로 적용)을 누르면 최종 확인 후 적용됩니다."
             )
         except Exception:
@@ -2101,7 +2100,7 @@ class AIAssistantWidget(CTkFrame):
                     stock_asset_mode = settings.get('stock_asset_mode', 'all')
 
                     context_parts.append("참고: 주식/ETF 모드에서는 시장시간·체결규칙·종목유형을 함께 고려해야 합니다.")
-                    context_parts.append("💡 주식/ETF 통합 관리: [주식] 개별 기업 분석 / [ETF] 추적오차·괴리율 모니터링")
+                    context_parts.append("주식/ETF 통합 관리: [주식] 개별 기업 분석 / [ETF] 추적오차·괴리율 모니터링")
                     context_parts.append(f"현재 증권 표시 모드: {stock_asset_mode}")
 
                     # StockAnalysisService 경유 — 브로커별 AI 컨텍스트 수집
@@ -2157,11 +2156,11 @@ class AIAssistantWidget(CTkFrame):
                                 connection_status = '연결 안됨 (클라이언트 미연결)'
 
                     context_parts.append(f"거래소 연결 상태: {connection_status}")
-                    # 🔥 중요: 설정 변경은 거래소 연결 상태와 무관하게 가능하다는 정보 추가
-                    context_parts.append("💡 참고: 설정 변경은 거래소 연결 상태와 무관하게 가능합니다 (settings.json 파일 수정)")
+                    # 중요: 설정 변경은 거래소 연결 상태와 무관하게 가능하다는 정보 추가
+                    context_parts.append("참고: 설정 변경은 거래소 연결 상태와 무관하게 가능합니다 (settings.json 파일 수정)")
                 except Exception as e:
                     context_parts.append(f"거래소 연결 상태: 확인 불가 - {str(e)}")
-                    context_parts.append("💡 참고: 설정 변경은 거래소 연결 상태와 무관하게 가능합니다")
+                    context_parts.append("참고: 설정 변경은 거래소 연결 상태와 무관하게 가능합니다")
 
                 # 2. 잔고 정보 (상세)
                 try:
@@ -2398,8 +2397,7 @@ class AIAssistantWidget(CTkFrame):
                                         confidence = analysis.get('confidence', 0)
                                         reason = analysis.get('reason', '')
 
-                                        signal_emoji = "🟢" if signal == "BUY" else "🔴" if signal == "SELL" else "🟡"
-                                        analysis_info.append(f"{symbol}: {signal_emoji} {signal} ({confidence:.2f}) - {reason}")
+                                        analysis_info.append(f"{symbol}: {signal} ({confidence:.2f}) - {reason}")
 
                                     if analysis_info:
                                         context_parts.append("코인 분석 결과:")
@@ -2483,7 +2481,7 @@ class AIAssistantWidget(CTkFrame):
             import json as _json
             safe_settings, normalize_notes = self._sanitize_settings_proposal(parsed_settings)
             if not safe_settings:
-                self.add_ai_message("⚠️ AI 제안에 적용 가능한 설정 키가 없어 변경을 중단했습니다.")
+                self.add_ai_message("AI 제안에 적용 가능한 설정 키가 없어 변경을 중단했습니다.")
                 return
 
             # JSON에서 analysis/recommendation 필드 추출 시도
@@ -2524,19 +2522,19 @@ class AIAssistantWidget(CTkFrame):
                     settings_lines.append(f"  • {key}: {value}")
 
             # 분석 내용 채팅에 표시
-            msg_parts = ["🤖 AI 분석 결과:"]
+            msg_parts = ["AI 분석 결과:"]
             if analysis_text:
-                msg_parts.append(f"\n📊 현황 분석:\n{analysis_text}")
+                msg_parts.append(f"\n현황 분석:\n{analysis_text}")
             if recommendation_text:
-                msg_parts.append(f"\n💡 추천 이유:\n{recommendation_text}")
+                msg_parts.append(f"\n추천 이유:\n{recommendation_text}")
             if reason_text and not recommendation_text:
-                msg_parts.append(f"\n💡 이유: {reason_text}")
-            msg_parts.append(f"\n📋 제안 변경 설정:\n" + "\n".join(settings_lines))
+                msg_parts.append(f"\n이유: {reason_text}")
+            msg_parts.append(f"\n제안 변경 설정:\n" + "\n".join(settings_lines))
             if normalize_notes:
-                msg_parts.append("\n🛡️ 안전 검증 결과:\n" + "\n".join(f"  • {note}" for note in normalize_notes))
+                msg_parts.append("\n안전 검증 결과:\n" + "\n".join(f"  • {note}" for note in normalize_notes))
             if summary_message:
-                msg_parts.append(f"\n✏️ {summary_message}")
-            msg_parts.append("\n🔒 적용 전 최종 확인 대화상자가 한 번 더 표시됩니다.")
+                msg_parts.append(f"\n{summary_message}")
+            msg_parts.append("\n적용 전 최종 확인 대화상자가 한 번 더 표시됩니다.")
             self.add_ai_message("\n".join(msg_parts))
 
             # 확인 버튼 프레임을 채팅 영역에 삽입
@@ -2545,8 +2543,8 @@ class AIAssistantWidget(CTkFrame):
         except Exception as e:
             self.logger.error(f"_show_settings_proposal 오류: {e}")
             # 오류 시 기존 방식으로 fallback
-            self.add_ai_message(f"🤖 AI 분석 결과:\n{ai_response}")
-            self.add_ai_message("💡 위 설정을 적용하려면 설정관리 버튼을 이용해주세요.")
+            self.add_ai_message(f"AI 분석 결과:\n{ai_response}")
+            self.add_ai_message("위 설정을 적용하려면 설정관리 버튼을 이용해주세요.")
 
     def _insert_confirm_buttons(self, parsed_settings: dict, user_message: str):
         """채팅창 하단에 적용/취소 확인 버튼 프레임을 삽입합니다."""
@@ -2562,7 +2560,7 @@ class AIAssistantWidget(CTkFrame):
 
             label = CTkLabel(
                 confirm_frame,
-                text="⚙️ 위 설정을 적용하시겠습니까?",
+                text="위 설정을 적용하시겠습니까?",
                 font=ctk.CTkFont(size=12, weight="bold"),
                 text_color=self._color("text_primary")
             )
@@ -2578,9 +2576,9 @@ class AIAssistantWidget(CTkFrame):
 
                 # 2단계 확인: 채팅 버튼 클릭 후 최종 확인 대화상자를 한 번 더 보여준다.
                 if not self._confirm_settings_apply(parsed_settings):
-                    apply_btn.configure(state="normal", text="✅ 적용")
+                    apply_btn.configure(state="normal", text="적용")
                     cancel_btn.configure(state="normal")
-                    self.add_ai_message("↩️ 최종 확인에서 취소되어 설정을 적용하지 않았습니다.")
+                    self.add_ai_message("↩최종 확인에서 취소되어 설정을 적용하지 않았습니다.")
                     return
 
                 self._apply_settings_automatically(parsed_settings, user_message)
@@ -2588,11 +2586,11 @@ class AIAssistantWidget(CTkFrame):
 
             def on_cancel():
                 confirm_frame.destroy()
-                self.add_ai_message("↩️ 설정 변경이 취소되었습니다.")
+                self.add_ai_message("↩설정 변경이 취소되었습니다.")
 
             apply_btn = CTkButton(
                 btn_row,
-                text="✅ 적용",
+                text="적용",
                 command=on_apply,
                 width=100,
                 height=32,
@@ -2604,7 +2602,7 @@ class AIAssistantWidget(CTkFrame):
 
             cancel_btn = CTkButton(
                 btn_row,
-                text="❌ 취소",
+                text="취소",
                 command=on_cancel,
                 width=100,
                 height=32,
@@ -2658,9 +2656,17 @@ class AIAssistantWidget(CTkFrame):
                 except Exception:
                     notes.append(f"{key} 값이 숫자가 아니어서 제외했습니다.")
                     continue
-                clamped = max(0.001, min(0.1, pct))
+                maximum = 0.05 if key == 'default_tp' else 0.03
+                if pct <= 0 or pct > 5:
+                    notes.append(f"{key} 값 {pct}은 비율 범위를 벗어나 제외했습니다.")
+                    continue
+                normalized = pct / 100.0 if pct > maximum else pct
+                clamped = max(0.0005, min(maximum, normalized))
                 if clamped != pct:
-                    notes.append(f"{key}를 안전 범위(0.001~0.1)로 보정했습니다: {pct} -> {clamped}")
+                    notes.append(
+                        f"{key}를 fraction 단위로 보정했습니다: {pct} -> {clamped} "
+                        f"({clamped * 100:.3f}%)"
+                    )
                 safe[key] = clamped
             elif key == 'risk_tolerance':
                 allowed = {'CONSERVATIVE', 'MODERATE', 'AGGRESSIVE'}
@@ -2745,7 +2751,7 @@ class AIAssistantWidget(CTkFrame):
                 mode_label = '사용자 최종확인' if str(value).lower() == 'user_confirm' else 'AI 자동적용'
                 lines.append(f"- AI 설정 적용 방식: {mode_label}")
             elif key == 'openai_model':
-                lines.append(f"- AI 트레이딩 모델: {value}")
+                lines.append(f"- AI 애널리스트 모델: {value}")
             elif key == 'assistant_ai_model':
                 lines.append(f"- AI 어시스턴트 모델: {value}")
             elif key == 'ai_model_roles' and isinstance(value, dict):
@@ -2973,16 +2979,16 @@ class AIAssistantWidget(CTkFrame):
         try:
             settings, normalize_notes = self._sanitize_settings_proposal(settings)
             if not settings:
-                self.add_ai_message("⚠️ 적용 가능한 설정이 없어 저장을 중단했습니다.")
+                self.add_ai_message("적용 가능한 설정이 없어 저장을 중단했습니다.")
                 return
 
             dashboard = getattr(self, 'parent_dashboard', None)
             if not dashboard:
-                self.add_ai_message("❌ 대시보드에 연결되지 않아 설정을 적용할 수 없습니다.")
+                self.add_ai_message("대시보드에 연결되지 않아 설정을 적용할 수 없습니다.")
                 return
 
             if not hasattr(dashboard, 'settings') or not dashboard.settings:
-                self.add_ai_message("❌ 설정을 업데이트할 수 없습니다.")
+                self.add_ai_message("설정을 업데이트할 수 없습니다.")
                 return
 
             # 현재 설정 가져오기
@@ -3038,7 +3044,7 @@ class AIAssistantWidget(CTkFrame):
                     elif key == 'assistant_apply_mode':
                         settings_summary.append("AI 설정 적용 방식: " + ("AI 자동적용" if str(value).lower() == 'ai_auto' else "사용자 최종확인"))
                     elif key == 'openai_model':
-                        settings_summary.append(f"AI 트레이딩 모델: {value}")
+                        settings_summary.append(f"AI 애널리스트 모델: {value}")
                     elif key == 'assistant_ai_model':
                         settings_summary.append(f"AI 어시스턴트 모델: {value}")
                     elif key == 'ai_model_roles' and isinstance(value, dict):
@@ -3052,9 +3058,9 @@ class AIAssistantWidget(CTkFrame):
                         settings_summary.append(f"{key}: {value}")
 
                 if normalize_notes:
-                    self.add_ai_message("🛡️ 안전 검증 결과:\n" + "\n".join(f"- {note}" for note in normalize_notes))
+                    self.add_ai_message("안전 검증 결과:\n" + "\n".join(f"- {note}" for note in normalize_notes))
 
-                self.add_ai_message(f"✅ 설정이 성공적으로 변경되었습니다!\n변경된 설정: {', '.join(settings_summary)}")
+                self.add_ai_message(f"설정이 성공적으로 변경되었습니다!\n변경된 설정: {', '.join(settings_summary)}")
 
                 # 대시보드에 설정 변경 알림
                 if hasattr(dashboard, 'on_settings_changed'):
@@ -3062,11 +3068,11 @@ class AIAssistantWidget(CTkFrame):
                 self.update_strategy_status(current_settings)
                 self._update_settings_modal_ui_state()
             else:
-                self.add_ai_message("❌ 설정 저장에 실패했습니다.")
+                self.add_ai_message("설정 저장에 실패했습니다.")
 
         except Exception as e:
             self.logger.error(f"설정 자동 적용 오류: {e}")
-            self.add_ai_message(f"❌ 설정 적용 중 오류가 발생했습니다: {str(e)}")
+            self.add_ai_message(f"설정 적용 중 오류가 발생했습니다: {str(e)}")
 
     def _extract_recommended_settings(self, ai_response: str, user_message: str) -> dict:
         """AI 응답에서 권장 설정을 추출"""
@@ -3224,13 +3230,13 @@ class AIAssistantWidget(CTkFrame):
         """AI가 권장한 설정을 실제로 적용"""
         try:
             if not self.current_recommended_settings:
-                self.add_ai_message("❌ 적용할 권장 설정이 없습니다.")
+                self.add_ai_message("적용할 권장 설정이 없습니다.")
                 return
 
             # 대시보드에서 설정 업데이트
             dashboard = getattr(self, 'parent_dashboard', None)
             if not dashboard:
-                self.add_ai_message("❌ 대시보드에 연결되지 않았습니다.")
+                self.add_ai_message("대시보드에 연결되지 않았습니다.")
                 return
 
             if hasattr(dashboard, 'settings') and dashboard.settings:
@@ -3245,7 +3251,7 @@ class AIAssistantWidget(CTkFrame):
                 try:
                     from config.settings import save_settings
                     if save_settings(settings):
-                        self.add_ai_message("✅ AI 권장 설정이 성공적으로 적용되었습니다!")
+                        self.add_ai_message("AI 권장 설정이 성공적으로 적용되었습니다!")
 
                         # 설정 변경 이력에 추가 (before 포함)
                         self.settings_change_history.append({
@@ -3269,23 +3275,23 @@ class AIAssistantWidget(CTkFrame):
                         self.update_strategy_status(settings)
                         self._update_settings_modal_ui_state()
                     else:
-                        self.add_ai_message("❌ 설정 저장에 실패했습니다.")
+                        self.add_ai_message("설정 저장에 실패했습니다.")
 
                 except Exception as e:
                     self.logger.error(f"설정 저장 오류: {e}")
-                    self.add_ai_message(f"❌ 설정 저장 중 오류가 발생했습니다: {str(e)}")
+                    self.add_ai_message(f"설정 저장 중 오류가 발생했습니다: {str(e)}")
             else:
-                self.add_ai_message("❌ 설정을 업데이트할 수 없습니다.")
+                self.add_ai_message("설정을 업데이트할 수 없습니다.")
 
         except Exception as e:
             self.logger.error(f"설정 적용 오류: {e}")
-            self.add_ai_message(f"❌ 설정 적용 중 오류가 발생했습니다: {str(e)}")
+            self.add_ai_message(f"설정 적용 중 오류가 발생했습니다: {str(e)}")
 
     def reject_recommended_settings(self):
         """AI 권장 설정 거부"""
         try:
             self.current_recommended_settings = None
-            self.add_ai_message("❌ AI 권장 설정이 거부되었습니다.")
+            self.add_ai_message("AI 권장 설정이 거부되었습니다.")
         except Exception as e:
             self.logger.error(f"설정 거부 오류: {e}")
 

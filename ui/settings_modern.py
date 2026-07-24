@@ -27,6 +27,7 @@ from typing import Optional, Any, Dict, List
 sys.path.append(os.path.dirname(os.path.dirname(__file__)))
 from utils.fixed_colors import FIXED_COLORS
 from api.binance_client import BinanceClient, BinanceConfig
+from ui.visual_system import get_ui_icon, style_tabview
 import threading
 
 class ModernSettingsWindow:
@@ -149,7 +150,9 @@ class ModernSettingsWindow:
         ).pack(side="left", padx=14, pady=9)
         ctk.CTkButton(
             bar,
-            text="💾 현재 설정 저장",
+            text="현재 설정 저장",
+            image=get_ui_icon("save", (15, 15), "#ffffff"),
+            compound="left",
             width=150,
             height=32,
             font=ctk.CTkFont(family="Segoe UI", size=13, weight="bold"),
@@ -204,7 +207,7 @@ class ModernSettingsWindow:
         buttons = ctk.CTkFrame(card, fg_color="transparent")
         buttons.pack(fill="x", padx=18, pady=(0, 18))
         ctk.CTkButton(
-            buttons, text="💾 저장 후 닫기", width=145, height=42,
+            buttons, text="저장 후 닫기", width=145, height=42,
             fg_color="#10b981", hover_color="#059669",
             command=lambda: finish(True),
         ).pack(side="left", padx=4)
@@ -268,15 +271,15 @@ class ModernSettingsWindow:
             install_hint = "실제 키움 연결이 필요하면 Windows 환경으로 전환해야 합니다."
 
         broker_compatibility: List[str] = [
-            "바이낸스: ✅ 지원",
-            "업비트: ✅ 지원",
+            "바이낸스: 지원",
+            "업비트: 지원",
         ]
         if not is_windows:
-            broker_compatibility.append("키움증권(OpenAPI+): ❌ Windows 전용")
+            broker_compatibility.append("키움증권(OpenAPI+): Windows 전용")
         elif py_bits == 32:
-            broker_compatibility.append("키움증권(OpenAPI+): ✅ 사용 가능 (32bit Python)")
+            broker_compatibility.append("키움증권(OpenAPI+): 사용 가능 (32bit Python)")
         else:
-            broker_compatibility.append("키움증권(OpenAPI+): ⚠ 32bit Python 필요")
+            broker_compatibility.append("키움증권(OpenAPI+): 32bit Python 필요")
 
         return {
             "python_version": py_version,
@@ -828,7 +831,7 @@ class ModernSettingsWindow:
             lines.append(f"- 한국투자증권 API 타입/버전: {korea_investment_api_type} / {korea_investment_api_version}")
 
         if 'kiwoom' in selected_brokers and kiwoom_api_type != 'mock' and not is_windows:
-            lines.append("[⚠️ Mac/Linux에서 키움 실연결 불가]")
+            lines.append("[Mac/Linux에서 키움 실연결 불가]")
             lines.append("- 키움 OpenAPI+는 Windows 전용 기술(COM/ActiveX)입니다.")
             lines.append("- Mac/Linux에서는 mock 모드로만 테스트 가능합니다.")
             lines.append("- 실거래가 필요하면 Windows PC에서 실행하거나 신한/미래에셋(REST API) 사용")
@@ -882,12 +885,12 @@ class ModernSettingsWindow:
         if 'kiwoom' in selected_brokers and kiwoom_api_type != 'mock' and is_windows:
             runtime_diag = self._run_kiwoom_runtime_diagnosis()
             if runtime_diag.get("ok"):
-                lines.append("- 키움 런타임: ✅ ActiveX 로딩/이벤트 바인딩 정상")
+                lines.append("- 키움 런타임: ActiveX 로딩/이벤트 바인딩 정상")
             else:
                 error = runtime_diag.get("error", "unknown")
                 details = runtime_diag.get("details", {})
                 py_bits = details.get("python_bits", "?")
-                lines.append(f"- 키움 런타임: ❌ 실패 (원인: {error})")
+                lines.append(f"- 키움 런타임: 실패 (원인: {error})")
                 if "activex_binding_failed" in str(error):
                     lines.append(f"  → OpenAPI+ OCX 로딩 실패. python_bits={py_bits}bit")
                     lines.append("  → 조치: OpenAPI+ 관리자 재설치 + KOA Studio 단독 로그인 성공 후 재시도")
@@ -963,7 +966,7 @@ class ModernSettingsWindow:
             if hasattr(self.root, 'after'):
                 self.root.after(100, self._show_post_save_diagnosis_async)
         except Exception as e:
-            print(f"⚠️ 저장 후 증권사 점검 안내 스케줄 실패: {e}")
+            print(f"저장 후 증권사 점검 안내 스케줄 실패: {e}")
 
     def _show_post_save_diagnosis_async(self):
         """저장 후 증권사 진단을 실제로 표시 (비동기)"""
@@ -980,7 +983,7 @@ class ModernSettingsWindow:
                 quick_diagnosis_text=quick_diagnosis_text,
             )
         except Exception as e:
-            print(f"⚠️ 저장 후 증권사 점검 안내 실패: {e}")
+            print(f"저장 후 증권사 점검 안내 실패: {e}")
 
     def _on_click_stock_broker_connection_checklist(self):
         """증권사 연결 1차 진단 결과와 다음 조치를 앱 안에서 안내한다."""
@@ -1739,12 +1742,12 @@ class ModernSettingsWindow:
             'not_ready': '#ef4444',
         }
         status_icon_map = {
-            'ready': '✅',
-            'caution': '⚠️',
-            'not_ready': '🛑',
+            'ready': '',
+            'caution': '',
+            'not_ready': '',
         }
         status_color = status_color_map.get(status, '#f59e0b')
-        status_icon = status_icon_map.get(status, '⚠️')
+        status_icon = status_icon_map.get(status, '')
         
         header_label = ctk.CTkLabel(
             header_frame,
@@ -1834,7 +1837,7 @@ class ModernSettingsWindow:
             # "수정하기" 버튼
             fix_button = ctk.CTkButton(
                 body_frame,
-                text="⚙️ 지금 수정하기",
+                text="지금 수정하기",
                 command=self._highlight_missing_settings,
                 font=ctk.CTkFont(family="Segoe UI", size=12, weight="bold"),
                 fg_color="#f97316",
@@ -1883,7 +1886,9 @@ class ModernSettingsWindow:
         # 제목
         self._title_label = ctk.CTkLabel(
             main_frame,
-            text="⚙️ 설정",
+            text="설정",
+            image=get_ui_icon("settings", (25, 25), "#60a5fa"),
+            compound="left",
             font=ctk.CTkFont(family="Segoe UI", size=28, weight="bold"),
             text_color=self._color("text_primary", "#f9fafb")
         )
@@ -1911,6 +1916,14 @@ class ModernSettingsWindow:
         self.create_advanced_layers_tab()
         self.create_alphaarena_tab()
         self.create_update_info_tab()  # 자동업데이트/수동 업데이트 관리 탭 (가장 오른쪽)
+        style_tabview(
+            self.tabview,
+            accent="#2563eb",
+            bar_color="#111c2f",
+            inactive="#2a3d58",
+            font_size=11,
+            height=34,
+        )
 
         # 하단 버튼 영역
         self.create_button_area(main_frame)
@@ -1931,7 +1944,7 @@ class ModernSettingsWindow:
         # 그룹 제목
         openai_title = ctk.CTkLabel(
             openai_group,
-            text="🤖 OpenAI API 설정",
+            text="OpenAI API 설정",
             font=ctk.CTkFont(family="Segoe UI", size=18, weight="bold"),
             text_color=self._color("text_primary", "#f9fafb")
         )
@@ -2062,10 +2075,10 @@ class ModernSettingsWindow:
         )
         show_openai_chk.pack(anchor="w", padx=20, pady=(0, 10))
 
-        # AI 트레이딩 모델
+        # AI 애널리스트 모델 (기존 설정 키 openai_model은 호환성 유지)
         trading_model_label = ctk.CTkLabel(
             openai_group,
-            text="AI 트레이딩 모델:",
+            text="AI 애널리스트 모델:",
             font=ctk.CTkFont(family="Segoe UI", size=14, weight="bold"),
             text_color=self._color("text_primary", "#f9fafb")
         )
@@ -2123,10 +2136,67 @@ class ModernSettingsWindow:
             command=self._refresh_ai_model_catalog,
         ).pack(side="right")
 
+        transcription_frame = ctk.CTkFrame(openai_group, fg_color=self._color("background", "#050a13"), corner_radius=10)
+        transcription_frame.pack(fill="x", padx=20, pady=(0, 14))
+        self.ai_custom_transcription_enabled_var = ctk.BooleanVar(value=True)
+        ctk.CTkSwitch(
+            transcription_frame, text="AI 커스텀 · 무자막 YouTube 음성 전사",
+            variable=self.ai_custom_transcription_enabled_var,
+            font=ctk.CTkFont(family="Segoe UI", size=13, weight="bold"),
+        ).pack(anchor="w", padx=14, pady=(12, 8))
+        transcription_options = ctk.CTkFrame(transcription_frame, fg_color="transparent")
+        transcription_options.pack(fill="x", padx=14, pady=(0, 8))
+        ctk.CTkLabel(transcription_options, text="전사 모델", font=ctk.CTkFont(family="Segoe UI", size=11)).pack(side="left")
+        self.ai_custom_transcription_model_combo = ctk.CTkComboBox(
+            transcription_options,
+            values=["gpt-4o-mini-transcribe", "gpt-4o-transcribe"], width=210, height=32,
+        )
+        self.ai_custom_transcription_model_combo.set("gpt-4o-mini-transcribe")
+        self.ai_custom_transcription_model_combo.pack(side="left", padx=(6, 14))
+        ctk.CTkLabel(transcription_options, text="최대 길이(분)", font=ctk.CTkFont(family="Segoe UI", size=11)).pack(side="left")
+        self.ai_custom_transcription_minutes_combo = ctk.CTkComboBox(
+            transcription_options, values=["15", "30", "45", "60"], width=75, height=32,
+        )
+        self.ai_custom_transcription_minutes_combo.set("45")
+        self.ai_custom_transcription_minutes_combo.pack(side="left", padx=(6, 14))
+        ctk.CTkLabel(transcription_options, text="최대 파일(MB)", font=ctk.CTkFont(family="Segoe UI", size=11)).pack(side="left")
+        self.ai_custom_transcription_mb_combo = ctk.CTkComboBox(
+            transcription_options, values=["10", "16", "24"], width=75, height=32,
+        )
+        self.ai_custom_transcription_mb_combo.set("24")
+        self.ai_custom_transcription_mb_combo.pack(side="left", padx=6)
+        ctk.CTkLabel(
+            transcription_frame,
+            text="자동 조절이 아닙니다. 공개 자막을 먼저 사용하고, 자막이 없을 때만 선택 모델·길이·용량 제한 안에서 전사합니다.",
+            font=ctk.CTkFont(family="Segoe UI", size=10),
+            text_color=self._color("text_secondary", "#9ca3af"), wraplength=650, justify="left",
+        ).pack(anchor="w", padx=14, pady=(0, 12))
+
+        runtime_frame = ctk.CTkFrame(openai_group, fg_color=self._color("background", "#050a13"), corner_radius=10)
+        runtime_frame.pack(fill="x", padx=20, pady=(0, 14))
+        self.ai_custom_runtime_enabled_var = ctk.BooleanVar(value=False)
+        self.ai_custom_limited_live_var = ctk.BooleanVar(value=False)
+        ctk.CTkSwitch(
+            runtime_frame, text="AI 커스텀 전략을 실제 자동매매 엔진에서 사용",
+            variable=self.ai_custom_runtime_enabled_var,
+            font=ctk.CTkFont(family="Segoe UI", size=13, weight="bold"),
+        ).pack(anchor="w", padx=14, pady=(12, 6))
+        ctk.CTkSwitch(
+            runtime_frame, text="자동검증 미통과 전략의 1배·최대 1% 제한운용 선택 허용",
+            variable=self.ai_custom_limited_live_var,
+            font=ctk.CTkFont(family="Segoe UI", size=12),
+        ).pack(anchor="w", padx=14, pady=(0, 6))
+        ctk.CTkLabel(
+            runtime_frame,
+            text="안전 기본값은 두 항목 모두 OFF입니다. OFF이면 저장된 전략은 유지되지만 주문 판단에서 제외됩니다. ON이어도 최종 적용한 전략만 실행되며 모든 공통 가드레일이 우선합니다.",
+            font=ctk.CTkFont(family="Segoe UI", size=10),
+            text_color=self._color("text_secondary", "#9ca3af"), wraplength=650, justify="left",
+        ).pack(anchor="w", padx=14, pady=(0, 12))
+
         # ── AI 모델 비용 티어 배치 ──────────────────────────────────────────
         tier_title_label = ctk.CTkLabel(
             openai_group,
-            text="AI 모델 역할별 배치 (비용 최적화):",
+            text="작업별 모델 배치 (선택 · 비용 최적화):",
             font=ctk.CTkFont(family="Segoe UI", size=14, weight="bold"),
             text_color=self._color("text_primary", "#f9fafb")
         )
@@ -2134,7 +2204,7 @@ class ModernSettingsWindow:
 
         tier_desc_label = ctk.CTkLabel(
             openai_group,
-            text="빈번 호출(신호분석·패턴) → 저비용 / 중요 분석(손익·리포트) → 표준 / 정밀 진단·최적화 → 고성능",
+            text="위 기본 모델과 겹치는 설정이 아니라, 특정 작업을 저비용·표준·정밀 모델로 보내는 선택형 배치입니다.",
             font=ctk.CTkFont(family="Segoe UI", size=11),
             text_color=self._color("text_secondary", "#9ca3af"),
             wraplength=660,
@@ -2360,11 +2430,12 @@ class ModernSettingsWindow:
         # 백엔드 설정은 사용자가 건드릴 필요 없음 - 제거됨
 
         # 안내 메시지
-        info_text = """💡 OpenAI API 설정 안내
+        info_text = """OpenAI API 설정 안내
 
-• AI 트레이딩 모델: 실제 거래 분석 및 실행에 사용되는 AI 모델
+• AI 애널리스트 모델: 시장 분석과 신호 후보를 만드는 기본 분석 모델
 • AI 어시스턴트 모델: 사용자와의 대화 및 질의응답에 사용되는 AI 모델
-• AI 모델 역할별 배치: 빈번 호출은 저비용 모델, 정밀 진단은 고성능 모델로 분리해 비용을 최적화합니다
+• 작업별 모델 배치: 빈번 신호·손익 리포트·정밀 진단처럼 역할이 명확한 호출만 별도 모델로 보냅니다
+  같은 모델을 선택해도 정상이며, 역할 값이 없으면 AI 애널리스트 모델로 돌아갑니다
 • 프리셋 선택 가이드:
     - 절약형: API 비용이 가장 중요할 때
     - 균형형: 초보/일반 사용자 기본 권장
@@ -2523,7 +2594,7 @@ class ModernSettingsWindow:
             assistant = getattr(dashboard, 'ai_assistant_widget', None)
             if hasattr(dashboard, 'tab_widget') and dashboard.tab_widget:
                 try:
-                    dashboard.tab_widget.set("💬 AI 어시스턴트")
+                    dashboard.tab_widget.set("AI 어시스턴트")
                 except Exception:
                     pass
 
@@ -2539,7 +2610,7 @@ class ModernSettingsWindow:
             messagebox.showwarning(
                 "초기 설정 가이드",
                 "AI 어시스턴트 위젯을 찾지 못했습니다.\n"
-                "대시보드에서 '💬 AI 어시스턴트' 탭을 먼저 열고 다시 시도해 주세요."
+                "대시보드에서 'AI 어시스턴트' 탭을 먼저 열고 다시 시도해 주세요."
             )
         except Exception as e:
             messagebox.showerror("초기 설정 가이드", f"온보딩 시작 중 오류가 발생했습니다.\n\n오류: {e}")
@@ -2986,7 +3057,7 @@ class ModernSettingsWindow:
 
         title = ctk.CTkLabel(
             general_group,
-            text="⚙️ 일반 설정",
+            text="일반 설정",
             font=ctk.CTkFont(family="Segoe UI", size=18, weight="bold"),
             text_color=self._color("text_primary", "#f9fafb")
         )
@@ -3022,7 +3093,7 @@ class ModernSettingsWindow:
 
         position_title = ctk.CTkLabel(
             position_mode_group,
-            text="🎯 포지션 모드 설정",
+            text="포지션 모드 설정",
             font=ctk.CTkFont(family="Segoe UI", size=18, weight="bold"),
             text_color=self._color("text_primary", "#f9fafb")
         )
@@ -3087,7 +3158,7 @@ class ModernSettingsWindow:
 
         # 관리자 전용 데모 모드 토글
         try:
-            print("🔍 ModernSettingsWindow - 데모 모드 토글 생성 시작...")
+            print("ModernSettingsWindow - 데모 모드 토글 생성 시작...")
 
             # 관리자 체크 (get_current_user_account 우선, 토큰 파일 폴백)
             is_admin = False
@@ -3097,17 +3168,17 @@ class ModernSettingsWindow:
             try:
                 from path_utils import get_current_user_account
                 current_user = get_current_user_account()
-                print(f"🔍 ModernSettingsWindow - get_current_user_account 결과: '{current_user}'")
+                print(f"ModernSettingsWindow - get_current_user_account 결과: '{current_user}'")
                 if current_user:
                     from utils.admin_utils import is_admin_account
                     is_admin = is_admin_account(current_user)
-                    print(f"🔍 ModernSettingsWindow - get_current_user_account로 관리자 확인: '{current_user}' -> {is_admin}")
+                    print(f"ModernSettingsWindow - get_current_user_account로 관리자 확인: '{current_user}' -> {is_admin}")
 
                     # 개발환경에서 추가 확인
                     if is_admin:
-                        print(f"✅ ModernSettingsWindow - 개발환경에서 관리자 권한 확인: {current_user}")
+                        print(f"ModernSettingsWindow - 개발환경에서 관리자 권한 확인: {current_user}")
             except Exception as e:
-                print(f"⚠️ ModernSettingsWindow - get_current_user_account 실패: {e}")
+                print(f"ModernSettingsWindow - get_current_user_account 실패: {e}")
 
             # 방법 2: 토큰 파일에서 확인 (폴백) - path_utils 사용
             if not is_admin:
@@ -3116,31 +3187,31 @@ class ModernSettingsWindow:
 
                     # path_utils의 get_account_info_from_token 함수 사용 (모든 경로 자동 확인)
                     token_user, token_path = get_account_info_from_token()
-                    print(f"🔍 ModernSettingsWindow - path_utils로 토큰 파일 확인: 사용자='{token_user}', 경로={token_path}")
+                    print(f"ModernSettingsWindow - path_utils로 토큰 파일 확인: 사용자='{token_user}', 경로={token_path}")
 
                     if token_user:
                         from utils.admin_utils import is_admin_account
                         user_id = token_user.lower()
                         is_admin = is_admin_account(user_id)
                         current_user = token_user
-                        print(f"🔍 ModernSettingsWindow - 토큰 파일로 관리자 확인: '{current_user}' -> {is_admin}")
+                        print(f"ModernSettingsWindow - 토큰 파일로 관리자 확인: '{current_user}' -> {is_admin}")
 
                         # 개발환경에서 추가 확인
                         if is_admin:
-                            print(f"✅ ModernSettingsWindow - 개발환경에서 토큰 파일로 관리자 권한 확인: {current_user}")
+                            print(f"ModernSettingsWindow - 개발환경에서 토큰 파일로 관리자 권한 확인: {current_user}")
                     else:
-                        print("⚠️ ModernSettingsWindow - path_utils로도 토큰 파일을 찾을 수 없습니다.")
+                        print("ModernSettingsWindow - path_utils로도 토큰 파일을 찾을 수 없습니다.")
 
                 except Exception as e:
-                    print(f"⚠️ ModernSettingsWindow - path_utils 토큰 파일 확인 실패: {e}")
+                    print(f"ModernSettingsWindow - path_utils 토큰 파일 확인 실패: {e}")
 
             # 개발환경에서 강제 관리자 체크 제거 (보안상 위험)
             # if not is_admin and current_user:
-            #     print(f"🔍 ModernSettingsWindow - 개발환경 디버깅: 사용자 '{current_user}'를 관리자로 강제 인식")
+            #     print(f"ModernSettingsWindow - 개발환경 디버깅: 사용자 '{current_user}'를 관리자로 강제 인식")
             #     is_admin = True
-            #     print(f"🔍 ModernSettingsWindow - 강제 관리자 설정 완료: {is_admin}")
+            #     print(f"ModernSettingsWindow - 강제 관리자 설정 완료: {is_admin}")
 
-            print(f"🔍 ModernSettingsWindow - 최종 관리자 여부: {is_admin} (사용자: '{current_user}')")
+            print(f"ModernSettingsWindow - 최종 관리자 여부: {is_admin} (사용자: '{current_user}')")
 
             if is_admin:
                 replay_group = ctk.CTkFrame(general_group)
@@ -3148,7 +3219,7 @@ class ModernSettingsWindow:
 
                 ctk.CTkLabel(
                     replay_group,
-                    text="🎬 방송 리플레이 설정 (관리자 전용)",
+                    text="방송 리플레이 설정 (관리자 전용)",
                     font=ctk.CTkFont(family="Segoe UI", size=13, weight="bold"),
                     text_color=self._color("text_primary", "#f9fafb")
                 ).pack(anchor="w", padx=10, pady=(10, 6))
@@ -3196,7 +3267,7 @@ class ModernSettingsWindow:
                     justify="left"
                 ).pack(anchor="w", padx=10, pady=(0, 10))
         except Exception as e:
-            print(f"❌ ModernSettingsWindow - 데모 모드 토글 생성 실패: {e}")
+            print(f"ModernSettingsWindow - 데모 모드 토글 생성 실패: {e}")
             import traceback
             traceback.print_exc()
 
@@ -3290,7 +3361,7 @@ class ModernSettingsWindow:
             else:
                 display_text = f"${capital_benchmark:,}"
             
-            warning_text = f"⚠️ {display_text}는 Alpha Arena 판단용 벤치마크 기준입니다.\n실제 주문은 연결된 거래소 실잔고/주문가능금액/리스크 한도를 기준으로 처리됩니다.\n즉, 계좌 잔고를 {display_text}로 반드시 맞출 필요는 없습니다."
+            warning_text = f"{display_text}는 Alpha Arena 판단용 벤치마크 기준입니다.\n실제 주문은 연결된 거래소 실잔고/주문가능금액/리스크 한도를 기준으로 처리됩니다.\n즉, 계좌 잔고를 {display_text}로 반드시 맞출 필요는 없습니다."
             self.capital_warning_label.configure(text=warning_text)
         except Exception as e:
             print(f"경고 메시지 업데이트 오류: {e}")
@@ -3317,10 +3388,10 @@ class ModernSettingsWindow:
 
             # 상태 업데이트
             mode_text = "집중모드" if mode == "focus" else "다중포지션 모드"
-            print(f"✅ 포지션 모드 변경: {mode_text} (max_positions = {max_positions})")
+            print(f"포지션 모드 변경: {mode_text} (max_positions = {max_positions})")
 
         except Exception as e:
-            print(f"❌ 포지션 모드 변경 실패: {e}")
+            print(f"포지션 모드 변경 실패: {e}")
 
     def create_exchange_api_tab(self):
         """거래소 API 설정 탭 - 기존 구조 정확히 재현"""
@@ -3392,7 +3463,7 @@ class ModernSettingsWindow:
 
         binance_title = ctk.CTkLabel(
             binance_group,
-            text="🟡 바이낸스 API 설정",
+            text="바이낸스 API 설정",
             font=ctk.CTkFont(family="Segoe UI", size=18, weight="bold"),
             text_color=self._color("text_primary", "#f9fafb")
         )
@@ -3471,7 +3542,7 @@ class ModernSettingsWindow:
 
         upbit_title = ctk.CTkLabel(
             upbit_group,
-            text="🔵 업비트 API 설정",
+            text="업비트 API 설정",
             font=ctk.CTkFont(family="Segoe UI", size=18, weight="bold"),
             text_color=self._color("text_primary", "#f9fafb")
         )
@@ -3551,7 +3622,7 @@ class ModernSettingsWindow:
 
         bithumb_title = ctk.CTkLabel(
             bithumb_group,
-            text="🟠 빗썸 API 설정",
+            text="빗썸 API 설정",
             font=ctk.CTkFont(family="Segoe UI", size=18, weight="bold"),
             text_color=self._color("text_primary", "#f9fafb")
         )
@@ -3631,7 +3702,7 @@ class ModernSettingsWindow:
 
         bybit_title = ctk.CTkLabel(
             bybit_group,
-            text="🟣 바이비트 API 설정",
+            text="바이비트 API 설정",
             font=ctk.CTkFont(family="Segoe UI", size=18, weight="bold"),
             text_color=self._color("text_primary", "#f9fafb")
         )
@@ -3711,7 +3782,7 @@ class ModernSettingsWindow:
 
         okx_title = ctk.CTkLabel(
             okx_group,
-            text="⚫ OKX API 설정",
+            text="OKX API 설정",
             font=ctk.CTkFont(family="Segoe UI", size=18, weight="bold"),
             text_color=self._color("text_primary", "#f9fafb")
         )
@@ -3814,7 +3885,7 @@ class ModernSettingsWindow:
 
         bitget_title = ctk.CTkLabel(
             bitget_group,
-            text="🟢 비트겟 API 설정",
+            text="비트겟 API 설정",
             font=ctk.CTkFont(family="Segoe UI", size=18, weight="bold"),
             text_color=self._color("text_primary", "#f9fafb")
         )
@@ -3990,7 +4061,7 @@ class ModernSettingsWindow:
 
         kiwoom_title = ctk.CTkLabel(
             kiwoom_group,
-            text="📈 키움증권 API 설정 (Windows 전용)",
+            text="키움증권 API 설정 (Windows 전용)",
             font=ctk.CTkFont(family="Segoe UI", size=18, weight="bold"),
             text_color=self._color("text_primary", "#f9fafb")
         )
@@ -3998,7 +4069,7 @@ class ModernSettingsWindow:
 
         kiwoom_os_warning = ctk.CTkLabel(
             kiwoom_group,
-            text="⚠️ 키움 OpenAPI+는 Windows 환경에서만 실제 연결됩니다. macOS/Linux에서는 mock 모드만 사용 가능합니다.",
+            text="키움 OpenAPI+는 Windows 환경에서만 실제 연결됩니다. macOS/Linux에서는 mock 모드만 사용 가능합니다.",
             font=ctk.CTkFont(family="Segoe UI", size=12),
             text_color="#f59e0b",
             justify="left",
@@ -4148,7 +4219,7 @@ class ModernSettingsWindow:
 
         kiwoom_api_hint = ctk.CTkLabel(
             kiwoom_group,
-            text="💡 mock: API 없이 테스트/데모 (모든 OS 사용 가능)  |  pykiwoom / kiwoom_api: Windows 전용 실제 연결\n⚠️ Windows가 아닌 환경에서 pykiwoom/kiwoom_api 선택 시 연결이 항상 실패합니다. mock을 선택하세요.",
+            text="mock: API 없이 테스트/데모 (모든 OS 사용 가능)  |  pykiwoom / kiwoom_api: Windows 전용 실제 연결\nWindows가 아닌 환경에서 pykiwoom/kiwoom_api 선택 시 연결이 항상 실패합니다. mock을 선택하세요.",
             font=ctk.CTkFont(family="Segoe UI", size=11),
             text_color=self._color("text_secondary", "#9ca3af"),
             justify="left",
@@ -4162,7 +4233,7 @@ class ModernSettingsWindow:
 
         shinhan_title = ctk.CTkLabel(
             shinhan_group,
-            text="📈 신한증권 API 설정",
+            text="신한증권 API 설정",
             font=ctk.CTkFont(family="Segoe UI", size=18, weight="bold"),
             text_color=self._color("text_primary", "#f9fafb")
         )
@@ -4305,7 +4376,7 @@ class ModernSettingsWindow:
 
         ctk.CTkLabel(
             shinhan_group,
-            text="💡 mock: API 없이 테스트/데모  |  solapi: SolAPI REST  |  xingapi: HTS/Xing 계열 호환  |  solapi_rest: REST 전용\n💡 API 타입은 연결 프로토콜, API 버전은 실제 호출 클라이언트(라이브러리/엔드포인트)입니다.",
+            text="mock: API 없이 테스트/데모  |  solapi: SolAPI REST  |  xingapi: HTS/Xing 계열 호환  |  solapi_rest: REST 전용\nAPI 타입은 연결 프로토콜, API 버전은 실제 호출 클라이언트(라이브러리/엔드포인트)입니다.",
             font=ctk.CTkFont(family="Segoe UI", size=11),
             text_color=self._color("text_secondary", "#9ca3af"),
             justify="left"
@@ -4317,7 +4388,7 @@ class ModernSettingsWindow:
 
         mirae_asset_title = ctk.CTkLabel(
             mirae_asset_group,
-            text="📈 미래에셋 API 설정",
+            text="미래에셋 API 설정",
             font=ctk.CTkFont(family="Segoe UI", size=18, weight="bold"),
             text_color=self._color("text_primary", "#f9fafb")
         )
@@ -4460,7 +4531,7 @@ class ModernSettingsWindow:
 
         ctk.CTkLabel(
             mirae_asset_group,
-            text="💡 mock: API 없이 테스트/데모  |  miraemts/miraedaas: 미래에셋 계열  |  kis: REST 호환 경로\n💡 여러 버전은 브로커 API 변화/운영 환경 차이를 흡수하기 위한 선택지입니다.",
+            text="mock: API 없이 테스트/데모  |  miraemts/miraedaas: 미래에셋 계열  |  kis: REST 호환 경로\n여러 버전은 브로커 API 변화/운영 환경 차이를 흡수하기 위한 선택지입니다.",
             font=ctk.CTkFont(family="Segoe UI", size=11),
             text_color=self._color("text_secondary", "#9ca3af"),
             justify="left"
@@ -4472,7 +4543,7 @@ class ModernSettingsWindow:
 
         ctk.CTkLabel(
             korea_investment_group,
-            text="📈 한국투자증권 API 설정 (KIS)",
+            text="한국투자증권 API 설정 (KIS)",
             font=ctk.CTkFont(family="Segoe UI", size=18, weight="bold"),
             text_color=self._color("text_primary", "#f9fafb")
         ).pack(pady=(20, 15), padx=20)
@@ -4607,7 +4678,7 @@ class ModernSettingsWindow:
 
         ctk.CTkLabel(
             korea_investment_group,
-            text="💡 권장: api_type=rest, api_version=kis  |  mock: API 없이 테스트/데모",
+            text="권장: api_type=rest, api_version=kis  |  mock: API 없이 테스트/데모",
             font=ctk.CTkFont(family="Segoe UI", size=11),
             text_color=self._color("text_secondary", "#9ca3af"),
             justify="left"
@@ -4621,7 +4692,7 @@ class ModernSettingsWindow:
         self._sync_stock_api_version_options('koreaInvestment', preserve_value=True)
 
         # 안내 메시지
-        info_text = """💡 거래소 API 설정 안내
+        info_text = """거래소 API 설정 안내
 
 • API 키: 각 거래소에서 발급받은 API 키를 입력하세요
 • Secret Key: API 키와 함께 사용되는 비밀 키입니다
@@ -4653,7 +4724,7 @@ class ModernSettingsWindow:
         ai_status_group.pack(fill="x", pady=(0, 20))
         ctk.CTkLabel(
             ai_status_group,
-            text="🤖 AI 시스템 상태",
+            text="AI 시스템 상태",
             font=ctk.CTkFont(family="Segoe UI", size=20, weight="bold"),
             text_color=self._color("text_primary", "#f9fafb")
         ).pack(pady=(20, 10))
@@ -4683,7 +4754,7 @@ class ModernSettingsWindow:
 
         ai_auto_title = ctk.CTkLabel(
             ai_auto_group,
-            text="🎯 AI 자동 최적화 시스템",
+            text="AI 자동 최적화 시스템",
             font=ctk.CTkFont(family="Segoe UI", size=18, weight="bold"),
             text_color=self._color("text_primary", "#f9fafb")
         )
@@ -4694,7 +4765,7 @@ class ModernSettingsWindow:
             "• 지표 기간 (RSI/MA/BB) — 실시간 조정\n"
             "• 모멘텀/거래량/신호 임계값 — 실시간 조정\n"
             "• 시장 국면별 전략 선택 — 실시간 조정\n\n"
-            "⚠️ 이 항목들은 AI가 관리합니다 (수동 변경 금지)."
+            "이 항목들은 AI가 관리합니다 (수동 변경 금지)."
         )
 
         auto_info_label = ctk.CTkLabel(
@@ -4712,7 +4783,7 @@ class ModernSettingsWindow:
 
         warning_title = ctk.CTkLabel(
             warning_group,
-            text="ℹ️ 중요 안내",
+            text="ℹ중요 안내",
             font=ctk.CTkFont(family="Segoe UI", size=16, weight="bold"),
             text_color=self._color("text_primary", "#f9fafb")
         )
@@ -4720,12 +4791,12 @@ class ModernSettingsWindow:
 
         warning_text = """초보자가 AI 분석 파라미터를 수동으로 변경하면:
 
-❌ AI 최적화 시스템과 충돌 발생
-❌ 거래 성과 급격히 악화 가능
-❌ 시스템 안정성 저하
-❌ 예상치 못한 손실 발생 가능
+AI 최적화 시스템과 충돌 발생
+거래 성과 급격히 악화 가능
+시스템 안정성 저하
+예상치 못한 손실 발생 가능
 
-✅ 안전한 사용법:
+안전한 사용법:
    - API 키만 정확히 입력
    - 거래소만 선택
    - 나머지는 AI가 자동 처리"""
@@ -4752,7 +4823,7 @@ class ModernSettingsWindow:
 
             regime_title = ctk.CTkLabel(
                 regime_group,
-                text="🧭 시장 국면 자동 보정",
+                text="시장 국면 자동 보정",
                 font=ctk.CTkFont(family="Segoe UI", size=18, weight="bold"),
                 text_color=self._color("text_primary", "#f9fafb")
             )
@@ -4804,7 +4875,7 @@ class ModernSettingsWindow:
             reset_card.pack(fill="x", padx=20, pady=(10, 10))
             ctk.CTkLabel(
                 reset_card,
-                text="🔄 환경설정 기본값 되돌리기",
+                text="환경설정 기본값 되돌리기",
                 font=ctk.CTkFont(family="Segoe UI", size=16, weight="bold"),
                 text_color=self._color("text_primary", "#f9fafb")
             ).pack(pady=(12, 4))
@@ -4826,7 +4897,7 @@ class ModernSettingsWindow:
                 command=self.reset_settings
             ).pack(pady=(8, 8))
         except Exception as e:
-            print(f"⚠️ 시장 국면 자동 보정 UI 생성 실패: {e}")
+            print(f"시장 국면 자동 보정 UI 생성 실패: {e}")
 
     # 테마 설정 탭 완전 제거 - 고정 스킨 사용으로 불필요
 
@@ -4893,7 +4964,7 @@ class ModernSettingsWindow:
                     continue
                 lbl, sub = lbl_pair
                 try:
-                    lbl.configure(text=(f"✅ {lbl.cget('text').replace('⏳ ', '').replace('✅ ', '').replace('⛔ ', '')}" if ok else f"⛔ {lbl.cget('text').replace('⏳ ', '').replace('✅ ', '').replace('⛔ ', '')}"),
+                    lbl.configure(text=(f"{lbl.cget('text').replace('⏳ ', '').replace('', '').replace('', '')}" if ok else f"{lbl.cget('text').replace('⏳ ', '').replace('', '').replace('', '')}"),
                                   text_color=(success if ok else danger))
                 except Exception:
                     pass
@@ -4917,14 +4988,14 @@ class ModernSettingsWindow:
         # 제목
         title_label = ctk.CTkLabel(
             scroll_frame,
-            text="🏢 거래소 선택",
+            text="거래소 선택",
             font=ctk.CTkFont(family="Segoe UI", size=24, weight="bold"),
             text_color=self._color("text_primary", "#f9fafb")
         )
         title_label.pack(pady=(0, 20))
 
         # 설명
-        description_text = """💡 거래소 선택 안내
+        description_text = """거래소 선택 안내
 
 • 현재 지원: 바이낸스, 업비트, 빗썸, 바이비트, OKX, 비트겟
 • 다중 선택: 여러 거래소를 동시에 선택할 수 있습니다
@@ -4951,7 +5022,7 @@ class ModernSettingsWindow:
 
         domestic_title = ctk.CTkLabel(
             domestic_group,
-            text="🇰🇷 국내 거래소",
+            text="국내 거래소",
             font=ctk.CTkFont(family="Segoe UI", size=18, weight="bold"),
             text_color=self._color("text_primary", "#f9fafb")
         )
@@ -4995,7 +5066,7 @@ class ModernSettingsWindow:
 
         foreign_title = ctk.CTkLabel(
             foreign_group,
-            text="🌍 해외 거래소",
+            text="해외 거래소",
             font=ctk.CTkFont(family="Segoe UI", size=18, weight="bold"),
             text_color=self._color("text_primary", "#f9fafb")
         )
@@ -5051,7 +5122,7 @@ class ModernSettingsWindow:
 
         stock_title = ctk.CTkLabel(
             scroll_frame,
-            text="📈 주식/증권사 선택",
+            text="주식/증권사 선택",
             font=ctk.CTkFont(family="Segoe UI", size=24, weight="bold"),
             text_color=self._color("text_primary", "#f9fafb")
         )
@@ -5059,7 +5130,7 @@ class ModernSettingsWindow:
 
         stock_description = ctk.CTkLabel(
             scroll_frame,
-            text="💡 증권사 선택 안내\n\n• 현재 구현: 키움증권, 신한증권, 미래에셋, 한국투자증권 (4개)\n• 다중 증권사 선택 가능 (동시 운영)\n• API 키는 각 증권사별 입력 필드에서 설정\n• 주식 및 ETF 거래를 지원합니다\n• 주식: 개별 기업 종목 거래 / ETF: 지수·섹터를 묶은 상품 거래\n• 주문 경로는 유사하지만, AI 분석 문맥(리스크/괴리율/NAV)은 다르게 처리됩니다\n• 실제 연결 가능 여부는 증권사 OpenAPI 권한(개인/법인/제휴 정책)에 따라 달라집니다\n• 아래 표시 모드에서 통합 / 주식만 / ETF만 보기를 선택할 수 있습니다",
+            text="증권사 선택 안내\n\n• 현재 구현: 키움증권, 신한증권, 미래에셋, 한국투자증권 (4개)\n• 다중 증권사 선택 가능 (동시 운영)\n• API 키는 각 증권사별 입력 필드에서 설정\n• 주식 및 ETF 거래를 지원합니다\n• 주식: 개별 기업 종목 거래 / ETF: 지수·섹터를 묶은 상품 거래\n• 주문 경로는 유사하지만, AI 분석 문맥(리스크/괴리율/NAV)은 다르게 처리됩니다\n• 실제 연결 가능 여부는 증권사 OpenAPI 권한(개인/법인/제휴 정책)에 따라 달라집니다\n• 아래 표시 모드에서 통합 / 주식만 / ETF만 보기를 선택할 수 있습니다",
             font=ctk.CTkFont(family="Segoe UI", size=12, weight="normal"),
             text_color=self._color("text_secondary", "#9ca3af"),
             justify="left"
@@ -5068,7 +5139,7 @@ class ModernSettingsWindow:
 
         quick_path_guide = ctk.CTkLabel(
             scroll_frame,
-            text="📍 빠른 위치 안내: ① 거래소 API 탭에서 증권사 API 입력/저장 → ② 현재 탭 아래 '⚙️ 증권 자동매매 제어'에서 실주문/STOP 정책 설정",
+            text="빠른 위치 안내: ① 거래소 API 탭에서 증권사 API 입력/저장 → ② 현재 탭 아래 '증권 자동매매 제어'에서 실주문/STOP 정책 설정",
             font=ctk.CTkFont(family="Segoe UI", size=12, weight="bold"),
             text_color=self._color("warning", "#f59e0b"),
             justify="left",
@@ -5136,7 +5207,7 @@ class ModernSettingsWindow:
 
         stock_mode_title = ctk.CTkLabel(
             stock_mode_frame,
-            text="🔀 증권 표시 모드",
+            text="증권 표시 모드",
             font=ctk.CTkFont(family="Segoe UI", size=15, weight="bold"),
             text_color=self._color("text_primary", "#f9fafb")
         )
@@ -5167,7 +5238,7 @@ class ModernSettingsWindow:
 
         guardrail_title = ctk.CTkLabel(
             guardrail_frame,
-            text="🛡️ 증권 주문 가드레일",
+            text="증권 주문 가드레일",
             font=ctk.CTkFont(family="Segoe UI", size=15, weight="bold"),
             text_color=self._color("text_primary", "#f9fafb")
         )
@@ -5284,7 +5355,7 @@ class ModernSettingsWindow:
 
         ctk.CTkLabel(
             stock_ctrl_frame,
-            text="⚙️ 증권 자동매매 제어",
+            text="증권 자동매매 제어",
             font=ctk.CTkFont(family="Segoe UI", size=15, weight="bold"),
             text_color=self._color("text_primary", "#f9fafb")
         ).pack(anchor="w", padx=20, pady=(16, 4))
@@ -5336,7 +5407,7 @@ class ModernSettingsWindow:
 
         ctk.CTkLabel(
             stock_ctrl_frame,
-            text="⚠️ '실주문 허용'을 켜야 실제 증권사 주문이 나갑니다. 끄면 분석·계획만 기록되고 실행되지 않습니다.",
+            text="'실주문 허용'을 켜야 실제 증권사 주문이 나갑니다. 끄면 분석·계획만 기록되고 실행되지 않습니다.",
             font=ctk.CTkFont(family="Segoe UI", size=11),
             text_color="#f59e0b",
             justify="left"
@@ -5345,7 +5416,7 @@ class ModernSettingsWindow:
         # 생활금융 데이터 경로 설정
         ctk.CTkLabel(
             stock_ctrl_frame,
-            text="💳 생활금융 데이터 경로",
+            text="생활금융 데이터 경로",
             font=ctk.CTkFont(family="Segoe UI", size=13, weight="bold"),
             text_color=self._color("text_primary", "#f9fafb")
         ).pack(anchor="w", padx=20, pady=(4, 4))
@@ -5396,7 +5467,7 @@ class ModernSettingsWindow:
         # STOP 포지션 정책
         ctk.CTkLabel(
             stock_ctrl_frame,
-            text="🛑 STOP 시 기존 포지션 처리",
+            text="STOP 시 기존 포지션 처리",
             font=ctk.CTkFont(family="Segoe UI", size=13, weight="bold"),
             text_color=self._color("text_primary", "#f9fafb")
         ).pack(anchor="w", padx=20, pady=(4, 4))
@@ -5441,7 +5512,9 @@ class ModernSettingsWindow:
         # 저장 버튼
         save_button = ctk.CTkButton(
             button_frame,
-            text="💾 전체 설정 저장",
+            text="전체 설정 저장",
+            image=get_ui_icon("save", (18, 18), "#ffffff"),
+            compound="left",
             height=50,
             width=170,
             font=ctk.CTkFont(family="Segoe UI", size=16, weight="bold"),
@@ -5457,7 +5530,9 @@ class ModernSettingsWindow:
         # 취소 버튼
         cancel_button = ctk.CTkButton(
             button_frame,
-            text="❌ 취소",
+            text="취소",
+            image=get_ui_icon("close", (16, 16), "#ffffff"),
+            compound="left",
             height=50,
             width=120,
             font=ctk.CTkFont(family="Segoe UI", size=16, weight="bold"),
@@ -5473,7 +5548,7 @@ class ModernSettingsWindow:
         # 백업 복구 버튼
         restore_button = ctk.CTkButton(
             button_frame,
-            text="🗂 백업에서 복구",
+            text="백업에서 복구",
             height=50,
             width=170,
             font=ctk.CTkFont(family="Segoe UI", size=15, weight="bold"),
@@ -5500,9 +5575,9 @@ class ModernSettingsWindow:
         try:
             if self.on_save_callback:
                 self.on_save_callback(settings)
-                print("✅ 설정 저장 콜백 호출 완료")
+                print("설정 저장 콜백 호출 완료")
         except Exception as e:
-            print(f"⚠️ 설정 저장 콜백 오류: {e}")
+            print(f"설정 저장 콜백 오류: {e}")
 
     def _show_backup_restore_dialog(self):
         """설정 백업 목록을 표시하고 사용자가 선택해 복구할 수 있게 한다."""
@@ -5655,7 +5730,7 @@ class ModernSettingsWindow:
             else:
                 version_combo.set(allowed_versions[0])
         except Exception as e:
-            print(f"⚠️ API 버전 옵션 동기화 실패({broker}): {e}")
+            print(f"API 버전 옵션 동기화 실패({broker}): {e}")
 
     def _bind_stock_api_type_events(self):
         """api_type 변경 시 api_version 후보를 동적으로 제한"""
@@ -5677,7 +5752,7 @@ class ModernSettingsWindow:
                     command=lambda _: self._sync_stock_api_version_options('koreaInvestment', preserve_value=False)
                 )
         except Exception as e:
-            print(f"⚠️ api_type 이벤트 바인딩 실패: {e}")
+            print(f"api_type 이벤트 바인딩 실패: {e}")
 
     def on_exchange_changed(self, *args):
         """거래소 변경 이벤트 핸들러"""
@@ -5686,17 +5761,17 @@ class ModernSettingsWindow:
                 selected_exchange = self.exchange_var.get()
             else:
                 selected_exchange = None
-            print(f"🔄 거래소 변경: {selected_exchange}")
+            print(f"거래소 변경: {selected_exchange}")
             # ExchangeManager에 거래소 변경 알림
             if hasattr(self, 'on_save_callback') and self.on_save_callback:
                 self.on_save_callback('exchange_changed', selected_exchange)
         except Exception as e:
-            print(f"❌ 거래소 변경 처리 오류: {e}")
+            print(f"거래소 변경 처리 오류: {e}")
 
     def on_closing(self):
         """X 닫기에서도 저장/폐기/계속 편집을 명시적으로 선택한다."""
         try:
-            print("🚪 설정 창 닫기")
+            print("설정 창 닫기")
             choice = self._ask_save_on_close()
             if choice is None:
                 return
@@ -5713,14 +5788,14 @@ class ModernSettingsWindow:
                 self.root.destroy()
 
         except Exception as e:
-            print(f"❌ 설정 창 닫기 처리 오류: {e}")
+            print(f"설정 창 닫기 처리 오류: {e}")
             # 닫기 확인 실패가 프로그램 전체 종료로 이어지지 않게 한다.
 
     def load_current_settings(self):
         """현재 설정을 UI에 로드 - 기존 PyQt5 설정 창과 동일한 로직"""
         try:
-            print(f"🔍 설정 로드 시작: {len(self.current_settings)}개 설정")
-            print(f"🔍 현재 설정: {list(self.current_settings.keys())}")
+            print(f"설정 로드 시작: {len(self.current_settings)}개 설정")
+            print(f"현재 설정: {list(self.current_settings.keys())}")
 
             # API 설정 복원 (기존과 동일)
             binance_key = self.current_settings.get('binance_api_key', '')
@@ -5728,8 +5803,8 @@ class ModernSettingsWindow:
             openai_key = self.current_settings.get('openai_api_key', '')
             openai_base_url = str(self.current_settings.get('openai_base_url', '') or '').strip()
 
-            print(f"🔍 바이낸스 키: {binance_key[:10]}..." if binance_key else "🔍 바이낸스 키: 없음")
-            print(f"🔍 OpenAI 키: {openai_key[:10]}..." if openai_key else "🔍 OpenAI 키: 없음")
+            print(f"바이낸스 키: {binance_key[:10]}..." if binance_key else "바이낸스 키: 없음")
+            print(f"OpenAI 키: {openai_key[:10]}..." if openai_key else "OpenAI 키: 없음")
 
             self.binance_api_key_entry.insert(0, binance_key)
             self.binance_secret_key_entry.insert(0, binance_secret)
@@ -5759,6 +5834,21 @@ class ModernSettingsWindow:
             if hasattr(self, 'ai_role_premium_combo'):
                 v = _ai_roles.get('premium', 'gpt-4o')
                 self.ai_role_premium_combo.set(v if v in _tier_allowed else 'gpt-4o')
+
+            transcription_cfg = self.current_settings.get('ai_custom_transcription', {}) or {}
+            if hasattr(self, 'ai_custom_transcription_enabled_var'):
+                self.ai_custom_transcription_enabled_var.set(bool(transcription_cfg.get('enabled', True)))
+            if hasattr(self, 'ai_custom_transcription_model_combo'):
+                self.ai_custom_transcription_model_combo.set(str(transcription_cfg.get('model', 'gpt-4o-mini-transcribe')))
+            if hasattr(self, 'ai_custom_transcription_minutes_combo'):
+                self.ai_custom_transcription_minutes_combo.set(str(int(transcription_cfg.get('max_duration_minutes', 45) or 45)))
+            if hasattr(self, 'ai_custom_transcription_mb_combo'):
+                self.ai_custom_transcription_mb_combo.set(str(int(transcription_cfg.get('max_file_mb', 24) or 24)))
+            runtime_cfg = self.current_settings.get('ai_custom_runtime', {}) or {}
+            if hasattr(self, 'ai_custom_runtime_enabled_var'):
+                self.ai_custom_runtime_enabled_var.set(bool(runtime_cfg.get('enabled', False)))
+            if hasattr(self, 'ai_custom_limited_live_var'):
+                self.ai_custom_limited_live_var.set(bool(runtime_cfg.get('allow_limited_live', False)))
 
             apply_mode = str(self.current_settings.get('assistant_apply_mode', 'user_confirm') or 'user_confirm').lower()
             if hasattr(self, 'assistant_apply_mode_combo'):
@@ -5865,29 +5955,29 @@ class ModernSettingsWindow:
 
             # 거래소 선택 상태 복원 (다중 선택)
             enabled = self.current_settings.get('enabled_exchanges', ['binance'])
-            print(f"🔍 활성화된 거래소: {enabled}")
+            print(f"활성화된 거래소: {enabled}")
 
             # exchange_vars가 존재하는지 확인
             if hasattr(self, 'exchange_vars'):
                 for key, var in self.exchange_vars.items():
                     is_enabled = key in enabled
                     var.set(is_enabled)
-                    print(f"🔍 {key}: {'활성화' if is_enabled else '비활성화'}")
+                    print(f"{key}: {'활성화' if is_enabled else '비활성화'}")
             else:
-                print("⚠️ exchange_vars가 존재하지 않음")
+                print("exchange_vars가 존재하지 않음")
 
             # 증권사 선택 상태 복원 (다중 선택)
             enabled_brokers = self.current_settings.get('enabled_stock_brokers', [])
-            print(f"🔍 활성화된 증권사: {enabled_brokers}")
+            print(f"활성화된 증권사: {enabled_brokers}")
 
             # stock_broker_vars가 존재하는지 확인
             if hasattr(self, 'stock_broker_vars'):
                 for key, var in self.stock_broker_vars.items():
                     is_enabled = key in enabled_brokers
                     var.set(is_enabled)
-                    print(f"🔍 증권사 {key}: {'활성화' if is_enabled else '비활성화'}")
+                    print(f"증권사 {key}: {'활성화' if is_enabled else '비활성화'}")
             else:
-                print("⚠️ stock_broker_vars가 존재하지 않음")
+                print("stock_broker_vars가 존재하지 않음")
 
             if hasattr(self, 'auto_stock_broker_diagnosis_var'):
                 auto_diag = bool(
@@ -6056,7 +6146,7 @@ class ModernSettingsWindow:
                 if hasattr(self, 'alphaarena_alibaba_key'):
                     self.alphaarena_alibaba_key.insert(0, self.current_settings.get('alphaarena_alibaba_api_key', ''))
             except Exception as e:
-                print(f"⚠️ Alpha Arena 설정 복원 실패: {e}")
+                print(f"Alpha Arena 설정 복원 실패: {e}")
 
             # 고급 매매 계층 ON/OFF 복원
             try:
@@ -6065,17 +6155,17 @@ class ModernSettingsWindow:
                     for key, var in self._atl_vars.items():
                         var.set(bool(atl.get(key, {}).get("enabled", False)))
             except Exception as e:
-                print(f"⚠️ 고급 매매 계층 설정 복원 실패: {e}")
+                print(f"고급 매매 계층 설정 복원 실패: {e}")
 
-            print("✅ 설정 로드 완료")
+            print("설정 로드 완료")
 
         except Exception as e:
-            print(f"❌ 설정 로드 실패: {e}")
+            print(f"설정 로드 실패: {e}")
 
 
     def create_update_info_tab(self):
         """업데이트 정보 탭 - 버전 및 새로운 기능 안내"""
-        tab = self.tabview.add("📋 업데이트")
+        tab = self.tabview.add("업데이트")
         self._add_tab_save_bar(tab, "업데이트 설정")
 
         # 스크롤 가능한 프레임
@@ -6089,7 +6179,7 @@ class ModernSettingsWindow:
         # 제목
         version_title = ctk.CTkLabel(
             version_group,
-            text="📦 버전 정보",
+            text="버전 정보",
             font=ctk.CTkFont(family="Segoe UI", size=16, weight="bold"),
             text_color=self._color("text_primary", "#f9fafb")
         )
@@ -6177,7 +6267,7 @@ class ModernSettingsWindow:
 
         auto_title = ctk.CTkLabel(
             auto_update_group,
-            text="⚙️ 자동업데이트 설정",
+            text="자동업데이트 설정",
             font=ctk.CTkFont(family="Segoe UI", size=16, weight="bold"),
             text_color=self._color("text_primary", "#f9fafb"),
         )
@@ -6229,7 +6319,7 @@ class ModernSettingsWindow:
 
         python_runtime_title = ctk.CTkLabel(
             python_runtime_group,
-            text="🐍 Python 런타임 정보",
+            text="Python 런타임 정보",
             font=ctk.CTkFont(family="Segoe UI", size=16, weight="bold"),
             text_color=self._color("text_primary", "#f9fafb")
         )
@@ -6298,7 +6388,7 @@ class ModernSettingsWindow:
 
         changelog_title = ctk.CTkLabel(
             changelog_group,
-            text="🗂️ 변경 이력 경로(단일화)",
+            text="변경 이력 경로(단일화)",
             font=ctk.CTkFont(family="Segoe UI", size=16, weight="bold"),
             text_color=self._color("text_primary", "#f9fafb")
         )
@@ -6306,7 +6396,7 @@ class ModernSettingsWindow:
 
         changelog_text = (
             "중복 안내를 방지하기 위해 버전별 최신 변경 상세는 설정 탭에 중복 표기하지 않습니다.\n"
-            "공식 변경 이력은 대시보드 '사용자 매뉴얼 → 📅 업데이트' 탭에서만 단일 관리됩니다.\n"
+            "공식 변경 이력은 대시보드 '사용자 매뉴얼 → 업데이트' 탭에서만 단일 관리됩니다.\n"
             "이 탭은 업데이트 확인/다운로드/적용과 런타임(Python·호환성) 점검 중심으로 유지됩니다."
         )
 
@@ -6326,13 +6416,13 @@ class ModernSettingsWindow:
 
         more_title = ctk.CTkLabel(
             more_info_group,
-            text="📚 상세 정보",
+            text="상세 정보",
             font=ctk.CTkFont(family="Segoe UI", size=16, weight="bold"),
             text_color=self._color("text_primary", "#f9fafb")
         )
         more_title.pack(pady=(12, 8), padx=15, anchor="w")
 
-        info_text = "✓ 릴리스 노트: 각 버전의 변경 사항을 확인하세요\n✓ 사용 설명서: AI 실행 기능 단계별 가이드\n✓ 안전 정책: 2단계 확인, 자동 실행 금지"
+        info_text = "릴리스 노트: 각 버전의 변경 사항을 확인하세요\n사용 설명서: AI 실행 기능 단계별 가이드\n안전 정책: 2단계 확인, 자동 실행 금지"
         info_label = ctk.CTkLabel(
             more_info_group,
             text=info_text,
@@ -6349,15 +6439,15 @@ class ModernSettingsWindow:
         # 사용자에게는 앱에서 바로 확인 가능한 경로만 안내
         links_label = ctk.CTkLabel(
             links_frame,
-            text="📖 사용자 안내:",
+            text="사용자 안내:",
             font=ctk.CTkFont(family="Segoe UI", size=12, weight="bold"),
             text_color=self._color("text_primary", "#f9fafb")
         )
         links_label.pack(pady=(8, 4), padx=15, anchor="w")
 
         docs = [
-            "• 앱 내 '📅 업데이트' 탭에서 최신 변경사항을 확인할 수 있습니다.",
-            "• AI 설정/최적화 도움말은 '💬 AI 어시스턴트 → 설정관리'에서 안내됩니다.",
+            "• 앱 내 '업데이트' 탭에서 최신 변경사항을 확인할 수 있습니다.",
+            "• AI 설정/최적화 도움말은 'AI 어시스턴트 → 설정관리'에서 안내됩니다.",
             "• AI 실행은 '준비도 점검' 기능이며, 확인 전에는 자동 시작되지 않습니다.",
             "• 상세 문의는 운영 지원 채널 또는 관리자 안내를 이용해 주세요.",
         ]
@@ -6386,6 +6476,18 @@ class ModernSettingsWindow:
                     'frequent_cheap': self.ai_role_cheap_combo.get() if hasattr(self, 'ai_role_cheap_combo') else 'gpt-4o-mini',
                     'standard': self.ai_role_standard_combo.get() if hasattr(self, 'ai_role_standard_combo') else 'gpt-4o',
                     'premium': self.ai_role_premium_combo.get() if hasattr(self, 'ai_role_premium_combo') else 'gpt-4o',
+                },
+                'ai_custom_transcription': {
+                    'enabled': bool(self.ai_custom_transcription_enabled_var.get()) if hasattr(self, 'ai_custom_transcription_enabled_var') else True,
+                    'model': self.ai_custom_transcription_model_combo.get() if hasattr(self, 'ai_custom_transcription_model_combo') else 'gpt-4o-mini-transcribe',
+                    'max_duration_minutes': int(self.ai_custom_transcription_minutes_combo.get()) if hasattr(self, 'ai_custom_transcription_minutes_combo') else 45,
+                    'max_file_mb': int(self.ai_custom_transcription_mb_combo.get()) if hasattr(self, 'ai_custom_transcription_mb_combo') else 24,
+                },
+                'ai_custom_runtime': {
+                    'enabled': bool(self.ai_custom_runtime_enabled_var.get()) if hasattr(self, 'ai_custom_runtime_enabled_var') else False,
+                    'allow_limited_live': bool(self.ai_custom_limited_live_var.get()) if hasattr(self, 'ai_custom_limited_live_var') else False,
+                    'limited_max_leverage': 1,
+                    'limited_max_position_size': 0.01,
                 },
                 'assistant_apply_mode': 'ai_auto' if (hasattr(self, 'assistant_apply_mode_combo') and self.assistant_apply_mode_combo.get() == 'AI 자동적용') else 'user_confirm',
                 'assistant_voice': {
@@ -6557,7 +6659,7 @@ class ModernSettingsWindow:
                         self.current_settings.get('ui_settings', {}).get('auto_show_stock_broker_diagnosis_after_save', True)
                     )
                     new_settings['ui_settings'].update(self._collect_auto_update_ui_settings())
-                    print(f"✅ UI 설정 저장: always_on_top = {always_on_top_value}")
+                    print(f"UI 설정 저장: always_on_top = {always_on_top_value}")
                 else:
                     # 기본값 유지
                     if 'ui_settings' not in new_settings:
@@ -6565,14 +6667,14 @@ class ModernSettingsWindow:
                     new_settings['ui_settings']['always_on_top'] = self.current_settings.get('ui_settings', {}).get('always_on_top', True)
                     new_settings['ui_settings']['auto_show_stock_broker_diagnosis_after_save'] = self.current_settings.get('ui_settings', {}).get('auto_show_stock_broker_diagnosis_after_save', True)
                     new_settings['ui_settings'].update(self._collect_auto_update_ui_settings())
-                    print(f"⚠️ UI 설정 기본값 유지: always_on_top = {self.current_settings.get('ui_settings', {}).get('always_on_top', True)}")
+                    print(f"UI 설정 기본값 유지: always_on_top = {self.current_settings.get('ui_settings', {}).get('always_on_top', True)}")
             except Exception as e:
                 if 'ui_settings' not in new_settings:
                     new_settings['ui_settings'] = {}
                 new_settings['ui_settings']['always_on_top'] = self.current_settings.get('ui_settings', {}).get('always_on_top', True)
                 new_settings['ui_settings']['auto_show_stock_broker_diagnosis_after_save'] = self.current_settings.get('ui_settings', {}).get('auto_show_stock_broker_diagnosis_after_save', True)
                 new_settings['ui_settings'].update(self._collect_auto_update_ui_settings())
-                print(f"❌ UI 설정 저장 오류: {e}")
+                print(f"UI 설정 저장 오류: {e}")
 
             # 시장 국면 자동 보정 설정 반영
             try:
@@ -6589,7 +6691,7 @@ class ModernSettingsWindow:
                 if hasattr(self, 'manual_regime_combo') and self.manual_regime_combo is not None and hasattr(self.manual_regime_combo, 'get'):
                     new_settings['dynamic_thresholds_manual_regime'] = self.manual_regime_combo.get().upper()
             except Exception as e:
-                print(f"⚠️ 시장 국면 보정 설정 반영 실패: {e}")
+                print(f"시장 국면 보정 설정 반영 실패: {e}")
 
             # Alpha Arena 설정 저장 (새로운 alpha_arena 구조)
             try:
@@ -6689,7 +6791,7 @@ class ModernSettingsWindow:
                 if hasattr(self, 'alphaarena_alibaba_key'):
                     new_settings['alphaarena_alibaba_api_key'] = self.alphaarena_alibaba_key.get()
             except Exception as e:
-                print(f"⚠️ Alpha Arena 설정 저장 실패: {e}")
+                print(f"Alpha Arena 설정 저장 실패: {e}")
                 import traceback
                 traceback.print_exc()
 
@@ -6705,7 +6807,7 @@ class ModernSettingsWindow:
                 else:
                     new_settings["advanced_trading_layers"] = self.current_settings.get("advanced_trading_layers", {})
             except Exception as e:
-                print(f"⚠️ 고급 매매 계층 설정 저장 실패: {e}")
+                print(f"고급 매매 계층 설정 저장 실패: {e}")
 
             # 기존 설정과 병합 (기존 방식과 동일)
             # stock_auto_trading.auto_start 업데이트
@@ -6738,21 +6840,21 @@ class ModernSettingsWindow:
                     )
                     return
             except Exception as _ve:
-                print(f"⚠️ api_type/api_version 검증 오류: {_ve}")
+                print(f"api_type/api_version 검증 오류: {_ve}")
 
             # 설정 파일에 저장 (기존 함수 사용)
             from config.settings import save_settings
             if save_settings(self.current_settings):
-                # ✅ 1. 먼저 사용자에게 피드백
+                # 1. 먼저 사용자에게 피드백
                 messagebox.showinfo("성공", "설정이 저장되었습니다!")
 
-                # ✅ 2. 저장 직후 필요한 경우 증권사 1차 진단 안내
+                # 2. 저장 직후 필요한 경우 증권사 1차 진단 안내
                 self._maybe_show_post_save_stock_broker_diagnosis()
 
-                # ✅ 3. 모달 창 즉시 닫기 (사용자 경험 개선)
+                # 3. 모달 창 즉시 닫기 (사용자 경험 개선)
                 self.root.destroy()
 
-                # ✅ 4. 콜백은 창이 닫힌 후 백그라운드에서 실행
+                # 4. 콜백은 창이 닫힌 후 백그라운드에서 실행
                 if self.on_save_callback:
                     # after_idle을 사용하여 UI 스레드를 블로킹하지 않고 실행
                     if self.parent:
@@ -6760,9 +6862,9 @@ class ModernSettingsWindow:
                     else:
                         try:
                             self.on_save_callback(self.current_settings)
-                            print("✅ 설정 저장 콜백 호출 완료")
+                            print("설정 저장 콜백 호출 완료")
                         except Exception as e:
-                            print(f"⚠️ 설정 저장 콜백 오류: {e}")
+                            print(f"설정 저장 콜백 오류: {e}")
             else:
                 messagebox.showerror(
                     "설정 저장 실패",
@@ -6809,9 +6911,9 @@ class ModernSettingsWindow:
                     if self.on_save_callback:
                         try:
                             self.on_save_callback(self.current_settings)
-                            print("✅ 설정 복원 콜백 호출 완료")
+                            print("설정 복원 콜백 호출 완료")
                         except Exception as e:
-                            print(f"⚠️ 설정 복원 콜백 오류: {e}")
+                            print(f"설정 복원 콜백 오류: {e}")
                 else:
                     messagebox.showerror("오류", "설정 기본값 복원에 실패했습니다.")
 
@@ -6855,7 +6957,7 @@ class ModernSettingsWindow:
             api_key = self.binance_api_key_entry.get().strip() if hasattr(self, 'binance_api_key_entry') else ''
             secret_key = self.binance_secret_key_entry.get().strip() if hasattr(self, 'binance_secret_key_entry') else ''
             if not api_key or not secret_key:
-                self._set_binance_status("⚠️ 키를 입력하세요")
+                self._set_binance_status("키를 입력하세요")
                 return
             self._set_binance_status("검증 중…")
             th = threading.Thread(target=self._verify_binance_keys_worker, args=(api_key, secret_key), daemon=True)
@@ -6909,13 +7011,13 @@ class ModernSettingsWindow:
                 else:
                     err_msg = "검증 실패"
             if ok:
-                self.root.after(0, lambda: self._set_binance_status("✅ 검증 완료", ok=True))
+                self.root.after(0, lambda: self._set_binance_status("검증 완료", ok=True))
             else:
-                text = f"❌ {err_msg}" if err_msg else "❌ 검증 실패"
+                text = f"{err_msg}" if err_msg else "검증 실패"
                 self.root.after(0, lambda: self._set_binance_status(text, ok=False))
         except Exception:
             try:
-                self.root.after(0, lambda: self._set_binance_status("❌ 검증 실패", ok=False))
+                self.root.after(0, lambda: self._set_binance_status("검증 실패", ok=False))
             except Exception:
                 pass
 
@@ -6925,10 +7027,10 @@ class ModernSettingsWindow:
         secret_key = self.upbit_secret_key_entry.get().strip()
 
         if not api_key or not secret_key:
-            self._upbit_verify_status.set("❌ API 키를 입력해주세요")
+            self._upbit_verify_status.set("API 키를 입력해주세요")
             return
 
-        self._upbit_verify_status.set("🔄 검증 중...")
+        self._upbit_verify_status.set("검증 중...")
 
         # 백그라운드 스레드에서 검증
         threading.Thread(
@@ -6946,18 +7048,18 @@ class ModernSettingsWindow:
             success = adapter.connect()
 
             if success:
-                self.root.after(0, lambda: self._upbit_verify_status.set("✅ 검증 완료"))
+                self.root.after(0, lambda: self._upbit_verify_status.set("검증 완료"))
             else:
-                self.root.after(0, lambda: self._upbit_verify_status.set("❌ 검증 실패"))
+                self.root.after(0, lambda: self._upbit_verify_status.set("검증 실패"))
 
         except Exception as e:
             error_msg = str(e)
             if "401" in error_msg or "unauthorized" in error_msg.lower():
-                self.root.after(0, lambda: self._upbit_verify_status.set("❌ API 키/권한 오류"))
+                self.root.after(0, lambda: self._upbit_verify_status.set("API 키/권한 오류"))
             elif "403" in error_msg:
-                self.root.after(0, lambda: self._upbit_verify_status.set("❌ 접근 제한"))
+                self.root.after(0, lambda: self._upbit_verify_status.set("접근 제한"))
             else:
-                self.root.after(0, lambda: self._upbit_verify_status.set("❌ 검증 실패"))
+                self.root.after(0, lambda: self._upbit_verify_status.set("검증 실패"))
 
     def _on_click_verify_okx(self):
         """OKX API 키 검증"""
@@ -6966,10 +7068,10 @@ class ModernSettingsWindow:
         passphrase = self.okx_passphrase_entry.get().strip()
 
         if not api_key or not secret_key or not passphrase:
-            self._okx_verify_status.set("❌ API 키를 모두 입력해주세요")
+            self._okx_verify_status.set("API 키를 모두 입력해주세요")
             return
 
-        self._okx_verify_status.set("🔄 검증 중...")
+        self._okx_verify_status.set("검증 중...")
 
         # 백그라운드 스레드에서 검증
         threading.Thread(
@@ -6987,7 +7089,7 @@ class ModernSettingsWindow:
             success = adapter.connect()
 
             if success:
-                self.root.after(0, lambda: self._okx_verify_status.set("✅ 검증 완료"))
+                self.root.after(0, lambda: self._okx_verify_status.set("검증 완료"))
             else:
                 raw_error = str(getattr(adapter, 'last_error', '') or '')
                 guidance = str(getattr(adapter, 'last_auth_guidance', '') or '')
@@ -7005,11 +7107,11 @@ class ModernSettingsWindow:
         except Exception as e:
             error_msg = str(e)
             if "401" in error_msg or "unauthorized" in error_msg.lower():
-                self.root.after(0, lambda: self._okx_verify_status.set("❌ API 키/권한 오류"))
+                self.root.after(0, lambda: self._okx_verify_status.set("API 키/권한 오류"))
             elif "403" in error_msg:
-                self.root.after(0, lambda: self._okx_verify_status.set("❌ 접근 제한"))
+                self.root.after(0, lambda: self._okx_verify_status.set("접근 제한"))
             elif "passphrase" in error_msg.lower():
-                self.root.after(0, lambda: self._okx_verify_status.set("❌ Passphrase 오류"))
+                self.root.after(0, lambda: self._okx_verify_status.set("Passphrase 오류"))
             else:
                 hint = self._build_okx_verify_hint(error_msg)
 
@@ -7028,10 +7130,10 @@ class ModernSettingsWindow:
         secret_key = self.bithumb_secret_key_entry.get().strip()
 
         if not api_key or not secret_key:
-            self._bithumb_verify_status.set("❌ API 키를 입력해주세요")
+            self._bithumb_verify_status.set("API 키를 입력해주세요")
             return
 
-        self._bithumb_verify_status.set("🔄 검증 중...")
+        self._bithumb_verify_status.set("검증 중...")
 
         # 백그라운드 스레드에서 검증
         threading.Thread(
@@ -7049,18 +7151,18 @@ class ModernSettingsWindow:
             success = adapter.connect()
 
             if success:
-                self.root.after(0, lambda: self._bithumb_verify_status.set("✅ 검증 완료"))
+                self.root.after(0, lambda: self._bithumb_verify_status.set("검증 완료"))
             else:
-                self.root.after(0, lambda: self._bithumb_verify_status.set("❌ 검증 실패"))
+                self.root.after(0, lambda: self._bithumb_verify_status.set("검증 실패"))
 
         except Exception as e:
             error_msg = str(e)
             if "401" in error_msg or "unauthorized" in error_msg.lower():
-                self.root.after(0, lambda: self._bithumb_verify_status.set("❌ API 키/권한 오류"))
+                self.root.after(0, lambda: self._bithumb_verify_status.set("API 키/권한 오류"))
             elif "403" in error_msg:
-                self.root.after(0, lambda: self._bithumb_verify_status.set("❌ 접근 제한"))
+                self.root.after(0, lambda: self._bithumb_verify_status.set("접근 제한"))
             else:
-                self.root.after(0, lambda: self._bithumb_verify_status.set("❌ 검증 실패"))
+                self.root.after(0, lambda: self._bithumb_verify_status.set("검증 실패"))
 
     def _on_click_verify_bybit(self):
         """바이비트 API 키 검증"""
@@ -7068,10 +7170,10 @@ class ModernSettingsWindow:
         secret_key = self.bybit_secret_key_entry.get().strip()
 
         if not api_key or not secret_key:
-            self._bybit_verify_status.set("❌ API 키를 입력해주세요")
+            self._bybit_verify_status.set("API 키를 입력해주세요")
             return
 
-        self._bybit_verify_status.set("🔄 검증 중...")
+        self._bybit_verify_status.set("검증 중...")
 
         # 백그라운드 스레드에서 검증
         threading.Thread(
@@ -7089,7 +7191,7 @@ class ModernSettingsWindow:
             success = adapter.connect()
 
             if success:
-                self.root.after(0, lambda: self._bybit_verify_status.set("✅ 검증 완료"))
+                self.root.after(0, lambda: self._bybit_verify_status.set("검증 완료"))
             else:
                 raw_error = str(getattr(adapter, 'last_error', '') or '')
                 guidance = str(getattr(adapter, 'last_auth_guidance', '') or '')
@@ -7107,9 +7209,9 @@ class ModernSettingsWindow:
         except Exception as e:
             error_msg = str(e)
             if "401" in error_msg or "unauthorized" in error_msg.lower():
-                self.root.after(0, lambda: self._bybit_verify_status.set("❌ API 키/권한 오류"))
+                self.root.after(0, lambda: self._bybit_verify_status.set("API 키/권한 오류"))
             elif "403" in error_msg:
-                self.root.after(0, lambda: self._bybit_verify_status.set("❌ 접근 제한"))
+                self.root.after(0, lambda: self._bybit_verify_status.set("접근 제한"))
             else:
                 hint = self._build_bybit_verify_hint(error_msg)
 
@@ -7129,10 +7231,10 @@ class ModernSettingsWindow:
         password = self.bitget_password_entry.get().strip()
 
         if not api_key or not secret_key or not password:
-            self._bitget_verify_status.set("❌ API 키를 모두 입력해주세요")
+            self._bitget_verify_status.set("API 키를 모두 입력해주세요")
             return
 
-        self._bitget_verify_status.set("🔄 검증 중...")
+        self._bitget_verify_status.set("검증 중...")
 
         # 백그라운드 스레드에서 검증
         threading.Thread(
@@ -7173,24 +7275,24 @@ class ModernSettingsWindow:
 
         if 'invalid ip' in low or 'code":"40018' in low or "code': '40018" in low:
             return (
-                "❌ Bitget IP 화이트리스트 오류\n"
+                "Bitget IP 화이트리스트 오류\n"
                 f"현재 공인 IP: {public_ip}\n"
                 "Bitget API 키 설정에서 IP 화이트리스트에 위 IP를 등록한 뒤 다시 검증하세요."
             )
 
         if 'invalid header value' in low:
             return (
-                "❌ Bitget 헤더 값 오류\n"
+                "Bitget 헤더 값 오류\n"
                 "API Key/Secret/Passphrase 앞뒤 공백·줄바꿈을 제거하고 다시 저장 후 검증하세요."
             )
 
         if 'password' in low or 'passphrase' in low:
-            return "❌ Bitget Passphrase 오류: 키 생성 시 입력한 passphrase 값을 다시 확인하세요."
+            return "Bitget Passphrase 오류: 키 생성 시 입력한 passphrase 값을 다시 확인하세요."
 
         if '401' in low or 'unauthorized' in low:
-            return "❌ Bitget 인증 오류: API Key/Secret/Passphrase 및 선물 거래 권한을 확인하세요."
+            return "Bitget 인증 오류: API Key/Secret/Passphrase 및 선물 거래 권한을 확인하세요."
 
-        return "❌ Bitget 검증 실패: 입력값과 권한 설정을 확인한 뒤 다시 시도하세요."
+        return "Bitget 검증 실패: 입력값과 권한 설정을 확인한 뒤 다시 시도하세요."
 
     def _build_bybit_verify_hint(self, error_msg: str) -> str:
         msg = str(error_msg or '')
@@ -7199,13 +7301,13 @@ class ModernSettingsWindow:
 
         if 'unmatched ip' in low or 'bound ip' in low:
             return (
-                "❌ Bybit IP 화이트리스트 오류\n"
+                "Bybit IP 화이트리스트 오류\n"
                 f"현재 공인 IP: {public_ip}\n"
                 "Bybit API 키의 bound IP 주소에 위 IP를 등록한 뒤 다시 검증하세요."
             )
         if '401' in low or 'unauthorized' in low:
-            return "❌ Bybit 인증 오류: API Key/Secret 및 선물 거래 권한을 확인하세요."
-        return "❌ Bybit 검증 실패: 입력값과 API 권한 설정을 확인한 뒤 다시 시도하세요."
+            return "Bybit 인증 오류: API Key/Secret 및 선물 거래 권한을 확인하세요."
+        return "Bybit 검증 실패: 입력값과 API 권한 설정을 확인한 뒤 다시 시도하세요."
 
     def _build_okx_verify_hint(self, error_msg: str) -> str:
         msg = str(error_msg or '')
@@ -7213,18 +7315,18 @@ class ModernSettingsWindow:
         public_ip = self._get_public_ip_for_hint()
 
         if 'passphrase' in low:
-            return "❌ OKX Passphrase 오류: API 생성 시 설정한 passphrase를 다시 확인하세요."
+            return "OKX Passphrase 오류: API 생성 시 설정한 passphrase를 다시 확인하세요."
         if '51010' in low or 'account mode' in low:
-            return "❌ OKX 계좌 모드 오류: 웹사이트에서 계좌 모드를 Single/Multi-currency margin으로 변경 후 다시 검증하세요."
+            return "OKX 계좌 모드 오류: 웹사이트에서 계좌 모드를 Single/Multi-currency margin으로 변경 후 다시 검증하세요."
         if 'invalid ip' in low:
             return (
-                "❌ OKX IP 제한 가능성\n"
+                "OKX IP 제한 가능성\n"
                 f"현재 공인 IP: {public_ip}\n"
                 "OKX API 키의 IP 제한 설정을 확인하세요."
             )
         if '401' in low or 'unauthorized' in low:
-            return "❌ OKX 인증 오류: API Key/Secret/Passphrase 및 거래 권한을 확인하세요."
-        return "❌ OKX 검증 실패: 입력값과 계좌 모드/권한 설정을 확인한 뒤 다시 시도하세요."
+            return "OKX 인증 오류: API Key/Secret/Passphrase 및 거래 권한을 확인하세요."
+        return "OKX 검증 실패: 입력값과 계좌 모드/권한 설정을 확인한 뒤 다시 시도하세요."
 
     def _verify_bitget_keys_worker(self, api_key: str, secret_key: str, password: str):
         """비트겟 API 키 검증 (백그라운드 스레드)"""
@@ -7235,7 +7337,7 @@ class ModernSettingsWindow:
             success = adapter.connect()
 
             if success:
-                self.root.after(0, lambda: self._bitget_verify_status.set("✅ 검증 완료"))
+                self.root.after(0, lambda: self._bitget_verify_status.set("검증 완료"))
             else:
                 raw_error = str(getattr(adapter, 'last_error', '') or '')
                 guidance = str(getattr(adapter, 'last_auth_guidance', '') or '')
@@ -7254,11 +7356,11 @@ class ModernSettingsWindow:
         except Exception as e:
             error_msg = str(e)
             if "401" in error_msg or "unauthorized" in error_msg.lower():
-                self.root.after(0, lambda: self._bitget_verify_status.set("❌ API 키/권한 오류"))
+                self.root.after(0, lambda: self._bitget_verify_status.set("API 키/권한 오류"))
             elif "403" in error_msg:
-                self.root.after(0, lambda: self._bitget_verify_status.set("❌ 접근 제한"))
+                self.root.after(0, lambda: self._bitget_verify_status.set("접근 제한"))
             elif "password" in error_msg.lower():
-                self.root.after(0, lambda: self._bitget_verify_status.set("❌ Password 오류"))
+                self.root.after(0, lambda: self._bitget_verify_status.set("Password 오류"))
             else:
                 hint = self._build_bitget_verify_hint(error_msg)
 
@@ -7273,7 +7375,7 @@ class ModernSettingsWindow:
 
     def create_advanced_layers_tab(self):
         """고급 자동매매 계층 설정 탭 - 프리셋 전환 + 개별 ON/OFF"""
-        tab = self.tabview.add("🔧 고급 매매 계층")
+        tab = self.tabview.add("고급 매매 계층")
         self._add_tab_save_bar(tab, "고급 매매 계층")
 
         scroll_frame = ctk.CTkScrollableFrame(tab)
@@ -7285,7 +7387,7 @@ class ModernSettingsWindow:
         # ── 타이틀 ─────────────────────────────────────────────────
         ctk.CTkLabel(
             scroll_frame,
-            text="🔧 고급 자동매매 계층 설정",
+            text="고급 자동매매 계층 설정",
             font=ctk.CTkFont(family="Segoe UI", size=20, weight="bold"),
             text_color=self._color("text_primary", "#f9fafb"),
         ).pack(pady=(10, 4))
@@ -7303,7 +7405,7 @@ class ModernSettingsWindow:
 
         ctk.CTkLabel(
             preset_group,
-            text="⚡ 프리셋 빠른 전환",
+            text="프리셋 빠른 전환",
             font=ctk.CTkFont(family="Segoe UI", size=16, weight="bold"),
             text_color=self._color("text_primary", "#f9fafb"),
         ).pack(pady=(16, 8))
@@ -7363,22 +7465,22 @@ class ModernSettingsWindow:
             # 상태 레이블 업데이트
             colors = {"dev": "#94a3b8", "safe": "#22c55e", "aggressive": "#f59e0b"}
             self._preset_status_label.configure(
-                text=f"✅ 프리셋 '{preset_name}' 적용됨",
+                text=f"프리셋 '{preset_name}' 적용됨",
                 text_color=colors.get(preset_name, "#f9fafb"),
             )
 
         ctk.CTkButton(
-            btn_row, text="🧪 dev (전체 OFF)", width=150, height=36,
+            btn_row, text="dev (전체 OFF)", width=150, height=36,
             fg_color="#1e3a5f", hover_color="#1d4ed8",
             command=lambda: _apply_preset("dev"),
         ).pack(side="left", padx=6)
         ctk.CTkButton(
-            btn_row, text="🛡️ safe (권장)", width=150, height=36,
+            btn_row, text="safe (권장)", width=150, height=36,
             fg_color="#14532d", hover_color="#15803d",
             command=lambda: _apply_preset("safe"),
         ).pack(side="left", padx=6)
         ctk.CTkButton(
-            btn_row, text="⚡ aggressive", width=150, height=36,
+            btn_row, text="aggressive", width=150, height=36,
             fg_color="#78350f", hover_color="#d97706",
             command=lambda: _apply_preset("aggressive"),
         ).pack(side="left", padx=6)
@@ -7395,21 +7497,21 @@ class ModernSettingsWindow:
 
         ctk.CTkLabel(
             layers_group,
-            text="⚙️ 계층별 개별 설정",
+            text="계층별 개별 설정",
             font=ctk.CTkFont(family="Segoe UI", size=16, weight="bold"),
             text_color=self._color("text_primary", "#f9fafb"),
         ).pack(pady=(16, 10))
 
         layer_defs = [
-            ("profitability_validation",  "1️⃣ 수익성 검증 (Profitability Gate)",
+            ("profitability_validation",  "1⃣ 수익성 검증 (Profitability Gate)",
              "최근 거래 KPI(거래수/승률/샤프/워크포워드) 미달 시 신규 진입 차단. 차단 시: dev 임시 OFF, 기준 완화(min_trades/min_win_rate 등), 종료거래 데이터 축적 후 재평가"),
-            ("portfolio_orchestration",   "2️⃣ 포트폴리오 오케스트레이션",
+            ("portfolio_orchestration",   "2⃣ 포트폴리오 오케스트레이션",
              "자산군별 자본 배분 및 리스크 예산 관리"),
-            ("strategy_engine",           "3️⃣ 전략 엔진 (레짐 필터/합의)",
+            ("strategy_engine",           "3⃣ 전략 엔진 (레짐 필터/합의)",
              "시장 국면 필터 + 다중 지표 합의 스코어 기반 진입 결정"),
-            ("execution_optimizer",       "4️⃣ 실행 최적화 (슬리피지 제어)",
+            ("execution_optimizer",       "4⃣ 실행 최적화 (슬리피지 제어)",
              "주문 유형 최적화, 슬리피지 감시, 자동 시장가 전환"),
-            ("ops_automation",            "5️⃣ 운영 자동화 (이상 감지/롤백)",
+            ("ops_automation",            "5⃣ 운영 자동화 (이상 감지/롤백)",
              "quality_score 모니터링, 이상 거래 자동 감지, 일일 브리핑"),
         ]
 
@@ -7440,7 +7542,7 @@ class ModernSettingsWindow:
         help_group.pack(fill="x", pady=(0, 20))
         ctk.CTkLabel(
             help_group,
-            text="ℹ️ 수익성 검증 차단이 반복되면 다음 순서로 점검하세요.\n1) dev(전체 OFF)로 임시 우회해 원인 분리\n2) safe/aggressive에서 min_trades, min_win_rate, min_sharpe 기준 완화\n3) 종료 거래 데이터가 충분히 쌓인 뒤 safe로 복귀\n자세한 설명은 대시보드 > 사용자 메뉴얼 > '수익성 검증 차단 시 대응' 절을 참조하세요.",
+            text="수익성 검증 안내\n1) 일반 성과 미달은 1포지션·1배의 회복 학습으로 계속 표본을 수집합니다.\n2) 수수료 차감 순손익과 다음 재평가 거래 수를 확인하세요.\n3) Hard MDD 차단은 임의로 우회하지 말고 손실·체결 원인을 먼저 점검하세요.\n자세한 설명은 대시보드 > 사용자 메뉴얼 > '수익성 검증·회복 학습 대응' 절을 참조하세요.",
             font=ctk.CTkFont(family="Segoe UI", size=12),
             text_color=self._color("info", "#3b82f6"),
             justify="left",
@@ -7448,7 +7550,7 @@ class ModernSettingsWindow:
 
     def create_alphaarena_tab(self):
         """AlphaArena 모드 설정 탭 (새로운 alpha_arena 구조 적용)"""
-        tab = self.tabview.add("⚔️ AlphaArena")
+        tab = self.tabview.add("AlphaArena")
         self._add_tab_save_bar(tab, "AlphaArena")
 
         # 스크롤 가능한 프레임
@@ -7461,7 +7563,7 @@ class ModernSettingsWindow:
 
         intro_title = ctk.CTkLabel(
             intro_group,
-            text="⚔️ Alpha Arena 모드",
+            text="Alpha Arena 모드",
             font=ctk.CTkFont(family="Segoe UI", size=18, weight="bold"),
             text_color=self._color("text_primary", "#f9fafb")
         )
@@ -7505,7 +7607,7 @@ class ModernSettingsWindow:
 
         ai_title = ctk.CTkLabel(
             ai_group,
-            text="🤖 AI 엔진 선택",
+            text="AI 엔진 선택",
             font=ctk.CTkFont(family="Segoe UI", size=16, weight="bold"),
             text_color=self._color("text_primary", "#f9fafb")
         )
@@ -7536,7 +7638,7 @@ class ModernSettingsWindow:
 
         api_key_title = ctk.CTkLabel(
             api_key_group,
-            text="🔑 API 키 설정",
+            text="API 키 설정",
             font=ctk.CTkFont(family="Segoe UI", size=16, weight="bold"),
             text_color=self._color("text_primary", "#f9fafb")
         )
@@ -7592,7 +7694,7 @@ class ModernSettingsWindow:
 
         capital_title = ctk.CTkLabel(
             capital_group,
-            text="💰 초기 자금 기준 선택",
+            text="초기 자금 기준 선택",
             font=ctk.CTkFont(family="Segoe UI", size=16, weight="bold"),
             text_color=self._color("text_primary", "#f9fafb")
         )
@@ -7686,7 +7788,7 @@ class ModernSettingsWindow:
 
         warning_title = ctk.CTkLabel(
             warning_card,
-            text="⚠️ 주의사항",
+            text="주의사항",
             font=ctk.CTkFont(family="Segoe UI", size=16, weight="bold"),
             text_color=self._color("danger", "#ef4444")
         )
@@ -7742,18 +7844,18 @@ class ModernSettingsWindow:
             api_key = self.alphaarena_alibaba_key.get()
             provider = "Alibaba"
         else:
-            self.alphaarena_verify_status.configure(text="❌ 알 수 없는 AI 엔진")
+            self.alphaarena_verify_status.configure(text="알 수 없는 AI 엔진")
             return
 
         if not api_key:
             self.alphaarena_verify_status.configure(
-                text="❌ API 키를 입력해주세요",
+                text="API 키를 입력해주세요",
                 text_color=self._color("danger", "#ef4444")
             )
             return
 
         self.alphaarena_verify_status.configure(
-            text="🔄 검증 중...",
+            text="검증 중...",
             text_color=self._color("info", "#3b82f6")
         )
 
@@ -7769,7 +7871,7 @@ class ModernSettingsWindow:
         # 실제 검증 로직은 구현 예정
         # 지금은 디자인만
         self.root.after(0, lambda: self.alphaarena_verify_status.configure(
-            text=f"✅ {provider} API 키 형식 검증 완료 (실제 검증은 구현 예정)",
+            text=f"{provider} API 키 형식 검증 완료 (실제 검증은 구현 예정)",
             text_color=self._color("success", "#22c55e")
         ))
 
@@ -7792,6 +7894,6 @@ if __name__ == "__main__":
         app = ModernSettingsWindow()
         app.run()
     except Exception as e:
-        print(f"❌ 설정 창 실행 오류: {e}")
+        print(f"설정 창 실행 오류: {e}")
         import traceback
         traceback.print_exc()

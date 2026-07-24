@@ -49,9 +49,9 @@ class AIReportWidgetReal(CTkFrame):
         try:
             self.init_ui()
             self.is_initialized = True
-            print("✅ 실제 AI 리포트 위젯 초기화 완료")
+            print("실제 AI 리포트 위젯 초기화 완료")
         except Exception as e:
-            print(f"❌ 실제 AI 리포트 위젯 초기화 실패: {e}")
+            print(f"실제 AI 리포트 위젯 초기화 실패: {e}")
             self.create_error_ui(str(e))
         
         # 초기 리포트 생성
@@ -184,7 +184,7 @@ class AIReportWidgetReal(CTkFrame):
         # 제목 (공간 최적화)
         title_label = ctk.CTkLabel(
             self,
-            text="📊 AI 자동 리포트",
+            text="AI 자동 리포트",
             font=ctk.CTkFont(size=16, weight="bold")  # 크기 줄임
         )
         title_label.grid(row=0, column=0, pady=(5, 2))  # 여백 줄임
@@ -192,7 +192,7 @@ class AIReportWidgetReal(CTkFrame):
         # 설명 (공간 최적화)
         desc_label = ctk.CTkLabel(
             self,
-            text="🤖 AI가 실제 거래 데이터를 분석하여 생성하는 리포트입니다.",
+            text="AI가 실제 거래 데이터를 분석하여 생성하는 리포트입니다.",
             font=ctk.CTkFont(size=10),  # 크기 줄임
             text_color=self._color('text_secondary', '#7f8c8d')
         )
@@ -204,19 +204,19 @@ class AIReportWidgetReal(CTkFrame):
         self.report_tabs.grid(row=2, column=0, sticky="nsew", padx=5, pady=(2, 0))
         
         # 오늘 리포트 탭
-        self.today_tab = self.report_tabs.add("📅 오늘")
+        self.today_tab = self.report_tabs.add("오늘")
         self.create_today_report_tab()
         
         # 주간 리포트 탭
-        self.weekly_tab = self.report_tabs.add("📊 주간")
+        self.weekly_tab = self.report_tabs.add("주간")
         self.create_weekly_report_tab()
         
         # 월간 리포트 탭
-        self.monthly_tab = self.report_tabs.add("📈 월간")
+        self.monthly_tab = self.report_tabs.add("월간")
         self.create_monthly_report_tab()
         
         # 실시간 분석 탭 (최근 1시간)
-        self.realtime_tab = self.report_tabs.add("⚡ 실시간")
+        self.realtime_tab = self.report_tabs.add("실시간")
         self.create_realtime_analysis_tab()
         
         # 버튼/필터 프레임 (공간 최적화)
@@ -245,7 +245,7 @@ class AIReportWidgetReal(CTkFrame):
         # 새로고침 버튼
         refresh_btn = ctk.CTkButton(
             button_frame,
-            text="🔄 전체 새로고침",
+            text="전체 새로고침",
             command=self.auto_generate_reports,
             width=120,
             height=30  # 높이 줄임
@@ -257,7 +257,7 @@ class AIReportWidgetReal(CTkFrame):
         danger_hover = self._shade_color(danger_base, 0.8)
         realtime_btn = ctk.CTkButton(
             button_frame,
-            text="⚡ 실시간 분석",
+            text="실시간 분석",
             command=self.generate_realtime_analysis,
             width=120,
             height=30,  # 높이 줄임
@@ -291,7 +291,7 @@ class AIReportWidgetReal(CTkFrame):
         
         error_label = ctk.CTkLabel(
             error_frame,
-            text=f"❌ AI 리포트 위젯 로드 실패\n{error_msg}",
+            text=f"AI 리포트 위젯 로드 실패\n{error_msg}",
             font=ctk.CTkFont(size=14),
             text_color=self._color('danger', '#ef4444')
         )
@@ -306,7 +306,7 @@ class AIReportWidgetReal(CTkFrame):
         # 요약 제목
         summary_title = ctk.CTkLabel(
             summary_frame,
-            text="📊 오늘 거래 요약",
+            text="오늘 거래 요약",
             font=ctk.CTkFont(size=16, weight="bold")
         )
         summary_title.pack(pady=10)
@@ -326,7 +326,7 @@ class AIReportWidgetReal(CTkFrame):
         # 상세 제목
         detail_title = ctk.CTkLabel(
             detail_frame,
-            text="📈 상세 거래 내역",
+            text="상세 거래 내역",
             font=ctk.CTkFont(size=16, weight="bold")
         )
         detail_title.pack(pady=10)
@@ -347,7 +347,7 @@ class AIReportWidgetReal(CTkFrame):
         # 요약 제목
         summary_title = ctk.CTkLabel(
             summary_frame,
-            text="📊 주간 거래 요약",
+            text="주간 거래 요약",
             font=ctk.CTkFont(size=16, weight="bold")
         )
         summary_title.pack(pady=10)
@@ -367,7 +367,7 @@ class AIReportWidgetReal(CTkFrame):
         # 상세 제목
         detail_title = ctk.CTkLabel(
             detail_frame,
-            text="📈 주간 상세 분석",
+            text="주간 상세 분석",
             font=ctk.CTkFont(size=16, weight="bold")
         )
         detail_title.pack(pady=10)
@@ -388,7 +388,7 @@ class AIReportWidgetReal(CTkFrame):
         # 요약 제목
         summary_title = ctk.CTkLabel(
             summary_frame,
-            text="📊 월간 거래 요약",
+            text="월간 거래 요약",
             font=ctk.CTkFont(size=16, weight="bold")
         )
         summary_title.pack(pady=10)
@@ -408,7 +408,7 @@ class AIReportWidgetReal(CTkFrame):
         # 상세 제목
         detail_title = ctk.CTkLabel(
             detail_frame,
-            text="📈 월간 상세 분석",
+            text="월간 상세 분석",
             font=ctk.CTkFont(size=16, weight="bold")
         )
         detail_title.pack(pady=10)
@@ -439,7 +439,7 @@ class AIReportWidgetReal(CTkFrame):
         # 요약 제목
         summary_title = ctk.CTkLabel(
             summary_frame,
-            text="⚡ 실시간 거래 분석 (최근 1시간)",
+            text="실시간 거래 분석 (최근 1시간)",
             font=ctk.CTkFont(size=16, weight="bold")
         )
         summary_title.pack(pady=10)
@@ -459,7 +459,7 @@ class AIReportWidgetReal(CTkFrame):
         # 장단점 제목
         analysis_title = ctk.CTkLabel(
             analysis_frame,
-            text="📊 현재 거래 상황 분석",
+            text="현재 거래 상황 분석",
             font=ctk.CTkFont(size=16, weight="bold")
         )
         analysis_title.pack(pady=10)
@@ -479,7 +479,7 @@ class AIReportWidgetReal(CTkFrame):
         # AI 전달 제목
         transfer_title = ctk.CTkLabel(
             ai_transfer_frame,
-            text="🤖 AI 어시스턴트 연동",
+            text="AI 어시스턴트 연동",
             font=ctk.CTkFont(size=16, weight="bold")
         )
         transfer_title.pack(pady=10)
@@ -497,7 +497,7 @@ class AIReportWidgetReal(CTkFrame):
         accent_hover = self._shade_color(accent_base, 0.8)
         transfer_btn = ctk.CTkButton(
             ai_transfer_frame,
-            text="🚀 AI 어시스턴트에 전달",
+            text="AI 어시스턴트에 전달",
             command=self.transfer_to_ai_assistant,
             width=200,
             height=40,
@@ -527,7 +527,7 @@ class AIReportWidgetReal(CTkFrame):
             self.safe_after(100, self._generate_reports_async)
             
         except Exception as e:
-            print(f"❌ AI 리포트 생성 오류: {e}")
+            print(f"AI 리포트 생성 오류: {e}")
     
     def _generate_reports_async(self):
         """비동기 리포트 생성"""
@@ -545,10 +545,10 @@ class AIReportWidgetReal(CTkFrame):
             elapsed_ms = int((time.perf_counter() - started) * 1000)
             log_ui_perf_metric("ai_report", "generate_done", elapsed_ms=elapsed_ms)
             
-            print("✅ 실제 AI 리포트 생성 완료")
+            print("실제 AI 리포트 생성 완료")
             
         except Exception as e:
-            print(f"❌ AI 리포트 생성 오류: {e}")
+            print(f"AI 리포트 생성 오류: {e}")
             log_ui_perf_metric("ai_report", "generate_error", error=str(e)[:120])
     
     def generate_realtime_analysis(self):
@@ -561,7 +561,7 @@ class AIReportWidgetReal(CTkFrame):
             self.safe_after(100, self._generate_realtime_analysis_async)
             
         except Exception as e:
-            print(f"❌ 실시간 분석 생성 오류: {e}")
+            print(f"실시간 분석 생성 오류: {e}")
     
     def _generate_realtime_analysis_async(self):
         """비동기 실시간 분석 생성"""
@@ -572,57 +572,57 @@ class AIReportWidgetReal(CTkFrame):
             if not recent_data:
                 # 데이터가 없으면 기본 메시지
                 summary_text = (
-                    "⚡ 실시간 거래 분석 (최근 1시간)\n\n"
-                    "❌ 최근 1시간 거래 데이터가 없습니다.\n\n"
-                    "💸 비용 영향:\n"
+                    "실시간 거래 분석 (최근 1시간)\n\n"
+                    "최근 1시간 거래 데이터가 없습니다.\n\n"
+                    "비용 영향:\n"
                     "- 거래 데이터가 없어 비용 지표를 계산할 수 없습니다.\n\n"
-                    "🤖 AI 분석:\n"
+                    "AI 분석:\n"
                     "- 거래가 없어 분석할 데이터가 부족합니다.\n"
                     "- 시장 상황을 모니터링하고 거래 기회를 기다려주세요."
                 )
-                analysis_text = "📊 현재 거래 상황 분석\n\n분석할 거래 데이터가 없습니다."
+                analysis_text = "현재 거래 상황 분석\n\n분석할 거래 데이터가 없습니다."
                 ai_content = "현재 거래 데이터가 없어 AI 어시스턴트에게 전달할 분석 내용이 없습니다."
             else:
                 # 실제 데이터 기반 실시간 분석
                 analysis_result = self._analyze_realtime_performance(recent_data)
                 
-                summary_text = f"""⚡ 실시간 거래 분석 (최근 1시간)
+                summary_text = f"""실시간 거래 분석 (최근 1시간)
 
-🕐 분석 시간: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
-🔢 총 거래 수: {analysis_result['total_trades']}건
-✅ 수익 거래: {analysis_result['profitable_trades']}건
-📈 승률: {analysis_result['win_rate']:.1f}%
-💰 총 수익: {analysis_result['total_pnl']:.2f} USDT
-⚡ 평균 거래 시간: {analysis_result['avg_trade_duration']:.1f}분
+분석 시간: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
+총 거래 수: {analysis_result['total_trades']}건
+수익 거래: {analysis_result['profitable_trades']}건
+승률: {analysis_result['win_rate']:.1f}%
+총 수익: {analysis_result['total_pnl']:.2f} USDT
+평균 거래 시간: {analysis_result['avg_trade_duration']:.1f}분
 
-💸 비용 영향:
+비용 영향:
 - 누적 Fee: {analysis_result['total_fees']:.2f} USDT
 - 평균 Fee: {analysis_result['avg_fee']:.4f} USDT
 - Fee 대비 PnL 영향도: {analysis_result['fee_impact_percent']:.2f}%
 - 총 수익은 현재 trade_log의 pnl 합계 기준이며, 수수료는 별도 비용 지표로 병행 표시됩니다.
 
-🤖 AI 실시간 분석:
+AI 실시간 분석:
 {analysis_result['ai_summary']}
 """
                 
-                analysis_text = f"""📊 현재 거래 상황 분석
+                analysis_text = f"""현재 거래 상황 분석
 
-✅ 장점:
+장점:
 {analysis_result['strengths']}
 
-❌ 단점:
+단점:
 {analysis_result['weaknesses']}
 
-⚠️ 주의사항:
+주의사항:
 {analysis_result['warnings']}
 
-💡 개선 제안:
+개선 제안:
 {analysis_result['improvements']}
 """
                 
                 ai_content = f"""실시간 거래 분석 결과를 AI 어시스턴트에게 전달합니다:
 
-📊 분석 요약:
+분석 요약:
 - 최근 1시간 거래 수: {analysis_result['total_trades']}건
 - 승률: {analysis_result['win_rate']:.1f}%
 - 총 수익: {analysis_result['total_pnl']:.2f} USDT
@@ -630,13 +630,13 @@ class AIReportWidgetReal(CTkFrame):
 - 평균 Fee: {analysis_result['avg_fee']:.4f} USDT
 - Fee 대비 PnL 영향도: {analysis_result['fee_impact_percent']:.2f}%
 
-✅ 주요 장점:
+주요 장점:
 {analysis_result['strengths']}
 
-❌ 개선이 필요한 부분:
+개선이 필요한 부분:
 {analysis_result['weaknesses']}
 
-💡 구체적인 개선 방안:
+구체적인 개선 방안:
 {analysis_result['improvements']}
 
 위 분석을 바탕으로 거래 전략을 개선해주세요."""
@@ -646,10 +646,10 @@ class AIReportWidgetReal(CTkFrame):
             self._safe_set_text(self.analysis_detail, analysis_text)
             self._safe_set_text(self.ai_transfer_content, ai_content)
             
-            print("✅ 실시간 분석 생성 완료")
+            print("실시간 분석 생성 완료")
             
         except Exception as e:
-            print(f"❌ 실시간 분석 생성 오류: {e}")
+            print(f"실시간 분석 생성 오류: {e}")
     
     def _get_recent_trading_data(self, hours: int = 1) -> List[Dict]:
         """최근 N시간 거래 데이터 조회"""
@@ -685,7 +685,7 @@ class AIReportWidgetReal(CTkFrame):
             return data
             
         except Exception as e:
-            print(f"❌ 최근 거래 데이터 조회 오류: {e}")
+            print(f"최근 거래 데이터 조회 오류: {e}")
             return []
     
     def _analyze_realtime_performance(self, trades: List[Dict]) -> Dict:
@@ -882,23 +882,23 @@ class AIReportWidgetReal(CTkFrame):
             ai_content = self.ai_transfer_content.get("1.0", "end-1c")
             
             if not ai_content.strip():
-                print("❌ AI 어시스턴트에 전달할 내용이 없습니다.")
+                print("AI 어시스턴트에 전달할 내용이 없습니다.")
                 return
             
             # AI 어시스턴트 탭으로 전환 (실제 구현에서는 대시보드의 AI 어시스턴트 탭으로 이동)
-            print("🚀 AI 어시스턴트에 분석 결과 전달:")
+            print("AI 어시스턴트에 분석 결과 전달:")
             print("=" * 50)
             print(ai_content)
             print("=" * 50)
             
             # 성공 메시지 표시
             self.ai_transfer_content.delete("1.0", "end")
-            self.ai_transfer_content.insert("1.0", "✅ AI 어시스턴트에 성공적으로 전달되었습니다!\n\n위 분석 내용이 AI 어시스턴트 탭에 표시됩니다.")
+            self.ai_transfer_content.insert("1.0", "AI 어시스턴트에 성공적으로 전달되었습니다!\n\n위 분석 내용이 AI 어시스턴트 탭에 표시됩니다.")
             
-            print("✅ AI 어시스턴트 전달 완료")
+            print("AI 어시스턴트 전달 완료")
             
         except Exception as e:
-            print(f"❌ AI 어시스턴트 전달 오류: {e}")
+            print(f"AI 어시스턴트 전달 오류: {e}")
     
     def _get_trading_data(self, days: int = 1) -> List[Dict]:
         """거래 데이터 조회"""
@@ -933,7 +933,7 @@ class AIReportWidgetReal(CTkFrame):
             return data
             
         except Exception as e:
-            print(f"❌ 거래 데이터 조회 오류: {e}")
+            print(f"거래 데이터 조회 오류: {e}")
             return []
     
     def _generate_today_report(self):
@@ -945,15 +945,15 @@ class AIReportWidgetReal(CTkFrame):
             if not today_data:
                 # 데이터가 없으면 기본 메시지
                 summary_text = (
-                    "📊 오늘 거래 요약\n\n"
-                    "❌ 오늘 거래 데이터가 없습니다.\n\n"
-                    "💸 비용 영향:\n"
+                    "오늘 거래 요약\n\n"
+                    "오늘 거래 데이터가 없습니다.\n\n"
+                    "비용 영향:\n"
                     "- 거래 데이터가 없어 비용 지표를 계산할 수 없습니다.\n\n"
-                    "🤖 AI 분석:\n"
+                    "AI 분석:\n"
                     "- 거래가 없어 분석할 데이터가 부족합니다.\n"
                     "- 시장 상황을 모니터링하고 거래 기회를 기다려주세요."
                 )
-                detail_text = "📈 상세 거래 내역\n\n거래 내역이 없습니다."
+                detail_text = "상세 거래 내역\n\n거래 내역이 없습니다."
             else:
                 # 실제 데이터 기반 분석
                 total_trades = len(today_data)
@@ -969,29 +969,29 @@ class AIReportWidgetReal(CTkFrame):
                 # AI 분석
                 ai_analysis = self._analyze_trading_performance(today_data)
                 
-                summary_text = f"""📊 오늘 거래 요약 ({datetime.now().strftime('%Y-%m-%d')})
+                summary_text = f"""오늘 거래 요약 ({datetime.now().strftime('%Y-%m-%d')})
 
-🔢 총 거래 수: {total_trades}건
-✅ 수익 거래: {profitable_trades}건
-📈 승률: {win_rate:.1f}%
-💰 총 수익: {total_pnl:.2f} USDT
-📊 평균 수익: {avg_pnl:.2f} USDT
+총 거래 수: {total_trades}건
+수익 거래: {profitable_trades}건
+승률: {win_rate:.1f}%
+총 수익: {total_pnl:.2f} USDT
+평균 수익: {avg_pnl:.2f} USDT
 
-💸 비용 영향:
+비용 영향:
 - 누적 Fee: {total_fees:.2f} USDT
 - 평균 Fee: {avg_fee:.4f} USDT
 - Fee 대비 PnL 영향도: {fee_impact_percent:.2f}%
 - 총 수익은 현재 trade_log의 pnl 합계 기준이며, 수수료는 별도 비용 지표로 병행 표시됩니다.
 
-🤖 AI 분석:
+AI 분석:
 {ai_analysis['summary']}
 
-💡 추천사항:
+추천사항:
 {ai_analysis['recommendations']}
 """
                 
                 # 상세 내역
-                detail_text = "📈 상세 거래 내역\n\n"
+                detail_text = "상세 거래 내역\n\n"
                 for i, trade in enumerate(today_data[:20]):  # 최근 20건만 표시
                     entry_time = trade['entry_time'][:16] if trade['entry_time'] else 'N/A'
                     symbol = trade['symbol']
@@ -1011,7 +1011,7 @@ class AIReportWidgetReal(CTkFrame):
             self._save_daily_report(summary_text, detail_text)
             
         except Exception as e:
-            print(f"❌ 오늘 리포트 생성 오류: {e}")
+            print(f"오늘 리포트 생성 오류: {e}")
     
     def _generate_weekly_report(self):
         """주간 리포트 생성 (7개 오늘 리포트 종합)"""
@@ -1020,37 +1020,37 @@ class AIReportWidgetReal(CTkFrame):
             daily_reports = self._load_daily_reports(7)
             
             if not daily_reports:
-                summary_text = "📊 주간 거래 요약\n\n❌ 주간 리포트 데이터가 없습니다."
-                detail_text = "📈 주간 상세 분석\n\n분석할 데이터가 부족합니다."
+                summary_text = "주간 거래 요약\n\n주간 리포트 데이터가 없습니다."
+                detail_text = "주간 상세 분석\n\n분석할 데이터가 부족합니다."
             else:
                 # 7개 일일 리포트를 AI가 종합 분석
                 weekly_analysis = self._analyze_weekly_reports(daily_reports)
                 
-                summary_text = f"""📊 주간 거래 요약 (최근 7일)
+                summary_text = f"""주간 거래 요약 (최근 7일)
 
-📅 분석 기간: {weekly_analysis['start_date']} ~ {weekly_analysis['end_date']}
-🔢 총 거래 수: {weekly_analysis['total_trades']}건
-✅ 수익 거래: {weekly_analysis['profitable_trades']}건
-📈 평균 승률: {weekly_analysis['avg_win_rate']:.1f}%
-💰 총 수익: {weekly_analysis['total_pnl']:.2f} USDT
-📊 일평균 수익: {weekly_analysis['daily_avg_pnl']:.2f} USDT
+분석 기간: {weekly_analysis['start_date']} ~ {weekly_analysis['end_date']}
+총 거래 수: {weekly_analysis['total_trades']}건
+수익 거래: {weekly_analysis['profitable_trades']}건
+평균 승률: {weekly_analysis['avg_win_rate']:.1f}%
+총 수익: {weekly_analysis['total_pnl']:.2f} USDT
+일평균 수익: {weekly_analysis['daily_avg_pnl']:.2f} USDT
 
-🤖 AI 주간 분석:
+AI 주간 분석:
 {weekly_analysis['ai_summary']}
 
-💡 주간 추천사항:
+주간 추천사항:
 {weekly_analysis['recommendations']}
 """
                 
-                detail_text = f"""📈 주간 상세 분석
+                detail_text = f"""주간 상세 분석
 
-📊 일별 성과:
+일별 성과:
 {weekly_analysis['daily_breakdown']}
 
-🏆 최고 성과 코인:
+최고 성과 코인:
 {weekly_analysis['top_performers']}
 
-⚠️ 주의사항:
+주의사항:
 {weekly_analysis['warnings']}
 """
             
@@ -1062,7 +1062,7 @@ class AIReportWidgetReal(CTkFrame):
             self._save_weekly_report(summary_text, detail_text)
             
         except Exception as e:
-            print(f"❌ 주간 리포트 생성 오류: {e}")
+            print(f"주간 리포트 생성 오류: {e}")
     
     def _generate_monthly_report(self):
         """월간 리포트 생성 (4개 주간 리포트 종합)"""
@@ -1071,37 +1071,37 @@ class AIReportWidgetReal(CTkFrame):
             weekly_reports = self._load_weekly_reports(4)
             
             if not weekly_reports:
-                summary_text = "📊 월간 거래 요약\n\n❌ 월간 리포트 데이터가 없습니다."
-                detail_text = "📈 월간 상세 분석\n\n분석할 데이터가 부족합니다."
+                summary_text = "월간 거래 요약\n\n월간 리포트 데이터가 없습니다."
+                detail_text = "월간 상세 분석\n\n분석할 데이터가 부족합니다."
             else:
                 # 4개 주간 리포트를 AI가 종합 분석
                 monthly_analysis = self._analyze_monthly_reports(weekly_reports)
                 
-                summary_text = f"""📊 월간 거래 요약 (최근 30일)
+                summary_text = f"""월간 거래 요약 (최근 30일)
 
-📅 분석 기간: {monthly_analysis['start_date']} ~ {monthly_analysis['end_date']}
-🔢 총 거래 수: {monthly_analysis['total_trades']}건
-✅ 수익 거래: {monthly_analysis['profitable_trades']}건
-📈 평균 승률: {monthly_analysis['avg_win_rate']:.1f}%
-💰 총 수익: {monthly_analysis['total_pnl']:.2f} USDT
-📊 주평균 수익: {monthly_analysis['weekly_avg_pnl']:.2f} USDT
+분석 기간: {monthly_analysis['start_date']} ~ {monthly_analysis['end_date']}
+총 거래 수: {monthly_analysis['total_trades']}건
+수익 거래: {monthly_analysis['profitable_trades']}건
+평균 승률: {monthly_analysis['avg_win_rate']:.1f}%
+총 수익: {monthly_analysis['total_pnl']:.2f} USDT
+주평균 수익: {monthly_analysis['weekly_avg_pnl']:.2f} USDT
 
-🤖 AI 월간 분석:
+AI 월간 분석:
 {monthly_analysis['ai_summary']}
 
-💡 월간 추천사항:
+월간 추천사항:
 {monthly_analysis['recommendations']}
 """
                 
-                detail_text = f"""📈 월간 상세 분석
+                detail_text = f"""월간 상세 분석
 
-📊 주별 성과:
+주별 성과:
 {monthly_analysis['weekly_breakdown']}
 
-🎯 성과 분석:
+성과 분석:
 {monthly_analysis['performance_analysis']}
 
-🔮 향후 전망:
+향후 전망:
 {monthly_analysis['future_outlook']}
 """
             
@@ -1113,7 +1113,7 @@ class AIReportWidgetReal(CTkFrame):
             self._save_monthly_report(summary_text, detail_text)
             
         except Exception as e:
-            print(f"❌ 월간 리포트 생성 오류: {e}")
+            print(f"월간 리포트 생성 오류: {e}")
     
     def _analyze_trading_performance(self, trades: List[Dict]) -> Dict:
         """거래 성과 AI 분석"""
@@ -1238,7 +1238,7 @@ class AIReportWidgetReal(CTkFrame):
                 'warnings': warnings_text
             }
         except Exception as e:
-            print(f"❌ 주간 분석 오류: {e}")
+            print(f"주간 분석 오류: {e}")
             return {
                 'start_date': (datetime.now() - timedelta(days=7)).strftime('%Y-%m-%d'),
                 'end_date': datetime.now().strftime('%Y-%m-%d'),
@@ -1329,7 +1329,7 @@ class AIReportWidgetReal(CTkFrame):
                 'future_outlook': future_outlook
             }
         except Exception as e:
-            print(f"❌ 월간 분석 오류: {e}")
+            print(f"월간 분석 오류: {e}")
             return {
                 'start_date': (datetime.now() - timedelta(days=30)).strftime('%Y-%m-%d'),
                 'end_date': datetime.now().strftime('%Y-%m-%d'),
@@ -1361,7 +1361,7 @@ class AIReportWidgetReal(CTkFrame):
                 json.dump(report_data, f, ensure_ascii=False, indent=2)
                 
         except Exception as e:
-            print(f"❌ 일일 리포트 저장 오류: {e}")
+            print(f"일일 리포트 저장 오류: {e}")
     
     def _load_daily_reports(self, days: int) -> List[Dict]:
         """일일 리포트 로드"""
@@ -1377,7 +1377,7 @@ class AIReportWidgetReal(CTkFrame):
             
             return reports
         except Exception as e:
-            print(f"❌ 일일 리포트 로드 오류: {e}")
+            print(f"일일 리포트 로드 오류: {e}")
             return []
     
     def _save_weekly_report(self, summary: str, detail: str):
@@ -1396,7 +1396,7 @@ class AIReportWidgetReal(CTkFrame):
                 json.dump(report_data, f, ensure_ascii=False, indent=2)
                 
         except Exception as e:
-            print(f"❌ 주간 리포트 저장 오류: {e}")
+            print(f"주간 리포트 저장 오류: {e}")
     
     def _load_weekly_reports(self, weeks: int) -> List[Dict]:
         """주간 리포트 로드"""
@@ -1412,7 +1412,7 @@ class AIReportWidgetReal(CTkFrame):
             
             return reports
         except Exception as e:
-            print(f"❌ 주간 리포트 로드 오류: {e}")
+            print(f"주간 리포트 로드 오류: {e}")
             return []
     
     def _save_monthly_report(self, summary: str, detail: str):
@@ -1431,7 +1431,7 @@ class AIReportWidgetReal(CTkFrame):
                 json.dump(report_data, f, ensure_ascii=False, indent=2)
                 
         except Exception as e:
-            print(f"❌ 월간 리포트 저장 오류: {e}")
+            print(f"월간 리포트 저장 오류: {e}")
             
             
     def load_and_display_existing_reports(self):
@@ -1455,13 +1455,13 @@ class AIReportWidgetReal(CTkFrame):
             self._load_and_display_monthly_report()
             self._report_cache_ts = time.time()
             
-            print("✅ 기존 AI 리포트 로드 완료")
+            print("기존 AI 리포트 로드 완료")
             
             # 4. 새로운 리포트 생성도 실행
             self.safe_after(2000, self.auto_generate_reports)
             
         except Exception as e:
-            print(f"❌ 기존 리포트 로드 오류: {e}")
+            print(f"기존 리포트 로드 오류: {e}")
             # 로드 실패 시에도 새 리포트는 생성
             self.safe_after(2000, self.auto_generate_reports)
     
@@ -1479,12 +1479,12 @@ class AIReportWidgetReal(CTkFrame):
                 self._safe_set_text(self.today_summary, report_data.get('summary', ''))
                 self._safe_set_text(self.today_detail, report_data.get('detail', ''))
                 
-                print(f"✅ 오늘 리포트 로드됨: {report_file}")
+                print(f"오늘 리포트 로드됨: {report_file}")
             else:
-                print(f"⚠️ 오늘 리포트 파일 없음: {report_file}")
+                print(f"오늘 리포트 파일 없음: {report_file}")
                 
         except Exception as e:
-            print(f"❌ 오늘 리포트 로드 오류: {e}")
+            print(f"오늘 리포트 로드 오류: {e}")
     
     def _load_and_display_weekly_report(self):
         """주간 리포트 파일 로드 및 UI 표시"""
@@ -1500,12 +1500,12 @@ class AIReportWidgetReal(CTkFrame):
                 self._safe_set_text(self.weekly_summary, report_data.get('summary', ''))
                 self._safe_set_text(self.weekly_detail, report_data.get('detail', ''))
                 
-                print(f"✅ 주간 리포트 로드됨: {report_file}")
+                print(f"주간 리포트 로드됨: {report_file}")
             else:
-                print(f"⚠️ 주간 리포트 파일 없음: {report_file}")
+                print(f"주간 리포트 파일 없음: {report_file}")
                 
         except Exception as e:
-            print(f"❌ 주간 리포트 로드 오류: {e}")
+            print(f"주간 리포트 로드 오류: {e}")
     
     def _load_and_display_monthly_report(self):
         """월간 리포트 파일 로드 및 UI 표시"""
@@ -1524,9 +1524,9 @@ class AIReportWidgetReal(CTkFrame):
                 if hasattr(self, 'monthly_detail'):
                     self._safe_set_text(self.monthly_detail, report_data.get('detail', ''))
                 
-                print(f"✅ 월간 리포트 로드됨: {report_file}")
+                print(f"월간 리포트 로드됨: {report_file}")
             else:
-                print(f"⚠️ 월간 리포트 파일 없음: {report_file}")
+                print(f"월간 리포트 파일 없음: {report_file}")
                 
         except Exception as e:
-            print(f"❌ 월간 리포트 로드 오류: {e}")
+            print(f"월간 리포트 로드 오류: {e}")

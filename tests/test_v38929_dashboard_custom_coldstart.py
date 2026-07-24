@@ -1,3 +1,4 @@
+import json
 from pathlib import Path
 import subprocess
 import sys
@@ -5,7 +6,7 @@ from unittest.mock import MagicMock
 
 from trading.analyzer import Analyzer
 from trading.profitability_validation import ProfitabilityValidator
-from trading.strategy_source_ingestor import StrategySourceIngestor
+from trading.strategy_source_ingestor import ExtractedStrategySource, StrategySourceIngestor
 from trading.custom_strategy_pipeline import CustomStrategyPipeline
 from trading.declarative_strategy_engine import DeclarativeStrategyEngine
 
@@ -102,6 +103,49 @@ def test_incomplete_strategy_is_not_filled_with_invented_conditions():
     assert "stop_loss" in result["missing_conditions"]
 
 
+def test_youtube_id_supports_watch_shorts_share_embed_and_live_urls():
+    video_id = "exQKPige-og"
+    urls = [
+        f"https://www.youtube.com/watch?v={video_id}&t=12",
+        f"https://www.youtube.com/shorts/{video_id}?feature=share",
+        f"https://youtu.be/{video_id}?si=test",
+        f"https://www.youtube.com/embed/{video_id}",
+        f"https://www.youtube.com/live/{video_id}",
+    ]
+    assert [StrategySourceIngestor._youtube_id(url) for url in urls] == [video_id] * len(urls)
+
+
+def test_youtube_without_caption_or_screen_evidence_never_becomes_review_ready():
+    class EvidenceMissingIngestor(StrategySourceIngestor):
+        def extract(self, value, kind="auto"):
+            return ExtractedStrategySource(
+                kind="youtube",
+                reference="https://www.youtube.com/watch?v=exQKPige-og",
+                title="승률을 주장하는 제목",
+                text="제목: 승률 92% 전략\n제작자: 테스트",
+                warnings=["자막과 화면 근거 없음"],
+                evidence={"strategy_evidence_available": False},
+            )
+
+    result = EvidenceMissingIngestor().analyze("ignored", "youtube")
+    assert result["ai_analyzed"] is False
+    assert result["ready_for_review"] is False
+    assert set(StrategySourceIngestor.REQUIRED_RULES).issubset(result["missing_conditions"])
+
+
+def test_custom_strategy_worker_captures_error_before_tk_callback_runs():
+    source = (ROOT / "ui" / "widgets" / "custom_strategy_widget.py").read_text(encoding="utf-8")
+    assert "lambda error=error: self._show_error(error)" in source
+    assert "lambda: self._show_error(str(exc))" not in source
+    assert '"*.md *.pdf *.pine *.txt' in source
+
+
+def test_packaged_build_collects_dynamic_ytdlp_extractors():
+    hook = (ROOT / "hooks" / "hook-yt_dlp.py").read_text(encoding="utf-8")
+    assert 'collect_submodules("yt_dlp")' in hook
+    assert "hookspath=['hooks']" in (ROOT / "build_safe.py").read_text(encoding="utf-8")
+
+
 def test_new_user_gets_limited_learning_profile_instead_of_permanent_block():
     report = ProfitabilityValidator().evaluate_strategy([], {"enabled": True, "min_trades": 10})
     assert report["enabled"] is True
@@ -168,6 +212,26 @@ def test_settings_have_visible_section_save_bars_and_noahai_close_branding():
     assert "저장 후 닫기" in dialog
     assert "저장하지 않고 닫기" in dialog
     assert "계속 편집" in dialog
+    assert "ai_custom_runtime_enabled_var" in source
+    assert "ai_custom_limited_live_var" in source
+    assert "AI 커스텀 전략을 실제 자동매매 엔진에서 사용" in source
+    assert "self.ai_custom_runtime_enabled_var = ctk.BooleanVar(value=False)" in source
+    assert "self.ai_custom_limited_live_var = ctk.BooleanVar(value=False)" in source
+    assert 'text="AI 애널리스트 모델:"' in source
+    main_source = (ROOT / "main.py").read_text(encoding="utf-8")
+    assert "if 'ai_custom_runtime' in new_settings:" in main_source
+    assert "self.sync_custom_strategy_runtime_pools()" in main_source
+
+    custom_source = (ROOT / "ui" / "widgets" / "custom_strategy_widget.py").read_text(encoding="utf-8")
+    assert "검토 및 전략 버전 저장" in custom_source
+    assert "기본 AI와 함께 사용 (권장)" in custom_source
+    assert "내 전략이 진입 신호 생성 (고급)" in custom_source
+    assert 'runtime_cfg.get("enabled", False)' in custom_source
+
+    config_source = (ROOT / "config" / "settings.py").read_text(encoding="utf-8")
+    assert "_ai_custom_runtime_safe_default_v3900_applied" in config_source
+    assert "runtime_cfg['enabled'] = False" in config_source
+    assert "runtime_cfg['allow_limited_live'] = False" in config_source
 
 
 def test_trading_stats_kpis_use_single_four_card_row():
@@ -227,9 +291,9 @@ def test_existing_strategy_key_creates_incrementing_versions_and_trims_to_ten(tm
 
 def test_custom_strategy_manual_exposes_real_button_flow_and_scopes():
     manual = (ROOT / "ui" / "widgets" / "user_manual_widget.py").read_text(encoding="utf-8")
-    assert 'tab_widget.add("🧠 AI 커스텀")' in manual
+    assert 'tab_widget.add("AI 커스텀")' in manual
     assert "manual_width = max(900, min(1240, screen_width - 60))" in manual
-    assert "tab_widget._segmented_button.configure" in manual
+    assert "style_tabview(" in manual
     for text in (
         "모든 블록체인", "모든 주식/ETF", "실행 검증 기록", "최종 적용", "최대 10개",
         "전략 설명 / Pine Script 직접 입력", "앞 100쪽", "앞 60,000자", "대표 장면 최대 9개",
@@ -260,11 +324,78 @@ def test_custom_strategy_source_limits_and_visible_ai_model_are_explicit():
     assert "audio_transcript_available" in ingestor
 
 
-def test_windows_executable_metadata_is_aligned_to_38929():
+def test_windows_executable_metadata_is_aligned_to_3901():
     version_info = (ROOT / "config" / "windows_version_info.txt").read_text(encoding="utf-8")
     spec = (ROOT / "aiautotrade.spec").read_text(encoding="utf-8")
     safe_builder = (ROOT / "build_safe.py").read_text(encoding="utf-8")
-    assert "filevers=(3, 8, 9, 29)" in version_info
-    assert "ProductVersion', u'3.8.9.29'" in version_info
+    assert "filevers=(3, 9, 0, 1)" in version_info
+    assert "ProductVersion', u'3.9.0.1'" in version_info
     assert "version='config/windows_version_info.txt'" in spec
     assert "version='config/windows_version_info.txt'" in safe_builder
+    assert 'RELEASE_VERSION = "3.9.0.1"' in (ROOT / "config" / "app_version.py").read_text(encoding="utf-8")
+    assert (ROOT / "deploy" / "version.txt").read_text(encoding="utf-8").strip() == "3.9.0.1"
+    manifest = json.loads((ROOT / "deploy" / "release-manifest.json").read_text(encoding="utf-8"))
+    assert manifest["version"] == "3.9.0.1"
+    assert manifest["build_status"] == "pending_windows_rebuild"
+    assert manifest["assets"]["exe"]["size"] == 0
+    assert manifest["assets"]["exe"]["sha256"] == ""
+    assert "/v3.9.0.1/AITrading.exe" in manifest["assets"]["exe"]["download_url"]
+    release_builder = (ROOT / "scripts" / "generate_release_assets.py").read_text(encoding="utf-8")
+    assert "AITrading.exe가 RELEASE_VERSION 변경보다 오래된 빌드" in release_builder
+    release_push = (ROOT / "scripts" / "release_tag_push.ps1").read_text(encoding="utf-8")
+    assert "EXE ProductVersion mismatch" in release_push
+
+
+def test_3901_update_notice_and_financial_intelligence_manual_are_visible():
+    dashboard = (ROOT / "ui" / "dashboard_modern.py").read_text(encoding="utf-8")
+    manual = (ROOT / "ui" / "widgets" / "user_manual_widget.py").read_text(encoding="utf-8")
+    assert "RELEASE_HIGHLIGHT" in dashboard
+    assert "업데이트·사용법" in dashboard
+    assert 'self._open_manual_modal("업데이트")' in dashboard
+    assert 'tab_widget.add("금융 인텔리전스")' in manual
+
+
+def test_3901_footer_is_one_row_and_keeps_content_height():
+    dashboard = (ROOT / "ui" / "dashboard_modern.py").read_text(encoding="utf-8")
+    assert 'self.status_display.grid(row=0, column=0' in dashboard
+    assert 'update_card.grid(row=0, column=1' in dashboard
+    assert 'summary_card.grid(row=0, column=2' in dashboard
+    assert 'update_card.pack(fill="x"' not in dashboard
+    assert "inner.grid_columnconfigure(0, weight=3" in dashboard
+
+
+def test_3901_cross_platform_icon_and_tab_visual_system_is_shared():
+    dashboard = (ROOT / "ui" / "dashboard_modern.py").read_text(encoding="utf-8")
+    settings = (ROOT / "ui" / "settings_modern.py").read_text(encoding="utf-8")
+    manual = (ROOT / "ui" / "widgets" / "user_manual_widget.py").read_text(encoding="utf-8")
+    visual = (ROOT / "ui" / "visual_system.py").read_text(encoding="utf-8")
+    assert "def get_ui_icon(" in visual
+    assert "운영체제의 컬러 이모지 폰트를 사용하지 않으므로" in visual
+    for icon_name in ("blockchain", "stock", "portfolio", "wallet", "analyst"):
+        assert f'"{icon_name}"' in dashboard
+    assert "style_tabview(" in dashboard
+    assert "style_tabview(" in settings
+    assert "style_tabview(" in manual
+
+
+def test_3901_financial_intelligence_is_created_before_exchange_or_broker_tabs():
+    dashboard = (ROOT / "ui" / "dashboard_modern.py").read_text(encoding="utf-8")
+    switch_body = dashboard[dashboard.index("    def switch_service"):dashboard.index("    def _get_ops_kpi_specs_for_service")]
+    assert switch_body.index("self._ensure_financial_intelligence_tab(normalized_service)") < switch_body.index(
+        "self.create_service_sub_tabs(service_name)"
+    )
+
+
+def test_3901_user_financial_intelligence_has_no_raw_json_input():
+    widget = (ROOT / "ui" / "widgets" / "financial_intelligence_widget.py").read_text(encoding="utf-8")
+    assert "_json_box" not in widget
+    assert "json.loads" not in widget
+    assert "CTkTextbox" in widget
+    assert "chart_canvases" in widget
+
+
+def test_3901_safe_build_bundles_life_finance_catalog_only():
+    safe_builder = (ROOT / "build_safe.py").read_text(encoding="utf-8")
+    spec = (ROOT / "aiautotrade.spec").read_text(encoding="utf-8")
+    assert "('data/finance_products', 'data/finance_products')" in safe_builder
+    assert "('data/finance_products', 'data/finance_products')" in spec

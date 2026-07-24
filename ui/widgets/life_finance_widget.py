@@ -126,7 +126,7 @@ class LifeFinanceWidget(ctk.CTkFrame):
         
         title = ctk.CTkLabel(
             title_frame,
-            text="💰 생활금융 관리",
+            text="생활금융 관리",
             font=("Helvetica", 24, "bold")
         )
         title.pack(side="left")
@@ -136,11 +136,11 @@ class LifeFinanceWidget(ctk.CTkFrame):
         quick_buttons_frame.pack(side="right", fill="x")
         
         buttons = [
-            ("📊 대시보드", self._show_dashboard),
-            ("💸 지출 추가", self._open_add_expense),
-            ("💰 수입 추가", self._open_add_income),
-            ("🎯 목표 관리", self._show_goals),
-            ("🏦 금융상품", self._show_products),
+            ("대시보드", self._show_dashboard),
+            ("지출 추가", self._open_add_expense),
+            ("수입 추가", self._open_add_income),
+            ("목표 관리", self._show_goals),
+            ("금융상품", self._show_products),
         ]
         
         for label, command in buttons:
@@ -159,13 +159,13 @@ class LifeFinanceWidget(ctk.CTkFrame):
         self.tabview.pack(fill="both", expand=True)
         
         # 탭 추가
-        self.dashboard_tab = self.tabview.add("📊 대시보드")
-        self.transactions_tab = self.tabview.add("💳 거래")
-        self.goals_tab = self.tabview.add("🎯 목표")
-        self.analysis_tab = self.tabview.add("📈 분석")
-        self.charts_tab = self.tabview.add("📉 차트")
-        self.products_tab = self.tabview.add("🏦 금융상품")
-        self.assistant_tab = self.tabview.add("🤖 AI 어시스턴트")
+        self.dashboard_tab = self.tabview.add("대시보드")
+        self.transactions_tab = self.tabview.add("거래")
+        self.goals_tab = self.tabview.add("목표")
+        self.analysis_tab = self.tabview.add("분석")
+        self.charts_tab = self.tabview.add("차트")
+        self.products_tab = self.tabview.add("금융상품")
+        self.assistant_tab = self.tabview.add("AI 어시스턴트")
         
         # 각 탭 콘텐츠 설정
         self._setup_dashboard_tab()
@@ -202,7 +202,7 @@ class LifeFinanceWidget(ctk.CTkFrame):
         
         ctk.CTkButton(
             toolbar,
-            text="🔄 새로고침",
+            text="새로고침",
             command=self._refresh_display,
             width=120
         ).pack(side="left", padx=5)
@@ -243,7 +243,7 @@ class LifeFinanceWidget(ctk.CTkFrame):
 
         ctk.CTkLabel(
             profile_frame,
-            text="👤 개인화 프로필",
+            text="개인화 프로필",
             font=ctk.CTkFont(size=14, weight="bold"),
             text_color="#f1f5f9",
         ).pack(anchor="w", padx=14, pady=(12, 8))
@@ -295,7 +295,7 @@ class LifeFinanceWidget(ctk.CTkFrame):
 
         ctk.CTkLabel(
             input_panel,
-            text="🏦 금융상품 비교 조건 설정",
+            text="금융상품 비교 조건 설정",
             font=ctk.CTkFont(size=15, weight="bold"),
             text_color="#f1f5f9",
         ).grid(row=0, column=0, columnspan=6, padx=14, pady=(12, 8), sticky="w")
@@ -345,16 +345,16 @@ class LifeFinanceWidget(ctk.CTkFrame):
         btn_frame = ctk.CTkFrame(input_panel, fg_color="transparent")
         btn_frame.grid(row=1, column=4, rowspan=3, padx=(10, 14), pady=4, sticky="ns")
 
-        ctk.CTkButton(btn_frame, text="🏦 대출 비교", width=110,
+        ctk.CTkButton(btn_frame, text="대출 비교", width=110,
                       command=self._run_loan_compare,
                       fg_color="#1d4ed8", hover_color="#1e40af").pack(pady=3)
-        ctk.CTkButton(btn_frame, text="🛡️ 보험 비교", width=110,
+        ctk.CTkButton(btn_frame, text="보험 비교", width=110,
                       command=self._run_insurance_compare,
                       fg_color="#065f46", hover_color="#064e3b").pack(pady=3)
-        ctk.CTkButton(btn_frame, text="💳 예적금 비교", width=110,
+        ctk.CTkButton(btn_frame, text="예적금 비교", width=110,
                       command=self._run_savings_compare,
                       fg_color="#7c3aed", hover_color="#6d28d9").pack(pady=3)
-        ctk.CTkButton(btn_frame, text="🔄 전체 비교", width=110,
+        ctk.CTkButton(btn_frame, text="전체 비교", width=110,
                       command=self._run_all_compare,
                       fg_color="#374151", hover_color="#1f2937").pack(pady=3)
 
@@ -366,7 +366,7 @@ class LifeFinanceWidget(ctk.CTkFrame):
 
         self._catalog_status_label = ctk.CTkLabel(
             catalog_bar,
-            text="📂 카탈로그 로딩 중...",
+            text="상품 정보 확인 중...",
             font=ctk.CTkFont(size=11),
             text_color="#94a3b8",
             justify="left",
@@ -375,7 +375,7 @@ class LifeFinanceWidget(ctk.CTkFrame):
 
         ctk.CTkButton(
             catalog_bar,
-            text="🔄 카탈로그 갱신",
+            text="상품 정보 다시 읽기",
             width=110, height=26,
             fg_color="#1f2937", hover_color="#374151",
             font=ctk.CTkFont(size=11),
@@ -421,7 +421,7 @@ class LifeFinanceWidget(ctk.CTkFrame):
         
         ctk.CTkButton(
             btn_frame,
-            text="🎤 음성 입력",
+            text="음성 입력",
             command=self._voice_input,
             width=100
         ).pack(side="left", padx=5)
@@ -437,17 +437,17 @@ class LifeFinanceWidget(ctk.CTkFrame):
     def _show_dashboard(self):
         """대시보드 표시"""
         self._refresh_display()
-        self.tabview.set("📊 대시보드")
+        self.tabview.set("대시보드")
 
     def _show_goals(self):
         """목표 탭 표시"""
         self._update_goals()
-        self.tabview.set("🎯 목표")
+        self.tabview.set("목표")
 
     def _show_products(self):
         """금융상품 탭 표시"""
         self._update_products()
-        self.tabview.set("🏦 금융상품")
+        self.tabview.set("금융상품")
     
     def _refresh_display(self):
         """디스플레이 새로고침"""
@@ -486,10 +486,10 @@ class LifeFinanceWidget(ctk.CTkFrame):
         grid_frame.pack(fill="x")
         
         metrics = [
-            ("💰 수입", f"{this_month['total_income']:,}원"),
-            ("💸 지출", f"{this_month['total_expense']:,}원"),
-            ("💎 저축", f"{this_month['net_savings']:,}원"),
-            ("📈 저축률", f"{this_month['savings_rate']:.1f}%"),
+            ("수입", f"{this_month['total_income']:,}원"),
+            ("지출", f"{this_month['total_expense']:,}원"),
+            ("저축", f"{this_month['net_savings']:,}원"),
+            ("저축률", f"{this_month['savings_rate']:.1f}%"),
             ("누적 수입", f"{summary['cumulative']['total_income']:,}원"),
             ("순 자산", f"{summary['cumulative']['net_position']:,}원"),
         ]
@@ -525,7 +525,7 @@ class LifeFinanceWidget(ctk.CTkFrame):
             ]
             
             for label, value in comparisons:
-                sign = "📈" if value > 0 else "📉"
+                sign = "" if value > 0 else ""
                 color = "green" if value > 0 else "red"
                 ctk.CTkLabel(
                     comparison_frame,
@@ -541,7 +541,7 @@ class LifeFinanceWidget(ctk.CTkFrame):
             
             ctk.CTkLabel(
                 goals_frame,
-                text=f"🎯 목표 진행 ({goals['active_count']}개 진행 중)",
+                text=f"목표 진행 ({goals['active_count']}개 진행 중)",
                 font=("Helvetica", 14, "bold")
             ).pack(anchor="w", pady=(0, 10))
             
@@ -556,13 +556,13 @@ class LifeFinanceWidget(ctk.CTkFrame):
 
             ctk.CTkLabel(
                 alert_frame,
-                text="🔔 금융 알림",
+                text="금융 알림",
                 font=("Helvetica", 14, "bold")
             ).pack(anchor="w", pady=(0, 8))
 
             for alert in alerts[:5]:
                 level = alert.get('level', 'info')
-                icon = "🚨" if level == 'critical' else "⚠️" if level == 'warning' else "ℹ️"
+                icon = "" if level == 'critical' else "" if level == 'warning' else "ℹ"
                 ctk.CTkLabel(
                     alert_frame,
                     text=f"{icon} {alert.get('title', '')}: {alert.get('message', '')}",
@@ -632,7 +632,7 @@ class LifeFinanceWidget(ctk.CTkFrame):
         row.pack(fill="x", pady=5)
         
         # 아이콘 및 정보
-        icon = "💰" if tx.type == TransactionType.INCOME else "💸"
+        icon = "" if tx.type == TransactionType.INCOME else ""
         sign = "+" if tx.type == TransactionType.INCOME else "-"
         
         info_frame = ctk.CTkFrame(row, fg_color="transparent")
@@ -668,8 +668,8 @@ class LifeFinanceWidget(ctk.CTkFrame):
         
         ctk.CTkButton(
             row,
-            text="✕",
-            width=30,
+            text="삭제",
+            width=48,
             height=30,
             command=delete_tx,
             fg_color="red",
@@ -787,7 +787,7 @@ class LifeFinanceWidget(ctk.CTkFrame):
         # 카테고리 분석
         ctk.CTkLabel(
             self.analysis_scroll,
-            text="📊 이번 달 카테고리별 지출",
+            text="이번 달 카테고리별 지출",
             font=("Helvetica", 14, "bold")
         ).pack(anchor="w", padx=10, pady=(10, 10))
         
@@ -816,7 +816,7 @@ class LifeFinanceWidget(ctk.CTkFrame):
         # 지출 추세
         ctk.CTkLabel(
             self.analysis_scroll,
-            text="📈 최근 6개월 지출 추세",
+            text="최근 6개월 지출 추세",
             font=("Helvetica", 14, "bold")
         ).pack(anchor="w", padx=10, pady=(20, 10))
         
@@ -867,7 +867,7 @@ class LifeFinanceWidget(ctk.CTkFrame):
         # 카테고리 도넛 차트
         donut_card = ctk.CTkFrame(self.charts_scroll)
         donut_card.pack(fill="x", padx=10, pady=10)
-        ctk.CTkLabel(donut_card, text="🍩 카테고리 비중", font=("Helvetica", 14, "bold")).pack(anchor="w", padx=10, pady=(10, 5))
+        ctk.CTkLabel(donut_card, text="카테고리 비중", font=("Helvetica", 14, "bold")).pack(anchor="w", padx=10, pady=(10, 5))
 
         donut_canvas = tk.Canvas(donut_card, width=420, height=280, bg="#1f1f1f", highlightthickness=0)
         donut_canvas.pack(fill="x", padx=10, pady=10)
@@ -876,7 +876,7 @@ class LifeFinanceWidget(ctk.CTkFrame):
         # 월별 지출 라인 차트
         line_card = ctk.CTkFrame(self.charts_scroll)
         line_card.pack(fill="x", padx=10, pady=10)
-        ctk.CTkLabel(line_card, text="📉 월별 지출 추세", font=("Helvetica", 14, "bold")).pack(anchor="w", padx=10, pady=(10, 5))
+        ctk.CTkLabel(line_card, text="월별 지출 추세", font=("Helvetica", 14, "bold")).pack(anchor="w", padx=10, pady=(10, 5))
 
         line_canvas = tk.Canvas(line_card, width=760, height=320, bg="#1f1f1f", highlightthickness=0)
         line_canvas.pack(fill="x", padx=10, pady=10)
@@ -987,13 +987,15 @@ class LifeFinanceWidget(ctk.CTkFrame):
             status = self.product_advisor.get_catalog_status()
             parts = []
             for pt, info in status.items():
-                source = info.get("source", "")
-                if source == "built_in_sample":
-                    parts.append(f"{pt}: 내장 샘플")
-                else:
-                    mtime_str = info.get("mtime_str", "")
-                    parts.append(f"{pt}: 외부 파일 ({mtime_str})")
-            label_text = "📂 " + "  |  ".join(parts) if parts else "📂 카탈로그 정보 없음"
+                label = {"loan": "대출", "insurance": "보험", "savings": "예적금"}.get(pt, pt)
+                source_kind = info.get("source_kind", "")
+                source_label = {
+                    "bundled_catalog": "앱 기본 비교 데이터(실시간 아님)",
+                    "operator_catalog": "운영자 제공 비교 데이터",
+                    "built_in_fallback": "앱 내장 예비 비교 데이터",
+                }.get(source_kind, "확인 필요")
+                parts.append(f"{label}: {source_label}")
+            label_text = "  |  ".join(parts) if parts else "상품 정보 상태를 확인할 수 없습니다."
             self._catalog_status_label.configure(text=label_text)
         except Exception:
             pass
@@ -1004,14 +1006,14 @@ class LifeFinanceWidget(ctk.CTkFrame):
             return
         try:
             if hasattr(self, '_catalog_status_label'):
-                self._catalog_status_label.configure(text="🔄 카탈로그 재로드 중...")
+                self._catalog_status_label.configure(text="상품 정보를 다시 읽는 중...")
             ok = self.product_advisor.force_refresh()
             if ok:
                 self._run_all_compare()
             self._update_catalog_status_label()
         except Exception as exc:
             if hasattr(self, '_catalog_status_label'):
-                self._catalog_status_label.configure(text=f"❌ 갱신 실패: {exc}")
+                self._catalog_status_label.configure(text=f"다시 읽기 실패: {exc}")
 
     def _run_all_compare(self):
         """전체 금융상품 비교 실행"""
@@ -1039,7 +1041,7 @@ class LifeFinanceWidget(ctk.CTkFrame):
         
         self._draw_product_comparison_table(
             section_id="loan",
-            title=f"🏦 대출 비교  ({amount_wan:,.0f}만원 / {term}개월)",
+            title=f"대출 비교  ({amount_wan:,.0f}만원 / {term}개월)",
             headers=["순위", "상품명", "제공사", "연이율(%)", f"총비용(원 / {term}개월)"],
             rows=[
                 [str(i + 1), a["name"], a["provider"],
@@ -1063,7 +1065,7 @@ class LifeFinanceWidget(ctk.CTkFrame):
         summary = self._append_catalog_source(result)
         self._draw_product_comparison_table(
             section_id="insurance",
-            title=f"🛡️ 보험 비교  (월 {budget:,.0f}원 예산 / 종류: {cat_raw})",
+            title=f"보험 비교  (월 {budget:,.0f}원 예산 / 종류: {cat_raw})",
             headers=["순위", "상품명", "제공사", "월보험료(원)", "보장점수", "자기부담금(원)"],
             rows=[
                 [str(i + 1), a["name"], a["provider"],
@@ -1094,12 +1096,12 @@ class LifeFinanceWidget(ctk.CTkFrame):
         
         self._draw_product_comparison_table(
             section_id="savings",
-            title=f"💳 예적금 비교  ({principal_wan:,.0f}만원 / {term}개월)",
+            title=f"예적금 비교  ({principal_wan:,.0f}만원 / {term}개월)",
             headers=["순위", "상품명", "제공사", "연이율(%)", "예상이자(원)", "비과세"],
             rows=[
                 [str(i + 1), a["name"], a["provider"],
                  f"{a['annual_rate']:.2f}%", f"{a['expected_interest']:,.0f}원",
-                 "✅" if result["best"].get("tax_free") and i == 0 else ("✅" if False else "–")]
+                 "" if result["best"].get("tax_free") and i == 0 else ("" if False else "–")]
                 for i, a in enumerate(result["alternatives"])
             ],
             best_idx=0,
@@ -1109,14 +1111,18 @@ class LifeFinanceWidget(ctk.CTkFrame):
 
     def _append_catalog_source(self, result: dict) -> str:
         base_summary = str(result.get("summary", ""))
-        source = str(result.get("catalog_source", "")).strip()
-        if not source:
+        source_kind = str(result.get("catalog_source_kind", "")).strip()
+        if not source_kind:
             return base_summary
-        if source == "built_in_sample":
-            source_text = "내장 샘플 카탈로그"
-        else:
-            source_text = f"외부 카탈로그 파일: {source}"
-        return f"{base_summary}\n데이터 출처: {source_text}"
+        source_text = {
+            "bundled_catalog": "앱에 포함된 기본 비교 데이터",
+            "operator_catalog": "운영자가 제공한 비교 데이터",
+            "built_in_fallback": "앱 내장 예비 비교 데이터",
+        }.get(source_kind, "확인 가능한 비교 데이터")
+        return (
+            f"{base_summary}\n데이터 출처: {source_text}"
+            "\n안내: 비교용 참고 정보이며 실제 금리·가입 조건은 금융사에서 최종 확인하세요."
+        )
 
     def _draw_product_comparison_table(
         self,
@@ -1194,7 +1200,7 @@ class LifeFinanceWidget(ctk.CTkFrame):
         summary_row = ctk.CTkFrame(card, fg_color="transparent")
         summary_row.pack(fill="x", padx=12, pady=(6, 10))
         ctk.CTkLabel(
-            summary_row, text="🥇 추천",
+            summary_row, text="추천",
             font=ctk.CTkFont(size=11, weight="bold"),
             text_color="#fbbf24",
             fg_color=badge_color, corner_radius=8,
@@ -1498,7 +1504,7 @@ class LifeFinanceWidget(ctk.CTkFrame):
             messagebox.showwarning("음성 입력", "STT를 사용하려면 SpeechRecognition 및 마이크 환경이 필요합니다.")
             return
 
-        self._add_chat_message("assistant", "🎙️ 음성 입력을 시작합니다. 말씀해 주세요...")
+        self._add_chat_message("assistant", "음성 입력을 시작합니다. 말씀해 주세요...")
         threading.Thread(target=self._voice_input_worker, daemon=True).start()
 
     def _voice_input_worker(self):
@@ -1516,7 +1522,7 @@ class LifeFinanceWidget(ctk.CTkFrame):
         if status == 'ok' and text:
             self.assistant_input.delete(0, tk.END)
             self.assistant_input.insert(0, text)
-            self._add_chat_message("assistant", f"📝 인식 결과: {text}")
+            self._add_chat_message("assistant", f"인식 결과: {text}")
             self._process_assistant_command()
             return
 
@@ -1567,11 +1573,11 @@ class LifeFinanceWidget(ctk.CTkFrame):
         """신용도를 사용자 친화적 텍스트로 포맷"""
         credit = self._credit_score_var.get()
         if "좋음" in credit:
-            return "좋음 🟢"
+            return "좋음 "
         elif "낮음" in credit:
-            return "낮음 🔴"
+            return "낮음 "
         else:
-            return "보통 🟡"
+            return "보통 "
 
 
 if __name__ == "__main__":

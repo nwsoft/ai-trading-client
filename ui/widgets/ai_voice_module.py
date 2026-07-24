@@ -12,6 +12,7 @@ AI 어시스턴트 음성 모듈 (초기 버전)
 from __future__ import annotations
 
 import importlib
+import os
 import platform
 import subprocess
 from dataclasses import dataclass
@@ -106,7 +107,9 @@ class AIVoiceModule:
         return False
 
     def transcribe(self, _audio_path: str) -> Dict[str, Any]:
-        """STT 엔진 연동 전까지는 비활성 상태를 명확히 반환한다."""
+        """파일 STT를 수행하되 엔진/파일 부재를 예외 문자열 대신 구조화한다."""
+        if not os.path.isfile(str(_audio_path or '')):
+            return {'status': 'not_available', 'text': '', 'reason': 'audio_file_not_found'}
         if not self.can_transcribe():
             return {
                 'status': 'not_implemented',
@@ -157,4 +160,3 @@ class AIVoiceModule:
             return {'status': 'ok', 'text': text, 'reason': ''}
         except Exception as exc:
             return {'status': 'error', 'text': '', 'reason': str(exc)}
-

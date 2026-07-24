@@ -9,6 +9,7 @@ import base64
 import json
 import mimetypes
 import os
+import threading
 
 try:
     from openai import OpenAI
@@ -23,6 +24,7 @@ class OpenAIClient:
         self.model = model or os.getenv('OPENAI_MODEL', 'gpt-4o-mini')  # 기본값은 fallback용
         self.base_url = base_url  # DeepSeek 등 다른 API 엔드포인트 지원
         self._client = None
+        self._usage_local = threading.local()
         if OpenAI and self.api_key:
             # base_url이 있으면 사용 (DeepSeek 등)
             client_kwargs = {'api_key': self.api_key}
@@ -90,11 +92,33 @@ class OpenAIClient:
             completion = self._client.chat.completions.create(
                 **request_kwargs,
             )
+            self._record_usage(completion, use_model)
             content = completion.choices[0].message.content
             text = (content or "").strip()
             return self._safe_parse_json(text)
         except Exception:
             return None
+
+    def _record_usage(self, completion: Any, model: str) -> None:
+        usage = getattr(completion, "usage", None)
+        prompt_tokens = int(getattr(usage, "prompt_tokens", 0) or 0)
+        completion_tokens = int(getattr(usage, "completion_tokens", 0) or 0)
+        cached_tokens = 0
+        try:
+            details = getattr(usage, "prompt_tokens_details", None)
+            cached_tokens = int(getattr(details, "cached_tokens", 0) or 0)
+        except Exception:
+            cached_tokens = 0
+        self._usage_local.value = {
+            "model": str(model or self.model),
+            "input_tokens": prompt_tokens,
+            "cached_input_tokens": cached_tokens,
+            "output_tokens": completion_tokens,
+            "total_tokens": int(getattr(usage, "total_tokens", prompt_tokens + completion_tokens) or 0),
+        }
+
+    def get_last_usage(self) -> Dict[str, Any]:
+        return dict(getattr(self._usage_local, "value", {}) or {})
 
     def vision_json(
         self,

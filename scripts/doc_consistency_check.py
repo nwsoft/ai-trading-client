@@ -70,6 +70,16 @@ def check_release_version_markers(text_map: Dict[str, str]) -> List[str]:
     if "문서 동기화/표현 정정/운영 기준 보강만으로는 버전을 올리지 않는다." not in policy:
         errors.append("[POLICY] 문서 버전 상향 금지 규칙이 없습니다.")
 
+    changelog = text_map.get("changelog", "")
+    latest_heading = extract_latest_changelog_heading(changelog)
+    expected_changelog_tag = f"v{RELEASE_VERSION}"
+    if latest_heading is None:
+        errors.append("[CHANGELOG] 최신 섹션 제목(## ...)을 찾을 수 없습니다.")
+    elif expected_changelog_tag not in latest_heading:
+        errors.append(
+            f"[CHANGELOG] 최신 섹션 제목에 '{expected_changelog_tag}'가 없습니다. (현재: {latest_heading})"
+        )
+
     return errors
 
 
@@ -101,6 +111,13 @@ def parse_version_tuple(version: str) -> tuple[int, int, int, int] | None:
     if not m:
         return None
     return (int(m.group(1)), int(m.group(2)), int(m.group(3)), int(m.group(4)))
+
+
+def extract_latest_changelog_heading(changelog_text: str) -> str | None:
+    for line in changelog_text.splitlines():
+        if line.startswith("## "):
+            return line.strip()
+    return None
 
 
 def main() -> int:

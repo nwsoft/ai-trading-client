@@ -52,6 +52,31 @@ def test_approval_paper_validation_and_live_confirmation_are_mandatory():
     assert active["status"] == "active"
 
 
+def test_user_can_explicitly_choose_limited_live_after_failed_automatic_validation():
+    pipeline = CustomStrategyPipeline(min_paper_trades=3)
+    item = pipeline.submit(name="limited", rules=_rules())
+    key, version_id = item["strategy_key"], item["version_id"]
+    pipeline.approve(key, version_id, approved_by="tester")
+
+    with pytest.raises(ValueError, match="자동 실행검증"):
+        pipeline.activate(key, version_id, live_confirmation=True, operation_mode="limited_live")
+
+    rejected = pipeline.record_execution_validation(
+        key, version_id, decisions=1, guardrail_violations=1, mode="historical_replay",
+    )
+    assert rejected["status"] == "execution_rejected"
+    active = pipeline.activate(
+        key, version_id, live_confirmation=True, operation_mode="limited_live",
+        guardrail_check=lambda version: {"allowed": version["operation_mode"] == "limited_live"},
+    )
+    assert active["status"] == "active"
+    assert active["operation_mode"] == "limited_live"
+
+    inactive = pipeline.deactivate(key, version_id, approved_by="tester")
+    assert inactive["status"] == "execution_rejected"
+    assert inactive["last_operation_mode"] == "limited_live"
+
+
 def test_withdrawal_rules_are_rejected():
     pipeline = CustomStrategyPipeline()
     rules = _rules()

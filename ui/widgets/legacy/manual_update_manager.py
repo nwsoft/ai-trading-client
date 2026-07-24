@@ -50,7 +50,7 @@ class ManualUpdateManager:
             return content
             
         except Exception as e:
-            print(f"❌ 메뉴얼 콘텐츠 로드 실패: {e}")
+            print(f"메뉴얼 콘텐츠 로드 실패: {e}")
             return self.get_default_content()
     
     def get_version_info(self):
@@ -62,7 +62,7 @@ class ManualUpdateManager:
             else:
                 return self.get_default_version_info()
         except Exception as e:
-            print(f"❌ 버전 정보 로드 실패: {e}")
+            print(f"버전 정보 로드 실패: {e}")
             return self.get_default_version_info()
 
     def get_content_path(self) -> str:
@@ -96,7 +96,7 @@ class ManualUpdateManager:
             return False
             
         except Exception as e:
-            print(f"❌ 업데이트 확인 실패: {e}")
+            print(f"업데이트 확인 실패: {e}")
             return False
     
     def update_version_info(self):
@@ -113,7 +113,7 @@ class ManualUpdateManager:
                 json.dump(version_info, f, ensure_ascii=False, indent=2)
                 
         except Exception as e:
-            print(f"❌ 버전 정보 업데이트 실패: {e}")
+            print(f"버전 정보 업데이트 실패: {e}")
     
     def get_default_content(self):
         """기본 메뉴얼 콘텐츠 반환"""
@@ -199,7 +199,7 @@ NoahAI는 AI 금융 의사결정 인프라 및 금융 동반자 플랫폼입니�
 
             sections['features'] = find_by_keywords(['주요 기능', '완전 자동화', '기능']) or sections['features']
             sections['usage'] = find_by_keywords(['시작하기', '사용법']) or sections['usage']
-            # 대시보드 전용 섹션(최근 문서의 "📊 대시보드 사용법"을 우선 사용)
+            # 대시보드 전용 섹션(최근 문서의 "대시보드 사용법"을 우선 사용)
             sections['dashboard'] = find_by_keywords(['대시보드 사용법', '대시보드', '시장 트렌드', '거래 통계']) or sections['dashboard']
             sections['advantages'] = find_by_keywords(['장점', '튜닝 팁', '고급 기능']) or sections['advantages']
             sections['ai_services'] = find_by_keywords(['AI 서비스', 'AI', '어시스턴트']) or sections['ai_services']
@@ -212,7 +212,7 @@ NoahAI는 AI 금융 의사결정 인프라 및 금융 동반자 플랫폼입니�
                 sections['usage'] = sections['overview']
 
         except Exception as e:
-            print(f"❌ 메뉴얼 섹션 분리 실패: {e}")
+            print(f"메뉴얼 섹션 분리 실패: {e}")
             for section in sections:
                 sections[section] = "내용을 로드할 수 없습니다."
 

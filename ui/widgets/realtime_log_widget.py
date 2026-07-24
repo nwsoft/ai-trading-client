@@ -251,7 +251,7 @@ class RealtimeLogWidget(ctk.CTkFrame):
 
         help_btn = ctk.CTkButton(
             control_frame,
-            text="❓로그도움말",
+            text="로그도움말",
             command=self.show_log_help,
             font=button_font,
             height=40,
@@ -261,7 +261,7 @@ class RealtimeLogWidget(ctk.CTkFrame):
 
         clear_btn = ctk.CTkButton(
             control_frame,
-            text="🗑️로그지우기",
+            text="로그지우기",
             command=self.clear_logs,
             font=button_font,
             height=40,
@@ -271,7 +271,7 @@ class RealtimeLogWidget(ctk.CTkFrame):
 
         refresh_btn = ctk.CTkButton(
             control_frame,
-            text="🔄새로고침",
+            text="새로고침",
             command=self.refresh_logs,
             font=button_font,
             height=40,
@@ -386,7 +386,7 @@ class RealtimeLogWidget(ctk.CTkFrame):
 
             open_manual_btn = ctk.CTkButton(
                 action_frame,
-                text="📖 사용자 매뉴얼(📅 업데이트) 열기",
+                text="사용자 매뉴얼(업데이트) 열기",
                 command=self._open_manual_from_help,
                 height=36,
                 corner_radius=12
@@ -595,7 +595,7 @@ class RealtimeLogWidget(ctk.CTkFrame):
             else:
                 # 로그 파일이 없으면 메시지 표시
                 self.realtime_log_display.delete("1.0", "end")
-                self.realtime_log_display.insert("1.0", f"📊 실시간 거래 로그\n\n로그 파일이 없습니다.\n경로: {log_file}")
+                self.realtime_log_display.insert("1.0", f"실시간 거래 로그\n\n로그 파일이 없습니다.\n경로: {log_file}")
 
             self.logger.info("로그 새로고침 완료")
         except Exception as e:
@@ -645,13 +645,13 @@ class RealtimeLogWidget(ctk.CTkFrame):
             # 개발용 디버그 로그 필터링
             developer_debug_patterns = [
                 "Optimizer in:", "Optimizer out:", "최종 실행 파라미터:", "최적화 완료:",
-                "🔍 Trader 상태 확인:", "🔍 Trader logger 존재:", "🔍 trade_config 내용:",
-                "🔍 최종 거래 파라미터:", "🔍 qty 값:", "🔍 포지션 정보:",
-                "🔍 거래 실행 조건 충족", "🔍 BUY 참조가격:", "🔍 최종 주문 파라미터:",
-                "🔍 _resolve_exchange_filters 시작", "🔍 binance_client 존재:",
-                "🔍 get_symbol_info_direct 메서드 존재:", "🔍 get_symbol_info_direct 호출 시작",
-                "🔍 get_symbol_info_direct 호출 완료", "🔍 정밀도 정보 조회 성공:",
-                "🔍 step_size 기반 수량 조정", "🔍 거래 실행 조건 검증 시작", "🔍 수량 검증:"
+                "Trader 상태 확인:", "Trader logger 존재:", "trade_config 내용:",
+                "최종 거래 파라미터:", "qty 값:", "포지션 정보:",
+                "거래 실행 조건 충족", "BUY 참조가격:", "최종 주문 파라미터:",
+                "_resolve_exchange_filters 시작", "binance_client 존재:",
+                "get_symbol_info_direct 메서드 존재:", "get_symbol_info_direct 호출 시작",
+                "get_symbol_info_direct 호출 완료", "정밀도 정보 조회 성공:",
+                "step_size 기반 수량 조정", "거래 실행 조건 검증 시작", "수량 검증:"
             ]
 
             for pattern in developer_debug_patterns:
@@ -661,9 +661,9 @@ class RealtimeLogWidget(ctk.CTkFrame):
             # WARNING 레벨 로그 필터링 (중요한 WARNING은 유지)
             if " | WARNING " in log_message:
                 debug_warning_patterns = [
-                    "🔍 Trader 상태 확인:", "🔍 Trader logger 존재:", "🔍 trade_config 내용:",
-                    "🔍 최종 거래 파라미터:", "🔍 qty 값:", "🔍 포지션 정보:",
-                    "🔍 거래 실행 조건 충족", "🔍 BUY 참조가격:", "🔍 최종 주문 파라미터:"
+                    "Trader 상태 확인:", "Trader logger 존재:", "trade_config 내용:",
+                    "최종 거래 파라미터:", "qty 값:", "포지션 정보:",
+                    "거래 실행 조건 충족", "BUY 참조가격:", "최종 주문 파라미터:"
                 ]
 
                 for pattern in debug_warning_patterns:
@@ -744,7 +744,7 @@ class RealtimeLogWidget(ctk.CTkFrame):
             for log_entry in filtered_logs:
                 self.realtime_log_display.insert("end", log_entry)
 
-            self.add_log(f"🔍 로그 필터링 완료: {level} 레벨 ({len(filtered_logs)}개 항목)")
+            self.add_log(f"로그 필터링 완료: {level} 레벨 ({len(filtered_logs)}개 항목)")
 
         except Exception as e:
             self.logger.error(f"로그 레벨 필터링 오류: {e}")
@@ -806,7 +806,7 @@ class RealtimeLogWidget(ctk.CTkFrame):
             for log_entry in filtered_logs:
                 self.realtime_log_display.insert("end", log_entry)
 
-            self.logger.info(f"🔍 로그 필터링 완료: {len(filtered_logs)}개 항목")
+            self.logger.info(f"로그 필터링 완료: {len(filtered_logs)}개 항목")
 
         except Exception as e:
             self.logger.error(f"로그 필터링 오류: {e}")
@@ -847,9 +847,9 @@ class RealtimeLogWidget(ctk.CTkFrame):
                 filter_status.append("시스템 로그")
 
             if filter_status:
-                self.logger.info(f"🔍 로그 필터링 활성화: {', '.join(filter_status)} 숨김")
+                self.logger.info(f"로그 필터링 활성화: {', '.join(filter_status)} 숨김")
             else:
-                self.logger.info("🔍 로그 필터링 비활성화: 모든 로그 표시")
+                self.logger.info("로그 필터링 비활성화: 모든 로그 표시")
             # 스트림 모드라면 즉시 재적용
             if self._log_stream is not None:
                 self.refresh_logs()
@@ -868,7 +868,7 @@ class RealtimeLogWidget(ctk.CTkFrame):
             self._monitoring = True
             self._monitor_thread = threading.Thread(target=self._monitor_log_file, daemon=True)
             self._monitor_thread.start()
-            self.logger.info("🔥 실시간 로그 모니터링 시작")
+            self.logger.info("실시간 로그 모니터링 시작")
 
         except Exception as e:
             self.logger.error(f"실시간 모니터링 시작 오류: {e}")
@@ -879,7 +879,7 @@ class RealtimeLogWidget(ctk.CTkFrame):
             self._monitoring = False
             if self._monitor_thread:
                 self._monitor_thread.join(timeout=1)
-            self.logger.info("⏹️ 실시간 로그 모니터링 중지")
+            self.logger.info("⏹실시간 로그 모니터링 중지")
             if self._stream_subscription and self._log_stream:
                 try:
                     self._log_stream.unsubscribe(self._stream_subscription)
@@ -1228,7 +1228,7 @@ class RealtimeLogWidget(ctk.CTkFrame):
                         raise e
                 except Exception as e:
                     if "invalid command name" not in str(e) and "TclError" not in str(e) and "border_parts" not in str(e):
-                        print(f"⚠️ realtime_log_widget 콜백 오류: {e}")
+                        print(f"realtime_log_widget 콜백 오류: {e}")
 
             job = self.after(delay, safe_callback)
             if job:
@@ -1244,7 +1244,7 @@ class RealtimeLogWidget(ctk.CTkFrame):
             # 종료 중 위젯 관련 모든 예외 무시
             error_msg = str(e)
             if "TclError" not in error_msg:
-                print(f"⚠️ realtime_log_widget safe_after 오류: {e}")
+                print(f"realtime_log_widget safe_after 오류: {e}")
             return None
 
     def cleanup_after_jobs(self):

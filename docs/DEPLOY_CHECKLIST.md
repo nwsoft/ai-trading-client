@@ -1,4 +1,4 @@
-# 배포 체크리스트 (2026-06-16 검증 기준)
+# 배포 체크리스트 (2026-07-24 · v3.9.0.1 기준)
 
 운영 환경 배포 전/후 점검해야 할 항목을 정리했습니다. 이 문서는 `noahai_client/build_safe.py`의 현재 PyInstaller 스펙을 기준으로 작성되었습니다.
 
@@ -44,7 +44,19 @@
   - 위험 경고 시 `연결 실패 5분 점검 가이드 열기`로 상세 체크리스트 실행
 
 ## 1-A) 사용자 동선/매뉴얼 동기화 (배포 게이트)
-- 대시보드 `사용자 매뉴얼` → `📅 업데이트` 탭에 2026-06-16 패치 안내가 노출되는지 확인
+- 대시보드 하단에 `v3.9.0.1` AI 커스텀 위험기반 전략·금융 인텔리전스 요약과 `업데이트·사용법` 버튼이 노출되는지 확인
+- 1500×980과 배포 최소 지원 해상도에서 하단 3영역이 한 줄로 유지되고 거래소·분석 탭의 마지막 카드·버튼이 잘리지 않는지 확인
+- macOS와 Windows에서 상단 서비스·매뉴얼·설정·종료 아이콘의 모양·크기·정렬이 동일한지 확인
+- 현재 서비스의 고유 선택 색상·테두리와 비선택 탭의 배경 구분이 명확한지 확인
+- `업데이트·사용법` 클릭 시 사용자 매뉴얼 `업데이트` 탭이 열리고, 여기서 `AI 커스텀`·`금융 인텔리전스` 상세 사용법으로 이동 가능한지 확인
+- 사용자 매뉴얼 `업데이트` 최상단에 v3.9.0.1 변경·제한·배포 상태가 노출되는지 확인
+- 대시보드 업데이트 카드에 `AI 커스텀 위험기반 전략 + 금융 인텔리전스`가 표시되는지 확인
+- AI 커스텀의 거래당 허용손실·최대 증거금·레버리지 상한·국면 이탈 선택과 `개선안 · …` 버튼을 확인
+- 자동검증 미통과 안전 시험만 1배·최대 1%이며 일반 운용 레버리지는 위험모델에서 계산되는지 확인
+- 선택 거래소만 실제 주문하고 다른 활성 거래소는 학습 전용으로 표시·동작하는지 확인
+- 동일 시장상태 캐시, 시장 이벤트 재호출, 호출 한도 시 로컬 신호 지속 로그를 확인
+- 신규 거래의 `trade_log`에 진입/청산 주문번호·모델·전략·실체결 수수료 출처가 저장되는지 확인
+- 7일 챔피언/챌린저에 수수료 차감 순PnL·거래당 순기대값·모델/전략별 비교가 표시되는지 확인
 - 설정 `거래소 API` 탭에 아래 2개가 노출되는지 확인
   - `연결 실패 5분 점검 가이드 열기` 버튼
   - `설정 저장 후 연결 위험이 보이면 자동으로 1차 진단 안내` 체크박스
@@ -52,7 +64,7 @@
   - `python3 scripts/user_visible_sync_guard.py --strict`
   - 사용자 노출 코드 변경 시 문서/인앱 4종(`CHANGELOG`, `USER_GUIDE`, `USER_GUIDE_AI_EXECUTION`, `user_manual_widget`) 누락이 없어야 함
 - `.git`이 없는 복사본에서는 변경 파일 목록을 직접 전달해야 함
-  - PowerShell: `$env:SYNC_GUARD_CHANGED_FILES='docs/CHANGELOG.md,docs/USER_GUIDE.md,USER_GUIDE_AI_EXECUTION.md,ui/widgets/user_manual_widget.py'`
+  - PowerShell: `$env:SYNC_GUARD_CHANGED_FILES='ui/dashboard_modern.py,ui/widgets/custom_strategy_widget.py,docs/CHANGELOG.md,docs/USER_GUIDE.md,RELEASE_NOTES.md,USER_GUIDE_AI_EXECUTION.md,ui/widgets/user_manual_widget.py'`
   - 이후 `python build_safe.py --platform windows` 실행
 - 문서 진입점 확인
   - `RELEASE_NOTES.md`
@@ -107,6 +119,11 @@ OS별 권한/경로 팁
 - Analyzer가 거래소별 데이터(CCXT OHLCV) 수신하는지 로그 확인
 - UnifiedTrader 선물 주문 시 레버리지/마진 타입 자동 설정 로그 확인
 - 대시보드 애널리틱스 요약 표시/자동 새로고침 동작 확인
+- 네 서비스의 금융 인텔리전스 화면과 기본 버튼 확인
+  - 블록체인·주식/증권 `금융 인텔리전스`
+  - 자산 통합 `성과·위험 분석`
+  - AI애널리스트 `금융 인텔리전스 허브`
+- 결과의 출처·기준시각·오류·가정 표시와 분석/주문 분리 문구 확인
 
 ## 6) 백업/복구
 - Documents/NoahAI*/logs, analytics, config, trading.db 주기적 백업
@@ -175,15 +192,15 @@ OS별 권한/경로 팁
 3) 릴리즈 권한 확인
   - 워크플로의 `permissions: contents: write`가 유지되어야 릴리즈 업로드 가능
 4) 태그 기반 배포 실행
-  - 버전 업데이트 커밋 후 `git tag v3.8.9.24` / `git push origin v3.8.9.24`
-  - 이후 버전도 동일 패턴(`v3.8.9.24` 등)
-  - Windows 자동화 스크립트 사용 가능: `powershell -ExecutionPolicy Bypass -File scripts/release_tag_push.ps1 -Version 3.8.9.24 -Branch main -PushBranch`
+  - 버전 업데이트 커밋 후 `git tag v3.9.0.1` / `git push origin v3.9.0.1`
+  - 이후 버전도 동일 패턴
+  - Windows 자동화 스크립트 사용 가능: `powershell -ExecutionPolicy Bypass -File scripts/release_tag_push.ps1 -Version 3.9.0.1 -Branch main -PushBranch`
 
 전환 운영 기준(질문 반영)
-- `v3.8.9.24`: 전환 버전이므로
+- `v3.9.0.1`:
   - 클라이언트 저장소 릴리즈 업로드(필수)
   - 웹사이트 저장소 공지/다운로드 안내 반영(권장)
-- `v3.8.9.24`부터:
+- `v3.9.0.1`부터:
   - 자동업데이트 기준은 클라이언트 저장소 하나만 사용
   - 웹사이트는 문서/공지만 반영
 

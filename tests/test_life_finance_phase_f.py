@@ -216,6 +216,7 @@ class TestFinanceProductAdvisorExternalCatalog:
         )
         status = advisor.get_catalog_status()
         assert status["loan"]["source"] == str(loan_file)
+        assert status["loan"]["source_kind"] == "operator_catalog"
         assert status["loan"]["exists"] is True
 
     def test_catalog_source_builtin_when_file_absent(self, tmp_catalog_dir: Path):
@@ -226,6 +227,7 @@ class TestFinanceProductAdvisorExternalCatalog:
         # _load_catalog_records는 파일 없으면 catalog_sources에 "built_in_sample" 저장
         status = advisor.get_catalog_status()
         assert status["loan"]["source"] == "built_in_sample"
+        assert status["loan"]["source_kind"] == "built_in_fallback"
 
     def test_force_refresh_reloads_products(self, tmp_catalog_dir: Path):
         loan_file = tmp_catalog_dir / "loans.json"
@@ -300,18 +302,17 @@ class TestFinanceProductAdvisorExternalCatalog:
         assert result["best"]["name"] == "저금리론"
         assert result["catalog_source"] == str(loan_file)
 
-    def test_invalid_json_raises_gracefully(self, tmp_catalog_dir: Path):
-        """JSON 파싱 실패 시 빈 내장 샘플 반환 (앱 중단 방지)"""
+    def test_invalid_json_falls_back_without_stopping_app(self, tmp_catalog_dir: Path):
+        """손상된 운영자 파일도 앱을 중단하지 않고 예비 데이터로 대체"""
         loan_file = tmp_catalog_dir / "loans.json"
         loan_file.write_text("NOT_VALID_JSON", encoding="utf-8")
 
-        # JSONDecodeError를 잡지 않으므로 빌트인 샘플로 대체되지 않음 — 예외 전파
-        # 이 동작은 의도됨: 잘못된 파일은 상위에서 탐지해야 함
-        with pytest.raises(Exception):
-            FinanceProductAdvisor(
-                catalog_paths={"loan": str(loan_file)},
-                auto_refresh_interval=0,
-            )
+        advisor = FinanceProductAdvisor(
+            catalog_paths={"loan": str(loan_file)},
+            auto_refresh_interval=0,
+        )
+        assert advisor.loan_products
+        assert advisor.get_catalog_status()["loan"]["source_kind"] == "built_in_fallback"
 
 
 class TestFinanceProductAdvisorBuiltinCatalog:

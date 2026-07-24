@@ -45,7 +45,7 @@ class AlphaArenaWidget(CTkFrame):
                  alpha_arena_runner=None,
                  settings: Optional[Dict[str, Any]] = None,
                  colors: Optional[Dict[str, str]] = None,
-                 recorder=None,  # ✅ Recorder 인스턴스 추가
+                 recorder=None,  # Recorder 인스턴스 추가
                  **kwargs):
         super().__init__(parent, **kwargs)
         self.logger = logging.getLogger(__name__)
@@ -55,7 +55,7 @@ class AlphaArenaWidget(CTkFrame):
         self.ai_manager = ai_manager
         self.settings = settings or {}
         self.arena_settings = self.settings.get('alpha_arena', {})
-        self.recorder = recorder  # ✅ Recorder 인스턴스 저장
+        self.recorder = recorder  # Recorder 인스턴스 저장
         
         # 색상 설정
         self.colors = dict(colors) if colors and isinstance(colors, dict) else {}
@@ -159,7 +159,7 @@ class AlphaArenaWidget(CTkFrame):
         # 시작/정지 버튼
         self.start_stop_btn = CTkButton(
             engine_frame,
-            text="▶️ 시작",
+            text="▶시작",
             width=100,
             height=35,
             fg_color=self._color("success"),
@@ -256,7 +256,7 @@ class AlphaArenaWidget(CTkFrame):
         """Alpha Arena 안내 모달 표시"""
         try:
             modal = ctk.CTkToplevel(self)
-            modal.title("⚔️ Alpha Arena 모드 안내")
+            modal.title("Alpha Arena 모드 안내")
             modal.geometry("600x400")
             
             try:
@@ -278,7 +278,7 @@ class AlphaArenaWidget(CTkFrame):
             # 제목
             title_label = CTkLabel(
                 main_frame,
-                text="⚔️ Alpha Arena 모드 안내",
+                text="Alpha Arena 모드 안내",
                 font=ctk.CTkFont(size=18, weight="bold"),
                 text_color=self._color("text_primary")
             )
@@ -381,7 +381,7 @@ Alpha Arena 모드는 일반 자동매매와 다릅니다.
                     binance_client=self.binance_client,
                     ai_manager=self.ai_manager,
                     settings=self.settings,
-                    recorder=self.recorder  # ✅ Recorder 전달 (데이터베이스 저장용)
+                    recorder=self.recorder  # Recorder 전달 (데이터베이스 저장용)
                 )
                 
                 # 콜백 설정
@@ -397,7 +397,7 @@ Alpha Arena 모드는 일반 자동매매와 다릅니다.
                 # 정지
                 self.runner.stop()
                 self.start_stop_btn.configure(
-                    text="▶️ 시작",
+                    text="▶시작",
                     fg_color=self._color("success")
                 )
                 self.logger.info("Alpha Arena 정지")
@@ -405,7 +405,7 @@ Alpha Arena 모드는 일반 자동매매와 다릅니다.
                 # 시작
                 if self.runner.start():
                     self.start_stop_btn.configure(
-                        text="⏹️ 정지",
+                        text="⏹정지",
                         fg_color=self._color("danger")
                     )
                     self.logger.info("Alpha Arena 시작")
@@ -442,17 +442,17 @@ Alpha Arena 모드는 일반 자동매매와 다릅니다.
             warnings = []
             for symbol, decision in decisions.items():
                 signal = decision.get('signal', 'UNKNOWN')
-                # 🔥 TP/SL 누락 확인
+                # TP/SL 누락 확인
                 if signal in ['ENTER_LONG', 'ENTER_SHORT']:
                     profit_target = decision.get('profit_target')
                     stop_loss = decision.get('stop_loss')
                     error = decision.get('error')
                     
                     if error == 'TP/SL 누락' or profit_target is None or stop_loss is None:
-                        summary_lines.append(f"⚠️ {symbol}: {signal} (TP/SL 누락 - 실행 안 됨)")
+                        summary_lines.append(f"{symbol}: {signal} (TP/SL 누락 - 실행 안 됨)")
                         warnings.append(f"{symbol}: TP/SL 누락으로 주문이 실행되지 않습니다.")
                     else:
-                        summary_lines.append(f"✅ {symbol}: {signal} (TP: {profit_target}, SL: {stop_loss})")
+                        summary_lines.append(f"{symbol}: {signal} (TP: {profit_target}, SL: {stop_loss})")
                 else:
                     summary_lines.append(f"{symbol}: {signal}")
             
@@ -460,7 +460,7 @@ Alpha Arena 모드는 일반 자동매매와 다릅니다.
             
             # 경고 메시지 추가
             if warnings:
-                warning_text = "\n\n⚠️ 경고:\n" + "\n".join(warnings)
+                warning_text = "\n\n경고:\n" + "\n".join(warnings)
                 summary += warning_text
             
             full_text = f"=== 요약 ===\n{summary}\n\n=== 전체 JSON ===\n{decisions_json}"
@@ -482,24 +482,24 @@ Alpha Arena 모드는 일반 자동매매와 다릅니다.
             timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             status = result.get('status', 'UNKNOWN')
             
-            # 🔥 상태별 명확한 표시
+            # 상태별 명확한 표시
             if status == 'SUCCESS':
-                log_line = f"[{timestamp}] ✅ {symbol}: 주문 실행 성공\n"
+                log_line = f"[{timestamp}] {symbol}: 주문 실행 성공\n"
                 if result.get('order_id'):
                     log_line += f"  주문 ID: {result.get('order_id')}\n"
             elif status == 'SKIPPED':
                 skip_reason = result.get('skip_reason', 'Unknown')
-                # 🔥 TP/SL 누락을 명확히 강조
+                # TP/SL 누락을 명확히 강조
                 if 'TP/SL' in skip_reason or 'profit_target' in skip_reason or 'stop_loss' in skip_reason:
-                    log_line = f"[{timestamp}] ⚠️ {symbol}: 주문 스킵 - TP/SL 누락!\n"
-                    log_line += f"  ⚠️ ENTER_LONG/ENTER_SHORT 신호는 profit_target과 stop_loss 둘 다 필수입니다.\n"
+                    log_line = f"[{timestamp}] {symbol}: 주문 스킵 - TP/SL 누락!\n"
+                    log_line += f"  ENTER_LONG/ENTER_SHORT 신호는 profit_target과 stop_loss 둘 다 필수입니다.\n"
                     log_line += f"  스킵 사유: {skip_reason}\n"
                 else:
-                    log_line = f"[{timestamp}] ⚠️ {symbol}: 주문 스킵\n"
+                    log_line = f"[{timestamp}] {symbol}: 주문 스킵\n"
                     log_line += f"  스킵 사유: {skip_reason}\n"
             elif status == 'ERROR':
                 error = result.get('error', 'Unknown error')
-                log_line = f"[{timestamp}] ❌ {symbol}: 주문 오류\n"
+                log_line = f"[{timestamp}] {symbol}: 주문 오류\n"
                 log_line += f"  오류: {error}\n"
             else:
                 log_line = f"[{timestamp}] {symbol}: {status}\n"
@@ -527,7 +527,7 @@ Alpha Arena 모드는 일반 자동매매와 다릅니다.
             self.response_text.configure(state="normal")
             
             timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            log_line = f"[{timestamp}] ❌ 오류: {error}\n\n"
+            log_line = f"[{timestamp}] 오류: {error}\n\n"
             
             self.response_text.insert("end", log_line)
             self.response_text.configure(state="disabled")

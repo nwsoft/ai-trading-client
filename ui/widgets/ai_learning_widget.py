@@ -223,9 +223,9 @@ class AILearningWidget(CTkFrame):
             # 헤더 레이블 업데이트
             if hasattr(self, 'service_context_label') and self.service_context_label:
                 label_text = {
-                    'blockchain': '🤖 AI 학습 모니터 (암호화폐)',
-                    'stock':      '🤖 AI 학습 모니터 (주식/ETF)',
-                }.get(service_name, '🤖 AI 학습 모니터')
+                    'blockchain': 'AI 학습 모니터 (암호화폐)',
+                    'stock':      'AI 학습 모니터 (주식/ETF)',
+                }.get(service_name, 'AI 학습 모니터')
                 self.service_context_label.configure(text=label_text)
             
             # 컨텍스트 변경되면 데이터 재필터링 및 재표시
@@ -234,7 +234,7 @@ class AILearningWidget(CTkFrame):
                 self._last_data_mtime = None  # mtime 리셋하여 재로드 강제
                 self.refresh_learning_data()
         except Exception as e:
-            print(f"⚠️ AILearningWidget set_service_context 오류: {e}")
+            print(f"AILearningWidget set_service_context 오류: {e}")
 
     def init_ui(self):
         """UI 초기화"""
@@ -260,7 +260,7 @@ class AILearningWidget(CTkFrame):
         # 제목 (서비스 컨텍스트 레이블 겸용)
         self.service_context_label = CTkLabel(
             status_frame,
-            text="🧠 AI 학습 상태",
+            text="AI 학습 상태",
             font=ctk.CTkFont(size=16, weight="bold")
         )
         self.service_context_label.grid(row=0, column=0, columnspan=2, sticky="w", padx=10, pady=(10, 5))
@@ -289,7 +289,7 @@ class AILearningWidget(CTkFrame):
         # 제목
         title_label = CTkLabel(
             data_frame,
-            text="📚 AI 학습 데이터",
+            text="AI 학습 데이터",
             font=ctk.CTkFont(size=16, weight="bold")
         )
         title_label.grid(row=0, column=0, sticky="w", padx=10, pady=(10, 5))
@@ -297,7 +297,7 @@ class AILearningWidget(CTkFrame):
         # 새로고침 버튼
         refresh_button = CTkButton(
             data_frame,
-            text="🔄 새로고침",
+            text="새로고침",
             command=self.refresh_learning_data,
             width=100,
             height=30
@@ -358,7 +358,7 @@ class AILearningWidget(CTkFrame):
         # 제목
         title_label = CTkLabel(
             performance_frame,
-            text="📊 AI 학습 통계",
+            text="AI 학습 통계",
             font=ctk.CTkFont(size=16, weight="bold")
         )
         title_label.grid(row=0, column=0, columnspan=3, sticky="w", padx=10, pady=(10, 6))
@@ -445,8 +445,8 @@ class AILearningWidget(CTkFrame):
 
         except Exception as e:
             import traceback
-            self.logger.error(f"❌ AI 학습 상태 업데이트 오류: {e}")
-            self.logger.error(f"❌ 상세 오류:\n{traceback.format_exc()}")
+            self.logger.error(f"AI 학습 상태 업데이트 오류: {e}")
+            self.logger.error(f"상세 오류:\n{traceback.format_exc()}")
             self.learning_status_label.configure(text="AI 학습 상태 업데이트 오류")
             self.learning_progress.set(0)
 
@@ -610,8 +610,8 @@ class AILearningWidget(CTkFrame):
 
         except Exception as e:
             import traceback
-            self.logger.error(f"❌ 학습 데이터 로드 오류: {e}")
-            self.logger.error(f"❌ 상세 오류:\n{traceback.format_exc()}")
+            self.logger.error(f"학습 데이터 로드 오류: {e}")
+            self.logger.error(f"상세 오류:\n{traceback.format_exc()}")
             self.learning_data = []
 
     def _initial_load_async(self):
@@ -708,13 +708,13 @@ class AILearningWidget(CTkFrame):
                     service_context=str(getattr(self, '_service_context', 'blockchain')),
                 )
 
-                self.logger.info(f"✅ AI 학습 데이터 테이블 새로고침 완료: {len(data)}개 항목")
+                self.logger.info(f"AI 학습 데이터 테이블 새로고침 완료: {len(data)}개 항목")
             else:
-                self.logger.debug("⚠️ AI 학습 데이터 파일을 찾을 수 없습니다.")
+                self.logger.debug("AI 학습 데이터 파일을 찾을 수 없습니다.")
                 self.learning_data = []
 
         except Exception as e:
-            self.logger.warning(f"❌ AI 학습 데이터 새로고침 오류: {e}")
+            self.logger.warning(f"AI 학습 데이터 새로고침 오류: {e}")
             self.learning_data = []
 
     def _load_json_list_safely(self, data_file: str, retries: int = 3, delay_sec: float = 0.12) -> List[Dict]:

@@ -16,6 +16,9 @@ class StrategyEngine:
     DEFAULT_POLICY = {
         "enabled": False,
         "allow_regimes": ["trend", "range"],
+        # 고변동을 일괄 차단하면 거래 기회가 사라질 수 있다. 기본은
+        # 합의 점수와 가드레일로 평가하고, 사용자가 block을 선택할 수 있다.
+        "high_vol_action": "evaluate",
         "consensus_threshold": 0.60,
         "cooldown_sec": 60,
     }
@@ -68,7 +71,10 @@ class StrategyEngine:
         allow_regimes = [str(x).strip().lower() for x in (effective.get("allow_regimes") or [])]
 
         reasons = []
-        if allow_regimes and regime not in allow_regimes:
+        high_vol_action = str(effective.get("high_vol_action", "evaluate") or "evaluate").lower()
+        if regime == "high_vol" and high_vol_action == "block":
+            reasons.append("regime_blocked:high_vol")
+        elif regime != "high_vol" and allow_regimes and regime not in allow_regimes:
             reasons.append(f"regime_blocked:{regime}")
 
         threshold = self._to_float(effective.get("consensus_threshold", 0.60), 0.60)

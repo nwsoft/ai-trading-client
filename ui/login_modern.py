@@ -21,7 +21,7 @@ from api.kpi_client import emit_kpi_event
 sys.path.append(os.path.dirname(os.path.dirname(__file__)))
 from utils.fixed_colors import FIXED_COLORS
 
-# ✅ CustomTkinter 5.1.3 - dark 모드 정상 작동
+# CustomTkinter 5.1.3 - dark 모드 정상 작동
 ctk.set_appearance_mode("dark")
 
 class LoginWindow:
@@ -76,9 +76,9 @@ class LoginWindow:
                 if token_data:
                     self.login_success_callback(token_data['access_token'], token_data['user_info'])
                 else:
-                    print("❌ 토큰 데이터를 로드할 수 없습니다.")
+                    print("토큰 데이터를 로드할 수 없습니다.")
             except Exception as e:
-                print(f"❌ 로그인 성공 콜백 오류: {e}")
+                print(f"로그인 성공 콜백 오류: {e}")
 
     def setup_file_paths(self):
         """파일 경로 설정 - 자동 로그인을 위한 credentials 파일만 로드"""
@@ -95,7 +95,7 @@ class LoginWindow:
             else:
                 self.credentials_file = None
         except Exception as e:
-            print(f"⚠️ path_utils 사용 실패: {e}")
+            print(f"path_utils 사용 실패: {e}")
             self.credentials_file = None
 
     def setup_ui(self):
@@ -334,13 +334,13 @@ class LoginWindow:
                     with open(self.credentials_file, 'r', encoding='utf-8') as f:
                         credentials = json.load(f)
                     password = credentials.get('password', '')
-                    print(f"✅ 저장된 패스워드 사용: {'*' * len(password)}")
+                    print(f"저장된 패스워드 사용: {'*' * len(password)}")
                 else:
-                    print("⚠️ credentials_file이 없거나 설정되지 않았습니다.")
+                    print("credentials_file이 없거나 설정되지 않았습니다.")
                     messagebox.showerror("오류", "저장된 로그인 정보가 없습니다.")
                     return
             except Exception as e:
-                print(f"❌ 저장된 패스워드 로드 실패: {e}")
+                print(f"저장된 패스워드 로드 실패: {e}")
                 messagebox.showerror("오류", "저장된 패스워드를 로드할 수 없습니다.")
                 return
 
@@ -369,11 +369,11 @@ class LoginWindow:
                 # 로그인 정보 저장 (아이디 + 패스워드)
                 if hasattr(self, 'save_credentials'):
                     try:
-                        # ✅ API 호출에 사용한 진짜 평문 패스워드 사용
+                        # API 호출에 사용한 진짜 평문 패스워드 사용
                         if password:
                             self.save_credentials(user_id, password)
                     except Exception as e:
-                        print(f"❌ 로그인 정보 저장 실패: {e}")
+                        print(f"로그인 정보 저장 실패: {e}")
 
                 # main.py의 콜백 호출하여 파일 생성
                 if self.login_success_callback:
@@ -381,7 +381,7 @@ class LoginWindow:
                         self.login_success_callback(token, user_info)
                     except Exception as e:
                         import traceback
-                        print(f"❌ main.py 콜백 호출 실패: {e}")
+                        print(f"main.py 콜백 호출 실패: {e}")
                         print(traceback.format_exc())
 
                 # 로그인 성공
@@ -410,7 +410,7 @@ class LoginWindow:
             }
 
             print(f"로그인 API 호출: {self.backend_url}")
-            print(f"전송 데이터: {{'id': '{username}', 'password': '********'}}")  # ✅ 표시만 마스킹
+            print(f"전송 데이터: {{'id': '{username}', 'password': '********'}}")  # 표시만 마스킹
 
             response = requests.post(
                 self.backend_url,
@@ -512,22 +512,22 @@ class LoginWindow:
                 if username:
                     self.id_entry.insert(0, username)
                     self.save_login_var.set(True)
-                    print(f"✅ 저장된 로그인 정보 로드: {username}")
+                    print(f"저장된 로그인 정보 로드: {username}")
 
                 if password:
                     # 패스워드를 별표로 표시하여 사용자에게 저장된 것을 알림
                     self.password_entry.insert(0, "********")
-                    print(f"✅ 저장된 패스워드 로드: {'*' * len(password)}")
+                    print(f"저장된 패스워드 로드: {'*' * len(password)}")
 
         except Exception as e:
-            print(f"❌ 로그인 정보 로드 실패: {e}")
+            print(f"로그인 정보 로드 실패: {e}")
 
     def save_credentials(self, username, password):
         """로그인 정보 저장 (자동 로그인 활성화)"""
         try:
-            # ✅ 방어막: 플레이스홀더 패스워드는 저장하지 않기
+            # 방어막: 플레이스홀더 패스워드는 저장하지 않기
             if password == "********":
-                print("⚠️ placeholder 패스워드는 저장하지 않습니다.")
+                print("placeholder 패스워드는 저장하지 않습니다.")
                 return
 
             # path_utils를 사용하여 올바른 경로에 저장
@@ -552,10 +552,10 @@ class LoginWindow:
             with open(credentials_file_path, 'w', encoding='utf-8') as f:
                 json.dump(credentials, f, ensure_ascii=False, indent=2)
 
-            print(f"✅ 로그인 정보 저장 (자동 로그인 활성화): {username} -> {credentials_file_path}")
+            print(f"로그인 정보 저장 (자동 로그인 활성화): {username} -> {credentials_file_path}")
 
         except Exception as e:
-            print(f"❌ 로그인 정보 저장 실패: {e}")
+            print(f"로그인 정보 저장 실패: {e}")
 
     def signup(self):
         """회원가입 처리 - 웹사이트로 연결"""
@@ -581,7 +581,7 @@ class LoginWindow:
         """로그인 정보 저장"""
         try:
             if not self.credentials_file:
-                print("⚠️ credentials_file 경로가 설정되지 않았습니다.")
+                print("credentials_file 경로가 설정되지 않았습니다.")
                 return
 
             credentials = {
@@ -595,9 +595,9 @@ class LoginWindow:
 
             with open(self.credentials_file, 'w', encoding='utf-8') as f:
                 json.dump(credentials, f, ensure_ascii=False, indent=2)
-            print(f"✅ 로그인 정보 저장: {user_id}")
+            print(f"로그인 정보 저장: {user_id}")
         except Exception as e:
-            print(f"❌ 로그인 정보 저장 실패: {e}")
+            print(f"로그인 정보 저장 실패: {e}")
 
     def show_loading(self):
         """로딩 상태 표시"""
@@ -628,9 +628,9 @@ class LoginWindow:
                 with open(token_file_path, 'r', encoding='utf-8') as f:
                     return json.load(f)
             else:
-                print(f"⚠️ 토큰 파일이 없습니다: {token_file_path}")
+                print(f"토큰 파일이 없습니다: {token_file_path}")
         except Exception as e:
-            print(f"❌ 토큰 데이터 로드 실패: {e}")
+            print(f"토큰 데이터 로드 실패: {e}")
         return None
 
     def open_dashboard(self):
@@ -654,10 +654,10 @@ class LoginWindow:
             client.start()
 
         except ImportError as e:
-            print(f"❌ 대시보드 실행 실패: {e}")
+            print(f"대시보드 실행 실패: {e}")
             messagebox.showerror("오류", "대시보드를 실행할 수 없습니다.")
         except Exception as e:
-            print(f"❌ 대시보드 실행 실패: {e}")
+            print(f"대시보드 실행 실패: {e}")
             messagebox.showerror("오류", f"대시보드 실행 중 오류가 발생했습니다: {str(e)}")
 
     def show_help(self):
@@ -744,7 +744,7 @@ NoahAI Decision OS — 로그인
    • 판단 근거를 로그·화면으로 추적할 수 있게 하는 방향을 지향합니다.
    • AI 기본법 등 국내 규제 환경에 맞춰 문구·기능을 고도화합니다.
 
-로그인 후 앱 메뉴얼 「⚖️ 이용 안내·책임」에서 항목별 전문을 확인할 수 있습니다.
+로그인 후 앱 메뉴얼 「이용 안내·책임」에서 항목별 전문을 확인할 수 있습니다.
 """.strip(),
         )
         tb2.configure(state="disabled")
@@ -844,7 +844,7 @@ NoahAI Decision OS — 로그인
                 self.after_jobs.append(job_id)
             return job_id
         except Exception as e:
-            print(f"⚠️ LoginWindow safe_after 오류: {e}")
+            print(f"LoginWindow safe_after 오류: {e}")
             return None
 
     def cleanup_after_jobs(self):
@@ -881,7 +881,7 @@ NoahAI Decision OS — 로그인
             except:
                 pass
         except Exception as e:
-            print(f"⚠️ LoginWindow 안전 종료 오류: {e}")
+            print(f"LoginWindow 안전 종료 오류: {e}")
 
     def run(self):
         """UI 실행"""
@@ -897,7 +897,7 @@ NoahAI Decision OS — 로그인
             # JWT는 .으로 구분된 3부분: header.payload.signature
             parts = access_token.split('.')
             if len(parts) != 3:
-                print("❌ 잘못된 JWT 토큰 형식")
+                print("잘못된 JWT 토큰 형식")
                 return False
 
             # payload 디코딩
@@ -912,14 +912,14 @@ NoahAI Decision OS — 로그인
             current_time = int(datetime.now().timestamp())
 
             if exp > current_time:
-                print(f"✅ 토큰 유효 (만료: {datetime.fromtimestamp(exp)})")
+                print(f"토큰 유효 (만료: {datetime.fromtimestamp(exp)})")
                 return True
             else:
-                print(f"❌ 토큰 만료됨 (만료: {datetime.fromtimestamp(exp)})")
+                print(f"토큰 만료됨 (만료: {datetime.fromtimestamp(exp)})")
                 return False
 
         except Exception as e:
-            print(f"❌ 토큰 검증 오류: {e}")
+            print(f"토큰 검증 오류: {e}")
             return False
 
 # 편의 함수
@@ -934,6 +934,6 @@ if __name__ == "__main__":
         app = LoginWindow()
         app.run()
     except ImportError:
-        print("❌ CustomTkinter가 설치되지 않았습니다.")
+        print("CustomTkinter가 설치되지 않았습니다.")
         print("다음 명령어로 설치하세요:")
         print("pip install customtkinter")

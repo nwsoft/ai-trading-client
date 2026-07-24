@@ -284,7 +284,7 @@
 #### 5.1 개발 가이드 작성
 - **파일들**:
   - `docs/STOCK_ETF_DEVELOPMENT_GUIDE_20260118.md`: 개발 단계 및 구조
-  - `docs/STOCK_ETF_UI_VERIFICATION_20260118.md`: UI 구조 검증
+  - `docs/archive/history/STOCK_ETF_UI_VERIFICATION_20260118.md`: UI 구조 검증
   - `docs/STOCK_ETF_ADDITION_GUIDE.md`: 기술적 추가 가이드
   - `docs/STOCK_ETF_TEST_CHECKLIST_20260118.md`: 테스트 체크리스트
 
@@ -499,7 +499,7 @@
 
 ### 개발 가이드
 - `docs/STOCK_ETF_DEVELOPMENT_GUIDE_20260118.md`: 개발 단계 가이드
-- `docs/STOCK_ETF_UI_VERIFICATION_20260118.md`: UI 구조 검증
+- `docs/archive/history/STOCK_ETF_UI_VERIFICATION_20260118.md`: UI 구조 검증
 - `docs/STOCK_ETF_ADDITION_GUIDE.md`: 기술적 추가 가이드
 - `docs/STOCK_ETF_TEST_CHECKLIST_20260118.md`: 테스트 체크리스트
 - `docs/AI_API_ARCHITECTURE.md`: **AI API 구조 및 오픈소스 전환 가이드** (필수 참고)
@@ -581,4 +581,4 @@ ETF/주식 개발 시 AI API를 올바르게 활용해야 합니다:
 - ✅ 좌/우 2단 레이아웃 구조 유지
 - ✅ 동일한 색상/폰트/위젯 구조 사용
 
-**참고**: `docs/STOCK_ETF_UI_VERIFICATION_20260118.md`에서 UI 구조 검증 결과 확인
+**참고**: `docs/archive/history/STOCK_ETF_UI_VERIFICATION_20260118.md`에서 UI 구조 검증 결과 확인

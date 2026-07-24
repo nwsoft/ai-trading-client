@@ -41,7 +41,9 @@ from .ops_automation import OpsAutomationEngine
 from .portfolio_orchestrator import PortfolioOrchestrator
 from .profitability_validation import ProfitabilityValidator
 from .strategy_engine import StrategyEngine
+from .custom_strategy_runtime import apply_engine_settings_to_trade_config
 from api.kpi_client import emit_kpi_event
+from api.position_kpi import emit_position_closed, emit_position_opened, utc_now
 
 class UnifiedTrader:
     # 정적 분석기(Pylance) 인지를 위한 클래스 레벨 속성 선언
@@ -411,6 +413,8 @@ class UnifiedTrader:
         self.last_market_analysis_time_by_exchange: Dict[str, float] = {}
         self.last_market_regime_by_exchange: Dict[str, str] = {}
         self.enabled_exchanges = self._compute_enabled_exchanges()
+        self.trade_enabled_exchanges = self._compute_trade_enabled_exchanges()
+        self.learning_enabled_exchanges = self._compute_learning_enabled_exchanges()
         self._initialized_exchanges = set()
         try:
             self._winrate_window = max(1, int(self.settings.get('risk_winrate_window', 10)))
@@ -434,6 +438,8 @@ class UnifiedTrader:
         if not isinstance(new_settings, dict) or not new_settings:
             return
         self.settings.update(new_settings)
+        self.trade_enabled_exchanges = self._compute_trade_enabled_exchanges()
+        self.learning_enabled_exchanges = self._compute_learning_enabled_exchanges()
         self.log_event('settings', f"전략 런타임 설정 업데이트: {new_settings}", exchange='binance')
 
     def _apply_connected_strategy_runtime_unified(self, exchange_name: str):
@@ -698,6 +704,39 @@ class UnifiedTrader:
     def _is_exchange_enabled(self, exchange_name: str) -> bool:
         normalized = self._normalize_exchange(exchange_name)
         return normalized in self.enabled_exchanges
+
+    def _compute_trade_enabled_exchanges(self) -> List[str]:
+        allowed = {'binance', 'bybit', 'okx', 'bitget', 'upbit', 'bithumb'}
+        configured = self.settings.get('trade_enabled_exchanges', []) if isinstance(self.settings, dict) else []
+        normalized = [
+            self._normalize_exchange(item)
+            for item in (configured or [])
+            if self._normalize_exchange(item) in allowed
+        ]
+        if normalized:
+            return list(dict.fromkeys(normalized))
+        selected = self._normalize_exchange(self.settings.get('selected_exchange', 'binance'))
+        return [selected] if selected in allowed else ['binance']
+
+    def _compute_learning_enabled_exchanges(self) -> List[str]:
+        allowed = {'binance', 'bybit', 'okx', 'bitget', 'upbit', 'bithumb'}
+        configured = self.settings.get('learning_enabled_exchanges', []) if isinstance(self.settings, dict) else []
+        source = configured or self.settings.get('enabled_exchanges', [])
+        normalized = [
+            self._normalize_exchange(item)
+            for item in (source or [])
+            if self._normalize_exchange(item) in allowed
+        ]
+        return list(dict.fromkeys(normalized))
+
+    def _is_trade_enabled(self, exchange_name: str) -> bool:
+        scope = getattr(self, 'trade_enabled_exchanges', None)
+        if scope is None:
+            if 'trade_enabled_exchanges' not in (self.settings or {}):
+                return True
+            scope = self._compute_trade_enabled_exchanges()
+            self.trade_enabled_exchanges = scope
+        return self._normalize_exchange(exchange_name) in scope
 
     def _get_advanced_layers_settings(self, exchange_name: str) -> Dict[str, Any]:
         try:
@@ -1011,6 +1050,11 @@ class UnifiedTrader:
                                 'exchange': exchange_name,
                                 'symbol': symbol,
                                 'signal': str(signal_data.get('signal', 'HOLD')) if isinstance(signal_data, dict) else 'HOLD',
+                                'ai_call_mode': str(signal_data.get('ai_call_mode', 'unknown')) if isinstance(signal_data, dict) else 'unknown',
+                                'ai_model': str(signal_data.get('ai_model', '')) if isinstance(signal_data, dict) else '',
+                                'strategy_variant': str(signal_data.get('strategy_variant', 'unknown')) if isinstance(signal_data, dict) else 'unknown',
+                                'input_tokens': int((signal_data.get('ai_usage', {}) or {}).get('input_tokens', 0) or 0) if isinstance(signal_data, dict) else 0,
+                                'output_tokens': int((signal_data.get('ai_usage', {}) or {}).get('output_tokens', 0) or 0) if isinstance(signal_data, dict) else 0,
                             },
                         )
                     except Exception as e:
@@ -1062,8 +1106,13 @@ class UnifiedTrader:
                     except Exception:
                         pass
 
-                    # AI 학습 데이터 생성
-                    self._generate_ai_learning_data(exchange_name, symbol, signal_data)
+                    # 실제 주문 거래소와 학습 대상 거래소는 별도로 선택할 수 있다.
+                    learning_scope = getattr(self, 'learning_enabled_exchanges', None)
+                    if learning_scope is None:
+                        learning_scope = self._compute_learning_enabled_exchanges()
+                        self.learning_enabled_exchanges = learning_scope
+                    if exchange_name in learning_scope:
+                        self._generate_ai_learning_data(exchange_name, symbol, signal_data)
                 else:
                     # 기본 분석 결과
                     analysis_results[symbol] = {
@@ -1088,6 +1137,21 @@ class UnifiedTrader:
         """거래소별 거래 사이클 실행 (바이낸스와 동일한 로직)"""
         try:
             self.logger.info(f"🔄 {exchange_name} 거래 사이클 시작")
+            learning_scope = getattr(self, 'learning_enabled_exchanges', None)
+            if learning_scope is None:
+                learning_scope = self._compute_learning_enabled_exchanges()
+                self.learning_enabled_exchanges = learning_scope
+            scope_keys_present = any(
+                key in (self.settings or {})
+                for key in ('trade_enabled_exchanges', 'learning_enabled_exchanges', 'enabled_exchanges')
+            )
+            if (
+                scope_keys_present
+                and self._normalize_exchange(exchange_name) not in learning_scope
+                and not self._is_trade_enabled(exchange_name)
+            ):
+                self.logger.info(f"⏭️ {exchange_name} 거래·학습 대상 아님 - 사이클 생략")
+                return
 
             # 🤖 AI 자동 학습: 거래 성과에 따라 신호 기준 조절
             self._auto_adjust_threshold_from_performance(exchange_name)
@@ -1163,6 +1227,22 @@ class UnifiedTrader:
 
             self.logger.info(f"📊 {exchange_name} 분석 완료: {len(analysis_results)}개 (ex={exchange_name})")
 
+            # 주 거래소와 학습 거래소를 분리한다. 학습 전용 거래소는 시그널과
+            # 학습 데이터까지만 갱신하고 주문은 제출하지 않는다.
+            if not self._is_trade_enabled(exchange_name):
+                self.logger.info(
+                    f"🧠 {exchange_name} 학습 전용 사이클 완료 - 실제 주문 거래소: "
+                    f"{', '.join(self.trade_enabled_exchanges)}"
+                )
+                self._monitor_exchange_positions(exchange_name)
+                self.cycle_execution_metrics[exchange_name] = {
+                    'attempted_orders': 0,
+                    'failed_orders': 0,
+                    'quality_score': 100.0,
+                    'learning_only': True,
+                }
+                return
+
             layer_settings = self._get_advanced_layers_settings(exchange_name)
             recent_trades = self._get_recent_trade_samples_unified(exchange_name, limit=200)
             profitability_report = ProfitabilityValidator().evaluate_strategy(
@@ -1173,9 +1253,14 @@ class UnifiedTrader:
                 self.logger.warning(f"⛔ {exchange_name} 수익성 검증 차단: {profitability_report.get('reasons', [])}")
                 self._monitor_exchange_positions(exchange_name)
                 return
-            if profitability_report.get('stage') == 'limited_live_learning':
+            if profitability_report.get('stage') in {'limited_live_learning', 'recovery_learning'}:
+                stage_label = (
+                    '성과회복 제한 운용'
+                    if profitability_report.get('stage') == 'recovery_learning'
+                    else '신규/데이터부족 제한 운용'
+                )
                 self.logger.info(
-                    f"🌱 {exchange_name} 신규/데이터부족 제한 운용: "
+                    f"🌱 {exchange_name} {stage_label}: "
                     f"거래 {profitability_report.get('total_trades', 0)}/{profitability_report.get('next_review_at_trades')} · "
                     f"위험배수 {profitability_report.get('risk_multiplier', 0.1):.2f} · "
                     f"최대포지션 {profitability_report.get('max_positions', 1)} · "
@@ -1200,7 +1285,7 @@ class UnifiedTrader:
                     break
                 symbol = coin.get('symbol', '')
                 analysis = analysis_results.get(symbol, {})
-                if isinstance(analysis, dict) and profitability_report.get('stage') == 'limited_live_learning':
+                if isinstance(analysis, dict) and profitability_report.get('stage') in {'limited_live_learning', 'recovery_learning'}:
                     analysis['_cold_start_profile'] = dict(profitability_report)
 
                 # 🔥 상세 분석 과정 로깅 (거래소 정보 포함)
@@ -1244,32 +1329,43 @@ class UnifiedTrader:
 
                 self.logger.info(f"{symbol} 분석 완료 - 시그널: {analysis.get('signal', 'HOLD')} (ex={exchange_name})")
 
+                from .declarative_strategy_engine import DeclarativeStrategyEngine
+                strategy_pool = getattr(self, 'active_custom_strategy_pool', []) or []
+                if strategy_pool:
+                    custom_entry = DeclarativeStrategyEngine.evaluate_strategy_pool(
+                        strategy_pool,
+                        analysis,
+                        asset_class="crypto",
+                        target=exchange_name,
+                        market_regime=str((getattr(self, 'last_market_regime_by_exchange', {}) or {}).get(exchange_name, 'range')),
+                    )
+                elif analysis.get('signal') in ['LONG', 'SHORT']:
+                    custom_rules_by_exchange = getattr(self, 'active_custom_strategy_rules_by_exchange', {}) or {}
+                    custom_entry = DeclarativeStrategyEngine.evaluate_entry(
+                        custom_rules_by_exchange.get(exchange_name, {}), analysis,
+                    )
+                else:
+                    custom_entry = {'allowed': True, 'bypassed': True, 'reason': 'no_base_signal'}
+                if not custom_entry.get('allowed', False):
+                    self.logger.info(
+                        f"⏸️ {exchange_name} {symbol} AI 커스텀 HOLD - 현재 범위·국면·진입조건 미충족: "
+                        f"{custom_entry.get('reason')}"
+                    )
+                    continue
+                if custom_entry.get('selected_strategy_name'):
+                    if custom_entry.get('signal_mode') == 'independent':
+                        analysis['signal'] = str(custom_entry.get('entry_signal') or '').upper()
+                    analysis['_custom_engine_settings'] = dict(custom_entry.get('engine_settings') or {})
+                    analysis['_selected_custom_strategy'] = custom_entry.get('selected_strategy_name')
+                    analysis['_custom_operation_mode'] = custom_entry.get('operation_mode', 'standard')
+                    self.logger.info(
+                        f"🧠 {exchange_name} {symbol} AI 커스텀 선택: "
+                        f"{custom_entry.get('selected_strategy_name')} "
+                        f"(방식={custom_entry.get('signal_mode', 'confirm')}, "
+                        f"운용={custom_entry.get('operation_mode', 'standard')}, 국면={custom_entry.get('market_regime')})"
+                    )
+
                 if analysis.get('signal') in ['LONG', 'SHORT']:
-                    from .declarative_strategy_engine import DeclarativeStrategyEngine
-                    strategy_pool = getattr(self, 'active_custom_strategy_pool', []) or []
-                    if strategy_pool:
-                        custom_entry = DeclarativeStrategyEngine.evaluate_strategy_pool(
-                            strategy_pool,
-                            analysis,
-                            asset_class="crypto",
-                            target=exchange_name,
-                            market_regime=str((getattr(self, 'last_market_regime_by_exchange', {}) or {}).get(exchange_name, 'range')),
-                        )
-                    else:
-                        custom_rules_by_exchange = getattr(self, 'active_custom_strategy_rules_by_exchange', {}) or {}
-                        custom_entry = DeclarativeStrategyEngine.evaluate_entry(
-                            custom_rules_by_exchange.get(exchange_name, {}),
-                            analysis,
-                        )
-                    if not custom_entry.get('allowed', False):
-                        self.logger.info(f"⏭️ {exchange_name} {symbol} AI 커스텀 진입조건 미충족: {custom_entry}")
-                        continue
-                    if custom_entry.get('selected_strategy_name'):
-                        analysis['_custom_engine_settings'] = dict(custom_entry.get('engine_settings') or {})
-                        self.logger.info(
-                            f"🧠 {exchange_name} {symbol} AI 커스텀 선택: "
-                            f"{custom_entry.get('selected_strategy_name')} (국면={custom_entry.get('market_regime')})"
-                        )
                     strategy_allowed, strategy_meta = strategy_engine.should_trade(
                         symbol=symbol,
                         analysis_result={
@@ -1280,7 +1376,11 @@ class UnifiedTrader:
                         policy=dict(layer_settings.get('strategy_engine', {}) or {}),
                     )
                     if not strategy_allowed:
-                        self.logger.info(f"⏭️ {exchange_name} {symbol} 전략엔진 차단: {strategy_meta.get('reasons', [])}")
+                        custom_name = analysis.get('_selected_custom_strategy', '기본 AI')
+                        self.logger.warning(
+                            f"⛔ {exchange_name} {symbol} {custom_name} HOLD - 후행 전략 가드레일 차단: "
+                            f"{strategy_meta.get('reasons', [])}"
+                        )
                         continue
 
                     self.logger.info(f"[{symbol}] 거래 실행 시작 - 시그널: {analysis.get('signal')} (ex={exchange_name})")
@@ -1494,8 +1594,12 @@ class UnifiedTrader:
             # AI 강화 파라미터 적용
             optimized_params = self._get_ai_enhanced_parameters_unified(exchange_name, symbol, analysis, pre_entry_analysis)
             custom_engine_settings = getattr(self, 'custom_engine_settings_by_exchange', {}) or {}
-            optimized_params.update(dict(custom_engine_settings.get(exchange_name, {}) or {}))
-            optimized_params.update(dict(analysis.get('_custom_engine_settings', {}) or {}))
+            optimized_params = apply_engine_settings_to_trade_config(
+                optimized_params, custom_engine_settings.get(exchange_name, {}) or {}
+            )
+            optimized_params = apply_engine_settings_to_trade_config(
+                optimized_params, analysis.get('_custom_engine_settings', {}) or {}
+            )
 
             # 거래 실행
             exchange_client = self.get_exchange_client(exchange_name)
@@ -1690,7 +1794,15 @@ class UnifiedTrader:
 
             if self._is_order_success(order_result):
                 # 포지션 기록 (TP/SL 포함)
-                self._record_position_with_tp_sl(exchange_name, symbol, signal, position_size, order_result, optimized_params)
+                self._record_position_with_tp_sl(
+                    exchange_name,
+                    symbol,
+                    signal,
+                    position_size,
+                    order_result,
+                    optimized_params,
+                    execution_mode='demo' if demo else ('paper' if paper else 'live'),
+                )
 
                 # 바이낸스 실거래 시 TP/SL 주문 발주(지원 시)
                 try:
@@ -2567,11 +2679,7 @@ class UnifiedTrader:
                 # PnL 계산
                 pnl_data = self._calculate_pnl_unified(position, current_price)
                 pnl_percent = pnl_data.get('net_pnl_percent', 0.0)
-                hold_seconds = 0.0
-                try:
-                    hold_seconds = max(0.0, (datetime.now(timezone.utc) - position.entry_time).total_seconds())
-                except Exception:
-                    hold_seconds = 0.0
+                closed_at = utc_now()
 
                 # 거래 청산 DB 로그 (Recorder) 기록 시도
                 try:
@@ -2677,11 +2785,38 @@ class UnifiedTrader:
                         'side': 'CLOSE',
                         'close': True,
                         'reason': 'auto_close',
-                        'hold_seconds': round(hold_seconds, 2),
                         'executed_price': float(current_price or 0.0),
                         'notional_estimate': float(position.quantity) * float(current_price or 0.0),
                     },
                 )
+                if getattr(position, 'entry_time_source', 'execution') == 'execution':
+                    exit_order_id = None
+                    if isinstance(order_result, dict):
+                        exit_order_id = (
+                            order_result.get('order_id')
+                            or order_result.get('orderId')
+                            or order_result.get('id')
+                        )
+                    emit_position_closed(
+                        asset_class='crypto',
+                        venue=exchange_name,
+                        symbol=symbol,
+                        side=position.side.value,
+                        opened_at=position.entry_time,
+                        closed_at=closed_at,
+                        entry_price=position.entry_price,
+                        exit_price=float(current_price or 0.0),
+                        closed_quantity=position.quantity,
+                        close_reason='auto_close',
+                        position_id=position.position_id,
+                        exit_order_id=exit_order_id,
+                        execution_mode=getattr(position, 'execution_mode', 'live'),
+                        source='noahai_client_unified_position',
+                        gross_pnl=float(pnl_data.get('gross_pnl', pnl_data.get('pnl', 0.0)) or 0.0),
+                        net_pnl=float(pnl_data.get('net_pnl', 0.0) or 0.0),
+                        fees=float(pnl_data.get('total_fees', pnl_data.get('fees', 0.0)) or 0.0),
+                        extra={'leverage': int(position.leverage or 1)},
+                    )
 
                 # RiskManager 이력 업데이트 (거래소 필터 정합성 보장)
                 if hasattr(self, 'risk_manager') and self.risk_manager:
@@ -3168,7 +3303,9 @@ class UnifiedTrader:
                                         unrealized_pnl_percent=float(pos_data.get('percentage', 0)),
                                         entry_time=datetime.now(timezone.utc),  # 정확한 시간은 거래소에서 조회 필요
                                         tp_price=restored_tp,
-                                        sl_price=restored_sl
+                                        sl_price=restored_sl,
+                                        entry_time_source='restored_unverified',
+                                        execution_mode='live',
                                     )
                                     # 포지션 추가
                                     self.active_positions[exchange_name][position.symbol] = position
@@ -4306,8 +4443,8 @@ Response in JSON format:
         try:
             # 기본 파라미터
             params = {
-                'tp_percent': analysis.get('tp_percent', 0.18),
-                'sl_percent': analysis.get('sl_percent', 0.20),
+                'tp_percent': analysis.get('tp_percent', 0.0018),
+                'sl_percent': analysis.get('sl_percent', 0.0020),
                 'leverage': analysis.get('leverage', 10),
                 'position_size_factor': 1.0,
                 'entry_confidence': analysis.get('confidence', 0.5)
@@ -4339,8 +4476,8 @@ Response in JSON format:
         except Exception as e:
             self.logger.error(f"❌ {exchange_name} {symbol} AI 강화 파라미터 적용 실패: {e}")
             return {
-                'tp_percent': 0.18,
-                'sl_percent': 0.20,
+                'tp_percent': 0.0018,
+                'sl_percent': 0.0020,
                 'leverage': 10,
                 'position_size_factor': 1.0,
                 'entry_confidence': 0.5
@@ -4551,7 +4688,16 @@ Response in JSON format:
             self.logger.error(f"❌ {exchange_name} 최대 포지션 크기 조회 실패: {e}")
             return 0.01
 
-    def _record_position_with_tp_sl(self, exchange_name: str, symbol: str, signal: str, quantity: float, order_result: Dict[str, Any], optimized_params: Dict):
+    def _record_position_with_tp_sl(
+        self,
+        exchange_name: str,
+        symbol: str,
+        signal: str,
+        quantity: float,
+        order_result: Dict[str, Any],
+        optimized_params: Dict,
+        execution_mode: str = 'live',
+    ):
         """TP/SL 포함 포지션 기록 (거래소별)"""
         try:
             entry_price = float(order_result.get('price', 0.0))
@@ -4601,13 +4747,33 @@ Response in JSON format:
                 unrealized_pnl_percent=0.0,
                 entry_time=datetime.now(timezone.utc),
                 tp_price=tp_price,
-                sl_price=sl_price
+                sl_price=sl_price,
+                execution_mode=execution_mode,
             )
 
             if exchange_name not in self.active_positions:
                 self.active_positions[exchange_name] = {}
 
             self.active_positions[exchange_name][symbol] = position
+            entry_order_id = (
+                order_result.get('order_id')
+                or order_result.get('orderId')
+                or order_result.get('id')
+            )
+            _, position.position_id = emit_position_opened(
+                asset_class='crypto',
+                venue=exchange_name,
+                symbol=symbol,
+                side=position.side.value,
+                opened_at=position.entry_time,
+                entry_price=position.entry_price,
+                quantity=position.quantity,
+                position_id=position.position_id,
+                entry_order_id=entry_order_id,
+                execution_mode=execution_mode,
+                source='noahai_client_unified_position',
+                extra={'leverage': int(lev or 1)},
+            )
             self.logger.info(
                 f"✅ {exchange_name} {symbol} 포지션 기록 완료 (entry={entry_price:.6f}, TP={tp_price:.6f}, SL={sl_price:.6f}, lev={lev}x)"
             )
@@ -4788,6 +4954,8 @@ Response in JSON format:
 
         # 활성 거래소 목록 재계산
         self.enabled_exchanges = self._compute_enabled_exchanges()
+        self.trade_enabled_exchanges = self._compute_trade_enabled_exchanges()
+        self.learning_enabled_exchanges = self._compute_learning_enabled_exchanges()
 
         # 비활성 거래소 데이터 정리
         containers = [

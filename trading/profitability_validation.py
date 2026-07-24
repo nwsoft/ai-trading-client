@@ -62,6 +62,14 @@ class ProfitabilityValidator:
         "cold_start_max_positions": 1,
         "cold_start_max_leverage": 1,
         "cold_start_initial_risk_multiplier": 0.10,
+        # strict_stop은 기존 동작. limited_learning은 손실 구간에도 최소 위험으로
+        # 계속 표본을 쌓되 hard_stop_mdd를 넘으면 즉시 차단한다.
+        "underperformance_mode": "strict_stop",
+        "recovery_risk_multiplier": 0.15,
+        "recovery_max_positions": 1,
+        "recovery_max_leverage": 1,
+        "recovery_review_interval_trades": 20,
+        "hard_stop_mdd": 0.45,
     }
 
     @staticmethod
@@ -78,7 +86,13 @@ class ProfitabilityValidator:
         fee = self._to_float(trade.get("fee", trade.get("fees", 0.0)), 0.0)
         slippage_bps = self._to_float(trade.get("slippage_bps", 0.0), 0.0)
         qty = max(self._to_float(trade.get("quantity", trade.get("filled_quantity", 1.0)), 1.0), 1e-8)
-        price = max(self._to_float(trade.get("filled_price", trade.get("price", 1.0)), 1.0), 1e-8)
+        price = max(
+            self._to_float(
+                trade.get("filled_price", trade.get("entry_price", trade.get("price", 1.0))),
+                1.0,
+            ),
+            1e-8,
+        )
 
         notional = qty * price
         slippage_cost = notional * (abs(slippage_bps) / 10000.0)
@@ -188,6 +202,46 @@ class ProfitabilityValidator:
             reasons.append("expectancy_below_threshold")
         if walkforward < self._to_float(effective.get("min_walkforward_pass_rate", 0.50), 0.50):
             reasons.append("walkforward_below_threshold")
+
+        underperformance_mode = str(
+            effective.get("underperformance_mode", "strict_stop") or "strict_stop"
+        ).strip().lower()
+        hard_stop_mdd = self._to_float(effective.get("hard_stop_mdd", 0.45), 0.45)
+        if reasons and underperformance_mode == "limited_learning" and mdd <= hard_stop_mdd:
+            review_interval = max(
+                1, int(effective.get("recovery_review_interval_trades", 20) or 20)
+            )
+            recent_window = returns[-min(len(returns), review_interval):]
+            recent_expectancy = statistics.mean(recent_window) if recent_window else expectancy
+            base_risk = max(
+                0.01,
+                min(
+                    self._to_float(effective.get("recovery_risk_multiplier", 0.15), 0.15),
+                    0.50,
+                ),
+            )
+            # 최근 기대값이 전체 기대값보다 회복 중이면 위험을 조금만 늘린다.
+            recovery_bonus = 0.05 if recent_expectancy > expectancy else 0.0
+            return {
+                "total_trades": total_trades,
+                "gross_pnl": round(gross_pnl, 4),
+                "net_pnl": round(net_pnl, 4),
+                "win_rate": round(win_rate, 4),
+                "sharpe": round(sharpe, 4),
+                "mdd": round(mdd, 4),
+                "expectancy": round(expectancy, 4),
+                "walkforward_pass_rate": round(walkforward, 4),
+                "enabled": True,
+                "bypassed": False,
+                "stage": "recovery_learning",
+                "reasons": reasons,
+                "risk_multiplier": round(min(0.50, base_risk + recovery_bonus), 4),
+                "max_positions": max(1, int(effective.get("recovery_max_positions", 1) or 1)),
+                "max_leverage": max(1, int(effective.get("recovery_max_leverage", 1) or 1)),
+                "next_review_at_trades": total_trades + review_interval,
+                "recent_expectancy": round(recent_expectancy, 4),
+                "note": "수수료 차감 후 성과 회복 표본을 최소 위험으로 계속 수집",
+            }
 
         report = ProfitabilityReport(
             total_trades=total_trades,

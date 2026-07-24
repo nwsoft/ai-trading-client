@@ -14,6 +14,11 @@ from enum import Enum
 from uuid import uuid4
 
 from trading.custom_strategy_pipeline import CustomStrategyPipeline
+from trading.custom_strategy_runtime import (
+    derive_strategy_risk_settings,
+    limited_live_engine_settings,
+    normalize_engine_settings,
+)
 
 class StrategyType(Enum):
     """전략 타입"""
@@ -125,6 +130,12 @@ class StrategyCustomizer:
             rules["target_exchange"] = str(strategy_config.get("target_exchange", "") or "").lower()
             rules["market_regimes"] = list(strategy_config.get("market_regimes", ["all"]) or ["all"])
             rules["priority"] = max(1, min(int(strategy_config.get("priority", 5) or 5), 10))
+            rules["signal_mode"] = str(
+                strategy_config.get("signal_mode", rules.get("signal_mode", "confirm")) or "confirm"
+            ).strip().lower()
+            rules["entry_signal"] = str(
+                strategy_config.get("entry_signal", rules.get("entry_signal", "")) or ""
+            ).strip().upper()
 
             # 기본 전략 구조
             custom_strategy = {
@@ -143,6 +154,8 @@ class StrategyCustomizer:
                 "target_scope": target_scope,
                 "market_regimes": list(strategy_config.get("market_regimes", ["all"]) or ["all"]),
                 "priority": max(1, min(int(strategy_config.get("priority", 5) or 5), 10)),
+                "signal_mode": rules["signal_mode"],
+                "entry_signal": rules["entry_signal"],
                 "trusted_system": trusted_system,
                 "backtesting_results": None,
                 "live_performance": {
@@ -176,6 +189,7 @@ class StrategyCustomizer:
                 custom_strategy["pipeline_version_id"] = version["version_id"]
                 custom_strategy["version"] = version["version"]
                 custom_strategy["xai"] = version["xai"]
+                custom_strategy["guidance"] = version.get("guidance", {})
                 custom_strategy["missing_conditions"] = version["missing_conditions"]
                 self._prune_unpersisted_strategy_records(version["strategy_key"])
             
@@ -215,12 +229,17 @@ class StrategyCustomizer:
                     "target_scope": str(rules.get("target_scope", "asset:crypto") or "asset:crypto").lower(),
                     "market_regimes": list(rules.get("market_regimes", ["all"]) or ["all"]),
                     "priority": max(1, min(int(rules.get("priority", 5) or 5), 10)),
+                    "signal_mode": str(rules.get("signal_mode", "confirm") or "confirm").lower(),
+                    "entry_signal": str(rules.get("entry_signal", "") or "").upper(),
+                    "operation_mode": str(version.get("operation_mode", "standard") or "standard"),
                     "trusted_system": False,
                     "status": version.get("status", "unknown"),
                     "pipeline_strategy_key": strategy_key,
                     "pipeline_version_id": version_id,
                     "version": version.get("version"),
                     "xai": dict(version.get("xai", {}) or {}),
+                    "guidance": dict(version.get("guidance", {}) or {}),
+                    "improvement_advice": dict(version.get("improvement_advice", {}) or {}),
                     "missing_conditions": list(version.get("missing_conditions", []) or []),
                     "paper_validation": version.get("paper_validation"),
                     "execution_validation": version.get("execution_validation"),
@@ -243,14 +262,19 @@ class StrategyCustomizer:
                 self.user_strategies.pop(strategy_id, None)
 
     def _sync_pipeline_statuses(self, strategy_key: str) -> None:
-        statuses = {
-            item.get("version_id"): item.get("status", "unknown")
+        versions = {
+            item.get("version_id"): item
             for item in self.custom_pipeline.list_versions(strategy_key)
         }
         for strategy_id, strategy in self.user_strategies.items():
             if strategy.get("pipeline_strategy_key") != strategy_key:
                 continue
-            strategy["status"] = statuses.get(strategy.get("pipeline_version_id"), strategy.get("status", "unknown"))
+            version = versions.get(strategy.get("pipeline_version_id"), {})
+            strategy["status"] = version.get("status", strategy.get("status", "unknown"))
+            strategy["guidance"] = dict(version.get("guidance", strategy.get("guidance", {})) or {})
+            strategy["improvement_advice"] = dict(
+                version.get("improvement_advice", strategy.get("improvement_advice", {})) or {}
+            )
             if strategy["status"] == "active":
                 self.active_strategy_id = strategy_id
 
@@ -259,10 +283,14 @@ class StrategyCustomizer:
         """자연어 규칙만 저장된 전략을 실행 완료로 오인하지 않게 한다."""
         declarative = dict((strategy.get("rules") or {}).get("executable_entry", {}) or {})
         has_declarative = bool(declarative.get("all") or declarative.get("any"))
-        return has_declarative or any(
+        has_settings = has_declarative or any(
             bool(strategy.get(field))
             for field in ("base_params", "filters", "time_rules", "risk_rules")
         )
+        rules = dict(strategy.get("rules", {}) or {})
+        if str(rules.get("signal_mode", "confirm") or "confirm").lower() == "independent":
+            return has_settings and str(rules.get("entry_signal", "") or "").upper() in {"LONG", "SHORT"}
+        return has_settings
     
     def apply_strategy(self, strategy_id: str) -> bool:
         """전략 적용. 사용자 전략은 활성화 상태가 아니면 우회 적용을 차단한다."""
@@ -290,7 +318,15 @@ class StrategyCustomizer:
         try:
             
             # 1. 기본 파라미터 적용
-            base_params = strategy["base_params"]
+            operation_mode = str(strategy.get("operation_mode", "standard") or "standard").lower()
+            base_params = (
+                limited_live_engine_settings(strategy.get("base_params", {}))
+                if operation_mode == "limited_live"
+                else derive_strategy_risk_settings(
+                    strategy.get("base_params", {}),
+                    (strategy.get("rules", {}) or {}).get("risk_model", {}),
+                )
+            )
             if self.trader:
                 trader_settings = {}
                 if "leverage" in base_params:
@@ -308,6 +344,11 @@ class StrategyCustomizer:
                     setattr(self.trader, "custom_engine_settings_by_exchange", per_exchange_settings)
                 elif target_scope in {"exchange:binance", ""}:
                     self.trader.update_settings(trader_settings)
+                    optimizer = getattr(self.trader, "optimizer", None)
+                    if optimizer is not None and trader_settings:
+                        updater = getattr(optimizer, "update_settings", None)
+                        if callable(updater):
+                            updater(trader_settings)
             
             # 2. 분석기 설정 적용
             if self.analyzer and "signal_threshold" in base_params:
@@ -364,6 +405,7 @@ class StrategyCustomizer:
         strategy["rules"] = dict(version["rules"])
         strategy["status"] = version["status"]
         strategy["missing_conditions"] = list(version["missing_conditions"])
+        strategy["guidance"] = dict(version.get("guidance", {}) or {})
         self._sync_pipeline_statuses(strategy_key)
         return version
 
@@ -420,11 +462,96 @@ class StrategyCustomizer:
         _, strategy = self._strategy_for_version(strategy_key, version_id)
         strategy["status"] = version["status"]
         strategy["execution_validation"] = version["execution_validation"]
+        strategy["improvement_advice"] = dict(version.get("improvement_advice", {}) or {})
         self._sync_pipeline_statuses(strategy_key)
         return version
 
+    def run_historical_validation(
+        self,
+        strategy_key: str,
+        version_id: str,
+        *,
+        symbol: Optional[str] = None,
+        limit: int = 500,
+        historical_data: Optional[List[Any]] = None,
+        validation_target: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """대시보드 숫자 수기 입력 없이 거래소 캔들로 실행 조건과 PnL을 재생한다."""
+        from trading.custom_strategy_validator import run_historical_replay
+
+        _, strategy = self._strategy_for_version(strategy_key, version_id)
+        target = str(strategy.get("target_exchange", "") or "").lower()
+        scope = str(strategy.get("target_scope", "") or "").lower()
+        is_stock = scope.startswith("asset:stock") or scope.startswith("broker:")
+        if is_stock and historical_data is None:
+            raise ValueError("주식/ETF 자동 검증에는 연결된 증권사의 가격 이력이 필요합니다.")
+        selected_symbol = symbol or {
+            "upbit": "KRW-BTC", "bithumb": "BTC_KRW",
+        }.get(target, "BTCUSDT")
+        klines: List[Any] = list(historical_data or [])
+        if historical_data is not None:
+            pass
+        elif target in {"", "binance"} and getattr(self.trader, "binance_client", None) is not None:
+            klines = self.trader.binance_client.get_klines(selected_symbol, "15m", int(limit))
+        else:
+            manager = getattr(self.trader, "exchange_manager", None)
+            if manager is None:
+                raise RuntimeError("대상 거래소의 과거 시세 연결이 준비되지 않았습니다.")
+            klines = manager.get_klines(
+                selected_symbol, interval="15m", limit=int(limit), exchange_name=target or None,
+            )
+        metrics = run_historical_replay(strategy.get("rules", {}), klines)
+        minimum = int(getattr(self.custom_pipeline, "min_paper_trades", 3) or 3)
+        quality_pass = (
+            int(metrics.get("decisions", 0) or 0) >= minimum
+            and float(metrics.get("net_pnl_percent", 0.0) or 0.0) > 0.0
+            and float(metrics.get("max_drawdown_percent", 0.0) or 0.0) <= 10.0
+        )
+        metrics.update({
+            "symbol": selected_symbol,
+            "exchange": validation_target or target or ("stock" if is_stock else "binance"),
+            "quality_gate": "decisions>=minimum AND net_pnl>0 AND max_drawdown<=10%",
+            "quality_passed": quality_pass,
+        })
+        return self.record_execution_validation(
+            strategy_key,
+            version_id,
+            decisions=int(metrics.get("decisions", 0) or 0),
+            guardrail_violations=0 if quality_pass else 1,
+            metrics=metrics,
+            mode="historical_replay",
+        )
+
     def _guardrail_allows(self, version: Dict[str, Any]) -> bool:
         """전략 종류와 무관하게 공통 리스크 엔진을 마지막 우선순위로 강제한다."""
+        rules = dict(version.get("rules", {}) or {})
+        operation_mode = str(version.get("operation_mode", "standard") or "standard").lower()
+        settings = (
+            limited_live_engine_settings(rules.get("engine_settings", {}))
+            if operation_mode == "limited_live"
+            else derive_strategy_risk_settings(
+                rules.get("engine_settings", {}),
+                rules.get("risk_model", {}),
+            )
+        )
+        trader_settings = dict(getattr(self.trader, "settings", {}) or {}) if self.trader is not None else {}
+        max_leverage = max(1.0, float(trader_settings.get("max_leverage", 10.0) or 10.0))
+        max_position = min(1.0, max(0.0, float(
+            trader_settings.get("max_custom_position_size", 0.5) or 0.5
+        )))
+        if float(settings.get("leverage", 1.0) or 1.0) > max_leverage:
+            return False
+        if float(settings.get("position_size", 0.0) or 0.0) > max_position:
+            return False
+        if float(settings.get("sl_percent", 0.0) or 0.0) <= 0:
+            return False
+        if not rules.get("stop_loss"):
+            return False
+        if (
+            str(rules.get("signal_mode", "confirm") or "confirm").lower() == "independent"
+            and str(rules.get("entry_signal", "") or "").upper() not in {"LONG", "SHORT"}
+        ):
+            return False
         if self.risk_manager is None:
             return True
         validator = getattr(self.risk_manager, "validate_custom_strategy", None)
@@ -439,6 +566,7 @@ class StrategyCustomizer:
         version_id: str,
         *,
         live_confirmation: bool,
+        operation_mode: str = "standard",
     ) -> Dict[str, Any]:
         """실행 검증 통과 버전을 최종 확인 후 런타임에 적용한다."""
         strategy_id, strategy = self._strategy_for_version(strategy_key, version_id)
@@ -454,9 +582,11 @@ class StrategyCustomizer:
             strategy_key,
             version_id,
             live_confirmation=live_confirmation,
+            operation_mode=operation_mode,
             guardrail_check=self._guardrail_allows,
         )
         strategy["status"] = "active"
+        strategy["operation_mode"] = str(version.get("operation_mode", operation_mode) or operation_mode)
         if not self._apply_strategy_values(strategy_id, strategy):
             raise RuntimeError("승인된 전략의 런타임 적용에 실패했습니다.")
         self._sync_pipeline_statuses(strategy_key)
@@ -643,7 +773,9 @@ class StrategyCustomizer:
                     self.logger.info(f"동적 조절 적용 완료: {adjustment_type}")
                     return True
                 else:
-                    self.logger.warning(f"동적 조절 실패: {adjustment_type}")
+                    # 사용자 전략에 해당 조절 규칙이 없는 것은 오류가 아니라
+                    # "원래 전략을 그대로 유지"한다는 뜻이다.
+                    self.logger.debug(f"동적 조절 미적용: {adjustment_type}")
                     return False
             else:
                 self.logger.warning(f"알 수 없는 조절 타입: {adjustment_type}")
@@ -654,31 +786,40 @@ class StrategyCustomizer:
             return False
     
     def _adjust_for_market_condition(self, context: Dict) -> bool:
-        """시장 상황 기반 조절"""
+        """사용자가 선언한 시장상황별 파라미터만 적용한다.
+
+        시스템이 임의로 레버리지나 포지션을 올리거나 낮추지 않는다.
+        """
         try:
             if not self.active_strategy_id:
                 return False
             
             strategy = self.user_strategies[self.active_strategy_id]
-            market_condition = context.get("market_condition", "NORMAL")
-            
-            # 시장 상황별 파라미터 조절
-            adjustments = {}
-            
-            if market_condition == "HIGH_VOLATILITY":
-                # 고변동성: 보수적 접근
-                adjustments = {
-                    "leverage": max(1, strategy["base_params"].get("leverage", 1) - 1),
-                    "position_size": strategy["base_params"].get("position_size", 0.1) * 0.8,
-                    "sl_percent": strategy["base_params"].get("sl_percent", 0.2) * 0.8
-                }
-            elif market_condition == "LOW_VOLATILITY":
-                # 저변동성: 적극적 접근
-                adjustments = {
-                    "leverage": min(3, strategy["base_params"].get("leverage", 1) + 1),
-                    "position_size": strategy["base_params"].get("position_size", 0.1) * 1.2,
-                    "tp_percent": strategy["base_params"].get("tp_percent", 0.18) * 0.8
-                }
+            aliases = {
+                "BULL": "bull", "BULLISH": "bull", "UPTREND": "bull",
+                "BEAR": "bear", "BEARISH": "bear", "DOWNTREND": "bear",
+                "SIDEWAYS": "range", "NORMAL": "range", "RANGE": "range",
+                "VOLATILE": "volatile", "HIGH_VOL": "volatile",
+                "HIGH_VOLATILITY": "volatile",
+                "CALM": "calm", "LOW_VOL": "calm", "LOW_VOLATILITY": "calm",
+            }
+            raw_condition = str(context.get("market_condition", "NORMAL") or "NORMAL").upper()
+            market_condition = aliases.get(raw_condition, raw_condition.lower())
+            rules = dict(strategy.get("rules", {}) or {})
+            regime_parameters = dict(
+                rules.get("regime_parameters", rules.get("market_condition_parameters", {})) or {}
+            )
+            explicit = regime_parameters.get(market_condition, {})
+            if not isinstance(explicit, dict) or not explicit:
+                return False
+
+            base = dict(strategy.get("base_params", {}) or {})
+            base.update(explicit)
+            adjustments = derive_strategy_risk_settings(
+                base,
+                rules.get("risk_model", {}),
+                context,
+            )
             
             # 조절사항 적용
             if adjustments and self.trader:
@@ -689,10 +830,13 @@ class StrategyCustomizer:
                     trader_settings["default_tp"] = adjustments["tp_percent"]
                 if "sl_percent" in adjustments:
                     trader_settings["default_sl"] = adjustments["sl_percent"]
-                
-                self.trader.update_settings(trader_settings)
-                
-                self.logger.info(f"시장 상황 조절 적용: {market_condition} -> {adjustments}")
+                if "position_size" in adjustments:
+                    trader_settings["position_size"] = adjustments["position_size"]
+                if trader_settings:
+                    self.trader.update_settings(trader_settings)
+                self.logger.info(
+                    f"사용자 선언 시장상황 조절 적용: {market_condition} -> {adjustments}"
+                )
                 return True
             
             return False
@@ -759,7 +903,11 @@ class StrategyCustomizer:
             return False
     
     def _adjust_for_performance(self, context: Dict) -> bool:
-        """성과 기반 조절"""
+        """사용자가 선언한 성과 조건만 적용한다.
+
+        승률이나 연속 손실만 보고 시스템이 전략을 자동 변경하지 않는다.
+        AI 개선안은 새 버전 제안으로만 남고, 이 경로는 명시 규칙만 실행한다.
+        """
         try:
             if not self.active_strategy_id:
                 return False
@@ -769,24 +917,31 @@ class StrategyCustomizer:
             consecutive_losses = performance_data.get("consecutive_losses", 0)
             
             strategy = self.user_strategies[self.active_strategy_id]
+            rules = dict(strategy.get("rules", {}) or {})
+            declared = list(rules.get("performance_adjustments", []) or [])
             adjustments = {}
-            
-            # 연속 손실 시 보수적 조절
-            if consecutive_losses >= 3:
-                adjustments = {
-                    "leverage": 1,  # 최소 레버리지
-                    "position_size": strategy["base_params"].get("position_size", 0.1) * 0.5,
-                    "signal_threshold": min(90, strategy["base_params"].get("signal_threshold", 70) + 10)
-                }
-                self.logger.warning(f"연속 손실 감지 ({consecutive_losses}회) - 보수적 모드 전환")
-            
-            # 높은 승률 시 적극적 조절
-            elif recent_win_rate > 0.7:
-                adjustments = {
-                    "leverage": min(3, strategy["base_params"].get("leverage", 1) + 1),
-                    "position_size": min(0.2, strategy["base_params"].get("position_size", 0.1) * 1.2),
-                }
-                self.logger.info(f"높은 승률 감지 ({recent_win_rate:.1%}) - 적극적 모드 전환")
+            for item in declared:
+                if not isinstance(item, dict):
+                    continue
+                when = dict(item.get("when", {}) or {})
+                loss_min = int(when.get("consecutive_losses_gte", -1) or -1)
+                win_min = float(when.get("recent_win_rate_gte", -1) or -1)
+                if loss_min >= 0 and consecutive_losses >= loss_min:
+                    adjustments.update(dict(item.get("set", {}) or {}))
+                    break
+                if win_min >= 0 and recent_win_rate >= win_min:
+                    adjustments.update(dict(item.get("set", {}) or {}))
+                    break
+            if not adjustments:
+                return False
+
+            base = dict(strategy.get("base_params", {}) or {})
+            base.update(adjustments)
+            adjustments = derive_strategy_risk_settings(
+                base,
+                rules.get("risk_model", {}),
+                context,
+            )
             
             # 조절사항 적용
             if adjustments:
@@ -794,6 +949,10 @@ class StrategyCustomizer:
                     trader_settings = {}
                     if "leverage" in adjustments:
                         trader_settings["default_leverage"] = adjustments["leverage"]
+                    if "tp_percent" in adjustments:
+                        trader_settings["default_tp"] = adjustments["tp_percent"]
+                    if "sl_percent" in adjustments:
+                        trader_settings["default_sl"] = adjustments["sl_percent"]
                     if "position_size" in adjustments:
                         pos_size = float(adjustments["position_size"])
                         trader_settings["position_size"] = pos_size
@@ -897,10 +1056,15 @@ class StrategyCustomizer:
                     "strategy_key": strategy.get("pipeline_strategy_key"),
                     "version_id": strategy.get("pipeline_version_id"),
                     "missing_conditions": strategy.get("missing_conditions", []),
+                    "guidance": dict(strategy.get("guidance", {}) or {}),
+                    "improvement_advice": dict(strategy.get("improvement_advice", {}) or {}),
                     "target_exchange": strategy.get("target_exchange", ""),
                     "target_scope": strategy.get("target_scope", "asset:crypto"),
                     "market_regimes": list(strategy.get("market_regimes", ["all"]) or ["all"]),
                     "priority": int(strategy.get("priority", 5) or 5),
+                    "signal_mode": str(strategy.get("signal_mode", "confirm") or "confirm"),
+                    "entry_signal": str(strategy.get("entry_signal", "") or ""),
+                    "operation_mode": str(strategy.get("operation_mode", "standard") or "standard"),
                     "performance": strategy.get("live_performance", {})
                 }
                 for strategy_id, strategy in self.user_strategies.items()
@@ -916,14 +1080,26 @@ class StrategyCustomizer:
         for strategy_id, strategy in self.user_strategies.items():
             if strategy.get("status") != "active":
                 continue
+            operation_mode = str(strategy.get("operation_mode", "standard") or "standard").lower()
+            engine_settings = (
+                limited_live_engine_settings(strategy.get("base_params", {}))
+                if operation_mode == "limited_live"
+                else derive_strategy_risk_settings(
+                    strategy.get("base_params", {}),
+                    (strategy.get("rules", {}) or {}).get("risk_model", {}),
+                )
+            )
             pool.append({
                 "id": strategy_id,
                 "name": strategy.get("name", "사용자 전략"),
                 "rules": dict(strategy.get("rules", {}) or {}),
-                "engine_settings": dict(strategy.get("base_params", {}) or {}),
+                "engine_settings": engine_settings,
                 "target_scope": strategy.get("target_scope", "asset:crypto"),
                 "market_regimes": list(strategy.get("market_regimes", ["all"]) or ["all"]),
                 "priority": int(strategy.get("priority", 5) or 5),
+                "signal_mode": str(strategy.get("signal_mode", "confirm") or "confirm"),
+                "entry_signal": str(strategy.get("entry_signal", "") or ""),
+                "operation_mode": operation_mode,
                 "strategy_key": strategy.get("pipeline_strategy_key"),
                 "version_id": strategy.get("pipeline_version_id"),
             })

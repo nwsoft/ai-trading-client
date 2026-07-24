@@ -1,3 +1,203 @@
+## 2026-07-24 - v3.9.0.1 포지션 KPI·평균 보유시간 수집 수정
+
+### 원인
+
+- Binance 주 경로는 로컬 naive `datetime.now()`로 진입시각을 저장하고 종료 때 UTC aware 시각을 빼 예외가 발생했다.
+- 예외를 `hold_seconds = 0.0`으로 대체해 실제 미수집을 0분 보유처럼 서버에 전송했다.
+- 증권 자동매매는 매수와 매도를 각각 `entry_time == exit_time`인 독립 종료 거래로 저장해 포지션 보유 구간을 만들 수 없었다.
+- 서버는 주문 이벤트의 `hold_seconds > 0`만 평균내고 유효 데이터가 없으면 다시 `0.0`으로 표시했다.
+
+### 수정
+
+- `api/position_kpi.py`에 UTC 변환, 포지션 ID, 진입·부분 청산·전량 청산 이벤트 계약을 추가했다.
+- 코인 Position 진입시각은 UTC aware datetime으로 생성하고 새 실행 포지션만 검증된 종료 이벤트를 전송한다.
+- 거래소에서 복구했지만 실제 진입시각을 모르는 포지션은 임의 시간을 전송하지 않는다.
+- 증권 매수는 열린 `trade_log`로 저장하고 매도는 FIFO 로트에 연결한다. 부분 매도는 잔량과 종료 로트를 각각 보존한다.
+- 주문 성공률/거래량 이벤트와 포지션 보유시간 이벤트를 분리했다.
+- 서버는 포지션 이벤트의 시각 차이, 보유시간, 중복 `event_id`를 검증하고 과거 구형 0초를 평균에서 제외한다.
+- 실제 비즈니스 KPI는 `mock/demo/paper/test` 실행을 제외하고 pytest는 KPI 네트워크 전송을 시작하지 않는다.
+
+### 데이터 해석
+
+- 기존 구형 청산 0초 이벤트는 원래 진입시각 근거가 없어 소급 보정하지 않는다.
+- 새 클라이언트가 진입부터 종료까지 기록한 거래가 생기기 전 평균 보유시간 `수집 대기`는 정상이다.
+- 주문 성공률, 전체 이벤트 성공률, 투자 승률, PnL은 서로 다른 지표이며 혼용하지 않는다.
+
+### 검증
+
+- 포지션 KPI·테스트 격리 집중 회귀 `8 passed`
+- 관련 코인·증권·실행 계층 회귀 `103 passed`
+- 전체 회귀 `1030 passed, 6 skipped, 0 failed, 3 warnings`
+
+## 2026-07-24 - v3.9.0.1 TP/SL 공통 원인 수정·정보 탭 스크롤 보강
+
+### TP/SL 원인과 전 사용자 공통 방어
+
+- 지원용 진단 스냅샷은 실사용자 설정이 아니므로 내용을 수정하지 않고 수집 당시 상태로 보존
+- 자동 최적화가 `LOW_WINRATE` 때 공유 `default_tp`를 매 점검마다 1.1배 직접 변경하던 원인을 제거하고 승인 대기 제안으로만 저장
+- 설정·AI 커스텀·최적화 입력은 TP/SL fraction 단위와 허용 범위로 정규화하고, 최종 주문 직전 범위 위반 값은 거래 차단
+- DB `trade_log` 열을 오래된 순서로 읽던 최적화 조회와 `pnl_percent` 퍼센트 포인트/fraction 변환 오류 수정
+
+### 코인·종목 정보 화면
+
+- `코인 정보`와 `종목 정보` 탭 전체를 세로 스크롤 가능하게 변경하고 내부 결과표 높이를 고정해 작은 화면에서도 마지막 항목과 버튼에 접근 가능
+- `종목 정보`에 증권사 API의 실제 보유 종목과 최근 체결 종목을 합친 `내 보유·최근 체결 종목` 영역 추가
+- 기존 증권사 종목 목록은 실제 사용자 거래 목록이 아닌 검색용 카탈로그였으므로 `시장 종목 미리보기 · 검색용`으로 명확히 구분
+- TP/SL 무결성·정보 탭 집중 회귀 `7 passed`, 전체 회귀 `1022 passed, 6 skipped, 0 failed`
+
+## 2026-07-24 - v3.9.0.1 대시보드 공간·공용 아이콘 시각 개선
+
+### 화면 잘림 방지
+
+- 대시보드 하단의 상태·업데이트·AI 실행 기록을 세로 3단에서 한 줄 3영역으로 재배치
+- 창 높이를 무리하게 키우지 않고 본문에 약 80px 이상의 세로 공간을 돌려주어 거래소·분석 탭 하단 잘림 방지
+- AI 실행 기록은 핵심 상태를 한 줄로 요약하고 상세 내용은 `기록` 버튼에서 확인하도록 분리
+
+### macOS·Windows 공통 상용 UI
+
+- 운영체제마다 형태가 달라지는 컬러 이모지 대신 PIL로 동일하게 렌더링하는 공용 `CTkImage` 아이콘 체계 추가
+- 블록체인·증권·자산·생활금융·AI애널리스트·매뉴얼·설정·종료·저장 버튼에 같은 규격의 아이콘 적용
+- 서비스별 선택 색상, 비선택 탭 표면색, 테두리, Segoe UI 기반 탭 글꼴·높이를 공통화
+- 사용자 매뉴얼과 설정 창에도 같은 탭 대비·카드·제목 아이콘을 적용해 정보 계층과 가독성 보강
+- 공용 아이콘은 별도 SVG 런타임이나 운영체제 이모지 폰트에 의존하지 않아 Windows 안전 빌드에 추가 자산 복사 불필요
+
+### 검증
+
+- 수정 파일 Python 문법 검사 통과
+- 대시보드 하단 3영역 동일 행 배치·공용 아이콘·탭 스타일 집중 회귀 `29 passed`
+- macOS 1500×980 실행 화면에서 한 줄 하단 패널과 공용 아이콘 렌더링 확인
+- Windows EXE 전수 화면 검증은 신규 3.9.0.1 빌드 후 배포 게이트에서 수행
+
+## 2026-07-24 - v3.9.0.1 거래기회 보존형 AI 비용·성과 패치 (배포 버전 변경 없음)
+
+### AI 커스텀 전략 설계·운용 고도화
+
+- 누락된 진입·청산·손절·익절·위험예산·시장상황을 AI가 임의 추정하지 않고 질문과 입력 예시로 안내
+- 사용자는 `거래당 허용손실`, `최대 증거금 사용률`, `레버리지 상한`을 정하고 실제 레버리지·포지션은 전략 손절거리에서 거래별 계산
+- 커스텀 전략의 대상 국면이 끝났을 때 `기본 NoahAI에 맡김` 또는 `커스텀 신규 진입 일시정지`를 사용자가 선택
+- 시장상황·성과에 따른 레버리지/포지션 자동변경을 제거하고 사용자 전략에 명시된 조정 규칙만 실행
+- 실행검증 결과에서 비용 반영 PnL·Profit Factor·MDD·수수료 확인률을 읽어 다음 버전 개선안을 제시하되 자동 적용하지 않음
+- AI 시장분석에 실제 최근 변동성과 `volume_ratio`를 전달하고 `entry_confidence` 키를 전 실행 경로에서 통일
+- AI TP/SL fraction 하한이 10%로 잘못 적용되던 단위 오류와 오류 폴백 `0.18/0.20`을 `0.0018/0.0020`으로 수정
+- 가격값이 TP로 유입되는 공통 경로를 차단하고 저장 전 검증을 추가. 지원용 진단 스냅샷은 변경하지 않고 결함 재현 근거로만 사용
+- 앱 재시작 후에도 DB 종료 거래 수를 사용해 장기 사용자를 신규 사용자로 오인하지 않도록 수정
+- 고변동성을 무조건 차단하지 않고 합의 점수·가드레일로 평가하며 사용자가 `high_vol_action=block`을 선택할 때만 차단
+
+### 기존 비용·성과 개선
+
+- OpenAI Cost/Completions Usage 2026-05~07 CSV와 `data/260723_teayu`의 설정·로그·DB·학습·리포트를 교차 점검
+- 선택 거래소는 Binance였지만 활성 거래소 6개가 함께 분석된 최근 구간을 단일 거래소 비용으로 해석하지 않도록 정정
+- “실제 거래 신호가 있을 때만 호출”, “2주 뒤 자동 저비용”, “99% 비용 절감 완료” 문구를 현재 코드·실측에 맞게 제거
+- 최근 7일 Fee 전 PnL, 설정 수수료율 추정 순PnL, OpenAI 비용을 분리해 학습 효과와 운영 수익성을 과장하지 않도록 정합화
+- 로컬 기술 신호를 먼저 계산하고 새 캔들·가격·RSI·MACD·국면 변화 때 LLM을 호출하며 동일 상태는 15분 재사용
+- 일·월·거래소별 호출 한도에 도달해도 거래를 멈추지 않고 로컬 LONG/SHORT 신호로 계속 운용
+- 선택 거래소만 실제 주문하고 다른 활성 거래소는 학습 전용으로 분리하는 기본 정책 추가
+- Binance 체결 commission·진입/청산 주문번호·모델·전략 변형·수수료 출처를 거래 DB에 기록
+- 7일 챔피언/챌린저 판정을 Fee 차감 순PnL과 거래당 순기대값 기준으로 변경하고 모델·전략별 14일 비교 추가
+- 일반 성과 미달은 1포지션·1배·위험배수 0.15 회복 학습으로 계속 표본을 확보하고 Hard MDD만 차단
+- 시장분석 최대 출력 600→320 토큰 축소
+- 사용자 지원 폴더에 포함될 수 있는 OpenAI·거래소 키·토큰을 자동 제거하는 진단 내보내기를 P0 계획으로 추가하고 즉시 키 교체 절차를 문서화
+- 남은 항목은 다심볼 배치 품질 A/B, 달러 예상비용 UI, 비밀값 제거 지원 내보내기, 장시간 실계좌 검증
+- 당시 전체 회귀 `1015 passed, 6 skipped, 0 failed`; AI 커스텀 위험기반 전략 집중 회귀 `56 passed`
+
+## 2026-07-24 - v3.9.0.1 금융 인텔리전스 통합 분석 허브
+
+### 사용자 입력·메뉴·플랫폼 표시 정리
+
+- 블록체인·주식/증권에서 `금융 인텔리전스`를 거래소·증권사 상세 탭보다 먼저 생성하도록 순서 고정
+- 사용자용 금융 인텔리전스 화면에서 JSON·가격 배열·파일 경로·API 키 입력을 제거하고 시장 프리셋·종목·일반 숫자 입력과 차트 중심으로 교체
+- 초기화 중 동일 위젯을 반복 삭제·재생성해 CustomTkinter Canvas 콜백이 충돌하던 빈 탭 문제를 위젯 재사용 방식으로 수정
+- 공개 가격·기술지표·스크리너·백테스트는 클라이언트에서 직접 조회·계산하고, 뉴스·일정·공시·기관·거시는 운영 공급자 미연결 시 명시적 연결 필요 상태 표시
+- macOS·Windows 간 기본 컬러 이모지 차이를 없애기 위해 대시보드 UI 메뉴·버튼·상태를 텍스트 표기로 통일
+- 생활금융 기본 비교 데이터를 안전 빌드에 포함하고 누락·손상 시 앱 내 예비 데이터로 폴백; 사용자 화면에서는 로컬 경로 대신 데이터 종류와 실시간 여부만 표시
+
+### ✅ 공통 금융 분석 코어
+
+- 출처·기준시각·지연·품질을 포함한 공통 데이터 계약과 SQLite 재현 저장소 추가
+- 글로벌 시장, 섹터 히트맵, 이벤트 캘린더, RSS 뉴스, 근거 연결 내러티브 엔진 추가
+- 재무제표 표준화, 상대가치, DCF/Reverse DCF/DDM/RIM, 통합 스크리너, 멀티타임프레임 기술지표 추가
+- 수수료·슬리피지·Profit Factor·Expectancy·Sharpe·Sortino·MDD·회복기간 및 그룹별 성과 분석 추가
+- 신호/체결 시점 분리, 비용·펀딩·최소주문·수량단위·부분체결·API 실패·강제청산·Walk-forward/OOS를 반영한 범용 백테스트 추가
+- 산업·거시 레짐과 기관 보유 변화·공통 보유·사용자 포트폴리오 중복도 분석 추가
+
+### ✅ 데이터 공급자와 실행형 화면
+
+- Yahoo Finance·Binance 공개 시세 공급자와 실제 네트워크 스모크 검증
+- SEC Companyfacts·DART 재무 응답, ICS 이벤트 파일 공급자와 정규화 테스트
+- 블록체인·주식/증권·자산 통합·AI애널리스트 메뉴에 컨텍스트별 실행형 금융 인텔리전스 화면 연결
+- AI애널리스트 요청에 저장된 시장·이벤트·뉴스·내러티브 근거를 전달하되 없는 값은 생성하지 않도록 제한
+- 분석 결과의 직접 주문 신호 생성과 기존 가드레일 자동 변경을 금지
+- 대시보드 하단에 v3.9.0.1 핵심 변경과 `업데이트·사용법` 바로가기 추가
+- 인앱 사용자 매뉴얼에 `금융 인텔리전스` 전용 탭과 화면별 단계 안내 추가
+
+### ⚠️ 배포 전 확인 경계
+
+- 앱·Windows 리소스·자동업데이트 버전과 배포 문서를 v3.9.0.1로 정합화
+- 새 Windows EXE 빌드 전 manifest는 `pending_windows_rebuild`, size 0, 빈 SHA로 유지
+- SEC 식별 연락처·DART API 키·허가 기관 데이터의 실제 운영 호출과 Windows 전수 GUI 실클릭은 릴리스 전 검증 대기
+
+### ✅ 검증
+
+- 현재 누적 전체 회귀: `1022 passed, 6 skipped, 0 failed`
+- 금융 인텔리전스·생활금융·메뉴 정책 집중 회귀: `181 passed`
+- 문서/버전 정합, 사용자 노출 동기화 게이트, 인앱 매뉴얼 10개 탭 숨김 GUI 스모크 통과
+
+### ✅ 문서 체계 통합
+
+- `docs/README.md`와 `MASTER_DOCUMENTATION.md`를 정본 중심의 단일 인덱스로 재작성
+- 빌드·AlphaArena·코인 선정·대시보드 영역의 현행 상세 문서를 각각 1개 정본으로 고정
+- 동기화 충돌본, 과거 설계·분석·완료·검증 보고, 이전 릴리스 체크리스트를 `docs/archive/` 하위 분류로 이동
+- `docs` 최상위 Markdown을 179개에서 103개로 축소하고, 79개 이력 문서는 삭제하지 않고 보관
+- 1,168개의 `data/**/reports/*.md`는 런타임 산출물로 분리하여 공식 문서 수와 혼동하지 않도록 정책 명시
+
+## 2026-07-22 - v3.9.0.0 AI 커스텀 실제 자동매매 운용 고도화
+
+### ✅ 거래소 제어/상태 동기화
+
+- 시작 단계 상태를 `시작 중...` -> `진행 중`으로 분리 표기
+- 실행 중 버튼을 `중지`로 전환하고 실제 워커 상태 기반으로 화면 자동 보정
+
+### ✅ USDT 거래소 코인 선택 정확도 개선
+
+- OKX/Bybit/Bitget 분석 요청에 거래소 컨텍스트를 끝까지 전달하도록 보정
+- OKX 문자열 후보 전처리 유실 경로 수정
+- Bybit/Bitget 토큰화 주식 선물을 암호화폐 자동선정 대상에서 제외
+
+### ✅ 거래 통계/종료 경로 운영성 강화
+
+- 거래소 실시간 탭: 총 거래/승률/순손익/수수료를 한 줄 4열 KPI로 고정
+- 상세 거래 통계: 전체/거래소 필터 + 누적 KPI + 거래소/코인별 상세표 제공
+- 증권사 탭: 총 거래/오늘 체결/실현손익/미체결 4열 KPI 적용
+- 상단 `⏻ 종료`에서 거래 중지 -> DB 저장 -> 비동기 로그 flush 순서로 안전 종료
+
+### ✅ AI 커스텀 전략 운용 체계 정식 반영
+
+- 텍스트/Pine/PDF/차트 OCR/로컬 영상/YouTube 자막+화면/TradingView 링크 입력 지원
+- 소스 추출 -> 조건 확인 -> XAI 설명 -> 사용자 승인 -> 실행 검증 -> 최종 적용 순서 강제
+- 계정별 프라이빗 저장, 전략별 최대 10개 버전, 검증 버전 롤백 지원
+- 자산/거래소/시장국면/진입조건/우선순위 기반으로 활성 전략 자동 선택
+- 자동검증 통과 전략은 일반 운용, 미통과 전략은 사용자 선택 시 1배/최대 1% 제한 운용
+- 적용 후 별도 시작 버튼 없이 거래소/증권사 시작과 자동 연결
+- 선택/미충족/HOLD/가드레일 차단 사유를 거래소 카드와 실시간 로그에서 노출
+
+### ✅ 신규 사용자/데이터 부족 구간 안전 운용
+
+- 분석 데이터 부족 시 주문하지 않고 연결/캔들/심볼 원인을 명시
+- 종료 거래 부족 구간은 1포지션/1배 레버리지/위험배수 0.10 제한 운용 학습
+- 거래소별 PnL/수수료/슬리피지 기준 임계값을 분리 저장
+
+### ✅ AI 어시스턴트 운영 보강
+
+- 현재 거래소/포지션/최근 로그 질의 응답 강화
+- 차트 스크린샷 OCR 분석 및 전략 상담 지원
+- 설정에서 GPT-5.6 Sol/Terra/Luna, 역할별 비용 프리셋, API 모델 새로고침 제공
+
+### ✅ 릴리즈/문서 파이프라인 안정화
+
+- 배포 기준 버전을 `v3.9.0.0`으로 상향하고 인앱/문서/배포 메타데이터 동기화
+- 태그/릴리즈 재실행 멱등 복구, 브랜치 non-fast-forward 경고 분리 처리, GitHub API 일시 오류 재시도 경로 유지
+- 릴리즈 에셋 덮어쓰기와 릴리즈 설명 동기화를 분리해 최신 노트가 본문에 반영되도록 고정
+
 ## 2026-07-19 - v3.8.9.29 다중 거래소·대시보드·AI 커스텀 안정화
 
 - 거래소 실시간 통계는 접힘 방지 grid와 한 줄 4열 KPI, 상세 통계는 한 줄 4열 누적 KPI로 적용
@@ -161,7 +361,7 @@
 
 ### ✅ v3.8.9.28 순차 테스트 마크다운 추가
 
-- `docs/UPDATE_TEST_CHECKLIST_v3.8.9.28.md`
+- `docs/archive/release/UPDATE_TEST_CHECKLIST_v3.8.9.28.md`
   - 이번 차(28버전) 업데이트 항목을 순차로 확인하는 운영 체크리스트 추가
   - 각 단계 종료 시 대시보드에서 무엇을 확인해야 하는지 항목화
   - 최종 회귀 게이트(py_compile/pytest 핵심 묶음)와 완료 보고 템플릿 포함
@@ -815,7 +1015,7 @@
   - AI 어시스턴트 연결 전 `set_service_context('ai_analyst')` 호출로 컨텍스트 동기화 추가
 
 #### 🧪 생활금융 Phase 3 UI 프로토타입 구현 (데모·MVP 단계)
-**상태**: 본 기능은 R&D 고도화 대상이며, 프로토타입/데모 단계입니다. 실제 금융사 API 연동은 향후 별도 R&D 과제입니다. (상세: [LIFE_FINANCE_PRODUCT_COMPARISON_ANALYSIS_20260429.md](docs/LIFE_FINANCE_PRODUCT_COMPARISON_ANALYSIS_20260429.md))
+**상태**: 본 기능은 R&D 고도화 대상이며, 프로토타입/데모 단계입니다. 실제 금융사 API 연동은 향후 별도 R&D 과제입니다. (상세: [LIFE_FINANCE_PRODUCT_COMPARISON_ANALYSIS_20260429.md](LIFE_FINANCE_PRODUCT_COMPARISON_ANALYSIS_20260429.md))
 
 - **`_setup_products_tab()` 전면 재작성**
   - 상단 조건 입력 패널 추가 (다크 카드 `#0f172a`)
@@ -1214,10 +1414,10 @@
 - ✅ 모니터링 데이터 포인트 정상 생성
 
 #### 📋 자세한 내용
-- **버그 수정 보고서**: `docs/BUG_FIX_REPORT_20251228.md`
-- **AI 어시스턴트 문제 분석**: `docs/AI_ASSISTANT_ISSUES_20251228.md`
-- **AI 학습 중단 문제 분석**: `docs/AI_LEARNING_ISSUE_ANALYSIS_20251228.md`
-- **포지션 복구 로직 영향 분석**: `docs/POSITION_RESTORE_IMPACT_ANALYSIS_20251228.md`
+- **버그 수정 보고서**: `docs/archive/history/BUG_FIX_REPORT_20251228.md`
+- **AI 어시스턴트 문제 분석**: `docs/archive/history/AI_ASSISTANT_ISSUES_20251228.md`
+- **AI 학습 중단 문제 분석**: `docs/archive/history/AI_LEARNING_ISSUE_ANALYSIS_20251228.md`
+- **포지션 복구 로직 영향 분석**: `docs/archive/history/POSITION_RESTORE_IMPACT_ANALYSIS_20251228.md`
 
 ---
 
@@ -1540,9 +1740,9 @@
   - 상세 디버깅 로그 추가
 
 #### 📝 문서 업데이트
-- `docs/TRADING_BLOCKING_COMPLETE_ANALYSIS.md`: 구조적 모순 및 해결 방안 상세 분석
-- `docs/DATA_INSUFFICIENT_ANALYSIS.md`: "데이터 부족" 의미 명확화
-- `docs/TRADING_BLOCKING_ROOT_CAUSE.md`: 근본 원인 분석
+- `docs/archive/history/TRADING_BLOCKING_COMPLETE_ANALYSIS.md`: 구조적 모순 및 해결 방안 상세 분석
+- `docs/archive/history/DATA_INSUFFICIENT_ANALYSIS.md`: "데이터 부족" 의미 명확화
+- `docs/archive/history/TRADING_BLOCKING_ROOT_CAUSE.md`: 근본 원인 분석
 
 #### 🎯 기대 효과
 - ✅ 첫 거래 실행 가능 (순환 문제 해결)
@@ -1581,7 +1781,7 @@
 - 기타 중요한 거래 설정 항목
 
 #### 📝 문서 업데이트
-- `docs/SETTINGS_RESET_ISSUE_ANALYSIS.md`: 설정값 리셋 문제 분석 및 해결 방안
+- `docs/archive/history/SETTINGS_RESET_ISSUE_ANALYSIS.md`: 설정값 리셋 문제 분석 및 해결 방안
 
 #### 🎯 기대 효과
 - ✅ 사용자가 수정한 설정값 영구 보존
@@ -1662,10 +1862,10 @@
 ### 📄 문서 변경 사항
 - 추가: `docs/UI_DESIGN_GUIDE.md` (Root Cause, 베이스라인, 컴포넌트 스펙, Do/Don’t, 폴리싱 체크리스트, 작업 로그 포함)
 - 삭제: 다음 레거시 문서를 제거하여 혼선 방지
-   - THEME_APPLICATION_COMPLETE.md, THEME_FILES_LOCATION.md, THEME_REMOVAL_DETAILED_CHANGELOG_20251030.md, THEME_SYSTEM.md, THEME_SYSTEM_GUIDE.md
-   - DASHBOARD_BUTTONS_ANALYSIS.md, DASHBOARD_DESIGN_IMPROVEMENTS_20251030.md, DASHBOARD_DESIGN_MODIFICATION.md, DASHBOARD_POSITION_SYSTEM.md, DASHBOARD_REDESIGN_PLAN.md, DASHBOARD_RIGHT_PANEL_LOCATION.md
-   - HISTORICAL_THEME_BASELINE.md, UI_FIXED_SKIN_PLAN.md, UI_FIXED_SKIN_TODO.md, UI_FIXED_SKIN_WORK_SUMMARY_20251029.md, UI_FIXED_SKIN_WORK_SUMMARY_20251030.md
-   - WIDGETS_HARDCODED_COLORS_ANALYSIS.md, WIDGET_COLORS_FIX_PLAN.md, WIDGET_USAGE_ANALYSIS.md
+   - archive/history/THEME_APPLICATION_COMPLETE.md, THEME_FILES_LOCATION.md, THEME_REMOVAL_DETAILED_CHANGELOG_20251030.md, THEME_SYSTEM.md, THEME_SYSTEM_GUIDE.md
+   - archive/dashboard/DASHBOARD_BUTTONS_ANALYSIS.md, archive/dashboard/DASHBOARD_DESIGN_IMPROVEMENTS_20251030.md, archive/dashboard/DASHBOARD_DESIGN_MODIFICATION.md, DASHBOARD_POSITION_SYSTEM.md, archive/dashboard/DASHBOARD_REDESIGN_PLAN.md, archive/dashboard/DASHBOARD_RIGHT_PANEL_LOCATION.md
+   - HISTORICAL_THEME_BASELINE.md, UI_FIXED_SKIN_PLAN.md, UI_FIXED_SKIN_TODO.md, archive/history/UI_FIXED_SKIN_WORK_SUMMARY_20251029.md, archive/history/UI_FIXED_SKIN_WORK_SUMMARY_20251030.md
+   - archive/history/WIDGETS_HARDCODED_COLORS_ANALYSIS.md, WIDGET_COLORS_FIX_PLAN.md, archive/history/WIDGET_USAGE_ANALYSIS.md
 
 ### 🧩 코드 변경 사항
 - 제거: `ui/dashboard_modern.py`의 `_patch_customtkinter_methods` 함수 및 호출부
@@ -2509,7 +2709,7 @@ def _restore_positions_from_exchange(self):
 - 영향: 6개 거래소 모두 정상 작동 보장
 
 **검증**:
-- ✅ 빌드 검증 문서 생성: `docs/BUILD_VERIFICATION_2025-10-12.md`
+- ✅ 빌드 검증 문서 생성: `docs/archive/build/BUILD_VERIFICATION_2025-10-12.md`
 - ✅ 모든 수정 파일 빌드 포함 확인
 - ✅ Python 코드, CCXT 모듈, 문서 파일 모두 포함
 
@@ -2659,7 +2859,7 @@ def _restore_positions_from_exchange(self):
 
 ## [Unreleased]
 - Docs/UI Planning
-  - DASHBOARD_REDESIGN_PLAN.md Draft v2: 글로벌+개별 Start/Stop 공존(Tri-State), 서비스 전환 destroy, Settings Exchanges/AI 탭 명시, LogStream 단일화 계획 반영
+  - archive/dashboard/DASHBOARD_REDESIGN_PLAN.md Draft v2: 글로벌+개별 Start/Stop 공존(Tri-State), 서비스 전환 destroy, Settings Exchanges/AI 탭 명시, LogStream 단일화 계획 반영
   - 설정 키 입력 경로 및 AI 기본 탭 고정 전략 문서화
   - 향후 feature branch(`feature/dashboard-v2`) 기반 단계적 적용 예정
 

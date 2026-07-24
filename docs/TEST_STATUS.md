@@ -1,20 +1,35 @@
-## 문서 동기화 메모 (2026-07-19)
+## 문서 동기화 메모 (2026-07-24)
 
-- 소스/문서 버전 단일 소스(`config/app_version.py`) 기준 최신 릴리스 후보는 `v3.8.9.29` (2026-07-19)
-- Windows stable manifest는 실제 3.8.9.28 EXE의 SHA-256을 유지하며, 3.8.9.29 Windows 빌드·서명·업로드 후 교체한다.
-- 전체 자동 테스트 최신 실행: `967 passed, 6 skipped, 3 warnings` (2026-07-19, macOS/Python 3.13)
-- 경고 3건은 기존 `scripts/test_coin_selection*.py` 테스트가 assert 대신 list를 return한다는 pytest 경고이며 실패는 아니다.
-- 신규 대상 테스트: 거래통계 높이/KPI, Pine·텍스트 전략 추출, 실행검증, 신규사용자 제한운용, 거래소별 임계값, 설정 닫기, GPT-5.6 모델 카탈로그.
+- 소스/문서 버전 단일 소스(`config/app_version.py`) 기준 배포 대상은 `v3.9.0.1` (2026-07-24)
+- v3.9.0.1 Windows EXE는 신규 빌드 전이며 manifest는 `pending_windows_rebuild` 상태다. v3.9.0.0 EXE 재사용은 stale build와 ProductVersion 게이트가 차단한다.
+- 전체 자동 테스트 최신 실행: `1030 passed, 6 skipped, 3 warnings` (2026-07-24, macOS/Python 3.13)
+- 경고 3건은 기존 `scripts/test_coin_selection*.py`의 list 반환이며 실패는 아니다.
+- 신규 대상 테스트: 거래기회 보존형 AI 호출 정책, 위험기반 레버리지, 국면 이탈 선택, AI 입력·TP/SL 단위, 설정 복구, 영속 거래 단계 판정을 포함한다.
 
 ---
 
-## 최신 테스트 결과 (2026-07-19 v3.8.9.29)
+## 최신 테스트 결과 (2026-07-24 v3.9.0.1 배포 준비)
 
-- 전체 회귀: **967 passed, 6 skipped, 0 failed, 3 warnings**
-- v3.8.9.29 집중 + 커스텀/고급계층 게이트: **34 passed**
+- 전체 회귀: **1030 passed, 6 skipped, 0 failed, 3 warnings**
+- 포지션 KPI·테스트 격리 집중 회귀: **8 passed, 0 failed**
+- TP/SL 무결성·코인/종목 정보 탭 집중 회귀: **7 passed, 0 failed**
+- AI 커스텀 위험기반 전략 집중 회귀: **56 passed, 0 failed**
+- AI 비용·성과 집중 회귀: **108 passed, 0 failed**
+- 금융 인텔리전스·생활금융·메뉴 정책 집중 회귀: **181 passed**
 - 문서/버전 정합성: **PASS**
-- Python 문법 검사: 수정 Python 파일 전체 **PASS**
-- 남은 외부 게이트: Windows EXE 빌드/서명/manifest, 각 실제 거래소 장시간 또는 최소단위 검증
+- Python 문법 검사: 금융 인텔리전스·대시보드·인앱 매뉴얼 수정 파일 **PASS**
+- 공개 데이터 스모크: Binance BTCUSDT, Yahoo Finance AAPL·KOSPI·KRW 환율·금 선물 **PASS**
+- 로컬 UI 스모크(macOS): 금융 인텔리전스가 BINANCE보다 앞에 표시되고, 시장 프리셋·종목 입력·차트·조회 버튼 본문까지 실제 렌더됨 **PASS**
+- 금융 인텔리전스 탭 재선택/지연 초기화: 동일 서비스 위젯 재사용으로 CustomTkinter Canvas 예약 콜백 충돌과 빈 탭 회귀 방지 **PASS**
+- 사용자 화면 표기 점검: 운영체제 이모지를 제거하고 앱 렌더링 공용 아이콘·서비스별 선택 색상·탭 대비로 macOS/Windows 표기 기준 통일 **PASS**
+- 대시보드 공간 회귀: 하단 상태·업데이트·AI 실행 기록을 동일 행으로 배치하고 본문 세로 공간 복구, 공용 아이콘·탭 스타일 집중 회귀 `29 passed` **PASS**
+- macOS 실화면: 1500×980 대시보드에서 한 줄 하단 패널과 공용 아이콘 렌더링 확인 **PASS**
+- 인앱 매뉴얼 스모크: v3.9.0.1 제목 + 10개 탭 + 금융 인텔리전스 직접 이동 **PASS**
+- 정본 버전 감사: README·마스터 인덱스·변경이력·계획·사용자 가이드·아키텍처·거래 흐름·개발/API·빌드/배포·테스트·백서·사업·AlphaArena·코인·대시보드 17개 문서에서 v3.9.0.1 확인 **PASS**
+- 문서 구조 감사: `docs` 최상위 179개 → 103개, 이력 79개는 `docs/archive/`로 이동, 런타임 보고서 1,168개는 공식 문서에서 분리 **PASS**
+- 빌드 사전 게이트(`release_gate.py --profile prekey`): 증권 회귀 `150 passed, 6 skipped`, 모드 매트릭스·무키 점검·문서 정합·다중 거래소 불변조건·준비도 체인 **PASS**. 현재 폴더에 `.git`이 없어 `SYNC_GUARD_CHANGED_FILES`로 변경 범위를 명시해 전체 게이트 **PASS**.
+- 실연동 준비도: 선택 거래소 Binance는 인증·잔고 조회 준비 완료. Upbit·Bithumb·Bybit·OKX·Bitget은 현재 키/권한/네트워크/추가 자격증명 점검이 필요하며 배포 후 해당 거래소 실운용 전 재검증한다.
+- 남은 외부 게이트: 금융 인텔리전스 Windows 전수 실클릭, SEC/DART 운영 자격증명, 허가 데이터, 각 실제 거래소 장시간 또는 최소단위 검증
 
 ---
 

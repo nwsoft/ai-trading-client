@@ -50,7 +50,7 @@ def run_release_gate(profile: str = 'dev'):
 def create_safe_build_environment():
     """안전한 빌드 환경 생성"""
     print("🔧 안전한 빌드 환경 준비 중...")
-    print("✅ data 폴더는 PyInstaller에 포함되지 않으므로 추가 정리 불필요")
+    print("✅ 사용자 데이터는 제외하고 생활금융 기본 카탈로그만 명시적으로 포함")
     print("✅ 템플릿 파일만 포함되므로 실제 설정 파일은 배포에서 자동 제외")
     
     # 빌드 디렉토리 정리
@@ -160,6 +160,7 @@ a = Analysis(
         ('config/settings_template.json', 'config'),
         ('config/token_template.json', 'config'),
         ('config/theme_config.json', 'config'),
+        ('data/finance_products', 'data/finance_products'),
         ('docs', 'docs'),
         # 분석기 가이드 이미지(빌드 포함)
         ('docs/assets/chart_analyzer', 'assets/chart_analyzer'),
@@ -182,7 +183,7 @@ a = Analysis(
         ('requirements_windows.txt', '.'),
         ('icon.ico', '.') ,
         ('icon.png', '.') ,
-        # data 폴더는 포함하지 않음 - 런타임에 path_utils가 자동 생성
+        # 사용자 data는 제외하고 위의 읽기 전용 금융상품 기본 카탈로그만 포함
     ],
     hiddenimports=[
         {hiddenimports_str}

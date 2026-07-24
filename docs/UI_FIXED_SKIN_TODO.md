@@ -89,8 +89,8 @@
 
 ## 참고 문서
 - `utils/fixed_colors.py` - 고정 색상 정의
-- `docs/UI_FIXED_SKIN_WORK_SUMMARY_20251029.md` - 대시보드 작업 요약
-- `docs/UI_FIXED_SKIN_WORK_SUMMARY_20251030.md` - 로그인 작업 요약 (NEW)
+- `docs/archive/history/UI_FIXED_SKIN_WORK_SUMMARY_20251029.md` - 대시보드 작업 요약
+- `docs/archive/history/UI_FIXED_SKIN_WORK_SUMMARY_20251030.md` - 로그인 작업 요약 (NEW)
 - `ui/dashboard_modern.py` - 완성된 참조 구현
 - `ui/login_modern.py` - 완성된 참조 구현
 

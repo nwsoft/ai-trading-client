@@ -1,17 +1,59 @@
-# NoahAI 시스템 아키텍처 (v3.8.9.29)
+# NoahAI 시스템 아키텍처 (v3.9.0.1)
 
 ## 🚀 최신 버전 정보
 
 **본 문서 마지막 대규모 갱신 기준**: v3.8.9.11 (2026-01-25)  
-**운영 기준 최신 패치 동기화**: v3.8.9.29 (2026-07-19)  
+**운영 기준 최신 패치 동기화**: v3.9.0.1 (2026-07-24)  
 
-3.8.9.29 구현 정본:
+**v3.9.0.1 신규 구조**: 금융 인텔리전스 확장
+
+금융 인텔리전스 모듈 경계:
+
+```text
+외부/운영 데이터
+  ├─ Yahoo Finance / Binance 공개 시세
+  ├─ SEC Companyfacts / OpenDART
+  ├─ 중앙 뉴스·일정·거시·기관 데이터 공급자
+  └─ 기존 포지션·거래 기록
+          ↓
+trading/financial_intelligence
+  ├─ models.py / taxonomy.py          공통 데이터 계약·분류
+  ├─ providers.py / market_data.py    공급자·시세 정규화
+  ├─ event_calendar.py / news_pipeline.py / narrative_engine.py
+  ├─ fundamentals.py / valuation.py / screener.py / technical.py
+  ├─ performance.py / backtest.py
+  ├─ macro.py / institutional.py
+  └─ store.py / service.py            SQLite 재현 기록·공통 파사드
+          ↓
+ui/widgets/financial_intelligence_widget.py
+  ├─ 블록체인        시장·스크리너·지표·백테스트·이벤트
+  ├─ 주식/증권       시장·재무·가치·스크리너·지표·백테스트·기관
+  ├─ 자산 통합       성과·위험
+  └─ AI애널리스트    글로벌 시장·이벤트·뉴스·내러티브·산업·거시
+```
+
+경계 원칙:
+
+- 일반 사용자 UI는 JSON·파일 경로·API 키를 받지 않는다. 시장/종목 선택과 숫자 입력만 제공한다.
+- 공개 가격·기술지표·백테스트는 클라이언트가 직접 조회·계산할 수 있다.
+- 라이선스·자격증명·비밀키·일관된 갱신이 필요한 뉴스·일정·공시·기관·거시 데이터는 중앙/운영 설정에서 공급한다.
+- 외부 수치는 출처·기준시각·지연 여부와 함께 저장하며, 실패 시 생성형 AI가 보충하지 않는다.
+- UI는 Tk 입력을 UI 스레드에서 캡처하고 네트워크·계산·SQLite 기록만 작업 스레드에서 수행한다.
+- `fi_records`, `fi_feature_status`, `fi_analysis_runs`는 기존 사용자 DB에 별도 네임스페이스로 공존한다.
+- 분석 결과는 직접 주문 신호를 발행하지 않고 기존 가드레일을 자동 변경하거나 우회하지 않는다.
+- SEC·DART·기관 데이터는 공급자 정책과 자격증명을 충족한 경우에만 라이브 호출한다.
+- 기능 상태와 운영 검증 정본은 `docs/FINANCIAL_INTELLIGENCE_TEST_CHECKLIST_20260723.md`다.
+- 대시보드 하단 업데이트 카드는 `config/app_version.py`의 버전·핵심 문구를 표시하고 인앱 금융 인텔리전스 사용법으로 연결한다.
+- CustomTkinter의 운영체제 기본 컬러 이모지는 macOS/Windows에서 동일 렌더링을 보장하지 못하므로 사용자 UI 메뉴·버튼·상태는 텍스트 표기를 기준으로 한다.
+- 생활금융 `data/finance_products`는 사용자 데이터와 분리된 읽기 전용 기본 비교 데이터로 빌드에 포함한다. 누락·손상 시 코드 내 예비 데이터로 폴백하며, 최신 실상품 연동은 중앙 공급자 경계에 둔다.
+
+3.9.0.0 구현 정본:
 - `docs/V38929_IMPLEMENTATION_RECORD_20260719.md`
-- `docs/AI_CUSTOM_STRATEGY_ARCHITECTURE_v3.8.9.29.md`
+- `docs/AI_CUSTOM_STRATEGY_ARCHITECTURE_v3.9.0.0.md`
 
-거래소별 시장 데이터/선택/PnL 임계값은 분리되고, 신규 사용자 데이터 부족은 최소단위 제한 운용으로 학습한다. AI 커스텀 소스 추출은 별도 ingestor에서 수행하고 승인·실행검증·가드레일 상태머신을 거쳐 Trader/UnifiedTrader에 반영한다.
+거래소별 시장 데이터/선택/PnL 임계값은 분리되고, 신규 사용자 데이터 부족은 최소단위 제한 운용으로 학습한다. AI 커스텀 소스 추출은 별도 ingestor에서 수행하고 승인·자동 과거재생·가드레일 상태머신을 거친다. `custom_strategy_runtime`이 저장 단위와 주문 단위를 변환하고, 선언형 엔진의 confirm/independent 결과가 Trader/UnifiedTrader/주식 자동매매 경로로 전달된다.
 
-3.8.9.29 문서 정합 기준:
+3.9.0.0 문서 정합 기준:
 - 기능 상태값 표준은 `docs/UPDATE_PLAN.md`의 2026-07-19 매트릭스를 단일 기준으로 사용한다.
 - 본 문서는 모듈 책임/경계 중심이며, 기능 제공 상태(`현재 제공/제한 제공/업데이트 예정/개발 중`) 판정은 UPDATE_PLAN 우선이다.
 **이전 기준**: v3.8.9.9 (2025-12-27), v3.8.8.3 (2025-10-20)
@@ -721,6 +763,8 @@ optimized_params = self._get_ai_enhanced_parameters_unified(
 - **연동 완료**
   - 로그인 성공/실패 이벤트 전송
   - AI 시장 리포트 생성/실패 이벤트 전송
+  - 주문 체결/실패 이벤트 전송
+  - 코인·주식·ETF 포지션 진입/부분 청산/전량 청산 이벤트 전송
 - **아직 미연동**
   - 실시간 로그 본문 업로드
   - 학습 데이터 원문 업로드
@@ -735,13 +779,27 @@ optimized_params = self._get_ai_enhanced_parameters_unified(
 - 운영 KPI: 관리자 대시보드에서 확인하는 익명 이벤트 기반 최신 운영 집계
 - 따라서 웹사이트 공개 KPI와 관리자 KPI는 숫자 구조가 달라도 이상이 아니다.
 
-### v3.8.9.28 이후 누적되는 운영 메타 KPI
+### v3.9.0.1 포지션 KPI 계약
 
-- 평균 보유시간(`hold_seconds`)
+- `trade_order_executed` / `trade_order_failed`: 주문 성공률과 거래량 계산용
+- `trade_position_opened`: 실제 진입 포지션 생성
+- `trade_position_reduced`: 부분 청산과 잔여 수량
+- `trade_position_closed`: 전량 청산과 평균·중앙값·P90 보유시간 계산용
+- 모든 포지션 이벤트는 고유 `event_id`, `position_id`, 거래소/증권사, 종목, 시간대 포함 UTC 시각을 전송한다.
+- `hold_seconds`는 `closed_at - opened_at` 또는 `event_at - opened_at`에서 한 번만 계산하며 계산 실패를 0으로 대체하지 않는다.
+- 재시작 때 거래소 포지션만 확인되고 실제 진입시각을 복원하지 못하면 종료 주문은 기록하되 보유시간 KPI는 보내지 않는다.
+- 주식·ETF는 매수 로그를 열린 포지션으로 유지하고 매도 체결을 FIFO 로트에 연결한다.
+- 서버는 `event_id` 재전송을 중복 저장하지 않고 시각 차이와 다른 `hold_seconds`를 거부한다.
+- 과거 구형 이벤트의 0초 값은 신뢰할 수 없어 백필하지 않으며 새 클라이언트 종료 거래부터 누적한다.
+- 비즈니스 KPI 집계는 `mock`, `demo`, `paper`, `test` 실행을 제외한다.
+- pytest 환경에서는 KPI 전송 워커를 시작하지 않아 운영 서버에 테스트 이벤트를 보내지 않는다.
+
+### 운영 메타 KPI
+
 - 거래 처리/응답시간 계열
 - `ai_inference_completed` 및 AI 응답시간 계열
 
-위 항목은 28버전 배포 후부터 본격 누적되므로, 초기에는 0 또는 공란으로 보일 수 있다.
+평균 보유시간은 v3.9.0.1 포지션 이벤트가 운영 서버에 도착하기 전까지 `수집 대기`로 보인다. `0.0분`은 데이터 없음의 대체값으로 사용하지 않는다.
 
 ### 거래소 API (v3.3 확장)
 

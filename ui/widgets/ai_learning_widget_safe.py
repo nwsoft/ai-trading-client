@@ -37,9 +37,9 @@ class AILearningWidgetSafe(CTkFrame):
         try:
             self.init_ui()
             self.is_initialized = True
-            print("✅ AI 학습 위젯 초기화 완료")
+            print("AI 학습 위젯 초기화 완료")
         except Exception as e:
-            print(f"❌ AI 학습 위젯 초기화 실패: {e}")
+            print(f"AI 학습 위젯 초기화 실패: {e}")
             self.create_error_ui(str(e))
         
     def _color(self, key: str, fallback: Optional[str] = None) -> str:
@@ -80,7 +80,7 @@ class AILearningWidgetSafe(CTkFrame):
         
         error_label = CTkLabel(
             error_frame,
-            text=f"❌ AI 학습 위젯 로드 실패\n{error_msg}",
+            text=f"AI 학습 위젯 로드 실패\n{error_msg}",
             font=ctk.CTkFont(size=14),
             text_color=self._color("danger", "#ef4444")
         )
@@ -95,7 +95,7 @@ class AILearningWidgetSafe(CTkFrame):
         # 제목
         title_label = CTkLabel(
             status_frame, 
-            text="🧠 AI 학습 상태",
+            text="AI 학습 상태",
             font=ctk.CTkFont(size=16, weight="bold")
         )
         title_label.grid(row=0, column=0, columnspan=2, sticky="w", padx=10, pady=(10, 5))
@@ -124,7 +124,7 @@ class AILearningWidgetSafe(CTkFrame):
         # 제목
         title_label = CTkLabel(
             data_frame, 
-            text="📚 AI 학습 데이터",
+            text="AI 학습 데이터",
             font=ctk.CTkFont(size=16, weight="bold")
         )
         title_label.grid(row=0, column=0, sticky="w", padx=10, pady=(10, 5))
@@ -132,7 +132,7 @@ class AILearningWidgetSafe(CTkFrame):
         # 새로고침 버튼
         refresh_button = CTkButton(
             data_frame,
-            text="🔄 새로고침",
+            text="새로고침",
             command=self.refresh_learning_data_safe,
             width=100,
             height=30
@@ -176,7 +176,7 @@ class AILearningWidgetSafe(CTkFrame):
         # AI 학습 상태
         self.auto_learning_label = CTkLabel(
             stats_frame,
-            text="🤖 AI 학습 초기화 중...",
+            text="AI 학습 초기화 중...",
             font=ctk.CTkFont(weight="bold"),
             text_color=self._color("success", "#27ae60")
         )
@@ -189,21 +189,21 @@ class AILearningWidgetSafe(CTkFrame):
         
         self.today_stats_label = CTkLabel(
             stats_info_frame,
-            text="📅 오늘: 0개",
+            text="오늘: 0개",
             text_color=self._color("info", "#3498db")
         )
         self.today_stats_label.grid(row=0, column=0, sticky="w", padx=5, pady=2)
         
         self.weekly_stats_label = CTkLabel(
             stats_info_frame,
-            text="📊 주간: 0개",
+            text="주간: 0개",
             text_color=self._color("danger", "#ef4444")
         )
         self.weekly_stats_label.grid(row=0, column=1, sticky="w", padx=5, pady=2)
         
         self.signal_stats_label = CTkLabel(
             stats_info_frame,
-            text="📈 신호: LONG(0) SHORT(0) HOLD(0)",
+            text="신호: LONG(0) SHORT(0) HOLD(0)",
             text_color=self._color("accent", "#9b59b6")
         )
         self.signal_stats_label.grid(row=0, column=2, sticky="w", padx=5, pady=2)
@@ -217,7 +217,7 @@ class AILearningWidgetSafe(CTkFrame):
         # 제목
         title_label = CTkLabel(
             performance_frame, 
-            text="📊 AI 학습 통계",
+            text="AI 학습 통계",
             font=ctk.CTkFont(size=16, weight="bold")
         )
         title_label.grid(row=0, column=0, sticky="w", padx=10, pady=(10, 5))
@@ -265,9 +265,9 @@ class AILearningWidgetSafe(CTkFrame):
             self.after(100, self._load_data_async)
                 
         except Exception as e:
-            print(f"❌ AI 학습 데이터 로드 오류: {e}")
+            print(f"AI 학습 데이터 로드 오류: {e}")
             self.learning_status_label.configure(text=f"오류: {str(e)[:20]}...")
-            self.auto_learning_label.configure(text="🤖 AI 학습 오류")
+            self.auto_learning_label.configure(text="AI 학습 오류")
     
     def _load_data_async(self):
         """비동기 데이터 로드"""
@@ -296,20 +296,20 @@ class AILearningWidgetSafe(CTkFrame):
                 
                 # 상태 업데이트
                 self.learning_status_label.configure(text=f"데이터 로드 완료 ({len(data)}개 중 최근 {len(recent_data)}개 표시)")
-                self.auto_learning_label.configure(text="🤖 AI 학습 활성화")
+                self.auto_learning_label.configure(text="AI 학습 활성화")
                 self.learning_progress.set(1.0)
                 
-                print(f"✅ AI 학습 데이터 로드 완료: {len(data)}개 항목 (최근 {len(recent_data)}개 표시)")
+                print(f"AI 학습 데이터 로드 완료: {len(data)}개 항목 (최근 {len(recent_data)}개 표시)")
             else:
-                print("⚠️ AI 학습 데이터 파일을 찾을 수 없습니다.")
+                print("AI 학습 데이터 파일을 찾을 수 없습니다.")
                 self.learning_status_label.configure(text="데이터 파일 없음")
-                self.auto_learning_label.configure(text="🤖 AI 학습 대기 중")
+                self.auto_learning_label.configure(text="AI 학습 대기 중")
                 self.learning_progress.set(0)
                 
         except Exception as e:
-            print(f"❌ AI 학습 데이터 로드 오류: {e}")
+            print(f"AI 학습 데이터 로드 오류: {e}")
             self.learning_status_label.configure(text=f"오류: {str(e)[:20]}...")
-            self.auto_learning_label.configure(text="🤖 AI 학습 오류")
+            self.auto_learning_label.configure(text="AI 학습 오류")
             self.learning_progress.set(0)
     
     def _manage_data_size(self, data_file, data):
@@ -321,7 +321,7 @@ class AILearningWidgetSafe(CTkFrame):
             
             # 5MB 이상이면 최근 2000개만 유지
             if file_size_mb > 5.0 or len(data) > 2000:
-                print(f"⚠️ 데이터 크기 관리: {file_size_mb:.2f}MB, {len(data)}개 항목")
+                print(f"데이터 크기 관리: {file_size_mb:.2f}MB, {len(data)}개 항목")
                 
                 # 최근 2000개만 유지
                 if len(data) > 2000:
@@ -336,10 +336,10 @@ class AILearningWidgetSafe(CTkFrame):
                     with open(data_file, 'w', encoding='utf-8') as f:
                         json.dump(data, f, ensure_ascii=False, indent=2)
                     
-                    print(f"✅ 데이터 크기 최적화 완료: {len(data)}개 항목 유지, 백업: {backup_file}")
+                    print(f"데이터 크기 최적화 완료: {len(data)}개 항목 유지, 백업: {backup_file}")
                     
         except Exception as e:
-            print(f"❌ 데이터 크기 관리 오류: {e}")
+            print(f"데이터 크기 관리 오류: {e}")
     
     def refresh_learning_data_safe(self):
         """AI 학습 데이터 안전하게 새로고침"""
@@ -351,7 +351,7 @@ class AILearningWidgetSafe(CTkFrame):
             self.load_learning_data_safe()
             
         except Exception as e:
-            print(f"❌ AI 학습 데이터 새로고침 오류: {e}")
+            print(f"AI 학습 데이터 새로고침 오류: {e}")
             self.learning_status_label.configure(text=f"오류: {str(e)[:20]}...")
     
     def update_learning_table_safe(self, data):

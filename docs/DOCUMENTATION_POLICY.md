@@ -150,7 +150,7 @@ NoahAI 관련 문서에서 다음 기준을 공통 적용합니다.
 - `STOCK_ETF_DEVELOPMENT_GUIDE_20260118.md`: 주식/ETF 서비스 개발 가이드
 - `STOCK_ETF_CURRENT_STATUS_20260118.md`: 현재 개발 현황 및 다음 단계
 - `STOCK_ETF_ADDITION_GUIDE.md`: 증권/ETF 기술적 추가 가이드
-- `STOCK_ETF_UI_VERIFICATION_20260118.md`: UI 구조 검증 보고서
+- `archive/history/STOCK_ETF_UI_VERIFICATION_20260118.md`: UI 구조 검증 보고서
 - `STOCK_ETF_TEST_CHECKLIST_20260118.md`: 테스트 체크리스트
 
 ### 참고 문서 (필요시 참조)
@@ -202,6 +202,22 @@ NoahAI 관련 문서에서 다음 기준을 공통 적용합니다.
 ### 아카이브 대상
 - 과거 버전 문서 (참고용으로 보관 필요 시)
 - 완료된 프로젝트 문서 (참고용으로 보관 필요 시)
+- 동기화 충돌본 (`*_Conflict.md`)
+- 자동 생성 보고서를 제외한 일회성 분석·검증 산출물
+
+### 현행 상세 문서 수 제한
+
+같은 기능 영역의 현행 상세 문서는 원칙적으로 1개만 둡니다.
+
+| 영역 | 현행 상세 정본 | 나머지 문서 |
+|---|---|---|
+| 빌드 | `BUILD_GUIDE.md` | 과거 검증은 `archive/build/` |
+| 배포 | `DEPLOY_CHECKLIST.md` | 완료 보고는 아카이브 |
+| AlphaArena | `ALPHA_ARENA_DEVELOPMENT.md` | 분석·설계·검증본은 `archive/alpha_arena/` |
+| 코인 선정 | `COIN_SELECTION_GUIDE.md` | 재선택 이력은 `archive/coin/` |
+| 대시보드 | `DASHBOARD_POSITION_SYSTEM.md` | UI 초안·버튼 분석은 `archive/dashboard/` |
+
+`data/**/reports/*.md`는 런타임 산출물로서 공식 문서 체계와 별도로 취급합니다.
 
 ## ✅ 현재 정리 완료
 
@@ -246,4 +262,3 @@ NoahAI의 성과를 수익률·승률로 설명하는 대신, **AI 판단 인프
 - 위 지표는 내부 품질 검증·R&D 보고서·IR 자료에서 사용합니다.
 - 사용자에게 노출되는 지표는 **판단 신뢰도, 리스크 경고, 설명 완결성** 중심으로 작성합니다.
 - 생활금융 KPI(금융상품 비교 정확도, 사기 위험 탐지)는 **R&D 단계** 지표임을 명시합니다.
-

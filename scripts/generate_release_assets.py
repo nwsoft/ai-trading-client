@@ -97,6 +97,13 @@ def main() -> int:
     out_dir.mkdir(parents=True, exist_ok=True)
 
     version = _read_release_version()
+    version_source = PROJECT_ROOT / "config" / "app_version.py"
+    if exe_path.exists() and version_source.exists() and exe_path.stat().st_mtime < version_source.stat().st_mtime:
+        print(
+            "error: AITrading.exe가 RELEASE_VERSION 변경보다 오래된 빌드입니다. "
+            "Windows에서 현재 소스를 다시 빌드한 뒤 릴리스 자산을 생성하세요."
+        )
+        return 2
     notes_text = _extract_latest_changelog_section(changelog_path)
 
     version_path = out_dir / "version.txt"

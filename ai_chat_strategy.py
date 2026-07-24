@@ -326,8 +326,8 @@ class AITradingChatbot:
             return {
                 "leverage": self.trader.settings.get('default_leverage', 1),
                 "position_size": 0.10,  # 기본값
-                "tp_percent": self.trader.settings.get('default_tp', 0.18),
-                "sl_percent": self.trader.settings.get('default_sl', 0.20),
+                "tp_percent": float(self.trader.settings.get('default_tp', 0.0018)) * 100.0,
+                "sl_percent": float(self.trader.settings.get('default_sl', 0.0020)) * 100.0,
                 "signal_threshold": getattr(self.analyzer, 'user_signal_threshold', 70) if self.analyzer else 70
             }
         return {}

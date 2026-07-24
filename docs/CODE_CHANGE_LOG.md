@@ -271,7 +271,7 @@
          - UI 디자인 체크리스트 제공
      - **결과**: ✅ 두 모달 모두 정상 작동 확인
 
-3) 문서: `docs/CHART_WIDGET_FIX_REPORT.md` (신규 생성)
+3) 문서: `docs/archive/history/CHART_WIDGET_FIX_REPORT.md` (신규 생성)
      - **내용**: 전체 수정 과정, 근본 원인 분석, 테스트 결과 문서화
      - **포함 사항**:
          - 문제 발견 및 증상 기록
@@ -687,7 +687,7 @@ python main.py
   - Safe 버전: `ui/widgets/ai_report_widget_safe.py` (참조용)
 
 ### 추가 문서
-- 통합 프로젝트 전체 보고서: `docs/WIDGET_CONSOLIDATION_REPORT.md`
+- 통합 프로젝트 전체 보고서: `docs/archive/history/WIDGET_CONSOLIDATION_REPORT.md`
 - 위젯 변형 비교: `docs/WIDGET_VARIANTS_REFERENCE.md`
 - 사용자 매뉴얼: 앱 내 모달창 → "📅 업데이트" 탭 → v3.8.9
 ## 2025-10-27: 버튼 디자인 - 높이, 모서리, 색상 수정
@@ -1634,7 +1634,7 @@ class TradingState(Enum):
 3. **단계적 제거**: 상태 머신 도입 → UI 수정 → 기존 메서드 제거
 
 ### 📚 **업데이트된 문서**
-- **`docs/START_STOP_ANALYSIS.md`**: 상태 머신 설계 및 실제 코드 검증 결과 추가
+- **`docs/archive/history/START_STOP_ANALYSIS.md`**: 상태 머신 설계 및 실제 코드 검증 결과 추가
 - **`docs/CODE_CHANGE_LOG.md`**: 시작/멈춤 기능 개선 이력 기록
 
 ---
@@ -1671,7 +1671,7 @@ class TradingState(Enum):
 1. **`trading/trader.py`**: 4단계 중지 신호 확인, 정밀도 규칙 강화, 분석 사이 딜레이 수정
 2. **`api/binance_client.py`**: 최종 정밀도 보정 활성화
 3. **`main.py`**: 상태 매니저 일관성 개선
-4. **`docs/START_STOP_ANALYSIS.md`**: 검증 결과 및 수정 내용 업데이트
+4. **`docs/archive/history/START_STOP_ANALYSIS.md`**: 검증 결과 및 수정 내용 업데이트
 
 ### **🔧 추가 수정사항:**
 
@@ -1949,7 +1949,7 @@ class TradingState(Enum):
 2. 포지션 안전성 최우선 고려
 3. 기존 코드와의 호환성 보장
 4. 단계적 마이그레이션 진행
-5. **반드시 `docs/START_STOP_ANALYSIS.md` 가이드라인 준수**
+5. **반드시 `docs/archive/history/START_STOP_ANALYSIS.md` 가이드라인 준수**
 6. **재진입 방지 로직 필수 적용**
 7. **STOP_PENDING 상태에서 신규 주문 차단 필수**
 8. **DB flush 보장 로직 필수 적용**

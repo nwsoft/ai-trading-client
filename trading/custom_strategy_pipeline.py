@@ -12,6 +12,8 @@ from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
 from uuid import uuid4
 
+from .custom_strategy_advisor import build_improvement_advice, build_strategy_guidance
+
 
 class CustomStrategyPipeline:
     """사용자 전략이 승인 없이 실거래에 반영되지 않도록 제어한다."""
@@ -142,7 +144,8 @@ class CustomStrategyPipeline:
             raise ValueError("출금/외부송금 규칙은 보안·법률 정책상 지원하지 않습니다.")
 
         key = strategy_key or f"strategy_{uuid4().hex[:10]}"
-        missing = [field for field in self.REQUIRED_RULES if self._is_missing(rules.get(field))]
+        guidance = build_strategy_guidance(rules, self.REQUIRED_RULES)
+        missing = list(guidance["missing_conditions"])
         previous = self._previous(key)
         status = "needs_clarification" if missing else "analyzed"
         version = {
@@ -155,11 +158,12 @@ class CustomStrategyPipeline:
             "rules": deepcopy(rules),
             "status": status,
             "missing_conditions": missing,
+            "guidance": guidance,
             "xai": {
                 "summary": (
-                    "누락 조건을 사용자가 확인해야 분석을 완료할 수 있습니다."
+                    f"AI가 누락 조건 {len(missing)}개를 찾았습니다. 안내 질문에 답하면 다음 버전에서 분석을 완료할 수 있습니다."
                     if missing else
-                    "전략 규칙 구조화가 완료됐으며 승인 전에는 실행되지 않습니다."
+                    "전략 규칙 구조화와 위험 설계 검토가 완료됐으며 승인 전에는 실행되지 않습니다."
                 ),
                 "impact": self._impact_summary(previous, rules),
                 "risks": [
@@ -184,8 +188,15 @@ class CustomStrategyPipeline:
         if version.get("status") != "needs_clarification":
             raise ValueError("재확인이 필요한 버전이 아닙니다.")
         version["rules"].update(deepcopy(answers or {}))
-        missing = [field for field in self.REQUIRED_RULES if self._is_missing(version["rules"].get(field))]
+        guidance = build_strategy_guidance(version["rules"], self.REQUIRED_RULES)
+        missing = list(guidance["missing_conditions"])
         version["missing_conditions"] = missing
+        version["guidance"] = guidance
+        version.setdefault("xai", {})["summary"] = (
+            f"AI가 아직 누락 조건 {len(missing)}개를 확인했습니다."
+            if missing else
+            "사용자 답변으로 전략 조건이 완성됐으며 승인 전에는 실행되지 않습니다."
+        )
         version["status"] = "needs_clarification" if missing else "analyzed"
         version["updated_at"] = self._now()
         self._save()
@@ -257,6 +268,7 @@ class CustomStrategyPipeline:
             "recorded_at": self._now(),
             "note": "백테스트 단독 근거가 아닌 관찰/제한운용의 체결·비용·PnL 품질을 포함",
         }
+        version["improvement_advice"] = build_improvement_advice(metrics)
         version["status"] = "execution_validated" if passed else "execution_rejected"
         version["updated_at"] = self._now()
         self._save()
@@ -268,15 +280,28 @@ class CustomStrategyPipeline:
         version_id: str,
         *,
         live_confirmation: bool,
+        operation_mode: str = "standard",
         guardrail_check: Optional[Callable[[Dict[str, Any]], Any]] = None,
     ) -> Dict[str, Any]:
         version = self._find(strategy_key, version_id)
-        if version.get("status") not in {"paper_validated", "execution_validated"}:
-            raise ValueError("실행 검증 통과 전에는 실거래 적용할 수 없습니다.")
+        mode = str(operation_mode or "standard").strip().lower()
+        if mode not in {"standard", "limited_live"}:
+            raise ValueError(f"지원하지 않는 전략 운용 방식입니다: {mode}")
+        previous_status = str(version.get("status") or "")
+        if mode == "standard":
+            if previous_status not in {"paper_validated", "execution_validated"}:
+                raise ValueError("일반 운용은 실행 검증 통과 후에만 적용할 수 있습니다.")
+        else:
+            if previous_status not in {"execution_rejected", "execution_validated"}:
+                raise ValueError("제한 운용은 자동 실행검증을 먼저 완료한 뒤 선택할 수 있습니다.")
+            if not version.get("execution_validation"):
+                raise ValueError("제한 운용 전에 자동 실행검증 결과가 필요합니다.")
         if live_confirmation is not True:
-            raise ValueError("소액 실거래 전환에 대한 최종 확인이 필요합니다.")
+            raise ValueError("자동매매 전환에 대한 사용자의 최종 확인이 필요합니다.")
         if guardrail_check is not None:
-            result = guardrail_check(deepcopy(version))
+            candidate = deepcopy(version)
+            candidate["operation_mode"] = mode
+            result = guardrail_check(candidate)
             allowed = bool(result.get("allowed", False)) if isinstance(result, dict) else bool(result)
             if not allowed:
                 raise ValueError("공통 가드레일 검증에서 적용이 차단됐습니다.")
@@ -289,6 +314,8 @@ class CustomStrategyPipeline:
             except ValueError:
                 pass
         version["status"] = "active"
+        version["operation_mode"] = mode
+        version["pre_activation_status"] = previous_status
         version["activated_at"] = self._now()
         version["updated_at"] = self._now()
         self.active_versions[strategy_key] = version_id
@@ -321,7 +348,11 @@ class CustomStrategyPipeline:
         version = self._find(strategy_key, version_id)
         if version.get("status") != "active":
             raise ValueError("현재 적용 중인 전략만 해제할 수 있습니다.")
-        version["status"] = "execution_validated"
+        previous_status = str(version.get("pre_activation_status") or "execution_validated")
+        version["status"] = previous_status if previous_status in {
+            "paper_validated", "execution_validated", "execution_rejected"
+        } else "execution_validated"
+        version["last_operation_mode"] = str(version.get("operation_mode") or "standard")
         version["deactivated"] = {"approved_by": str(approved_by or "").strip(), "at": self._now()}
         version["updated_at"] = self._now()
         if self.active_versions.get(strategy_key) == version_id:

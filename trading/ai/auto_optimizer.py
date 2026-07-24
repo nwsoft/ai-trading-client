@@ -33,6 +33,7 @@ class AIAutoOptimizer:
             'max_loss_threshold': -0.005,
             'drawdown_limit': -0.02
         }
+        self.last_proposal: Optional[Dict] = None
 
     def start(self):
         if self.is_running: 
@@ -124,7 +125,7 @@ class AIAutoOptimizer:
         }
 
     def _maybe_adjust_parameters(self, stats: Dict):
-        # 임계 기준 비교 후 설정 조정안 제안(여기서는 로그/리턴으로 남김)
+        """성과 기반 조정안을 만들되 공유/사용자 설정에는 직접 반영하지 않는다."""
         issues = []
         if stats['win_rate'] < self.performance_thresholds['win_rate_min']:
             issues.append('LOW_WINRATE')
@@ -135,23 +136,35 @@ class AIAutoOptimizer:
 
         if not issues:
             self.logger.info("AutoOptimizer: performance OK")
-            return
+            self.last_proposal = None
+            return None
 
-        # 간단한 조정 휴리스틱 (tp↑, sl↓, 레버리지↓)
-        new_tp = float(self.settings.get('default_tp', 0.0025)) * (1.10 if 'LOW_WINRATE' in issues else 1.0)
-        new_sl = float(self.settings.get('default_sl', 0.0018)) * (0.90 if 'NEGATIVE_AVG_PROFIT' in issues else 1.0)
+        # 제안 계산 전 공통 단위/범위 검증. 가격값이나 퍼센트 포인트가
+        # 실행 fraction으로 그대로 유입되지 않도록 한다.
+        from config.settings import normalize_trade_rate
+        current_tp, _ = normalize_trade_rate(self.settings.get('default_tp', 0.0018), kind="tp")
+        current_sl, _ = normalize_trade_rate(self.settings.get('default_sl', 0.0020), kind="sl")
+        new_tp = current_tp * (1.10 if 'LOW_WINRATE' in issues else 1.0)
+        new_sl = current_sl * (0.90 if 'NEGATIVE_AVG_PROFIT' in issues else 1.0)
+        new_tp = max(0.0005, min(new_tp, 0.05))
+        new_sl = max(0.0005, min(new_sl, 0.03))
         new_lev = int(self.settings.get('default_leverage', 10))
         if 'DEEP_DRAWDOWN' in issues:
             new_lev = max(1, int(new_lev * 0.8))
 
-        self.logger.warning(f"AutoOptimizer proposes: tp={new_tp:.6f}, sl={new_sl:.6f}, lev={new_lev}")
-        try:
-            # 실제 반영은 사용자 승인/세이프티 매니저와 연동하도록 훅만 남김
-            self.settings['default_tp'] = new_tp
-            self.settings['default_sl'] = new_sl
-            self.settings['default_leverage'] = new_lev
-        except Exception as e:
-            self.logger.error(f"Apply adjustments failed: {e}")
+        self.last_proposal = {
+            "default_tp": new_tp,
+            "default_sl": new_sl,
+            "default_leverage": new_lev,
+            "issues": list(issues),
+            "generated_at": datetime.now(timezone.utc).isoformat(),
+            "requires_approval": True,
+        }
+        self.logger.warning(
+            "AutoOptimizer proposal only (not applied): "
+            f"tp={new_tp:.6f}, sl={new_sl:.6f}, lev={new_lev}"
+        )
+        return dict(self.last_proposal)
 
     def _count_consecutive_losses(self, trades: List[Dict]) -> int:
         cnt = 0

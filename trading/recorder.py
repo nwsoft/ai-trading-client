@@ -37,6 +37,12 @@ class TradeLog:
     fees: float
     slippage: float
     exchange: Optional[str] = None
+    order_id: Optional[str] = None
+    exit_order_id: Optional[str] = None
+    model_version: Optional[str] = None
+    strategy_variant: Optional[str] = None
+    fee_asset: Optional[str] = None
+    fee_source: Optional[str] = None
 
 
 @dataclass
@@ -290,6 +296,12 @@ class Recorder:
                         fees REAL DEFAULT 0,
                         slippage REAL DEFAULT 0,
                         exchange TEXT,
+                        order_id TEXT,
+                        exit_order_id TEXT,
+                        model_version TEXT,
+                        strategy_variant TEXT,
+                        fee_asset TEXT,
+                        fee_source TEXT,
                         created_at DATETIME DEFAULT CURRENT_TIMESTAMP
                     )
                 """)
@@ -529,13 +541,23 @@ class Recorder:
                         conn.commit()
                 except Exception:
                     pass
-                # 경량 마이그레이션: 기존 DB에 exchange 컬럼이 없다면 추가
+                # 경량 마이그레이션: 실제 체결·모델·수수료 추적 컬럼을 기존 DB에도 추가
                 try:
                     cursor.execute("PRAGMA table_info(trade_log)")
                     cols = [row[1] for row in cursor.fetchall()]
-                    if 'exchange' not in cols:
-                        cursor.execute("ALTER TABLE trade_log ADD COLUMN exchange TEXT")
-                        conn.commit()
+                    required_columns = {
+                        'exchange': 'TEXT',
+                        'order_id': 'TEXT',
+                        'exit_order_id': 'TEXT',
+                        'model_version': 'TEXT',
+                        'strategy_variant': 'TEXT',
+                        'fee_asset': 'TEXT',
+                        'fee_source': 'TEXT',
+                    }
+                    for column, column_type in required_columns.items():
+                        if column not in cols:
+                            cursor.execute(f"ALTER TABLE trade_log ADD COLUMN {column} {column_type}")
+                    conn.commit()
                 except Exception:
                     pass
 
@@ -852,15 +874,23 @@ class Recorder:
                     INSERT INTO trade_log (
                         symbol, entry_price, exit_price, quantity, leverage,
                         pnl, pnl_percent, entry_time, exit_time, reason,
-                        side, tp_price, sl_price, fees, slippage, exchange
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        side, tp_price, sl_price, fees, slippage, exchange,
+                        order_id, exit_order_id, model_version, strategy_variant,
+                        fee_asset, fee_source
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """, (
                     trade_log.symbol, trade_log.entry_price, trade_log.exit_price,
                     trade_log.quantity, trade_log.leverage, trade_log.pnl,
                     trade_log.pnl_percent, self._to_db_datetime(trade_log.entry_time), self._to_db_datetime(trade_log.exit_time),
                     trade_log.reason, trade_log.side, trade_log.tp_price,
                     trade_log.sl_price, trade_log.fees, trade_log.slippage,
-                    getattr(trade_log, 'exchange', None)
+                    getattr(trade_log, 'exchange', None),
+                    getattr(trade_log, 'order_id', None),
+                    getattr(trade_log, 'exit_order_id', None),
+                    getattr(trade_log, 'model_version', None),
+                    getattr(trade_log, 'strategy_variant', None),
+                    getattr(trade_log, 'fee_asset', None),
+                    getattr(trade_log, 'fee_source', None),
                 ))
                 conn.commit()
 
@@ -1274,6 +1304,34 @@ class Recorder:
             log_event('trade', f"거래 히스토리 조회 오류: {e}", exchange=self.exchange, level='ERROR')
             return []
 
+    def count_closed_trades(
+        self,
+        *,
+        exchange: Optional[str] = None,
+        symbol: Optional[str] = None,
+    ) -> int:
+        """재시작 이후에도 유지되는 실제 종료 거래 수를 반환한다.
+
+        과거 스키마에서 exchange가 비어 있던 행은 기존 Binance 거래로 본다.
+        진입만 기록되고 종료되지 않은 행은 학습 단계 계산에서 제외한다.
+        """
+        clauses = ["exit_time IS NOT NULL", "exit_price IS NOT NULL"]
+        params: List[Any] = []
+        if exchange:
+            clauses.append("COALESCE(NULLIF(LOWER(exchange), ''), 'binance') = ?")
+            params.append(str(exchange).strip().lower())
+        if symbol:
+            clauses.append("UPPER(symbol) = ?")
+            params.append(str(symbol).strip().upper())
+        rows = self.execute_query(
+            f"SELECT COUNT(*) FROM trade_log WHERE {' AND '.join(clauses)}",
+            tuple(params),
+        )
+        try:
+            return max(0, int(rows[0][0] or 0)) if rows else 0
+        except Exception:
+            return 0
+
     def get_performance_stats(self, days: int = 30) -> Dict:
         """성과 통계 조회"""
         try:
@@ -1550,7 +1608,20 @@ class Recorder:
             log_event('trade', f"❌ {exchange} 거래 통계 저장 실패: {e}", exchange=self.exchange, level='ERROR')
             return False
 
-    def update_trade_log(self, symbol: str, exit_price: float, exit_time, pnl_percent: float, pnl_usdt: float, exit_reason: str, position: Optional[Any] = None):
+    def update_trade_log(
+        self,
+        symbol: str,
+        exit_price: float,
+        exit_time,
+        pnl_percent: float,
+        pnl_usdt: float,
+        exit_reason: str,
+        position: Optional[Any] = None,
+        additional_fees: float = 0.0,
+        exit_order_id: Optional[str] = None,
+        fee_asset: Optional[str] = None,
+        fee_source: Optional[str] = None,
+    ):
         """개별 거래 로그 업데이트 (종료 정보)"""
         try:
             logger = self._logger
@@ -1561,14 +1632,14 @@ class Recorder:
 
                 # 🔥 해당 심볼의 가장 최근 미종료 거래 찾기 (tp_price, sl_price 포함) - 문제 1 해결
                 cursor.execute("""
-                    SELECT id, entry_price, quantity, side, tp_price, sl_price FROM trade_log
+                    SELECT id, entry_price, quantity, side, tp_price, sl_price, fees FROM trade_log
                     WHERE symbol = ? AND exit_time IS NULL
                     ORDER BY entry_time DESC LIMIT 1
                 """, (symbol,))
 
                 trade_data = cursor.fetchone()
                 if trade_data:
-                    trade_id, entry_price, quantity, side, stored_tp_price, stored_sl_price = trade_data
+                    trade_id, entry_price, quantity, side, stored_tp_price, stored_sl_price, stored_fees = trade_data
                     log_event('trade', f"[DEBUG] 찾은 거래: id={trade_id}, entry_price={entry_price}, quantity={quantity}, side={side}, tp_price={stored_tp_price}, sl_price={stored_sl_price}", exchange=self.exchange, level='INFO')
 
                     # 🔥 TP/SL 판단 로직 (문제 1 해결)
@@ -1624,9 +1695,24 @@ class Recorder:
                     # 🔥 종료 정보 업데이트 (tp_price, sl_price 포함) - 문제 1 해결
                     cursor.execute("""
                         UPDATE trade_log
-                        SET exit_price = ?, exit_time = ?, pnl = ?, pnl_percent = ?, reason = ?, tp_price = ?, sl_price = ?
+                        SET exit_price = ?, exit_time = ?, pnl = ?, pnl_percent = ?, reason = ?,
+                            tp_price = ?, sl_price = ?, fees = ?, exit_order_id = ?,
+                            fee_asset = COALESCE(?, fee_asset), fee_source = COALESCE(?, fee_source)
                         WHERE id = ?
-                    """, (exit_price, exit_time, pnl_usdt, pnl_percent, exit_reason, final_tp_price, final_sl_price, trade_id))
+                    """, (
+                        exit_price,
+                        self._to_db_datetime(exit_time),
+                        pnl_usdt,
+                        pnl_percent,
+                        exit_reason,
+                        final_tp_price,
+                        final_sl_price,
+                        max(0.0, float(stored_fees or 0.0)) + max(0.0, float(additional_fees or 0.0)),
+                        str(exit_order_id) if exit_order_id is not None else None,
+                        fee_asset,
+                        fee_source,
+                        trade_id,
+                    ))
 
                     conn.commit()
 

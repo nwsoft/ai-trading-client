@@ -205,6 +205,15 @@ if (-not $SkipReleaseUpload) {
         Fail "gh CLI is required for release asset upload. Install GitHub CLI or use -SkipReleaseUpload"
     }
 
+    $exePath = Join-Path (Get-Location) "deploy/AITrading.exe"
+    if (-not (Test-Path $exePath)) {
+        Fail "release executable missing: deploy/AITrading.exe"
+    }
+    $exeProductVersion = (Get-Item $exePath).VersionInfo.ProductVersion
+    if ([string]::IsNullOrWhiteSpace($exeProductVersion) -or $exeProductVersion.Trim() -ne $releaseVersion) {
+        Fail "EXE ProductVersion mismatch. exe=$exeProductVersion RELEASE_VERSION=$releaseVersion. Rebuild on Windows before upload."
+    }
+
     Write-Host "[RELEASE_TAG] Generating release assets..."
     & $pythonCmd scripts/generate_release_assets.py --out-dir deploy --exe deploy/AITrading.exe --repo $repoSlug
     if ($LASTEXITCODE -ne 0) {
@@ -235,6 +244,14 @@ if (-not $SkipReleaseUpload) {
         }
     } else {
         Write-Host "[RELEASE_TAG] Release exists. Reusing existing release."
+    }
+
+    Write-Host "[RELEASE_TAG] Syncing release notes body..."
+    $notesSynced = Invoke-GhWithRetry -Label "gh release edit --notes-file" -Command {
+        & gh release edit $tag --repo $repoSlug --notes-file "deploy/release_notes.md"
+    }
+    if (-not $notesSynced) {
+        Fail "gh release edit failed"
     }
 
     Write-Host "[RELEASE_TAG] Uploading assets with overwrite..."

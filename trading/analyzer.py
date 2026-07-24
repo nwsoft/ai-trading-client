@@ -16,6 +16,8 @@ import time
 import os
 import threading
 
+from .ai.inference_policy import OpportunityAwareInferencePolicy
+
 
 def format_percent(value: float, decimal_places: int = 2) -> str:
     """✅ 퍼센트 변환 함수 통일"""
@@ -133,6 +135,7 @@ class Analyzer:
         # 데이터 캐시
         self.data_cache = {}
         self.cache_timeout = 300  # 5분 캐시 (성능 개선)
+        self.ai_inference_policy = OpportunityAwareInferencePolicy(self.settings)
 
         # 거래소별 모니터링 스레드가 동시에 분석해도 컨텍스트가 섞이지 않게 한다.
         self._exchange_context_local = threading.local()
@@ -408,6 +411,7 @@ class Analyzer:
     def update_settings(self, new_settings: Dict):
         """설정 업데이트"""
         self.settings.update(new_settings)
+        self.ai_inference_policy.update_settings(self.settings)
         self.logger.info(f"분석 설정 업데이트: {new_settings}")
 
     def generate_trading_signal(self, coin: str, config: Optional[Dict] = None, exchange_name: Optional[str] = None) -> Dict:
@@ -465,13 +469,62 @@ class Analyzer:
             except Exception:
                 pass
 
+            # 비용 제어는 거래를 중단하지 않는다. 먼저 로컬 신호를 계산한 뒤
+            # 시장 이벤트가 있거나 거래 후보일 때만 LLM을 새로 호출한다.
+            basic_signal = self._generate_basic_signal(coin, market_data, indicators, market_state, config)
+
             # AI 기반 분석 (AI 매니저가 있는 경우)
             if self.ai_manager and self.ai_manager.enabled():
-                ai_analysis = self.ai_manager.analyze_market_conditions(coin, market_data, indicators)
-                return self._generate_ai_enhanced_signal(coin, market_data, indicators, market_state, ai_analysis, config)
+                exchange = str(self._exchange_context or "binance")
+                decision = self.ai_inference_policy.decide(
+                    exchange=exchange,
+                    symbol=coin,
+                    market_data=market_data,
+                    indicators=indicators,
+                    market_state=market_state,
+                    basic_signal=basic_signal,
+                )
+                mode = str(decision.get("mode", "local"))
+                if mode == "cache":
+                    ai_analysis = dict(decision.get("analysis", {}) or {})
+                elif mode == "call":
+                    ai_analysis = self.ai_manager.analyze_market_conditions(coin, market_data, indicators)
+                    self.ai_inference_policy.store(
+                        exchange=exchange,
+                        symbol=coin,
+                        fingerprint=str(decision.get("fingerprint", "")),
+                        analysis=ai_analysis,
+                    )
+                else:
+                    result = dict(basic_signal)
+                    result.update({
+                        "ai_call_mode": "local",
+                        "ai_cost_control_reason": str(decision.get("reason", "stable_non_candidate")),
+                        "strategy_variant": "local_fallback",
+                        "ai_model": "",
+                        "ai_optimized": False,
+                    })
+                    return result
+
+                result = self._generate_ai_enhanced_signal(
+                    coin, market_data, indicators, market_state, ai_analysis, config
+                )
+                result.update({
+                    "ai_call_mode": mode,
+                    "ai_cost_control_reason": str(decision.get("reason", "")),
+                    "strategy_variant": "ai_event_driven",
+                    "ai_model": str(ai_analysis.get("_ai_model", "")),
+                    "ai_usage": dict(ai_analysis.get("_ai_usage", {}) or {}),
+                })
+                return result
             else:
                 # 기본 기술적 지표 기반
-                result = self._generate_basic_signal(coin, market_data, indicators, market_state, config)
+                result = dict(basic_signal)
+                result.update({
+                    "ai_call_mode": "disabled",
+                    "strategy_variant": "local_only",
+                    "ai_model": "",
+                })
                 try:
                     if _log_event:
                         _log_event('analysis', f"{coin} Market analysis completed: {result.get('signal','HOLD')}", exchange=self._exchange_context)
@@ -482,6 +535,8 @@ class Analyzer:
         except Exception as e:
             self.logger.error(f"거래 신호 생성 오류: {e}")
             return {"signal": "HOLD", "confidence": 0, "reason": f"오류: {str(e)}"}
+        finally:
+            self._exchange_context = None
 
     def _generate_ai_enhanced_signal(self, coin: str, market_data: List[MarketData],
                                    indicators: TechnicalIndicators, market_state: MarketState,
@@ -690,9 +745,6 @@ class Analyzer:
         except Exception as e:
             self.logger.error(f"기본 신호 생성 오류: {e}")
             return {"signal": "HOLD", "confidence": 0, "reason": f"오류: {str(e)}"}
-        finally:
-            # 컨텍스트 정리 (연속 호출 간 누수 방지)
-            self._exchange_context = None
 
     def _determine_signal_with_ai(self, indicators: TechnicalIndicators,
                                 market_state: MarketState, ai_analysis: Dict) -> str:
@@ -700,7 +752,10 @@ class Analyzer:
         try:
             # AI 분석 결과와 기술적 지표 결합
             ai_signal = ai_analysis.get('signal', 'HOLD')
-            ai_confidence = ai_analysis.get('confidence', 0.5)
+            ai_confidence = ai_analysis.get(
+                'entry_confidence',
+                ai_analysis.get('confidence', 0.5),
+            )
             # 학습 표본 수가 부족할 때 과도한 보수화(HOLD)로 치우치지 않도록 완화
             try:
                 ai_samples = int(ai_analysis.get('samples_count', 0))
@@ -1446,16 +1501,17 @@ class Analyzer:
                 optimized_params['optimization_reason'] += ' (알트코인)'
 
             # 5. 최종 검증 및 제한
-            optimized_params['tp_percent'] = max(0.10, min(optimized_params['tp_percent'], 0.30))  # 10-30%
-            optimized_params['sl_percent'] = max(0.10, min(optimized_params['sl_percent'], 0.25))  # 10-25%
+            # 런타임 단위는 fraction이다. 0.001 = 0.1%.
+            optimized_params['tp_percent'] = max(0.0005, min(optimized_params['tp_percent'], 0.05))
+            optimized_params['sl_percent'] = max(0.0005, min(optimized_params['sl_percent'], 0.03))
             optimized_params['leverage'] = max(1, min(optimized_params['leverage'], 3))  # 1-3x
             optimized_params['position_size'] = max(0.05, min(optimized_params['position_size'], 0.20))  # 5-20%
             optimized_params['entry_confidence'] = max(0.3, min(optimized_params['entry_confidence'], 0.9))  # 30-90%
 
             # coin 전체를 로그로 출력하지 않음
             coin_symbol = coin.get('symbol', 'UNKNOWN') if isinstance(coin, dict) else str(coin)
-            self.logger.info(f"{coin_symbol} AI 최적화 파라미터: TP={optimized_params['tp_percent']:.3f}%, "
-                           f"SL={optimized_params['sl_percent']:.3f}%, "
+            self.logger.info(f"{coin_symbol} AI 최적화 파라미터: TP={optimized_params['tp_percent'] * 100:.3f}%, "
+                           f"SL={optimized_params['sl_percent'] * 100:.3f}%, "
                            f"레버리지={optimized_params['leverage']}x, "
                            f"포지션={optimized_params['position_size']:.1%}, "
                            f"신뢰도={optimized_params['entry_confidence']:.1f}")
@@ -1465,8 +1521,8 @@ class Analyzer:
         except Exception as e:
             self.logger.error(f"AI 최적화 파라미터 계산 오류: {e}")
             return {
-                'tp_percent': 0.18,
-                'sl_percent': 0.20,
+                'tp_percent': 0.0018,
+                'sl_percent': 0.0020,
                 'leverage': 1,
                 'position_size': 0.10,
                 'entry_confidence': 0.5,
@@ -2162,8 +2218,8 @@ class Analyzer:
             self.logger.warning(f"⚠️ 설정 파일 로드 실패, 기본값 사용: {e}")
             # 기본 설정 반환
             return {
-                'default_tp': 0.18,
-                'default_sl': 0.20,
+                'default_tp': 0.0018,
+                'default_sl': 0.0020,
                 'default_leverage': 1,
                 'rsi_period': 14,
                 'macd_fast': 12,

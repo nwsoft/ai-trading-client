@@ -146,6 +146,36 @@ class TestProfitabilityValidatorThresholds:
         )
         assert "walkforward_below_threshold" in result["reasons"]
 
+    def test_limited_learning_keeps_sampling_with_reduced_risk(self):
+        v = ProfitabilityValidator()
+        result = v.evaluate_strategy(
+            _bad_trades_low_winrate(30),
+            policy={
+                "enabled": True,
+                "min_trades": 5,
+                "underperformance_mode": "limited_learning",
+                "hard_stop_mdd": 100.0,
+            },
+        )
+        assert result["enabled"] is True
+        assert result["stage"] == "recovery_learning"
+        assert result["risk_multiplier"] <= 0.20
+        assert result["max_positions"] == 1
+
+    def test_limited_learning_still_hard_stops_extreme_mdd(self):
+        v = ProfitabilityValidator()
+        trades = [_make_trade(5000.0)] + [_make_trade(-2000.0) for _ in range(20)]
+        result = v.evaluate_strategy(
+            trades,
+            policy={
+                "enabled": True,
+                "min_trades": 5,
+                "underperformance_mode": "limited_learning",
+                "hard_stop_mdd": 0.01,
+            },
+        )
+        assert result["enabled"] is False
+
 
 # ──────────────────────────────────────────────────────────────
 # 3. 수치 계산 정확성
