@@ -17,11 +17,23 @@ from typing import Dict, List, Any, Optional
 import customtkinter as ctk
 from customtkinter import CTkFrame, CTkLabel, CTkButton, CTkTextbox, CTkScrollableFrame, CTkTabview
 from api.kpi_client import emit_kpi_event
+from ui.visual_system import style_tabview
+from utils.fixed_colors import build_widget_palette
+from utils.trade_operating_metrics import (
+    calculate_trade_operating_metrics,
+    format_hold_duration,
+    format_notional,
+)
 
 class AIReportWidget(CTkFrame):
     """실제 AI 리포트 위젯 (CustomTkinter) - 실제 데이터 기반"""
     
     def __init__(self, parent=None, colors=None, **kwargs):
+        self.colors = build_widget_palette(
+            colors if colors and isinstance(colors, dict) else None
+        )
+        kwargs.setdefault("fg_color", self.colors["content_bg"])
+        kwargs.setdefault("corner_radius", 10)
         super().__init__(parent, **kwargs)
         self.logger = logging.getLogger(__name__)
 
@@ -29,9 +41,6 @@ class AIReportWidget(CTkFrame):
         # (init_ui 내부에서 safe_after가 호출되는 경로를 방어)
         self.after_jobs = []
         self._disposed = False
-        
-        # 대시보드에서 전달받은 colors 사용
-        self.colors = dict(colors) if colors and isinstance(colors, dict) else {}
         
         # 초기화 상태 플래그
         self.is_initialized = False
@@ -68,6 +77,31 @@ class AIReportWidget(CTkFrame):
         except Exception:
             pass
         return fallback
+
+    def _card_frame(self, parent, **kwargs):
+        """AI 커스텀·거래 통계와 같은 공통 카드 계층."""
+        kwargs.setdefault("fg_color", self._color("surface", "#111827"))
+        kwargs.setdefault("border_color", self._color("border", "#273449"))
+        kwargs.setdefault("border_width", 1)
+        kwargs.setdefault("corner_radius", 10)
+        return ctk.CTkFrame(parent, **kwargs)
+
+    def _report_textbox(self, parent, **kwargs):
+        kwargs.setdefault("fg_color", self._color("input", "#0b1120"))
+        kwargs.setdefault("border_color", self._color("border_strong", "#334155"))
+        kwargs.setdefault("border_width", 1)
+        kwargs.setdefault("text_color", self._color("text_primary", "#f9fafb"))
+        kwargs.setdefault("corner_radius", 8)
+        return ctk.CTkTextbox(parent, **kwargs)
+
+    def _report_scroll(self, parent, **kwargs):
+        kwargs.setdefault("fg_color", self._color("content_bg", "#0b1120"))
+        kwargs.setdefault("border_color", self._color("border", "#273449"))
+        kwargs.setdefault("border_width", 1)
+        kwargs.setdefault("corner_radius", 10)
+        kwargs.setdefault("scrollbar_button_color", self._color("surface_alt", "#172033"))
+        kwargs.setdefault("scrollbar_button_hover_color", self._color("hover", "#334155"))
+        return ctk.CTkScrollableFrame(parent, **kwargs)
 
     @staticmethod
     def _shade_color(hex_color: str, factor: float = 0.85) -> str:
@@ -169,32 +203,47 @@ class AIReportWidget(CTkFrame):
         desc_label.grid(row=1, column=0, pady=(0, 5))  # 여백 줄임
         
         # 리포트 탭 위젯 (스크롤 추가)
-        self.report_tabs = ctk.CTkTabview(self)
+        self.report_tabs = ctk.CTkTabview(
+            self,
+            fg_color=self._color("content_bg", "#0b1120"),
+        )
+        style_tabview(
+            self.report_tabs,
+            accent=self._color("primary", "#2563eb"),
+            bar_color=self._color("tabbar_bg", "#111c2f"),
+            inactive=self._color("tab_inactive", "#263a57"),
+            text_color=self._color("tab_text", "#dbe7f5"),
+        )
         # 하단 상태바 공간 확보: 아래쪽 여백을 0으로
         self.report_tabs.grid(row=2, column=0, sticky="nsew", padx=5, pady=(2, 0))
         
         # 오늘 리포트 탭
         self.today_tab = self.report_tabs.add("오늘")
+        self.today_tab.configure(fg_color=self._color("content_bg", "#0b1120"))
         self.create_today_report_tab()
         
         # 주간 리포트 탭
         self.weekly_tab = self.report_tabs.add("주간")
+        self.weekly_tab.configure(fg_color=self._color("content_bg", "#0b1120"))
         self.create_weekly_report_tab()
         
         # 월간 리포트 탭
         self.monthly_tab = self.report_tabs.add("월간")
+        self.monthly_tab.configure(fg_color=self._color("content_bg", "#0b1120"))
         self.create_monthly_report_tab()
         
         # 실시간 분석 탭 (최근 1시간)
         self.realtime_tab = self.report_tabs.add("실시간")
+        self.realtime_tab.configure(fg_color=self._color("content_bg", "#0b1120"))
         self.create_realtime_analysis_tab()
 
         # 실행 품질 메트릭 탭 (바이낸스/unified 고급 계층)
         self.quality_tab = self.report_tabs.add("실행 품질")
+        self.quality_tab.configure(fg_color=self._color("content_bg", "#0b1120"))
         self.create_execution_quality_tab()
         
         # 버튼/필터 프레임 (공간 최적화)
-        button_frame = ctk.CTkFrame(self)
+        button_frame = self._card_frame(self)
         # 버튼 프레임 하단 여백도 0으로 줄여 전체 높이를 축소
         button_frame.grid(row=3, column=0, pady=(5, 0), sticky="ew")  # 여백 줄임
         button_frame.grid_columnconfigure(0, weight=0)
@@ -212,8 +261,15 @@ class AIReportWidget(CTkFrame):
         if "전체" not in options:
             options = ["전체"] + options
         ctk.CTkLabel(button_frame, text="거래소:").grid(row=0, column=0, padx=(10, 5), pady=5, sticky="w")
-        exchange_menu = ctk.CTkOptionMenu(button_frame, values=options, variable=self.exchange_filter_var,
-                                           command=lambda _: self.auto_generate_reports())
+        exchange_menu = ctk.CTkOptionMenu(
+            button_frame,
+            values=options,
+            variable=self.exchange_filter_var,
+            command=lambda _: self.auto_generate_reports(),
+            fg_color=self._color("secondary", "#263a57"),
+            button_color=self._color("primary", "#2563eb"),
+            button_hover_color=self._color("primary_hover", "#1d4ed8"),
+        )
         exchange_menu.grid(row=0, column=1, padx=(0, 10), pady=5, sticky="w")
         
         # 새로고침 버튼
@@ -222,7 +278,9 @@ class AIReportWidget(CTkFrame):
             text="전체 새로고침",
             command=self.auto_generate_reports,
             width=120,
-            height=30  # 높이 줄임
+            height=30,  # 높이 줄임
+            fg_color=self._color("primary", "#2563eb"),
+            hover_color=self._color("primary_hover", "#1d4ed8"),
         )
         refresh_btn.grid(row=0, column=3, padx=5)
         
@@ -258,7 +316,7 @@ class AIReportWidget(CTkFrame):
         
     def create_error_ui(self, error_msg):
         """오류 발생 시 표시할 UI"""
-        error_frame = ctk.CTkFrame(self)
+        error_frame = self._card_frame(self)
         error_frame.grid(row=0, column=0, sticky="nsew", padx=10, pady=10)
         error_frame.grid_columnconfigure(0, weight=1)
         error_frame.grid_rowconfigure(0, weight=1)
@@ -274,7 +332,7 @@ class AIReportWidget(CTkFrame):
     def create_today_report_tab(self):
         """오늘 리포트 탭 생성"""
         # 요약 정보
-        summary_frame = ctk.CTkFrame(self.today_tab)
+        summary_frame = self._card_frame(self.today_tab)
         summary_frame.pack(fill="x", padx=10, pady=10)
         
         # 요약 제목
@@ -286,7 +344,7 @@ class AIReportWidget(CTkFrame):
         summary_title.pack(pady=10)
         
         # 요약 정보 표시
-        self.today_summary = ctk.CTkTextbox(
+        self.today_summary = self._report_textbox(
             summary_frame,
             height=150,
             font=ctk.CTkFont(size=12)
@@ -294,7 +352,7 @@ class AIReportWidget(CTkFrame):
         self.today_summary.pack(fill="x", padx=10, pady=5)
         
         # 상세 리포트
-        detail_frame = ctk.CTkFrame(self.today_tab)
+        detail_frame = self._card_frame(self.today_tab)
         detail_frame.pack(fill="both", expand=True, padx=10, pady=5)
         
         # 상세 제목
@@ -306,7 +364,7 @@ class AIReportWidget(CTkFrame):
         detail_title.pack(pady=10)
         
         # 상세 리포트 표시
-        self.today_detail = ctk.CTkTextbox(
+        self.today_detail = self._report_textbox(
             detail_frame,
             font=ctk.CTkFont(size=11)
         )
@@ -315,7 +373,7 @@ class AIReportWidget(CTkFrame):
     def create_weekly_report_tab(self):
         """주간 리포트 탭 생성"""
         # 요약 정보
-        summary_frame = ctk.CTkFrame(self.weekly_tab)
+        summary_frame = self._card_frame(self.weekly_tab)
         summary_frame.pack(fill="x", padx=10, pady=10)
         
         # 요약 제목
@@ -327,7 +385,7 @@ class AIReportWidget(CTkFrame):
         summary_title.pack(pady=10)
         
         # 요약 정보 표시
-        self.weekly_summary = ctk.CTkTextbox(
+        self.weekly_summary = self._report_textbox(
             summary_frame,
             height=150,
             font=ctk.CTkFont(size=12)
@@ -335,7 +393,7 @@ class AIReportWidget(CTkFrame):
         self.weekly_summary.pack(fill="x", padx=10, pady=5)
         
         # 상세 리포트
-        detail_frame = ctk.CTkFrame(self.weekly_tab)
+        detail_frame = self._card_frame(self.weekly_tab)
         detail_frame.pack(fill="both", expand=True, padx=10, pady=5)
         
         # 상세 제목
@@ -347,7 +405,7 @@ class AIReportWidget(CTkFrame):
         detail_title.pack(pady=10)
         
         # 상세 리포트 표시
-        self.weekly_detail = ctk.CTkTextbox(
+        self.weekly_detail = self._report_textbox(
             detail_frame,
             font=ctk.CTkFont(size=11)
         )
@@ -356,7 +414,7 @@ class AIReportWidget(CTkFrame):
     def create_monthly_report_tab(self):
         """월간 리포트 탭 생성"""
         # 요약 정보
-        summary_frame = ctk.CTkFrame(self.monthly_tab)
+        summary_frame = self._card_frame(self.monthly_tab)
         summary_frame.pack(fill="x", padx=10, pady=10)
         
         # 요약 제목
@@ -368,7 +426,7 @@ class AIReportWidget(CTkFrame):
         summary_title.pack(pady=10)
         
         # 요약 정보 표시
-        self.monthly_summary = ctk.CTkTextbox(
+        self.monthly_summary = self._report_textbox(
             summary_frame,
             height=150,
             font=ctk.CTkFont(size=12)
@@ -376,7 +434,7 @@ class AIReportWidget(CTkFrame):
         self.monthly_summary.pack(fill="x", padx=10, pady=5)
         
         # 상세 리포트
-        detail_frame = ctk.CTkFrame(self.monthly_tab)
+        detail_frame = self._card_frame(self.monthly_tab)
         detail_frame.pack(fill="both", expand=True, padx=10, pady=5)
         
         # 상세 제목
@@ -388,7 +446,7 @@ class AIReportWidget(CTkFrame):
         detail_title.pack(pady=10)
         
         # 상세 리포트 표시
-        self.monthly_detail = ctk.CTkTextbox(
+        self.monthly_detail = self._report_textbox(
             detail_frame,
             font=ctk.CTkFont(size=11)
         )
@@ -399,15 +457,15 @@ class AIReportWidget(CTkFrame):
         # 스크롤 가능한 메인 프레임
         scroll_button = self._color('surface', '#2b2b2b')
         scroll_button_hover = self._shade_color(scroll_button, 1.1)
-        scrollable_frame = ctk.CTkScrollableFrame(
+        scrollable_frame = self._report_scroll(
             self.realtime_tab,
             scrollbar_button_color=scroll_button,
-            scrollbar_button_hover_color=scroll_button_hover
+            scrollbar_button_hover_color=scroll_button_hover,
         )
         scrollable_frame.pack(fill="both", expand=True, padx=5, pady=5)
         
         # 요약 정보
-        summary_frame = ctk.CTkFrame(scrollable_frame)
+        summary_frame = self._card_frame(scrollable_frame)
         summary_frame.pack(fill="x", padx=5, pady=5)
         
         # 요약 제목
@@ -419,7 +477,7 @@ class AIReportWidget(CTkFrame):
         summary_title.pack(pady=10)
         
         # 요약 정보 표시
-        self.realtime_summary = ctk.CTkTextbox(
+        self.realtime_summary = self._report_textbox(
             summary_frame,
             height=120,
             font=ctk.CTkFont(size=12)
@@ -427,7 +485,7 @@ class AIReportWidget(CTkFrame):
         self.realtime_summary.pack(fill="x", padx=10, pady=5)
         
         # 장단점 분석
-        analysis_frame = ctk.CTkFrame(scrollable_frame)
+        analysis_frame = self._card_frame(scrollable_frame)
         analysis_frame.pack(fill="x", padx=5, pady=5)
         
         # 장단점 제목
@@ -439,7 +497,7 @@ class AIReportWidget(CTkFrame):
         analysis_title.pack(pady=10)
         
         # 장점/단점 표시
-        self.analysis_detail = ctk.CTkTextbox(
+        self.analysis_detail = self._report_textbox(
             analysis_frame,
             height=120,
             font=ctk.CTkFont(size=11)
@@ -447,7 +505,7 @@ class AIReportWidget(CTkFrame):
         self.analysis_detail.pack(fill="x", padx=10, pady=5)
         
         # AI 어시스턴트 전달 버튼
-        ai_transfer_frame = ctk.CTkFrame(scrollable_frame)
+        ai_transfer_frame = self._card_frame(scrollable_frame)
         ai_transfer_frame.pack(fill="x", padx=5, pady=5)
         
         # AI 전달 제목
@@ -459,7 +517,7 @@ class AIReportWidget(CTkFrame):
         transfer_title.pack(pady=10)
         
         # AI 전달 내용
-        self.ai_transfer_content = ctk.CTkTextbox(
+        self.ai_transfer_content = self._report_textbox(
             ai_transfer_frame,
             height=100,
             font=ctk.CTkFont(size=11)
@@ -482,7 +540,7 @@ class AIReportWidget(CTkFrame):
         
     def create_execution_quality_tab(self):
         """실행 품질 메트릭 탭 — 바이낸스/unified cycle_execution_metrics 노출"""
-        scrollable_frame = ctk.CTkScrollableFrame(self.quality_tab)
+        scrollable_frame = self._report_scroll(self.quality_tab)
         scrollable_frame.pack(fill="both", expand=True, padx=5, pady=5)
 
         # 타이틀
@@ -504,10 +562,12 @@ class AIReportWidget(CTkFrame):
             text="메트릭 갱신",
             width=130, height=30,
             command=self._refresh_quality_metrics,
+            fg_color=self._color("primary", "#2563eb"),
+            hover_color=self._color("primary_hover", "#1d4ed8"),
         ).pack(pady=(0, 10))
 
         # 메트릭 표시 텍스트박스
-        self._quality_textbox = ctk.CTkTextbox(
+        self._quality_textbox = self._report_textbox(
             scrollable_frame,
             height=420,
             font=ctk.CTkFont(family="Courier New", size=12),
@@ -672,12 +732,14 @@ class AIReportWidget(CTkFrame):
         try:
             # 최근 1시간 거래 데이터 조회
             recent_data = self._get_recent_trading_data(1)  # 1시간
+            operating_metrics_text = self._format_operating_metrics(recent_data)
             
             if not recent_data:
                 # 데이터가 없으면 기본 메시지
                 summary_text = (
                     "실시간 거래 분석 (최근 1시간)\n\n"
                     "최근 1시간 거래 데이터가 없습니다.\n\n"
+                    f"{operating_metrics_text}\n\n"
                     "비용 영향:\n"
                     "- 거래 데이터가 없어 비용 지표를 계산할 수 없습니다.\n\n"
                     "AI 분석:\n"
@@ -697,7 +759,8 @@ class AIReportWidget(CTkFrame):
 수익 거래: {analysis_result['profitable_trades']}건
 승률: {analysis_result['win_rate']:.1f}%
 총 수익: {analysis_result['total_pnl']:.2f} USDT
-평균 거래 시간: {analysis_result['avg_trade_duration']:.1f}분
+
+{operating_metrics_text}
 
 비용 영향:
 - 누적 Fee: {analysis_result['total_fees']:.2f} USDT
@@ -730,6 +793,7 @@ AI 실시간 분석:
 - 최근 1시간 거래 수: {analysis_result['total_trades']}건
 - 승률: {analysis_result['win_rate']:.1f}%
 - 총 수익: {analysis_result['total_pnl']:.2f} USDT
+{operating_metrics_text}
 - 누적 Fee: {analysis_result['total_fees']:.2f} USDT
 - 평균 Fee: {analysis_result['avg_fee']:.4f} USDT
 - Fee 대비 PnL 영향도: {analysis_result['fee_impact_percent']:.2f}%
@@ -1007,7 +1071,7 @@ AI 실시간 분석:
             print(f"AI 어시스턴트 전달 오류: {e}")
     
     def _get_trading_data(self, days: int = 1) -> List[Dict]:
-        """거래 데이터 조회"""
+        """최근 N일의 청산 거래 데이터 조회."""
         try:
             if not os.path.exists(self.db_path):
                 return []
@@ -1018,7 +1082,8 @@ AI 실시간 분석:
             # 최근 N일 거래 데이터 조회
             base_sql = """
                 SELECT * FROM trade_log 
-                WHERE date(entry_time) >= date('now', '-{} days')
+                WHERE date(exit_time) >= date('now', '-{} days')
+                AND exit_time IS NOT NULL
             """.format(days)
             params: List[Any] = []
             selected = (self.exchange_filter_var.get() if hasattr(self, 'exchange_filter_var') else '전체')
@@ -1041,6 +1106,35 @@ AI 실시간 분석:
         except Exception as e:
             print(f"거래 데이터 조회 오류: {e}")
             return []
+
+    def _format_operating_metrics(self, trades: List[Dict]) -> str:
+        """리포트에 공통으로 표시할 통화별 체결금액·보유시간 문구."""
+        metrics = calculate_trade_operating_metrics(trades)
+        notionals = metrics.get("notional_by_currency", {}) or {}
+        amount_lines = [
+            f"- USDT: {format_notional('USDT', notionals.get('USDT', 0.0))}",
+            f"- KRW: {format_notional('KRW', notionals.get('KRW', 0.0))}",
+        ]
+        for currency in sorted(notionals):
+            if currency not in {"USDT", "KRW"}:
+                amount_lines.append(
+                    f"- {currency}: {format_notional(currency, notionals[currency])}"
+                )
+
+        closed_count = int(metrics.get("closed_count") or 0)
+        valid_count = int(metrics.get("valid_hold_count") or 0)
+        hold_text = format_hold_duration(metrics.get("avg_hold_minutes"))
+        coverage_text = (
+            f"유효 {valid_count:,}/{closed_count:,}건"
+            if closed_count
+            else "청산 기록 없음"
+        )
+        return (
+            "실제 체결금액:\n"
+            + "\n".join(amount_lines)
+            + f"\n평균 보유시간: {hold_text} ({coverage_text})\n"
+            + "- 체결금액은 기록된 체결가×체결수량 기준이며 통화별로 분리됩니다."
+        )
     
     def _generate_today_report(self):
         """오늘 리포트 생성"""
@@ -1050,9 +1144,11 @@ AI 실시간 분석:
             
             if not today_data:
                 # 데이터가 없으면 기본 메시지
+                operating_metrics_text = self._format_operating_metrics([])
                 summary_text = (
                     "오늘 거래 요약\n\n"
                     "오늘 거래 데이터가 없습니다.\n\n"
+                    f"{operating_metrics_text}\n\n"
                     "비용 영향:\n"
                     "- 거래 데이터가 없어 비용 지표를 계산할 수 없습니다.\n\n"
                     "AI 분석:\n"
@@ -1071,6 +1167,7 @@ AI 실시간 분석:
                 total_fees = sum(fee_values)
                 avg_fee = (total_fees / total_trades) if total_trades > 0 else 0.0
                 fee_impact_percent = (total_fees / abs(total_pnl) * 100.0) if abs(total_pnl) > 0 else 0.0
+                operating_metrics_text = self._format_operating_metrics(today_data)
                 
                 # AI 분석
                 ai_analysis = self._analyze_trading_performance(today_data)
@@ -1082,6 +1179,8 @@ AI 실시간 분석:
 승률: {win_rate:.1f}%
 총 수익: {total_pnl:.2f} USDT
 평균 수익: {avg_pnl:.2f} USDT
+
+{operating_metrics_text}
 
 비용 영향:
 - 누적 Fee: {total_fees:.2f} USDT
@@ -1123,12 +1222,18 @@ AI 분석:
         """주간 리포트 생성 (7개 오늘 리포트 종합)"""
         try:
             self._refresh_champion_challenger_report()
+            weekly_operating_metrics = self._format_operating_metrics(
+                self._get_trading_data(7)
+            )
 
             # 최근 7일의 일일 리포트 로드
             daily_reports = self._load_daily_reports(7)
             
             if not daily_reports:
-                summary_text = "주간 거래 요약\n\n주간 리포트 데이터가 없습니다."
+                summary_text = (
+                    "주간 거래 요약\n\n주간 리포트 데이터가 없습니다.\n\n"
+                    f"{weekly_operating_metrics}"
+                )
                 detail_text = "주간 상세 분석\n\n분석할 데이터가 부족합니다."
             else:
                 # 7개 일일 리포트를 AI가 종합 분석
@@ -1142,6 +1247,8 @@ AI 분석:
 평균 승률: {weekly_analysis['avg_win_rate']:.1f}%
 총 수익: {weekly_analysis['total_pnl']:.2f} USDT
 일평균 수익: {weekly_analysis['daily_avg_pnl']:.2f} USDT
+
+{weekly_operating_metrics}
 
 AI 주간 분석:
 {weekly_analysis['ai_summary']}
@@ -1228,11 +1335,17 @@ AI 주간 분석:
     def _generate_monthly_report(self):
         """월간 리포트 생성 (4개 주간 리포트 종합)"""
         try:
+            monthly_operating_metrics = self._format_operating_metrics(
+                self._get_trading_data(30)
+            )
             # 최근 4개의 주간 리포트 로드
             weekly_reports = self._load_weekly_reports(4)
             
             if not weekly_reports:
-                summary_text = "월간 거래 요약\n\n월간 리포트 데이터가 없습니다."
+                summary_text = (
+                    "월간 거래 요약\n\n월간 리포트 데이터가 없습니다.\n\n"
+                    f"{monthly_operating_metrics}"
+                )
                 detail_text = "월간 상세 분석\n\n분석할 데이터가 부족합니다."
             else:
                 # 4개 주간 리포트를 AI가 종합 분석
@@ -1246,6 +1359,8 @@ AI 주간 분석:
 평균 승률: {monthly_analysis['avg_win_rate']:.1f}%
 총 수익: {monthly_analysis['total_pnl']:.2f} USDT
 주평균 수익: {monthly_analysis['weekly_avg_pnl']:.2f} USDT
+
+{monthly_operating_metrics}
 
 AI 월간 분석:
 {monthly_analysis['ai_summary']}

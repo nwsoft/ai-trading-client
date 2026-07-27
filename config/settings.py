@@ -452,6 +452,12 @@ def load_settings() -> Dict[str, Any]:
                 print("  ➕ UI 설정 강제 추가")
                 needs_save = True
 
+            # v3.9.0.2 안전 마이그레이션: 과거 AI 자동적용 설정을 더 이상 허용하지 않는다.
+            if str(settings.get('assistant_apply_mode', 'user_confirm') or 'user_confirm').lower() != 'user_confirm':
+                settings['assistant_apply_mode'] = 'user_confirm'
+                print("  🔒 AI 설정 적용 방식을 사용자 최종확인으로 고정")
+                needs_save = True
+
             # adminjung 계정 최초 1회 방송 리플레이 기본값 자동 초기화
             settings, replay_init_changed = _apply_adminjung_broadcast_replay_defaults(settings)
             if replay_init_changed:

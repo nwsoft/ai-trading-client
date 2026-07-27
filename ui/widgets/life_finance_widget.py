@@ -23,6 +23,7 @@ except Exception:  # optional dependency path
     AIVoiceModule = None  # type: ignore
     VoiceConfig = None  # type: ignore
 from config.settings import load_settings
+from ui.visual_system import style_tabview
 import asyncio
 import logging
 
@@ -31,6 +32,7 @@ class LifeFinanceWidget(ctk.CTkFrame):
     """생활금융 대시보드 위젯"""
     
     def __init__(self, parent, *args, **kwargs):
+        kwargs.setdefault("fg_color", "#0b1120")
         super().__init__(parent, *args, **kwargs)
 
         settings = {}
@@ -117,23 +119,30 @@ class LifeFinanceWidget(ctk.CTkFrame):
     def _setup_ui(self):
         """UI 설정"""
         # 메인 컨테이너
-        main_container = ctk.CTkFrame(self, fg_color="transparent")
-        main_container.pack(fill="both", expand=True, padx=20, pady=20)
+        main_container = ctk.CTkFrame(self, fg_color="#0b1120")
+        main_container.pack(fill="both", expand=True, padx=10, pady=10)
         
         # 타이틀
-        title_frame = ctk.CTkFrame(main_container, fg_color="transparent")
-        title_frame.pack(fill="x", pady=(0, 20))
+        title_frame = ctk.CTkFrame(
+            main_container,
+            fg_color="#111827",
+            border_width=1,
+            border_color="#334155",
+            corner_radius=12,
+        )
+        title_frame.pack(fill="x", pady=(0, 10))
         
         title = ctk.CTkLabel(
             title_frame,
             text="생활금융 관리",
-            font=("Helvetica", 24, "bold")
+            font=ctk.CTkFont(family="Segoe UI", size=20, weight="bold"),
+            text_color="#f9fafb",
         )
-        title.pack(side="left")
+        title.pack(side="left", padx=14, pady=12)
         
         # 빠른 명령 버튼
         quick_buttons_frame = ctk.CTkFrame(title_frame, fg_color="transparent")
-        quick_buttons_frame.pack(side="right", fill="x")
+        quick_buttons_frame.pack(side="right", fill="x", padx=10, pady=8)
         
         buttons = [
             ("대시보드", self._show_dashboard),
@@ -150,13 +159,26 @@ class LifeFinanceWidget(ctk.CTkFrame):
                 command=command,
                 width=100,
                 height=35,
-                font=("Helvetica", 11)
+                font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"),
+                fg_color="#9a5b08",
+                hover_color="#b45309",
+                text_color="#ffffff",
+                corner_radius=9,
             )
             btn.pack(side="left", padx=5)
         
         # 탭뷰
-        self.tabview = ctk.CTkTabview(main_container, height=600)
+        self.tabview = ctk.CTkTabview(main_container, height=600, fg_color="#0b1120")
         self.tabview.pack(fill="both", expand=True)
+        style_tabview(
+            self.tabview,
+            accent="#b45309",
+            bar_color="#2b2115",
+            inactive="#43321f",
+            text_color="#fef3c7",
+            font_size=11,
+            height=34,
+        )
         
         # 탭 추가
         self.dashboard_tab = self.tabview.add("대시보드")
@@ -166,6 +188,16 @@ class LifeFinanceWidget(ctk.CTkFrame):
         self.charts_tab = self.tabview.add("차트")
         self.products_tab = self.tabview.add("금융상품")
         self.assistant_tab = self.tabview.add("AI 어시스턴트")
+        for tab in (
+            self.dashboard_tab,
+            self.transactions_tab,
+            self.goals_tab,
+            self.analysis_tab,
+            self.charts_tab,
+            self.products_tab,
+            self.assistant_tab,
+        ):
+            tab.configure(fg_color="#0b1120")
         
         # 각 탭 콘텐츠 설정
         self._setup_dashboard_tab()
@@ -178,7 +210,7 @@ class LifeFinanceWidget(ctk.CTkFrame):
     
     def _setup_dashboard_tab(self):
         """대시보드 탭"""
-        self.dashboard_scroll = CTkScrollableFrame(self.dashboard_tab)
+        self.dashboard_scroll = CTkScrollableFrame(self.dashboard_tab, fg_color="#0b1120")
         self.dashboard_scroll.pack(fill="both", expand=True, padx=10, pady=10)
     
     def _setup_transactions_tab(self):
@@ -207,7 +239,7 @@ class LifeFinanceWidget(ctk.CTkFrame):
             width=120
         ).pack(side="left", padx=5)
         
-        self.transactions_scroll = CTkScrollableFrame(self.transactions_tab)
+        self.transactions_scroll = CTkScrollableFrame(self.transactions_tab, fg_color="#0b1120")
         self.transactions_scroll.pack(fill="both", expand=True, padx=10, pady=10)
     
     def _setup_goals_tab(self):
@@ -222,17 +254,17 @@ class LifeFinanceWidget(ctk.CTkFrame):
             width=120
         ).pack(side="left", padx=5)
         
-        self.goals_scroll = CTkScrollableFrame(self.goals_tab)
+        self.goals_scroll = CTkScrollableFrame(self.goals_tab, fg_color="#0b1120")
         self.goals_scroll.pack(fill="both", expand=True, padx=10, pady=10)
     
     def _setup_analysis_tab(self):
         """분석 탭"""
-        self.analysis_scroll = CTkScrollableFrame(self.analysis_tab)
+        self.analysis_scroll = CTkScrollableFrame(self.analysis_tab, fg_color="#0b1120")
         self.analysis_scroll.pack(fill="both", expand=True, padx=10, pady=10)
 
     def _setup_charts_tab(self):
         """고급 차트 탭"""
-        self.charts_scroll = CTkScrollableFrame(self.charts_tab)
+        self.charts_scroll = CTkScrollableFrame(self.charts_tab, fg_color="#0b1120")
         self.charts_scroll.pack(fill="both", expand=True, padx=10, pady=10)
 
     def _setup_products_tab(self):
@@ -472,18 +504,25 @@ class LifeFinanceWidget(ctk.CTkFrame):
         this_month = summary['this_month']
         
         # 1. 월간 요약 카드
-        summary_frame = ctk.CTkFrame(self.dashboard_scroll)
+        summary_frame = ctk.CTkFrame(
+            self.dashboard_scroll,
+            fg_color="#111827",
+            border_color="#273449",
+            border_width=1,
+            corner_radius=12,
+        )
         summary_frame.pack(fill="x", padx=10, pady=10)
         
         ctk.CTkLabel(
             summary_frame,
             text=f"{this_month['date_str']} 월간 재무 요약",
-            font=("Helvetica", 16, "bold")
-        ).pack(anchor="w", pady=(0, 10))
+            font=ctk.CTkFont(family="Segoe UI", size=16, weight="bold"),
+            text_color="#f9fafb",
+        ).pack(anchor="w", padx=14, pady=(12, 8))
         
         # 3x2 그리드
-        grid_frame = ctk.CTkFrame(summary_frame)
-        grid_frame.pack(fill="x")
+        grid_frame = ctk.CTkFrame(summary_frame, fg_color="transparent")
+        grid_frame.pack(fill="x", padx=9, pady=(0, 9))
         
         metrics = [
             ("수입", f"{this_month['total_income']:,}원"),
@@ -498,11 +537,27 @@ class LifeFinanceWidget(ctk.CTkFrame):
             row = i // 3
             col = i % 3
             
-            card = ctk.CTkFrame(grid_frame, corner_radius=10)
+            card = ctk.CTkFrame(
+                grid_frame,
+                fg_color="#172033",
+                border_color="#334155",
+                border_width=1,
+                corner_radius=10,
+            )
             card.grid(row=row, column=col, padx=5, pady=5, sticky="nsew")
             
-            ctk.CTkLabel(card, text=label, font=("Helvetica", 11)).pack(anchor="w", padx=10, pady=(10, 0))
-            ctk.CTkLabel(card, text=value, font=("Helvetica", 14, "bold")).pack(anchor="w", padx=10, pady=(0, 10))
+            ctk.CTkLabel(
+                card,
+                text=label,
+                font=ctk.CTkFont(family="Segoe UI", size=11),
+                text_color="#9ca3af",
+            ).pack(anchor="w", padx=10, pady=(10, 2))
+            ctk.CTkLabel(
+                card,
+                text=value,
+                font=ctk.CTkFont(family="Segoe UI", size=14, weight="bold"),
+                text_color="#f9fafb",
+            ).pack(anchor="w", padx=10, pady=(0, 10))
         
         grid_frame.columnconfigure((0, 1, 2), weight=1)
         
@@ -588,7 +643,8 @@ class LifeFinanceWidget(ctk.CTkFrame):
         progress_frame.pack(fill="x", padx=10, pady=5)
         
         # 진행 바
-        progress = ctk.CTkProgressBar(progress_frame, value=goal_data['progress_rate']/100)
+        progress = ctk.CTkProgressBar(progress_frame)
+        progress.set(goal_data['progress_rate'] / 100)
         progress.pack(fill="x")
         
         # 진행률 텍스트
@@ -758,7 +814,8 @@ class LifeFinanceWidget(ctk.CTkFrame):
         ).pack(anchor="w")
         
         # 진행 바
-        progress = ctk.CTkProgressBar(card, value=goal.progress_rate/100)
+        progress = ctk.CTkProgressBar(card)
+        progress.set(goal.progress_rate / 100)
         progress.pack(fill="x", padx=10, pady=5)
         
         # 상세 정보
@@ -810,7 +867,8 @@ class LifeFinanceWidget(ctk.CTkFrame):
                 ).pack(anchor="w")
                 
                 # 진행 바
-                progress = ctk.CTkProgressBar(row, value=percentage/100)
+                progress = ctk.CTkProgressBar(row)
+                progress.set(percentage / 100)
                 progress.pack(fill="x", pady=(0, 5))
         
         # 지출 추세

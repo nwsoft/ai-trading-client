@@ -6,6 +6,7 @@
 - **새로운 MD 파일 생성 금지**: 질문이나 답변은 기존 문서에 추가/업데이트
 - **중복 문서 생성 금지**: 비슷한 내용의 문서가 이미 있으면 기존 문서에 통합
 - **임시 문서 금지**: TEMP, TMP, 임시 등의 이름으로 문서 생성 금지
+- **승인된 예외**: 반복 실행해야 하는 공식 QA 런북은 사용자 요청과 보안 검토가 있을 때 한 기능 영역당 1개만 둘 수 있다. 실제 비밀번호·API 키는 기록하지 않고 비밀관리자 항목명만 적는다.
 
 ### 2. 문서 통합 및 정리
 - **주요 문서에 통합**: 
@@ -138,6 +139,13 @@ NoahAI 관련 문서에서 다음 기준을 공통 적용합니다.
 - `USER_GUIDE.md`: 사용 방법과 제한 사항
 - `ui/widgets/user_manual_widget.py`: 인앱 메뉴얼 문구
 - 기능별 상태 문서: 예) `STOCK_ETF_CURRENT_STATUS_20260118.md`, `TEST_STATUS.md`
+- 릴리스 표면 게이트: `scripts/doc_consistency_check.py`가 현재 릴리스의 README·문서 진입점·인앱 업데이트·사용자 가이드·릴리스 노트·변경이력·공통/AI 커스텀 아키텍처·AI 어시스턴트 가이드·거래 흐름·계획·AI 실행 가이드·배포 체크리스트·테스트 상태 핵심 항목을 함께 검사
+
+### 공식 QA 런북
+
+- `AI_CUSTOM_ASSISTANT_TEST_RUNBOOK_v3.9.0.2.md`: AI 커스텀·NoahAI 어시스턴트의 계정 정책, 실행 순서, 위험 변경 차단, 결과 기록 정본
+- 런북의 예시 ID·비밀번호는 자동화 fixture 또는 mock 전용이며 실제 서비스 로그인이 아니다.
+- 스테이징 비밀번호·거래소 키·증권사 자격증명은 비밀관리자 참조만 기록하고 문서·Git·테스트 로그에 평문으로 남기지 않는다.
 
 ### 현재 상태 표기 강제 규칙
 1. 코드에 버튼/화면이 있고 사용자가 직접 눌러 결과를 볼 수 있으면 `기본 제공` 또는 `MVP 제공`으로 적습니다.
@@ -216,6 +224,7 @@ NoahAI 관련 문서에서 다음 기준을 공통 적용합니다.
 | AlphaArena | `ALPHA_ARENA_DEVELOPMENT.md` | 분석·설계·검증본은 `archive/alpha_arena/` |
 | 코인 선정 | `COIN_SELECTION_GUIDE.md` | 재선택 이력은 `archive/coin/` |
 | 대시보드 | `DASHBOARD_POSITION_SYSTEM.md` | UI 초안·버튼 분석은 `archive/dashboard/` |
+| AI 커스텀·어시스턴트 QA | `AI_CUSTOM_ASSISTANT_TEST_RUNBOOK_v3.9.0.2.md` | 과거 결과는 `TEST_STATUS.md`에 요약 후 아카이브 |
 
 `data/**/reports/*.md`는 런타임 산출물로서 공식 문서 체계와 별도로 취급합니다.
 

@@ -24,13 +24,14 @@ logger = logging.getLogger(__name__)
 class UserStatusManager:
     """사용자 상태 관리 클래스"""
     
-    def __init__(self, backend_api=None, settings=None):
+    def __init__(self, backend_api=None, settings=None, policy_update_callback=None):
         self.backend_api = backend_api
         self.settings = settings or {}
+        self.policy_update_callback = policy_update_callback
         self.status_thread = None
         self.is_running = False
-        self.check_interval = 1800  # 30분 (1800초)
-        self.initial_delay = 1800   # 첫 체크까지 30분 대기
+        self.check_interval = 60
+        self.initial_delay = 5
         
         # 🔧 환경 설정 (PyInstaller 배포 환경 대응)
         if getattr(sys, 'frozen', False):
@@ -172,6 +173,7 @@ class UserStatusManager:
             user_info = token_data.get('user_info', {})
             user_id = user_info.get('id')
             session_id = user_info.get('session_id')
+            access_token = str(token_data.get('access_token') or '').strip()
             
             if not user_id or not session_id:
                 logger.error("사용자 정보가 불완전합니다.")
@@ -184,6 +186,7 @@ class UserStatusManager:
             response = requests.post(
                 f"{self.server_url}/auth/check_status",
                 json={"id": user_id, "session_id": session_id},
+                headers={"Authorization": f"Bearer {access_token}"} if access_token else None,
                 timeout=10
             )
             
@@ -197,7 +200,22 @@ class UserStatusManager:
                     logger.warning("사용자 계정이 비활성화되었거나 다른 곳에서 로그인되었습니다.")
                     logger.warning(f"메시지: {data.get('message', '프로그램을 종료합니다.')}")
                     return False
-                    
+
+                server_grade = str(data.get("user_grade") or user_info.get("user_grade") or "").strip()
+                server_policy = data.get("membership_policy")
+                if server_grade and isinstance(server_policy, dict):
+                    refreshed_access_token = str(data.get("access_token") or "").strip()
+                    if refreshed_access_token:
+                        token_data["access_token"] = refreshed_access_token
+                    user_info["user_grade"] = server_grade
+                    user_info["membership_policy"] = server_policy
+                    token_data["user_info"] = user_info
+                    temp_path = f"{self.env_file}.tmp"
+                    with open(temp_path, "w", encoding="utf-8") as token_file:
+                        json.dump(token_data, token_file, ensure_ascii=False, indent=2)
+                    os.replace(temp_path, self.env_file)
+                    if callable(self.policy_update_callback):
+                        self.policy_update_callback(server_grade, server_policy)
                 return True
             else:
                 logger.error(f"서버 응답 오류: {response.status_code}")
@@ -312,11 +330,13 @@ class UserStatusManager:
 # 전역 상태 관리자 인스턴스
 _status_manager = None
 
-def get_status_manager(backend_api=None, settings=None) -> UserStatusManager:
+def get_status_manager(backend_api=None, settings=None, policy_update_callback=None) -> UserStatusManager:
     """상태 관리자 싱글톤 인스턴스 반환"""
     global _status_manager
     if _status_manager is None:
-        _status_manager = UserStatusManager(backend_api, settings)
+        _status_manager = UserStatusManager(backend_api, settings, policy_update_callback)
+    elif policy_update_callback is not None:
+        _status_manager.policy_update_callback = policy_update_callback
     return _status_manager
 
 def start_user_status_monitoring(backend_api=None, settings=None) -> UserStatusManager:

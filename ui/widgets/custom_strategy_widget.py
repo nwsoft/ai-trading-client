@@ -48,6 +48,7 @@ class CustomStrategyWidget(ctk.CTkScrollableFrame):
         self.settings = settings or {}
         self.analysis_result: Optional[Dict[str, Any]] = None
         self.version_target_map: Dict[str, Any] = {}
+        self._regime_value_map: Dict[str, Any] = dict(self.REGIME_LABELS)
         self._build()
         self.refresh_versions()
 
@@ -95,8 +96,8 @@ class CustomStrategyWidget(ctk.CTkScrollableFrame):
         ctk.CTkLabel(
             header,
             text=(
-                "텍스트·Markdown·Pine Script·PDF·차트 이미지(OCR)·로컬 영상·YouTube·TradingView 자료를 분석해 "
-                "진입/청산/손절/익절/포지션/시장조건과 엔진 설정 초안으로 변환합니다. 누락 조건은 추정하지 않습니다."
+                "TradingView·영상·문서·Pine 전략을 AI가 이해하고 검증하여 시장국면에 맞게 안전하게 운용하는 "
+                "상위 전략 운영 계층입니다. 전략이 바뀌면 다시 입력해 새 버전으로 분석·적용할 수 있습니다."
             ),
             font=self._font(13), text_color="#a9bad0", justify="left", wraplength=1120,
         ).pack(anchor="w", padx=18, pady=(0, 14))
@@ -126,6 +127,11 @@ class CustomStrategyWidget(ctk.CTkScrollableFrame):
             ai_status_row, text="AI 모델 설정 열기", width=130, height=30,
             command=self._open_ai_settings,
         ).pack(side="right", padx=8, pady=6)
+        ctk.CTkButton(
+            ai_status_row, text="처음 사용법 AI에게 묻기", width=170, height=30,
+            fg_color="#0f766e", hover_color="#0d9488",
+            command=lambda: self._ask_assistant("getting_started"),
+        ).pack(side="right", padx=4, pady=6)
 
         badges = ctk.CTkFrame(header, fg_color="transparent")
         badges.pack(fill="x", padx=14, pady=(0, 14))
@@ -210,7 +216,7 @@ class CustomStrategyWidget(ctk.CTkScrollableFrame):
         self.target_combo.set("Binance만")
         self.target_combo.pack(side="left")
         ctk.CTkLabel(action, text="시장상황", font=self._font(11), text_color="#91a4bd").pack(side="left", padx=(14, 6))
-        self.regime_combo = ctk.CTkComboBox(action, values=list(self.REGIME_LABELS), width=145, height=36)
+        self.regime_combo = ctk.CTkComboBox(action, values=list(self.REGIME_LABELS), width=220, height=36)
         self.regime_combo.set("모든 시장상황")
         self.regime_combo.pack(side="left")
         ctk.CTkLabel(action, text="우선순위", font=self._font(11), text_color="#91a4bd").pack(side="left", padx=(14, 6))
@@ -295,6 +301,11 @@ class CustomStrategyWidget(ctk.CTkScrollableFrame):
         ctk.CTkLabel(result_header, text="2. XAI 분석 결과와 적용값", font=self._font(16, "bold"), text_color="#f8fafc").pack(side="left")
         self.result_status = ctk.CTkLabel(result_header, text="분석 전", font=self._font(12), text_color="#94a3b8")
         self.result_status.pack(side="right")
+        ctk.CTkButton(
+            result_header, text="이 결과 AI에게 묻기", width=145, height=30,
+            fg_color="#0f766e", hover_color="#0d9488",
+            command=lambda: self._ask_assistant("analysis_result"),
+        ).pack(side="right", padx=10)
         self.result_text = ctk.CTkTextbox(result_card, height=250, fg_color="#0b1120", border_width=1, border_color="#334155", text_color="#e5edf6", wrap="word")
         self.result_text.pack(fill="x", padx=16, pady=(0, 8))
         self.result_text.insert("1.0", "분석 결과에는 출처 근거, 명시된 조건, 누락 조건, 위험, 엔진 설정값이 표시됩니다.")
@@ -358,6 +369,62 @@ class CustomStrategyWidget(ctk.CTkScrollableFrame):
             self.reference_entry.insert(0, path)
             self.kind_combo.set("자동 판별")
 
+    def _ask_assistant(self, topic: str) -> None:
+        """AI 커스텀 화면의 현재 맥락을 어시스턴트 질문으로 넘긴다."""
+        dashboard = self.dashboard
+        if dashboard is None:
+            messagebox.showinfo(
+                "AI 어시스턴트",
+                "대시보드의 ‘AI 어시스턴트’ 탭에서 ‘AI 커스텀 사용법’을 질문해 주세요.",
+            )
+            return
+        try:
+            ensure = getattr(dashboard, "_ensure_ai_assistant_tab", None)
+            if callable(ensure):
+                ensure()
+            assistant = getattr(dashboard, "ai_assistant_widget", None)
+            tab_widget = getattr(dashboard, "tab_widget", None)
+            if assistant is None or tab_widget is None:
+                raise RuntimeError("AI 어시스턴트 탭을 준비하지 못했습니다.")
+            tab_widget.set("AI 어시스턴트")
+            if topic == "analysis_result" and self.analysis_result:
+                source = dict(self.analysis_result.get("source", {}) or {})
+                suggestion = dict(self.analysis_result.get("market_regime_suggestion", {}) or {})
+                missing = list(self.analysis_result.get("missing_conditions", []) or [])
+                prompt = (
+                    "AI 커스텀 XAI 결과를 초보자에게 설명해줘. "
+                    f"전략명={self.analysis_result.get('name', '-')}, 입력={source.get('kind', '-')}, "
+                    f"추천 시장상황={','.join(suggestion.get('labels') or ['사용자 확인 필요'])}, "
+                    f"누락조건={','.join(missing) if missing else '없음'}. "
+                    "원문 근거, 실제 적용값, 지금 저장/승인해도 되는지, 다음에 누를 버튼을 순서대로 알려줘."
+                )
+            else:
+                prompt = (
+                    "AI 커스텀을 처음 쓰는 사용자입니다. 전략 자료를 어디에 넣고, "
+                    "시장상황·적용범위·전략 역할을 어떻게 고르며, XAI에서 무엇을 확인하고 "
+                    "저장·승인·자동검증·최종 적용하는지 화면 순서대로 설명해줘."
+                )
+            assistant.send_quick_question(prompt)
+        except Exception as exc:
+            messagebox.showerror("AI 어시스턴트 연결", f"질문 화면을 열지 못했습니다.\n{exc}")
+
+    def _apply_market_regime_suggestion(self, result: Dict[str, Any]) -> None:
+        suggestion = dict(result.get("market_regime_suggestion", {}) or {})
+        regimes = list(suggestion.get("regimes", []) or [])
+        labels = list(suggestion.get("labels", []) or [])
+        if not suggestion.get("auto_select") or not regimes or regimes == ["all"]:
+            return
+        label = "AI 추천: " + " + ".join(labels)
+        self._regime_value_map[label] = regimes
+        values = list(self.REGIME_LABELS)
+        if label not in values:
+            values.append(label)
+        self.regime_combo.configure(values=values)
+        self.regime_combo.set(label)
+
+    def _selected_market_regimes(self) -> list[str]:
+        return list(self._regime_value_map.get(self.regime_combo.get(), ["all"]) or ["all"])
+
     def _input_value(self) -> str:
         reference = self.reference_entry.get().strip()
         body = self.source_text.get("1.0", "end").strip()
@@ -402,6 +469,7 @@ class CustomStrategyWidget(ctk.CTkScrollableFrame):
 
     def _show_analysis(self, result: Dict[str, Any]):
         self.analysis_result = result
+        self._apply_market_regime_suggestion(result)
         source = result.get("source", {}) or {}
         evidence = dict(source.get("evidence", {}) or {})
         missing = result.get("missing_conditions", []) or []
@@ -422,6 +490,15 @@ class CustomStrategyWidget(ctk.CTkScrollableFrame):
         self.transition_combo.set(
             "커스텀 신규 진입 일시정지" if transition == "pause" else "기본 노아AI에 맡김"
         )
+        signal_role = self.signal_mode_combo.get()
+        scope_label = self.target_combo.get()
+        regime_label = self.regime_combo.get()
+        regime_suggestion = dict(result.get("market_regime_suggestion", {}) or {})
+        evidence_available = bool(
+            evidence.get("strategy_evidence_available", True)
+            if source.get("kind") == "youtube"
+            else (source.get("text") or source.get("reference"))
+        )
         lines = [
             f"전략명: {result.get('name', '-')}",
             f"입력 형식: {source.get('kind', '-')} / 출처: {source.get('reference', '-')}",
@@ -429,13 +506,23 @@ class CustomStrategyWidget(ctk.CTkScrollableFrame):
             f"AI 구조화: {'완료' if result.get('ai_analyzed') else '규칙 기반 1차 추출(API 미사용)'}",
             f"분석 범위: {source.get('coverage_summary', '입력 원문 기준')}",
             f"음성 전사: {evidence.get('transcription_model', '자막 우선·전사 미사용')}",
+            f"전략 근거 확보: {'예' if evidence_available else '아니오 · 원문/자막/화면 근거를 보강해야 함'}",
             "",
-            f"요약: {result.get('summary', '-')}",
+            "[이 전략은 무엇을 하나]",
+            f"{result.get('summary', '-')}",
             "",
-            "[규칙]",
+            "[저장하면 어디에 어떻게 적용되나]",
+            f"- 적용 범위: {scope_label}",
+            f"- 대상 시장상황: {regime_label}",
+            f"- AI 시장상황 추천 근거: {regime_suggestion.get('evidence', '사용자 확인 필요')}",
+            f"- 우선순위: {self.priority_combo.get()} (10에 가까울수록 먼저 검사)",
+            f"- 전략 역할: {signal_role}",
+            "- 지금은 분석 초안이며 저장·사용자 승인·자동검증·최종 적용 전에는 주문 판단에 사용되지 않음",
+            "",
+            "[원문에서 구조화한 전략 규칙]",
             json.dumps(result.get("rules", {}), ensure_ascii=False, indent=2),
             "",
-            "[실행 엔진 설정값]",
+            "[실행 엔진에 전달할 적용값]",
             json.dumps(result.get("engine_settings", {}), ensure_ascii=False, indent=2),
             "",
             "[누락/재확인]",
@@ -515,7 +602,7 @@ class CustomStrategyWidget(ctk.CTkScrollableFrame):
         rules = dict(self.analysis_result.get("rules", {}) or {})
         scope = self._scope_value()
         target = self._target_value()
-        regimes = list(self.REGIME_LABELS.get(self.regime_combo.get(), ["all"]))
+        regimes = self._selected_market_regimes()
         rules["target_exchange"] = target if scope.startswith("exchange:") else ""
         rules["target_scope"] = scope
         rules["market_regimes"] = regimes
@@ -783,14 +870,31 @@ class CustomStrategyWidget(ctk.CTkScrollableFrame):
             text="자동 검증 통과" if passed else "자동 검증 미통과",
             text_color="#22c55e" if passed else "#f59e0b",
         )
+        profit_factor = metrics.get("profit_factor", 0.0)
+        profit_factor_text = "∞" if str(profit_factor).lower() == "inf" else f"{float(profit_factor or 0.0):.2f}"
+        regime_labels = {"bull": "상승", "bear": "하락", "range": "횡보", "volatile": "고변동"}
+        regime_lines = []
+        for regime, values in dict(metrics.get("regime_results", {}) or {}).items():
+            regime_lines.append(
+                f"{regime_labels.get(regime, regime)} {int(values.get('decisions', 0) or 0)}회/"
+                f"{float(values.get('net_pnl_percent', 0.0) or 0.0):+.2f}%"
+            )
+        regime_summary = " · ".join(regime_lines) if regime_lines else "분류 표본 없음"
         messagebox.showinfo(
             "자동 검증 결과",
             f"결과: {'통과' if passed else '미통과'}\n"
             f"거래소/심볼: {metrics.get('exchange', '-')} / {metrics.get('symbol', '-')}\n"
             f"조건 일치: {metrics.get('decisions', 0)}회\n"
             f"승률: {float(metrics.get('win_rate', 0.0) or 0.0) * 100:.1f}%\n"
-            f"수수료 반영 PnL: {float(metrics.get('net_pnl_percent', 0.0) or 0.0):.2f}%\n"
-            f"최대 낙폭: {float(metrics.get('max_drawdown_percent', 0.0) or 0.0):.2f}%\n\n"
+            f"총비용 반영 PnL: {float(metrics.get('net_pnl_percent', 0.0) or 0.0):.2f}% "
+            f"(비용 전 {float(metrics.get('gross_pnl_percent', 0.0) or 0.0):.2f}%)\n"
+            f"총 가정비용: {float(metrics.get('total_cost_percent', 0.0) or 0.0):.2f}% · "
+            f"거래당 왕복 {float(metrics.get('round_trip_cost_percent', 0.0) or 0.0):.3f}%\n"
+            f"Profit Factor: {profit_factor_text} · "
+            f"거래당 기대값: {float(metrics.get('expectancy_percent', 0.0) or 0.0):+.3f}%\n"
+            f"최대 낙폭: {float(metrics.get('max_drawdown_percent', 0.0) or 0.0):.2f}%\n"
+            f"국면별: {regime_summary}\n\n"
+            "비용 가정은 진입·청산 수수료, 양방향 슬리피지, 왕복 스프레드를 포함합니다.\n"
             "실전 체결 품질과 수익을 보장하지 않는 보조 검증입니다.",
         )
         self.refresh_versions()

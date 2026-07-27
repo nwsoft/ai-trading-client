@@ -17,6 +17,7 @@ import subprocess
 import webbrowser
 import json
 import re
+import copy
 from urllib import request as urllib_request
 from urllib import error as urllib_error
 from datetime import datetime
@@ -2364,7 +2365,7 @@ class ModernSettingsWindow:
 
         self.assistant_apply_mode_combo = ctk.CTkComboBox(
             openai_group,
-            values=["사용자 최종확인", "AI 자동적용"],
+            values=["사용자 최종확인"],
             height=36,
             width=220,
             font=ctk.CTkFont(family="Segoe UI", size=13, weight="normal"),
@@ -2440,8 +2441,8 @@ class ModernSettingsWindow:
     - 절약형: API 비용이 가장 중요할 때
     - 균형형: 초보/일반 사용자 기본 권장
     - 정밀형: 진단 정확도가 비용보다 중요할 때
-• AI 설정 적용 방식: 기본값은 "사용자 최종확인"이며 법적/운영 리스크 최소화에 유리합니다
-• 어시스턴트 대화로도 모델 변경/티어 조정 요청이 가능합니다(2단계 확인 또는 자동적용 정책 적용)
+• AI 설정 적용 방식: 거래 관련 변경은 항상 "사용자 최종확인" 2단계를 거칩니다
+• 어시스턴트 대화로 모델 변경/티어 조정을 요청해도 변경 전/후 확인 없이 저장되지 않습니다
 • API 키: OpenAI에서 발급받은 API 키를 입력하세요
 • ChatGPT 유료(Plus/Team)와 OpenAI API 과금은 별개입니다
 • OpenAI 호환 Base URL(선택): OpenAI 기본 엔드포인트 대신 DeepSeek/OpenRouter/Ollama 등 호환 API를 사용할 때 입력합니다
@@ -5850,9 +5851,8 @@ AI 최적화 시스템과 충돌 발생
             if hasattr(self, 'ai_custom_limited_live_var'):
                 self.ai_custom_limited_live_var.set(bool(runtime_cfg.get('allow_limited_live', False)))
 
-            apply_mode = str(self.current_settings.get('assistant_apply_mode', 'user_confirm') or 'user_confirm').lower()
             if hasattr(self, 'assistant_apply_mode_combo'):
-                self.assistant_apply_mode_combo.set("AI 자동적용" if apply_mode == 'ai_auto' else "사용자 최종확인")
+                self.assistant_apply_mode_combo.set("사용자 최종확인")
 
             voice_cfg = self.current_settings.get('assistant_voice', {}) or {}
             if hasattr(self, 'assistant_voice_enabled_var'):
@@ -6154,6 +6154,22 @@ AI 최적화 시스템과 충돌 발생
                     atl = self.current_settings.get("advanced_trading_layers", {})
                     for key, var in self._atl_vars.items():
                         var.set(bool(atl.get(key, {}).get("enabled", False)))
+                    strategy_policy = dict(atl.get("strategy_engine", {}) or {})
+                    if hasattr(self, '_atl_high_vol_action_var'):
+                        high_vol_label = (
+                            "평가 계속 (권장)"
+                            if str(strategy_policy.get("high_vol_action", "evaluate")).lower() != "block"
+                            else "항상 차단"
+                        )
+                        self._atl_high_vol_action_var.set(high_vol_label)
+                    if hasattr(self, '_atl_consensus_threshold_var'):
+                        self._atl_consensus_threshold_var.set(
+                            str(strategy_policy.get("consensus_threshold", 0.60))
+                        )
+                    if hasattr(self, '_atl_cooldown_sec_var'):
+                        self._atl_cooldown_sec_var.set(
+                            str(strategy_policy.get("cooldown_sec", 60))
+                        )
             except Exception as e:
                 print(f"고급 매매 계층 설정 복원 실패: {e}")
 
@@ -6489,7 +6505,7 @@ AI 최적화 시스템과 충돌 발생
                     'limited_max_leverage': 1,
                     'limited_max_position_size': 0.01,
                 },
-                'assistant_apply_mode': 'ai_auto' if (hasattr(self, 'assistant_apply_mode_combo') and self.assistant_apply_mode_combo.get() == 'AI 자동적용') else 'user_confirm',
+                'assistant_apply_mode': 'user_confirm',
                 'assistant_voice': {
                     'enabled': bool(self.assistant_voice_enabled_var.get()) if hasattr(self, 'assistant_voice_enabled_var') else False,
                     'auto_tts': bool(self.assistant_voice_auto_tts_var.get()) if hasattr(self, 'assistant_voice_auto_tts_var') else False,
@@ -6798,16 +6814,36 @@ AI 최적화 시스템과 충돌 발생
             # 고급 매매 계층 ON/OFF 저장
             try:
                 if hasattr(self, '_atl_vars') and self._atl_vars:
-                    existing_atl = self.current_settings.get("advanced_trading_layers", {})
+                    existing_atl = copy.deepcopy(
+                        self.current_settings.get("advanced_trading_layers", {})
+                    )
                     for key, var in self._atl_vars.items():
                         if key not in existing_atl:
                             existing_atl[key] = {}
                         existing_atl[key]["enabled"] = bool(var.get())
+                    strategy_policy = existing_atl.setdefault("strategy_engine", {})
+                    if hasattr(self, '_atl_high_vol_action_var'):
+                        strategy_policy["high_vol_action"] = (
+                            "block"
+                            if self._atl_high_vol_action_var.get() == "항상 차단"
+                            else "evaluate"
+                        )
+                    if hasattr(self, '_atl_consensus_threshold_var'):
+                        raw_threshold = float(self._atl_consensus_threshold_var.get())
+                        strategy_policy["consensus_threshold"] = max(0.10, min(0.95, raw_threshold))
+                    if hasattr(self, '_atl_cooldown_sec_var'):
+                        raw_cooldown = int(float(self._atl_cooldown_sec_var.get()))
+                        strategy_policy["cooldown_sec"] = max(0, min(3600, raw_cooldown))
                     new_settings["advanced_trading_layers"] = existing_atl
                 else:
                     new_settings["advanced_trading_layers"] = self.current_settings.get("advanced_trading_layers", {})
             except Exception as e:
                 print(f"고급 매매 계층 설정 저장 실패: {e}")
+                messagebox.showerror(
+                    "전략 엔진 설정 확인",
+                    "합의 임계값은 0.10~0.95, 심볼 쿨다운은 0~3600초의 숫자로 입력해 주세요.",
+                )
+                return
 
             # 기존 설정과 병합 (기존 방식과 동일)
             # stock_auto_trading.auto_start 업데이트
@@ -7461,6 +7497,18 @@ AI 최적화 시스템과 충돌 발생
             for key in layer_keys:
                 if key in chosen and key in self._atl_vars:
                     self._atl_vars[key].set(bool(chosen[key].get("enabled", False)))
+            strategy_choice = dict(chosen.get("strategy_engine", {}) or {})
+            if strategy_choice:
+                if "high_vol_action" in strategy_choice:
+                    self._atl_high_vol_action_var.set(
+                        "항상 차단"
+                        if str(strategy_choice.get("high_vol_action")).lower() == "block"
+                        else "평가 계속 (권장)"
+                    )
+                if "consensus_threshold" in strategy_choice:
+                    self._atl_consensus_threshold_var.set(str(strategy_choice["consensus_threshold"]))
+                if "cooldown_sec" in strategy_choice:
+                    self._atl_cooldown_sec_var.set(str(strategy_choice["cooldown_sec"]))
 
             # 상태 레이블 업데이트
             colors = {"dev": "#94a3b8", "safe": "#22c55e", "aggressive": "#f59e0b"}
@@ -7536,6 +7584,68 @@ AI 최적화 시스템과 충돌 발생
                 text_color=self._color("text_secondary", "#6b7280"),
                 justify="left",
             ).pack(anchor="w", padx=16, pady=(0, 10))
+
+        strategy_detail_group = ctk.CTkFrame(scroll_frame, corner_radius=12)
+        strategy_detail_group.pack(fill="x", pady=(0, 20))
+        ctk.CTkLabel(
+            strategy_detail_group,
+            text="전략 엔진 세부 설정",
+            font=ctk.CTkFont(family="Segoe UI", size=16, weight="bold"),
+            text_color=self._color("text_primary", "#f9fafb"),
+        ).pack(anchor="w", padx=18, pady=(16, 4))
+        ctk.CTkLabel(
+            strategy_detail_group,
+            text=(
+                "고변동장 평가 계속은 차단 해제가 아니라, 합의 점수·수익성·리스크·주문 가드레일을 "
+                "그대로 통과한 기회만 평가한다는 뜻입니다."
+            ),
+            font=ctk.CTkFont(family="Segoe UI", size=11),
+            text_color=self._color("text_secondary", "#9ca3af"),
+            justify="left",
+            wraplength=980,
+        ).pack(anchor="w", padx=18, pady=(0, 12))
+
+        strategy_policy = dict(atl.get("strategy_engine", {}) or {})
+        policy_row = ctk.CTkFrame(strategy_detail_group, fg_color="transparent")
+        policy_row.pack(fill="x", padx=18, pady=(0, 16))
+
+        ctk.CTkLabel(policy_row, text="고변동장 처리", font=ctk.CTkFont(size=12, weight="bold")).pack(
+            side="left", padx=(0, 8)
+        )
+        self._atl_high_vol_action_var = ctk.StringVar(
+            value=(
+                "항상 차단"
+                if str(strategy_policy.get("high_vol_action", "evaluate")).lower() == "block"
+                else "평가 계속 (권장)"
+            )
+        )
+        ctk.CTkComboBox(
+            policy_row,
+            values=["평가 계속 (권장)", "항상 차단"],
+            variable=self._atl_high_vol_action_var,
+            width=180,
+            state="readonly",
+        ).pack(side="left", padx=(0, 22))
+
+        ctk.CTkLabel(policy_row, text="합의 임계값", font=ctk.CTkFont(size=12, weight="bold")).pack(
+            side="left", padx=(0, 8)
+        )
+        self._atl_consensus_threshold_var = ctk.StringVar(
+            value=str(strategy_policy.get("consensus_threshold", 0.60))
+        )
+        ctk.CTkEntry(
+            policy_row, textvariable=self._atl_consensus_threshold_var, width=90
+        ).pack(side="left", padx=(0, 22))
+
+        ctk.CTkLabel(policy_row, text="심볼 쿨다운(초)", font=ctk.CTkFont(size=12, weight="bold")).pack(
+            side="left", padx=(0, 8)
+        )
+        self._atl_cooldown_sec_var = ctk.StringVar(
+            value=str(strategy_policy.get("cooldown_sec", 60))
+        )
+        ctk.CTkEntry(
+            policy_row, textvariable=self._atl_cooldown_sec_var, width=90
+        ).pack(side="left")
 
         # ── 도움말 ─────────────────────────────────────────────────
         help_group = ctk.CTkFrame(scroll_frame, corner_radius=12)

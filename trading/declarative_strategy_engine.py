@@ -3,15 +3,27 @@
 
 from __future__ import annotations
 
+import math
 from typing import Any, Dict, List, Tuple
 
 
 class DeclarativeStrategyEngine:
     ALLOWED_FIELDS = {
-        "signal", "confidence", "rsi", "macd", "bb_position", "ma20", "ma50",
-        "current_price", "price", "trend_strength", "market_volatility", "volume_ratio",
+        "signal", "confidence",
+        "open", "high", "low", "close", "current_price", "price",
+        "rsi", "macd", "macd_signal", "macd_histogram",
+        "bb_position", "bb_width",
+        "ma20", "ma50", "ma200", "sma20", "sma50", "sma200",
+        "ema20", "ema50", "ema200",
+        "adx", "atr", "atr_percent",
+        "trend_strength", "market_volatility",
+        "volume", "volume_sma20", "volume_ratio",
+        "hour", "weekday",
     }
-    OPERATORS = {"eq", "ne", "gt", "gte", "lt", "lte", "in", "not_in", "gt_field", "lt_field"}
+    OPERATORS = {
+        "eq", "ne", "gt", "gte", "lt", "lte", "in", "not_in",
+        "gt_field", "lt_field", "crosses_above", "crosses_below",
+    }
     REGIME_ALIASES = {
         "BULL": "bull", "BULLISH": "bull", "UPTREND": "bull", "TREND": "trend",
         "BEAR": "bear", "BEARISH": "bear", "DOWNTREND": "bear",
@@ -23,21 +35,68 @@ class DeclarativeStrategyEngine:
     @staticmethod
     def _number(value: Any) -> Any:
         try:
-            return float(value)
+            number = float(value)
+            return number if math.isfinite(number) else value
         except Exception:
             return value
+
+    @classmethod
+    def validate_condition_spec(cls, condition: Dict[str, Any]) -> Tuple[bool, str]:
+        field = str(condition.get("field") or "").strip()
+        operator = str(condition.get("operator") or "").strip().lower()
+        if field not in cls.ALLOWED_FIELDS or operator not in cls.OPERATORS:
+            return False, f"unsupported:{field}/{operator}"
+        if operator in {"gt_field", "lt_field", "crosses_above", "crosses_below"}:
+            value_field = str(condition.get("value_field") or condition.get("value") or "").strip()
+            if value_field not in cls.ALLOWED_FIELDS:
+                return False, f"unsupported_value_field:{value_field}"
+        elif "value" not in condition or condition.get("value") is None:
+            return False, f"missing_value:{field}/{operator}"
+        elif operator in {"in", "not_in"} and not isinstance(
+            condition.get("value"), (list, tuple, set)
+        ):
+            return False, f"invalid_collection:{field}/{operator}"
+        return True, "supported"
+
+    @classmethod
+    def validate_rule_spec(cls, rules: Dict[str, Any]) -> Dict[str, Any]:
+        """저장 전에 미지원 선언형 조건을 찾아 조용히 무시되는 일을 막는다."""
+        errors: List[str] = []
+        for section in ("executable_entry", "executable_exit"):
+            raw_spec = (rules or {}).get(section, {}) or {}
+            if not isinstance(raw_spec, dict):
+                errors.append(f"{section}:invalid_spec")
+                continue
+            spec = dict(raw_spec)
+            for group in ("all", "any"):
+                raw_conditions = spec.get(group) or []
+                if not isinstance(raw_conditions, list):
+                    errors.append(f"{section}.{group}:invalid_group")
+                    continue
+                for index, condition in enumerate(raw_conditions):
+                    if not isinstance(condition, dict):
+                        errors.append(f"{section}.{group}[{index}]:invalid_condition")
+                        continue
+                    supported, reason = cls.validate_condition_spec(condition)
+                    if not supported:
+                        errors.append(f"{section}.{group}[{index}]:{reason}")
+        return {"valid": not errors, "errors": errors}
 
     @classmethod
     def _condition(cls, condition: Dict[str, Any], context: Dict[str, Any]) -> Tuple[bool, str]:
         field = str(condition.get("field") or "").strip()
         operator = str(condition.get("operator") or "").strip().lower()
-        if field not in cls.ALLOWED_FIELDS or operator not in cls.OPERATORS:
-            return False, f"unsupported:{field}/{operator}"
+        supported, reason = cls.validate_condition_spec(condition)
+        if not supported:
+            return False, reason
         actual = context.get(field)
         if actual is None and field == "current_price":
             actual = context.get("price")
+        if actual is None and field == "close":
+            actual = context.get("current_price", context.get("price"))
         expected = condition.get("value")
-        if operator in {"gt_field", "lt_field"}:
+        value_field = ""
+        if operator in {"gt_field", "lt_field", "crosses_above", "crosses_below"}:
             value_field = str(condition.get("value_field") or expected or "")
             if value_field not in cls.ALLOWED_FIELDS:
                 return False, f"unsupported_value_field:{value_field}"
@@ -46,7 +105,34 @@ class DeclarativeStrategyEngine:
             return False, f"missing:{field}"
         left = cls._number(actual)
         right = cls._number(expected)
+        if isinstance(left, float) and not math.isfinite(left):
+            return False, f"missing:{field}"
+        if isinstance(right, float) and not math.isfinite(right):
+            return False, f"missing:{field}"
         try:
+            if operator in {"crosses_above", "crosses_below"}:
+                previous = context.get("_previous")
+                if not isinstance(previous, dict):
+                    return False, "missing:previous_context"
+                previous_actual = previous.get(field)
+                if previous_actual is None and field == "current_price":
+                    previous_actual = previous.get("price")
+                if previous_actual is None and field == "close":
+                    previous_actual = previous.get("current_price", previous.get("price"))
+                previous_expected = previous.get(value_field)
+                if previous_actual is None or previous_expected is None:
+                    return False, f"missing:previous_{field}/{value_field}"
+                previous_left = cls._number(previous_actual)
+                previous_right = cls._number(previous_expected)
+                passed = (
+                    previous_left <= previous_right and left > right
+                    if operator == "crosses_above"
+                    else previous_left >= previous_right and left < right
+                )
+                return bool(passed), (
+                    f"{field} {operator} {value_field} "
+                    f"(prev={previous_actual}/{previous_expected}, now={actual}/{expected})"
+                )
             passed = {
                 "eq": lambda: str(left).upper() == str(right).upper(),
                 "ne": lambda: str(left).upper() != str(right).upper(),
@@ -65,11 +151,36 @@ class DeclarativeStrategyEngine:
 
     @classmethod
     def evaluate_entry(cls, rules: Dict[str, Any], context: Dict[str, Any]) -> Dict[str, Any]:
-        spec = dict((rules or {}).get("executable_entry", {}) or {})
+        return cls._evaluate_spec(
+            rules, context, section="executable_entry",
+            empty_reason="no_declarative_entry", empty_allowed=True,
+        )
+
+    @classmethod
+    def evaluate_exit(cls, rules: Dict[str, Any], context: Dict[str, Any]) -> Dict[str, Any]:
+        """명시적 청산 규칙을 평가한다. 코인 런타임과 과거재생이 이 계약을 공유한다."""
+        return cls._evaluate_spec(
+            rules, context, section="executable_exit",
+            empty_reason="no_declarative_exit", empty_allowed=False,
+        )
+
+    @classmethod
+    def _evaluate_spec(
+        cls,
+        rules: Dict[str, Any],
+        context: Dict[str, Any],
+        *,
+        section: str,
+        empty_reason: str,
+        empty_allowed: bool,
+    ) -> Dict[str, Any]:
+        spec = dict((rules or {}).get(section, {}) or {})
         if not spec:
-            return {"allowed": True, "bypassed": True, "reason": "no_declarative_entry"}
+            return {"allowed": empty_allowed, "bypassed": True, "reason": empty_reason}
         all_conditions = [item for item in (spec.get("all") or []) if isinstance(item, dict)]
         any_conditions = [item for item in (spec.get("any") or []) if isinstance(item, dict)]
+        if not all_conditions and not any_conditions:
+            return {"allowed": empty_allowed, "bypassed": True, "reason": empty_reason}
         all_results = [cls._condition(item, context) for item in all_conditions]
         any_results = [cls._condition(item, context) for item in any_conditions]
         all_pass = all(result[0] for result in all_results) if all_results else True
@@ -80,7 +191,11 @@ class DeclarativeStrategyEngine:
             "bypassed": False,
             "all": all_results,
             "any": any_results,
-            "reason": "custom_entry_passed" if allowed else "custom_entry_not_met",
+            "reason": (
+                ("custom_entry_passed" if allowed else "custom_entry_not_met")
+                if section == "executable_entry"
+                else ("custom_exit_passed" if allowed else "custom_exit_not_met")
+            ),
         }
 
     @classmethod
@@ -154,6 +269,7 @@ class DeclarativeStrategyEngine:
                     **entry,
                     "selected_strategy_id": item.get("id"),
                     "selected_strategy_name": item.get("name", "사용자 전략"),
+                    "selected_rules": rules,
                     "engine_settings": engine_settings,
                     "target_scope": item.get("target_scope"),
                     "market_regime": regime,

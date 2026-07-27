@@ -1,6 +1,6 @@
 # NoahAI 마스터 문서
 
-> 최신 동기화: 2026-07-24 · v3.9.0.1  
+> 최신 동기화: 2026-07-26 · v3.9.0.2  
 > 이 파일은 공식 문서의 지도입니다. 기능의 사실 판단은 코드 → 테스트 → 아래 정본 순서로 확인합니다.
 
 ## 공식 정본
@@ -19,20 +19,28 @@
 | 빌드 | `docs/BUILD_GUIDE.md` | 의존성·명령·산출물 검증 |
 | 배포 | `docs/DEPLOY_CHECKLIST.md` | 배포 전후 운영 게이트 |
 | 테스트 | `docs/TEST_STATUS.md` | 최신 자동·GUI 검증 근거 |
+| AI 커스텀·어시스턴트 QA | `docs/AI_CUSTOM_ASSISTANT_TEST_RUNBOOK_v3.9.0.2.md` | 순서·계정·기대 결과 |
 | 기술 백서 | `docs/NOAHAI_TECHNICAL_WHITEPAPER.md` | 기술 철학·구조 공식 설명 |
 | 사업 설명 | `docs/BUSINESS_PROPOSAL_2026.md` | 구현과 로드맵을 구분한 사업 문서 |
 | 문서 정책 | `docs/DOCUMENTATION_POLICY.md` | 중복 방지·정합성 규칙 |
 
-## v3.9.0.1 릴리스 묶음
+## v3.9.0.2 릴리스 묶음
 
 - 버전 단일 소스: `config/app_version.py`
-- 사용자 사용법: `docs/USER_GUIDE.md`, 앱 `사용자 매뉴얼 → 금융 인텔리전스`
+- 전체 변경 내역: `RELEASE_NOTES.md`, `docs/CHANGELOG.md`
+- Windows 업데이트 패키지 사용자 요약: `deploy/release_notes.md`
+- 사용자 사용법: `docs/USER_GUIDE.md`, 앱 `AI 커스텀 → 처음 사용법 AI에게 묻기`
+- AI 실행 사용법: `USER_GUIDE_AI_EXECUTION.md`
+- AI 커스텀 구조: `docs/AI_CUSTOM_STRATEGY_ARCHITECTURE.md`
+- 어시스턴트 안전 변경: `docs/AI_ASSISTANT_GUIDE.md`
+- AI 커스텀·어시스턴트 테스트: `docs/AI_CUSTOM_ASSISTANT_TEST_RUNBOOK_v3.9.0.2.md`
+- 최신 검증 결과: `docs/TEST_STATUS.md`
 - 기능·메뉴·데이터 상태: `docs/FINANCIAL_INTELLIGENCE_EXPANSION_PLAN_20260723.md`
 - 검증 체크리스트: `docs/FINANCIAL_INTELLIGENCE_TEST_CHECKLIST_20260723.md`
 - AI 커스텀 구현 기록: `docs/V3900_IMPLEMENTATION_RECORD_20260722.md`
 - 빌드·배포 상태: `docs/BUILD_GUIDE.md`, `docs/DEPLOY_CHECKLIST.md`, `deploy/release-manifest.json`
 
-Windows EXE를 새로 만들기 전 릴리스 매니페스트의 `pending_windows_rebuild`는 정상적인 차단 상태입니다. 과거 EXE의 파일명만 바꾸어 v3.9.0.1로 배포하지 않습니다.
+Windows EXE를 새로 만들기 전 릴리스 매니페스트의 `pending_windows_rebuild`는 정상적인 차단 상태입니다. 과거 EXE의 파일명만 바꾸어 v3.9.0.2로 배포하지 않습니다.
 
 ## 기능별 상세 문서
 
@@ -44,7 +52,7 @@ Windows EXE를 새로 만들기 전 릴리스 매니페스트의 `pending_window
 | AlphaArena | `ALPHA_ARENA_DEVELOPMENT.md` | `ARCHITECTURE.md`, 인앱 매뉴얼 |
 | 코인 선정 | `COIN_SELECTION_GUIDE.md` | `TRADING_FLOW.md` |
 | 대시보드 잔고·포지션 | `DASHBOARD_POSITION_SYSTEM.md` | `USER_GUIDE.md`, `DEV_GUIDE.md` |
-| AI 커스텀 | `AI_CUSTOM_STRATEGY_ARCHITECTURE_v3.9.0.0.md` | `ARCHITECTURE.md` |
+| AI 커스텀 | `AI_CUSTOM_STRATEGY_ARCHITECTURE.md` | `ARCHITECTURE.md` |
 | 증권·ETF | `STOCK_ETF_IMPLEMENTATION_STATUS_20260423.md` | `UPDATE_PLAN.md`, `TEST_STATUS.md` |
 | 생활금융 | `LIFE_FINANCE_GUIDE.md` | `UPDATE_PLAN.md`, `BUSINESS_PROPOSAL_2026.md` |
 | 자동 업데이트 | `CLIENT_AUTO_UPDATE_ARCHITECTURE_20260626.md` | `BUILD_GUIDE.md`, `DEPLOY_CHECKLIST.md` |

@@ -1331,6 +1331,16 @@ class StockAnalysisService:
             # ── 현재 시장 레짐 ──
             market_regime = self.get_market_regime()
 
+            # AI 커스텀과 자동검증이 같은 지표 정의를 사용하도록 최대 220개 이력을 확보한다.
+            price_history: Optional[List[float]] = None
+            if hasattr(self.adapter, 'get_price_history'):
+                try:
+                    hist = self.adapter.get_price_history(symbol, count=220) or []
+                    if hist:
+                        price_history = [float(h.get('close') or h) for h in hist if h]
+                except Exception:
+                    price_history = None
+
             scored: Dict[str, Any]
             if is_etf:
                 tracking_error = info.get('tracking_error')
@@ -1357,16 +1367,6 @@ class StockAnalysisService:
                 score_model = 'score_etf+regime+feedback'
             else:
                 avg_volume = float(info.get('avg_volume') or 0)
-
-                # 가격 히스토리 (어댑터 지원 시 사용)
-                price_history: Optional[List[float]] = None
-                if hasattr(self.adapter, 'get_price_history'):
-                    try:
-                        hist = self.adapter.get_price_history(symbol, count=25) or []
-                        if hist:
-                            price_history = [float(h.get('close') or h) for h in hist if h]
-                    except Exception:
-                        price_history = None
 
                 # 외국인/기관 순매수 (어댑터 지원 시 사용)
                 foreign_net_buy = float(info.get('foreign_net_buy') or 0.0)
@@ -1417,6 +1417,19 @@ class StockAnalysisService:
                 'feedback_win_rate': feedback_win_rate,
                 'feedback_trade_count': feedback_trade_count,
             })
+            if price_history:
+                from trading.custom_strategy_validator import build_indicator_context
+                indicator_context = build_indicator_context(price_history)
+                for key in (
+                    'rsi', 'macd', 'macd_signal', 'macd_histogram',
+                    'bb_position', 'bb_width',
+                    'ma20', 'ma50', 'ma200', 'sma20', 'sma50', 'sma200',
+                    'ema20', 'ema50', 'ema200', 'adx', 'atr', 'atr_percent',
+                    'trend_strength', 'market_volatility',
+                    'volume_sma20', 'volume_ratio',
+                ):
+                    if key in indicator_context:
+                        result[key] = indicator_context[key]
 
             # ETF 추가 지표
             if result['is_etf']:
@@ -2140,6 +2153,7 @@ class StockAnalysisService:
                 metadata={
                     'broker': self.broker_name,
                     'symbol': symbol,
+                    'quote_currency': 'KRW',
                     'side': 'SELL',
                     'close': True,
                     'reason': exit_decision.get('reason', ''),
@@ -2411,6 +2425,12 @@ class StockAnalysisService:
                     'reason': 'strategy_blocked',
                     'strategy_reasons': list(strategy_meta.get('reasons') or []),
                     'strategy_regime': strategy_meta.get('regime'),
+                    'strategy_candidate_regime': strategy_meta.get('candidate_regime'),
+                    'strategy_regime_confidence': strategy_meta.get('regime_confidence'),
+                    'strategy_regime_observed_at': strategy_meta.get('regime_observed_at'),
+                    'strategy_regime_transition_pending': strategy_meta.get(
+                        'regime_transition_pending'
+                    ),
                     'strategy_consensus': strategy_meta.get('consensus'),
                     'analysis_type': analysis.get('analysis_type'),
                     'score_model': analysis.get('score_model'),
@@ -2849,6 +2869,7 @@ class StockAnalysisService:
                 metadata={
                     'broker': self.broker_name,
                     'symbol': symbol,
+                    'quote_currency': 'KRW',
                     'side': signal,
                     'close': bool(signal == 'SELL'),
                     'execution_mode': execution_mode,

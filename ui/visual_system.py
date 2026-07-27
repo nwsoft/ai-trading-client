@@ -17,6 +17,18 @@ except Exception:
 _ICON_CACHE: Dict[Tuple[str, int, int, str], ctk.CTkImage] = {}
 
 
+def _shade_hex(color: str, factor: float) -> str:
+    """고정 팔레트 색을 같은 계열의 hover 색으로 조정한다."""
+    try:
+        value = str(color).lstrip("#")
+        if len(value) != 6:
+            return str(color)
+        channels = [min(255, max(0, round(int(value[index:index + 2], 16) * factor))) for index in (0, 2, 4)]
+        return "#" + "".join(f"{channel:02x}" for channel in channels)
+    except Exception:
+        return str(color)
+
+
 def _line_width(size: Tuple[int, int]) -> int:
     return max(2, round(min(size) * 0.10))
 
@@ -127,6 +139,8 @@ def style_tabview(
     height: int = 34,
 ) -> None:
     """탭 바를 공통 고대비 스타일로 맞춘다."""
+    selected_hover = _shade_hex(accent, 1.10)
+    inactive_hover = _shade_hex(inactive, 1.10)
     try:
         tabview.configure(
             fg_color="#0b1120",
@@ -135,8 +149,8 @@ def style_tabview(
             segmented_button_fg_color=bar_color,
             segmented_button_selected_color=accent,
             segmented_button_unselected_color=inactive,
-            segmented_button_selected_hover_color="#1d4ed8",
-            segmented_button_unselected_hover_color="#334e72",
+            segmented_button_selected_hover_color=selected_hover,
+            segmented_button_unselected_hover_color=inactive_hover,
             segmented_button_text_color=text_color,
             segmented_button_corner_radius=9,
         )
@@ -153,8 +167,8 @@ def style_tabview(
                 fg_color=bar_color,
                 selected_color=accent,
                 unselected_color=inactive,
-                selected_hover_color="#1d4ed8",
-                unselected_hover_color="#334e72",
+                selected_hover_color=selected_hover,
+                unselected_hover_color=inactive_hover,
                 text_color=text_color,
                 font=ctk.CTkFont(family="Segoe UI", size=font_size, weight="bold"),
                 height=height,

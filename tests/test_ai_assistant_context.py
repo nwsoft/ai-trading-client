@@ -4,10 +4,13 @@
 
 import os
 import sys
+import copy
 import unittest
 import logging
 import types
 import importlib.util
+import tempfile
+from pathlib import Path
 from unittest.mock import patch
 from types import SimpleNamespace
 
@@ -136,6 +139,86 @@ class AIAssistantContextTests(unittest.TestCase):
         self.assertTrue(widget._is_settings_change_request("포지션을 늘려줘"))
         self.assertTrue(widget._is_settings_change_request("비중을 조금 더 높여줘"))
 
+    def test_high_vol_location_question_reports_live_policy_without_applying(self):
+        widget = self._make_widget()
+        widget.parent_dashboard = SimpleNamespace(
+            settings={
+                "advanced_trading_layers": {
+                    "strategy_engine": {
+                        "enabled": True,
+                        "high_vol_action": "evaluate",
+                        "consensus_threshold": 0.6,
+                        "cooldown_sec": 60,
+                    }
+                }
+            }
+        )
+
+        result = widget._build_high_vol_support(
+            "OpenAI 최신 모델로 검증하면서 high vol 차단을 해제하고 싶은데 어디서 설정하면 될까요?"
+        )
+
+        self.assertIsNotNone(result)
+        self.assertNotIn("proposal", result)
+        self.assertIn("현재 이미 ‘평가 계속’", result["message"])
+        self.assertIn("설정 → 고급 자동매매 → 전략 엔진 세부 설정", result["message"])
+        self.assertIn("가드레일", result["message"])
+        self.assertIn("보장", result["message"])
+
+    def test_high_vol_explicit_unblock_builds_confirmable_proposal(self):
+        widget = self._make_widget()
+        widget.parent_dashboard = SimpleNamespace(
+            settings={
+                "advanced_trading_layers": {
+                    "strategy_engine": {
+                        "enabled": True,
+                        "high_vol_action": "block",
+                        "consensus_threshold": 0.6,
+                        "cooldown_sec": 60,
+                    }
+                }
+            }
+        )
+
+        result = widget._build_high_vol_support("high vol 차단 해제해줘")
+
+        self.assertEqual(
+            result["proposal"],
+            {"strategy_engine_high_vol_action": "evaluate"},
+        )
+
+    def test_ambiguous_model_change_requests_role_clarification(self):
+        widget = self._make_widget()
+
+        clarification = widget._build_settings_clarification("모델 바꿔줘")
+
+        self.assertIn("어떤 역할의 모델", clarification)
+        self.assertIn("AI 어시스턴트", clarification)
+
+    def test_ai_custom_help_explains_xai_and_real_apply_sequence(self):
+        widget = self._make_widget()
+        widget.parent_dashboard = SimpleNamespace(
+            settings={"ai_custom_runtime": {"enabled": False}}
+        )
+
+        response = widget._build_ai_custom_support(
+            "유튜브 전략의 XAI 적용값이 실제로 어떻게 AI 커스텀에 적용되나요?"
+        )
+
+        self.assertIn("현재 AI 커스텀 실자동매매 사용 스위치: OFF", response)
+        self.assertIn("사용자 승인 → 자동검증 → 최종 적용", response)
+        self.assertIn("실행 엔진 적용값", response)
+        self.assertIn("상위 전략 운영 계층", response)
+        self.assertIn("기존 전략을 저장 대상으로 골라 새 버전", response)
+        self.assertIn("NoahAI 시장판단과 수익성·리스크·주문 가드레일", response)
+
+    def test_identity_answer_is_always_noahai(self):
+        widget = self._make_widget()
+
+        response = widget._build_identity_support("너 누구야")
+
+        self.assertTrue(response.startswith("저는 NoahAI입니다."))
+
 
 class _FakeTextBox:
     def __init__(self):
@@ -217,6 +300,7 @@ class AIAssistantSettingsHistoryTests(unittest.TestCase):
             on_settings_changed=lambda *_args, **_kwargs: None,
         )
         widget.parent_dashboard = dashboard
+        widget._validate_trading_change_context = lambda _settings: (True, [])
 
         fake_settings_module = types.ModuleType("config.settings")
         fake_settings_module.reset_settings = lambda: True
@@ -239,6 +323,119 @@ class AIAssistantSettingsHistoryTests(unittest.TestCase):
         self.assertEqual(dashboard.settings["default_tp"], 0.01)
         self.assertEqual(dashboard.settings["default_sl"], 0.005)
         self.assertIn("전략: 보수 모드", widget.strategy_status_label.text)
+
+    def test_typed_action_registry_and_nested_rollback_values_are_consistent(self):
+        current = {
+            "default_leverage": 4,
+            "ai_trading_preferences": {
+                "risk_tolerance": "MODERATE",
+                "balance_utilization_limit": 0.25,
+            },
+            "advanced_trading_layers": {
+                "strategy_engine": {
+                    "high_vol_action": "evaluate",
+                    "consensus_threshold": 0.60,
+                    "cooldown_sec": 60,
+                },
+            },
+        }
+        keys = [
+            "default_leverage",
+            "risk_tolerance",
+            "strategy_engine_high_vol_action",
+            "strategy_engine_consensus_threshold",
+        ]
+        before = AIAssistantWidget._logical_setting_values(current, keys)
+        changed = AIAssistantWidget._merge_logical_setting_values(
+            current,
+            {
+                "default_leverage": 2,
+                "risk_tolerance": "CONSERVATIVE",
+                "strategy_engine_high_vol_action": "block",
+                "strategy_engine_consensus_threshold": 0.75,
+            },
+        )
+        restored = AIAssistantWidget._merge_logical_setting_values(changed, before)
+
+        self.assertEqual(
+            AIAssistantWidget._logical_setting_values(restored, keys),
+            before,
+        )
+        self.assertTrue(all(
+            spec["permission"] == "user_confirm"
+            for spec in AIAssistantWidget.SETTINGS_ACTION_REGISTRY.values()
+        ))
+        self.assertTrue(all(
+            spec["permission"] == "disabled"
+            for spec in AIAssistantWidget.PROTECTED_ACTION_REGISTRY.values()
+        ))
+
+    def test_protected_actions_never_fall_through_as_executed(self):
+        widget = self._make_widget()
+        order = widget._build_protected_action_support("BTC를 시장가로 매수 주문해줘")
+        start = widget._build_protected_action_support("자동매매 시작해줘")
+        credentials = widget._build_protected_action_support("API 키를 바꿔줘")
+        question = widget._build_protected_action_support("BTC 매수 타이밍을 분석해줘")
+
+        self.assertIn("실행하지 않았습니다", order)
+        self.assertIn("실행하지 않았습니다", start)
+        self.assertIn("실행하지 않았습니다", credentials)
+        self.assertIsNone(question)
+
+    def test_persistent_history_is_user_scoped_shape_and_excludes_secrets(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            widget = self._make_widget()
+            widget.settings_audit_path = Path(temp_dir) / "assistant" / "settings_change_history.json"
+            widget._append_settings_history(
+                changes={"default_leverage": 5},
+                before_full={"default_leverage": 3, "api_secret": "must-not-persist"},
+                after_full={"default_leverage": 5, "api_secret": "must-not-persist"},
+                source="test",
+            )
+
+            raw = widget.settings_audit_path.read_text(encoding="utf-8")
+            self.assertNotIn("must-not-persist", raw)
+
+            restored = self._make_widget()
+            restored.settings_audit_path = widget.settings_audit_path
+            restored._load_persistent_settings_history()
+            self.assertEqual(restored.settings_change_history[-1]["before"]["default_leverage"], 3)
+            self.assertEqual(restored.settings_change_history[-1]["after"]["default_leverage"], 5)
+
+    def test_undo_rechecks_persisted_value_and_keeps_history_on_mismatch(self):
+        widget = self._make_widget()
+        widget.settings_change_history = [{
+            "settings": {"default_leverage": 5},
+            "before": {"default_leverage": 3},
+            "after": {"default_leverage": 5},
+        }]
+        dashboard = SimpleNamespace(
+            settings={"default_leverage": 5},
+            on_settings_changed=lambda *_args, **_kwargs: None,
+        )
+        widget.parent_dashboard = dashboard
+        stored = {"default_leverage": 5}
+        calls = {"count": 0}
+        fake_settings_module = types.ModuleType("config.settings")
+
+        def _save_settings(value):
+            calls["count"] += 1
+            stored.clear()
+            stored.update(copy.deepcopy(value))
+            if calls["count"] == 1:
+                stored["default_leverage"] = 4
+            return True
+
+        fake_settings_module.save_settings = _save_settings
+        fake_settings_module.load_settings = lambda: copy.deepcopy(stored)
+
+        with patch.dict(sys.modules, {"config.settings": fake_settings_module}):
+            widget.undo_last_settings_change()
+
+        self.assertEqual(stored["default_leverage"], 5)
+        self.assertEqual(dashboard.settings["default_leverage"], 5)
+        self.assertEqual(len(widget.settings_change_history), 1)
+        self.assertTrue(any("현재 설정을 유지" in message for message in widget.messages))
 
     def test_auto_apply_keeps_full_before_snapshot_and_undo_restores_nested_settings(self):
         widget = self._make_widget()
@@ -264,9 +461,18 @@ class AIAssistantSettingsHistoryTests(unittest.TestCase):
             on_settings_changed=lambda *_args, **_kwargs: None,
         )
         widget.parent_dashboard = dashboard
+        widget._validate_trading_change_context = lambda _settings: (True, [])
 
         fake_settings_module = types.ModuleType("config.settings")
-        fake_settings_module.save_settings = lambda *_args, **_kwargs: True
+        persisted = copy.deepcopy(initial_settings)
+
+        def _save_settings(value):
+            persisted.clear()
+            persisted.update(copy.deepcopy(value))
+            return True
+
+        fake_settings_module.save_settings = _save_settings
+        fake_settings_module.load_settings = lambda: copy.deepcopy(persisted)
 
         with patch.dict(sys.modules, {"config.settings": fake_settings_module}):
             widget._apply_settings_automatically(
@@ -346,6 +552,178 @@ class AIAssistantSettingsHistoryTests(unittest.TestCase):
         self.assertIn("- default_leverage: 3x -> 5x", lines)
         self.assertIn("- risk_tolerance: 균형 -> 적극적", lines)
         self.assertIn("- balance_utilization_limit: 25.00% -> 35.00%", lines)
+
+    def test_strategy_engine_settings_are_sanitized_and_saved_nested(self):
+        widget = self._make_widget()
+        widget.parent_dashboard = SimpleNamespace(
+            settings={
+                "advanced_trading_layers": {
+                    "strategy_engine": {
+                        "enabled": True,
+                        "high_vol_action": "block",
+                        "consensus_threshold": 0.6,
+                        "cooldown_sec": 60,
+                    }
+                }
+            },
+            on_settings_changed=lambda *_args, **_kwargs: None,
+        )
+        widget.require_final_settings_confirmation = True
+        widget._validate_trading_change_context = lambda _settings: (True, [])
+        fake_settings_module = types.ModuleType("config.settings")
+        saved = {}
+
+        def _save_settings(value):
+            saved.clear()
+            saved.update(value)
+            return True
+
+        fake_settings_module.save_settings = _save_settings
+        fake_settings_module.load_settings = lambda: copy.deepcopy(saved)
+
+        safe, notes = widget._sanitize_settings_proposal(
+            {
+                "strategy_engine_high_vol_action": "evaluate",
+                "strategy_engine_consensus_threshold": 2.0,
+                "strategy_engine_cooldown_sec": -10,
+            }
+        )
+        self.assertEqual(safe["strategy_engine_high_vol_action"], "evaluate")
+        self.assertEqual(safe["strategy_engine_consensus_threshold"], 0.95)
+        self.assertEqual(safe["strategy_engine_cooldown_sec"], 0)
+        self.assertTrue(notes)
+
+        with patch.dict(sys.modules, {"config.settings": fake_settings_module}):
+            widget._apply_settings_automatically(
+                {"strategy_engine_high_vol_action": "evaluate"},
+                "high vol 차단 해제해줘",
+            )
+
+        policy = saved["advanced_trading_layers"]["strategy_engine"]
+        self.assertEqual(policy["high_vol_action"], "evaluate")
+        self.assertNotIn("strategy_engine_high_vol_action", saved)
+
+    def test_latest_and_provider_model_names_do_not_require_hardcoded_allowlist(self):
+        widget = self._make_widget()
+
+        safe, notes = widget._sanitize_settings_proposal(
+            {
+                "assistant_ai_model": "gpt-5.6-terra",
+                "ai_model_roles": {
+                    "frequent_cheap": "provider/model-mini",
+                    "premium": "gpt-5.6-sol",
+                },
+            }
+        )
+
+        self.assertEqual(safe["assistant_ai_model"], "gpt-5.6-terra")
+        self.assertEqual(safe["ai_model_roles"]["premium"], "gpt-5.6-sol")
+        self.assertFalse(notes)
+
+        unsafe, unsafe_notes = widget._sanitize_settings_proposal(
+            {"assistant_ai_model": "gpt-5.6-sol; rm -rf /"}
+        )
+        self.assertNotIn("assistant_ai_model", unsafe)
+        self.assertTrue(unsafe_notes)
+
+    def test_ai_auto_is_coerced_to_mandatory_user_confirmation(self):
+        widget = self._make_widget()
+
+        safe, notes = widget._sanitize_settings_proposal(
+            {"assistant_apply_mode": "ai_auto"}
+        )
+
+        self.assertEqual(safe["assistant_apply_mode"], "user_confirm")
+        self.assertTrue(any("자동적용" in note for note in notes))
+
+    def test_final_confirmation_cannot_be_disabled_by_legacy_flag(self):
+        widget = self._make_widget()
+        widget.require_final_settings_confirmation = False
+
+        with patch.object(module.messagebox, "askyesno", return_value=False) as confirm:
+            applied = widget._confirm_settings_apply({"default_leverage": 2})
+
+        self.assertFalse(applied)
+        confirm.assert_called_once()
+
+    def test_risk_increase_is_blocked_when_market_or_performance_context_is_missing(self):
+        widget = self._make_widget()
+        widget.parent_dashboard = SimpleNamespace(
+            settings={
+                "default_leverage": 3,
+                "default_sl": 0.01,
+                "ai_trading_preferences": {
+                    "risk_tolerance": "MODERATE",
+                    "balance_utilization_limit": 0.25,
+                },
+            }
+        )
+        widget._get_current_trading_context = lambda: (
+            "현재 서비스: blockchain\n"
+            "거래 통계: 기록 없음 (첫 거래 후 표시됩니다)\n"
+            "활성 포지션: 없음"
+        )
+
+        allowed, reasons = widget._validate_trading_change_context(
+            {"default_leverage": 5}
+        )
+
+        self.assertFalse(allowed)
+        self.assertTrue(any("시장 데이터" in reason for reason in reasons))
+        self.assertTrue(any("거래 성과" in reason for reason in reasons))
+
+    def test_conservative_change_remains_available_without_market_context(self):
+        widget = self._make_widget()
+        widget.parent_dashboard = SimpleNamespace(
+            settings={
+                "default_leverage": 5,
+                "default_sl": 0.02,
+                "ai_trading_preferences": {
+                    "risk_tolerance": "AGGRESSIVE",
+                    "balance_utilization_limit": 0.40,
+                },
+            }
+        )
+        widget._get_current_trading_context = lambda: ""
+
+        allowed, reasons = widget._validate_trading_change_context(
+            {
+                "default_leverage": 2,
+                "risk_tolerance": "CONSERVATIVE",
+                "balance_utilization_limit": 0.15,
+            }
+        )
+
+        self.assertTrue(allowed)
+        self.assertFalse(reasons)
+
+    def test_save_path_rechecks_context_and_blocks_stale_risk_increase(self):
+        widget = self._make_widget()
+        widget.parent_dashboard = SimpleNamespace(
+            settings={"default_leverage": 3},
+            on_settings_changed=lambda *_args, **_kwargs: None,
+        )
+        widget.settings_change_history = []
+        widget.max_history_size = 50
+        widget.messages = []
+        widget.add_ai_message = lambda message: widget.messages.append(message)
+        widget._validate_trading_change_context = lambda _settings: (
+            False,
+            ["제안 이후 열린 포지션이 확인됐습니다."],
+        )
+        fake_settings_module = types.ModuleType("config.settings")
+        saved = []
+        fake_settings_module.save_settings = lambda value: saved.append(value) or True
+
+        with patch.dict(sys.modules, {"config.settings": fake_settings_module}):
+            widget._apply_settings_automatically(
+                {"default_leverage": 5},
+                "레버리지 올려줘",
+            )
+
+        self.assertFalse(saved)
+        self.assertEqual(widget.parent_dashboard.settings["default_leverage"], 3)
+        self.assertTrue(any("저장 직전 안전 재검증" in message for message in widget.messages))
 
 
 if __name__ == "__main__":

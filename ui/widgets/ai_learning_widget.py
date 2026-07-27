@@ -15,6 +15,7 @@ from typing import Any, Dict, List, Optional
 import customtkinter as ctk
 from customtkinter import CTkFrame, CTkLabel, CTkButton, CTkProgressBar, CTkScrollableFrame, CTkTextbox
 from utils.perf_metrics_logger import log_ui_perf_metric
+from utils.fixed_colors import build_widget_palette
 
 class AILearningWidget(CTkFrame):
     """AI 학습 전용 위젯 (CustomTkinter)"""
@@ -34,14 +35,18 @@ class AILearningWidget(CTkFrame):
 
 
     def __init__(self, parent=None, colors: Optional[Dict[str, str]] = None, exchange_name: Optional[str] = None, **kwargs):
+        service_context = kwargs.pop('service_context', 'blockchain')
+        palette = build_widget_palette(colors)
+        kwargs.setdefault("fg_color", palette["content_bg"])
+        kwargs.setdefault("corner_radius", 0)
         super().__init__(parent, **kwargs)
         self.logger = logging.getLogger(__name__)
-        self.colors = dict(colors) if colors and isinstance(colors, dict) else {}
+        self.colors = palette
         self.exchange_name = exchange_name
         self._summary_callback = None
         self._last_data_mtime: Optional[float] = None  # 파일이 변하지 않으면 렌더 생략
         self._data_file_path: Optional[str] = None     # 현재 사용 중인 데이터 파일 경로
-        self._service_context = kwargs.get('service_context', 'blockchain')  # 서비스 컨텍스트 저장
+        self._service_context = service_context  # 서비스 컨텍스트 저장
         self._learning_cache_ts: float = 0.0
         self._learning_cache_ttl_sec: int = 180
         self._last_visible_force_refresh_ts: float = 0.0
@@ -253,7 +258,13 @@ class AILearningWidget(CTkFrame):
 
     def create_status_section(self):
         """AI 학습 상태 섹션 생성"""
-        status_frame = CTkFrame(self)
+        status_frame = CTkFrame(
+            self,
+            fg_color=self._color("card", "#111827"),
+            border_color=self._color("border_soft", "#273449"),
+            border_width=1,
+            corner_radius=16,
+        )
         status_frame.grid(row=0, column=0, sticky="ew", padx=10, pady=(10, 5))
         status_frame.grid_columnconfigure(1, weight=1)
 
@@ -261,36 +272,53 @@ class AILearningWidget(CTkFrame):
         self.service_context_label = CTkLabel(
             status_frame,
             text="AI 학습 상태",
-            font=ctk.CTkFont(size=16, weight="bold")
+            font=ctk.CTkFont(family="Segoe UI", size=16, weight="bold"),
+            text_color=self._color("text_primary", "#f9fafb"),
         )
         self.service_context_label.grid(row=0, column=0, columnspan=2, sticky="w", padx=10, pady=(10, 5))
 
         # 현재 상태
-        CTkLabel(status_frame, text="현재 상태:").grid(row=1, column=0, sticky="w", padx=10, pady=5)
+        CTkLabel(
+            status_frame,
+            text="현재 상태:",
+            text_color=self._color("text_secondary", "#9ca3af"),
+        ).grid(row=1, column=0, sticky="w", padx=10, pady=5)
         self.learning_status_label = CTkLabel(
             status_frame,
             text="대기 중",
-            font=ctk.CTkFont(weight="bold")
+            font=ctk.CTkFont(family="Segoe UI", weight="bold"),
+            text_color=self._color("text_primary", "#f9fafb"),
         )
         self.learning_status_label.grid(row=1, column=1, sticky="w", padx=10, pady=5)
 
         # 진행률 표시
-        self.learning_progress = CTkProgressBar(status_frame)
+        self.learning_progress = CTkProgressBar(
+            status_frame,
+            fg_color=self._color("card_alt", "#172033"),
+            progress_color=self._color("primary", "#2563eb"),
+        )
         self.learning_progress.grid(row=2, column=0, columnspan=2, sticky="ew", padx=10, pady=5)
         self.learning_progress.set(0)
 
     def create_data_section(self):
         """학습 데이터 테이블 섹션 생성 (중복 통계/상태 제거)"""
-        data_frame = CTkFrame(self)
+        data_frame = CTkFrame(
+            self,
+            fg_color=self._color("card", "#111827"),
+            border_color=self._color("border_soft", "#273449"),
+            border_width=1,
+            corner_radius=16,
+        )
         data_frame.grid(row=1, column=0, sticky="nsew", padx=10, pady=5)
         data_frame.grid_columnconfigure(0, weight=1)
-        data_frame.grid_rowconfigure(1, weight=1)
+        data_frame.grid_rowconfigure(2, weight=1)
 
         # 제목
         title_label = CTkLabel(
             data_frame,
             text="AI 학습 데이터",
-            font=ctk.CTkFont(size=16, weight="bold")
+            font=ctk.CTkFont(family="Segoe UI", size=16, weight="bold"),
+            text_color=self._color("text_primary", "#f9fafb"),
         )
         title_label.grid(row=0, column=0, sticky="w", padx=10, pady=(10, 5))
 
@@ -300,25 +328,39 @@ class AILearningWidget(CTkFrame):
             text="새로고침",
             command=self.refresh_learning_data,
             width=100,
-            height=30
+            height=32,
+            fg_color=self._color("primary", "#2563eb"),
+            hover_color=self._color("primary_hover", "#1d4ed8"),
+            text_color=self._color("text_on_primary", "#ffffff"),
+            corner_radius=10,
         )
         refresh_button.grid(row=0, column=0, sticky="e", padx=10, pady=(10, 5))
 
         # 현재 사용 중인 데이터 파일 경로 표시 행
-        path_row = CTkFrame(data_frame)
+        path_row = CTkFrame(
+            data_frame,
+            fg_color=self._color("card", "#111827"),
+            corner_radius=0,
+        )
         path_row.grid(row=1, column=0, sticky="ew", padx=10, pady=(0, 5))
         path_row.grid_columnconfigure(0, weight=1)
         self.data_path_label = CTkLabel(
             path_row,
             text="데이터 파일: 확인 중...",
             font=ctk.CTkFont(size=11),
-            text_color="#95a5a6",
+            text_color=self._color("text_muted", "#91a4bd"),
             anchor="w",
         )
         self.data_path_label.grid(row=0, column=0, sticky="w")
 
         # 스크롤 가능한 데이터 영역
-        self.data_scroll = CTkScrollableFrame(data_frame)
+        self.data_scroll = CTkScrollableFrame(
+            data_frame,
+            fg_color=self._color("input", "#0b1120"),
+            border_color=self._color("border_strong", "#334155"),
+            border_width=1,
+            corner_radius=12,
+        )
         self.data_scroll.grid(row=2, column=0, sticky="nsew", padx=10, pady=5)
         self.data_scroll.grid_columnconfigure(0, weight=1)
 
@@ -330,7 +372,11 @@ class AILearningWidget(CTkFrame):
     def create_data_headers(self):
         """데이터 테이블 헤더 생성"""
         headers = ["시간", "코인", "시그널", "신뢰도", "RSI", "MACD", "트렌드", "추론"]
-        header_frame = CTkFrame(self.data_scroll)
+        header_frame = CTkFrame(
+            self.data_scroll,
+            fg_color=self._color("card_alt", "#172033"),
+            corner_radius=10,
+        )
         header_frame.grid(row=0, column=0, sticky="ew", padx=10, pady=8)
         col_widths = [60, 90, 70, 70, 80, 80, 80, 420]  # 추론만 넓게, 나머지 좁게
         for i, header in enumerate(headers):
@@ -340,7 +386,8 @@ class AILearningWidget(CTkFrame):
                 font=ctk.CTkFont(weight="bold", size=14),
                 width=col_widths[i],
                 anchor="w",
-                padx=4, pady=4
+                padx=4, pady=4,
+                text_color=self._color("text_primary", "#f9fafb"),
             )
             header_label.grid(row=0, column=i, padx=(10 if i==0 else 4), pady=8, sticky="w")
             header_frame.grid_columnconfigure(i, weight=1)
@@ -349,7 +396,13 @@ class AILearningWidget(CTkFrame):
 
     def create_performance_section(self):
         """AI 학습 통계 섹션 생성 - 2행 3열로 컴팩트하게 배치"""
-        performance_frame = CTkFrame(self)
+        performance_frame = CTkFrame(
+            self,
+            fg_color=self._color("card", "#111827"),
+            border_color=self._color("border_soft", "#273449"),
+            border_width=1,
+            corner_radius=16,
+        )
         performance_frame.grid(row=2, column=0, sticky="ew", padx=10, pady=5)
         # 두 줄(행)로 구성, 각 줄은 3개의 아이템(라벨+값 페어)을 가짐
         for c in range(3):
@@ -359,7 +412,8 @@ class AILearningWidget(CTkFrame):
         title_label = CTkLabel(
             performance_frame,
             text="AI 학습 통계",
-            font=ctk.CTkFont(size=16, weight="bold")
+            font=ctk.CTkFont(family="Segoe UI", size=16, weight="bold"),
+            text_color=self._color("text_primary", "#f9fafb"),
         )
         title_label.grid(row=0, column=0, columnspan=3, sticky="w", padx=10, pady=(10, 6))
 
@@ -375,15 +429,24 @@ class AILearningWidget(CTkFrame):
         ]
 
         def make_pair(parent, text_left: str, key: str, default: str):
-            pair = CTkFrame(parent)
+            pair = CTkFrame(
+                parent,
+                fg_color=self._color("card_alt", "#172033"),
+                corner_radius=8,
+            )
             # 얇은 내부 패딩으로 공간 절약
             pair.grid_columnconfigure(0, weight=0)
             pair.grid_columnconfigure(1, weight=0)
             # 좌측 정렬로 값이 너무 오른쪽으로 밀리지 않도록 함
-            lbl = CTkLabel(pair, text=f"{text_left}:", anchor="w")
-            lbl.grid(row=0, column=0, sticky="w")
+            lbl = CTkLabel(
+                pair,
+                text=f"{text_left}:",
+                anchor="w",
+                text_color=self._color("text_secondary", "#9ca3af"),
+            )
+            lbl.grid(row=0, column=0, sticky="w", padx=(8, 0), pady=4)
             val = CTkLabel(pair, text=default, font=ctk.CTkFont(weight="bold"), text_color=self._color("success", "#27ae60"))
-            val.grid(row=0, column=1, sticky="w", padx=(6, 0))
+            val.grid(row=0, column=1, sticky="w", padx=(6, 8), pady=4)
             self.performance_labels[key] = val
             return pair
 
@@ -801,7 +864,13 @@ class AILearningWidget(CTkFrame):
         try:
             from datetime import timezone, timedelta
             KST = timezone(timedelta(hours=9))
-            row_frame = CTkFrame(self.data_scroll)
+            row_frame = CTkFrame(
+                self.data_scroll,
+                fg_color=self._color("card", "#111827"),
+                border_color=self._color("border_soft", "#273449"),
+                border_width=1,
+                corner_radius=10,
+            )
             row_frame.grid(row=row, column=0, sticky="ew", padx=10, pady=8)
             col_widths = [60, 90, 70, 70, 80, 80, 80, 420]
             for i in range(8):

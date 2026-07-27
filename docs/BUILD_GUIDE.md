@@ -8,9 +8,9 @@
 
 > UI 정책: 본 프로젝트의 GUI는 CustomTkinter만 지원합니다. PyQt5/PySide6는 Windows 빌드에서 키움증권 OpenAPI+ 지원 목적으로만 포함됩니다 (레거시 UI 파일은 ImportError 스텁으로 남아 있습니다).
 
-배포 대상 릴리스: `https://github.com/nwsoft/ai-trading-client/releases/tag/v3.9.0.1`
+배포 대상 릴리스: `https://github.com/nwsoft/ai-trading-client/releases/tag/v3.9.0.2`
 
-> 2026-07-24 기준 소스/문서/`deploy/version.txt`/Windows 버전 리소스는 3.9.0.1입니다. 새 Windows EXE가 생성되기 전 `deploy/release-manifest.json`은 `pending_windows_rebuild`, size 0, 빈 SHA를 유지합니다. Windows에서 현재 소스를 빌드·서명한 뒤 `generate_release_assets.py`로 실제 크기/SHA를 생성해야 합니다. 기존 3.9.0.0 EXE를 이름만 바꿔 재사용하면 파일 시각과 ProductVersion 게이트가 배포를 중단합니다.
+> 2026-07-26 기준 소스/문서/`deploy/version.txt`/Windows 버전 리소스는 3.9.0.2입니다. 새 Windows EXE가 생성되기 전 `deploy/release-manifest.json`은 `pending_windows_rebuild`, size 0, 빈 SHA를 유지합니다. Windows에서 현재 소스를 빌드·서명한 뒤 `generate_release_assets.py`로 실제 크기/SHA를 생성해야 합니다. 기존 EXE를 이름만 바꿔 재사용하면 파일 시각과 ProductVersion 게이트가 배포를 중단합니다.
 
 > 생활금융 기본 비교 데이터는 `data/finance_products`만 안전 빌드에 포함합니다. 계정·거래·사용자 설정 등 나머지 `data`는 계속 제외됩니다. 패키지 내 기본 데이터가 누락되거나 손상되면 앱 내장 예비 데이터로 폴백합니다.
 
@@ -98,11 +98,11 @@ powershell -ExecutionPolicy Bypass -File scripts/build_windows_safe.ps1 -GatePro
 태그 기반 GitHub 릴리즈를 한 번에 처리하려면 아래 스크립트를 사용합니다.
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File scripts/release_tag_push.ps1 -Version 3.9.0.1 -Branch main -PushBranch
+powershell -ExecutionPolicy Bypass -File scripts/release_tag_push.ps1 -Version 3.9.0.2 -Branch main -PushBranch
 ```
 
 옵션
-- `-Version`: 필수. `3.9.0.1` 또는 `v3.9.0.1` 모두 허용
+- `-Version`: 필수. `3.9.0.2` 또는 `v3.9.0.2` 모두 허용
 - `-Branch`: 기본 `main`
 - `-PushBranch`: 태그 push 전에 브랜치도 함께 push
 - `-StrictBranchPush`: `-PushBranch` 실패 시 즉시 중단(기본은 경고 후 태그/릴리즈 업로드 계속)
@@ -115,7 +115,7 @@ powershell -ExecutionPolicy Bypass -File scripts/release_tag_push.ps1 -Version 3
 1) **가장 안전한 기본 배포(권장)**
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File scripts/release_tag_push.ps1 -Version 3.9.0.1
+powershell -ExecutionPolicy Bypass -File scripts/release_tag_push.ps1 -Version 3.9.0.2
 ```
 
 - 태그 push + GitHub 릴리즈 에셋 업로드까지 수행
@@ -124,7 +124,7 @@ powershell -ExecutionPolicy Bypass -File scripts/release_tag_push.ps1 -Version 3
 2) **브랜치도 같이 push (실패해도 릴리즈는 계속 진행)**
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File scripts/release_tag_push.ps1 -Version 3.9.0.1 -Branch main -PushBranch
+powershell -ExecutionPolicy Bypass -File scripts/release_tag_push.ps1 -Version 3.9.0.2 -Branch main -PushBranch
 ```
 
 - `main` push가 거절돼도 태그/릴리즈 업로드는 계속 진행
@@ -132,7 +132,7 @@ powershell -ExecutionPolicy Bypass -File scripts/release_tag_push.ps1 -Version 3
 3) **브랜치 push 실패 시 즉시 중단(엄격 모드)**
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File scripts/release_tag_push.ps1 -Version 3.9.0.1 -Branch main -PushBranch -StrictBranchPush
+powershell -ExecutionPolicy Bypass -File scripts/release_tag_push.ps1 -Version 3.9.0.2 -Branch main -PushBranch -StrictBranchPush
 ```
 
 - 팀 정책상 브랜치 push 성공이 필수일 때 사용
@@ -140,7 +140,7 @@ powershell -ExecutionPolicy Bypass -File scripts/release_tag_push.ps1 -Version 3
 4) **이미 커밋한 상태에서 태그/릴리즈만 수행**
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File scripts/release_tag_push.ps1 -Version 3.9.0.1 -SkipCommit
+powershell -ExecutionPolicy Bypass -File scripts/release_tag_push.ps1 -Version 3.9.0.2 -SkipCommit
 ```
 
 - 로컬 변경 자동 커밋 없이 현재 HEAD 기준으로 태그/릴리즈 처리
@@ -149,7 +149,7 @@ powershell -ExecutionPolicy Bypass -File scripts/release_tag_push.ps1 -Version 3
 
 ```powershell
 python scripts/generate_release_assets.py --out-dir deploy --exe deploy/AITrading.exe --repo nwsoft/ai-trading-client
-gh release upload v3.9.0.1 deploy/AITrading.exe deploy/version.txt deploy/release_notes.md deploy/release-manifest.json --repo nwsoft/ai-trading-client --clobber
+gh release upload v3.9.0.2 deploy/AITrading.exe deploy/version.txt deploy/release_notes.md deploy/release-manifest.json --repo nwsoft/ai-trading-client --clobber
 ```
 
 - 태그를 새로 만들지 않고 릴리즈 에셋만 교체
@@ -165,7 +165,7 @@ git push origin main
 재정렬 후 릴리즈를 다시 실행합니다.
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File scripts/release_tag_push.ps1 -Version 3.9.0.1 -Branch main -PushBranch
+powershell -ExecutionPolicy Bypass -File scripts/release_tag_push.ps1 -Version 3.9.0.2 -Branch main -PushBranch
 ```
 
 주의

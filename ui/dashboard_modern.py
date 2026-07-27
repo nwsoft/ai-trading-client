@@ -25,7 +25,7 @@ from tkinter import messagebox
 import tkinter as tk
 
 # 고정 스킨 - 테마 시스템 제거됨 (2025-10-29)
-from utils.fixed_colors import FIXED_COLORS as _FIXED_COLORS
+from utils.fixed_colors import FIXED_COLORS as _FIXED_COLORS, build_widget_palette
 
 # corner_radius 강제 적용 커스텀 위젯
 from ui.custom_widgets import RoundedButton, RoundedFrame, create_rounded_button
@@ -1637,7 +1637,12 @@ class ModernDashboard(ctk.CTk):
         """사용자 상태 관리자 초기화"""
         try:
             if UserStatusManager and get_status_manager:
-                self.status_manager = get_status_manager(self.backend_api, self.settings)
+                policy_callback = getattr(self.main_app, "apply_server_membership_policy", None)
+                self.status_manager = get_status_manager(
+                    self.backend_api,
+                    self.settings,
+                    policy_update_callback=policy_callback,
+                )
 
                 # 사용자 상태 관리자만 초기화 (자동 시작하지 않음)
                 try:
@@ -1674,7 +1679,7 @@ class ModernDashboard(ctk.CTk):
                 # 실시간 로그에 메시지 표시 (안전한 방식)
                 if hasattr(self, 'realtime_log_widget') and self.realtime_log_widget:
                     try:
-                        self.realtime_log_widget.add_log(f"[{datetime.now().strftime('%H:%M:%S')}] 사용자 상태 모니터링 시작 (30분 간격)")
+                        self.realtime_log_widget.add_log(f"[{datetime.now().strftime('%H:%M:%S')}] 사용자 상태·회원권한 모니터링 시작 (1분 간격)")
                     except Exception as e:
                         try:
                             self.logger.debug(f"실시간 로그 추가 실패 (정상): {e}")
@@ -1816,31 +1821,45 @@ class ModernDashboard(ctk.CTk):
             # 기존 내용 초기화 후 재구성 (중복 방지)
             self._clear_tab_children(tab)
 
-            container = ctk.CTkFrame(tab)
+            container = ctk.CTkFrame(
+                tab,
+                fg_color=self._color("content_bg", "#0b1120"),
+                corner_radius=0,
+            )
             # 아래 여백을 줄여 하단 상태바 공간 확보
             container.pack(fill="both", expand=True, padx=10, pady=(10, 0))
 
             # 상단 바: 좌측 요약(오늘/주간/신호) + 우측 AI READY 배지 (같은 줄)
             ready = bool(getattr(self, 'ai_manager', None)) or bool(self.settings.get('openai_api_key'))
-            header_bar = ctk.CTkFrame(container, fg_color="#0b1120")
+            header_bar = ctk.CTkFrame(
+                container,
+                fg_color=self._color("card", "#111827"),
+                border_color=self._color("border_soft", "#273449"),
+                border_width=1,
+                corner_radius=12,
+            )
             header_bar.pack(fill="x", padx=4, pady=(0, 6))
             # 좌측 요약 바 (초기값 0)
-            summary_bar = ctk.CTkFrame(header_bar, fg_color="#0b1120")
-            summary_bar.pack(side="left")
-            ai_today_lbl = ctk.CTkLabel(summary_bar, text="오늘: 0개", text_color="#3498db")
+            summary_bar = ctk.CTkFrame(
+                header_bar,
+                fg_color=self._color("card", "#111827"),
+                corner_radius=0,
+            )
+            summary_bar.pack(side="left", padx=10, pady=7)
+            ai_today_lbl = ctk.CTkLabel(summary_bar, text="오늘: 0개", text_color=self._color("info", "#3b82f6"))
             ai_today_lbl.pack(side="left", padx=(0, 10))
-            ai_week_lbl = ctk.CTkLabel(summary_bar, text="주간: 0개", text_color="#e74c3c")
+            ai_week_lbl = ctk.CTkLabel(summary_bar, text="주간: 0개", text_color=self._color("warning", "#f59e0b"))
             ai_week_lbl.pack(side="left", padx=(0, 10))
-            ai_sig_lbl = ctk.CTkLabel(summary_bar, text="신호: LONG(0) SHORT(0) HOLD(0)", text_color="#9b59b6")
+            ai_sig_lbl = ctk.CTkLabel(summary_bar, text="신호: LONG(0) SHORT(0) HOLD(0)", text_color=self._color("accent", "#8b5cf6"))
             ai_sig_lbl.pack(side="left")
             self.ai_learning_summary_today = ai_today_lbl
             self.ai_learning_summary_week = ai_week_lbl
             self.ai_learning_summary_signal = ai_sig_lbl
             # 우측 배지
             badge_text = "AI READY" if ready else "AI OFF"
-            badge_color = ("#1d6f42", "#0f4d2d") if ready else ("#6f1d1d", "#4d0f0f")
+            badge_color = self._color("success", "#22c55e") if ready else self._color("danger", "#ef4444")
             badge = ctk.CTkLabel(header_bar, text=badge_text, fg_color=badge_color, text_color="white", corner_radius=6, padx=8, pady=4)
-            badge.pack(side="right", padx=4)
+            badge.pack(side="right", padx=10, pady=7)
             self.ai_learning_badge_label = badge
 
             # 서비스별 소스 선택 드롭다운 + 첫 번째 소스 기준 위젯 생성
@@ -1866,9 +1885,19 @@ class ModernDashboard(ctk.CTk):
 
             # 상단: 거래소 선택 영역 (요약 바 아래)
             try:
-                selector_frame = ctk.CTkFrame(container, fg_color="#0b1120")
+                selector_frame = ctk.CTkFrame(
+                    container,
+                    fg_color=self._color("card", "#111827"),
+                    border_color=self._color("border_soft", "#273449"),
+                    border_width=1,
+                    corner_radius=12,
+                )
                 selector_frame.pack(fill="x", padx=4, pady=(0, 8))
-                source_label = ctk.CTkLabel(selector_frame, text=source_label_text)
+                source_label = ctk.CTkLabel(
+                    selector_frame,
+                    text=source_label_text,
+                    text_color=self._color("text_secondary", "#9ca3af"),
+                )
                 source_label.pack(side="left", padx=(6, 8))
                 source_var = ctk.StringVar(value=source_name)
                 def _on_exchange_change(choice: str):
@@ -1880,8 +1909,16 @@ class ModernDashboard(ctk.CTk):
                             self.logger.warning(f"AI 학습 거래소 변경 실패: {_e}")
                         except Exception:
                             pass
-                source_menu = ctk.CTkOptionMenu(selector_frame, variable=source_var, values=source_list, command=_on_exchange_change)
-                source_menu.pack(side="left")
+                source_menu = ctk.CTkOptionMenu(
+                    selector_frame,
+                    variable=source_var,
+                    values=source_list,
+                    command=_on_exchange_change,
+                    fg_color=self._color("primary", "#2563eb"),
+                    button_color=self._color("primary", "#2563eb"),
+                    button_hover_color=self._color("primary_hover", "#1d4ed8"),
+                )
+                source_menu.pack(side="left", pady=7)
                 self.ai_learning_source_label = source_label
                 self.ai_learning_source_menu = source_menu
                 self.ai_learning_source_var = source_var
@@ -1901,7 +1938,12 @@ class ModernDashboard(ctk.CTk):
                     raise RuntimeError("AI 학습 위젯 모듈 로드 실패")
 
                 self.logger.info(f"[DEBUG] AILearningWidget 생성 시작: source={source_name}, service={current_service}")
-                ai_widget = _AILearningWidget(container, exchange_name=source_name)
+                ai_widget = _AILearningWidget(
+                    container,
+                    exchange_name=source_name,
+                    service_context=current_service,
+                    colors=dict(_FIXED_COLORS),
+                )
                 self.logger.info("[DEBUG] AILearningWidget 생성 완료")
                 try:
                     if hasattr(ai_widget, 'set_service_context'):
@@ -1954,7 +1996,12 @@ class ModernDashboard(ctk.CTk):
             # 기존 내용 초기화 후 재구성 (중복 방지)
             self._clear_tab_children(tab)
 
-            container = ctk.CTkFrame(tab)
+            report_palette = build_widget_palette(dict(_FIXED_COLORS))
+            container = ctk.CTkFrame(
+                tab,
+                fg_color=report_palette["content_bg"],
+                corner_radius=10,
+            )
             container.pack(fill="both", expand=True, padx=10, pady=10)
 
             # 상단 AI READY 배지
@@ -1967,13 +2014,13 @@ class ModernDashboard(ctk.CTk):
             self.ai_report_badge_label = badge
 
             try:
-                ai_report_widget = AIReportWidget(container)
+                ai_report_widget = AIReportWidget(container, colors=report_palette)
                 ai_report_widget.pack(fill="both", expand=True)
                 self.ai_report_widget = ai_report_widget
             except Exception as e:
                 try:
                     from ui.widgets.ai_report_widget_safe import AIReportWidgetSafe
-                    ai_report_widget = AIReportWidgetSafe(container)
+                    ai_report_widget = AIReportWidgetSafe(container, colors=report_palette)
                     ai_report_widget.pack(fill="both", expand=True)
                     self.ai_report_widget = ai_report_widget
                     self.logger.warning(f"AIReportWidget 로드 실패, 안전 버전으로 대체: {e}")
@@ -2033,7 +2080,12 @@ class ModernDashboard(ctk.CTk):
                     if normalized_model != model_name:
                         self.logger.info(f"모델명 정규화: '{model_name}' → '{normalized_model}'")
                     
-                    widget = AIAssistantWidget(tab, ai_manager=ai_manager, assistant_model_name=normalized_model)
+                    widget = AIAssistantWidget(
+                        tab,
+                        ai_manager=ai_manager,
+                        assistant_model_name=normalized_model,
+                        colors=dict(_FIXED_COLORS),
+                    )
                     # 대시보드 참조 연결 (거래 상황 수집용)
                     widget.parent_dashboard = self
                     # 현재 서비스 컨텍스트 동기화
@@ -2330,7 +2382,7 @@ class ModernDashboard(ctk.CTk):
             tab = self._get_or_add_tab(tab_name)
             self._clear_tab_children(tab)
 
-            # 메인 컨테이너
+            # 코인 정보는 여러 독립 분석 영역이 이어지므로 전체를 스크롤한다.
             main_container = ctk.CTkScrollableFrame(
                 tab,
                 fg_color="#0b1120",
@@ -2466,8 +2518,10 @@ class ModernDashboard(ctk.CTk):
             tab = self._get_or_add_tab(tab_name)
             self._clear_tab_children(tab)
 
-            # 메인 컨테이너
-            main_container = ctk.CTkScrollableFrame(
+            # 표 안쪽만 스크롤한다. 바깥까지 CTkScrollableFrame으로 만들면
+            # 중첩 스크롤의 기본 높이에 표가 눌려 2~3행만 보이고 아래 공간이
+            # 비는 문제가 생긴다.
+            main_container = ctk.CTkFrame(
                 tab,
                 fg_color="#0b1120",
                 corner_radius=10,
@@ -2549,6 +2603,32 @@ class ModernDashboard(ctk.CTk):
                 )
                 value_label.pack(anchor="w", padx=12, pady=(0, 7))
                 self.trading_stats_kpi_labels[key] = value_label
+
+            # 통화별 체결금액과 평균 보유시간은 기존 4개 카드 아래의 한 줄
+            # 운용 지표로 표시한다. 카드 수를 늘려 표 영역을 줄이지 않는다.
+            operating_strip = ctk.CTkFrame(
+                main_container,
+                height=40,
+                corner_radius=10,
+                fg_color="#111827",
+                border_color="#1f2937",
+                border_width=1,
+            )
+            operating_strip.pack(fill="x", pady=(0, 8))
+            operating_strip.pack_propagate(False)
+            ctk.CTkLabel(
+                operating_strip,
+                text="실제 운용",
+                font=ctk.CTkFont(size=12, weight="bold"),
+                text_color=self._color('info', '#60a5fa'),
+            ).pack(side="left", padx=(12, 10))
+            self.trading_stats_operating_label = ctk.CTkLabel(
+                operating_strip,
+                text="체결금액 USDT 0.00 · KRW 0 | 평균 보유시간 수집 대기",
+                font=ctk.CTkFont(size=12, weight="bold"),
+                text_color=self._color('text_primary', '#f9fafb'),
+            )
+            self.trading_stats_operating_label.pack(side="left", fill="x", expand=True)
 
             # 거래 통계 테이블 헤더
             stats_header_frame = ctk.CTkFrame(main_container, height=42, corner_radius=10, fg_color="#111827")
@@ -2634,7 +2714,7 @@ class ModernDashboard(ctk.CTk):
 
             # 새로운 시장 트렌드 위젯 사용
             from ui.widgets.market_trend_widget import MarketTrendWidget
-            trend_widget = MarketTrendWidget(tab, dashboard_ref=self)
+            trend_widget = MarketTrendWidget(tab, dashboard_ref=self, colors=dict(_FIXED_COLORS))
             trend_widget.pack(fill="both", expand=True, padx=10, pady=10)
             self.market_trend_widget = trend_widget  # 서비스 컨텍스트 동기화용 참조 저장
             self.demo_widget = None
@@ -3906,14 +3986,19 @@ class ModernDashboard(ctk.CTk):
             self._clear_tab_children(tab)
 
             # 메인 컨테이너
-            main_container = ctk.CTkFrame(tab)
+            main_container = ctk.CTkFrame(
+                tab,
+                fg_color=self._color("content_bg", "#0b1120"),
+                corner_radius=10,
+            )
             main_container.pack(fill="both", expand=True, padx=10, pady=10)
 
             # 거래 통계 제목
             stats_title = ctk.CTkLabel(
                 main_container,
                 text="주식/ETF 거래 통계 (데이터베이스 기준)",
-                font=self._get_safe_font("title")
+                font=self._get_safe_font("title"),
+                text_color=self._color("text_primary", "#f9fafb"),
             )
             stats_title.pack(pady=10)
 
@@ -3944,13 +4029,22 @@ class ModernDashboard(ctk.CTk):
                 values=broker_options,
                 variable=self.stock_trading_stats_broker_var,
                 command=lambda _: self._update_stock_trading_statistics(),
-                width=160
+                width=160,
+                fg_color=self._color("secondary", "#263a57"),
+                button_color=self._color("primary", "#2563eb"),
+                button_hover_color=self._color("primary_hover", "#1d4ed8"),
             )
             broker_menu.pack(side="left")
             self.stock_trading_stats_broker_menu = broker_menu
 
             # 거래 통계 테이블 헤더
-            stats_header_frame = ctk.CTkFrame(main_container)
+            stats_header_frame = ctk.CTkFrame(
+                main_container,
+                fg_color=self._color("surface", "#111827"),
+                border_color=self._color("border", "#273449"),
+                border_width=1,
+                corner_radius=10,
+            )
             stats_header_frame.pack(fill="x", pady=(0, 5))
 
             # 주식/ETF용 통계 컬럼 구조
@@ -3960,7 +4054,8 @@ class ModernDashboard(ctk.CTk):
                 label = ctk.CTkLabel(
                     stats_header_frame,
                     text=header,
-                    font=self._get_safe_font("table_header")
+                    font=self._get_safe_font("table_header"),
+                    text_color=self._color("text_primary", "#f9fafb"),
                 )
                 label.grid(row=0, column=i, padx=5, pady=5, sticky="ew")
                 stats_header_frame.grid_columnconfigure(i, weight=1)
@@ -3970,8 +4065,8 @@ class ModernDashboard(ctk.CTk):
             self.stock_trading_stats_scroll = ctk.CTkScrollableFrame(
                 main_container,
                 corner_radius=12,
-                fg_color="#0b1120",
-                border_color="#1f2937",
+                fg_color=self._color("content_bg", "#0b1120"),
+                border_color=self._color("border", "#273449"),
                 border_width=2
             )
             self.stock_trading_stats_scroll.pack(fill="both", expand=True, pady=5)
@@ -3984,7 +4079,9 @@ class ModernDashboard(ctk.CTk):
                 button_row,
                 text="거래 통계 새로고침",
                 command=self._refresh_stock_trading_stats,
-                font=self._get_safe_font("button")
+                font=self._get_safe_font("button"),
+                fg_color=self._color("primary", "#2563eb"),
+                hover_color=self._color("primary_hover", "#1d4ed8"),
             )
             refresh_button.pack(side="left", padx=(0, 6))
 
@@ -4018,7 +4115,7 @@ class ModernDashboard(ctk.CTk):
 
             # 블록체인과 동일한 트렌드 위젯을 재사용하되, 서비스 컨텍스트를 stock으로 설정
             from ui.widgets.market_trend_widget import MarketTrendWidget
-            trend_widget = MarketTrendWidget(tab, dashboard_ref=self)
+            trend_widget = MarketTrendWidget(tab, dashboard_ref=self, colors=dict(_FIXED_COLORS))
             try:
                 if hasattr(trend_widget, 'set_service_context'):
                     trend_widget.set_service_context('stock')
@@ -5218,7 +5315,25 @@ class ModernDashboard(ctk.CTk):
                             SUM({fee_expr}) as total_fees,
                             AVG({fee_expr}) as avg_fee,
                             MAX(pnl) as max_profit,
-                            MIN(pnl) as max_loss
+                            MIN(pnl) as max_loss,
+                            SUM(ABS(COALESCE(entry_price, 0) * COALESCE(quantity, 0))) as total_notional,
+                            AVG(
+                                CASE
+                                    WHEN entry_time IS NOT NULL
+                                     AND exit_time IS NOT NULL
+                                     AND julianday(exit_time) > julianday(entry_time)
+                                    THEN (julianday(exit_time) - julianday(entry_time)) * 1440.0
+                                    ELSE NULL
+                                END
+                            ) as avg_hold_minutes,
+                            SUM(
+                                CASE
+                                    WHEN entry_time IS NOT NULL
+                                     AND exit_time IS NOT NULL
+                                     AND julianday(exit_time) > julianday(entry_time)
+                                    THEN 1 ELSE 0
+                                END
+                            ) as valid_hold_count
                         FROM trade_log
                         WHERE exit_time IS NOT NULL
                     """
@@ -5242,12 +5357,34 @@ class ModernDashboard(ctk.CTk):
                         ctk.CTkLabel(self.trading_stats_scroll, text=msg).pack(pady=10)
                         self._set_trading_stats_status(msg, level='info')
                         self._set_trading_stats_kpis(0, 0, 0.0, 0.0)
+                        self._set_trading_stats_operating_metrics({}, None, 0, 0)
                         return
 
                     grand_total = sum(int(row[2] or 0) for row in rows)
+                    actual_closed_total = grand_total
                     grand_wins = sum(int(row[3] or 0) for row in rows)
                     grand_pnl = sum(float(row[6] or 0.0) for row in rows)
                     grand_fees = sum(float(row[7] or 0.0) for row in rows)
+                    from utils.trade_operating_metrics import infer_quote_currency
+
+                    grand_notional_by_currency: Dict[str, float] = {}
+                    grand_hold_weighted_minutes = 0.0
+                    grand_valid_hold_count = 0
+                    for row in rows:
+                        currency = infer_quote_currency(row[0], row[1])
+                        grand_notional_by_currency[currency] = (
+                            grand_notional_by_currency.get(currency, 0.0)
+                            + float(row[11] or 0.0)
+                        )
+                        valid_count = int(row[13] or 0)
+                        if valid_count > 0 and row[12] is not None:
+                            grand_hold_weighted_minutes += float(row[12]) * valid_count
+                            grand_valid_hold_count += valid_count
+                    grand_avg_hold_minutes = (
+                        grand_hold_weighted_minutes / grand_valid_hold_count
+                        if grand_valid_hold_count
+                        else None
+                    )
                     display_overrides = self._get_broadcast_display_overrides()
                     override_trades = display_overrides.get('total_trades')
                     override_win_rate = display_overrides.get('win_rate_percent')
@@ -5271,6 +5408,12 @@ class ModernDashboard(ctk.CTk):
                         grand_total, grand_wins, grand_pnl, grand_fees,
                         mixed_currency=(normalized_filter is None and has_krw and has_non_krw),
                     )
+                    self._set_trading_stats_operating_metrics(
+                        grand_notional_by_currency,
+                        grand_avg_hold_minutes,
+                        grand_valid_hold_count,
+                        actual_closed_total,
+                    )
 
                     # 거래소별 그룹 구성
                     sections: Dict[str, List[Tuple[Any, ...]]] = {}
@@ -5293,6 +5436,17 @@ class ModernDashboard(ctk.CTk):
                         section_total_trades = sum(int(r[1] or 0) for r in exchange_rows)
                         section_total_pnl = sum(float(r[5] or 0.0) for r in exchange_rows)
                         section_total_fees = sum(float(r[6] or 0.0) for r in exchange_rows)
+                        section_total_notional = sum(float(r[10] or 0.0) for r in exchange_rows)
+                        section_valid_hold_count = sum(int(r[12] or 0) for r in exchange_rows)
+                        section_hold_weighted_minutes = sum(
+                            float(r[11] or 0.0) * int(r[12] or 0)
+                            for r in exchange_rows
+                        )
+                        section_avg_hold_minutes = (
+                            section_hold_weighted_minutes / section_valid_hold_count
+                            if section_valid_hold_count
+                            else None
+                        )
                         section_avg_fee = (section_total_fees / section_total_trades) if section_total_trades > 0 else 0.0
                         fee_ratio_percent = (section_total_fees / abs(section_total_pnl) * 100.0) if abs(section_total_pnl) > 0 else 0.0
 
@@ -5312,8 +5466,29 @@ class ModernDashboard(ctk.CTk):
                         )
                         section_summary.pack(anchor="w", padx=8, pady=(0, 4))
 
+                        from utils.trade_operating_metrics import (
+                            format_hold_duration,
+                            format_notional,
+                        )
+                        section_operating_summary = ctk.CTkLabel(
+                            self.trading_stats_scroll,
+                            text=(
+                                f"실제 체결금액 {format_notional(settlement_unit, section_total_notional)} | "
+                                f"평균 보유시간 {format_hold_duration(section_avg_hold_minutes)} "
+                                f"(유효 {section_valid_hold_count}/{section_total_trades}건)"
+                            ),
+                            font=self._get_safe_font("small"),
+                            text_color=self._color('info', '#60a5fa'),
+                        )
+                        section_operating_summary.pack(anchor="w", padx=8, pady=(0, 4))
+
                         for row_data in exchange_rows:
-                            symbol, total, wins, losses, avg_profit_rate, total_pnl, total_fees, _avg_fee, max_profit, max_loss = row_data
+                            (
+                                symbol, total, wins, losses, avg_profit_rate,
+                                total_pnl, total_fees, _avg_fee, max_profit,
+                                max_loss, _total_notional, _avg_hold_minutes,
+                                _valid_hold_count,
+                            ) = row_data
                             total_symbols += 1
 
                             avg_profit_rate = float(avg_profit_rate) if avg_profit_rate is not None else 0.0
@@ -5398,6 +5573,47 @@ class ModernDashboard(ctk.CTk):
                 label = labels.get(key)
                 if label is not None:
                     label.configure(text=text)
+        except Exception:
+            pass
+
+    def _set_trading_stats_operating_metrics(
+        self,
+        notional_by_currency: Dict[str, float],
+        avg_hold_minutes: Optional[float],
+        valid_hold_count: int,
+        closed_count: int,
+    ) -> None:
+        """체결금액과 평균 보유시간을 기존 거래 통계 요약에 표시한다."""
+        try:
+            label = getattr(self, 'trading_stats_operating_label', None)
+            if label is None:
+                return
+            from utils.trade_operating_metrics import (
+                format_hold_duration,
+                format_notional,
+            )
+
+            amounts = [
+                format_notional("USDT", (notional_by_currency or {}).get("USDT", 0.0)),
+                format_notional("KRW", (notional_by_currency or {}).get("KRW", 0.0)),
+            ]
+            for currency in sorted(notional_by_currency or {}):
+                if currency not in {"USDT", "KRW"}:
+                    amounts.append(
+                        format_notional(currency, notional_by_currency[currency])
+                    )
+            hold_text = format_hold_duration(avg_hold_minutes)
+            coverage = (
+                f"유효 {int(valid_hold_count):,}/{int(closed_count):,}건"
+                if closed_count
+                else "청산 기록 없음"
+            )
+            label.configure(
+                text=(
+                    f"체결금액 {' · '.join(amounts)} | "
+                    f"평균 보유시간 {hold_text} ({coverage})"
+                )
+            )
         except Exception:
             pass
 
@@ -9272,6 +9488,7 @@ class ModernDashboard(ctk.CTk):
                         self.create_broker_logs_section(right_pane, broker)
                     except Exception as e:
                         print(f"하위 탭 생성 실패: {broker} - {e}")
+            self.after_idle(self._apply_source_tab_distinction)
         except Exception as e:
             print(f"하위 탭 생성 오류: {e}")
 
@@ -11337,7 +11554,9 @@ class ModernDashboard(ctk.CTk):
             user_id = self.get_user_id_from_login_data()
             user_grade = self.get_user_grade_from_token()
             normalized_grade = str(user_grade or '').strip().lower()
-            if normalized_grade in {
+            if normalized_grade in {'referral', 'free', 'free_referral', 'referral_free', '레퍼럴'}:
+                normalized_grade = 'referral'
+            elif normalized_grade in {
                 'normal', 'basic', 'general', 'coin_start', 'coin-start', 'pro_coin', 'pro-coin'
             }:
                 normalized_grade = 'pro_coin'
@@ -11348,7 +11567,9 @@ class ModernDashboard(ctk.CTk):
             if normalized_grade in {'pro', 'all_trading', 'all-trading', 'alltrading', 'middle'}:
                 normalized_grade = 'premium'
 
-            if normalized_grade == 'premium':
+            if normalized_grade == 'referral':
+                grade_badge = "레퍼럴"
+            elif normalized_grade == 'premium':
                 grade_badge = "프리미엄"
             elif normalized_grade in {'pro_coin', 'pro_stock'}:
                 grade_badge = "프로"
@@ -11969,12 +12190,46 @@ class ModernDashboard(ctk.CTk):
         """선택 시점에 동적 탭 내용을 다시 보장한다."""
         try:
             selected = str(cast(ctk.CTkTabview, self.tab_widget).get() or '')
+            self.after_idle(self._apply_source_tab_distinction)
             if selected == "AI 커스텀":
                 self.after_idle(self._ensure_custom_strategy_tab)
             elif selected in {"금융 인텔리전스", "금융 인텔리전스 허브", "성과·위험 분석"}:
                 service = str(getattr(self, "current_service", "blockchain") or "blockchain")
                 self.after_idle(lambda current=service: self._ensure_financial_intelligence_tab(current))
         except Exception:
+            pass
+
+    def _apply_source_tab_distinction(self) -> None:
+        """거래소·증권사 운영 탭을 일반 기능 탭과 은은하게 구분한다."""
+        try:
+            tv = cast(ctk.CTkTabview, self.tab_widget)
+            segmented = getattr(tv, "_segmented_button", None)
+            buttons = getattr(segmented, "_buttons_dict", {}) if segmented is not None else {}
+            if not isinstance(buttons, dict):
+                return
+
+            service = str(getattr(self, "current_service", "blockchain") or "blockchain").lower()
+            source_tabs = set((getattr(self, "service_sub_tabs", {}).get(service, {}) or {}).keys())
+            selected_name = str(tv.get() or "")
+            if service == "stock":
+                accent, tint, border, text = "#0f766e", "#123a3a", "#2dd4bf", "#ccfbf1"
+            else:
+                accent, tint, border, text = "#0e7490", "#12364a", "#38bdf8", "#e0f2fe"
+
+            for tab_name in source_tabs:
+                button = buttons.get(tab_name)
+                if button is None:
+                    continue
+                is_selected = tab_name == selected_name
+                button.configure(
+                    fg_color=accent if is_selected else tint,
+                    hover_color="#0891b2" if service != "stock" else "#0d9488",
+                    border_width=1,
+                    border_color=border,
+                    text_color="#ffffff" if is_selected else text,
+                )
+        except Exception:
+            # 구형 CustomTkinter에서도 탭 기능 자체는 그대로 유지한다.
             pass
 
     def create_main_content(self):

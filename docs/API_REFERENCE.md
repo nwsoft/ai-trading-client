@@ -1,4 +1,4 @@
-# API 참조 문서 - v3.8.8.3
+# API 참조 문서 - v3.9.0.2
 
 ## 🌐 백엔드 서버 API
 
@@ -25,12 +25,16 @@ Content-Type: application/json
 {
   "access_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
   "token_type": "bearer",
-  "expires_in": 3600,
-  "user": {
-    "id": "string",
-    "email": "string",
-    "grade": "string",
-    "session_id": "string"
+  "id": "string",
+  "email": "string",
+  "session_id": "string",
+  "user_grade": "referral|pro_coin|pro_stock|premium",
+  "membership_policy": {
+    "policy_version": "2026-07-27.1",
+    "display_name": "레퍼럴",
+    "allowed_exchanges": ["binance", "bybit", "okx", "bitget"],
+    "allowed_brokers": [],
+    "server_authoritative": true
   }
 }
 ```
@@ -52,13 +56,16 @@ Content-Type: application/json
 {
   "is_active": true,
   "force_quit": false,
-  "message": "정상 상태"
+  "user_grade": "referral",
+  "membership_policy": {},
+  "access_token": "회전 갱신된 토큰"
 }
 ```
 
 #### KPI 이벤트 업로드
 ```http
 POST /auth/kpi/event
+Authorization: Bearer {token}
 Content-Type: application/json
 
 {
@@ -79,10 +86,13 @@ Content-Type: application/json
 - `login_failed`
 - `ai_market_report_generated`
 - `ai_market_report_failed`
+- `exchange_runtime_snapshot`
+- `feature_gate_denied`
 
 참고:
 
 - 실제 허용 이벤트는 서버 카탈로그/화이트리스트 기준으로 관리됩니다.
+- `exchange_runtime_snapshot`은 인증 토큰 사용자와 현재 세션 ID가 모두 일치해야 적재됩니다.
 - 외부 공개 페이지에서 보는 KPI는 위 이벤트를 포함한 운영 집계 전체와 동일하지 않을 수 있습니다.
 - 공개 KPI는 코호트 기반 정적 스냅샷이고, 관리자 KPI는 익명 이벤트 기반 최신 운영 집계입니다.
 - `hold_seconds`, 응답시간, `ai_inference_completed` 계열 운영 KPI는 v3.8.9.28 이후부터 본격 누적되는 항목입니다.

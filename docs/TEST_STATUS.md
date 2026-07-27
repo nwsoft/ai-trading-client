@@ -1,16 +1,38 @@
-## 문서 동기화 메모 (2026-07-24)
+## 문서 동기화 메모 (2026-07-27 KPI 수집·대시보드 정합)
 
-- 소스/문서 버전 단일 소스(`config/app_version.py`) 기준 배포 대상은 `v3.9.0.1` (2026-07-24)
-- v3.9.0.1 Windows EXE는 신규 빌드 전이며 manifest는 `pending_windows_rebuild` 상태다. v3.9.0.0 EXE 재사용은 stale build와 ProductVersion 게이트가 차단한다.
-- 전체 자동 테스트 최신 실행: `1030 passed, 6 skipped, 3 warnings` (2026-07-24, macOS/Python 3.13)
+- 2026-07-27 화면 정합 최종 패치 포함 최신 실행: `1076 passed, 6 skipped, 3 warnings`.
+- 포지션 KPI 재시도·종료 flush·안전 종료 경로·결제통화 회귀: `9 passed`.
+- 클라이언트 통화별 체결금액·유효 평균 보유시간·거래 통계·리포트 연결 집중 회귀: `93 passed`.
+- 공통 팔레트·AI 리포트·주식 거래 통계·생활금융 월간 요약·어시스턴트 모델명 비노출 UI 정합 회귀: `12 passed`; 대시보드 집중 회귀: `39 passed`.
+- 클라이언트 레퍼럴 정책·AI 도움말·UI 집중 회귀: `10 passed`.
+- daltrading 레퍼럴 정책·관리자 활성 목록·동시 거래소·거래량·보유시간 KPI·JWT 비밀키·DB 동시성 회귀: `19 passed`.
+- daltrading EC2 운영 배포: DB 백업·WAL·무결성 `ok`, 최종 런타임 커밋 `60d090d`, 서비스·공개 4개 경로 HTTP 200, 레퍼럴 선택/CD-Key 비활성/콘솔 오류 없음 **PASS**.
+- 운영 30일 원본 집계: USDT `103047.56`, KRW `0`, 진입 `52`, 종료 `0`, 수집률 `관찰 중`; 최적화 뒤 응답 `13.95초`.
+- Python 문법, 사용자 매뉴얼 JSON, daltrading Jinja 전체 템플릿 파싱: **PASS**.
+- 앞선 UI 정합 집중 회귀 `127 passed`, 문서·사용자 노출 동기화, macOS 실화면 검증 결과는 유지한다.
+- macOS 1500×980 실화면: 블록체인 거래 통계 약 7행 표시와 표 단일 스크롤, 금융 인텔리전스 초보자 안내·AI 질문 버튼, 생활금융 공통 고정 스킨 렌더링 **PASS**.
+- 소스/문서 버전 단일 소스(`config/app_version.py`) 기준 배포 대상은 `v3.9.0.2` (2026-07-26)
+- v3.9.0.2 Windows EXE는 신규 빌드 전이며 manifest는 `pending_windows_rebuild`, size 0, 빈 SHA 상태다. 과거 EXE 재사용은 stale build와 ProductVersion 게이트가 차단한다.
+- 전체 자동 테스트 최신 실행: `1076 passed, 6 skipped, 3 warnings` (2026-07-27, macOS/Python 3.13, 화면 정합 최종 패치 포함)
 - 경고 3건은 기존 `scripts/test_coin_selection*.py`의 list 반환이며 실패는 아니다.
-- 신규 대상 테스트: 거래기회 보존형 AI 호출 정책, 위험기반 레버리지, 국면 이탈 선택, AI 입력·TP/SL 단위, 설정 복구, 영속 거래 단계 판정을 포함한다.
+- AI 커스텀·어시스턴트 집중 회귀: `81 passed, 0 failed`.
+- Python 문법 검사: 어시스턴트·AI 커스텀·인앱 매뉴얼·설정·선언형 엔진·신규 테스트 파일 PASS.
+- 문서 정합성 검사: `scripts/doc_consistency_check.py` PASS.
+- v3.9.0.2 릴리스 표면 정합성: README·문서 진입점·인앱 업데이트·사용자 가이드·릴리스 노트·Windows 배포용 `deploy/release_notes.md`·변경이력·공통/AI 커스텀 아키텍처·AI 어시스턴트·거래 흐름·계획·배포 체크리스트·테스트 상태 필수 항목 **PASS**.
+- 신규 대상 테스트: EMA200 워밍업, 비용 반영 검증, 미지원 조건 차단, 코인 명시 청산, AI 커스텀 명시/제외 시장국면 추천, NoahAI 정체성·대화 문맥·모호한 요청 재질문·강제 최종확인, 설정 타입 레지스트리·중첩값 롤백을 포함한다.
+- QA 절차 정본: `AI_CUSTOM_ASSISTANT_TEST_RUNBOOK_v3.9.0.2.md`. 실제 비밀번호·API 키는 문서에 저장하지 않는다.
 
 ---
 
-## 최신 테스트 결과 (2026-07-24 v3.9.0.1 배포 준비)
+## 최신 테스트 결과 (2026-07-27 v3.9.0.2 배포 준비)
 
-- 전체 회귀: **1030 passed, 6 skipped, 0 failed, 3 warnings**
+- 전체 회귀: **1076 passed, 6 skipped, 0 failed, 3 warnings**
+- KPI 수집 집중 회귀: **9 passed, 0 failed**
+- daltrading 정책·KPI·회원·DB 동시성 회귀: **19 passed, 0 failed**
+- AI 커스텀·어시스턴트 안전성 집중 회귀: **81 passed, 0 failed**
+- AI 커스텀 실행 정합성: EMA/SMA 20·50·200, ADX·ATR·거래량, 미지원 조건 fail-closed, 비중첩 비용 검증, 코인 명시 청산 **PASS**
+- Pine 교차·국면 안정화: 직전/현재 캔들 교차 판정, 국면 시각·신뢰도·오래된 입력 차단·히스테리시스 **PASS**
+- AI 어시스턴트 설정·작업 안전성: 등록된 설정만 변경, 사용자 최종확인, 저장 후 재조회, 사용자별 영속 감사로그·재시작 후 되돌리기, 주문/거래상태/API/출금 보호 작업 미실행 **PASS**
 - 포지션 KPI·테스트 격리 집중 회귀: **8 passed, 0 failed**
 - TP/SL 무결성·코인/종목 정보 탭 집중 회귀: **7 passed, 0 failed**
 - AI 커스텀 위험기반 전략 집중 회귀: **56 passed, 0 failed**
@@ -24,12 +46,12 @@
 - 사용자 화면 표기 점검: 운영체제 이모지를 제거하고 앱 렌더링 공용 아이콘·서비스별 선택 색상·탭 대비로 macOS/Windows 표기 기준 통일 **PASS**
 - 대시보드 공간 회귀: 하단 상태·업데이트·AI 실행 기록을 동일 행으로 배치하고 본문 세로 공간 복구, 공용 아이콘·탭 스타일 집중 회귀 `29 passed` **PASS**
 - macOS 실화면: 1500×980 대시보드에서 한 줄 하단 패널과 공용 아이콘 렌더링 확인 **PASS**
-- 인앱 매뉴얼 스모크: v3.9.0.1 제목 + 10개 탭 + 금융 인텔리전스 직접 이동 **PASS**
-- 정본 버전 감사: README·마스터 인덱스·변경이력·계획·사용자 가이드·아키텍처·거래 흐름·개발/API·빌드/배포·테스트·백서·사업·AlphaArena·코인·대시보드 17개 문서에서 v3.9.0.1 확인 **PASS**
+- 인앱 매뉴얼·도움 동선 정적/회귀 검증: v3.9.0.2 제목, AI 커스텀 초보자/결과 질문 버튼, 시장국면 추천 설명 **PASS**
+- 정본 버전 감사: README·마스터 인덱스·변경이력·계획·사용자 가이드·아키텍처·거래 흐름·개발/API·빌드/배포·테스트·백서·사업·AlphaArena·코인·대시보드에서 v3.9.0.2 현재 기준 확인 **PASS**
 - 문서 구조 감사: `docs` 최상위 179개 → 103개, 이력 79개는 `docs/archive/`로 이동, 런타임 보고서 1,168개는 공식 문서에서 분리 **PASS**
-- 빌드 사전 게이트(`release_gate.py --profile prekey`): 증권 회귀 `150 passed, 6 skipped`, 모드 매트릭스·무키 점검·문서 정합·다중 거래소 불변조건·준비도 체인 **PASS**. 현재 폴더에 `.git`이 없어 `SYNC_GUARD_CHANGED_FILES`로 변경 범위를 명시해 전체 게이트 **PASS**.
+- 빌드 사전 게이트(`release_gate.py --profile prekey`): 증권 회귀 `150 passed, 6 skipped`, 모드 매트릭스·무키 점검·문서 정합·사용자 노출 동기화·다중 거래소 불변조건·준비도 체인 **PASS**. 이번 AI 커스텀·어시스턴트 변경 29개 파일을 `SYNC_GUARD_CHANGED_FILES`로 명시했다.
 - 실연동 준비도: 선택 거래소 Binance는 인증·잔고 조회 준비 완료. Upbit·Bithumb·Bybit·OKX·Bitget은 현재 키/권한/네트워크/추가 자격증명 점검이 필요하며 배포 후 해당 거래소 실운용 전 재검증한다.
-- 남은 외부 게이트: 금융 인텔리전스 Windows 전수 실클릭, SEC/DART 운영 자격증명, 허가 데이터, 각 실제 거래소 장시간 또는 최소단위 검증
+- 남은 외부 게이트: v3.9.0.2 Windows 빌드·설치·전수 실클릭, YouTube/TradingView 실제 URL 입력 E2E, SEC/DART 운영 자격증명, 각 실제 거래소 장시간 또는 최소단위 검증
 
 ---
 

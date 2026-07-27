@@ -85,6 +85,64 @@ def test_strategy_engine_cooldown_blocks_trade():
     assert any("cooldown" in r for r in meta["reasons"])
 
 
+def test_strategy_engine_regime_metadata_hysteresis_and_stale_input():
+    from datetime import datetime, timedelta, timezone
+    from trading.strategy_engine import StrategyEngine
+
+    engine = StrategyEngine()
+    runtime_state = {}
+    common_policy = {
+        "enabled": True,
+        "cooldown_sec": 0,
+        "consensus_threshold": 0.1,
+        "allow_regimes": ["trend", "range"],
+        "high_vol_action": "evaluate",
+        "regime_hysteresis_confirmations": 2,
+        "regime_data_max_age_sec": 300,
+    }
+
+    _, first = engine.should_trade(
+        symbol="005930",
+        analysis_result={"score": 80, "momentum": 1.0},
+        runtime_state=runtime_state,
+        policy=common_policy,
+    )
+    _, pending = engine.should_trade(
+        symbol="005930",
+        analysis_result={"score": 80, "momentum": 0.1},
+        runtime_state=runtime_state,
+        policy=common_policy,
+    )
+    _, confirmed = engine.should_trade(
+        symbol="005930",
+        analysis_result={"score": 80, "momentum": 0.1},
+        runtime_state=runtime_state,
+        policy=common_policy,
+    )
+
+    assert first["regime"] == "trend"
+    assert first["regime_observed_at"]
+    assert 0.0 <= first["regime_confidence"] <= 1.0
+    assert pending["regime"] == "trend"
+    assert pending["candidate_regime"] == "range"
+    assert pending["regime_transition_pending"] is True
+    assert confirmed["regime"] == "range"
+    assert confirmed["regime_transition_pending"] is False
+
+    allowed, stale = engine.should_trade(
+        symbol="STALE",
+        analysis_result={
+            "score": 80,
+            "momentum": 1.0,
+            "observed_at": (datetime.now(timezone.utc) - timedelta(minutes=10)).isoformat(),
+        },
+        runtime_state={},
+        policy=common_policy,
+    )
+    assert allowed is False
+    assert any(reason.startswith("regime_data_stale:") for reason in stale["reasons"])
+
+
 def test_ops_automation_detects_anomaly_and_rollback():
     from trading.ops_automation import OpsAutomationEngine
 

@@ -585,6 +585,14 @@ class StrategySourceIngestor:
         match = re.search(pattern, text, flags=re.I)
         return float(match.group(1)) if match else None
 
+    @staticmethod
+    def _pine_operand_field(value: str) -> str:
+        normalized = re.sub(r"\s+", "", str(value or "").lower())
+        if normalized == "close":
+            return "current_price"
+        match = re.fullmatch(r"(?:ta\.)?(ema|sma)\(close,(20|50|200)\)", normalized)
+        return f"{match.group(1)}{match.group(2)}" if match else ""
+
     def _heuristic_rules(self, source: ExtractedStrategySource) -> Dict[str, Any]:
         text = source.text or ""
         lower = text.lower()
@@ -604,6 +612,7 @@ class StrategySourceIngestor:
             "market_conditions": f"사용 지표: {', '.join(indicators)}" if indicators else "",
             "engine_settings": {},
             "executable_entry": {"all": [], "any": []},
+            "executable_exit": {"all": [], "any": []},
             "signal_mode": "confirm",
             "entry_signal": "",
             "source_evidence": asdict(source),
@@ -614,8 +623,50 @@ class StrategySourceIngestor:
         if rsi_match:
             op = {"<": "lt", "<=": "lte", ">": "gt", ">=": "gte"}[rsi_match.group(1)]
             executable["all"].append({"field": "rsi", "operator": op, "value": float(rsi_match.group(2))})
-        if re.search(r"close\s*>\s*(?:ta\.)?ema\s*\(\s*close\s*,\s*50\s*\)", text, flags=re.I):
-            executable["all"].append({"field": "current_price", "operator": "gt_field", "value_field": "ma50"})
+        for match in re.finditer(
+            r"close\s*(<=|>=|<|>)\s*(?:ta\.)?(ema|sma)\s*\(\s*close\s*,\s*(20|50|200)\s*\)",
+            text,
+            flags=re.I,
+        ):
+            comparison, average_type, period = match.groups()
+            field = f"{average_type.lower()}{period}"
+            operator = {"<": "lt_field", "<=": "lt_field", ">": "gt_field", ">=": "gt_field"}[comparison]
+            executable["all"].append({
+                "field": "current_price", "operator": operator, "value_field": field,
+            })
+        for match in re.finditer(
+            r"(?:ta\.)?(ema|sma)\s*\(\s*close\s*,\s*(20|50|200)\s*\)\s*"
+            r"(<=|>=|<|>)\s*(?:ta\.)?(ema|sma)\s*\(\s*close\s*,\s*(20|50|200)\s*\)",
+            text,
+            flags=re.I,
+        ):
+            left_type, left_period, comparison, right_type, right_period = match.groups()
+            executable["all"].append({
+                "field": f"{left_type.lower()}{left_period}",
+                "operator": "lt_field" if comparison.startswith("<") else "gt_field",
+                "value_field": f"{right_type.lower()}{right_period}",
+            })
+        pine_operand = (
+            r"(?:close|(?:ta\.)?(?:ema|sma)\s*\(\s*close\s*,\s*(?:20|50|200)\s*\))"
+        )
+        for match in re.finditer(
+            rf"(?:ta\.)?(crossover|crossunder)\s*\(\s*({pine_operand})\s*,\s*"
+            rf"({pine_operand})\s*\)",
+            text,
+            flags=re.I,
+        ):
+            cross_type, left_operand, right_operand = match.groups()
+            left_field = self._pine_operand_field(left_operand)
+            right_field = self._pine_operand_field(right_operand)
+            if left_field and right_field:
+                executable["all"].append({
+                    "field": left_field,
+                    "operator": (
+                        "crosses_above" if cross_type.lower() == "crossover"
+                        else "crosses_below"
+                    ),
+                    "value_field": right_field,
+                })
         if "strategy.long" in lower:
             rules["entry_signal"] = "LONG"
             executable["all"].append({"field": "signal", "operator": "eq", "value": "LONG"})
@@ -661,6 +712,106 @@ class StrategySourceIngestor:
             return "공개 Pine 원문 확인" if evidence.get("pine_found") else "공개 설명/메타데이터만 확인"
         return f"입력 텍스트 {len(source.text or ''):,}자"
 
+    @staticmethod
+    def infer_market_regimes(text: str, market_conditions: Any = "") -> Dict[str, Any]:
+        """소스에 명시된 시장국면만 추천한다.
+
+        LONG/SHORT 방향만으로 상승장·하락장을 추정하지 않는다. 여러 국면이
+        명시되면 모두 보존하고, 근거가 없으면 사용자 확인이 필요한 all을 반환한다.
+        """
+        combined = f"{text or ''}\n{market_conditions or ''}".lower()
+        definitions = (
+            ("bull", "상승장", (r"상승장", r"강세장", r"상승\s*추세", r"\bbull(?:ish)?(?:\s+market|\s+regime)?\b", r"\buptrend\b")),
+            ("bear", "하락장", (r"하락장", r"약세장", r"하락\s*추세", r"\bbear(?:ish)?(?:\s+market|\s+regime)?\b", r"\bdowntrend\b")),
+            ("range", "횡보장", (r"횡보장", r"횡보\s*구간", r"박스권", r"\bsideways\b", r"\brange(?:\s+bound)?\b")),
+            ("volatile", "고변동성", (r"고변동", r"높은\s*변동성", r"\bhigh[\s_-]*vol(?:atility)?\b")),
+            ("calm", "저변동성", (r"저변동", r"낮은\s*변동성", r"\blow[\s_-]*vol(?:atility)?\b")),
+        )
+        regimes: List[str] = []
+        labels: List[str] = []
+        evidence: List[str] = []
+        excluded_regimes: List[str] = []
+        excluded_labels: List[str] = []
+        exclusion_pattern = re.compile(
+            r"(진입하지|사용하지|거래하지|제외|회피|금지|차단|피한다|"
+            r"\bno[\s_-]*trade\b|\bavoid\b|\bexclude\b|\bdo\s+not\b|\bdon't\b)",
+            flags=re.I,
+        )
+        matches = []
+        for regime, label, patterns in definitions:
+            match = next(
+                (found for pattern in patterns if (found := re.search(pattern, combined, flags=re.I))),
+                None,
+            )
+            if match:
+                matches.append((match.start(), match.end(), regime, label))
+        matches.sort(key=lambda item: item[0])
+        excluded_match_indexes = set()
+        for exclusion in exclusion_pattern.finditer(combined):
+            sentence_start = max(
+                combined.rfind(delimiter, 0, exclusion.start())
+                for delimiter in (".", "\n", "!", "?", ";", "。")
+            ) + 1
+            sentence_end_candidates = [
+                position
+                for delimiter in (".", "\n", "!", "?", ";", "。")
+                if (position := combined.find(delimiter, exclusion.end())) >= 0
+            ]
+            sentence_end = min(sentence_end_candidates) if sentence_end_candidates else len(combined)
+            candidates = [
+                (index, item)
+                for index, item in enumerate(matches)
+                if sentence_start <= item[0] < sentence_end
+            ]
+            if not candidates:
+                candidates = [
+                    (index, item)
+                    for index, item in enumerate(matches)
+                    if min(abs(exclusion.start() - item[1]), abs(item[0] - exclusion.end())) <= 60
+                ]
+            if candidates:
+                closest_index, _ = min(
+                    candidates,
+                    key=lambda indexed: min(
+                        abs(exclusion.start() - indexed[1][1]),
+                        abs(indexed[1][0] - exclusion.end()),
+                    ),
+                )
+                excluded_match_indexes.add(closest_index)
+        for index, (start, end, regime, label) in enumerate(matches):
+            if index in excluded_match_indexes:
+                excluded_regimes.append(regime)
+                excluded_labels.append(label)
+                continue
+            regimes.append(regime)
+            labels.append(label)
+            evidence.append(label)
+        if not regimes:
+            return {
+                "regimes": ["all"],
+                "labels": ["모든 시장상황"],
+                "confidence": "needs_user_confirmation",
+                "evidence": (
+                    "포함할 시장상황이 명시되지 않았습니다."
+                    + (f" 제외 표현 감지: {', '.join(excluded_labels)}." if excluded_labels else "")
+                ),
+                "auto_select": False,
+                "excluded_regimes": excluded_regimes,
+                "excluded_labels": excluded_labels,
+            }
+        return {
+            "regimes": regimes,
+            "labels": labels,
+            "confidence": "explicit_text_match",
+            "evidence": (
+                "소스의 포함 표현: " + ", ".join(evidence)
+                + (f" / 제외 표현: {', '.join(excluded_labels)}" if excluded_labels else "")
+            ),
+            "auto_select": True,
+            "excluded_regimes": excluded_regimes,
+            "excluded_labels": excluded_labels,
+        }
+
     def analyze(self, value: str, kind: str = "auto") -> Dict[str, Any]:
         from .custom_strategy_advisor import build_strategy_guidance
 
@@ -684,9 +835,14 @@ class StrategySourceIngestor:
                 "missing_conditions, risks, scenarios. rules must contain entry, exit, stop_loss, "
                 "take_profit, position_size, market_conditions. engine_settings may only contain "
                 "leverage(1-10), tp_percent, sl_percent, position_size(0.01-0.5), signal_threshold(0-1). "
-                "Also return rules.executable_entry with all/any arrays. Each condition may use fields "
-                "signal, confidence, rsi, macd, bb_position, ma20, ma50, current_price, trend_strength, "
-                "market_volatility and operators eq, ne, gt, gte, lt, lte, gt_field, lt_field. "
+                "Also return rules.executable_entry and, only when explicitly present, rules.executable_exit "
+                "with all/any arrays. Each condition may use fields signal, confidence, open, high, low, close, "
+                "current_price, rsi, macd, macd_signal, macd_histogram, bb_position, bb_width, "
+                "ma20, ma50, ma200, sma20, sma50, sma200, ema20, ema50, ema200, adx, atr, atr_percent, "
+                "trend_strength, market_volatility, volume, volume_sma20, volume_ratio, hour, weekday "
+                "and operators eq, ne, gt, gte, lt, lte, gt_field, lt_field, "
+                "crosses_above, crosses_below. Cross operators must use value_field and only when "
+                "the source explicitly defines crossover/crossunder. "
                 "Also return rules.entry_signal as LONG, SHORT, or empty when direction is not explicit, and "
                 "rules.signal_mode as confirm unless the material explicitly defines a standalone entry signal. "
                 "When explicitly present, rules.risk_model may contain risk_per_trade_percent, "
@@ -732,6 +888,15 @@ class StrategySourceIngestor:
         rules["source_evidence"] = asdict(source)
         missing = [key for key in self.REQUIRED_RULES if not rules.get(key)]
         missing.extend(item for item in (result.get("missing_conditions") or []) if item not in missing)
+        from .declarative_strategy_engine import DeclarativeStrategyEngine
+        executable_validation = DeclarativeStrategyEngine.validate_rule_spec(rules)
+        unsupported_conditions = list(executable_validation.get("errors", []) or [])
+        if unsupported_conditions:
+            missing.append("unsupported_executable_conditions")
+            source.warnings.append(
+                "실행 엔진이 지원하지 않는 조건이 있어 승인할 수 없습니다: "
+                + ", ".join(unsupported_conditions)
+            )
         if not evidence_available:
             missing.extend(key for key in self.REQUIRED_RULES if key not in missing)
         guidance = build_strategy_guidance(rules, self.REQUIRED_RULES)
@@ -741,6 +906,10 @@ class StrategySourceIngestor:
         guidance["complete"] = not guidance["missing_conditions"]
         source_payload = asdict(source)
         source_payload["coverage_summary"] = self._coverage_summary(source)
+        regime_suggestion = self.infer_market_regimes(
+            source.text,
+            rules.get("market_conditions", ""),
+        )
         return {
             "name": str(result.get("name") or source.title or "사용자 전략"),
             "summary": str(result.get("summary") or "소스에서 확인 가능한 조건만 추출했습니다."),
@@ -749,8 +918,10 @@ class StrategySourceIngestor:
             "engine_settings": engine,
             "missing_conditions": missing,
             "guidance": guidance,
+            "unsupported_conditions": unsupported_conditions,
             "risks": list(result.get("risks") or ["체결 비용과 유동성에 따라 결과가 달라질 수 있습니다."]),
             "scenarios": list(result.get("scenarios") or []),
+            "market_regime_suggestion": regime_suggestion,
             "ai_analyzed": bool(result),
             "ready_for_review": bool(evidence_available and not missing),
         }

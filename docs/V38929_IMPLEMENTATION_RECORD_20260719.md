@@ -1,5 +1,7 @@
 # v3.8.9.29 구현 및 원인 기록
 
+> 이 문서는 당시 구현 기록이다. v3.9.0.2 AI 커스텀 현행 구조·사용법·제한은 `AI_CUSTOM_STRATEGY_ARCHITECTURE.md`, `AI_CUSTOM_ASSISTANT_TEST_RUNBOOK_v3.9.0.2.md`, `USER_GUIDE.md`, `UPDATE_PLAN.md`를 우선한다.
+
 기준일: 2026-07-22 (3.8.9.29 보강)
 
 ## 사용자 피드백과 원인

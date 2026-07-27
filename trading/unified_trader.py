@@ -42,7 +42,7 @@ from .portfolio_orchestrator import PortfolioOrchestrator
 from .profitability_validation import ProfitabilityValidator
 from .strategy_engine import StrategyEngine
 from .custom_strategy_runtime import apply_engine_settings_to_trade_config
-from api.kpi_client import emit_kpi_event
+from api.kpi_client import emit_kpi_event, flush_kpi_events
 from api.position_kpi import emit_position_closed, emit_position_opened, utc_now
 
 class UnifiedTrader:
@@ -1357,6 +1357,8 @@ class UnifiedTrader:
                         analysis['signal'] = str(custom_entry.get('entry_signal') or '').upper()
                     analysis['_custom_engine_settings'] = dict(custom_entry.get('engine_settings') or {})
                     analysis['_selected_custom_strategy'] = custom_entry.get('selected_strategy_name')
+                    analysis['_selected_custom_strategy_id'] = custom_entry.get('selected_strategy_id')
+                    analysis['_custom_strategy_rules'] = dict(custom_entry.get('selected_rules') or {})
                     analysis['_custom_operation_mode'] = custom_entry.get('operation_mode', 'standard')
                     self.logger.info(
                         f"🧠 {exchange_name} {symbol} AI 커스텀 선택: "
@@ -1600,6 +1602,9 @@ class UnifiedTrader:
             optimized_params = apply_engine_settings_to_trade_config(
                 optimized_params, analysis.get('_custom_engine_settings', {}) or {}
             )
+            optimized_params['_selected_custom_strategy'] = analysis.get('_selected_custom_strategy')
+            optimized_params['_selected_custom_strategy_id'] = analysis.get('_selected_custom_strategy_id')
+            optimized_params['_custom_strategy_rules'] = dict(analysis.get('_custom_strategy_rules') or {})
 
             # 거래 실행
             exchange_client = self.get_exchange_client(exchange_name)
@@ -1952,6 +1957,12 @@ class UnifiedTrader:
                         'timestamp': datetime.now(timezone.utc).isoformat(),
                         'exchange': exchange_name,
                         'symbol': symbol,
+                        'quote_currency': (
+                            'KRW'
+                            if str(exchange_name or '').lower() in {'upbit', 'bithumb'}
+                            or 'KRW' in str(symbol or '').upper()
+                            else 'USDT'
+                        ),
                         'signal': signal,
                         'entry_price': order_result.get('price', 0.0),
                         'position_size': position_size,
@@ -2513,9 +2524,51 @@ class UnifiedTrader:
             self.logger.error(f"❌ {position.symbol} PnL 계산 실패: {e}")
             return {'current_pnl_percent': 0.0, 'net_pnl_percent': 0.0, 'unrealized_pnl': 0.0}
 
+    def _custom_strategy_exit_triggered_unified(
+        self,
+        exchange_name: str,
+        position: Position,
+        current_price: float,
+    ) -> bool:
+        rules = dict(getattr(position, "custom_strategy_rules", {}) or {})
+        exit_spec = dict(rules.get("executable_exit", {}) or {})
+        if not (exit_spec.get("all") or exit_spec.get("any")):
+            return False
+        try:
+            from .custom_strategy_validator import build_indicator_context
+            from .declarative_strategy_engine import DeclarativeStrategyEngine
+            klines = self.exchange_manager.get_klines(
+                position.symbol,
+                interval="5m",
+                limit=220,
+                exchange_name=exchange_name,
+            )
+            context = build_indicator_context(klines or [], signal=position.side.value)
+            context.update({
+                "current_price": current_price,
+                "price": current_price,
+                "close": current_price,
+                "signal": position.side.value,
+            })
+            result = DeclarativeStrategyEngine.evaluate_exit(rules, context)
+            if result.get("allowed", False):
+                self.logger.info(
+                    f"{exchange_name} {position.symbol} AI 커스텀 명시 청산 조건 충족: "
+                    f"{position.custom_strategy_name or position.custom_strategy_id or '사용자 전략'}"
+                )
+                return True
+        except Exception as exc:
+            self.logger.warning(
+                f"{exchange_name} {position.symbol} AI 커스텀 청산 조건 평가 실패(기존 TP/SL 유지): {exc}"
+            )
+        return False
+
     def _should_close_position_unified(self, exchange_name: str, position: Position, current_price: float, pnl_data: Dict[str, Any]) -> bool:
         """AI 모니터링 중심 포지션 청산 여부 판단 (Unified)"""
         try:
+            if self._custom_strategy_exit_triggered_unified(exchange_name, position, current_price):
+                return True
+
             current_pnl_percent = pnl_data.get('current_pnl_percent', 0.0)
             net_pnl_percent = pnl_data.get('net_pnl_percent', 0.0)
 
@@ -2782,6 +2835,12 @@ class UnifiedTrader:
                     metadata={
                         'exchange': exchange_name,
                         'symbol': symbol,
+                        'quote_currency': (
+                            'KRW'
+                            if str(exchange_name or '').lower() in {'upbit', 'bithumb'}
+                            or 'KRW' in str(symbol or '').upper()
+                            else 'USDT'
+                        ),
                         'side': 'CLOSE',
                         'close': True,
                         'reason': 'auto_close',
@@ -3398,10 +3457,78 @@ class UnifiedTrader:
                             side = pos.get('side', '')
                             if contracts <= 0 or not symbol:
                                 continue
+                            tracked_positions = self.active_positions.get(exchange_name, {})
+                            tracked_position = tracked_positions.get(symbol)
+                            if tracked_position is None:
+                                normalized_symbol = (
+                                    str(symbol).upper()
+                                    .replace("/", "")
+                                    .replace(":", "")
+                                    .replace("-", "")
+                                )
+                                for tracked_symbol, candidate in tracked_positions.items():
+                                    normalized_tracked = (
+                                        str(tracked_symbol).upper()
+                                        .replace("/", "")
+                                        .replace(":", "")
+                                        .replace("-", "")
+                                    )
+                                    if (
+                                        normalized_tracked == normalized_symbol
+                                        or normalized_tracked.startswith(normalized_symbol)
+                                        or normalized_symbol.startswith(normalized_tracked)
+                                    ):
+                                        tracked_position = candidate
+                                        symbol = tracked_symbol
+                                        break
+                            if tracked_position is not None:
+                                current_price = float(
+                                    pos.get("markPrice")
+                                    or pos.get("last")
+                                    or tracked_position.current_price
+                                    or tracked_position.entry_price
+                                    or 0.0
+                                )
+                                self._close_position_unified(
+                                    exchange_name,
+                                    symbol,
+                                    tracked_position,
+                                    current_price,
+                                )
+                                continue
                             close_side = 'sell' if side == 'long' else 'buy'
                             try:
                                 exchange.create_market_order(symbol, close_side, contracts, params={'reduceOnly': True})
                                 self.logger.info(f"✅ close_all: {exchange_name} {symbol} {contracts} 청산 완료")
+                                current_price = float(
+                                    pos.get("markPrice")
+                                    or pos.get("last")
+                                    or pos.get("entryPrice")
+                                    or 0.0
+                                )
+                                emit_kpi_event(
+                                    event_type='trade_order_executed',
+                                    category='trade',
+                                    asset_class='crypto',
+                                    status='success',
+                                    source='noahai_client_unified_close_all',
+                                    metric_value=contracts,
+                                    metadata={
+                                        'exchange': exchange_name,
+                                        'symbol': symbol,
+                                        'quote_currency': (
+                                            'KRW'
+                                            if str(exchange_name or '').lower() in {'upbit', 'bithumb'}
+                                            or 'KRW' in str(symbol or '').upper()
+                                            else 'USDT'
+                                        ),
+                                        'side': 'CLOSE',
+                                        'close': True,
+                                        'reason': 'close_all_untracked',
+                                        'executed_price': current_price,
+                                        'notional_estimate': contracts * current_price,
+                                    },
+                                )
                             except Exception as ce:
                                 self.logger.warning(f"⚠️ close_all: {exchange_name} {symbol} 청산 실패: {ce}")
                 except Exception as pe:
@@ -3416,6 +3543,7 @@ class UnifiedTrader:
 
             self.logger.info(f"⏹️ {exchange_name} 거래 중지")
             self.logger.info(f"거래 중지 (ex={exchange_name})")
+            flush_kpi_events(timeout=5.0)
 
         except Exception as e:
             self.logger.error(f"❌ {exchange_name} 거래 중지 실패: {e}")
@@ -4749,6 +4877,9 @@ Response in JSON format:
                 tp_price=tp_price,
                 sl_price=sl_price,
                 execution_mode=execution_mode,
+                custom_strategy_id=optimized_params.get('_selected_custom_strategy_id'),
+                custom_strategy_name=optimized_params.get('_selected_custom_strategy'),
+                custom_strategy_rules=dict(optimized_params.get('_custom_strategy_rules') or {}),
             )
 
             if exchange_name not in self.active_positions:

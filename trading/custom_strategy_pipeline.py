@@ -13,6 +13,7 @@ from typing import Any, Callable, Dict, List, Optional
 from uuid import uuid4
 
 from .custom_strategy_advisor import build_improvement_advice, build_strategy_guidance
+from .declarative_strategy_engine import DeclarativeStrategyEngine
 
 
 class CustomStrategyPipeline:
@@ -146,6 +147,12 @@ class CustomStrategyPipeline:
         key = strategy_key or f"strategy_{uuid4().hex[:10]}"
         guidance = build_strategy_guidance(rules, self.REQUIRED_RULES)
         missing = list(guidance["missing_conditions"])
+        executable_validation = DeclarativeStrategyEngine.validate_rule_spec(rules)
+        if not executable_validation["valid"]:
+            missing.append("unsupported_executable_conditions")
+            guidance["missing_conditions"] = list(missing)
+            guidance["complete"] = False
+            guidance["unsupported_conditions"] = list(executable_validation["errors"])
         previous = self._previous(key)
         status = "needs_clarification" if missing else "analyzed"
         version = {
@@ -190,6 +197,12 @@ class CustomStrategyPipeline:
         version["rules"].update(deepcopy(answers or {}))
         guidance = build_strategy_guidance(version["rules"], self.REQUIRED_RULES)
         missing = list(guidance["missing_conditions"])
+        executable_validation = DeclarativeStrategyEngine.validate_rule_spec(version["rules"])
+        if not executable_validation["valid"]:
+            missing.append("unsupported_executable_conditions")
+            guidance["missing_conditions"] = list(missing)
+            guidance["complete"] = False
+            guidance["unsupported_conditions"] = list(executable_validation["errors"])
         version["missing_conditions"] = missing
         version["guidance"] = guidance
         version.setdefault("xai", {})["summary"] = (

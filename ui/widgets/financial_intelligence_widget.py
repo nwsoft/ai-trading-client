@@ -8,6 +8,7 @@ from typing import Any, Callable, Dict, Iterable, List, Optional
 import customtkinter as ctk
 
 from trading.financial_intelligence import FinancialIntelligenceService
+from ui.visual_system import style_tabview
 
 
 class FinancialIntelligenceWidget(ctk.CTkFrame):
@@ -18,6 +19,20 @@ class FinancialIntelligenceWidget(ctk.CTkFrame):
         "stock": ["시장·섹터", "기업 분석", "가치평가", "종목 탐색", "지표 탐색", "전략 검증", "기관 동향"],
         "blockchain": ["시장·섹터", "코인 탐색", "지표 탐색", "전략 검증", "이벤트·속보"],
         "asset": ["성과·위험"],
+    }
+
+    FEATURE_GUIDES = {
+        "시장 현황과 수익률": "프리셋 선택 → 시장 현황 조회 → 출처·기준시각 → 수익률·변동성 순으로 확인",
+        "보유자산 일정과 속보": "일정·속보 확인 → 보유자산 관련 항목 → 발생 시각·출처 → 예상 영향 확인",
+        "시장 내러티브": "내러티브 확인 → 반복 이슈 → 관련 자산 → 사실과 시장 해석을 분리해 확인",
+        "산업·거시경제": "거시 환경 확인 → 경기 국면 → 자산군 영향 → 데이터 연결 상태 확인",
+        "기업 재무분석": "DART/SEC 선택 → 기업 식별값·연도 입력 → 공시 재무 분석 → 출처 확인",
+        "기업 가치평가": "현금흐름·주식 수·순부채 입력 → 시나리오 계산 → 가정별 범위를 비교",
+        "종목 조건 검색": "관심 종목을 쉼표로 입력 → 최소 가격 설정 → 조건 검색 → 후보를 추가 검토",
+        "기술지표": "종목 입력 → 지표 조회 → 차트와 RSI·MACD·이동평균의 방향·충돌을 함께 확인",
+        "전략 검증": "종목·빠른/느린 평균 입력 → 전략 검증 실행 → 거래 수·비용·MDD를 함께 확인",
+        "기관 보유 변화": "기관 동향 확인 → 신규·확대·축소 → 공시 기준일과 데이터 연결 상태 확인",
+        "내 계좌 성과·위험": "내 성과 분석 → 거래 수 → 수수료 차감 성과 → MDD·집중도 순으로 확인",
     }
 
     MARKET_PRESETS = {
@@ -147,6 +162,18 @@ class FinancialIntelligenceWidget(ctk.CTkFrame):
             wraplength=1000,
             justify="left",
         ).pack(anchor="w", padx=14, pady=(0, 10))
+        if self.mode == "blockchain":
+            ctk.CTkLabel(
+                header,
+                text=(
+                    "코인 정보는 내 계좌·선택 코인의 운용 상태를 보는 화면이고, "
+                    "코인 탐색은 여러 코인을 조건으로 비교해 후보를 찾는 시장 검색 화면입니다."
+                ),
+                font=ctk.CTkFont(size=11, weight="bold"),
+                text_color="#7dd3fc",
+                wraplength=1000,
+                justify="left",
+            ).pack(anchor="w", padx=14, pady=(0, 10))
 
         self.tabview = ctk.CTkTabview(
             self,
@@ -156,6 +183,21 @@ class FinancialIntelligenceWidget(ctk.CTkFrame):
             segmented_button_unselected_color="#0d223d",
         )
         self.tabview.pack(fill="both", expand=True, padx=10, pady=(0, 10))
+        mode_accents = {
+            "blockchain": "#2563eb",
+            "stock": "#0f766e",
+            "asset": "#6d28d9",
+            "ai_analyst": "#0369a1",
+        }
+        style_tabview(
+            self.tabview,
+            accent=mode_accents.get(self.mode, "#2563eb"),
+            bar_color="#0d223d",
+            inactive="#1b3352",
+            text_color="#e5edf6",
+            font_size=11,
+            height=34,
+        )
         for name in self.MODE_TABS[self.mode]:
             tab = self.tabview.add(name)
             tab.configure(fg_color="#0b1120")
@@ -186,12 +228,24 @@ class FinancialIntelligenceWidget(ctk.CTkFrame):
         scroll.pack(fill="both", expand=True)
         card = ctk.CTkFrame(scroll, fg_color="#111827", corner_radius=12, border_width=1, border_color="#1f2937")
         card.pack(fill="x", padx=8, pady=8)
+        title_row = ctk.CTkFrame(card, fg_color="transparent")
+        title_row.pack(fill="x", padx=12, pady=(10, 0))
         ctk.CTkLabel(
-            card,
+            title_row,
             text=title,
             font=ctk.CTkFont(size=16, weight="bold"),
             text_color="#f9fafb",
-        ).pack(anchor="w", padx=12, pady=(10, 2))
+        ).pack(side="left")
+        ctk.CTkButton(
+            title_row,
+            text="AI에게 사용법 묻기",
+            width=150,
+            height=28,
+            font=ctk.CTkFont(size=11, weight="bold"),
+            fg_color="#1d4ed8",
+            hover_color="#2563eb",
+            command=lambda feature=title: self._ask_ai_about_feature(feature),
+        ).pack(side="right")
         ctk.CTkLabel(
             card,
             text=description,
@@ -200,10 +254,52 @@ class FinancialIntelligenceWidget(ctk.CTkFrame):
             wraplength=960,
             justify="left",
         ).pack(anchor="w", padx=12, pady=(0, 8))
+        ctk.CTkLabel(
+            card,
+            text=f"처음 사용: {self.FEATURE_GUIDES.get(title, '입력 → 조회 → 출처와 기준시각 → 위험 표시 순으로 확인')}",
+            font=ctk.CTkFont(size=11, weight="bold"),
+            text_color="#93c5fd",
+            wraplength=960,
+            justify="left",
+        ).pack(anchor="w", padx=12, pady=(0, 6))
         status = ctk.CTkLabel(card, text="조회 전", font=ctk.CTkFont(size=11), text_color="#93c5fd")
         status.pack(anchor="w", padx=12, pady=(0, 8))
         self.status_labels[title] = status
         return scroll, card
+
+    def _ask_ai_about_feature(self, feature: str) -> None:
+        """현재 기능의 사용법 질문을 NoahAI 어시스턴트로 전달한다."""
+        dashboard = self.dashboard_ref
+        prompt = (
+            f"금융 인텔리전스의 '{feature}' 기능을 처음 쓰는 사용자에게 "
+            "어디에 무엇을 입력하고 어떤 버튼을 누르는지, 결과를 어떤 순서로 읽는지, "
+            "데이터 연결 필요 표시와 실제 주문의 관계를 NoahAI 기준으로 쉽게 설명해줘."
+        )
+        if feature == "종목 조건 검색" and self.mode == "blockchain":
+            prompt += " 블록체인 코인 정보 화면과 코인 탐색의 차이도 함께 설명해줘."
+        try:
+            ensure = getattr(dashboard, "_ensure_ai_assistant_tab", None)
+            if callable(ensure):
+                ensure()
+            assistant = getattr(dashboard, "ai_assistant_widget", None)
+            if assistant is not None and hasattr(assistant, "send_quick_question"):
+                if hasattr(assistant, "set_service_context"):
+                    assistant.set_service_context(
+                        "stock" if self.mode == "stock" else "blockchain",
+                        announce=False,
+                    )
+                assistant.send_quick_question(prompt)
+                tabview = getattr(dashboard, "tab_widget", None)
+                if tabview is not None:
+                    tabview.set("AI 어시스턴트")
+                return
+            manual = getattr(dashboard, "_open_manual_modal", None)
+            if callable(manual):
+                manual()
+        except Exception:
+            manual = getattr(dashboard, "_open_manual_modal", None)
+            if callable(manual):
+                manual()
 
     @staticmethod
     def _entry(parent, value: str = "", width: int = 180, placeholder: str = ""):

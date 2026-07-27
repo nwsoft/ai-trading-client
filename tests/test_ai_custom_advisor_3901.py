@@ -9,6 +9,7 @@ from trading.custom_strategy_advisor import build_improvement_advice, build_stra
 from trading.custom_strategy_runtime import derive_strategy_risk_settings
 from trading.declarative_strategy_engine import DeclarativeStrategyEngine
 from trading.strategy_engine import StrategyEngine
+from trading.strategy_source_ingestor import StrategySourceIngestor
 
 
 REQUIRED = ("entry", "exit", "stop_loss", "take_profit", "position_size", "market_conditions")
@@ -112,6 +113,30 @@ def test_high_volatility_is_evaluated_unless_user_blocks_it():
     assert allowed is True
     assert blocked is False
     assert "regime_blocked:high_vol" in meta["reasons"]
+
+
+def test_market_regime_suggestion_uses_only_explicit_source_language():
+    suggested = StrategySourceIngestor.infer_market_regimes(
+        "상승장에서는 EMA 돌파 전략을 사용하고 고변동성 구간에서는 진입하지 않는다."
+    )
+    assert suggested["regimes"] == ["bull"]
+    assert suggested["excluded_regimes"] == ["volatile"]
+    assert suggested["auto_select"] is True
+    assert suggested["confidence"] == "explicit_text_match"
+
+    reversed_order = StrategySourceIngestor.infer_market_regimes(
+        "고변동에서는 진입하지 않고 상승장에서 눌림목 전략을 사용한다.",
+        "",
+    )
+    assert reversed_order["regimes"] == ["bull"]
+    assert reversed_order["excluded_regimes"] == ["volatile"]
+
+    unspecified = StrategySourceIngestor.infer_market_regimes(
+        "RSI 30 아래에서 LONG, RSI 70 위에서 청산"
+    )
+    assert unspecified["regimes"] == ["all"]
+    assert unspecified["auto_select"] is False
+    assert unspecified["confidence"] == "needs_user_confirmation"
 
 
 def test_ai_market_prompt_uses_real_volume_ratio_and_fraction_rates():

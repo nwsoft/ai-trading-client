@@ -69,6 +69,11 @@ class TechnicalIndicators:
     atr: float
     volume_sma: float
     volume_ratio: float
+    ema_20: Optional[float] = None
+    ema_50: Optional[float] = None
+    ema_200: Optional[float] = None
+    sma_200: Optional[float] = None
+    adx: Optional[float] = None
 
 
 @dataclass
@@ -637,6 +642,24 @@ class Analyzer:
                 "bb_position": indicators.bb_position if indicators else 0.5,
                 "ma20": indicators.sma_20 if indicators else 0.0,
                 "ma50": indicators.sma_50 if indicators else 0.0,
+                "ma200": indicators.sma_200 if indicators else None,
+                "sma20": indicators.sma_20 if indicators else 0.0,
+                "sma50": indicators.sma_50 if indicators else 0.0,
+                "sma200": indicators.sma_200 if indicators else None,
+                "ema20": indicators.ema_20 if indicators else None,
+                "ema50": indicators.ema_50 if indicators else None,
+                "ema200": indicators.ema_200 if indicators else None,
+                "adx": indicators.adx if indicators else None,
+                "atr": indicators.atr if indicators else None,
+                "atr_percent": (
+                    indicators.atr / max(market_data[-1].close, 1e-9) * 100.0
+                    if indicators and market_data else None
+                ),
+                "bb_width": indicators.bb_width if indicators else None,
+                "volume": market_data[-1].volume if market_data else None,
+                "volume_sma20": indicators.volume_sma if indicators else None,
+                "volume_ratio": indicators.volume_ratio if indicators else None,
+                "current_price": market_data[-1].close if market_data else optimal_entry_price,
                 "volatility": market_state.volatility,
                 "trend": market_state.trend_data.direction if market_state.trend_data else "UNKNOWN",
                 "support_level": market_state.trend_data.support_level if market_state.trend_data else 0,
@@ -734,6 +757,23 @@ class Analyzer:
                 "bb_position": bb_position,
                 "ma20": indicators.sma_20 if indicators else 0.0,
                 "ma50": indicators.sma_50 if indicators else 0.0,
+                "ma200": indicators.sma_200 if indicators else None,
+                "sma20": indicators.sma_20 if indicators else 0.0,
+                "sma50": indicators.sma_50 if indicators else 0.0,
+                "sma200": indicators.sma_200 if indicators else None,
+                "ema20": indicators.ema_20 if indicators else None,
+                "ema50": indicators.ema_50 if indicators else None,
+                "ema200": indicators.ema_200 if indicators else None,
+                "adx": indicators.adx if indicators else None,
+                "atr": indicators.atr if indicators else None,
+                "atr_percent": (
+                    indicators.atr / max(current_price, 1e-9) * 100.0 if indicators else None
+                ),
+                "bb_width": indicators.bb_width if indicators else None,
+                "volume": market_data[-1].volume if market_data else None,
+                "volume_sma20": indicators.volume_sma if indicators else None,
+                "volume_ratio": indicators.volume_ratio if indicators else None,
+                "current_price": current_price,
                 "volatility": market_state.volatility,
                 "trend": market_state.trend_data.direction if market_state.trend_data else "UNKNOWN",
                 "support_level": market_state.trend_data.support_level if market_state.trend_data else 0,
@@ -1667,15 +1707,16 @@ class Analyzer:
 
             # 다중 거래소 경로: ExchangeManager가 있으면 우선 사용 (폴백: Binance)
             klines = []
+            indicator_limit = max(220, int(self.settings.get("analysis_kline_limit", 220) or 220))
             if self.exchange_manager and hasattr(self.exchange_manager, 'get_klines'):
                 klines = self.exchange_manager.get_klines(
                     symbol,
                     '5m',
-                    50,
+                    indicator_limit,
                     exchange_name=exchange_context,
-                )  # 5분 간격, 50개 캔들 (성능 개선)
+                )
             if not klines and self.binance_client and hasattr(self.binance_client, 'get_klines'):
-                klines = self._get_klines(symbol, '5m', 50)  # 5분 간격, 50개 캔들 (성능 개선)
+                klines = self._get_klines(symbol, '5m', indicator_limit)
 
             if not klines:
                 return None
@@ -1756,6 +1797,13 @@ class Analyzer:
             sma_50 = df['close'].rolling(window=sma_long).mean().iloc[-1]
             ema_12 = df['close'].ewm(span=12).mean().iloc[-1]
             ema_26 = df['close'].ewm(span=26).mean().iloc[-1]
+            ema_20 = df['close'].ewm(span=20, adjust=False).mean().iloc[-1]
+            ema_50 = df['close'].ewm(span=50, adjust=False).mean().iloc[-1]
+            ema_200 = (
+                df['close'].ewm(span=200, adjust=False).mean().iloc[-1]
+                if len(df) >= 200 else None
+            )
+            sma_200 = df['close'].rolling(window=200).mean().iloc[-1] if len(df) >= 200 else None
 
             # 볼린저 밴드 계산
             bb_upper, bb_middle, bb_lower, bb_width, bb_position = self.calculate_bollinger_bands(
@@ -1764,6 +1812,7 @@ class Analyzer:
 
             # ATR 계산
             atr = self.calculate_atr(df, atr_period)
+            adx = self.calculate_adx(df, atr_period)
 
             # 거래량 분석
             volume_sma = df['volume'].rolling(window=volume_period).mean().iloc[-1]
@@ -1785,7 +1834,12 @@ class Analyzer:
                 bb_position=bb_position,
                 atr=atr,
                 volume_sma=volume_sma,
-                volume_ratio=volume_ratio
+                volume_ratio=volume_ratio,
+                ema_20=float(ema_20),
+                ema_50=float(ema_50),
+                ema_200=float(ema_200) if ema_200 is not None else None,
+                sma_200=float(sma_200) if sma_200 is not None else None,
+                adx=float(adx) if adx is not None else None,
             )
 
         except Exception as e:
@@ -1811,7 +1865,12 @@ class Analyzer:
             bb_position=0.5,
             atr=0.0,
             volume_sma=0.0,
-            volume_ratio=1.0
+            volume_ratio=1.0,
+            ema_20=None,
+            ema_50=None,
+            ema_200=None,
+            sma_200=None,
+            adx=None,
         )
 
     def calculate_rsi(self, prices: pd.Series, period: int = 14) -> float:
@@ -1887,6 +1946,33 @@ class Analyzer:
         except Exception as e:
             self.logger.error(f"ATR 계산 오류: {e}")
             return 0.0
+
+    def calculate_adx(self, df: pd.DataFrame, period: int = 14) -> Optional[float]:
+        """ADX를 계산하며 충분한 표본이 없으면 None으로 실패 폐쇄한다."""
+        try:
+            if len(df) < period * 2:
+                return None
+            up_move = df["high"].diff()
+            down_move = -df["low"].diff()
+            plus_dm = np.where((up_move > down_move) & (up_move > 0), up_move, 0.0)
+            minus_dm = np.where((down_move > up_move) & (down_move > 0), down_move, 0.0)
+            high_low = df["high"] - df["low"]
+            high_close = np.abs(df["high"] - df["close"].shift())
+            low_close = np.abs(df["low"] - df["close"].shift())
+            true_range = pd.Series(
+                np.maximum(high_low, np.maximum(high_close, low_close)),
+                index=df.index,
+            )
+            atr_series = true_range.rolling(window=period).mean()
+            plus_di = 100.0 * pd.Series(plus_dm, index=df.index).rolling(window=period).sum() / atr_series
+            minus_di = 100.0 * pd.Series(minus_dm, index=df.index).rolling(window=period).sum() / atr_series
+            denominator = (plus_di + minus_di).replace(0, np.nan)
+            dx = 100.0 * (plus_di - minus_di).abs() / denominator
+            adx = dx.rolling(window=period).mean().iloc[-1]
+            return float(adx) if pd.notna(adx) else None
+        except Exception as e:
+            self.logger.error(f"ADX 계산 오류: {e}")
+            return None
 
     def analyze_trend(self, market_data: List[MarketData], indicators: TechnicalIndicators) -> TrendDirection:
         """트렌드 분석"""

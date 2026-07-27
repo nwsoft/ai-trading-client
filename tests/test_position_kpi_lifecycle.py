@@ -1,4 +1,5 @@
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 
 from api import position_kpi
 
@@ -75,3 +76,22 @@ def test_opened_event_rejects_missing_execution_price(monkeypatch):
     assert emitted is False
     assert position_id is not None
     assert called is False
+
+
+def test_graceful_stop_reuses_normal_close_path_and_flushes_kpi_queue():
+    trader_source = (Path(__file__).resolve().parents[1] / "trading" / "trader.py").read_text(
+        encoding="utf-8"
+    )
+
+    assert "self.close_position(tracked_position, reason='graceful_stop')" in trader_source
+    assert "flush_kpi_events(timeout=5.0)" in trader_source
+
+
+def test_unified_close_all_reuses_lifecycle_close_and_flushes_kpi_queue():
+    unified_source = (
+        Path(__file__).resolve().parents[1] / "trading" / "unified_trader.py"
+    ).read_text(encoding="utf-8")
+
+    assert "self._close_position_unified(" in unified_source
+    assert "'reason': 'close_all_untracked'" in unified_source
+    assert "flush_kpi_events(timeout=5.0)" in unified_source

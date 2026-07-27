@@ -29,6 +29,19 @@ TARGETS: Dict[str, Path] = {
     "user_guide": DOCS / "USER_GUIDE.md",
     "changelog": DOCS / "CHANGELOG.md",
     "policy": DOCS / "DOCUMENTATION_POLICY.md",
+    "release_notes": ROOT / "RELEASE_NOTES.md",
+    "deploy_release_notes": ROOT / "deploy" / "release_notes.md",
+    "architecture": DOCS / "ARCHITECTURE.md",
+    "update_plan": DOCS / "UPDATE_PLAN.md",
+    "execution_guide": ROOT / "USER_GUIDE_AI_EXECUTION.md",
+    "test_status": DOCS / "TEST_STATUS.md",
+    "readme": ROOT / "README.md",
+    "docs_readme": DOCS / "README.md",
+    "ai_custom_architecture": DOCS / "AI_CUSTOM_STRATEGY_ARCHITECTURE.md",
+    "assistant_guide": DOCS / "AI_ASSISTANT_GUIDE.md",
+    "trading_flow": DOCS / "TRADING_FLOW.md",
+    "deploy_checklist": DOCS / "DEPLOY_CHECKLIST.md",
+    "master_documentation": DOCS / "MASTER_DOCUMENTATION.md",
 }
 
 
@@ -59,6 +72,10 @@ def check_release_version_markers(text_map: Dict[str, str]) -> List[str]:
 
     if "self.window.title(USER_MANUAL_TITLE)" not in manual_widget:
         errors.append("[MANUAL] 인앱 메뉴얼 제목이 USER_MANUAL_TITLE 상수를 사용하지 않습니다.")
+
+    app_version = text_map.get("app_version", "")
+    if 'RELEASE_HIGHLIGHT = "AI 커스텀·레퍼럴·거래 통계 고도화"' not in app_version:
+        errors.append("[APP_VERSION] 대시보드 사용자용 최신 업데이트 요약이 현행 변경과 다릅니다.")
 
     expected_release_line = f"현재 배포 기준 버전: **v{RELEASE_VERSION}**"
     if expected_release_line not in user_guide:
@@ -106,6 +123,114 @@ def check_for_higher_version_mentions(text_map: Dict[str, str]) -> List[str]:
     return errors
 
 
+def check_release_surface_alignment(text_map: Dict[str, str]) -> List[str]:
+    """동일 버전의 핵심 변경이 사용자 노출·기술·검증 문서에 함께 있는지 확인한다."""
+    if RELEASE_VERSION != "3.9.0.2":
+        return []
+    required = {
+        "manual_widget": (
+            "직전·현재 캔들 기반 실제 교차",
+            "비중첩 단일 포지션",
+            "사용자별 감사로그",
+            "실제 운용",
+            "1,076 passed",
+        ),
+        "user_guide": (
+            "### 2026-07-27 v3.9.0.2",
+            "직전·현재 캔들",
+            "사용자별 영속 감사로그",
+            "실제 체결금액",
+            "1,076 passed",
+        ),
+        "release_notes": (
+            "AI 커스텀 실행정합",
+            "crossover/crossunder",
+            "실제 체결금액",
+            "1,076 passed",
+            "pending_windows_rebuild",
+        ),
+        "deploy_release_notes": (
+            "2026-07-27 - v3.9.0.2",
+            "실제 체결금액",
+            "1,076 passed",
+            "pending_windows_rebuild",
+        ),
+        "changelog": (
+            "AI 커스텀 실행정합",
+            "crosses_above",
+            "클라이언트 거래 통계·리포트 운용 지표",
+            "1,076 passed",
+            "prekey",
+        ),
+        "architecture": (
+            "custom_strategy_validator",
+            "PROTECTED_ACTION_REGISTRY",
+            "직전·현재 캔들 기반 교차",
+        ),
+        "update_plan": (
+            "P0 진행",
+            "crossover/crossunder",
+            "보호 작업 레지스트리",
+        ),
+        "execution_guide": (
+            "사용자별 감사로그",
+            "실행하지 않았습니다",
+            "거래 통계·AI 리포트",
+            "1,076 passed",
+        ),
+        "test_status": (
+            "1076 passed",
+            "81 passed",
+            "prekey",
+        ),
+        "readme": (
+            "현재 릴리스: v3.9.0.2",
+            "실제 체결금액",
+            "1,076 passed",
+            "보호 작업",
+        ),
+        "docs_readme": (
+            "AI 커스텀·레퍼럴·거래 통계 고도화",
+            "실제 체결금액",
+            "1,076 passed",
+            "Windows 신규 EXE",
+        ),
+        "ai_custom_architecture": (
+            "crosses_above",
+            "unsupported_executable_conditions",
+            "양방향 슬리피지",
+        ),
+        "assistant_guide": (
+            "사용자별 앱 데이터",
+            "보호 작업 레지스트리",
+            "실행하지 않았습니다",
+        ),
+        "trading_flow": (
+            "비중첩 포지션",
+            "국면 판단 시각",
+            "오래된 입력 차단",
+        ),
+        "deploy_checklist": (
+            "unsupported_executable_conditions",
+            "settings_change_history.json",
+            "현재/후보 국면",
+            "USDT·KRW 체결금액",
+        ),
+        "master_documentation": (
+            "v3.9.0.2 릴리스 묶음",
+            "RELEASE_NOTES.md",
+            "docs/TEST_STATUS.md",
+        ),
+    }
+    errors: List[str] = []
+    for surface, markers in required.items():
+        text = text_map.get(surface, "")
+        for marker in markers:
+            if marker not in text:
+                errors.append(f"[RELEASE_SURFACE] {surface}: '{marker}' 누락")
+    return errors
+
+
 def parse_version_tuple(version: str) -> tuple[int, int, int, int] | None:
     m = re.fullmatch(r"(\d+)\.(\d+)\.(\d+)\.(\d+)", version.strip())
     if not m:
@@ -133,6 +258,7 @@ def main() -> int:
     errors: List[str] = []
     errors.extend(check_release_version_markers(text_map))
     errors.extend(check_for_higher_version_mentions(text_map))
+    errors.extend(check_release_surface_alignment(text_map))
 
     print("문서/버전 정합성 점검 결과")
     print(f"- 기준 배포 버전: v{RELEASE_VERSION}")
@@ -145,6 +271,7 @@ def main() -> int:
 
     print("\n결과: PASS")
     print("- 핵심 표기 일치: dashboard/manual/user_guide/policy")
+    print("- v3.9.0.2 변경 표면 일치: README/manual/release/guide/architecture/flow/plan/deploy/test")
     return 0
 
 

@@ -13,6 +13,8 @@ from typing import Any, Dict, List, Optional
 
 import customtkinter as ctk
 from customtkinter import CTkFrame, CTkLabel, CTkButton, CTkTextbox, CTkScrollableFrame, CTkTabview
+from ui.visual_system import style_tabview
+from utils.fixed_colors import build_widget_palette
 
 class AIReportWidgetSafe(CTkFrame):
     """AI 리포트 전용 위젯 (CustomTkinter) - 안전한 버전"""
@@ -28,9 +30,13 @@ class AIReportWidgetSafe(CTkFrame):
 
     
     def __init__(self, parent=None, colors: Optional[Dict[str, str]] = None, **kwargs):
+        self.colors = build_widget_palette(
+            colors if colors and isinstance(colors, dict) else None
+        )
+        kwargs.setdefault("fg_color", self.colors["content_bg"])
+        kwargs.setdefault("corner_radius", 10)
         super().__init__(parent, **kwargs)
         self.logger = logging.getLogger(__name__)
-        self.colors = dict(colors) if colors and isinstance(colors, dict) else {}
         
         # 초기화 상태 플래그
         self.is_initialized = False
@@ -61,6 +67,21 @@ class AIReportWidgetSafe(CTkFrame):
             pass
         return fallback
 
+    def _card_frame(self, parent, **kwargs):
+        kwargs.setdefault("fg_color", self._color("surface", "#111827"))
+        kwargs.setdefault("border_color", self._color("border", "#273449"))
+        kwargs.setdefault("border_width", 1)
+        kwargs.setdefault("corner_radius", 10)
+        return ctk.CTkFrame(parent, **kwargs)
+
+    def _report_textbox(self, parent, **kwargs):
+        kwargs.setdefault("fg_color", self._color("input", "#0b1120"))
+        kwargs.setdefault("border_color", self._color("border_strong", "#334155"))
+        kwargs.setdefault("border_width", 1)
+        kwargs.setdefault("text_color", self._color("text_primary", "#f9fafb"))
+        kwargs.setdefault("corner_radius", 8)
+        return ctk.CTkTextbox(parent, **kwargs)
+
     def init_ui(self):
         """UI 초기화"""
         # 메인 레이아웃
@@ -85,19 +106,32 @@ class AIReportWidgetSafe(CTkFrame):
         desc_label.grid(row=1, column=0, pady=(0, 10))
         
         # 리포트 탭 위젯
-        self.report_tabs = ctk.CTkTabview(self)
+        self.report_tabs = ctk.CTkTabview(
+            self,
+            fg_color=self._color("content_bg", "#0b1120"),
+        )
+        style_tabview(
+            self.report_tabs,
+            accent=self._color("primary", "#2563eb"),
+            bar_color=self._color("tabbar_bg", "#111c2f"),
+            inactive=self._color("tab_inactive", "#263a57"),
+            text_color=self._color("tab_text", "#dbe7f5"),
+        )
         self.report_tabs.grid(row=2, column=0, sticky="nsew", padx=10, pady=5)
         
         # 오늘 리포트 탭
         self.today_tab = self.report_tabs.add("오늘")
+        self.today_tab.configure(fg_color=self._color("content_bg", "#0b1120"))
         self.create_today_report_tab()
         
         # 주간 리포트 탭
         self.weekly_tab = self.report_tabs.add("주간")
+        self.weekly_tab.configure(fg_color=self._color("content_bg", "#0b1120"))
         self.create_weekly_report_tab()
         
         # 월간 리포트 탭
         self.monthly_tab = self.report_tabs.add("월간")
+        self.monthly_tab.configure(fg_color=self._color("content_bg", "#0b1120"))
         self.create_monthly_report_tab()
         
         # 새로고침 버튼
@@ -106,13 +140,15 @@ class AIReportWidgetSafe(CTkFrame):
             text="새로고침",
             command=self.auto_generate_reports,
             width=120,
-            height=35
+            height=35,
+            fg_color=self._color("primary", "#2563eb"),
+            hover_color=self._color("primary_hover", "#1d4ed8"),
         )
         refresh_btn.grid(row=3, column=0, pady=10)
         
     def create_error_ui(self, error_msg):
         """오류 발생 시 표시할 UI"""
-        error_frame = ctk.CTkFrame(self)
+        error_frame = self._card_frame(self)
         error_frame.grid(row=0, column=0, sticky="nsew", padx=10, pady=10)
         error_frame.grid_columnconfigure(0, weight=1)
         error_frame.grid_rowconfigure(0, weight=1)
@@ -128,7 +164,7 @@ class AIReportWidgetSafe(CTkFrame):
     def create_today_report_tab(self):
         """오늘 리포트 탭 생성"""
         # 요약 정보
-        summary_frame = ctk.CTkFrame(self.today_tab)
+        summary_frame = self._card_frame(self.today_tab)
         summary_frame.pack(fill="x", padx=10, pady=10)
         
         # 요약 제목
@@ -140,7 +176,7 @@ class AIReportWidgetSafe(CTkFrame):
         summary_title.pack(pady=10)
         
         # 요약 정보 표시
-        self.today_summary = ctk.CTkTextbox(
+        self.today_summary = self._report_textbox(
             summary_frame,
             height=150,
             font=ctk.CTkFont(size=12)
@@ -148,7 +184,7 @@ class AIReportWidgetSafe(CTkFrame):
         self.today_summary.pack(fill="x", padx=10, pady=5)
         
         # 상세 리포트
-        detail_frame = ctk.CTkFrame(self.today_tab)
+        detail_frame = self._card_frame(self.today_tab)
         detail_frame.pack(fill="both", expand=True, padx=10, pady=5)
         
         # 상세 제목
@@ -160,7 +196,7 @@ class AIReportWidgetSafe(CTkFrame):
         detail_title.pack(pady=10)
         
         # 상세 리포트 표시
-        self.today_detail = ctk.CTkTextbox(
+        self.today_detail = self._report_textbox(
             detail_frame,
             font=ctk.CTkFont(size=11)
         )
@@ -169,7 +205,7 @@ class AIReportWidgetSafe(CTkFrame):
     def create_weekly_report_tab(self):
         """주간 리포트 탭 생성"""
         # 요약 정보
-        summary_frame = ctk.CTkFrame(self.weekly_tab)
+        summary_frame = self._card_frame(self.weekly_tab)
         summary_frame.pack(fill="x", padx=10, pady=10)
         
         # 요약 제목
@@ -181,7 +217,7 @@ class AIReportWidgetSafe(CTkFrame):
         summary_title.pack(pady=10)
         
         # 요약 정보 표시
-        self.weekly_summary = ctk.CTkTextbox(
+        self.weekly_summary = self._report_textbox(
             summary_frame,
             height=150,
             font=ctk.CTkFont(size=12)
@@ -189,7 +225,7 @@ class AIReportWidgetSafe(CTkFrame):
         self.weekly_summary.pack(fill="x", padx=10, pady=5)
         
         # 상세 리포트
-        detail_frame = ctk.CTkFrame(self.weekly_tab)
+        detail_frame = self._card_frame(self.weekly_tab)
         detail_frame.pack(fill="both", expand=True, padx=10, pady=5)
         
         # 상세 제목
@@ -201,7 +237,7 @@ class AIReportWidgetSafe(CTkFrame):
         detail_title.pack(pady=10)
         
         # 상세 리포트 표시
-        self.weekly_detail = ctk.CTkTextbox(
+        self.weekly_detail = self._report_textbox(
             detail_frame,
             font=ctk.CTkFont(size=11)
         )
@@ -210,7 +246,7 @@ class AIReportWidgetSafe(CTkFrame):
     def create_monthly_report_tab(self):
         """월간 리포트 탭 생성"""
         # 요약 정보
-        summary_frame = ctk.CTkFrame(self.monthly_tab)
+        summary_frame = self._card_frame(self.monthly_tab)
         summary_frame.pack(fill="x", padx=10, pady=10)
         
         # 요약 제목
@@ -222,7 +258,7 @@ class AIReportWidgetSafe(CTkFrame):
         summary_title.pack(pady=10)
         
         # 요약 정보 표시
-        self.monthly_summary = ctk.CTkTextbox(
+        self.monthly_summary = self._report_textbox(
             summary_frame,
             height=150,
             font=ctk.CTkFont(size=12)
@@ -230,7 +266,7 @@ class AIReportWidgetSafe(CTkFrame):
         self.monthly_summary.pack(fill="x", padx=10, pady=5)
         
         # 상세 리포트
-        detail_frame = ctk.CTkFrame(self.monthly_tab)
+        detail_frame = self._card_frame(self.monthly_tab)
         detail_frame.pack(fill="both", expand=True, padx=10, pady=5)
         
         # 상세 제목
@@ -242,7 +278,7 @@ class AIReportWidgetSafe(CTkFrame):
         detail_title.pack(pady=10)
         
         # 상세 리포트 표시
-        self.monthly_detail = ctk.CTkTextbox(
+        self.monthly_detail = self._report_textbox(
             detail_frame,
             font=ctk.CTkFont(size=11)
         )

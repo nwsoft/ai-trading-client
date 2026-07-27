@@ -9,14 +9,18 @@ import sys
 import os
 import json
 import copy
+import re
 import logging
 import threading
+from pathlib import Path
+from uuid import uuid4
 from datetime import datetime
 from typing import Dict, List, Any, Optional
 
 import customtkinter as ctk
 from customtkinter import CTkFrame, CTkLabel, CTkButton, CTkTextbox, CTkEntry, CTkCheckBox, CTkScrollableFrame, CTkTabview
 from tkinter import messagebox
+from utils.fixed_colors import build_widget_palette
 
 try:
     # 선택 위젯: 차트 스크린샷 분석기
@@ -49,8 +53,50 @@ class AIAssistantWidget(CTkFrame):
         "info": "#3b82f6",
         "accent": "#8b5cf6",
     }
+    SETTINGS_ACTION_REGISTRY: Dict[str, Dict[str, str]] = {
+        "default_leverage": {"permission": "user_confirm", "risk": "high"},
+        "default_tp": {"permission": "user_confirm", "risk": "high"},
+        "default_sl": {"permission": "user_confirm", "risk": "high"},
+        "risk_tolerance": {"permission": "user_confirm", "risk": "high"},
+        "balance_utilization_limit": {"permission": "user_confirm", "risk": "high"},
+        "assistant_apply_mode": {"permission": "user_confirm", "risk": "normal"},
+        "openai_model": {"permission": "user_confirm", "risk": "normal"},
+        "assistant_ai_model": {"permission": "user_confirm", "risk": "normal"},
+        "ai_model_roles": {"permission": "user_confirm", "risk": "normal"},
+        "strategy_engine_high_vol_action": {"permission": "user_confirm", "risk": "high"},
+        "strategy_engine_consensus_threshold": {"permission": "user_confirm", "risk": "high"},
+        "strategy_engine_cooldown_sec": {"permission": "user_confirm", "risk": "high"},
+    }
+    PROTECTED_ACTION_REGISTRY: Dict[str, Dict[str, Any]] = {
+        "place_order": {
+            "permission": "disabled",
+            "risk": "critical",
+            "required_gates": [
+                "fresh_quote", "balance", "positions", "open_orders", "market_hours",
+                "slippage", "loss_limits", "idempotency_key", "kill_switch",
+            ],
+        },
+        "start_or_stop_trading": {
+            "permission": "disabled",
+            "risk": "critical",
+            "required_gates": ["runtime_state", "open_positions", "pending_orders", "user_confirmation"],
+        },
+        "change_api_credentials": {
+            "permission": "disabled",
+            "risk": "critical",
+            "required_gates": ["secure_settings_ui", "credential_validation", "user_confirmation"],
+        },
+        "withdraw_or_transfer": {
+            "permission": "disabled",
+            "risk": "critical",
+            "required_gates": ["not_supported"],
+        },
+    }
 
     def __init__(self, parent=None, ai_manager=None, assistant_model_name: str | None = None, colors: Optional[Dict[str, str]] = None, **kwargs):
+        palette = build_widget_palette(colors)
+        kwargs.setdefault("fg_color", palette["content_bg"])
+        kwargs.setdefault("corner_radius", 0)
         super().__init__(parent, **kwargs)
         self.logger = logging.getLogger(__name__)
 
@@ -59,26 +105,16 @@ class AIAssistantWidget(CTkFrame):
         # 어시스턴트용 모델명 (설정에서 주입 가능)
         # 설정 파일에서 직접 읽기 시도 (하드코딩 기본값 제거)
         raw_model_name = assistant_model_name
-        assistant_apply_mode = 'user_confirm'
         if not raw_model_name:
             # 전달된 값이 없으면 설정 파일에서 직접 읽기
             try:
                 from config.settings import load_settings
                 current_settings = load_settings()
                 raw_model_name = current_settings.get('assistant_ai_model')
-                assistant_apply_mode = str(current_settings.get('assistant_apply_mode', 'user_confirm') or 'user_confirm').lower()
                 if raw_model_name:
                     self.logger.debug(f"설정 파일에서 어시스턴트 모델 로드: {raw_model_name}")
             except Exception as e:
                 self.logger.warning(f"설정 파일에서 모델명 읽기 실패: {e}")
-
-        if assistant_apply_mode == 'user_confirm':
-            try:
-                from config.settings import load_settings
-                current_settings = load_settings()
-                assistant_apply_mode = str(current_settings.get('assistant_apply_mode', 'user_confirm') or 'user_confirm').lower()
-            except Exception:
-                pass
 
         # 모델명 정규화: 잘못된 모델명 자동 수정 (gpt4-4o → gpt-4o)
         # 최후의 fallback으로만 기본값 사용
@@ -91,6 +127,13 @@ class AIAssistantWidget(CTkFrame):
         # 설정 변경 이력 추적
         self.settings_change_history = []
         self.max_history_size = 50
+        try:
+            from path_utils import get_app_data_dir
+            assistant_data_dir = Path(get_app_data_dir()) / "assistant"
+        except Exception:
+            assistant_data_dir = Path(__file__).resolve().parents[2] / "data" / "assistant"
+        self.settings_audit_path = assistant_data_dir / "settings_change_history.json"
+        self._load_persistent_settings_history()
 
         # 현재 권장 설정
         self.current_recommended_settings = None
@@ -103,9 +146,12 @@ class AIAssistantWidget(CTkFrame):
 
         # 대화 내용 전체 로그 (복사/내보내기용)
         self._chat_history_log: List[str] = []
+        # 최근 대화 맥락을 다음 답변에 전달한다. UI 알림까지 무한 누적하지 않도록
+        # 실제 사용자/어시스턴트 메시지만 최근 16개로 제한한다.
+        self._conversation_messages: List[Dict[str, str]] = []
 
-        # 설정 자동 반영 시 최종 확인(2단계 게이트) 강제
-        self.require_final_settings_confirmation = (assistant_apply_mode != 'ai_auto')
+        # v3.9.0.2 안전 계약: 과거 ai_auto 설정이 남아 있어도 최종 확인을 생략하지 않는다.
+        self.require_final_settings_confirmation = True
 
         # 서비스 컨텍스트 (blockchain | stock | ...)
         self.assistant_service_context = "blockchain"
@@ -118,8 +164,8 @@ class AIAssistantWidget(CTkFrame):
         self._onboarding_answers: Dict[str, str] = {}
         self._onboarding_source = ""
 
-        # 대시보드에서 전달받은 colors만 사용 (하드코딩 제거)
-        self.colors = dict(colors) if colors and isinstance(colors, dict) else {}
+        # AI 커스텀·거래 통계와 같은 기능 탭 공통 팔레트 사용
+        self.colors = palette
 
         # 음성 모듈 (기본 비활성, 설정값 기반)
         self.voice_module = None
@@ -221,7 +267,7 @@ class AIAssistantWidget(CTkFrame):
         """정상 UI 생성"""
         # 설정 관리 버튼들은 모달창으로 통합됨
 
-        # 상단 정보 바 (현재 모델 캡션 표시)
+        # 상단 정보 바 (대화 복사·내보내기 도구)
         try:
             # 레이아웃 가중치 재설정: 헤더(0) 고정, 본문(1) 확장
             self.grid_rowconfigure(0, weight=0)
@@ -297,7 +343,7 @@ class AIAssistantWidget(CTkFrame):
             fg_color=self._color("surface"),
             border_color=self._color("border"),
             border_width=1,
-            corner_radius=12
+            corner_radius=16
         )
         # 헤더가 있으므로 본문은 row=1에 배치
         self.chat_frame.grid(row=1, column=0, sticky="nsew", padx=5, pady=5)
@@ -308,9 +354,9 @@ class AIAssistantWidget(CTkFrame):
         self.chat_history = CTkScrollableFrame(
             self.chat_frame,
             height=450,  # 크기 늘림 (빈공간 제거)
-            fg_color="#0b1120",  # 로그인 폼과 동일한 배경색
-            border_color="#1f2937",  # 명확한 테두리
-            border_width=2,
+            fg_color=self._color("content_bg", "#0b1120"),
+            border_color=self._color("border_strong", "#334155"),
+            border_width=1,
             corner_radius=12,
             scrollbar_button_color=self._color("secondary"),
             scrollbar_button_hover_color=self._hover_from(self._color("secondary"))
@@ -320,18 +366,18 @@ class AIAssistantWidget(CTkFrame):
         # 채팅 메시지 컨테이너 (배경색 명확히)
         self.chat_messages_frame = CTkFrame(
             self.chat_history,
-            fg_color="#0b1120"  # 배경 투명으로
+            fg_color=self._color("content_bg", "#0b1120")
         )
         self.chat_messages_frame.pack(fill="both", expand=True, padx=5, pady=5)
 
         # 초기 메시지 (채팅창 안에 표시)
-        self.add_ai_message("AI Trading Assistant에 오신 것을 환영합니다!")
-        self.add_ai_message("아래 입력창에 질문을 입력하면 AI가 도와드립니다.")
+        self.add_ai_message("안녕하세요. NoahAI 공식 AI 어시스턴트입니다.")
+        self.add_ai_message("사용법·현재 상태·설정 위치를 질문하거나, 변경할 값을 말하면 확인 후 도와드립니다.")
 
         # 사용자 입력 영역
         input_frame = CTkFrame(
             self.chat_frame,
-            fg_color="#0b1120"
+            fg_color=self._color("content_bg", "#0b1120")
         )
         input_frame.grid(row=1, column=0, sticky="ew", padx=5, pady=(0, 2))
         input_frame.grid_columnconfigure(0, weight=1)
@@ -340,7 +386,10 @@ class AIAssistantWidget(CTkFrame):
             input_frame,
             placeholder_text=self._build_input_placeholder(),
             font=ctk.CTkFont(size=12),
-            height=35
+            height=35,
+            fg_color=self._color("input", "#0b1120"),
+            border_color=self._color("border_strong", "#334155"),
+            text_color=self._color("text_primary", "#f9fafb"),
         )
         self.chat_input.grid(row=0, column=0, sticky="ew", padx=5, pady=5)
         self.chat_input.bind("<Return>", lambda e: self.send_ai_message())
@@ -492,23 +541,18 @@ class AIAssistantWidget(CTkFrame):
         return level, reasons
 
     def create_info_bar(self):
-        """상단 정보 바: 현재 어시스턴트 모델 캡션 + 대화 내보내기 버튼"""
+        """상단 정보 바: 사용자용 대화 복사·내보내기 도구."""
         try:
             self.info_frame = CTkFrame(
                 self,
-                fg_color="#0b1120"
+                fg_color=self._color("content_bg", "#0b1120"),
+                corner_radius=0,
             )
             self.info_frame.grid(row=0, column=0, columnspan=2, sticky="ew", padx=6, pady=(6, 0))
             self.info_frame.grid_columnconfigure(0, weight=1)
-            caption_text = f"현재 어시스턴트 모델: {self.assistant_model_name}"
-            self.model_caption = CTkLabel(
-                self.info_frame,
-                text=caption_text,
-                font=ctk.CTkFont(size=11),
-                text_color=self._color("text_secondary"),
-                anchor="w",
-            )
-            self.model_caption.grid(row=0, column=0, sticky="w", padx=6)
+            # 모델은 설정·실행 계층에서 계속 관리하되 사용자 대화 화면에는
+            # 내부 모델명을 상시 노출하지 않는다.
+            self.model_caption = None
 
             # 전체 복사 버튼
             copy_all_btn = CTkButton(
@@ -537,7 +581,7 @@ class AIAssistantWidget(CTkFrame):
             export_txt_btn.grid(row=0, column=2, padx=(2, 6), pady=3, sticky="e")
 
         except Exception:
-            # 캡션 실패는 치명적이지 않으므로 무시
+            # 대화 도구 표시 실패는 치명적이지 않으므로 무시
             self.model_caption = None
 
     def copy_all_chat(self):
@@ -620,7 +664,11 @@ class AIAssistantWidget(CTkFrame):
             self.quick_questions_title_label = title_label
 
             # 질문 버튼들
-            questions_frame = CTkFrame(buttons_frame, fg_color="#0b1120")
+            questions_frame = CTkFrame(
+                buttons_frame,
+                fg_color=self._color("content_bg", "#0b1120"),
+                corner_radius=10,
+            )
             questions_frame.pack(fill="both", expand=True, padx=12, pady=(0, 12))
 
             questions = profile["quick_questions"]
@@ -726,8 +774,10 @@ class AIAssistantWidget(CTkFrame):
             "quick_title": "자주 하는 질문",
             "input_placeholder": "AI에게 질문하거나 요청사항을 입력하세요...",
             "expert_role": "당신은 암호화폐 거래 전문가입니다.",
-            "quick_questions": [
-                ("게이트 원인 점검", "수익성 검증 차단 원인을 최근 로그와 설정 기준(min_trades, min_win_rate, min_sharpe, min_walkforward_pass_rate)으로 요약해줘"),
+                "quick_questions": [
+                    ("High vol 설정", "high vol 차단이 지금 켜져 있는지와 설정 위치, 남아 있는 가드레일을 알려줘"),
+                    ("AI 커스텀 사용법", "AI 커스텀에서 외부 전략을 분석한 뒤 실제 적용하기까지 순서와 확인 항목을 알려줘"),
+                    ("게이트 원인 점검", "수익성 검증 차단 원인을 최근 로그와 설정 기준(min_trades, min_win_rate, min_sharpe, min_walkforward_pass_rate)으로 요약해줘"),
                 ("게이트 임시 OFF", "수익성 게이트를 임시 OFF(dev)로 전환하는 절차를 단계별로 안내하고, 적용 후 무엇을 점검해야 하는지 알려줘"),
                 ("게이트 기준 완화", "수익성 게이트 기준 완화안을 제안해줘. min_trades, min_win_rate, min_sharpe, min_walkforward_pass_rate를 보수/중립/공격 3단계로 보여줘"),
                 ("거래 부재 원인", "왜 거래가 발생하지 않고 있나요? 원인을 분석해주세요"),
@@ -771,12 +821,8 @@ class AIAssistantWidget(CTkFrame):
             self.logger.error(f"빠른 질문 전송 오류: {e}")
 
     def update_model_caption(self):
-        """모델 캡션 텍스트를 현재 모델명으로 갱신"""
-        try:
-            if hasattr(self, 'model_caption') and self.model_caption is not None:
-                self.model_caption.configure(text=f"현재 어시스턴트 모델: {self.assistant_model_name}")
-        except Exception:
-            pass
+        """하위 호환용 no-op: 내부 모델명은 대화 화면에 노출하지 않는다."""
+        self.model_caption = None
 
     def _get_onboarding_questions(self) -> List[Dict[str, Any]]:
         """초기 설정 가이드 질문 목록을 반환한다."""
@@ -805,9 +851,9 @@ class AIAssistantWidget(CTkFrame):
             {
                 'key': 'apply_mode',
                 'title': 'Q4/5 설정 반영 방식',
-                'prompt': '설정 반영 방식을 선택해 주세요.',
-                'options': ['1) 사용자 최종확인', '2) AI 자동적용'],
-                'hint': '예: 1 또는 최종확인',
+                'prompt': '거래 관련 설정은 항상 사용자 최종확인 후 반영됩니다.',
+                'options': ['1) 사용자 최종확인(필수)'],
+                'hint': '1 또는 최종확인',
             },
             {
                 'key': 'recheck',
@@ -861,7 +907,7 @@ class AIAssistantWidget(CTkFrame):
             },
             'apply_mode': {
                 '1': 'user_confirm', '최종확인': 'user_confirm', '사용자최종확인': 'user_confirm',
-                '2': 'ai_auto', '자동적용': 'ai_auto', 'ai자동적용': 'ai_auto',
+                '2': 'user_confirm', '자동적용': 'user_confirm', 'ai자동적용': 'user_confirm',
             },
             'recheck': {
                 '1': 'days7', '7일': 'days7', '7일후': 'days7',
@@ -931,7 +977,7 @@ class AIAssistantWidget(CTkFrame):
         selected_preset = preset_map.get(answers.get('budget', 'balanced'), preset_map['balanced'])
         selected_goal = goal_map.get(answers.get('goal', 'balanced'), goal_map['balanced'])
         selected_risk = risk_map.get(answers.get('risk', 'mid'), risk_map['mid'])
-        apply_mode = answers.get('apply_mode', 'user_confirm')
+        apply_mode = 'user_confirm'
         recheck_policy = answers.get('recheck', 'days7')
 
         staged_note = ""
@@ -960,7 +1006,7 @@ class AIAssistantWidget(CTkFrame):
             f"- 목표: {goal_label}",
             f"- 리스크 허용도: {risk_label}",
             f"- 예상 비용 레벨: {selected_preset.get('cost_level', '-')}",
-            f"- 적용 방식: {'사용자 최종확인' if apply_mode == 'user_confirm' else 'AI 자동적용'}",
+            "- 적용 방식: 사용자 최종확인(필수)",
             f"- 재검증 기준: {recheck_text}",
             "",
             "왜 이 설정인가:",
@@ -1144,6 +1190,13 @@ class AIAssistantWidget(CTkFrame):
                     self._chat_history_log.append(f"[{ts}] AI: {message}")
                 except Exception:
                     pass
+                try:
+                    if not hasattr(self, "_conversation_messages"):
+                        self._conversation_messages = []
+                    self._conversation_messages.append({"role": "assistant", "content": str(message)})
+                    self._conversation_messages = self._conversation_messages[-16:]
+                except Exception:
+                    pass
 
             # 음성 출력은 설정으로 켜진 경우에만 수행
             try:
@@ -1200,9 +1253,323 @@ class AIAssistantWidget(CTkFrame):
             self._chat_history_log.append(f"[{ts}] 사용자: {message}")
         except Exception:
             pass
+        try:
+            if not hasattr(self, "_conversation_messages"):
+                self._conversation_messages = []
+            self._conversation_messages.append({"role": "user", "content": message})
+            self._conversation_messages = self._conversation_messages[-16:]
+        except Exception:
+            pass
 
         # AI 응답 생성
         self.generate_ai_response(message)
+
+    def _current_strategy_engine_policy(self) -> Dict[str, Any]:
+        """현재 고급 전략 엔진 정책을 대시보드/설정 파일 순으로 읽는다."""
+        settings: Dict[str, Any] = {}
+        dashboard = getattr(self, "parent_dashboard", None)
+        if dashboard is not None and isinstance(getattr(dashboard, "settings", None), dict):
+            settings = dashboard.settings
+        else:
+            try:
+                from config.settings import load_settings
+                loaded = load_settings() or {}
+                settings = loaded if isinstance(loaded, dict) else {}
+            except Exception:
+                settings = {}
+        layers = settings.get("advanced_trading_layers", {})
+        if not isinstance(layers, dict):
+            return {}
+        policy = layers.get("strategy_engine", {})
+        return dict(policy) if isinstance(policy, dict) else {}
+
+    @staticmethod
+    def _is_high_vol_topic(message: str) -> bool:
+        normalized = str(message or "").lower().replace("-", " ").replace("_", " ")
+        return any(
+            token in normalized
+            for token in ("high vol", "highvol", "고변동", "높은 변동성", "변동성 차단")
+        )
+
+    def _build_high_vol_support(self, message: str) -> Optional[Dict[str, Any]]:
+        """고변동장 설정 질문을 제품 실제값 기준으로 안내하거나 변경 제안한다."""
+        if not self._is_high_vol_topic(message):
+            return None
+
+        raw = str(message or "")
+        lower = raw.lower()
+        policy = self._current_strategy_engine_policy()
+        current_action = str(policy.get("high_vol_action", "evaluate") or "evaluate").lower()
+        current_action = "block" if current_action == "block" else "evaluate"
+        current_label = "항상 차단" if current_action == "block" else "평가 계속"
+        engine_enabled = bool(policy.get("enabled", False))
+        consensus = float(policy.get("consensus_threshold", 0.60) or 0.60)
+        cooldown = int(policy.get("cooldown_sec", 60) or 0)
+
+        wants_release = any(
+            token in lower for token in ("차단 해제", "차단을 해제", "해제해", "열어줘", "평가 계속", "evaluate")
+        )
+        wants_block = any(
+            token in lower for token in ("항상 차단", "차단해줘", "차단 해줘", "block으로", "block 으로")
+        )
+        asks_location = any(
+            token in lower
+            for token in ("어디서", "어디에", "방법", "어떻게", "설정하면", "설정 위치", "될까요", "하고 싶")
+        )
+        explicit_apply = any(
+            token in lower for token in ("해제해줘", "해제해 줘", "차단해줘", "차단 해줘", "적용해줘", "바꿔줘")
+        ) and not asks_location
+
+        if wants_release and wants_block:
+            return {
+                "message": (
+                    "NoahAI입니다. 요청에 ‘차단 해제’와 ‘항상 차단’이 함께 있어 방향을 확정할 수 없습니다.\n"
+                    "고변동장도 합의 점수와 가드레일로 평가하려면 ‘평가 계속’, 전부 막으려면 ‘항상 차단’이라고 답해 주세요."
+                )
+            }
+
+        status = (
+            f"현재값: 전략 엔진 {'ON' if engine_enabled else 'OFF'} / 고변동장 {current_label} / "
+            f"합의 임계값 {consensus:.2f} / 심볼 쿨다운 {cooldown}초"
+        )
+        route = (
+            "설정 위치: 대시보드 상단 설정 → 고급 자동매매 → 전략 엔진 세부 설정 → 고변동장 처리"
+        )
+        safety = (
+            "‘평가 계속’은 고변동장 주문을 무조건 허용하는 기능이 아닙니다. "
+            "신호 합의 임계값, 수익성 검증, AI 커스텀 조건, 포지션·손실 한도와 주문 가드레일은 그대로 적용됩니다. "
+            "OpenAI 최신 모델은 분석 품질을 보조하지만 이 가드레일을 대신 검증하거나 우회하지 않으며 거래 기회를 보장하지 않습니다."
+        )
+
+        if explicit_apply:
+            target = "evaluate" if wants_release else ("block" if wants_block else "")
+            if not target:
+                return {
+                    "message": (
+                        f"NoahAI입니다. {status}\n"
+                        "고변동장 처리를 ‘평가 계속’으로 바꿀지, ‘항상 차단’으로 바꿀지 한 번 더 알려 주세요."
+                    )
+                }
+            if target == current_action:
+                return {
+                    "message": (
+                        f"NoahAI입니다. {status}\n이미 요청한 상태라 설정을 바꿀 필요가 없습니다.\n"
+                        f"{route}\n{safety}\n"
+                        "거래 기회가 여전히 적다면 최근 로그에서 수익성 게이트, 합의 점수, 쿨다운, AI 커스텀 조건 중 "
+                        "실제 차단 원인을 먼저 확인해 주세요."
+                    )
+                }
+            return {
+                "message": (
+                    f"NoahAI입니다. {status}\n"
+                    f"고변동장 처리를 ‘{'평가 계속' if target == 'evaluate' else '항상 차단'}’으로 제안합니다.\n"
+                    f"{safety}\n아래 적용을 누른 뒤 최종 확인해야 저장됩니다."
+                ),
+                "proposal": {"strategy_engine_high_vol_action": target},
+            }
+
+        return {
+            "message": (
+                f"NoahAI입니다. {status}\n{route}\n{safety}\n"
+                + (
+                    "현재 이미 ‘평가 계속’이므로 high vol 일괄 차단은 해제된 상태입니다. "
+                    "거래 기회를 더 보려면 차단 해제보다 실제 최근 로그의 차단 사유를 먼저 점검하는 것이 정확합니다."
+                    if current_action == "evaluate"
+                    else
+                    "현재는 ‘항상 차단’입니다. 실제 변경을 원하면 ‘high vol 차단을 해제해줘’라고 요청하면 "
+                    "변경 전/후를 보여드리고 2단계 확인 후 저장합니다."
+                )
+            )
+        }
+
+    def _build_ai_custom_support(self, message: str) -> Optional[str]:
+        """AI 커스텀·XAI·외부 전략의 실제 적용 경계를 API 없이도 설명한다."""
+        lower = str(message or "").lower().replace("-", " ")
+        is_topic = any(
+            token in lower
+            for token in (
+                "ai 커스텀", "ai커스텀", "xai", "외부 전략", "유튜브 전략",
+                "youtube 전략", "tradingview 전략", "pine 전략",
+            )
+        )
+        if not is_topic:
+            return None
+
+        settings: Dict[str, Any] = {}
+        dashboard = getattr(self, "parent_dashboard", None)
+        if dashboard is not None and isinstance(getattr(dashboard, "settings", None), dict):
+            settings = dashboard.settings
+        else:
+            try:
+                from config.settings import load_settings
+                settings = load_settings() or {}
+            except Exception:
+                settings = {}
+        runtime = settings.get("ai_custom_runtime", {})
+        runtime_enabled = bool(runtime.get("enabled", False)) if isinstance(runtime, dict) else False
+
+        return (
+            "NoahAI입니다. NoahAI는 TradingView를 없애는 제품이 아니라, TradingView·영상·문서·Pine 전략을 "
+            "AI가 이해하고 검증하여 시장국면에 맞게 안전하게 운용하는 상위 전략 운영 계층입니다.\n"
+            f"현재 AI 커스텀 실자동매매 사용 스위치: {'ON' if runtime_enabled else 'OFF'}\n"
+            "사용 순서: AI 커스텀 → 텍스트/Pine/PDF/차트/영상/YouTube/TradingView 입력 → "
+            "AI 분석 및 전략 초안 → XAI의 출처 근거·진입/청산·손절/익절·위험예산·누락 조건 확인 → "
+            "적용 범위·시장상황·전략 역할 선택 → 버전 저장 → 사용자 승인 → 자동검증 → 최종 적용 → 거래소/증권 시작.\n"
+            "원본 전략이 바뀌면 자료를 다시 입력하고 기존 전략을 저장 대상으로 골라 새 버전을 만들면 됩니다. "
+            "한 번의 자동검증 결과를 본 뒤 일반 운용 또는 허용된 1배·최대 1% 안전 시험은 사용자가 결정합니다.\n"
+            "XAI의 ‘규칙’은 원문에서 구조화한 조건이고, ‘실행 엔진 적용값’은 주문 판단에 전달할 TP/SL·포지션·임계값입니다. "
+            "현재 선언형 실행은 RSI·MACD·볼린저·SMA/EMA 20·50·200·ADX·ATR·거래량·시간 조건과 "
+            "명시적 코인 청산 조건을 지원하며, 미지원 필드는 승인 전에 차단합니다. 자동검증은 진입·청산 양쪽 수수료, "
+            "슬리피지와 스프레드를 분리해 총비용 반영 PnL·Profit Factor·기대값·국면별 결과를 보여줍니다.\n"
+            "자막·화면·Pine 근거가 없거나 조건이 빠지면 추정하지 않고 승인·실행을 차단합니다.\n"
+            "사용자가 원하는 장에는 모든 시장상황/상승/하락/횡보/고변동/저변동 중 선택해 적용할 수 있고 "
+            "거래소·증권사별 범위도 고를 수 있습니다. 다만 지원하지 않는 지표·보호된 스크립트·불완전한 영상은 "
+            "원문 보강이 필요합니다. 적용된 전략도 실제 주문 때 NoahAI 시장판단과 수익성·리스크·주문 가드레일을 다시 통과합니다."
+        )
+
+    @staticmethod
+    def _build_financial_intelligence_support(message: str) -> Optional[str]:
+        """금융 인텔리전스 메뉴 사용법을 API 없이도 정확히 안내한다."""
+        raw = str(message or "")
+        lower = raw.lower().replace(" ", "")
+        topic_tokens = (
+            "금융인텔리전스", "시장·섹터", "시장섹터", "코인탐색", "종목탐색",
+            "지표탐색", "전략검증", "이벤트·속보", "이벤트속보", "기업분석",
+            "가치평가", "기관동향", "코인정보",
+        )
+        if not any(token.replace(" ", "") in lower for token in topic_tokens):
+            return None
+
+        intro = (
+            "NoahAI입니다. 금융 인텔리전스는 시장·종목·뉴스·전략을 분석하는 판단 보조 화면이며, "
+            "조회 결과만으로 주문하거나 거래 설정을 바꾸지 않습니다.\n"
+        )
+        if "코인정보" in lower or "코인탐색" in lower:
+            return intro + (
+                "• 코인 정보: 내 계좌·현재 선택 코인·보유/운용 상태를 확인하는 화면입니다.\n"
+                "• 코인 탐색: 여러 코인을 공개 시세와 조건으로 비교해 검토 후보를 찾는 시장 검색 화면입니다.\n"
+                "사용 순서: 블록체인 → 금융 인텔리전스 → 코인 탐색 → 관심 코인을 쉼표로 입력 → "
+                "최소 가격 선택 → 조건 검색 → 출처·기준시각·수집 오류 확인. 후보가 나와도 자동 주문되지는 않습니다."
+            )
+        if "전략검증" in lower:
+            return intro + (
+                "사용 순서: 금융 인텔리전스 → 전략 검증 → 종목과 빠른/느린 이동평균 입력 → 전략 검증 실행 → "
+                "거래 수·수수료·슬리피지·최대낙폭을 함께 확인합니다. 이 화면은 간단한 이동평균 전략 비교용이며, "
+                "AI 커스텀에서 승인한 외부 전략의 최종 실거래 적용 화면과는 역할이 다릅니다."
+            )
+        if "지표탐색" in lower:
+            return intro + (
+                "사용 순서: 금융 인텔리전스 → 지표 탐색 → 종목 입력 → 지표 조회 → "
+                "가격 차트와 RSI·MACD·이동평균·볼린저밴드의 방향 및 신호 충돌을 함께 확인합니다."
+            )
+        if "시장·섹터" in raw or "시장섹터" in lower:
+            return intro + (
+                "사용 순서: 시장·섹터 → 주요/국내/미국/가상자산 프리셋 선택 → 시장 현황 조회 → "
+                "출처·기준시각 → 수익률 → 변동성 순으로 읽습니다. 직접 입력을 고르면 관심 종목만 비교할 수 있습니다."
+            )
+        if "이벤트" in lower or "속보" in lower or "기관동향" in lower:
+            return intro + (
+                "조회 버튼을 누른 뒤 발생 시각·출처·보유자산 관련성을 확인하세요. "
+                "'운영 데이터 연결 필요'는 사용자의 입력 오류가 아니라 허가된 공급자 연결 전 상태이며, "
+                "NoahAI는 그때 임의 뉴스·공시·기관 수치를 만들지 않습니다."
+            )
+        if "기업분석" in lower or "가치평가" in lower or "종목탐색" in lower:
+            return intro + (
+                "기업 분석은 DART/SEC 공시 재무를, 가치평가는 입력한 현금흐름 가정의 범위를, "
+                "종목 탐색은 여러 종목의 조건 통과 여부를 봅니다. 결과의 출처·기준시각·계산 가정을 먼저 확인하고 "
+                "실제 주문 전 계좌 상태와 가드레일을 별도로 점검하세요."
+            )
+        return intro + (
+            "기본 순서: 원하는 하위 메뉴 선택 → 종목/프리셋 입력 → 조회 → 출처·기준시각 확인 → "
+            "수익·위험·오류 표시 확인. 각 화면 상단의 'AI에게 사용법 묻기'를 누르면 현재 메뉴에 맞춰 다시 설명합니다."
+        )
+
+    @staticmethod
+    def _build_membership_support(message: str) -> Optional[str]:
+        """레퍼럴 회원 정책과 관리 경계를 API 없이도 정확히 안내한다."""
+        raw = str(message or "")
+        lower = raw.lower().replace(" ", "")
+        if not any(token in lower for token in (
+            "레퍼럴", "리퍼럴", "referral", "무료회원", "회원등급",
+        )):
+            return None
+
+        if any(token in lower for token in ("코드", "가입링크", "어디서관리", "어디서설정")):
+            return (
+                "NoahAI입니다. 레퍼럴 코드와 가입 URL은 클라이언트 파일에 넣지 않고 "
+                "daltrading 관리자 포털의 ‘설정 → 레퍼럴 거래소 설정’에서 관리합니다. "
+                "관리자가 활성화한 Binance·Bybit·OKX·Bitget만 서버 정책에 포함되며, "
+                "사용자는 자신의 클라이언트에서 이 허용 목록을 임의로 늘릴 수 없습니다."
+            )
+        if any(token in lower for token in (
+            "업비트", "빗썸", "국내거래소", "증권", "주식", "사용가능", "뭘쓸",
+        )):
+            return (
+                "NoahAI입니다. 레퍼럴 등급은 관리자가 활성화한 해외 제휴 거래소 "
+                "Binance·Bybit·OKX·Bitget만 사용할 수 있습니다. Upbit·Bithumb 같은 국내 거래소와 "
+                "국내·해외 증권 기능은 사용할 수 없습니다. 등급이나 허용 목록이 줄어들면 새 주문 루프는 "
+                "중지되지만, 안전을 위해 보유 포지션을 임의로 강제 청산하지는 않으므로 계좌 상태를 직접 확인하세요."
+            )
+        return (
+            "NoahAI입니다. 레퍼럴 등급은 CD-Key 없이 가입하는 무료 회원등급이며, "
+            "daltrading 서버 관리자가 활성화한 해외 제휴 거래소만 사용할 수 있습니다. "
+            "현재 공식 범위는 Binance·Bybit·OKX·Bitget이고 국내 거래소와 증권 기능은 제외됩니다. "
+            "등급과 허용 목록은 로그인 및 주기적 상태 확인으로 동기화됩니다."
+        )
+
+    @staticmethod
+    def _build_identity_support(message: str) -> Optional[str]:
+        lower = str(message or "").strip().lower().replace(" ", "")
+        identity_patterns = {
+            "너누구야", "누구세요", "누구야", "정체가뭐야", "너는뭐야",
+            "노아ai야", "noahai야", "노아ai인가요", "noahai인가요",
+        }
+        if lower in identity_patterns:
+            return (
+                "저는 NoahAI입니다. 이 클라이언트의 사용법·현재 설정·로그·AI 커스텀 전략을 설명하고, "
+                "허용된 설정은 변경 전/후와 위험을 보여 드린 뒤 사용자 확인을 거쳐 반영하도록 돕습니다."
+            )
+        return None
+
+    def _build_settings_clarification(self, message: str) -> Optional[str]:
+        """목표나 방향이 빠진 변경 요청은 추정 적용 대신 짧게 재질문한다."""
+        lower = str(message or "").strip().lower()
+        if not self._is_settings_change_request(message):
+            return None
+        if self._is_high_vol_topic(message):
+            return None
+        if any(token in lower for token in ("모델 바꿔", "모델 변경", "모델을 바꿔")) and not any(
+            token in lower for token in ("어시스턴트", "애널리스트", "빈번", "표준", "정밀", "premium", "standard")
+        ):
+            return (
+                "NoahAI입니다. 어떤 역할의 모델을 바꿀지 확인이 필요합니다. "
+                "‘AI 어시스턴트(대화)’, ‘AI 애널리스트(시장 분석)’, 또는 ‘정밀 진단(premium)’ 중 하나와 "
+                "원하는 모델명·비용 우선순위를 알려 주세요."
+            )
+        vague_only = {
+            "설정 바꿔줘", "설정을 바꿔줘", "설정 변경해줘", "더 공격적으로", "더 보수적으로",
+            "거래 기회를 늘려줘", "거래를 더 하게 해줘",
+        }
+        if lower in vague_only:
+            return (
+                "NoahAI입니다. 어떤 제약을 바꿀지 확정하기 어렵습니다. "
+                "레버리지·잔고 활용·고변동장 처리·합의 임계값 중 원하는 항목을 말해 주세요. "
+                "거래 기회 확대가 목적이면 먼저 최근 로그의 실제 차단 사유를 점검해 달라고 요청하는 것이 가장 안전합니다."
+            )
+        return None
+
+    def _recent_conversation_for_prompt(self) -> str:
+        """현재 질문 직전의 최근 대화만 짧게 직렬화한다."""
+        history = list(getattr(self, "_conversation_messages", []) or [])
+        if history and history[-1].get("role") == "user":
+            history = history[:-1]
+        lines: List[str] = []
+        for item in history[-8:]:
+            role = "사용자" if item.get("role") == "user" else "NoahAI"
+            content = str(item.get("content") or "").strip().replace("\x00", "")
+            if content:
+                lines.append(f"{role}: {content[:700]}")
+        return "\n".join(lines) if lines else "이전 대화 없음"
 
     def generate_ai_response(self, message: str):
         """AI 응답 생성"""
@@ -1234,6 +1601,48 @@ class AIAssistantWidget(CTkFrame):
                 result = self._handle_list_custom_indicators()
                 self.add_ai_message(result)
                 return
+
+            protected_action_support = self._build_protected_action_support(message)
+            if protected_action_support:
+                self.add_ai_message(protected_action_support)
+                return
+
+            membership_support = self._build_membership_support(message)
+            if membership_support:
+                self.add_ai_message(membership_support)
+                return
+
+            financial_intelligence_support = self._build_financial_intelligence_support(message)
+            if financial_intelligence_support:
+                self.add_ai_message(financial_intelligence_support)
+                return
+
+            high_vol_support = self._build_high_vol_support(message)
+            if high_vol_support:
+                self.add_ai_message(str(high_vol_support.get("message") or ""))
+                proposal = high_vol_support.get("proposal")
+                if isinstance(proposal, dict) and proposal:
+                    safe_proposal, notes = self._sanitize_settings_proposal(proposal)
+                    if notes:
+                        self.add_ai_message("안전 검증 결과:\n" + "\n".join(f"- {note}" for note in notes))
+                    if safe_proposal:
+                        self._insert_confirm_buttons(safe_proposal, message)
+                return
+
+            ai_custom_support = self._build_ai_custom_support(message)
+            if ai_custom_support:
+                self.add_ai_message(ai_custom_support)
+                return
+
+            identity_support = self._build_identity_support(message)
+            if identity_support:
+                self.add_ai_message(identity_support)
+                return
+
+            clarification = self._build_settings_clarification(message)
+            if clarification:
+                self.add_ai_message(clarification)
+                return
             # ────────────────────────────────────────────────────
 
             if not self.ai_manager or not self.ai_manager.enabled():
@@ -1253,7 +1662,9 @@ class AIAssistantWidget(CTkFrame):
             if is_settings_change_request:
                 # 설정 변경 요청: AI가 먼저 현황 분석 + 추천값 + 이유를 설명하고
                 # 실제 적용은 사용자가 확인 버튼을 누를 때만 수행
-                system_prompt = """당신은 NoahAI 거래 시스템의 전문 분석 어시스턴트입니다.
+                system_prompt = """당신은 NoahAI(노아AI) 공식 제품·거래 분석 어시스턴트입니다.
+사용자가 정체성을 물으면 첫 문장을 "저는 NoahAI입니다."로 답하고, 일반 답변에서도 다른 서비스의
+범용 챗봇처럼 행동하지 말고 NoahAI의 실제 설정·로그·가드레일 범위 안에서만 설명하세요.
 
 【핵심 원칙】
 - 사용자의 자산을 보호하는 것이 최우선입니다.
@@ -1283,14 +1694,23 @@ class AIAssistantWidget(CTkFrame):
 - 현재 설정과 통계를 근거로 변경이 타당한지 먼저 판단하세요
 - 위험한 설정(레버리지 15 이상, 잔고 활용 40% 초과, 손실 중 공격적 전환 등)은 analysis에 위험 경고 포함
 - 수익이 나쁠 때 레버리지 증가 요청은 반드시 위험 경고와 함께 보수적 대안 제시
-- 설정 변경은 거래소 연결 상태와 무관합니다 (settings.json 파일 수정)
+- 모델·표시 설정은 거래소 연결과 무관하게 저장할 수 있지만, 위험을 높이는 거래 설정은 현재 시장·성과·포지션
+  데이터가 충분할 때만 제안하세요.
 - 변경 가능 키: default_leverage(1-20), default_tp(0.001-0.1), default_sl(0.001-0.1),
     risk_tolerance("CONSERVATIVE"/"MODERATE"/"AGGRESSIVE"), balance_utilization_limit(0.05-0.5),
     openai_model, assistant_ai_model,
-    ai_model_roles({"frequent_cheap":"...","standard":"...","premium":"..."})"""
+    ai_model_roles({"frequent_cheap":"...","standard":"...","premium":"..."}),
+    strategy_engine_high_vol_action("evaluate"/"block"),
+    strategy_engine_consensus_threshold(0.10-0.95),
+    strategy_engine_cooldown_sec(0-3600)
+- high vol의 evaluate는 무조건 진입 허용이 아니라 합의 점수와 모든 가드레일을 유지한 평가 계속입니다.
+- OpenAI 모델 변경은 분석 품질/비용 선택이며 수익 검증 통과나 거래 기회를 보장하지 않습니다."""
 
                 user_prompt = f"""사용자 요청: {message}
 현재 서비스 컨텍스트: {service_label}
+
+최근 대화:
+{self._recent_conversation_for_prompt()}
 
 현재 거래 상황:
 {context}
@@ -1300,7 +1720,9 @@ class AIAssistantWidget(CTkFrame):
 사용자가 내용을 확인 후 직접 적용 여부를 결정합니다."""
             else:
                 # 일반 분석/조언 질문
-                system_prompt = f"""{service_profile.get('expert_role', '당신은 금융 투자 분석 전문가입니다.')}
+                system_prompt = f"""당신은 NoahAI(노아AI) 공식 제품 어시스턴트이며, {service_profile.get('expert_role', '금융 투자 분석 전문가입니다.')}
+사용자가 정체성을 물으면 "저는 NoahAI입니다."라고 명확히 답하세요.
+제품 기능·설정 경로를 모르면 추정하지 말고 필요한 화면·현재값을 재질문하세요.
 
 【NoahAI 어시스턴트 핵심 철학】
 당신은 사용자의 자산을 보호하는 것이 최우선입니다.
@@ -1324,6 +1746,19 @@ class AIAssistantWidget(CTkFrame):
 
 6. **설정 변경 신중론**: 단순 질문에서 설정 변경을 먼저 제안하지 마세요.
    현재 설정이 합리적이라면 "현재 설정이 적절합니다"라고 말하세요.
+
+7. **의도 확인**: 목표·설정 항목·변경 방향 중 하나라도 불명확하면 임의 값을 만들지 말고
+   한 번에 답하기 쉬운 짧은 재질문을 하세요.
+
+	8. **제품 지식**:
+	   - AI 커스텀은 소스 입력 → XAI 구조화 → 사용자 승인 → 자동검증 → 최종 적용 → 거래 시작 순서입니다.
+	   - YouTube·TradingView 분석값은 초안이며 출처 근거와 누락 조건을 확인해야 합니다.
+	   - 코인 정보는 내 계좌·선택 코인의 운용 상태이고, 코인 탐색은 여러 코인을 조건으로 비교하는 시장 검색입니다.
+	   - 금융 인텔리전스의 시장·탐색·지표·검증 결과만으로 주문하거나 설정을 바꾸지 않습니다.
+	   - 뉴스·공시·기관 데이터의 '운영 데이터 연결 필요'는 사용자 입력 오류가 아니며 임의 값을 만들지 않는 상태입니다.
+	   - 고변동장 설정은 설정 → 고급 자동매매 → 전략 엔진 세부 설정 → 고변동장 처리입니다.
+   - "평가 계속"도 수익성·합의·리스크·주문 가드레일을 우회하지 않습니다.
+   - OpenAI 최신 모델이 자동으로 전략 수익성이나 high vol 진입을 보장한다고 설명하지 마세요.
 
 【증권사 연결 FAQ — 기술 지원 지식】
 사용자가 증권사 연결 오류나 설치 방법을 물어보면 아래 지식을 바탕으로 안내하세요.
@@ -1359,6 +1794,9 @@ class AIAssistantWidget(CTkFrame):
 
                 user_prompt = f"""사용자 요청: {message}
 현재 서비스 컨텍스트: {service_label}
+
+최근 대화:
+{self._recent_conversation_for_prompt()}
 
 현재 거래 상황:
 {context}
@@ -1530,7 +1968,137 @@ class AIAssistantWidget(CTkFrame):
             except Exception:
                 pass
         return normalized
+    @classmethod
+    def _logical_setting_values(cls, settings: dict, keys: Any) -> dict:
+        """중첩 저장 구조를 어시스턴트의 타입형 작업 키로 읽는다."""
+        source = dict(settings or {})
+        prefs = dict(source.get("ai_trading_preferences", {}) or {})
+        strategy = dict(
+            (source.get("advanced_trading_layers", {}) or {}).get("strategy_engine", {}) or {}
+        )
+        values = {}
+        for key in keys:
+            if key in {"risk_tolerance", "balance_utilization_limit"}:
+                values[key] = prefs.get(key)
+            elif key in {
+                "strategy_engine_high_vol_action",
+                "strategy_engine_consensus_threshold",
+                "strategy_engine_cooldown_sec",
+            }:
+                nested_key = {
+                    "strategy_engine_high_vol_action": "high_vol_action",
+                    "strategy_engine_consensus_threshold": "consensus_threshold",
+                    "strategy_engine_cooldown_sec": "cooldown_sec",
+                }[key]
+                values[key] = strategy.get(nested_key)
+            else:
+                values[key] = copy.deepcopy(source.get(key))
+        return values
 
+    @classmethod
+    def _merge_logical_setting_values(cls, settings: dict, values: dict) -> dict:
+        """타입형 작업 키의 이전 값을 현재 전체 설정에 안전하게 병합한다."""
+        merged = copy.deepcopy(settings or {})
+        for key, value in dict(values or {}).items():
+            if key not in cls.SETTINGS_ACTION_REGISTRY:
+                continue
+            if key in {"risk_tolerance", "balance_utilization_limit"}:
+                merged.setdefault("ai_trading_preferences", {})[key] = value
+            elif key in {
+                "strategy_engine_high_vol_action",
+                "strategy_engine_consensus_threshold",
+                "strategy_engine_cooldown_sec",
+            }:
+                nested_key = {
+                    "strategy_engine_high_vol_action": "high_vol_action",
+                    "strategy_engine_consensus_threshold": "consensus_threshold",
+                    "strategy_engine_cooldown_sec": "cooldown_sec",
+                }[key]
+                merged.setdefault("advanced_trading_layers", {}).setdefault(
+                    "strategy_engine", {}
+                )[nested_key] = value
+            else:
+                merged[key] = copy.deepcopy(value)
+        return merged
+
+    def _load_persistent_settings_history(self) -> None:
+        try:
+            if not self.settings_audit_path.exists():
+                return
+            payload = json.loads(self.settings_audit_path.read_text(encoding="utf-8"))
+            entries = payload.get("entries", []) if isinstance(payload, dict) else []
+            allowed = set(self.SETTINGS_ACTION_REGISTRY)
+            loaded = []
+            for entry in entries[-self.max_history_size:]:
+                if not isinstance(entry, dict):
+                    continue
+                changed = {
+                    key: value for key, value in dict(entry.get("settings", {}) or {}).items()
+                    if key in allowed
+                }
+                before = {
+                    key: value for key, value in dict(entry.get("before", {}) or {}).items()
+                    if key in allowed
+                }
+                if changed and before:
+                    loaded.append({
+                        "action_id": str(entry.get("action_id") or uuid4().hex),
+                        "timestamp": str(entry.get("timestamp") or ""),
+                        "settings": changed,
+                        "before": before,
+                        "after": {
+                            key: value for key, value in dict(entry.get("after", {}) or {}).items()
+                            if key in allowed
+                        },
+                        "source": str(entry.get("source") or "assistant_confirmed_apply"),
+                    })
+            self.settings_change_history = loaded
+        except Exception as exc:
+            self.logger.warning(f"어시스턴트 설정 감사로그 로드 실패: {exc}")
+
+    def _persist_settings_history(self) -> None:
+        try:
+            self.settings_audit_path.parent.mkdir(parents=True, exist_ok=True)
+            entries = []
+            for entry in self.settings_change_history[-self.max_history_size:]:
+                entries.append({
+                    "action_id": str(entry.get("action_id") or uuid4().hex),
+                    "timestamp": str(entry.get("timestamp") or datetime.now().isoformat()),
+                    "settings": copy.deepcopy(entry.get("settings", {}) or {}),
+                    "before": copy.deepcopy(entry.get("before", {}) or {}),
+                    "after": copy.deepcopy(entry.get("after", {}) or {}),
+                    "source": str(entry.get("source") or "assistant_confirmed_apply"),
+                })
+            temp_path = self.settings_audit_path.with_suffix(".json.tmp")
+            temp_path.write_text(
+                json.dumps({"schema_version": 1, "entries": entries}, ensure_ascii=False, indent=2),
+                encoding="utf-8",
+            )
+            temp_path.replace(self.settings_audit_path)
+        except Exception as exc:
+            self.logger.warning(f"어시스턴트 설정 감사로그 저장 실패: {exc}")
+
+    def _append_settings_history(
+        self,
+        *,
+        changes: dict,
+        before_full: dict,
+        after_full: dict,
+        source: str,
+    ) -> None:
+        keys = [key for key in changes if key in self.SETTINGS_ACTION_REGISTRY]
+        self.settings_change_history.append({
+            "action_id": f"settings_{uuid4().hex}",
+            "timestamp": datetime.now().isoformat(),
+            "settings": {key: copy.deepcopy(changes[key]) for key in keys},
+            "before": self._logical_setting_values(before_full, keys),
+            "after": self._logical_setting_values(after_full, keys),
+            "before_full": copy.deepcopy(before_full),
+            "source": str(source),
+        })
+        if len(self.settings_change_history) > self.max_history_size:
+            self.settings_change_history.pop(0)
+        self._persist_settings_history()
 
 
     def undo_last_settings_change(self):
@@ -1540,7 +2108,7 @@ class AIAssistantWidget(CTkFrame):
             return
 
         last_change = self.settings_change_history[-1]
-        before_settings = last_change.get('before_full') or last_change.get('before')
+        before_settings = last_change.get('before')
         if not before_settings:
             self.add_ai_message("이전 설정 스냅샷이 없어 되돌릴 수 없습니다.\n(이 항목은 이전 버전에서 기록된 이력입니다)")
             return
@@ -1551,17 +2119,26 @@ class AIAssistantWidget(CTkFrame):
                 self.add_ai_message("대시보드에 연결되지 않아 설정을 적용할 수 없습니다.")
                 return
 
-            from config.settings import save_settings
-            if save_settings(before_settings):
+            from config.settings import load_settings, save_settings
+            current_full = load_settings() or copy.deepcopy(getattr(dashboard, "settings", {}) or {})
+            restored_full = self._merge_logical_setting_values(current_full, before_settings)
+            if save_settings(restored_full):
+                persisted_settings = load_settings() or {}
+                expected_values = self._logical_setting_values(restored_full, before_settings.keys())
+                persisted_values = self._logical_setting_values(persisted_settings, before_settings.keys())
+                if persisted_values != expected_values:
+                    save_settings(current_full)
+                    self.add_ai_message(
+                        "되돌리기 저장 후 재조회 값이 이전 설정과 달라 현재 설정을 유지했습니다."
+                    )
+                    return
                 if hasattr(dashboard, 'settings'):
-                    if last_change.get('before_full') and isinstance(dashboard.settings, dict):
-                        dashboard.settings.clear()
-                        dashboard.settings.update(copy.deepcopy(before_settings))
-                    else:
-                        dashboard.settings.update(before_settings)
+                    dashboard.settings.clear()
+                    dashboard.settings.update(copy.deepcopy(persisted_settings))
                 if hasattr(dashboard, 'on_settings_changed'):
-                    dashboard.on_settings_changed('settings_updated', before_settings)
+                    dashboard.on_settings_changed('settings_updated', persisted_settings)
                 self.settings_change_history.pop()  # 되돌린 항목 제거
+                self._persist_settings_history()
                 self.update_strategy_status(getattr(dashboard, 'settings', {}))
                 self._update_settings_modal_ui_state()
                 self.add_ai_message("마지막 설정 변경을 성공적으로 되돌렸습니다.")
@@ -1933,7 +2510,7 @@ AI 상태: {ai_status}"""
             # 버튼들
             button_frame = CTkFrame(
                 main_frame,
-                fg_color="#0b1120"
+                fg_color=self._color("content_bg", "#0b1120")
             )
             button_frame.pack(fill="x", padx=10, pady=10)
 
@@ -2157,10 +2734,13 @@ AI 상태: {ai_status}"""
 
                     context_parts.append(f"거래소 연결 상태: {connection_status}")
                     # 중요: 설정 변경은 거래소 연결 상태와 무관하게 가능하다는 정보 추가
-                    context_parts.append("참고: 설정 변경은 거래소 연결 상태와 무관하게 가능합니다 (settings.json 파일 수정)")
+                    context_parts.append(
+                        "참고: 모델·표시 설정은 오프라인 저장할 수 있지만 위험을 높이는 거래 설정은 "
+                        "시장·성과·포지션 확인이 완료돼야 대화형 변경을 제안합니다."
+                    )
                 except Exception as e:
                     context_parts.append(f"거래소 연결 상태: 확인 불가 - {str(e)}")
-                    context_parts.append("참고: 설정 변경은 거래소 연결 상태와 무관하게 가능합니다")
+                    context_parts.append("참고: 연결 상태를 확인할 수 없어 위험 확대형 대화 설정은 제안하지 않습니다.")
 
                 # 2. 잔고 정보 (상세)
                 try:
@@ -2220,6 +2800,21 @@ AI 상태: {ai_status}"""
 
                 # 변동성 설정
                 context_parts.append(f"변동성 임계값: {settings.get('volatility_threshold', 0.02)*100:.2f}%")
+                advanced_layers = settings.get('advanced_trading_layers', {})
+                if isinstance(advanced_layers, dict):
+                    strategy_policy = advanced_layers.get('strategy_engine', {})
+                    if isinstance(strategy_policy, dict):
+                        high_vol_action = str(strategy_policy.get('high_vol_action', 'evaluate')).lower()
+                        context_parts.append(
+                            "고변동장 처리: "
+                            + ("항상 차단(block)" if high_vol_action == 'block' else "평가 계속(evaluate)")
+                        )
+                        context_parts.append(
+                            f"전략 합의 임계값: {float(strategy_policy.get('consensus_threshold', 0.60) or 0.60):.2f}"
+                        )
+                        context_parts.append(
+                            f"심볼 쿨다운: {int(strategy_policy.get('cooldown_sec', 60) or 0)}초"
+                        )
 
                 # AI 청산 설정
                 ai_exit = settings.get('ai_exit_settings', {})
@@ -2518,6 +3113,14 @@ AI 상태: {ai_status}"""
                     settings_lines.append(f"  • 리스크 성향: {label_map.get(value, value)}")
                 elif key == 'balance_utilization_limit':
                     settings_lines.append(f"  • 잔고 활용 한도: {value * 100:.0f}%")
+                elif key == 'strategy_engine_high_vol_action':
+                    settings_lines.append(
+                        "  • 고변동장 처리: " + ("항상 차단" if value == "block" else "평가 계속")
+                    )
+                elif key == 'strategy_engine_consensus_threshold':
+                    settings_lines.append(f"  • 전략 합의 임계값: {float(value):.2f}")
+                elif key == 'strategy_engine_cooldown_sec':
+                    settings_lines.append(f"  • 심볼 쿨다운: {int(value)}초")
                 else:
                     settings_lines.append(f"  • {key}: {value}")
 
@@ -2549,6 +3152,15 @@ AI 상태: {ai_status}"""
     def _insert_confirm_buttons(self, parsed_settings: dict, user_message: str):
         """채팅창 하단에 적용/취소 확인 버튼 프레임을 삽입합니다."""
         try:
+            context_ok, context_reasons = self._validate_trading_change_context(parsed_settings)
+            if not context_ok:
+                self.add_ai_message(
+                    "안전 정책으로 설정 제안을 적용 단계로 넘기지 않았습니다.\n"
+                    + "\n".join(f"- {reason}" for reason in context_reasons)
+                    + "\n시장·성과·포지션 데이터를 다시 수집한 뒤 재평가하거나 더 보수적인 변경을 요청해 주세요."
+                )
+                return
+
             confirm_frame = CTkFrame(
                 self.chat_messages_frame,
                 fg_color=self._color("surface"),
@@ -2573,6 +3185,17 @@ AI 상태: {ai_status}"""
                 # 버튼 비활성화 (중복 클릭 방지)
                 apply_btn.configure(state="disabled", text="적용 중...")
                 cancel_btn.configure(state="disabled")
+
+                # 제안 표시 후 시장·성과·포지션이 달라질 수 있으므로 클릭 시점에 다시 검증한다.
+                latest_context_ok, latest_context_reasons = self._validate_trading_change_context(parsed_settings)
+                if not latest_context_ok:
+                    apply_btn.configure(state="normal", text="적용")
+                    cancel_btn.configure(state="normal")
+                    self.add_ai_message(
+                        "적용 직전 안전 재검증에서 변경을 중단했습니다.\n"
+                        + "\n".join(f"- {reason}" for reason in latest_context_reasons)
+                    )
+                    return
 
                 # 2단계 확인: 채팅 버튼 클릭 후 최종 확인 대화상자를 한 번 더 보여준다.
                 if not self._confirm_settings_apply(parsed_settings):
@@ -2626,9 +3249,19 @@ AI 상태: {ai_status}"""
         """AI 제안 설정을 허용 키/범위 기준으로 정규화한다."""
         safe: dict = {}
         notes: list[str] = []
-        allowed_models = {'gpt-3.5-turbo', 'gpt-4o-mini', 'gpt-4o', 'gpt-4-turbo', 'gpt-5'}
         if not isinstance(settings, dict):
             return safe, ["설정 형식이 dict가 아니라 적용하지 않았습니다."]
+
+        def _safe_model_name(raw_value: Any) -> Optional[str]:
+            import re
+            model_name = str(raw_value or "").strip()
+            if not model_name or len(model_name) > 128:
+                return None
+            # API에서 새 모델이 추가돼도 코드 릴리스 없이 선택할 수 있게 하되,
+            # 공백·제어문자·명령 문자열은 설정에 저장하지 않는다.
+            if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._:/-]{0,127}", model_name):
+                return None
+            return model_name
 
         # risk_tolerance와 balance_utilization_limit은 중첩/평탄 구조 모두 허용
         candidate = dict(settings)
@@ -2686,27 +3319,17 @@ AI 상태: {ai_status}"""
                     notes.append(f"잔고 활용 한도를 안전 범위(0.05~0.5)로 보정했습니다: {lim} -> {clamped}")
                 safe[key] = clamped
             elif key == 'assistant_apply_mode':
-                mode_raw = str(value).strip().lower()
-                mode_alias = {
-                    'user_confirm': 'user_confirm',
-                    'confirm': 'user_confirm',
-                    'manual': 'user_confirm',
-                    '사용자 최종확인': 'user_confirm',
-                    '사용자확인': 'user_confirm',
-                    'ai_auto': 'ai_auto',
-                    'auto': 'ai_auto',
-                    '자동': 'ai_auto',
-                    'ai 자동적용': 'ai_auto',
-                }
-                resolved = mode_alias.get(mode_raw)
-                if not resolved:
-                    notes.append(f"assistant_apply_mode 값 '{value}'는 허용되지 않아 user_confirm으로 보정했습니다.")
-                    resolved = 'user_confirm'
-                safe[key] = resolved
+                if str(value).strip().lower() not in {
+                    'user_confirm', 'confirm', 'manual', '사용자 최종확인', '사용자확인'
+                }:
+                    notes.append(
+                        "거래 관련 AI 자동적용은 지원하지 않아 assistant_apply_mode를 user_confirm으로 고정했습니다."
+                    )
+                safe[key] = 'user_confirm'
             elif key in ('openai_model', 'assistant_ai_model'):
-                model_name = str(value).strip()
-                if model_name not in allowed_models:
-                    notes.append(f"{key} 값 '{value}'는 허용 모델이 아니어서 제외했습니다.")
+                model_name = _safe_model_name(value)
+                if not model_name:
+                    notes.append(f"{key} 값 '{value}'는 안전한 모델명 형식이 아니어서 제외했습니다.")
                     continue
                 safe[key] = model_name
             elif key == 'ai_model_roles':
@@ -2718,12 +3341,55 @@ AI 상태: {ai_status}"""
                     tier_model = str(value.get(tier, '')).strip()
                     if not tier_model:
                         continue
-                    if tier_model not in allowed_models:
-                        notes.append(f"ai_model_roles.{tier} 값 '{tier_model}'는 허용 모델이 아니어서 제외했습니다.")
+                    safe_tier_model = _safe_model_name(tier_model)
+                    if not safe_tier_model:
+                        notes.append(
+                            f"ai_model_roles.{tier} 값 '{tier_model}'는 안전한 모델명 형식이 아니어서 제외했습니다."
+                        )
                         continue
-                    roles_safe[tier] = tier_model
+                    roles_safe[tier] = safe_tier_model
                 if roles_safe:
                     safe[key] = roles_safe
+            elif key == 'strategy_engine_high_vol_action':
+                action_alias = {
+                    'evaluate': 'evaluate',
+                    '평가': 'evaluate',
+                    '평가 계속': 'evaluate',
+                    '차단 해제': 'evaluate',
+                    'unblock': 'evaluate',
+                    'block': 'block',
+                    '차단': 'block',
+                    '항상 차단': 'block',
+                }
+                resolved = action_alias.get(str(value).strip().lower())
+                if not resolved:
+                    notes.append(
+                        f"strategy_engine_high_vol_action 값 '{value}'는 evaluate/block이 아니어서 제외했습니다."
+                    )
+                    continue
+                safe[key] = resolved
+            elif key == 'strategy_engine_consensus_threshold':
+                try:
+                    threshold = float(value)
+                except Exception:
+                    notes.append("전략 합의 임계값이 숫자가 아니어서 제외했습니다.")
+                    continue
+                clamped = max(0.10, min(0.95, threshold))
+                if clamped != threshold:
+                    notes.append(
+                        f"전략 합의 임계값을 허용 범위(0.10~0.95)로 보정했습니다: {threshold} -> {clamped}"
+                    )
+                safe[key] = clamped
+            elif key == 'strategy_engine_cooldown_sec':
+                try:
+                    cooldown = int(float(value))
+                except Exception:
+                    notes.append("심볼 쿨다운이 숫자가 아니어서 제외했습니다.")
+                    continue
+                clamped = max(0, min(3600, cooldown))
+                if clamped != cooldown:
+                    notes.append(f"심볼 쿨다운을 허용 범위(0~3600초)로 보정했습니다: {cooldown} -> {clamped}")
+                safe[key] = clamped
             elif key == 'ai_trading_preferences':
                 # 위에서 평탄화 처리했으므로 중복 적용 방지
                 continue
@@ -2748,7 +3414,11 @@ AI 상태: {ai_status}"""
             elif key == 'balance_utilization_limit':
                 lines.append(f"- 잔고 활용 한도: {float(value) * 100:.1f}%")
             elif key == 'assistant_apply_mode':
-                mode_label = '사용자 최종확인' if str(value).lower() == 'user_confirm' else 'AI 자동적용'
+                mode_label = (
+                    '사용자 최종확인'
+                    if str(value).lower() == 'user_confirm'
+                    else '지원 중단 값(사용자 최종확인으로 변환)'
+                )
                 lines.append(f"- AI 설정 적용 방식: {mode_label}")
             elif key == 'openai_model':
                 lines.append(f"- AI 애널리스트 모델: {value}")
@@ -2761,6 +3431,12 @@ AI 상태: {ai_status}"""
                     f"standard={value.get('standard', '미설정')}, "
                     f"premium={value.get('premium', '미설정')}"
                 )
+            elif key == 'strategy_engine_high_vol_action':
+                lines.append("- 고변동장 처리: " + ("항상 차단" if value == "block" else "평가 계속"))
+            elif key == 'strategy_engine_consensus_threshold':
+                lines.append(f"- 전략 합의 임계값: {float(value):.2f}")
+            elif key == 'strategy_engine_cooldown_sec':
+                lines.append(f"- 심볼 쿨다운: {int(value)}초")
             else:
                 lines.append(f"- {key}: {value}")
         return lines
@@ -2801,18 +3477,34 @@ AI 상태: {ai_status}"""
             level = "elevated"
             reasons.append("리스크 성향이 적극적으로 변경됩니다.")
 
-        apply_mode = str(settings.get('assistant_apply_mode', '')).lower()
-        if apply_mode == 'ai_auto' and level == "normal":
+        high_vol_action = str(settings.get('strategy_engine_high_vol_action', '')).lower()
+        if high_vol_action == 'evaluate' and level == "normal":
             level = "elevated"
-            reasons.append("AI 자동적용 모드는 최종 확인 단계를 생략할 수 있어 운영 정책 검토가 필요합니다.")
+            reasons.append("고변동장도 평가 대상으로 열리지만 기존 합의·수익성·리스크 가드레일은 유지됩니다.")
+        try:
+            consensus_threshold = float(settings.get('strategy_engine_consensus_threshold'))
+            if consensus_threshold < 0.50:
+                if level == "normal":
+                    level = "elevated"
+                reasons.append(f"전략 합의 임계값 {consensus_threshold:.2f}는 진입 후보를 늘릴 수 있습니다.")
+        except Exception:
+            pass
+        try:
+            cooldown_sec = int(settings.get('strategy_engine_cooldown_sec'))
+            if cooldown_sec < 30:
+                if level == "normal":
+                    level = "elevated"
+                reasons.append(f"심볼 쿨다운 {cooldown_sec}초는 반복 진입 가능성을 높일 수 있습니다.")
+        except Exception:
+            pass
 
         # 고성능 모델 사용은 비용 측면에서 주의 표시
         openai_model = str(settings.get('openai_model', '')).strip()
         assistant_model = str(settings.get('assistant_ai_model', '')).strip()
         role_models = settings.get('ai_model_roles', {}) if isinstance(settings.get('ai_model_roles'), dict) else {}
         all_models = [openai_model, assistant_model] + [str(role_models.get(k, '')).strip() for k in ('frequent_cheap', 'standard', 'premium')]
-        high_cost_models = {'gpt-5', 'gpt-4-turbo'}
-        if any(m in high_cost_models for m in all_models if m):
+        high_cost_prefixes = ('gpt-5', 'gpt-4-turbo', 'o1', 'o3', 'o4')
+        if any(m.lower().startswith(high_cost_prefixes) for m in all_models if m):
             if level == "normal":
                 level = "elevated"
             reasons.append("고성능 모델 선택으로 API 비용이 증가할 수 있습니다.")
@@ -2829,16 +3521,111 @@ AI 상태: {ai_status}"""
 
         return level, reasons
 
+    def _validate_trading_change_context(self, settings: dict) -> tuple[bool, list[str]]:
+        """위험 확대형 거래 설정은 충분한 현재 데이터가 있을 때만 적용 제안한다."""
+        if not isinstance(settings, dict):
+            return False, ["설정 제안 형식이 올바르지 않습니다."]
+
+        trading_keys = {
+            'default_leverage',
+            'default_tp',
+            'default_sl',
+            'risk_tolerance',
+            'balance_utilization_limit',
+            'strategy_engine_high_vol_action',
+            'strategy_engine_consensus_threshold',
+            'strategy_engine_cooldown_sec',
+        }
+        if not trading_keys.intersection(settings):
+            return True, []
+
+        dashboard = getattr(self, 'parent_dashboard', None)
+        current = getattr(dashboard, 'settings', {}) if dashboard is not None else {}
+        current = current if isinstance(current, dict) else {}
+        prefs = current.get('ai_trading_preferences', {})
+        prefs = prefs if isinstance(prefs, dict) else {}
+        layers = current.get('advanced_trading_layers', {})
+        policy = layers.get('strategy_engine', {}) if isinstance(layers, dict) else {}
+        policy = policy if isinstance(policy, dict) else {}
+
+        risk_increase = False
+        try:
+            risk_increase |= int(settings.get('default_leverage', current.get('default_leverage', 1))) > int(
+                current.get('default_leverage', 1)
+            )
+        except Exception:
+            risk_increase = True
+        try:
+            risk_increase |= float(
+                settings.get('balance_utilization_limit', prefs.get('balance_utilization_limit', 0.25))
+            ) > float(prefs.get('balance_utilization_limit', 0.25))
+        except Exception:
+            risk_increase = True
+        risk_rank = {'CONSERVATIVE': 0, 'MODERATE': 1, 'AGGRESSIVE': 2}
+        if 'risk_tolerance' in settings:
+            risk_increase |= risk_rank.get(str(settings.get('risk_tolerance')).upper(), 99) > risk_rank.get(
+                str(prefs.get('risk_tolerance', 'MODERATE')).upper(), 1
+            )
+        if settings.get('strategy_engine_high_vol_action') == 'evaluate':
+            risk_increase |= str(policy.get('high_vol_action', 'evaluate')).lower() == 'block'
+        try:
+            if 'strategy_engine_consensus_threshold' in settings:
+                risk_increase |= float(settings['strategy_engine_consensus_threshold']) < float(
+                    policy.get('consensus_threshold', 0.60)
+                )
+        except Exception:
+            risk_increase = True
+        try:
+            if 'strategy_engine_cooldown_sec' in settings:
+                risk_increase |= int(settings['strategy_engine_cooldown_sec']) < int(policy.get('cooldown_sec', 60))
+        except Exception:
+            risk_increase = True
+        try:
+            if 'default_sl' in settings:
+                risk_increase |= float(settings['default_sl']) > float(current.get('default_sl', 0.01))
+        except Exception:
+            risk_increase = True
+
+        if not risk_increase:
+            return True, []
+        if dashboard is None:
+            return False, ["대시보드가 연결되지 않아 현재 시장·계좌·포지션을 확인할 수 없습니다."]
+
+        context = self._get_current_trading_context()
+        reasons: list[str] = []
+        if not context or "거래 상황 정보를 가져올 수 없습니다" in context:
+            reasons.append("현재 거래 상황을 수집하지 못했습니다.")
+        if "시장 데이터:" not in context or "시장 데이터: 조회 오류" in context:
+            reasons.append("현재 시장 데이터가 충분하지 않습니다.")
+        if "거래 통계: 기록 없음" in context or "거래 통계: 조회 오류" in context:
+            reasons.append("검증 가능한 최근 거래 성과가 없습니다.")
+        if "총 수익: -" in context:
+            reasons.append("최근 성과가 손실 구간이므로 위험을 높이는 변경을 대화로 적용하지 않습니다.")
+        if 'default_leverage' in settings and "활성 포지션: 없음" not in context:
+            reasons.append("열린 포지션이 있거나 포지션 상태가 불명확해 레버리지 확대를 차단합니다.")
+        return (not reasons), reasons
+
     def _build_settings_diff_lines(self, settings: dict) -> list[str]:
         """현재 설정 대비 변경 전/후 diff를 생성한다."""
         lines: list[str] = []
         dashboard = getattr(self, 'parent_dashboard', None)
         current_settings = getattr(dashboard, 'settings', {}) or {}
         current_prefs = current_settings.get('ai_trading_preferences', {}) if isinstance(current_settings.get('ai_trading_preferences'), dict) else {}
+        current_strategy_policy = (
+            current_settings.get('advanced_trading_layers', {}).get('strategy_engine', {})
+            if isinstance(current_settings.get('advanced_trading_layers'), dict)
+            else {}
+        )
 
         for key, value in settings.items():
             if key in ('risk_tolerance', 'balance_utilization_limit'):
                 before_value = current_prefs.get(key)
+            elif key == 'strategy_engine_high_vol_action':
+                before_value = current_strategy_policy.get('high_vol_action', 'evaluate')
+            elif key == 'strategy_engine_consensus_threshold':
+                before_value = current_strategy_policy.get('consensus_threshold', 0.60)
+            elif key == 'strategy_engine_cooldown_sec':
+                before_value = current_strategy_policy.get('cooldown_sec', 60)
             else:
                 before_value = current_settings.get(key)
 
@@ -2857,9 +3644,22 @@ AI 상태: {ai_status}"""
                 before_text = f"{before_value}x" if before_value is not None else "미설정"
                 after_text = f"{value}x"
             elif key == 'assistant_apply_mode':
-                mode_map = {'user_confirm': '사용자 최종확인', 'ai_auto': 'AI 자동적용'}
+                mode_map = {
+                    'user_confirm': '사용자 최종확인',
+                    'ai_auto': '지원 중단 값(사용자 최종확인으로 변환)',
+                }
                 before_text = mode_map.get(str(before_value).lower(), str(before_value) if before_value is not None else '미설정')
                 after_text = mode_map.get(str(value).lower(), str(value))
+            elif key == 'strategy_engine_high_vol_action':
+                action_map = {'evaluate': '평가 계속', 'block': '항상 차단'}
+                before_text = action_map.get(str(before_value).lower(), str(before_value))
+                after_text = action_map.get(str(value).lower(), str(value))
+            elif key == 'strategy_engine_consensus_threshold':
+                before_text = f"{float(before_value):.2f}"
+                after_text = f"{float(value):.2f}"
+            elif key == 'strategy_engine_cooldown_sec':
+                before_text = f"{int(before_value)}초"
+                after_text = f"{int(value)}초"
             elif key == 'ai_model_roles' and isinstance(value, dict):
                 before_roles = before_value if isinstance(before_value, dict) else {}
                 before_text = (
@@ -2882,9 +3682,6 @@ AI 상태: {ai_status}"""
 
     def _confirm_settings_apply(self, settings: dict) -> bool:
         """설정 반영 전 최종 확인 대화상자(2차 게이트)를 표시한다."""
-        if not getattr(self, 'require_final_settings_confirmation', True):
-            return True
-
         try:
             summary = "\n".join(self._build_settings_summary_lines(settings))
             diff_lines = "\n".join(self._build_settings_diff_lines(settings))
@@ -2975,11 +3772,20 @@ AI 상태: {ai_status}"""
             return None
 
     def _apply_settings_automatically(self, settings: dict, user_message: str):
-        """설정을 자동으로 적용"""
+        """사용자 확인이 끝난 설정을 마지막 안전 검증 후 적용한다."""
         try:
             settings, normalize_notes = self._sanitize_settings_proposal(settings)
             if not settings:
                 self.add_ai_message("적용 가능한 설정이 없어 저장을 중단했습니다.")
+                return
+
+            # UI 호출 외의 경로에서도 저장 직전 검증을 우회할 수 없게 한다.
+            context_ok, context_reasons = self._validate_trading_change_context(settings)
+            if not context_ok:
+                self.add_ai_message(
+                    "저장 직전 안전 재검증에서 설정 적용을 중단했습니다.\n"
+                    + "\n".join(f"- {reason}" for reason in context_reasons)
+                )
                 return
 
             dashboard = getattr(self, 'parent_dashboard', None)
@@ -2992,7 +3798,7 @@ AI 상태: {ai_status}"""
                 return
 
             # 현재 설정 가져오기
-            current_settings = dashboard.settings.copy()
+            current_settings = copy.deepcopy(dashboard.settings)
 
             # 설정 업데이트
             before_snapshot_full = copy.deepcopy(dashboard.settings)
@@ -3002,31 +3808,50 @@ AI 상태: {ai_status}"""
                     if 'ai_trading_preferences' not in current_settings:
                         current_settings['ai_trading_preferences'] = {}
                     current_settings['ai_trading_preferences'][key] = value
+                elif key in {
+                    'strategy_engine_high_vol_action',
+                    'strategy_engine_consensus_threshold',
+                    'strategy_engine_cooldown_sec',
+                }:
+                    layers = current_settings.setdefault('advanced_trading_layers', {})
+                    strategy_policy = layers.setdefault('strategy_engine', {})
+                    nested_key = {
+                        'strategy_engine_high_vol_action': 'high_vol_action',
+                        'strategy_engine_consensus_threshold': 'consensus_threshold',
+                        'strategy_engine_cooldown_sec': 'cooldown_sec',
+                    }[key]
+                    strategy_policy[nested_key] = value
                 else:
                     # 일반 설정
                     current_settings[key] = value
 
             # 설정 파일에 저장
-            from config.settings import save_settings
+            from config.settings import load_settings, save_settings
             if save_settings(current_settings):
+                persisted_settings = load_settings() or {}
+                expected_values = self._logical_setting_values(current_settings, settings.keys())
+                persisted_values = self._logical_setting_values(persisted_settings, settings.keys())
+                if persisted_values != expected_values:
+                    save_settings(before_snapshot_full)
+                    self.add_ai_message(
+                        "저장 후 재조회 값이 변경안과 달라 설정을 이전 상태로 되돌렸습니다."
+                    )
+                    return
                 # 대시보드 설정도 업데이트
-                dashboard.settings.update(current_settings)
+                dashboard.settings.clear()
+                dashboard.settings.update(persisted_settings)
 
                 if 'assistant_apply_mode' in settings:
-                    self.require_final_settings_confirmation = str(settings.get('assistant_apply_mode', 'user_confirm')).lower() != 'ai_auto'
+                    persisted_settings['assistant_apply_mode'] = 'user_confirm'
+                    dashboard.settings['assistant_apply_mode'] = 'user_confirm'
+                self.require_final_settings_confirmation = True
 
-                # 설정 변경 이력에 추가 (undo를 위해 before 상태 보존)
-                self.settings_change_history.append({
-                    'timestamp': datetime.now().isoformat(),
-                    'settings': settings.copy(),
-                    'before': {k: before_snapshot_full.get(k) for k in settings},
-                    'before_full': before_snapshot_full,
-                    'source': 'ai_auto_apply'
-                })
-
-                # 이력 크기 제한
-                if len(self.settings_change_history) > self.max_history_size:
-                    self.settings_change_history.pop(0)
+                self._append_settings_history(
+                    changes=settings,
+                    before_full=before_snapshot_full,
+                    after_full=persisted_settings,
+                    source="assistant_confirmed_apply",
+                )
 
                 # 성공 메시지
                 settings_summary = []
@@ -3042,7 +3867,7 @@ AI 상태: {ai_status}"""
                     elif key == 'balance_utilization_limit':
                         settings_summary.append(f"잔고 활용 한도: {value*100:.1f}%")
                     elif key == 'assistant_apply_mode':
-                        settings_summary.append("AI 설정 적용 방식: " + ("AI 자동적용" if str(value).lower() == 'ai_auto' else "사용자 최종확인"))
+                        settings_summary.append("AI 설정 적용 방식: 사용자 최종확인")
                     elif key == 'openai_model':
                         settings_summary.append(f"AI 애널리스트 모델: {value}")
                     elif key == 'assistant_ai_model':
@@ -3054,6 +3879,14 @@ AI 상태: {ai_status}"""
                             f"standard={value.get('standard', '미설정')}, "
                             f"premium={value.get('premium', '미설정')}"
                         )
+                    elif key == 'strategy_engine_high_vol_action':
+                        settings_summary.append(
+                            "고변동장 처리: " + ("항상 차단" if value == "block" else "평가 계속")
+                        )
+                    elif key == 'strategy_engine_consensus_threshold':
+                        settings_summary.append(f"전략 합의 임계값: {float(value):.2f}")
+                    elif key == 'strategy_engine_cooldown_sec':
+                        settings_summary.append(f"심볼 쿨다운: {int(value)}초")
                     else:
                         settings_summary.append(f"{key}: {value}")
 
@@ -3064,8 +3897,8 @@ AI 상태: {ai_status}"""
 
                 # 대시보드에 설정 변경 알림
                 if hasattr(dashboard, 'on_settings_changed'):
-                    dashboard.on_settings_changed('settings_updated', current_settings)
-                self.update_strategy_status(current_settings)
+                    dashboard.on_settings_changed('settings_updated', persisted_settings)
+                self.update_strategy_status(persisted_settings)
                 self._update_settings_modal_ui_state()
             else:
                 self.add_ai_message("설정 저장에 실패했습니다.")
@@ -3073,6 +3906,63 @@ AI 상태: {ai_status}"""
         except Exception as e:
             self.logger.error(f"설정 자동 적용 오류: {e}")
             self.add_ai_message(f"설정 적용 중 오류가 발생했습니다: {str(e)}")
+
+    def _build_protected_action_support(self, message: str) -> Optional[str]:
+        """직접 실행 미개방 작업을 일반 상담과 분리해 실행된 것처럼 답하지 않는다."""
+        normalized = re.sub(r"\s+", " ", str(message or "").strip().lower())
+        if not normalized:
+            return None
+        question_markers = (
+            "알려", "설명", "방법", "어떻게", "어디", "기준", "타이밍",
+            "분석", "평가", "가능", "할 수", "해야", "인가", "인가요", "뭐",
+        )
+        if any(marker in normalized for marker in question_markers):
+            return None
+
+        action_id = ""
+        understood = ""
+        if any(token in normalized for token in ("출금", "송금", "이체", "withdraw", "transfer")):
+            action_id = "withdraw_or_transfer"
+            understood = "출금·송금 요청"
+        elif (
+            any(token in normalized for token in ("api 키", "api key", "시크릿", "secret", "passphrase"))
+            and any(token in normalized for token in ("바꿔", "변경", "등록", "입력", "삭제", "교체"))
+        ):
+            action_id = "change_api_credentials"
+            understood = "API 자격증명 변경 요청"
+        elif (
+            any(token in normalized for token in ("거래 시작", "자동매매 시작", "거래 중지", "거래 정지", "자동매매 중지"))
+            and any(token in normalized for token in ("해줘", "시작", "중지", "정지", "꺼", "켜"))
+        ):
+            action_id = "start_or_stop_trading"
+            understood = "거래 시작·중지 요청"
+        elif (
+            any(token in normalized for token in ("매수", "매도", "롱", "숏", "buy", "sell"))
+            and any(token in normalized for token in ("해줘", "주문", "진입", "청산", "사줘", "팔아줘", "잡아줘"))
+        ):
+            action_id = "place_order"
+            understood = "주문 실행 요청"
+        if not action_id:
+            return None
+
+        gates = self.PROTECTED_ACTION_REGISTRY[action_id]["required_gates"]
+        gate_labels = {
+            "fresh_quote": "최신 시세", "balance": "잔고", "positions": "보유 포지션",
+            "open_orders": "미체결 주문", "market_hours": "시장 운영시간",
+            "slippage": "예상 슬리피지", "loss_limits": "손실 한도",
+            "idempotency_key": "중복 주문 방지키", "kill_switch": "킬스위치",
+            "runtime_state": "거래 엔진 상태", "pending_orders": "대기 주문",
+            "user_confirmation": "강화 사용자 확인", "secure_settings_ui": "보안 설정 화면",
+            "credential_validation": "자격증명 검증", "not_supported": "지원하지 않음",
+        }
+        required = ", ".join(gate_labels.get(item, item) for item in gates)
+        return (
+            f"요청을 ‘{understood}’으로 이해했습니다. 주문이나 상태 변경은 실행하지 않았습니다.\n\n"
+            "현재 v3.9.0.2의 NoahAI 어시스턴트는 이 작업을 채팅에서 직접 실행하지 않습니다. "
+            f"실행 권한을 열기 전에 {required} 검증이 필요합니다.\n"
+            "지금은 현재 시장·포지션·설정의 위험을 분석하거나, 대시보드에서 사용자가 직접 실행할 "
+            "정확한 위치와 확인 항목을 안내할 수 있습니다."
+        )
 
     def _extract_recommended_settings(self, ai_response: str, user_message: str) -> dict:
         """AI 응답에서 권장 설정을 추출"""
@@ -3232,56 +4122,17 @@ AI 상태: {ai_status}"""
             if not self.current_recommended_settings:
                 self.add_ai_message("적용할 권장 설정이 없습니다.")
                 return
-
-            # 대시보드에서 설정 업데이트
-            dashboard = getattr(self, 'parent_dashboard', None)
-            if not dashboard:
-                self.add_ai_message("대시보드에 연결되지 않았습니다.")
+            safe_settings, notes = self._sanitize_settings_proposal(self.current_recommended_settings)
+            if notes:
+                self.add_ai_message("권장안 안전 검증:\n" + "\n".join(f"- {note}" for note in notes))
+            if not safe_settings:
+                self.add_ai_message("허용된 타입형 설정이 없어 권장안 적용을 중단했습니다.")
                 return
-
-            if hasattr(dashboard, 'settings') and dashboard.settings:
-                # undo를 위해 before 상태 보존
-                before_snapshot_full = copy.deepcopy(dashboard.settings)
-                before_snapshot = {k: before_snapshot_full.get(k) for k in self.current_recommended_settings}
-
-                settings = dashboard.settings
-                settings.update(self.current_recommended_settings)
-
-                # 설정 파일에 저장
-                try:
-                    from config.settings import save_settings
-                    if save_settings(settings):
-                        self.add_ai_message("AI 권장 설정이 성공적으로 적용되었습니다!")
-
-                        # 설정 변경 이력에 추가 (before 포함)
-                        self.settings_change_history.append({
-                            'timestamp': datetime.now().isoformat(),
-                            'settings': self.current_recommended_settings.copy(),
-                            'before': before_snapshot,
-                            'before_full': before_snapshot_full,
-                            'source': 'ai_recommendation'
-                        })
-
-                        # 이력 크기 제한
-                        if len(self.settings_change_history) > self.max_history_size:
-                            self.settings_change_history.pop(0)
-
-                        # 권장 설정 초기화
-                        self.current_recommended_settings = None
-
-                        # 대시보드에 설정 변경 알림
-                        if hasattr(dashboard, 'on_settings_changed'):
-                            dashboard.on_settings_changed('settings_updated', settings)
-                        self.update_strategy_status(settings)
-                        self._update_settings_modal_ui_state()
-                    else:
-                        self.add_ai_message("설정 저장에 실패했습니다.")
-
-                except Exception as e:
-                    self.logger.error(f"설정 저장 오류: {e}")
-                    self.add_ai_message(f"설정 저장 중 오류가 발생했습니다: {str(e)}")
-            else:
-                self.add_ai_message("설정을 업데이트할 수 없습니다.")
+            if not self._confirm_settings_apply(safe_settings):
+                self.add_ai_message("사용자가 권장 설정 적용을 취소했습니다.")
+                return
+            self.current_recommended_settings = None
+            self._apply_settings_automatically(safe_settings, "AI 권장 설정")
 
         except Exception as e:
             self.logger.error(f"설정 적용 오류: {e}")

@@ -10,6 +10,7 @@ import logging
 import os
 import queue
 import threading
+import time
 from typing import Any, Dict, Optional, Tuple
 
 import requests
@@ -20,6 +21,11 @@ _KPI_QUEUE_MAXSIZE = 5000
 _kpi_queue: "queue.Queue[Dict[str, Any]]" = queue.Queue(maxsize=_KPI_QUEUE_MAXSIZE)
 _kpi_worker_lock = threading.Lock()
 _kpi_worker_started = False
+_LIFECYCLE_EVENT_TYPES = {
+    "trade_position_opened",
+    "trade_position_reduced",
+    "trade_position_closed",
+}
 
 
 ALLOWED_ASSET_CLASSES = (
@@ -110,6 +116,7 @@ class ServerKPIClient:
         status: str = "success",
         user_id: Optional[str] = None,
         session_id: Optional[str] = None,
+        access_token: Optional[str] = None,
         source: str = "noahai_client",
         metric_value: Optional[float] = None,
         metadata: Optional[Dict[str, Any]] = None,
@@ -147,6 +154,12 @@ class ServerKPIClient:
                         "url": f"{self.base_url}/auth/kpi/event",
                         "payload": payload,
                         "timeout": self.timeout,
+                        "headers": (
+                            {"Authorization": f"Bearer {access_token}"}
+                            if access_token
+                            else {}
+                        ),
+                        "max_attempts": 3 if event_type in _LIFECYCLE_EVENT_TYPES else 1,
                     }
                 )
                 return True
@@ -157,27 +170,80 @@ class ServerKPIClient:
             response = requests.post(
                 f"{self.base_url}/auth/kpi/event",
                 json=payload,
+                headers={"Authorization": f"Bearer {access_token}"} if access_token else None,
                 timeout=self.timeout,
             )
+            if response.status_code != 200:
+                logger.warning(
+                    "KPI 이벤트가 서버에서 거절되었습니다: event_type=%s status=%s",
+                    event_type,
+                    response.status_code,
+                )
             return response.status_code == 200
         except Exception as exc:
             logger.debug("KPI 이벤트 전송 실패: %s", exc)
             return False
 
 
+def _deliver_kpi_item(item: Dict[str, Any]) -> bool:
+    """큐 이벤트 한 건을 전송하고 서버 오류일 때만 제한적으로 재시도한다."""
+    payload = item.get("payload") or {}
+    event_type = str(payload.get("event_type") or "unknown")
+    max_attempts = max(1, int(item.get("max_attempts") or 1))
+    for attempt in range(1, max_attempts + 1):
+        try:
+            response = requests.post(
+                str(item.get("url") or ""),
+                json=payload,
+                headers=item.get("headers") or None,
+                timeout=float(item.get("timeout") or 1.5),
+            )
+            if response.status_code == 200:
+                return True
+            logger.warning(
+                "KPI 비동기 이벤트 거절: event_type=%s status=%s attempt=%s/%s",
+                event_type,
+                response.status_code,
+                attempt,
+                max_attempts,
+            )
+            # 유효성·인증 오류는 같은 payload를 재전송해도 성공하지 않는다.
+            if response.status_code < 500 and response.status_code != 429:
+                return False
+        except Exception as exc:
+            logger.warning(
+                "KPI 비동기 전송 실패: event_type=%s attempt=%s/%s error=%s",
+                event_type,
+                attempt,
+                max_attempts,
+                type(exc).__name__,
+            )
+        if attempt < max_attempts:
+            time.sleep(0.25 * attempt)
+    return False
+
+
 def _kpi_worker_loop() -> None:
     while True:
         item = _kpi_queue.get()
         try:
-            requests.post(
-                str(item.get("url") or ""),
-                json=item.get("payload") or {},
-                timeout=float(item.get("timeout") or 1.5),
-            )
-        except Exception as exc:
-            logger.debug("KPI 비동기 전송 실패: %s", exc)
+            _deliver_kpi_item(item)
         finally:
             _kpi_queue.task_done()
+
+
+def flush_kpi_events(timeout: float = 5.0) -> bool:
+    """프로그램 종료 전 큐에 남은 KPI 이벤트가 처리될 때까지 제한 시간만 대기한다."""
+    deadline = time.monotonic() + max(0.0, float(timeout or 0.0))
+    while getattr(_kpi_queue, "unfinished_tasks", 0) > 0:
+        if time.monotonic() >= deadline:
+            logger.warning(
+                "KPI 큐 flush 제한시간 초과: remaining=%s",
+                getattr(_kpi_queue, "unfinished_tasks", 0),
+            )
+            return False
+        time.sleep(0.05)
+    return True
 
 
 def _ensure_kpi_worker_started() -> None:
@@ -205,9 +271,10 @@ def _load_user_context() -> Dict[str, Optional[str]]:
         return {
             "user_id": user_info.get("id") or token_data.get("user_id"),
             "session_id": user_info.get("session_id") or token_data.get("session_id"),
+            "access_token": token_data.get("access_token"),
         }
     except Exception:
-        return {"user_id": None, "session_id": None}
+        return {"user_id": None, "session_id": None, "access_token": None}
 
 
 def emit_kpi_event(
@@ -224,10 +291,12 @@ def emit_kpi_event(
     """예외를 밖으로 던지지 않는 안전한 KPI 이벤트 전송 함수."""
     user_id: Optional[str] = None
     session_id: Optional[str] = None
+    access_token: Optional[str] = None
     if include_user_context:
         context = _load_user_context()
         user_id = context.get("user_id")
         session_id = context.get("session_id")
+        access_token = context.get("access_token")
 
     client = ServerKPIClient()
     return client.emit_event(
@@ -237,6 +306,7 @@ def emit_kpi_event(
         status=status,
         user_id=user_id,
         session_id=session_id,
+        access_token=access_token,
         source=source,
         metric_value=metric_value,
         metadata=metadata,

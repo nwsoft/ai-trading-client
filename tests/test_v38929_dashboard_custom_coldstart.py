@@ -80,6 +80,30 @@ market conditions EMA RSI trend
     assert result["engine_settings"]["position_size"] == 0.05
     assert all(result["rules"].get(key) for key in StrategySourceIngestor.REQUIRED_RULES)
     assert result["rules"]["executable_entry"]["all"]
+    assert {
+        "field": "current_price", "operator": "gt_field", "value_field": "ema200",
+    } in result["rules"]["executable_entry"]["all"]
+
+
+def test_pine_crossover_preserves_previous_bar_semantics():
+    pine = """
+//@version=5
+strategy("EMA cross")
+longCondition = ta.crossover(close, ta.ema(close, 200))
+if longCondition
+    strategy.entry("L", strategy.long)
+strategy.exit("X", "L")
+stop_loss 1%
+take_profit 2%
+position_size 5%
+상승장
+"""
+    result = StrategySourceIngestor().analyze(pine, "pine")
+    assert {
+        "field": "current_price",
+        "operator": "crosses_above",
+        "value_field": "ema200",
+    } in result["rules"]["executable_entry"]["all"]
 
 
 def test_declarative_entry_rules_gate_actual_signal_context():
@@ -298,6 +322,7 @@ def test_custom_strategy_manual_exposes_real_button_flow_and_scopes():
         "모든 블록체인", "모든 주식/ETF", "실행 검증 기록", "최종 적용", "최대 10개",
         "전략 설명 / Pine Script 직접 입력", "앞 100쪽", "앞 60,000자", "대표 장면 최대 9개",
         "설정 위치: 대시보드 상단", "정밀 진단·최적화(고성능 모델)",
+        "TradingView·영상·문서·Pine 전략", "별도의 끝없는 승인 단계를 추가하지 않습니다",
     ):
         assert text in manual
 
@@ -324,22 +349,22 @@ def test_custom_strategy_source_limits_and_visible_ai_model_are_explicit():
     assert "audio_transcript_available" in ingestor
 
 
-def test_windows_executable_metadata_is_aligned_to_3901():
+def test_windows_executable_metadata_is_aligned_to_3902():
     version_info = (ROOT / "config" / "windows_version_info.txt").read_text(encoding="utf-8")
     spec = (ROOT / "aiautotrade.spec").read_text(encoding="utf-8")
     safe_builder = (ROOT / "build_safe.py").read_text(encoding="utf-8")
-    assert "filevers=(3, 9, 0, 1)" in version_info
-    assert "ProductVersion', u'3.9.0.1'" in version_info
+    assert "filevers=(3, 9, 0, 2)" in version_info
+    assert "ProductVersion', u'3.9.0.2'" in version_info
     assert "version='config/windows_version_info.txt'" in spec
     assert "version='config/windows_version_info.txt'" in safe_builder
-    assert 'RELEASE_VERSION = "3.9.0.1"' in (ROOT / "config" / "app_version.py").read_text(encoding="utf-8")
-    assert (ROOT / "deploy" / "version.txt").read_text(encoding="utf-8").strip() == "3.9.0.1"
+    assert 'RELEASE_VERSION = "3.9.0.2"' in (ROOT / "config" / "app_version.py").read_text(encoding="utf-8")
+    assert (ROOT / "deploy" / "version.txt").read_text(encoding="utf-8").strip() == "3.9.0.2"
     manifest = json.loads((ROOT / "deploy" / "release-manifest.json").read_text(encoding="utf-8"))
-    assert manifest["version"] == "3.9.0.1"
+    assert manifest["version"] == "3.9.0.2"
     assert manifest["build_status"] == "pending_windows_rebuild"
     assert manifest["assets"]["exe"]["size"] == 0
     assert manifest["assets"]["exe"]["sha256"] == ""
-    assert "/v3.9.0.1/AITrading.exe" in manifest["assets"]["exe"]["download_url"]
+    assert "/v3.9.0.2/AITrading.exe" in manifest["assets"]["exe"]["download_url"]
     release_builder = (ROOT / "scripts" / "generate_release_assets.py").read_text(encoding="utf-8")
     assert "AITrading.exe가 RELEASE_VERSION 변경보다 오래된 빌드" in release_builder
     release_push = (ROOT / "scripts" / "release_tag_push.ps1").read_text(encoding="utf-8")

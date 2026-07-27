@@ -12,7 +12,7 @@ import threading
 import math
 from datetime import datetime, timezone
 from typing import Dict, List, Optional, Any
-from dataclasses import dataclass, asdict
+from dataclasses import dataclass, asdict, field
 from enum import Enum
 import re, math, json, os
 
@@ -23,7 +23,7 @@ from .portfolio_orchestrator import PortfolioOrchestrator
 from .profitability_validation import ProfitabilityValidator
 from .strategy_engine import StrategyEngine
 from .custom_strategy_runtime import apply_engine_settings_to_trade_config
-from api.kpi_client import emit_kpi_event
+from api.kpi_client import emit_kpi_event, flush_kpi_events
 from api.position_kpi import emit_position_closed, emit_position_opened, utc_now
 
 
@@ -50,6 +50,9 @@ class Position:
     position_id: Optional[str] = None
     entry_time_source: str = "execution"
     execution_mode: str = "live"
+    custom_strategy_id: Optional[str] = None
+    custom_strategy_name: Optional[str] = None
+    custom_strategy_rules: Dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass
@@ -2075,6 +2078,8 @@ class Trader:
                                 signal_data['signal'] = signal
                             signal_data['_custom_engine_settings'] = dict(custom_entry.get('engine_settings') or {})
                             signal_data['_selected_custom_strategy'] = custom_entry.get('selected_strategy_name')
+                            signal_data['_selected_custom_strategy_id'] = custom_entry.get('selected_strategy_id')
+                            signal_data['_custom_strategy_rules'] = dict(custom_entry.get('selected_rules') or {})
                             signal_data['_custom_operation_mode'] = custom_entry.get('operation_mode', 'standard')
                             self.log_event(
                                 'strategy',
@@ -2387,6 +2392,9 @@ class Trader:
                         'risk_multiplier': float(trade_config.get('risk_multiplier', 1.0) or 1.0),
                         'model_version': str(trade_config.get('model_version', '') or 'local'),
                         'strategy_variant': str(trade_config.get('strategy_variant', 'unknown') or 'unknown'),
+                        '_selected_custom_strategy': trade_config.get('_selected_custom_strategy'),
+                        '_selected_custom_strategy_id': trade_config.get('_selected_custom_strategy_id'),
+                        '_custom_strategy_rules': dict(trade_config.get('_custom_strategy_rules') or {}),
                     }
 
                     self.log_event('trade', f"[{symbol}] 🔍 최종 거래 파라미터: {trade_params}")
@@ -3548,6 +3556,9 @@ class Trader:
                             sl_price=final_sl_price,  # 🔥 실제 거래소에서 조회한 값 또는 계산된 값
                             position_id=None,
                             execution_mode=str(mode or 'live'),
+                            custom_strategy_id=trade_params.get('_selected_custom_strategy_id'),
+                            custom_strategy_name=trade_params.get('_selected_custom_strategy'),
+                            custom_strategy_rules=dict(trade_params.get('_custom_strategy_rules') or {}),
                         )
 
                         self.active_positions[symbol] = position
@@ -4021,9 +4032,53 @@ class Trader:
             position.unrealized_pnl_percent = 0.0
             position.unrealized_pnl = 0.0
 
+    def _custom_strategy_exit_triggered(self, position: Position) -> bool:
+        """진입 때 선택된 커스텀 버전의 명시적 청산 조건을 같은 지표 계약으로 평가한다."""
+        rules = dict(getattr(position, "custom_strategy_rules", {}) or {})
+        exit_spec = dict(rules.get("executable_exit", {}) or {})
+        if not (exit_spec.get("all") or exit_spec.get("any")):
+            return False
+        try:
+            from .custom_strategy_validator import build_indicator_context
+            from .declarative_strategy_engine import DeclarativeStrategyEngine
+            market_data = self.analyzer.get_market_data(position.symbol) if self.analyzer else None
+            rows = [
+                {
+                    "timestamp": item.timestamp,
+                    "open": item.open,
+                    "high": item.high,
+                    "low": item.low,
+                    "close": item.close,
+                    "volume": item.volume,
+                }
+                for item in (market_data or [])
+            ]
+            context = build_indicator_context(rows, signal=position.side.value)
+            context.update({
+                "current_price": position.current_price,
+                "price": position.current_price,
+                "close": position.current_price,
+                "signal": position.side.value,
+            })
+            result = DeclarativeStrategyEngine.evaluate_exit(rules, context)
+            if result.get("allowed", False):
+                self.log_event(
+                    "monitor",
+                    f"[{position.symbol}] AI 커스텀 명시 청산 조건 충족: "
+                    f"{position.custom_strategy_name or position.custom_strategy_id or '사용자 전략'}",
+                )
+                return True
+        except Exception as exc:
+            self.logger.warning(f"{position.symbol} AI 커스텀 청산 조건 평가 실패(기존 TP/SL 유지): {exc}")
+        return False
+
     def should_close_position(self, position: Position) -> bool:
         """AI 모니터링 중심 포지션 청산 여부 판단"""
         try:
+            # 명시적 사용자 청산은 포지션 축소 동작이므로 진입 가드레일을 우회하지 않는다.
+            if self._custom_strategy_exit_triggered(position):
+                return True
+
             # 🔥 1. AI 모니터링 중심 청산 판단 (주력)
             ai_exit_decision = self._get_ai_exit_decision(position)
             if ai_exit_decision.get('should_exit', False):
@@ -4912,6 +4967,9 @@ class Trader:
 
             # 상황 매칭으로 선택된 승인 전략의 설정값을 최종 사용자 전략 오버레이로 적용한다.
             enhanced_params = apply_engine_settings_to_trade_config(enhanced_params, selected_custom)
+            enhanced_params['_selected_custom_strategy'] = signal_data.get('_selected_custom_strategy')
+            enhanced_params['_selected_custom_strategy_id'] = signal_data.get('_selected_custom_strategy_id')
+            enhanced_params['_custom_strategy_rules'] = dict(signal_data.get('_custom_strategy_rules') or {})
             self.logger.info(f"{symbol} AI 강화 파라미터: 레버리지={enhanced_params.get('leverage', 1)}x, "
                             f"포지션={format_percent(enhanced_params.get('position_size', 0.1), 1)}, "
                             f"TP={format_percent(enhanced_params.get('tp_percent', 0.18), 3)}, "
@@ -5457,6 +5515,7 @@ class Trader:
                     metadata={
                         'exchange': 'binance',
                         'symbol': symbol,
+                        'quote_currency': 'USDT',
                         'side': 'CLOSE',
                         'close': True,
                         'reason': reason,
@@ -5680,6 +5739,7 @@ class Trader:
                                 metadata={
                                     'exchange': 'binance',
                                     'symbol': symbol,
+                                    'quote_currency': 'USDT',
                                     'side': 'CLOSE',
                                     'close': True,
                                     'reason': f"{reason}_position_confirmed",
@@ -5999,7 +6059,16 @@ class Trader:
                 # TP/SL 없는 포지션은 즉시 시장가 청산
                 if not has_tp_sl:
                     self.log_event('system', f"[{symbol}] TP/SL 없음 - 시장가 청산 시작...")
-                    self._close_position_market(symbol)  # reduce_only=True (closePosition은 X)
+                    tracked_position = self.active_positions.get(symbol)
+                    if (
+                        tracked_position is not None
+                        and getattr(tracked_position, 'entry_time_source', 'execution') == 'execution'
+                    ):
+                        # 일반 청산과 같은 단일 경로를 사용해야 거래로그와 포지션 종료 KPI가 함께 남는다.
+                        self.close_position(tracked_position, reason='graceful_stop')
+                    else:
+                        # 진입시각을 증명할 수 없는 거래소 복구 포지션은 시간을 임의 생성하지 않는다.
+                        self._close_position_market(symbol)
                 else:
                     self.log_event('system', f"[{symbol}] ✅ TP/SL 정상 설정됨 - 포지션은 TP/SL 체결까지 유지 (정상 동작)")
                 # TP/SL이 있으면 체결 대기/폴백 타임아웃 후 시장가 강제청산 로직도 가능
@@ -6088,6 +6157,13 @@ class Trader:
                 self.logger.warning("⚠️ recorder.flush_to_db 메서드 없음 - 건너뜀")
         except Exception as e:
             self.logger.warning(f"⚠️ flush_to_db 실패 (무시됨): {e}")
+        try:
+            if flush_kpi_events(timeout=5.0):
+                self.logger.info("✅ KPI 이벤트 큐 flush 완료")
+            else:
+                self.logger.warning("⚠️ KPI 이벤트 큐 일부가 제한시간 안에 전송되지 못했습니다")
+        except Exception as e:
+            self.logger.warning(f"⚠️ KPI 이벤트 큐 flush 실패 (무시됨): {e}")
 
     def _compute_quantity_once(self, symbol: str, side: str, leverage: float, ref_price: float, risk_multiplier: float = 1.0):
         """수량 계산 단일화 (한 번만 계산하고 하위로 전달) - 정밀도 규칙 강화"""

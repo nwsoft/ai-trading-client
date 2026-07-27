@@ -1,6 +1,6 @@
 # 개발자 가이드 (회귀 방지 규칙)
 
-> 기준: 2026-07-24 · v3.9.0.1  
+> 기준: 2026-07-26 · v3.9.0.2  
 > 금융 인텔리전스의 메뉴·데이터·상태 모델은 `FINANCIAL_INTELLIGENCE_EXPANSION_PLAN_20260723.md`, 검증은 `FINANCIAL_INTELLIGENCE_TEST_CHECKLIST_20260723.md`를 따릅니다. 빌드 절차는 이 문서에 복제하지 않고 `BUILD_GUIDE.md`만 사용합니다.
 
 본 문서는 개발 단계에서의 회귀를 막고, Pylance/런타임 안정성을 유지하기 위한 규칙 모음입니다. PR 전 체크리스트로 활용하세요.

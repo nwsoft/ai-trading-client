@@ -80,6 +80,12 @@ class TradingStateManager:
 
 # 프로젝트 모듈
 from trading.trading_worker import TradingWorker
+from membership_policy import (
+    ALLOWED_USER_GRADES as MEMBERSHIP_ALLOWED_USER_GRADES,
+    REFERRAL_SAFE_EXCHANGES as MEMBERSHIP_REFERRAL_SAFE_EXCHANGES,
+    is_exchange_allowed,
+    normalize_user_grade,
+)
 
 # 프로젝트 로깅 모듈 (log_system으로 변경되어 충돌 없음)
 try:
@@ -261,7 +267,8 @@ from utils.auto_update_manager import AutoUpdateManager
 class NoahAIClient:
     """Noah AI 클라이언트 메인 클래스"""
 
-    ALLOWED_USER_GRADES = {"pro_coin", "pro_stock", "premium"}
+    ALLOWED_USER_GRADES = MEMBERSHIP_ALLOWED_USER_GRADES
+    REFERRAL_SAFE_EXCHANGES = MEMBERSHIP_REFERRAL_SAFE_EXCHANGES
 
 
     def __init__(self):
@@ -285,6 +292,7 @@ class NoahAIClient:
         self.settings: Dict[str, Any] = {}
         self.auto_update_manager: Optional[AutoUpdateManager] = None
         self.current_user_grade: str = "pro_coin"
+        self.current_membership_policy: Dict[str, Any] = {}
 
         # 🔥 로그인 성공 처리 플래그 초기화
         self._login_success_processed = False
@@ -518,6 +526,11 @@ class NoahAIClient:
             user_info['username'] = username
             user_info['user_grade'] = self._normalize_user_grade(user_info.get('user_grade', 'pro_coin'))
             self.current_user_grade = user_info['user_grade']
+            self.current_membership_policy = (
+                dict(user_info.get('membership_policy') or {})
+                if isinstance(user_info.get('membership_policy'), dict)
+                else {}
+            )
 
             set_current_user_account(username)
             logger = self._get_main_logger(); logger.info(f'사용자 계정 설정: {username}')
@@ -690,34 +703,7 @@ class NoahAIClient:
                 logger.warning(f"adminjung 초기 프로필 복사/보강 실패: {e}")
 
     def _normalize_user_grade(self, raw_grade: Any) -> str:
-        grade = str(raw_grade or "").strip().lower()
-        alias_map = {
-            "normal": "pro_coin",
-            "general": "pro_coin",
-            "basic": "pro_coin",
-            "coin_start": "pro_coin",
-            "coin-start": "pro_coin",
-            "pro_coin": "pro_coin",
-            "pro-coin": "pro_coin",
-            "stock": "pro_stock",
-            "stocks": "pro_stock",
-            "etf": "pro_stock",
-            "pro_stock": "pro_stock",
-            "pro-stock": "pro_stock",
-            "alltrading": "premium",
-            "all_trading": "premium",
-            "all-trading": "premium",
-            "middle": "premium",
-            "pro": "premium",
-            "signature": "premium",
-            "signature_federated": "premium",
-            "premium_all": "premium",
-            "premium-all": "premium",
-        }
-        grade = alias_map.get(grade, grade)
-        if grade not in self.ALLOWED_USER_GRADES:
-            return "pro_coin"
-        return grade
+        return normalize_user_grade(raw_grade)
 
     def _apply_membership_feature_limits(self, user_grade: Any) -> bool:
         """회원등급에 따라 런타임 기능 제한을 강제한다."""
@@ -747,7 +733,7 @@ class NoahAIClient:
         federated_learning = self.settings.get('federated_learning', {})
         saas_prep = self.settings.get('saas_preparation', {})
 
-        if grade == 'pro_coin':
+        if grade in {'referral', 'pro_coin'}:
             if self.settings.get('enabled_stock_brokers') != []:
                 self.settings['enabled_stock_brokers'] = []
                 changed = True
@@ -772,6 +758,34 @@ class NoahAIClient:
                 stock_auto_trading['auto_start'] = False
                 changed = True
 
+        if grade == 'referral':
+            policy_allowed = self.current_membership_policy.get('allowed_exchanges', [])
+            if not isinstance(policy_allowed, list):
+                policy_allowed = []
+            allowed_exchanges = {
+                str(exchange or '').strip().lower()
+                for exchange in policy_allowed
+                if str(exchange or '').strip().lower() in self.REFERRAL_SAFE_EXCHANGES
+            }
+            # 서버 정책이 없거나 비정상이면 공식 레퍼럴 거래소 전체 허용이 아니라 fail-closed 한다.
+            for key in ('enabled_exchanges', 'trade_enabled_exchanges', 'learning_enabled_exchanges'):
+                raw_values = self.settings.get(key, [])
+                values = raw_values if isinstance(raw_values, list) else []
+                filtered = [
+                    str(exchange).strip().lower()
+                    for exchange in values
+                    if str(exchange).strip().lower() in allowed_exchanges
+                ]
+                filtered = list(dict.fromkeys(filtered))
+                if values != filtered:
+                    self.settings[key] = filtered
+                    changed = True
+            selected = str(self.settings.get('selected_exchange', '') or '').strip().lower()
+            fallback = next(iter(sorted(allowed_exchanges)), '')
+            if selected not in allowed_exchanges and self.settings.get('selected_exchange') != fallback:
+                self.settings['selected_exchange'] = fallback
+                changed = True
+
         if grade == 'pro_stock':
             raw_enabled_exchanges = self.settings.get('enabled_exchanges', [])
             enabled_exchanges = raw_enabled_exchanges if isinstance(raw_enabled_exchanges, list) else []
@@ -779,13 +793,21 @@ class NoahAIClient:
                 self.settings['enabled_exchanges'] = []
                 changed = True
 
-        if grade in {'pro_coin', 'pro_stock'}:
+        if grade in {'referral', 'pro_coin', 'pro_stock'}:
             for key in ('enabled', 'batch_enabled', 'upload_enabled'):
                 if bool(federated_learning.get(key, False)):
                     federated_learning[key] = False
                     changed = True
 
-        target_tier = 'starter' if grade == 'pro_coin' else 'plus' if grade == 'pro_stock' else 'pro'
+        target_tier = (
+            'free'
+            if grade == 'referral'
+            else 'starter'
+            if grade == 'pro_coin'
+            else 'plus'
+            if grade == 'pro_stock'
+            else 'pro'
+        )
         if str(saas_prep.get('subscription_tier', '') or '') != target_tier:
             saas_prep['subscription_tier'] = target_tier
             changed = True
@@ -800,6 +822,59 @@ class NoahAIClient:
             if logger:
                 logger.info(f"회원등급 기능 제한 적용: {grade}")
         return changed
+
+    def apply_server_membership_policy(self, user_grade: Any, policy: Dict[str, Any]) -> None:
+        """주기 상태 확인에서 받은 서버 원본 등급을 즉시 런타임에 반영한다."""
+        grade = self._normalize_user_grade(user_grade)
+        normalized_policy = dict(policy or {}) if isinstance(policy, dict) else {}
+        if normalized_policy.get("user_grade") not in (None, "", grade):
+            logger = self._get_main_logger()
+            if logger:
+                logger.warning("회원정책 등급 불일치로 반영 거부")
+            return
+
+        previous_grade = self.current_user_grade
+        previous_version = self.current_membership_policy.get("policy_version", "")
+        self.current_user_grade = grade
+        self.current_membership_policy = normalized_policy
+        changed = self._apply_membership_feature_limits(grade)
+        if changed:
+            try:
+                save_settings(self.settings)
+            except Exception as exc:
+                logger = self._get_main_logger()
+                if logger:
+                    logger.warning(f"서버 회원정책 저장 실패: {exc}")
+
+        # 정책 축소 시 신규 주문 루프만 정지한다. 열린 포지션은 강제 청산하지 않는다.
+        for exchange in self._running_crypto_exchanges():
+            if not self._is_exchange_allowed_by_membership(exchange):
+                self.on_stop_exchange(exchange)
+
+        try:
+            if getattr(self, "backend_api", None):
+                self.backend_api.user_grade = grade
+        except Exception:
+            pass
+        try:
+            dashboard = getattr(self, "dashboard", None)
+            if dashboard and hasattr(dashboard, "thread_safe_after"):
+                dashboard.thread_safe_after(0, dashboard.update_status_info)
+        except Exception:
+            pass
+
+        logger = self._get_main_logger()
+        if logger and (
+            previous_grade != grade
+            or previous_version != normalized_policy.get("policy_version", "")
+            or changed
+        ):
+            logger.info(
+                "서버 회원정책 반영: %s -> %s, policy=%s",
+                previous_grade,
+                grade,
+                normalized_policy.get("policy_version", "missing"),
+            )
 
     def create_user_files_in_account_folder(self, username, user_info, access_token=None):
         """token.json을 사용자 폴더에 생성 (credentials.json은 login_modern.py에서 처리)"""
@@ -1243,6 +1318,11 @@ class NoahAIClient:
             user_email = user_info.get('email', '')
             user_info['user_grade'] = user_grade
             self.current_user_grade = user_grade
+            self.current_membership_policy = (
+                dict(user_info.get('membership_policy') or {})
+                if isinstance(user_info.get('membership_policy'), dict)
+                else {}
+            )
 
             # 🔥 사용자별 DB 경로 설정 (Recorder 초기화 전에 반드시 설정)
             from path_utils import set_current_user_account
@@ -2675,6 +2755,31 @@ class NoahAIClient:
             ex = (exchange or "").lower().strip() or "binance"
             logger.info(f"🚀 거래소별 시작 요청: {ex}")
 
+            if not self._is_exchange_allowed_by_membership(ex):
+                logger.warning(
+                    "회원등급 거래소 차단: grade=%s exchange=%s policy_version=%s",
+                    self.current_user_grade,
+                    ex,
+                    self.current_membership_policy.get('policy_version', 'missing'),
+                )
+                try:
+                    from api.kpi_client import emit_kpi_event
+                    emit_kpi_event(
+                        event_type="feature_gate_denied",
+                        category="platform",
+                        asset_class="crypto",
+                        status="blocked",
+                        metadata={
+                            "feature": "exchange_start",
+                            "exchange": ex,
+                            "user_grade": self.current_user_grade,
+                            "reason": "membership_exchange_not_allowed",
+                        },
+                    )
+                except Exception:
+                    pass
+                return False
+
             # 이미 실행 중인 거래소는 성공으로 간주(중복 시작 방지)
             try:
                 if ex == 'binance':
@@ -2748,6 +2853,7 @@ class NoahAIClient:
                     except Exception as ui_e:
                         logger.warning(f"{ex} 시작 UI 갱신 예약 생략: {ui_e}")
                 logger.info(f"✅ {ex} 거래 시작 성공")
+                self._emit_exchange_runtime_snapshot(trigger=f"start:{ex}")
             else:
                 if not allow_parallel_start:
                     self.state.mark_idle()
@@ -2764,6 +2870,68 @@ class NoahAIClient:
             if hasattr(self, 'state'):
                 self.state.mark_idle()
             return False
+
+    def _is_exchange_allowed_by_membership(self, exchange: str) -> bool:
+        """서버에서 받은 등급 정책을 공식 클라이언트 실행 직전에 다시 강제한다."""
+        return is_exchange_allowed(
+            self.current_user_grade,
+            exchange,
+            self.current_membership_policy,
+        )
+
+    def _running_crypto_exchanges(self) -> List[str]:
+        running: List[str] = []
+        try:
+            worker = getattr(self, "trading_worker", None)
+            thread = getattr(self, "trading_thread", None)
+            if bool(getattr(worker, "running", False)) or bool(thread is not None and thread.is_alive()):
+                running.append("binance")
+        except Exception:
+            pass
+        try:
+            flags = getattr(getattr(self, "unified_trader", None), "monitoring_flags", {}) or {}
+            for exchange, is_running in flags.items():
+                normalized = str(exchange or "").strip().lower()
+                if is_running and normalized in {"bybit", "okx", "bitget", "upbit", "bithumb"}:
+                    running.append(normalized)
+        except Exception:
+            pass
+        return list(dict.fromkeys(running))
+
+    def _emit_exchange_runtime_snapshot(self, trigger: str) -> None:
+        """사용자별 최신 동시 실행 거래소 수를 KPI 서버에 보고한다."""
+        try:
+            from api.kpi_client import emit_kpi_event
+            active = self._running_crypto_exchanges()
+            raw_configured = self.settings.get("enabled_exchanges", []) if isinstance(self.settings, dict) else []
+            configured = [
+                str(exchange or "").strip().lower()
+                for exchange in (raw_configured if isinstance(raw_configured, list) else [])
+                if str(exchange or "").strip().lower()
+                in {"binance", "bybit", "okx", "bitget", "upbit", "bithumb"}
+            ]
+            configured = list(dict.fromkeys(configured))
+            configured = list(dict.fromkeys(configured + active))
+            emit_kpi_event(
+                event_type="exchange_runtime_snapshot",
+                category="platform",
+                asset_class="crypto",
+                status="success",
+                metric_value=float(len(active)),
+                metadata={
+                    "active_count": len(active),
+                    "active_exchanges": active,
+                    "configured_count": len(configured),
+                    "configured_exchanges": configured,
+                    "user_grade": self.current_user_grade,
+                    "policy_version": self.current_membership_policy.get("policy_version", ""),
+                    "trigger": str(trigger or "runtime"),
+                },
+            )
+        except Exception as exc:
+            logger = self._get_main_logger()
+            if logger:
+                logger.debug(f"거래소 실행 스냅샷 전송 생략: {exc}")
 
     def _schedule_dashboard_trading_status(self, status: str) -> None:
         """Tk 위젯 상태 변경을 반드시 UI 스레드에서 실행한다."""
@@ -3072,6 +3240,7 @@ class NoahAIClient:
                     self.dashboard.is_auto_trading = bool(running_any)
                     self._schedule_dashboard_trading_status("RUNNING" if running_any else "STOPPED")
                 logger.info(f"✅ {ex} 거래 정지 성공")
+                self._emit_exchange_runtime_snapshot(trigger=f"stop:{ex}")
             else:
                 logger.warning(f"❌ {ex} 거래 정지 실패")
                 # STOP_PENDING에 고정되지 않도록 실제 엔진 상태로 복구한다.

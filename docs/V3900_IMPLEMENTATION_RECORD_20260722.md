@@ -1,5 +1,7 @@
 # NoahAI Client v3.9.0.0 구현·운용 기록
 
+> 이 문서는 v3.9.0.0 당시 구현 기록이다. v3.9.0.2 현행 구조·사용법·제한은 `AI_CUSTOM_STRATEGY_ARCHITECTURE.md`, `AI_CUSTOM_ASSISTANT_TEST_RUNBOOK_v3.9.0.2.md`, `USER_GUIDE.md`, `UPDATE_PLAN.md`를 우선한다.
+
 기준일: 2026-07-22  
 제품 버전: 3.9.0.0  
 목적: AI 커스텀을 설명용 기능이 아니라 사용자가 선택해 실제 자동매매에 연결할 수 있는 전략 생성 계층으로 정식화한다.

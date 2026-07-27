@@ -11,12 +11,15 @@ import time
 from utils.perf_metrics_logger import log_ui_perf_metric
 
 # 고정 색상 팔레트 사용
-from utils.fixed_colors import FIXED_COLORS
+from utils.fixed_colors import build_widget_palette
 
 
 class MarketTrendWidget(ctk.CTkFrame):
-    def __init__(self, parent, dashboard_ref=None):
-        super().__init__(parent)
+    def __init__(self, parent, dashboard_ref=None, colors=None, **kwargs):
+        palette = build_widget_palette(colors)
+        kwargs.setdefault("fg_color", palette["content_bg"])
+        kwargs.setdefault("corner_radius", 0)
+        super().__init__(parent, **kwargs)
         self.dashboard_ref = dashboard_ref
         self._trend_refreshing = False
         self._trend_sections = {}
@@ -30,15 +33,15 @@ class MarketTrendWidget(ctk.CTkFrame):
         self._trend_cache: Dict[str, Dict[str, Any]] = {}
         self._trend_cache_ttl_sec = 180
 
-        # 고정 색상 팔레트 사용
-        self.colors = FIXED_COLORS
+        # 모든 서비스가 AI 커스텀·거래 통계와 같은 기능 탭 팔레트를 사용한다.
+        self.colors = palette
 
         # 폰트 설정
         self.fonts = {
-            "title": ctk.CTkFont(size=16, weight="bold"),
-            "subtitle": ctk.CTkFont(size=14, weight="bold"),
-            "body": ctk.CTkFont(size=12),
-            "small": ctk.CTkFont(size=10)
+            "title": ctk.CTkFont(family="Segoe UI", size=16, weight="bold"),
+            "subtitle": ctk.CTkFont(family="Segoe UI", size=14, weight="bold"),
+            "body": ctk.CTkFont(family="Segoe UI", size=12),
+            "small": ctk.CTkFont(family="Segoe UI", size=10)
         }
 
     # CustomTkinter 패치 제거 (2025-10-30): 렌더링 품질 문제의 원인이었음
@@ -74,17 +77,24 @@ class MarketTrendWidget(ctk.CTkFrame):
         container = ctk.CTkScrollableFrame(
             self,
             label_text="시장 트렌드 인사이트",
-            corner_radius=12,
-            fg_color="#0b1120",
-            border_color="#1f2937",
-            border_width=2
+            corner_radius=16,
+            fg_color=self._color("content_bg", "#0b1120"),
+            border_color=self._color("border_strong", "#334155"),
+            border_width=1,
+            label_fg_color=self._color("card", "#111827"),
+            label_text_color=self._color("text_primary", "#f9fafb"),
+            label_font=ctk.CTkFont(family="Segoe UI", size=16, weight="bold"),
         )
         container.pack(fill="both", expand=True, padx=10, pady=(10, 10))
 
         # --- 상단 요약 칩(메트릭) 영역 ---
         try:
             # 투명색 금지 정책에 따라 컨테이너 배경색과 동일하게 설정
-            metrics_frame = ctk.CTkFrame(container, fg_color="#0b1120")
+            metrics_frame = ctk.CTkFrame(
+                container,
+                fg_color=self._color("content_bg", "#0b1120"),
+                corner_radius=0,
+            )
             metrics_frame.pack(fill="x", padx=6, pady=(0, 8))
 
             def _chip(parent, text: str, color_key: str, fallback: str):
@@ -102,7 +112,11 @@ class MarketTrendWidget(ctk.CTkFrame):
 
         # --- 본문 섹션: 카드/2열 레이아웃 ---
         sections: Dict[str, Any] = {}
-        sections_container = ctk.CTkFrame(container)
+        sections_container = ctk.CTkFrame(
+            container,
+            fg_color=self._color("content_bg", "#0b1120"),
+            corner_radius=0,
+        )
         sections_container.pack(fill="both", expand=True, padx=2, pady=2)
         try:
             sections_container.grid_columnconfigure(0, weight=1)
@@ -114,27 +128,49 @@ class MarketTrendWidget(ctk.CTkFrame):
             # 2열 그리드 위치 계산
             idx = len(sections)
             row, col = divmod(idx, 2)
-            frame = ctk.CTkFrame(sections_container, corner_radius=12)  # 통일 (10 → 12)
+            frame = ctk.CTkFrame(
+                sections_container,
+                corner_radius=16,
+                fg_color=self._color("card", "#111827"),
+                border_color=self._color("border_soft", "#273449"),
+                border_width=1,
+            )
             try:
                 frame.grid(row=row, column=col, padx=6, pady=6, sticky="nsew")
             except Exception:
                 frame.pack(fill="both", expand=True, padx=6, pady=6)
 
             # 헤더 라인: 아이콘 칩 + 제목
-            header = ctk.CTkFrame(frame, fg_color="#0b1120")
+            header = ctk.CTkFrame(
+                frame,
+                fg_color=self._color("card", "#111827"),
+                corner_radius=0,
+            )
             header.pack(fill="x", padx=8, pady=(10, 6))
             chip_color = self._color(chip_color_key, chip_fallback)
             chip = ctk.CTkLabel(header, text=f"{icon}", fg_color=chip_color, text_color="white", corner_radius=12, padx=8, pady=4)  # 통일 (8 → 12)
             chip.pack(side="left", padx=(0, 8))
-            title_lbl = ctk.CTkLabel(header, text=title, font=self.fonts.get("title", ctk.CTkFont(size=15, weight="bold")))
+            title_lbl = ctk.CTkLabel(
+                header,
+                text=title,
+                text_color=self._color("text_primary", "#f9fafb"),
+                font=self.fonts.get("title", ctk.CTkFont(size=15, weight="bold")),
+            )
             title_lbl.pack(side="left")
 
             # 내용 박스
-            box = ctk.CTkTextbox(frame, height=height)
+            box = ctk.CTkTextbox(
+                frame,
+                height=height,
+                fg_color=self._color("input", "#0b1120"),
+                border_color=self._color("border_strong", "#334155"),
+                border_width=1,
+                text_color=self._color("text_secondary", "#9ca3af"),
+                font=ctk.CTkFont(family="Segoe UI", size=12),
+            )
             box.pack(fill="both", expand=True, padx=8, pady=(0, 10))
             try:
-                # 가독성 향상: 살짝 여백 있는 텍스트 색/배경
-                box.configure(text_color=None)
+                box.configure(text_color=self._color("text_secondary", "#9ca3af"))
             except Exception:
                 pass
             box.insert("1.0", placeholder)
@@ -206,7 +242,12 @@ class MarketTrendWidget(ctk.CTkFrame):
         self.trend_sections = sections
         # 하단 스페이서로 마지막 콘텐츠 아래 여유 공간 확보(스크롤 끝 컷오프 방지)
         try:
-            bottom_spacer = ctk.CTkFrame(container, height=24, fg_color="#0b1120")
+            bottom_spacer = ctk.CTkFrame(
+                container,
+                height=24,
+                fg_color=self._color("content_bg", "#0b1120"),
+                corner_radius=0,
+            )
             bottom_spacer.pack(fill="x", padx=4, pady=(4, 0))
         except Exception:
             pass
