@@ -145,6 +145,7 @@ def update_settings_from_template(settings: Dict[str, Any]) -> Dict[str, Any]:
                 'auto_update_check_interval_hours': 6,
                 'auto_update_auto_download': True,
                 'auto_update_auto_apply_on_exit': True,
+                'auto_update_open_position_action': 'defer',
                 'auto_update_release_repo': 'nwsoft/ai-trading-client',
             }
             print("  ➕ UI 설정 강제 추가 (템플릿 병합 후)")
@@ -383,6 +384,137 @@ def load_settings() -> Dict[str, Any]:
                     print(f"🔧 모델명 정규화: '{model_name}' → '{model_fixes[model_name]}'")
                     settings['assistant_ai_model'] = model_fixes[model_name]
                     needs_save = True
+
+            # v3.9.0.3: 종료된 DeepSeek V3.1/deepseek-chat 별칭을 V4 Flash로 이전한다.
+            deprecated_deepseek_models = {'deepseek-3.1', 'deepseek-chat-v3.1', 'deepseek-chat', 'deepseek-reasoner'}
+            if 'api.deepseek.com' in str(settings.get('openai_base_url', '') or ''):
+                for model_key in ('openai_model', 'assistant_ai_model'):
+                    if str(settings.get(model_key) or '') in deprecated_deepseek_models:
+                        settings[model_key] = 'deepseek-v4-flash'
+                        needs_save = True
+                roles = settings.get('ai_model_roles', {})
+                if isinstance(roles, dict):
+                    for role_key, role_model in list(roles.items()):
+                        if isinstance(role_model, dict):
+                            if (
+                                str(role_model.get('provider') or '').lower() == 'deepseek'
+                                and str(role_model.get('model') or '') in deprecated_deepseek_models
+                            ):
+                                role_model['model'] = 'deepseek-v4-flash'
+                                needs_save = True
+                        elif str(role_model or '') in deprecated_deepseek_models:
+                            roles[role_key] = {
+                                'provider': 'deepseek',
+                                'model': 'deepseek-v4-flash',
+                            }
+                            needs_save = True
+            arena_cfg = settings.get('alpha_arena', {})
+            if isinstance(arena_cfg, dict) and str(arena_cfg.get('engine') or '') in deprecated_deepseek_models:
+                arena_cfg['engine'] = 'deepseek-v4-flash'
+                available = [
+                    'deepseek-v4-flash' if str(item) in deprecated_deepseek_models else item
+                    for item in list(arena_cfg.get('available_engines', []) or [])
+                ]
+                arena_cfg['available_engines'] = list(dict.fromkeys(available or ['deepseek-v4-flash']))
+                needs_save = True
+            if str(settings.get('alphaarena_ai_engine') or '') in deprecated_deepseek_models:
+                settings['alphaarena_ai_engine'] = 'deepseek-v4-flash'
+                needs_save = True
+
+            # v3.9.0.3: 새 Router 스키마를 기존 OpenAI 모델 설정에서 무중단 생성한다.
+            # 기존 키도 계속 유지하므로 이전 화면/모듈은 같은 값으로 동작한다.
+            legacy_roles = dict(settings.get('ai_model_roles', {}) or {})
+            models_cfg = dict(settings.get('ai_models', {}) or {})
+            if not str(models_cfg.get('analyst') or ''):
+                models_cfg['analyst'] = str(settings.get('openai_model') or 'gpt-4o-mini')
+                needs_save = True
+            if not str(models_cfg.get('assistant') or ''):
+                models_cfg['assistant'] = str(
+                    settings.get('assistant_ai_model') or models_cfg['analyst']
+                )
+                needs_save = True
+            loaded_provider = str(
+                loaded_settings_snapshot.get('ai_provider') or ''
+            ).strip().lower()
+            if not loaded_provider and 'api.deepseek.com' in str(
+                loaded_settings_snapshot.get('openai_base_url', '') or ''
+            ):
+                loaded_provider = 'deepseek'
+            active_provider = loaded_provider or str(
+                settings.get('ai_provider') or 'openai'
+            ).strip().lower()
+            if settings.get('ai_provider') != active_provider:
+                settings['ai_provider'] = active_provider
+                needs_save = True
+            role_defaults = {
+                'frequent_cheap': str(models_cfg['analyst']),
+                'standard': str(models_cfg['analyst']),
+                'premium': str(models_cfg['assistant']),
+            }
+            normalized_roles = {}
+            for role_key, fallback_model in role_defaults.items():
+                raw_role = legacy_roles.get(role_key)
+                if isinstance(raw_role, dict):
+                    role_provider = str(raw_role.get('provider') or active_provider).strip().lower()
+                    role_model = str(raw_role.get('model') or fallback_model).strip()
+                else:
+                    role_provider = active_provider
+                    role_model = str(raw_role or fallback_model).strip()
+                normalized_roles[role_key] = {
+                    'provider': role_provider,
+                    'model': role_model,
+                }
+            if legacy_roles != normalized_roles:
+                settings['ai_model_roles'] = normalized_roles
+                needs_save = True
+            models_cfg['roles'] = copy.deepcopy(normalized_roles)
+            settings['ai_models'] = models_cfg
+
+            profiles_cfg = dict(settings.get('ai_provider_profiles', {}) or {})
+            loaded_profiles = loaded_settings_snapshot.get('ai_provider_profiles', {})
+            analyst_profile = dict(profiles_cfg.get('analyst', {}) or {})
+            assistant_profile = dict(profiles_cfg.get('assistant', {}) or {})
+            transcription_profile = dict(profiles_cfg.get('transcription', {}) or {})
+            loaded_analyst = (
+                loaded_profiles.get('analyst', {})
+                if isinstance(loaded_profiles, dict)
+                else {}
+            )
+            loaded_assistant = (
+                loaded_profiles.get('assistant', {})
+                if isinstance(loaded_profiles, dict)
+                else {}
+            )
+            if not isinstance(loaded_analyst, dict) or not str(loaded_analyst.get('provider') or ''):
+                analyst_profile['provider'] = active_provider
+                needs_save = True
+            if not isinstance(loaded_analyst, dict) or not str(loaded_analyst.get('model') or ''):
+                analyst_profile['model'] = models_cfg['analyst']
+                needs_save = True
+            if not isinstance(loaded_assistant, dict) or not str(loaded_assistant.get('provider') or ''):
+                assistant_profile['provider'] = active_provider
+                needs_save = True
+            if not isinstance(loaded_assistant, dict) or not str(loaded_assistant.get('model') or ''):
+                assistant_profile['model'] = models_cfg['assistant']
+                needs_save = True
+            transcription_cfg = dict(settings.get('ai_custom_transcription', {}) or {})
+            if not str(transcription_cfg.get('provider') or ''):
+                transcription_cfg['provider'] = 'openai'
+                needs_save = True
+            if not str(transcription_cfg.get('model') or ''):
+                transcription_cfg['model'] = 'gpt-4o-mini-transcribe'
+                needs_save = True
+            settings['ai_custom_transcription'] = transcription_cfg
+            if not str(transcription_profile.get('provider') or ''):
+                transcription_profile['provider'] = str(transcription_cfg['provider'])
+                needs_save = True
+            if not str(transcription_profile.get('model') or ''):
+                transcription_profile['model'] = str(transcription_cfg['model'])
+                needs_save = True
+            profiles_cfg['analyst'] = analyst_profile
+            profiles_cfg['assistant'] = assistant_profile
+            profiles_cfg['transcription'] = transcription_profile
+            settings['ai_provider_profiles'] = profiles_cfg
             
             # 🔥 frequency_thresholds 형식 자동 수정 (잘못된 리스트 형식을 딕셔너리로 변환)
             fixed_frequency = False
@@ -447,6 +579,7 @@ def load_settings() -> Dict[str, Any]:
                     'auto_update_check_interval_hours': 6,
                     'auto_update_auto_download': True,
                     'auto_update_auto_apply_on_exit': True,
+                    'auto_update_open_position_action': 'defer',
                     'auto_update_release_repo': 'nwsoft/ai-trading-client',
                 }
                 print("  ➕ UI 설정 강제 추가")
@@ -467,7 +600,8 @@ def load_settings() -> Dict[str, Any]:
             if needs_save:
                 save_settings(settings)
 
-            return settings
+            from trading.ai.credentials import hydrate_ai_credentials
+            return hydrate_ai_credentials(settings)
 
         # 설정 파일이 없으면 템플릿에서 생성
         print(f"⚠️ 설정 파일 없음, 템플릿에서 생성: {config_path}")
@@ -489,7 +623,8 @@ def load_settings() -> Dict[str, Any]:
         save_settings(settings)
         print(f"✅ 사용자 설정 파일 생성: {config_path}")
 
-        return settings
+        from trading.ai.credentials import hydrate_ai_credentials
+        return hydrate_ai_credentials(settings)
 
     except Exception as e:
         print(f"설정 파일 로드 오류: {e}")
@@ -544,6 +679,10 @@ def create_settings_backup(retention: int = 3) -> str:
         timestamp = __import__('datetime').datetime.now().strftime('%Y%m%d_%H%M%S_%f')
         backup_path = os.path.join(backup_dir, f'settings_{timestamp}.json')
         shutil.copy2(config_path, backup_path)
+        try:
+            os.chmod(backup_path, 0o600)
+        except OSError:
+            pass
 
         # 최신 retention개만 유지
         backups = sorted(
@@ -552,7 +691,10 @@ def create_settings_backup(retention: int = 3) -> str:
                 for name in os.listdir(backup_dir)
                 if name.startswith('settings_') and name.endswith('.json')
             ],
-            key=lambda p: os.path.getmtime(p),
+            # copy2는 원본 settings.json의 mtime도 복사하므로 연속 저장 시
+            # mtime 정렬이 동률이 될 수 있다. 파일명의 마이크로초 타임스탬프가
+            # 백업 생성 순서를 정확히 보존한다.
+            key=lambda p: os.path.basename(p),
             reverse=True,
         )
         for stale in backups[retention:]:
@@ -578,11 +720,65 @@ def list_settings_backups(limit: int = 20) -> List[str]:
             for name in os.listdir(backup_dir)
             if name.startswith('settings_') and name.endswith('.json')
         ]
-        backups.sort(key=lambda p: os.path.getmtime(p), reverse=True)
+        backups.sort(key=lambda p: os.path.basename(p), reverse=True)
         return backups[: max(0, int(limit))]
     except Exception as e:
         print(f"설정 백업 목록 조회 오류: {e}")
         return []
+
+
+def _redact_ai_secrets_from_backups(settings_snapshot: Dict[str, Any]) -> None:
+    """기존 설정 백업의 AI 평문 키를 현재 credential_ref로 교체한다."""
+    try:
+        _, backup_dir = _get_settings_paths()
+        if not os.path.isdir(backup_dir):
+            return
+        current_credentials = copy.deepcopy(settings_snapshot.get("ai_credentials", {}) or {})
+        if isinstance(current_credentials, dict):
+            for cfg in current_credentials.values():
+                if isinstance(cfg, dict):
+                    cfg.pop("api_key", None)
+        current_alpha = settings_snapshot.get("alpha_arena", {})
+        current_alpha_refs = (
+            copy.deepcopy(current_alpha.get("credential_refs", {}) or {})
+            if isinstance(current_alpha, dict)
+            else {}
+        )
+        legacy_alpha_fields = (
+            "alphaarena_deepseek_api_key",
+            "alphaarena_alibaba_api_key",
+            "alphaarena_openai_api_key",
+            "alphaarena_anthropic_api_key",
+            "alphaarena_google_api_key",
+            "alphaarena_xai_api_key",
+        )
+        for name in os.listdir(backup_dir):
+            if not (name.startswith("settings_") and name.endswith(".json")):
+                continue
+            path = os.path.join(backup_dir, name)
+            try:
+                with open(path, "r", encoding="utf-8") as file:
+                    backup = json.load(file)
+                backup["openai_api_key"] = ""
+                backup["ai_credentials"] = copy.deepcopy(current_credentials)
+                alpha = backup.get("alpha_arena")
+                if isinstance(alpha, dict):
+                    alpha["deepseek_api_key"] = ""
+                    alpha["qwen_api_key"] = ""
+                    alpha["credential_refs"] = copy.deepcopy(current_alpha_refs)
+                for field in legacy_alpha_fields:
+                    if field in backup:
+                        backup[field] = ""
+                with open(path, "w", encoding="utf-8") as file:
+                    json.dump(backup, file, ensure_ascii=False, indent=2)
+                try:
+                    os.chmod(path, 0o600)
+                except OSError:
+                    pass
+            except Exception:
+                continue
+    except Exception:
+        pass
 
 
 def restore_settings_from_backup(backup_path: str) -> bool:
@@ -598,6 +794,10 @@ def restore_settings_from_backup(backup_path: str) -> bool:
         config_path, _ = _get_settings_paths()
         os.makedirs(os.path.dirname(config_path), exist_ok=True)
         shutil.copy2(backup_path, config_path)
+        try:
+            os.chmod(config_path, 0o600)
+        except OSError:
+            pass
         print(f"✅ 설정 복구 완료: {backup_path} -> {config_path}")
         return True
     except Exception as e:
@@ -609,7 +809,11 @@ def save_settings(settings: Dict[str, Any]) -> bool:
     """설정 파일 저장 (PyInstaller 배포 환경 대응)"""
     try:
         config_path, _ = _get_settings_paths()
-        settings_to_save = copy.deepcopy(settings)
+        from trading.ai.credentials import prepare_ai_credentials_for_storage
+
+        settings_to_save, credential_warnings = prepare_ai_credentials_for_storage(settings)
+        for warning in credential_warnings:
+            print(f"⚠️ {warning}")
         if _repair_tp_sl_settings(settings_to_save):
             print("🔧 저장 전 비정상 TP/SL 설정을 복구했습니다.")
 
@@ -622,6 +826,11 @@ def save_settings(settings: Dict[str, Any]) -> bool:
 
         with open(config_path, 'w', encoding='utf-8') as f:
             json.dump(settings_to_save, f, ensure_ascii=False, indent=2)
+        try:
+            os.chmod(config_path, 0o600)
+        except OSError:
+            pass
+        _redact_ai_secrets_from_backups(settings_to_save)
 
         print(f"✅ 설정 파일 저장: {config_path}")
         return True
@@ -725,6 +934,24 @@ def get_default_settings() -> Dict[str, Any]:
         'binance_secret_key': '',
         'openai_api_key': '',
         'openai_base_url': '',
+        'ai_provider': 'openai',
+            'ai_credentials': {
+                'openai': {'credential_ref': '', 'base_url': ''},
+                'deepseek': {'credential_ref': '', 'base_url': 'https://api.deepseek.com'},
+                'kimi': {'credential_ref': '', 'base_url': 'https://api.moonshot.ai/v1'},
+                'anthropic': {'credential_ref': '', 'base_url': 'https://api.anthropic.com'},
+                'gemini': {'credential_ref': '', 'base_url': 'https://generativelanguage.googleapis.com/v1beta/openai/'},
+            },
+        'ai_provider_profiles': {
+            'analyst': {'provider': 'openai', 'model': ''},
+            'assistant': {'provider': 'openai', 'model': ''},
+            'transcription': {'provider': 'openai', 'model': 'gpt-4o-mini-transcribe'},
+        },
+        'ai_models': {
+            'analyst': '',
+            'assistant': '',
+            'roles': {},
+        },
         'upbit_api_key': '',
         'upbit_secret_key': '',
         'bithumb_api_key': '',
@@ -831,12 +1058,24 @@ def get_default_settings() -> Dict[str, Any]:
         'openai_model': 'gpt-5.6-luna',
         'assistant_ai_model': 'gpt-5.6-terra',
         'ai_model_roles': {
-            'frequent_cheap': 'gpt-4o-mini',
-            'standard': 'gpt-5.6-luna',
-            'premium': 'gpt-5.6-terra',
+            'frequent_cheap': {'provider': 'openai', 'model': 'gpt-5.6-luna'},
+            'standard': {'provider': 'openai', 'model': 'gpt-5.6-terra'},
+            'premium': {'provider': 'openai', 'model': 'gpt-5.6-sol'},
+        },
+        'assistant_response_mode': 'standard',
+        'assistant_token_budget': {
+            'standard': {'max_input_chars': 12000, 'max_output_tokens': 1200},
+            'saver': {'max_input_chars': 6000, 'max_output_tokens': 500},
+            'premium': {'max_input_chars': 20000, 'max_output_tokens': 2200},
+        },
+        'assistant_context_policy': {
+            'standard': {'include_recent_turns': 8, 'include_summary': True, 'include_market_snapshot': True},
+            'saver': {'include_recent_turns': 4, 'include_summary': True, 'include_market_snapshot': True},
+            'premium': {'include_recent_turns': 12, 'include_summary': True, 'include_market_snapshot': True},
         },
         'ai_custom_transcription': {
             'enabled': True,
+            'provider': 'openai',
             'model': 'gpt-4o-mini-transcribe',
             'max_duration_minutes': 45,
             'max_file_mb': 24,
@@ -1281,11 +1520,12 @@ def get_default_settings() -> Dict[str, Any]:
         'alpha_arena': {
             'enabled': False,
             'exchange': 'binance-futures',
-            'engine': 'deepseek-3.1',
-            'available_engines': ['deepseek-3.1', 'qwen3-max'],
+            'engine': 'deepseek-v4-flash',
+            'available_engines': ['deepseek-v4-flash', 'qwen3-max'],
             'initial_capital_benchmark': 10000,  # 초기 자금 기준 (10000=만불, 1000=천불, 100=백불)
             'deepseek_api_key': '',
             'qwen_api_key': '',
+            'credential_refs': {},
             'tick_interval_sec': 60,  # 기본 60초, 최소 30초 (내부 가드레일)
             'tick_trigger': 'interval',  # 'interval' 또는 'candle_close_3m' (기본 interval, UI 노출 X)
             'symbols': ['BTCUSDT', 'ETHUSDT', 'SOLUSDT', 'XRPUSDT', 'DOGEUSDT', 'BNBUSDT'],
@@ -1356,6 +1596,7 @@ def _is_sensitive_setting_key(key: str) -> bool:
         'token',
         'account_no',
         'cert_password',
+        'credential_ref',
         'user_id',
     )
     sensitive_exact = {

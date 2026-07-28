@@ -30,6 +30,14 @@ class LoginWindow:
     def __init__(self, parent=None):
         self.parent = parent
         self.root = ctk.CTk() if parent is None else ctk.CTkToplevel(parent)
+        try:
+            from ui.typography import configure_platform_typography
+            from utils.runtime_stability import install_tk_exception_hook
+
+            configure_platform_typography(self.root)
+            install_tk_exception_hook(self.root)
+        except Exception:
+            pass
         self.root.title("NoahAI Finance Decision OS - 로그인")
         self.root.geometry("450x680")
         self.root.resizable(False, False)

@@ -71,6 +71,25 @@
   "binance_api_key": "",
   "binance_secret_key": "",
   "openai_api_key": "",
+  "openai_base_url": "",
+  "ai_provider": "openai",
+  "ai_credentials": {
+    "openai": {"credential_ref": "", "base_url": ""},
+    "deepseek": {"credential_ref": "", "base_url": "https://api.deepseek.com"},
+    "kimi": {"credential_ref": "", "base_url": "https://api.moonshot.ai/v1"},
+    "anthropic": {"credential_ref": "", "base_url": "https://api.anthropic.com"},
+    "gemini": {"credential_ref": "", "base_url": "https://generativelanguage.googleapis.com/v1beta/openai/"}
+  },
+  "ai_provider_profiles": {
+    "analyst": {"provider": "openai", "model": ""},
+    "assistant": {"provider": "openai", "model": ""},
+    "transcription": {"provider": "openai", "model": "gpt-4o-mini-transcribe"}
+  },
+  "ai_models": {
+    "analyst": "",
+    "assistant": "",
+    "roles": {}
+  },
   "upbit_api_key": "",
   "upbit_secret_key": "",
   "bithumb_api_key": "",
@@ -302,13 +321,25 @@
   "openai_model": "gpt-5.6-luna",
   "assistant_ai_model": "gpt-5.6-terra",
   "ai_model_roles": {
-    "_comment": "역할별 AI 모델 배치 - 빈도·중요도에 따라 모델 티어를 분리해 비용 최적화",
-    "frequent_cheap": "gpt-4o-mini",
-    "standard": "gpt-5.6-luna",
-    "premium": "gpt-5.6-terra"
+    "_comment": "역할별 Provider+모델 배치 - 빈도·중요도에 따라 서로 다른 엔진을 선택",
+    "frequent_cheap": {"provider": "openai", "model": "gpt-5.6-luna"},
+    "standard": {"provider": "openai", "model": "gpt-5.6-terra"},
+    "premium": {"provider": "openai", "model": "gpt-5.6-sol"}
+  },
+  "assistant_response_mode": "standard",
+  "assistant_token_budget": {
+    "standard": {"max_input_chars": 12000, "max_output_tokens": 1200},
+    "saver": {"max_input_chars": 6000, "max_output_tokens": 500},
+    "premium": {"max_input_chars": 20000, "max_output_tokens": 2200}
+  },
+  "assistant_context_policy": {
+    "standard": {"include_recent_turns": 8, "include_summary": true, "include_market_snapshot": true},
+    "saver": {"include_recent_turns": 4, "include_summary": true, "include_market_snapshot": true},
+    "premium": {"include_recent_turns": 12, "include_summary": true, "include_market_snapshot": true}
   },
   "ai_custom_transcription": {
     "enabled": true,
+    "provider": "openai",
     "model": "gpt-4o-mini-transcribe",
     "max_duration_minutes": 45,
     "max_file_mb": 24
@@ -841,7 +872,7 @@
   "risk_shift_factor_down": 0.85,
   "risk_shift_factor_up": 1.10,
   "alphaarena_enabled": false,
-  "alphaarena_ai_engine": "deepseek-chat-v3.1",
+  "alphaarena_ai_engine": "deepseek-v4-flash",
   "alphaarena_capital": 10000,
   "alphaarena_leverage_range": "10-20x",
   "alphaarena_deepseek_api_key": "",
@@ -853,11 +884,12 @@
   "alpha_arena": {
     "enabled": false,
     "exchange": "binance-futures",
-    "engine": "deepseek-3.1",
-    "available_engines": ["deepseek-3.1", "qwen3-max"],
+    "engine": "deepseek-v4-flash",
+    "available_engines": ["deepseek-v4-flash", "qwen3-max"],
     "initial_capital_benchmark": 10000,
     "deepseek_api_key": "",
     "qwen_api_key": "",
+    "credential_refs": {},
     "tick_interval_sec": 60,
     "tick_trigger": "interval",
     "symbols": [

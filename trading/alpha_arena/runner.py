@@ -80,8 +80,9 @@ class AlphaArenaRunner:
         self.on_error: Optional[Callable[[str], None]] = None
         
         # 엔진 설정
-        self.engine = self.arena_settings.get('engine', 'deepseek-3.1')
-        self.available_engines = self.arena_settings.get('available_engines', ['deepseek-3.1', 'qwen3-max'])
+        configured_engine = self.arena_settings.get('engine', 'deepseek-v4-flash')
+        self.engine = 'deepseek-v4-flash' if configured_engine in ('deepseek-3.1', 'deepseek-chat-v3.1', 'deepseek-chat') else configured_engine
+        self.available_engines = self.arena_settings.get('available_engines', ['deepseek-v4-flash', 'qwen3-max'])
         
         # 마지막 응답 (피드백 루프용)
         self.last_response: Optional[str] = None
@@ -285,7 +286,11 @@ class AlphaArenaRunner:
             # DeepSeek는 OpenAI 호환 API이므로 동일한 클라이언트 사용
             # 모델 이름 매핑: 설정의 engine 값 -> 실제 API 모델명
             engine_to_model = {
-                'deepseek-3.1': 'deepseek-chat',  # DeepSeek Chat API 모델명
+                'deepseek-3.1': 'deepseek-v4-flash',
+                'deepseek-chat-v3.1': 'deepseek-v4-flash',
+                'deepseek-chat': 'deepseek-v4-flash',
+                'deepseek-v4-flash': 'deepseek-v4-flash',
+                'deepseek-v4-pro': 'deepseek-v4-pro',
                 'qwen3-max': 'qwen-plus'  # Qwen API 모델명 (실제 사용 시 확인 필요)
             }
             use_model = engine_to_model.get(self.engine, self.engine)
@@ -405,4 +410,3 @@ class AlphaArenaRunner:
             'engine': self.engine,
             'metrics': self.metrics.get_metrics() if self.metrics else None
         }
-

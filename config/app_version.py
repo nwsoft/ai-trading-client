@@ -7,9 +7,9 @@
 - 문서 동기화만으로는 RELEASE_VERSION을 변경하지 않는다.
 """
 
-RELEASE_VERSION = "3.9.0.2"
-RELEASE_DATE = "2026-07-26"
-RELEASE_HIGHLIGHT = "AI 커스텀·레퍼럴·거래 통계 고도화"
+RELEASE_VERSION = "3.9.0.3"
+RELEASE_DATE = "2026-07-28"
+RELEASE_HIGHLIGHT = "안정성·멀티 AI API·AI 커스텀 통합"
 
 DASHBOARD_TITLE = f"Noah AI Client - 대시보드 Beta {RELEASE_VERSION}"
 USER_MANUAL_TITLE = f"NoahAI 사용메뉴얼 v{RELEASE_VERSION}"

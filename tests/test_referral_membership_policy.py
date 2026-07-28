@@ -3,6 +3,7 @@ from membership_policy import (
     normalize_user_grade,
     referral_allowed_exchanges,
 )
+from pathlib import Path
 
 
 def test_referral_grade_aliases_are_distinct_from_paid_coin() -> None:
@@ -36,3 +37,12 @@ def test_paid_asset_grades_keep_their_asset_boundary() -> None:
     assert is_exchange_allowed("pro_coin", "upbit", {})
     assert is_exchange_allowed("premium", "bitget", {})
     assert not is_exchange_allowed("pro_stock", "binance", {})
+
+
+def test_status_check_refresh_emits_exchange_runtime_heartbeat() -> None:
+    source = (Path(__file__).resolve().parents[1] / "main.py").read_text(encoding="utf-8")
+    section = source.split("def apply_server_membership_policy", 1)[1].split(
+        "def create_user_files_in_account_folder", 1
+    )[0]
+
+    assert '_emit_exchange_runtime_snapshot(trigger="heartbeat:status_check")' in section

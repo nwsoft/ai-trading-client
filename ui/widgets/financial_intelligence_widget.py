@@ -127,8 +127,37 @@ class FinancialIntelligenceWidget(ctk.CTkFrame):
         self._cleaned_up = False
         self._async_results: queue.Queue[tuple[str, str, Any, Optional[Exception]]] = queue.Queue()
         self._async_poll_id: Optional[str] = None
+        self._async_worker_count = 0
+        self._async_lock = threading.Lock()
         self._build()
-        self._async_poll_id = self.after(50, self._poll_async_results)
+        try:
+            self.bind("<Map>", self._on_map_visible, add="+")
+        except Exception:
+            pass
+
+    def _is_visible_now(self) -> bool:
+        try:
+            return bool(self.winfo_exists() and self.winfo_ismapped() and self.winfo_viewable())
+        except Exception:
+            return False
+
+    def _schedule_async_poll(self, delay_ms: int = 50) -> None:
+        """실제 작업 또는 대기 결과가 있을 때, 보이는 탭에서만 큐를 확인한다."""
+        if self._cleaned_up or self._async_poll_id is not None or not self._is_visible_now():
+            return
+        try:
+            self._async_poll_id = self.after(delay_ms, self._poll_async_results)
+        except Exception:
+            self._async_poll_id = None
+
+    def _on_map_visible(self, event=None) -> None:
+        try:
+            if event is not None and getattr(event, "widget", None) is not self:
+                return
+        except Exception:
+            pass
+        if not self._cleaned_up:
+            self._schedule_async_poll(0)
 
     def _financial_settings(self) -> Dict[str, Any]:
         settings = getattr(self.dashboard_ref, "settings", {}) if self.dashboard_ref is not None else {}
@@ -430,6 +459,9 @@ class FinancialIntelligenceWidget(ctk.CTkFrame):
     def _run_async(self, title: str, task: Callable[[], Any], output_key: str) -> None:
         if title in self.status_labels:
             self.status_labels[title].configure(text="수집·계산 중", text_color="#fbbf24")
+        with self._async_lock:
+            self._async_worker_count += 1
+        self._schedule_async_poll(50)
 
         def worker():
             try:
@@ -451,18 +483,27 @@ class FinancialIntelligenceWidget(ctk.CTkFrame):
         self._run_async(title, task, output_key)
 
     def _poll_async_results(self) -> None:
+        self._async_poll_id = None
         if self._cleaned_up:
             return
+        completed = 0
         try:
             while True:
                 title, output_key, result, error = self._async_results.get_nowait()
+                completed += 1
                 if error is None:
                     self._show(output_key, result, title)
                 else:
                     self._error(output_key, title, error)
         except queue.Empty:
             pass
-        self._async_poll_id = self.after(50, self._poll_async_results)
+        if completed:
+            with self._async_lock:
+                self._async_worker_count = max(0, self._async_worker_count - completed)
+        with self._async_lock:
+            workers_active = self._async_worker_count > 0
+        if workers_active or not self._async_results.empty():
+            self._schedule_async_poll(100)
 
     def _fetch_market_rows(self, universe: List[Dict[str, str]]) -> Dict[str, Any]:
         hydrated: List[Dict[str, Any]] = []
@@ -871,6 +912,8 @@ class FinancialIntelligenceWidget(ctk.CTkFrame):
             except Exception:
                 pass
             self._async_poll_id = None
+        with self._async_lock:
+            self._async_worker_count = 0
         try:
             self.service.store.close()
         except Exception:

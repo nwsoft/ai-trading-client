@@ -1,6 +1,6 @@
 # NoahAI Client 공식 문서
 
-> 기준: 2026-07-26 · v3.9.0.2  
+> 기준: 2026-07-28 · 현재 배포 v3.9.0.2 / 업데이트 대상 v3.9.0.3  
 > 이 파일은 문서 진입점입니다. 현재 상태는 아래 정본 문서로 판단하고, `docs/archive/`와 `data/**/reports/`는 제품 설명 정본으로 사용하지 않습니다.
 
 ## 먼저 읽을 문서
@@ -18,9 +18,26 @@
 | 빌드 | `BUILD_GUIDE.md` |
 | 배포 전후 점검 | `DEPLOY_CHECKLIST.md` |
 | 최신 테스트 근거 | `TEST_STATUS.md` |
+| AI 엔진/API 사용자 사용법 | `AI_API_USER_GUIDE.md` |
+| AI Provider 기술 정본 | `AI_API_ARCHITECTURE.md` |
+| v3.9.0.3 AI 엔진 확장 범위 | `AI_ENGINE_EXPANSION_PLAN_v3.9.0.3.md` |
 | AI 커스텀·어시스턴트 수동 QA | `AI_CUSTOM_ASSISTANT_TEST_RUNBOOK_v3.9.0.2.md` |
 | 기술 백서 | `NOAHAI_TECHNICAL_WHITEPAPER.md` |
 | 사업 설명 | `BUSINESS_PROPOSAL_2026.md` |
+
+## v3.9.0.3 업데이트 배포 대상 소스
+
+- AI 제공사: OpenAI·DeepSeek·Anthropic Claude·Google Gemini 정식 선택, Kimi K3 어시스턴트 시험 지원
+- 사용자 설정: API 키 보안 저장, 작업별 `{provider, model}`, 기존 문자열 자동 이전, 동적 모델 목록, 기준일 가격·공식 링크
+- 모델 안전: 권장·계정 확인·미리보기·비권장·종료 구분, 종료/capability 불일치 저장 차단
+- AI 커스텀 전사: 분석 Provider와 독립된 OpenAI transcription 프로필, 다중 화자 모델 선택
+- 실연결 검증: 설정의 `실제 API 기능 검증`과 Windows 후보 빌드의 테스터별 Provider 키 E2E
+- 주문 범위: 화면·분석·학습과 실제 주문 거래소 분리, 명시적 빈 주문 목록은 주문 0개
+- 안정성: 숨은 탭 callback/API 조회 중지, 완료 작업 정리, UI 로그 회전
+- 업데이트 P0: 포지션·주문 사전점검, TP·SL 또는 청산 체결 확인, SHA·코드서명, 영속 저널, health check·자동 복원·거래 재개 잠금
+- 검증: 전체 `1,135 passed, 6 skipped, 0 failed`; Windows 서명본·실제 API 키·거래소 실연결·장시간 실행을 완료한 뒤 v3.9.0.3으로 업데이트 배포
+- 사용자 안내: `AI_API_USER_GUIDE.md`, `USER_GUIDE.md`, 앱 `사용자 매뉴얼 → 업데이트`
+- 기술 정본: `AI_API_ARCHITECTURE.md`, `AI_ENGINE_EXPANSION_PLAN_v3.9.0.3.md`
 
 ## v3.9.0.2 AI 커스텀·레퍼럴·거래 통계 고도화
 
@@ -31,9 +48,10 @@
 - 어시스턴트 안전: 허용 설정 최종확인, 저장 재검증, 사용자별 감사로그, 보호 작업 미실행
 - 화면·사용법: 공통 기능 탭 스킨, 금융 인텔리전스 초보자 절차·AI 질문, 거래 통계 단일 스크롤
 - 운용 지표: 거래 통계·AI 리포트의 통화별 실제 체결금액과 검증 가능한 평균 보유시간
-- 최신 검증: 전체 `1,076 passed, 6 skipped`, 문서 정합성·배포 `prekey` PASS
+- 최신 검증: 전체 `1,079 passed, 6 skipped`, daltrading `20 passed`, 문서 정합성 PASS
 - 배포 경계: Windows 신규 EXE·실화면, 실제 YouTube URL, 실계좌 장시간 검증은 남음
 - 구조·국면 추천·안전 경계: `AI_CUSTOM_STRATEGY_ARCHITECTURE.md`
+- 대화형 전략·초보자 프리셋 후보: `AI_CUSTOM_CONVERSATIONAL_PRESETS_PLAN_v3.9.0.3.md`
 - 사용자 사용법: `USER_GUIDE.md`, `AI_ASSISTANT_GUIDE.md`
 - 테스트 순서·QA 계정 규칙: `AI_CUSTOM_ASSISTANT_TEST_RUNBOOK_v3.9.0.2.md`
 - 완료·후속 범위: `UPDATE_PLAN.md`
@@ -72,7 +90,7 @@ python build_safe.py --platform macos
 python build_safe.py --platform linux
 ```
 
-Windows 공식 배포물은 Windows 빌드 환경에서 생성합니다. v3.9.0.2 EXE가 새로 생성되기 전에는 `deploy/release-manifest.json`의 `pending_windows_rebuild` 상태를 유지하며, 과거 EXE의 이름만 바꿔 배포하지 않습니다.
+Windows 공식 배포물은 Windows 빌드 환경에서 생성합니다. v3.9.0.2는 이전 배포본이며 현재 v3.9.0.3 manifest는 `pending_windows_rebuild`입니다. 새 EXE의 크기·SHA·서명·설치·로그인·자동업데이트 E2E를 검증한 뒤 배포합니다.
 
 ## 문서 관리 규칙
 

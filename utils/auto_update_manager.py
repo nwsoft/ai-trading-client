@@ -11,6 +11,7 @@ import re
 import subprocess
 import sys
 import tempfile
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Dict, Optional
@@ -38,7 +39,10 @@ class AutoUpdateManager:
         self._after_job = None
         self._notify_callback: Optional[Callable[[str], None]] = None
         self._progress_callback: Optional[Callable[[Dict[str, Any]], None]] = None
+        self._preflight_callback: Optional[Callable[[str], Dict[str, Any]]] = None
+        self._health_callback: Optional[Callable[[Dict[str, Any]], Dict[str, Any]]] = None
         self._apply_started = False
+        self._shutdown_confirmed = False
 
         self.last_check_result: Dict[str, Any] = {}
         self.pending_update: Dict[str, Any] = {}
@@ -47,7 +51,10 @@ class AutoUpdateManager:
         self.update_cache_dir.mkdir(parents=True, exist_ok=True)
 
         self.install_target_marker_path = self._resolve_install_target_marker_path()
+        self.transaction_journal_path = self._resolve_transaction_journal_path()
         self.install_target_exe = self._resolve_install_target_executable()
+        self.transaction: Dict[str, Any] = self._read_transaction()
+        self._restore_pending_update()
         self._prune_update_cache(keep_latest_versions=2)
 
         self.update_settings(self.settings)
@@ -64,6 +71,11 @@ class AutoUpdateManager:
         self.enabled = bool(ui_settings.get("auto_update_enabled", True))
         self.auto_download = bool(ui_settings.get("auto_update_auto_download", True))
         self.auto_apply_on_exit = bool(ui_settings.get("auto_update_auto_apply_on_exit", True))
+        self.open_position_action = str(
+            ui_settings.get("auto_update_open_position_action", "defer") or "defer"
+        ).strip().lower()
+        if self.open_position_action not in {"defer", "keep_with_tp_sl", "close_all"}:
+            self.open_position_action = "defer"
 
         try:
             interval = int(ui_settings.get("auto_update_check_interval_hours", 6))
@@ -103,6 +115,20 @@ class AutoUpdateManager:
     def set_progress_callback(self, callback: Optional[Callable[[Dict[str, Any]], None]] = None):
         """UI에서 다운로드 진행률/완료 이벤트를 받을 콜백을 등록한다."""
         self._progress_callback = callback
+
+    def set_safety_callbacks(
+        self,
+        *,
+        preflight_callback: Optional[Callable[[str], Dict[str, Any]]] = None,
+        health_callback: Optional[Callable[[Dict[str, Any]], Dict[str, Any]]] = None,
+    ) -> None:
+        self._preflight_callback = preflight_callback
+        self._health_callback = health_callback
+
+    def record_shutdown_result(self, ok: bool) -> None:
+        self._shutdown_confirmed = bool(ok)
+        if not ok and self.has_pending_update():
+            self._write_transaction("shutdown_failed", error="거래 정지 또는 DB/log flush 실패")
 
     def check_for_updates(self, manual: bool = False) -> Dict[str, Any]:
         """Check latest release and optionally pre-download update executable."""
@@ -161,6 +187,15 @@ class AutoUpdateManager:
                         "downloaded": True,
                         "sha256": dl.get("sha256", ""),
                     }
+                )
+                self._write_transaction(
+                    "downloaded",
+                    old_version=current_version,
+                    new_version=latest_version,
+                    sha256=dl.get("sha256", ""),
+                    asset_path=dl.get("asset_path", ""),
+                    target_path=str(self.install_target_exe),
+                    release_url=release.get("html_url", ""),
                 )
             else:
                 result["download_error"] = dl.get("reason", "download_failed")
@@ -227,7 +262,15 @@ class AutoUpdateManager:
         expected_sha = self._fetch_expected_sha_from_manifest(assets)
         actual_sha = self._sha256_file(tmp_path)
 
-        if expected_sha and expected_sha != actual_sha:
+        if not expected_sha:
+            try:
+                tmp_path.unlink(missing_ok=True)
+            except Exception:
+                pass
+            self._emit_progress(event="download_failed", reason="release_manifest_or_sha256_missing")
+            return {"ok": False, "reason": "release_manifest_or_sha256_missing"}
+
+        if expected_sha != actual_sha:
             try:
                 tmp_path.unlink(missing_ok=True)
             except Exception:
@@ -246,6 +289,14 @@ class AutoUpdateManager:
             except Exception:
                 pass
         tmp_path.rename(target_path)
+
+        if self._requires_windows_signature() and not self._verify_windows_signature(target_path):
+            try:
+                target_path.unlink(missing_ok=True)
+            except Exception:
+                pass
+            self._emit_progress(event="download_failed", reason="windows_signature_invalid")
+            return {"ok": False, "reason": "windows_signature_invalid"}
 
         # 오래된 버전 캐시/스크립트는 정리해 누적 오염을 방지한다.
         self._prune_update_cache(keep_latest_versions=2)
@@ -275,6 +326,9 @@ class AutoUpdateManager:
             return False
         if not self.pending_update or not self.pending_update.get("downloaded"):
             return False
+        if not self._shutdown_confirmed:
+            self._write_transaction("shutdown_not_confirmed", error="안전 종료 확인 전에는 업데이트를 적용할 수 없습니다.")
+            return False
         if not sys.platform.startswith("win"):
             return False
         if not getattr(sys, "frozen", False):
@@ -285,10 +339,27 @@ class AutoUpdateManager:
         if not asset_path.exists():
             return False
 
+        expected_sha = str(self.pending_update.get("sha256") or self.transaction.get("sha256") or "").lower()
+        if not expected_sha or self._sha256_file(asset_path) != expected_sha:
+            self._write_transaction("verification_failed", error="staged_sha256_invalid")
+            return False
+        if self._requires_windows_signature() and not self._verify_windows_signature(asset_path):
+            self._write_transaction("verification_failed", error="windows_signature_invalid")
+            return False
+
+        preflight = self.run_update_preflight()
+        if not preflight.get("ok"):
+            self._write_transaction(
+                "preflight_blocked",
+                error=str(preflight.get("reason") or "trading_state_unsafe"),
+                preflight=preflight,
+            )
+            return False
+
         target_exe = self._resolve_install_target_executable()
         self.install_target_exe = target_exe
 
-        if self._is_path_under(target_exe, self.update_cache_dir):
+        if self._looks_like_update_cache_path(target_exe):
             self._log_warning(
                 f"update target resolved to cache path and was rejected: {target_exe}"
             )
@@ -304,8 +375,23 @@ class AutoUpdateManager:
             target_exe=str(target_exe),
             new_exe=str(asset_path),
             backup_exe=str(backup_path),
+            journal_path=str(self.transaction_journal_path),
+            expected_sha=expected_sha,
+            old_version=str(self.transaction.get("old_version") or self._get_current_version()),
+            new_version=str(self.pending_update.get("latest_version") or self.transaction.get("new_version") or ""),
         )
         script_path.write_text(script, encoding="utf-8")
+        self._write_transaction(
+            "apply_scheduled",
+            old_version=str(self.transaction.get("old_version") or self._get_current_version()),
+            new_version=str(self.pending_update.get("latest_version") or self.transaction.get("new_version") or ""),
+            sha256=expected_sha,
+            asset_path=str(asset_path),
+            target_path=str(target_exe),
+            backup_path=str(backup_path),
+            preflight=preflight,
+            awaiting_user_resume=True,
+        )
 
         flags = 0
         flags |= getattr(subprocess, "DETACHED_PROCESS", 0)
@@ -333,6 +419,15 @@ class AutoUpdateManager:
             self._log_warning(f"failed to spawn apply script: {exc}")
             return False
 
+    def run_update_preflight(self) -> Dict[str, Any]:
+        if not callable(self._preflight_callback):
+            return {"ok": False, "reason": "preflight_callback_missing"}
+        try:
+            result = self._preflight_callback(self.open_position_action)
+            return dict(result or {"ok": False, "reason": "preflight_empty"})
+        except Exception as exc:
+            return {"ok": False, "reason": "preflight_exception", "error": str(exc)}
+
     def has_pending_update(self) -> bool:
         return bool(self.pending_update.get("downloaded"))
 
@@ -345,7 +440,120 @@ class AutoUpdateManager:
             "install_target_exe": install_target,
             "update_cache_dir": str(self.update_cache_dir),
             "pending_asset_path": pending_asset,
+            "transaction_phase": str(self.transaction.get("phase") or "none"),
+            "transaction_journal": str(self.transaction_journal_path),
         }
+
+    def needs_post_update_health_check(self) -> bool:
+        return str(self.transaction.get("phase") or "") in {
+            "launched", "postcheck_pending", "apply_scheduled", "replacing"
+        }
+
+    def is_trading_locked(self) -> bool:
+        phase = str(self.transaction.get("phase") or "")
+        return bool(
+            self.transaction.get("awaiting_user_resume")
+            or phase in {"apply_scheduled", "replacing", "launched", "postcheck_pending", "rollback_scheduled", "health_failed"}
+        )
+
+    def acknowledge_user_resume(self) -> bool:
+        if self.needs_post_update_health_check():
+            return False
+        self._write_transaction(
+            str(self.transaction.get("phase") or "healthy"),
+            awaiting_user_resume=False,
+            resumed_at=datetime.now(timezone.utc).isoformat(),
+        )
+        return True
+
+    def complete_post_update_health_check(self) -> Dict[str, Any]:
+        if not self.needs_post_update_health_check():
+            return {"ok": True, "needed": False, "transaction": dict(self.transaction)}
+        if not callable(self._health_callback):
+            result = {"ok": False, "reason": "health_callback_missing"}
+        else:
+            try:
+                result = dict(self._health_callback(dict(self.transaction)) or {})
+            except Exception as exc:
+                result = {"ok": False, "reason": "health_check_exception", "error": str(exc)}
+        expected = self._normalize_version(str(self.transaction.get("new_version") or ""))
+        actual = self._normalize_version(self._get_current_version())
+        if expected and actual != expected:
+            result = {
+                "ok": False,
+                "reason": "version_mismatch",
+                "expected_version": self.transaction.get("new_version"),
+                "actual_version": self._get_current_version(),
+                "details": result,
+            }
+        if result.get("ok"):
+            old_version = str(self.transaction.get("old_version") or "")
+            new_version = str(self.transaction.get("new_version") or self._get_current_version())
+            self._write_transaction(
+                "healthy",
+                health=result,
+                completed_at=datetime.now(timezone.utc).isoformat(),
+                awaiting_user_resume=True,
+            )
+            return {
+                "ok": True,
+                "needed": True,
+                "message": f"v{old_version} → v{new_version} 업데이트가 완료되었습니다.",
+                "awaiting_user_resume": True,
+            }
+        self._write_transaction(
+            "health_failed",
+            health=result,
+            awaiting_user_resume=True,
+        )
+        rollback = self.schedule_rollback()
+        return {"ok": False, "needed": True, "health": result, "rollback_scheduled": rollback}
+
+    def schedule_rollback(self) -> bool:
+        if not (sys.platform.startswith("win") and getattr(sys, "frozen", False)):
+            return False
+        target = Path(str(self.transaction.get("target_path") or ""))
+        backup = Path(str(self.transaction.get("backup_path") or ""))
+        if not target or not backup.exists() or self._looks_like_update_cache_path(target):
+            return False
+        script_path = self.update_cache_dir / "rollback_failed_update.ps1"
+        target_q = str(target).replace("'", "''")
+        backup_q = str(backup).replace("'", "''")
+        journal_q = str(self.transaction_journal_path).replace("'", "''")
+        script_path.write_text(
+            f"""$ErrorActionPreference = 'Stop'
+$target = '{target_q}'
+$backup = '{backup_q}'
+$journal = '{journal_q}'
+Start-Sleep -Seconds 2
+for ($i = 0; $i -lt 60; $i++) {{
+    try {{
+        Copy-Item -Path $backup -Destination $target -Force
+        $state = Get-Content -Raw -Path $journal | ConvertFrom-Json
+        $state.phase = 'rolled_back'
+        $state.rolled_back_at = (Get-Date).ToUniversalTime().ToString('o')
+        $state | ConvertTo-Json -Depth 10 | Set-Content -Path $journal -Encoding UTF8
+        Start-Process -FilePath $target | Out-Null
+        exit 0
+    }} catch {{
+        Start-Sleep -Seconds 1
+    }}
+}}
+exit 1
+""",
+            encoding="utf-8",
+        )
+        flags = getattr(subprocess, "DETACHED_PROCESS", 0) | getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
+        try:
+            subprocess.Popen(
+                ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-WindowStyle", "Hidden", "-File", str(script_path)],
+                creationflags=flags,
+                close_fds=True,
+            )
+            self._write_transaction("rollback_scheduled", awaiting_user_resume=True)
+            return True
+        except Exception:
+            return False
 
     def _scheduled_check(self):
         try:
@@ -414,7 +622,8 @@ class AutoUpdateManager:
                 .get("exe", {})
                 .get("sha256", "")
             )
-            return str(exe_sha or "").strip().lower()
+            normalized = str(exe_sha or "").strip().lower()
+            return normalized if re.fullmatch(r"[0-9a-f]{64}", normalized) else ""
         except Exception:
             return ""
 
@@ -564,6 +773,77 @@ class AutoUpdateManager:
         except Exception:
             return self.update_cache_dir / "auto_update_target.json"
 
+    def _resolve_transaction_journal_path(self) -> Path:
+        try:
+            return self.install_target_marker_path.parent / "auto_update_transaction.json"
+        except Exception:
+            return self.update_cache_dir / "auto_update_transaction.json"
+
+    def _read_transaction(self) -> Dict[str, Any]:
+        try:
+            data = json.loads(self.transaction_journal_path.read_text(encoding="utf-8-sig"))
+            return dict(data) if isinstance(data, dict) else {}
+        except Exception:
+            return {}
+
+    def _write_transaction(self, phase: str, **updates: Any) -> Dict[str, Any]:
+        data = dict(getattr(self, "transaction", {}) or {})
+        data.update(updates)
+        data["phase"] = str(phase)
+        data["updated_at"] = datetime.now(timezone.utc).isoformat()
+        try:
+            self.transaction_journal_path.parent.mkdir(parents=True, exist_ok=True)
+            tmp = self.transaction_journal_path.with_suffix(".json.tmp")
+            tmp.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+            os.replace(tmp, self.transaction_journal_path)
+        except Exception as exc:
+            self._log_warning(f"failed to persist update transaction: {exc}")
+        self.transaction = data
+        return dict(data)
+
+    def _restore_pending_update(self) -> None:
+        transaction = dict(getattr(self, "transaction", {}) or {})
+        if str(transaction.get("phase") or "") not in {"downloaded", "preflight_blocked", "shutdown_failed", "shutdown_not_confirmed"}:
+            return
+        asset_path = Path(str(transaction.get("asset_path") or ""))
+        if not asset_path.exists():
+            return
+        self.pending_update = {
+            "latest_version": str(transaction.get("new_version") or ""),
+            "release_url": str(transaction.get("release_url") or ""),
+            "asset_path": str(asset_path),
+            "downloaded": True,
+            "sha256": str(transaction.get("sha256") or ""),
+        }
+
+    @staticmethod
+    def _requires_windows_signature() -> bool:
+        return bool(sys.platform.startswith("win") and getattr(sys, "frozen", False))
+
+    def _verify_windows_signature(self, path: Path) -> bool:
+        if not self._requires_windows_signature():
+            return True
+        quoted = str(path).replace("'", "''")
+        command = (
+            f"$s=Get-AuthenticodeSignature -FilePath '{quoted}'; "
+            "$o=[ordered]@{Status=[string]$s.Status;Subject=[string]$s.SignerCertificate.Subject}; "
+            "$o|ConvertTo-Json -Compress"
+        )
+        try:
+            completed = subprocess.run(
+                ["powershell", "-NoProfile", "-ExecutionPolicy", "AllSigned", "-Command", command],
+                capture_output=True,
+                text=True,
+                timeout=20,
+                check=False,
+            )
+            if completed.returncode != 0:
+                return False
+            payload = json.loads(completed.stdout.strip() or "{}")
+            return str(payload.get("Status") or "").lower() == "valid" and bool(payload.get("Subject"))
+        except Exception:
+            return False
+
     @staticmethod
     def _is_path_under(path: Path, parent: Path) -> bool:
         try:
@@ -571,6 +851,17 @@ class AutoUpdateManager:
             return True
         except Exception:
             return False
+
+    @staticmethod
+    def _looks_like_update_cache_path(path: Path) -> bool:
+        """Recognize staged executables even when a different cache root is active."""
+        normalized = str(path or "").replace("\\", "/").lower()
+        name = Path(normalized).name.lower()
+        return (
+            "/auto_updater/" in normalized
+            or "/.auto_updater/" in normalized
+            or name == "aitrading.new.exe"
+        )
 
     def _read_persisted_install_target(self) -> Optional[Path]:
         try:
@@ -585,7 +876,11 @@ class AutoUpdateManager:
             return None
 
     def _persist_install_target(self, target_path: Path):
+        if self._looks_like_update_cache_path(target_path):
+            self._log_warning(f"refused to persist staged update target: {target_path}")
+            return False
         try:
+            self.install_target_marker_path.parent.mkdir(parents=True, exist_ok=True)
             payload = {
                 "install_target_exe": str(target_path),
                 "saved_at": datetime.now(timezone.utc).isoformat(),
@@ -594,8 +889,49 @@ class AutoUpdateManager:
                 json.dumps(payload, ensure_ascii=False, indent=2),
                 encoding="utf-8",
             )
+            return True
+        except Exception:
+            return False
+
+    def _recover_install_target_from_apply_scripts(self) -> Optional[Path]:
+        """Recover the last stable EXE target from previously generated scripts."""
+        search_roots = [self.update_cache_dir]
+        try:
+            sibling_cache = self.install_target_marker_path.parent.parent / "cache" / "auto_updater"
+            if sibling_cache not in search_roots:
+                search_roots.append(sibling_cache)
         except Exception:
             pass
+
+        scripts = []
+        for root in search_roots:
+            try:
+                scripts.extend(root.rglob("apply_update_*.ps1"))
+            except Exception:
+                continue
+        try:
+            scripts.sort(key=lambda item: item.stat().st_mtime, reverse=True)
+        except Exception:
+            pass
+
+        target_pattern = re.compile(r"(?im)^\s*\$target\s*=\s*'((?:[^']|'')+)'")
+        for script_path in scripts:
+            try:
+                match = target_pattern.search(script_path.read_text(encoding="utf-8", errors="ignore"))
+                if not match:
+                    continue
+                recovered = Path(match.group(1).replace("''", "'"))
+                if (
+                    recovered.suffix.lower() == ".exe"
+                    and recovered.exists()
+                    and not self._looks_like_update_cache_path(recovered)
+                ):
+                    self._persist_install_target(recovered)
+                    self._log_info(f"recovered stable install target from apply script: {recovered}")
+                    return recovered
+            except Exception:
+                continue
+        return None
 
     def _resolve_install_target_executable(self) -> Path:
         current_exe = Path(sys.executable)
@@ -605,19 +941,23 @@ class AutoUpdateManager:
         persisted = self._read_persisted_install_target()
 
         # 정상 경로에서 실행 중이면 그 경로를 설치 타겟으로 고정한다.
-        if not self._is_path_under(current_exe, self.update_cache_dir):
+        if not self._looks_like_update_cache_path(current_exe):
             self._persist_install_target(current_exe)
             return current_exe
 
         # 캐시에서 실행된 경우에는 이전에 저장한 정상 타겟이 있으면 우선한다.
-        if persisted and persisted.exists() and not self._is_path_under(persisted, self.update_cache_dir):
+        if persisted and persisted.exists() and not self._looks_like_update_cache_path(persisted):
             self._log_info(
                 f"current executable is in update cache; using persisted install target: {persisted}"
             )
             return persisted
 
+        recovered = self._recover_install_target_from_apply_scripts()
+        if recovered is not None:
+            return recovered
+
         self._log_warning(
-            "current executable is in update cache and no persisted install target exists; "
+            "current executable is staged and no stable install target could be recovered; "
             f"falling back to current executable: {current_exe}"
         )
         return current_exe
@@ -637,15 +977,52 @@ class AutoUpdateManager:
         return h.hexdigest()
 
     @staticmethod
-    def _build_apply_script(target_exe: str, new_exe: str, backup_exe: str) -> str:
+    def _build_apply_script(
+        target_exe: str,
+        new_exe: str,
+        backup_exe: str,
+        journal_path: str = "",
+        expected_sha: str = "",
+        old_version: str = "",
+        new_version: str = "",
+    ) -> str:
         target = target_exe.replace("'", "''")
         new = new_exe.replace("'", "''")
         backup = backup_exe.replace("'", "''")
+        journal = journal_path.replace("'", "''")
+        sha = expected_sha.replace("'", "''")
+        old_v = old_version.replace("'", "''")
+        new_v = new_version.replace("'", "''")
         return f"""
 $ErrorActionPreference = 'Stop'
 $target = '{target}'
 $newExe = '{new}'
 $backup = '{backup}'
+$journal = '{journal}'
+$expectedSha = '{sha}'
+$oldVersion = '{old_v}'
+$newVersion = '{new_v}'
+
+function Set-Phase([string]$phase, [string]$detail = '') {{
+    try {{
+        if (Test-Path $journal) {{
+            $state = Get-Content -Raw -Path $journal | ConvertFrom-Json
+        }} else {{
+            $state = [pscustomobject]@{{}}
+        }}
+        $state | Add-Member -NotePropertyName phase -NotePropertyValue $phase -Force
+        $state | Add-Member -NotePropertyName detail -NotePropertyValue $detail -Force
+        $state | Add-Member -NotePropertyName old_version -NotePropertyValue $oldVersion -Force
+        $state | Add-Member -NotePropertyName new_version -NotePropertyValue $newVersion -Force
+        $state | Add-Member -NotePropertyName target_path -NotePropertyValue $target -Force
+        $state | Add-Member -NotePropertyName backup_path -NotePropertyValue $backup -Force
+        $state | Add-Member -NotePropertyName sha256 -NotePropertyValue $expectedSha -Force
+        $state | Add-Member -NotePropertyName updated_at -NotePropertyValue ((Get-Date).ToUniversalTime().ToString('o')) -Force
+        $state | ConvertTo-Json -Depth 12 | Set-Content -Path $journal -Encoding UTF8
+    }} catch {{
+        # 저널 기록 실패 시에도 아래 안전 검증은 계속하며, 교체 전 단계에서는 실패 처리한다.
+    }}
+}}
 
 function Restore-And-Start {{
     if (Test-Path $backup) {{
@@ -659,18 +1036,41 @@ function Restore-And-Start {{
 Start-Sleep -Seconds 1
 
 if (-not (Test-Path $newExe)) {{
+    Set-Phase 'failed' 'staged executable missing'
     Restore-And-Start
     exit 1
 }}
 
-if (Test-Path $target) {{
-    try {{
-        Copy-Item -Path $target -Destination $backup -Force
-    }} catch {{
-        # 백업 실패는 치명적이지 않을 수 있으므로 복사 재시도 로직으로 진행
-    }}
+if ([string]::IsNullOrWhiteSpace($expectedSha)) {{
+    Set-Phase 'failed' 'expected SHA256 missing'
+    exit 1
 }}
 
+$actualSha = (Get-FileHash -Algorithm SHA256 -Path $newExe).Hash.ToLowerInvariant()
+if ($actualSha -ne $expectedSha.ToLowerInvariant()) {{
+    Set-Phase 'failed' 'staged SHA256 mismatch'
+    exit 1
+}}
+
+$signature = Get-AuthenticodeSignature -FilePath $newExe
+if ($signature.Status -ne 'Valid' -or -not $signature.SignerCertificate) {{
+    Set-Phase 'failed' 'Authenticode signature invalid'
+    exit 1
+}}
+
+if (-not (Test-Path $target)) {{
+    Set-Phase 'failed' 'installed executable missing'
+    exit 1
+}}
+
+try {{
+    Copy-Item -Path $target -Destination $backup -Force
+}} catch {{
+    Set-Phase 'failed' ('backup failed: ' + $_.Exception.Message)
+    exit 1
+}}
+
+Set-Phase 'replacing'
 $copied = $false
 for ($i = 0; $i -lt 60; $i++) {{
     try {{
@@ -683,16 +1083,20 @@ for ($i = 0; $i -lt 60; $i++) {{
 }}
 
 if (-not $copied) {{
+    Set-Phase 'failed' 'replacement failed'
     Restore-And-Start
     exit 1
 }}
 
 try {{
     $proc = Start-Process -FilePath $target -PassThru
+    Set-Phase 'launched'
     Start-Sleep -Seconds 8
     Get-Process -Id $proc.Id -ErrorAction Stop | Out-Null
+    Set-Phase 'postcheck_pending'
     exit 0
 }} catch {{
+    Set-Phase 'failed' ('launch failed: ' + $_.Exception.Message)
     Restore-And-Start
     exit 1
 }}

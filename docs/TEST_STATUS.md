@@ -1,34 +1,71 @@
+## v3.9.0.3 업데이트 배포 대상 검증 (2026-07-28, Windows 배포 전)
+
+### 2026-07-28 작업별 멀티 Provider·독립 전사·모델 수명주기
+
+- 전체 자동 회귀: **1,135 passed, 6 skipped, 0 failed, 4 warnings**
+- 작업별 `ai_model_roles.<tier> = {provider, model}` 저장·라우팅과 기존 모델 문자열 자동 이전 확인
+- 분석 Provider와 OpenAI transcription Provider 분리 확인
+- 권장·계정 확인·미리보기·비권장·종료 상태와 종료/capability 불일치 차단 확인
+- Claude Sonnet 5·Opus 5·Fable 5, Gemini 3.5 Flash-Lite·3.6 Flash, Kimi K3·K2.6 공식 기준 목록 반영
+- 실제 자격증명 검증 도구: 설정의 `실제 API 기능 검증`, `scripts/ai_provider_preflight.py`
+- 외부 게이트: Windows 서명 후보 빌드에서 약 10명의 사용자 겸 테스터가 각자 보유한 Provider 키로 텍스트·JSON·usage·error·선택적 전사를 검증
+- 실제 Kimi 키 E2E 전이므로 표시는 **Kimi NoahAI 시험 연동** 유지
+
+- Teayu 안정성·주문 범위·AI 커스텀 고급모드·탭 callback 수명주기·업데이트 P0·Claude/Gemini·문서 정합 반영 전체 자동 회귀: **1128 passed, 6 skipped, 0 failed, 3 warnings**
+- 업데이트 캐시 타겟 복구·시간대 정규화·성능 로그 회전·명시적 주문 범위 집중 회귀: **10 passed**
+- AI 커스텀 사용자 기간·다중 시간봉·AND/OR·안전 차단 포함 관련 통합 회귀: **35 passed**
+- 실제 주문은 만들지 않았으며 Windows 새 EXE의 거래소별 최소 주문·24~72시간 실행은 외부 게이트
+- Provider Router·capability·공통 텍스트/JSON/사용량/오류 계약 집중 회귀: **13 passed**
+- AI 엔진 계약·설정 백업·credential reference 보안 통합 집중 회귀: **16 passed**
+- 탭 callback 수명주기·업데이트 P0·Claude/Gemini·가격 카탈로그 집중 회귀: **32 passed, 0 failed**
+- AI 엔진 문서 정합 회귀: **5 passed, 0 failed**
+- 전체 자동 회귀: **1128 passed, 6 skipped, 0 failed, 3 warnings**
+- Python 문법·`settings_template.json` 구문: **PASS**
+- macOS Keychain 임시 credential 저장·조회·삭제 왕복: **PASS**
+- 현재 계정 설정 마이그레이션: 기존 OpenAI 모델 보존, 새 provider profile/model schema 생성, AlphaArena `deepseek-v4-flash` 이전, `settings.json` 권한 `0600`, AI 키 평문 없음 **PASS**
+- OpenAI·DeepSeek·Anthropic·Gemini 실연결 검증 경로: **준비 완료**. 현재 계정과 환경 변수에 제공사 API 키가 없어 인증·동적 모델 목록 확인은 건너뜀
+- AlphaArena 멀티 엔진 비교·실거래 연결은 이번 후보에서 제외하고 다음 업데이트로 이관
+- v3.9.0.2는 이전 고객 배포본이며, 오늘 변경은 실제 제공사 키·서명 Windows 빌드·설치·자동복원 검증 후 v3.9.0.3으로 배포
+- Windows 글꼴·비정상 종료 진단·학습/주문 거래소 분리·AI 커스텀 1+4 프리셋 집중 회귀: **10 passed**
+- 위 피드백 회귀와 기존 AI Provider Router·거래소 범위 회귀 통합: **25 passed**
+- 프리셋 무키 분석: 지원하지 않는 선언형 조건은 없으며, ATR·스윙 손절 등 확정 불가 값은 누락 조건으로 남겨 승인 준비 상태를 차단 **PASS**
+- 사용자 노출 동기화와 문서/버전 정합성: **PASS**
+- Windows 10/11 배율별 글꼴 실화면, Authenticode 서명 EXE의 이전 버전 업데이트·health check 실패 자동복원, 비정상 종료 장시간 재현, 각 실제 거래소 최소 주문은 외부 게이트로 유지
+- README·문서 색인·업데이트 내역·사용자 가이드·인앱 매뉴얼·AI API 사용자/아키텍처·확장 계획·기술 백서 정합성: **PASS**
+
+---
+
 ## 문서 동기화 메모 (2026-07-27 KPI 수집·대시보드 정합)
 
-- 2026-07-27 화면 정합 최종 패치 포함 최신 실행: `1076 passed, 6 skipped, 3 warnings`.
+- 2026-07-27 기간별 실행 분포·KRW 체결금액 보강 포함 최신 실행: `1079 passed, 6 skipped, 3 warnings`.
 - 포지션 KPI 재시도·종료 flush·안전 종료 경로·결제통화 회귀: `9 passed`.
 - 클라이언트 통화별 체결금액·유효 평균 보유시간·거래 통계·리포트 연결 집중 회귀: `93 passed`.
 - 공통 팔레트·AI 리포트·주식 거래 통계·생활금융 월간 요약·어시스턴트 모델명 비노출 UI 정합 회귀: `12 passed`; 대시보드 집중 회귀: `39 passed`.
 - 클라이언트 레퍼럴 정책·AI 도움말·UI 집중 회귀: `10 passed`.
-- daltrading 레퍼럴 정책·관리자 활성 목록·동시 거래소·거래량·보유시간 KPI·JWT 비밀키·DB 동시성 회귀: `19 passed`.
-- daltrading EC2 운영 배포: DB 백업·WAL·무결성 `ok`, 최종 런타임 커밋 `60d090d`, 서비스·공개 4개 경로 HTTP 200, 레퍼럴 선택/CD-Key 비활성/콘솔 오류 없음 **PASS**.
-- 운영 30일 원본 집계: USDT `103047.56`, KRW `0`, 진입 `52`, 종료 `0`, 수집률 `관찰 중`; 최적화 뒤 응답 `13.95초`.
+- daltrading 기간별 동시 거래소 분포·거래량·보유시간·회원정책 KPI 회귀: `20 passed`.
+- daltrading EC2 운영 배포: 약 1.8GB DB 백업·WAL·무결성 `ok`, KPI 런타임 커밋 `1b058b5`, 배포 기록 포함 서버 HEAD `f5bc66d`, 서비스·공개 경로 HTTP 200 **PASS**.
+- 운영 30일 원본 집계: USDT `103047.56`, KRW `0`, 진입 `82`, 종료 `0`, 수집률 `관찰 중`; 집계 응답 `14.35초`. 실행 스냅샷은 1·7·30·90일 모두 `1개 3명`, `6개 1명`이고, KRW 실제 체결 `0건`·Upbit/Bithumb 활동 `1,022,044건`으로 확인했다.
 - Python 문법, 사용자 매뉴얼 JSON, daltrading Jinja 전체 템플릿 파싱: **PASS**.
 - 앞선 UI 정합 집중 회귀 `127 passed`, 문서·사용자 노출 동기화, macOS 실화면 검증 결과는 유지한다.
 - macOS 1500×980 실화면: 블록체인 거래 통계 약 7행 표시와 표 단일 스크롤, 금융 인텔리전스 초보자 안내·AI 질문 버튼, 생활금융 공통 고정 스킨 렌더링 **PASS**.
-- 소스/문서 버전 단일 소스(`config/app_version.py`) 기준 배포 대상은 `v3.9.0.2` (2026-07-26)
-- v3.9.0.2 Windows EXE는 신규 빌드 전이며 manifest는 `pending_windows_rebuild`, size 0, 빈 SHA 상태다. 과거 EXE 재사용은 stale build와 ProductVersion 게이트가 차단한다.
-- 전체 자동 테스트 최신 실행: `1076 passed, 6 skipped, 3 warnings` (2026-07-27, macOS/Python 3.13, 화면 정합 최종 패치 포함)
+- 소스/문서 버전 단일 소스(`config/app_version.py`) 기준 현재 업데이트 대상은 `v3.9.0.3` (2026-07-28)
+- GitHub에 배포된 v3.9.0.2 EXE는 `361,527,883`바이트, SHA-256 `d9a9792fba81601cb8cdf3ac63312677210c4558ed4dcb7aea314ad67a7bb4c3`인 이전 안정 배포본이다. 최신 v3.9.0.3 manifest는 `pending_windows_rebuild`이며 새 EXE 검증이 필요하다.
+- 전체 자동 테스트 최신 실행: `1079 passed, 6 skipped, 3 warnings` (2026-07-27, macOS/Python 3.13, 기간별 실행 분포·KRW 체결금액 포함)
 - 경고 3건은 기존 `scripts/test_coin_selection*.py`의 list 반환이며 실패는 아니다.
 - AI 커스텀·어시스턴트 집중 회귀: `81 passed, 0 failed`.
 - Python 문법 검사: 어시스턴트·AI 커스텀·인앱 매뉴얼·설정·선언형 엔진·신규 테스트 파일 PASS.
 - 문서 정합성 검사: `scripts/doc_consistency_check.py` PASS.
-- v3.9.0.2 릴리스 표면 정합성: README·문서 진입점·인앱 업데이트·사용자 가이드·릴리스 노트·Windows 배포용 `deploy/release_notes.md`·변경이력·공통/AI 커스텀 아키텍처·AI 어시스턴트·거래 흐름·계획·배포 체크리스트·테스트 상태 필수 항목 **PASS**.
+- v3.9.0.3 업데이트 표면 정합성: README·문서 진입점·인앱 업데이트·사용자 가이드·릴리스 노트·Windows 배포용 `deploy/release_notes.md`·변경이력·공통/AI 커스텀 아키텍처·AI 어시스턴트·거래 흐름·계획·배포 체크리스트·테스트 상태 필수 항목 **PASS**.
 - 신규 대상 테스트: EMA200 워밍업, 비용 반영 검증, 미지원 조건 차단, 코인 명시 청산, AI 커스텀 명시/제외 시장국면 추천, NoahAI 정체성·대화 문맥·모호한 요청 재질문·강제 최종확인, 설정 타입 레지스트리·중첩값 롤백을 포함한다.
 - QA 절차 정본: `AI_CUSTOM_ASSISTANT_TEST_RUNBOOK_v3.9.0.2.md`. 실제 비밀번호·API 키는 문서에 저장하지 않는다.
 
 ---
 
-## 최신 테스트 결과 (2026-07-27 v3.9.0.2 배포 준비)
+## 이전 배포 범위 테스트 결과 (2026-07-27 v3.9.0.2)
 
-- 전체 회귀: **1076 passed, 6 skipped, 0 failed, 3 warnings**
+- 전체 회귀: **1079 passed, 6 skipped, 0 failed, 3 warnings**
 - KPI 수집 집중 회귀: **9 passed, 0 failed**
-- daltrading 정책·KPI·회원·DB 동시성 회귀: **19 passed, 0 failed**
+- daltrading 정책·KPI 회귀: **20 passed, 0 failed**
 - AI 커스텀·어시스턴트 안전성 집중 회귀: **81 passed, 0 failed**
 - AI 커스텀 실행 정합성: EMA/SMA 20·50·200, ADX·ATR·거래량, 미지원 조건 fail-closed, 비중첩 비용 검증, 코인 명시 청산 **PASS**
 - Pine 교차·국면 안정화: 직전/현재 캔들 교차 판정, 국면 시각·신뢰도·오래된 입력 차단·히스테리시스 **PASS**
@@ -46,12 +83,12 @@
 - 사용자 화면 표기 점검: 운영체제 이모지를 제거하고 앱 렌더링 공용 아이콘·서비스별 선택 색상·탭 대비로 macOS/Windows 표기 기준 통일 **PASS**
 - 대시보드 공간 회귀: 하단 상태·업데이트·AI 실행 기록을 동일 행으로 배치하고 본문 세로 공간 복구, 공용 아이콘·탭 스타일 집중 회귀 `29 passed` **PASS**
 - macOS 실화면: 1500×980 대시보드에서 한 줄 하단 패널과 공용 아이콘 렌더링 확인 **PASS**
-- 인앱 매뉴얼·도움 동선 정적/회귀 검증: v3.9.0.2 제목, AI 커스텀 초보자/결과 질문 버튼, 시장국면 추천 설명 **PASS**
-- 정본 버전 감사: README·마스터 인덱스·변경이력·계획·사용자 가이드·아키텍처·거래 흐름·개발/API·빌드/배포·테스트·백서·사업·AlphaArena·코인·대시보드에서 v3.9.0.2 현재 기준 확인 **PASS**
+- 인앱 매뉴얼·도움 동선 정적/회귀 검증: 당시 v3.9.0.2 제목, AI 커스텀 초보자/결과 질문 버튼, 시장국면 추천 설명 **PASS**
+- 정본 버전 감사: 당시 v3.9.0.2 배포 범위의 README·마스터 인덱스·변경이력·계획·사용자 가이드·아키텍처·거래 흐름·개발/API·빌드/배포·테스트·백서·사업·AlphaArena·코인·대시보드 **PASS**
 - 문서 구조 감사: `docs` 최상위 179개 → 103개, 이력 79개는 `docs/archive/`로 이동, 런타임 보고서 1,168개는 공식 문서에서 분리 **PASS**
 - 빌드 사전 게이트(`release_gate.py --profile prekey`): 증권 회귀 `150 passed, 6 skipped`, 모드 매트릭스·무키 점검·문서 정합·사용자 노출 동기화·다중 거래소 불변조건·준비도 체인 **PASS**. 이번 AI 커스텀·어시스턴트 변경 29개 파일을 `SYNC_GUARD_CHANGED_FILES`로 명시했다.
 - 실연동 준비도: 선택 거래소 Binance는 인증·잔고 조회 준비 완료. Upbit·Bithumb·Bybit·OKX·Bitget은 현재 키/권한/네트워크/추가 자격증명 점검이 필요하며 배포 후 해당 거래소 실운용 전 재검증한다.
-- 남은 외부 게이트: v3.9.0.2 Windows 빌드·설치·전수 실클릭, YouTube/TradingView 실제 URL 입력 E2E, SEC/DART 운영 자격증명, 각 실제 거래소 장시간 또는 최소단위 검증
+- 현재 남은 외부 게이트: v3.9.0.3 Windows 빌드·설치·전수 실클릭, YouTube/TradingView 실제 URL 입력 E2E, SEC/DART 운영 자격증명, 각 실제 거래소 장시간 또는 최소단위 검증
 
 ---
 

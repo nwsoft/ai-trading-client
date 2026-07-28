@@ -17,9 +17,15 @@ class DemoModeWidget(ctk.CTkFrame):
         
         self.demo_trader = None
         self.is_demo_mode = False
+        self._disposed = False
+        self._update_job = None
         
         self._create_widgets()
-        self._start_updates()
+        try:
+            self.bind("<Map>", self._on_map_visible, add="+")
+            self.bind("<Unmap>", self._on_unmap_hidden, add="+")
+        except Exception:
+            pass
     
     def _create_widgets(self):
         """위젯 생성"""
@@ -231,6 +237,44 @@ class DemoModeWidget(ctk.CTkFrame):
     
     def _start_updates(self):
         """자동 업데이트 시작"""
-        self._update_display()
+        if self._disposed:
+            return
+        try:
+            if not self.winfo_viewable():
+                self._update_job = None
+                return
+            self._update_display()
+        except Exception:
+            self._update_job = None
+            return
         # 5초마다 업데이트
-        self.after(5000, self._start_updates)
+        self._update_job = self.after(5000, self._start_updates)
+
+    def _on_map_visible(self, event=None):
+        if event is not None and getattr(event, "widget", None) is not self:
+            return
+        if not self._disposed and self._update_job is None:
+            self._start_updates()
+
+    def _on_unmap_hidden(self, event=None):
+        if event is not None and getattr(event, "widget", None) is not self:
+            return
+        if self._update_job is not None:
+            try:
+                self.after_cancel(self._update_job)
+            except Exception:
+                pass
+            self._update_job = None
+
+    def cleanup_after_jobs(self):
+        self._disposed = True
+        if self._update_job is not None:
+            try:
+                self.after_cancel(self._update_job)
+            except Exception:
+                pass
+            self._update_job = None
+
+    def destroy(self):
+        self.cleanup_after_jobs()
+        return super().destroy()

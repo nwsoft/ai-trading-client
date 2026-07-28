@@ -307,14 +307,14 @@ BTC를 지금 시장가로 매수해줘.
 
 ## 8. Windows 배포 게이트
 
-- [ ] Windows에서 새 v3.9.0.2 EXE 생성
-- [ ] ProductVersion `3.9.0.2`
-- [ ] 실제 파일 크기·SHA-256 생성
+- [ ] 기간별 스냅샷·KRW 체결값 보강을 포함해 Windows에서 v3.9.0.2 교체 EXE 생성
+- [ ] ProductVersion `3.9.0.2`와 최신 런타임 소스 시각 빌드 게이트 통과
+- [ ] 교체 EXE의 실제 파일 크기·SHA-256 생성
 - [ ] `pending_windows_rebuild` 해제
 - [ ] 설치·실행·로그인·AI 커스텀 전수 클릭
 - [ ] 이전 버전 자동업데이트 E2E
 
-현재 manifest가 `pending_windows_rebuild`, size 0, SHA 공란이면 소스 검증 완료와 Windows 배포 완료를 구분한다.
+앞서 게시된 EXE는 이번 KPI 클라이언트 보강 전 빌드입니다. 현재 manifest는 `pending_windows_rebuild`이며 이전 공개 자산의 크기·SHA는 `previous_published_asset`에 감사 이력으로만 보존합니다.
 
 ## 9. 결과 기록 양식
 

@@ -6,7 +6,7 @@
 
 NoahAI의 핵심은 자동매매가 아니라 **판단·설명·기록·검증·환류 구조를 갖춘 AI 금융 의사결정 인프라**입니다.
 
-## 현재 릴리스: v3.9.0.2
+## 현재 배포 버전: v3.9.0.2
 
 - `레퍼럴` 무료회원과 서버 관리형 Binance·Bybit·OKX·Bitget 허용 정책, 사용자별 동시 실행 거래소 KPI를 추가했습니다.
 - AI 커스텀은 영상·문서·Pine·텍스트를 설명 가능한 실행 규칙으로 만들고 사용자 승인·비용 반영 자동검증 뒤 운용합니다.
@@ -14,10 +14,25 @@ NoahAI의 핵심은 자동매매가 아니라 **판단·설명·기록·검증·
 - NoahAI 어시스턴트는 허용 설정만 최종확인 후 저장하고, 저장 재검증·사용자별 감사로그·되돌리기를 제공합니다.
 - 시장 트렌드·AI 학습·AI 어시스턴트와 금융 인텔리전스·생활금융의 공통 UI를 정리하고 금융 인텔리전스에 초보자 절차·AI 사용법 질문을 추가했습니다.
 - 기존 `거래 통계`와 오늘·주간·월간·실시간 AI 리포트에서 실제 체결금액을 USDT·KRW로 분리하고 검증 가능한 평균 보유시간을 확인할 수 있습니다.
+- 관리자 KPI는 1일·7일·30일·90일별 0개~6개 동시 실행 사용자 분포와 KRW 실제 체결·금액 확인·실패 건수를 구분합니다.
 - 주문·거래 시작/중지·API 키·출금 요청은 보호 작업으로 분류해 채팅에서 실행하지 않고 미실행 상태를 명확히 알립니다.
-- daltrading KPI 수집·통화 분류·보유시간 코호트·DB 동시성 후속은 운영 서버에 배포됐고, Client 3.9.0.2 Windows 설치파일은 신규 빌드 전입니다.
-- 검증: 전체 자동 회귀 `1,076 passed, 6 skipped`, 문서 정합성·배포 `prekey` 게이트 PASS.
+- NoahAI Client v3.9.0.2 Windows 배포 이후 오늘 추가된 변경은 모두 v3.9.0.3으로 분리했습니다. 현재 manifest는 v3.9.0.3 `pending_windows_rebuild`입니다.
+- 검증: 전체 자동 회귀 `1,079 passed, 6 skipped`, daltrading `20 passed`, 문서 정합성 PASS.
 - 전체 변경과 남은 외부 검증은 [릴리스 노트](RELEASE_NOTES.md)와 [업데이트 계획](docs/UPDATE_PLAN.md)을 확인하세요.
+
+## v3.9.0.3 업데이트 배포 대상 소스 (2026-07-28, Windows 빌드 전)
+
+- `설정 → AI 엔진/API`에서 OpenAI·DeepSeek·Anthropic Claude·Google Gemini를 선택할 수 있으며 Kimi K3는 AI 어시스턴트 시험 지원입니다.
+- 애널리스트·어시스턴트·빈번/표준/정밀 작업은 이제 `{provider, model}`로 각각 배치되며 기존 모델 문자열 설정은 기존 Provider를 보존해 자동 변환됩니다.
+- AI 커스텀 무자막 YouTube 전사는 분석 엔진과 분리한 OpenAI 전사 프로필을 사용하고, 기본 2종과 다중 화자 구분 모델을 선택할 수 있습니다.
+- 모델은 권장·계정 확인·미리보기·비권장·종료로 구분되며 종료 모델과 capability 불일치는 저장을 차단합니다. 실제 제공사 키 검증은 설정의 `실제 API 기능 검증`과 Windows 테스터 후보 빌드에서 수행합니다.
+- 기존 OpenAI 설정은 유지됩니다. Claude Code 구독은 API 키가 아니며 Claude 사용에는 별도 Anthropic API 키가 필요합니다.
+- 제공사별 기준일 가격 참고, 공식 가격 링크, 절약형·균형형·정밀형 모델 배치와 문답 예산을 설정 화면에서 확인할 수 있습니다.
+- `설정 → 거래소 선택`에서 화면·분석·학습 거래소와 `실제 주문 실행 거래소`를 별도로 선택합니다. 실제 주문 목록이 비어 있으면 모든 주문이 차단됩니다.
+- 숨은 AI 학습·금융 인텔리전스·거래소·증권사 탭은 불필요한 callback/API 조회를 중지하고 다시 열 때 즉시 갱신합니다.
+- 업데이트는 열린 포지션·주문·주문 제출 상태를 기본 연기합니다. 유지 시 TP·SL, 청산 시 실제 0건 상태, 종료 flush, SHA·Windows 코드서명, 재시작 health check를 모두 통과해야 합니다.
+- 통합 소스 검증은 `1,135 passed, 6 skipped, 0 failed`입니다. 서명된 Windows EXE의 설치·자동업데이트·복원, 실제 제공사 키와 거래소별 실연결, 24~72시간 실행 검증을 마친 뒤 v3.9.0.3으로 한 번에 배포합니다.
+- 사용 순서: [AI 엔진/API 사용자 안내](docs/AI_API_USER_GUIDE.md) → [사용자 가이드](docs/USER_GUIDE.md) → 앱 `사용자 매뉴얼 → 업데이트`.
 
 ### NoahAI의 3가지 역할
 
@@ -70,12 +85,14 @@ NoahAI의 핵심은 자동매매가 아니라 **판단·설명·기록·검증·
 - **[거래소 설정](docs/EXCHANGE_SETUP.md)**: 지원 거래소별 API 키 설정 가이드
 - **[사용법 가이드](docs/USER_GUIDE.md)**: AI 금융 동반자로서 할 수 있는 일들
 - **[AI 어시스턴트 가이드](docs/AI_ASSISTANT_GUIDE.md)**: 대시보드 채팅으로 금융 조언 받기
+- **[AI 엔진/API 사용자 안내](docs/AI_API_USER_GUIDE.md)**: 제공사 선택, API 키, 모델·가격·문답 정책 사용법
 - **[AI 커스텀 전략 가이드](docs/AI_CUSTOM_STRATEGY_ARCHITECTURE.md)**: 영상·문서·Pine·텍스트를 설명 가능한 전략으로 검토·적용하기
 - **[AI 커스텀·어시스턴트 테스트 런북](docs/AI_CUSTOM_ASSISTANT_TEST_RUNBOOK_v3.9.0.2.md)**: QA 계정 정책, 안전 조건, 테스트 순서와 결과 기록
 
 ### 🔧 개발자 문서
 - **[시스템 아키텍처](docs/ARCHITECTURE.md)**: 판단 인프라의 기술 구조
 - **[API 문서](docs/API_REFERENCE.md)**: 거래소 API 연동 및 데이터 흐름
+- **[AI API 아키텍처](docs/AI_API_ARCHITECTURE.md)**: Provider Router, capability, 자격증명·응답 정규화
 - **[빌드 가이드](docs/BUILD_GUIDE.md)**: 배포용 실행 파일 빌드 방법
 - **[변경 이력](docs/CHANGELOG.md)**: 버전별 변경 사항
 

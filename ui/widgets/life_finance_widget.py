@@ -83,7 +83,15 @@ class LifeFinanceWidget(ctk.CTkFrame):
         if not self._is_widget_alive():
             return None
 
+        job_ref = {"id": None}
+
         def _runner():
+            job_id = job_ref.get("id")
+            if job_id:
+                try:
+                    self._after_jobs.remove(job_id)
+                except ValueError:
+                    pass
             if not self._is_widget_alive():
                 return
             try:
@@ -93,6 +101,7 @@ class LifeFinanceWidget(ctk.CTkFrame):
 
         try:
             job_id = self.after(delay, _runner)
+            job_ref["id"] = job_id
             self._after_jobs.append(job_id)
             return job_id
         except Exception:

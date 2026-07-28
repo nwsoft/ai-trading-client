@@ -26,6 +26,7 @@ def test_apply_pending_update_returns_false_without_windows_runtime(tmp_path, mo
 
 def test_has_pending_update_flag():
     mgr = AutoUpdateManager(settings={})
+    mgr.pending_update = {}
     assert mgr.has_pending_update() is False
     mgr.pending_update = {"downloaded": True}
     assert mgr.has_pending_update() is True
@@ -61,6 +62,68 @@ def test_resolve_install_target_prefers_persisted_when_running_from_cache(tmp_pa
     assert resolved == persisted_target
 
 
+def test_cache_marker_is_rejected_even_when_it_points_to_another_cache_root(tmp_path, monkeypatch):
+    active_cache = tmp_path / "local" / "cache" / "auto_updater"
+    active_cache.mkdir(parents=True, exist_ok=True)
+    marker_path = tmp_path / "data" / "config" / "auto_update_target.json"
+    marker_path.parent.mkdir(parents=True, exist_ok=True)
+
+    stale_cache_exe = tmp_path / "documents" / "cache" / "auto_updater" / "3.8.9.27" / "AITrading.new.exe"
+    stale_cache_exe.parent.mkdir(parents=True, exist_ok=True)
+    stale_cache_exe.write_bytes(b"staged")
+    marker_path.write_text(
+        json.dumps({"install_target_exe": str(stale_cache_exe)}, ensure_ascii=False),
+        encoding="utf-8",
+    )
+
+    current_cache_exe = active_cache / "3.8.9.30" / "AITrading.new.exe"
+    current_cache_exe.parent.mkdir(parents=True, exist_ok=True)
+    current_cache_exe.write_bytes(b"new")
+
+    monkeypatch.setattr(AutoUpdateManager, "_resolve_update_cache_dir", lambda self: active_cache)
+    monkeypatch.setattr(AutoUpdateManager, "_resolve_install_target_marker_path", lambda self: marker_path)
+    monkeypatch.setattr("sys.platform", "win32")
+    monkeypatch.setattr("sys.frozen", True, raising=False)
+    monkeypatch.setattr("sys.executable", str(current_cache_exe))
+
+    mgr = AutoUpdateManager(settings={})
+    assert mgr.install_target_exe == current_cache_exe
+    assert AutoUpdateManager._looks_like_update_cache_path(stale_cache_exe) is True
+
+
+def test_recovers_stable_target_from_previous_apply_script(tmp_path, monkeypatch):
+    active_cache = tmp_path / "local" / "cache" / "auto_updater"
+    active_cache.mkdir(parents=True, exist_ok=True)
+    marker_path = tmp_path / "data" / "config" / "auto_update_target.json"
+    marker_path.parent.mkdir(parents=True, exist_ok=True)
+
+    current_cache_exe = active_cache / "3.8.9.30" / "AITrading.new.exe"
+    current_cache_exe.parent.mkdir(parents=True, exist_ok=True)
+    current_cache_exe.write_bytes(b"new")
+
+    stable_target = tmp_path / "Desktop" / "noah" / "AITrading.exe"
+    stable_target.parent.mkdir(parents=True, exist_ok=True)
+    stable_target.write_bytes(b"installed")
+
+    historical_cache = marker_path.parent.parent / "cache" / "auto_updater"
+    historical_cache.mkdir(parents=True, exist_ok=True)
+    (historical_cache / "apply_update_3.8.9.29.ps1").write_text(
+        f"$target = '{stable_target}'\n$newExe = 'ignored'\n",
+        encoding="utf-8",
+    )
+
+    monkeypatch.setattr(AutoUpdateManager, "_resolve_update_cache_dir", lambda self: active_cache)
+    monkeypatch.setattr(AutoUpdateManager, "_resolve_install_target_marker_path", lambda self: marker_path)
+    monkeypatch.setattr("sys.platform", "win32")
+    monkeypatch.setattr("sys.frozen", True, raising=False)
+    monkeypatch.setattr("sys.executable", str(current_cache_exe))
+
+    mgr = AutoUpdateManager(settings={})
+    assert mgr.install_target_exe == stable_target
+    saved = json.loads(marker_path.read_text(encoding="utf-8"))
+    assert Path(saved["install_target_exe"]) == stable_target
+
+
 def test_download_uses_staged_name_in_cache(tmp_path, monkeypatch):
     cache_dir = tmp_path / "cache" / "auto_updater"
     marker_path = tmp_path / "config" / "auto_update_target.json"
@@ -76,7 +139,9 @@ def test_download_uses_staged_name_in_cache(tmp_path, monkeypatch):
         return True
 
     monkeypatch.setattr(mgr, "_download_file", _fake_download)
-    monkeypatch.setattr(mgr, "_fetch_expected_sha_from_manifest", lambda assets: "")
+    import hashlib
+    binary_sha = hashlib.sha256(b"binary").hexdigest()
+    monkeypatch.setattr(mgr, "_fetch_expected_sha_from_manifest", lambda assets: binary_sha)
 
     release = {
         "tag_name": "v3.8.9.30",
@@ -92,3 +157,59 @@ def test_download_uses_staged_name_in_cache(tmp_path, monkeypatch):
     assert result["ok"] is True
     assert result["asset_path"].endswith("AITrading.new.exe")
     assert Path(result["asset_path"]).exists()
+
+
+def test_download_fails_closed_without_release_manifest_sha(tmp_path, monkeypatch):
+    cache_dir = tmp_path / "cache"
+    marker_path = tmp_path / "config" / "target.json"
+    monkeypatch.setattr(AutoUpdateManager, "_resolve_update_cache_dir", lambda self: cache_dir)
+    monkeypatch.setattr(AutoUpdateManager, "_resolve_install_target_marker_path", lambda self: marker_path)
+    mgr = AutoUpdateManager(settings={})
+    monkeypatch.setattr(
+        mgr,
+        "_download_file",
+        lambda _url, output: (output.parent.mkdir(parents=True, exist_ok=True), output.write_bytes(b"x"), True)[-1],
+    )
+    monkeypatch.setattr(mgr, "_fetch_expected_sha_from_manifest", lambda _assets: "")
+    result = mgr.download_latest_update({
+        "tag_name": "v9.9.9",
+        "assets": [{"name": "AITrading.exe", "browser_download_url": "https://example.test/app.exe"}],
+    })
+    assert result == {"ok": False, "reason": "release_manifest_or_sha256_missing"}
+
+
+def test_update_transaction_is_persisted_and_restores_pending(tmp_path, monkeypatch):
+    cache_dir = tmp_path / "cache"
+    marker_path = tmp_path / "config" / "target.json"
+    asset = cache_dir / "3.9.1" / "AITrading.new.exe"
+    asset.parent.mkdir(parents=True)
+    asset.write_bytes(b"signed-binary-placeholder")
+    monkeypatch.setattr(AutoUpdateManager, "_resolve_update_cache_dir", lambda self: cache_dir)
+    monkeypatch.setattr(AutoUpdateManager, "_resolve_install_target_marker_path", lambda self: marker_path)
+    mgr = AutoUpdateManager(settings={})
+    mgr._write_transaction(
+        "downloaded",
+        old_version="3.9.0.2",
+        new_version="3.9.1",
+        asset_path=str(asset),
+        sha256=AutoUpdateManager._sha256_file(asset),
+    )
+    restored = AutoUpdateManager(settings={})
+    assert restored.has_pending_update() is True
+    assert restored.pending_update["latest_version"] == "3.9.1"
+
+
+def test_apply_script_requires_backup_sha_signature_and_postcheck_journal():
+    script = AutoUpdateManager._build_apply_script(
+        target_exe="C:/NoahAI/AITrading.exe",
+        new_exe="C:/NoahAI/cache/AITrading.new.exe",
+        backup_exe="C:/NoahAI/AITrading.exe.bak",
+        journal_path="C:/NoahAI/update.json",
+        expected_sha="a" * 64,
+        old_version="3.9.0.2",
+        new_version="3.9.0.3",
+    )
+    assert "Get-FileHash -Algorithm SHA256" in script
+    assert "Get-AuthenticodeSignature" in script
+    assert "backup failed" in script
+    assert "Set-Phase 'postcheck_pending'" in script

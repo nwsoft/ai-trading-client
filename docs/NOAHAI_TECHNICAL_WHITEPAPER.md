@@ -250,7 +250,7 @@ Evaluator / Analyzer / Risk Guard / Recorder / Explainer는 모두 **판단·설
 - 통계 및 성과 분석
 
 #### 6. **alpha_arena_trader.py** - Alpha Arena (v3.8.8.6+) — 연구·검증 모드
-- **LLM 기반 판단 실험/벤치마크**: 현재 실행 경로는 DeepSeek 3.1 기준이며, Qwen 3 Max 관련 설정 항목은 준비 상태다. **LLM이 거래를 수행하는 것이 아니라, LLM 판단 실험 환경**이다.
+- **LLM 기반 판단 실험/벤치마크**: 현재 AlphaArena 실행 경로는 DeepSeek V4 Flash 단일 기준이며, Qwen 3 Max 관련 설정은 구형 호환 항목일 뿐 실행 지원이 아니다. **일반 AI의 Claude·Gemini 선택과 AlphaArena 멀티 엔진 실거래는 별도 범위**다.
 - **벤치마크 검증**: nof1.ai Alpha Arena 벤치마크 검증 알고리즘 적용
 - **일반 서비스와 분리**: 기존 판단·기록 파이프라인과 별도 구조. 연구·검증 목적
 - **Binance Futures 연동**: 바이낸스 선물 API와의 집행 브리지(집행은 외부 API)
@@ -449,7 +449,7 @@ NoahAI의 AI 엔진은 **판단·설명·기록·검증·환류**만 수행하�
 
 #### 7. **Alpha Arena** (v3.8.8.6+) — 연구·검증 모드
 - LLM 기반 판단 실험/벤치마크 환경. **일반 서비스와 분리된 구조**
-- 현재 실행 경로는 DeepSeek 3.1 기준이며, Qwen 3 Max 관련 설정 항목은 준비 상태
+- 현재 AlphaArena 실행 경로는 DeepSeek V4 Flash 단일 기준이며 Qwen 3 Max는 실행 미지원 호환 항목
 - nof1.ai Alpha Arena 벤치마크 검증 전략 적용
 - 기존 판단·기록 파이프라인과 별도. 연구·검증 목적
 - Binance Futures 연동, 고정 6개 코인. 집행은 외부 API
@@ -670,7 +670,7 @@ NoahAI는 **인간의 감정적 판단 부담을 구조적으로 분산**시키�
 
 #### 2. Alpha Arena (v3.8.8.6+) — 연구·검증 모드
 - **근거**: `trading/alpha_arena/alpha_arena_trader.py`
-- LLM 기반 판단 실험/벤치마크 (DeepSeek 3.1, Qwen 3 Max)
+- LLM 기반 판단 실험/벤치마크 (DeepSeek V4 Flash 단일 실행, Qwen 3 Max 실행 미지원)
 - 일반 서비스와 분리된 독립 구조. 집행은 Binance Futures API
 
 #### 3. Paper Trading 모드
@@ -1167,7 +1167,7 @@ self.ai_manager = AIManager(
 **아키텍처** (연구·검증 모드, 일반 서비스와 분리):
 ```
 Alpha Arena Trader (독립 모듈)
-  ├─ LLM 엔진 선택 (DeepSeek 3.1 / Qwen 3 Max)
+  ├─ LLM 엔진 (DeepSeek V4 Flash 단일 실행 / Qwen 3 Max 실행 미지원)
   ├─ 시장 데이터 수집 (6개 코인: BTC, ETH, SOL, XRP, DOGE, BNB)
   ├─ Alpha Arena 형식 프롬프트 생성
   ├─ LLM 응답 파싱 (MODEL_CHAT + TRADING_DECISIONS)

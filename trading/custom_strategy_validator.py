@@ -148,19 +148,136 @@ def _candle_rows(klines: Iterable[Any]) -> List[Dict[str, Any]]:
 
 def _required_history(rules: Dict[str, Any]) -> int:
     fields = set()
+    periods = [30]
     for section in ("executable_entry", "executable_exit"):
         spec = dict((rules or {}).get(section, {}) or {})
         for group in ("all", "any"):
             for condition in spec.get(group) or []:
                 if not isinstance(condition, dict):
                     continue
-                fields.add(str(condition.get("field") or ""))
-                fields.add(str(condition.get("value_field") or ""))
+                for reference in (condition.get("field"), condition.get("value_field")):
+                    if isinstance(reference, dict):
+                        try:
+                            periods.append(int(reference.get("period") or 0))
+                        except Exception:
+                            pass
+                    else:
+                        fields.add(str(reference or ""))
     if fields & {"ma200", "sma200", "ema200"}:
-        return 200
+        periods.append(200)
     if fields & {"ma50", "sma50", "ema50"}:
-        return 50
-    return 30
+        periods.append(50)
+    return max(periods)
+
+
+def _indicator_value(rows: List[Dict[str, Any]], reference: Dict[str, Any]) -> Optional[float]:
+    name = str(reference.get("indicator") or reference.get("name") or "").lower()
+    period = int(reference.get("period") or 0)
+    source = str(
+        reference.get("source") or ("volume" if name == "volume_sma" else "close")
+    ).lower()
+    values = [_float(row.get(source)) for row in rows]
+    if name == "ema":
+        return _ema(values, period) if len(values) >= period else None
+    if name == "sma" or name == "volume_sma":
+        return _sma(values, period)
+    if name == "rsi":
+        return _rsi(values, period)
+    if name == "atr":
+        return _atr(rows, period)
+    return None
+
+
+def collect_advanced_indicator_references(rules_or_pool: Any) -> List[Dict[str, Any]]:
+    """Collect and de-duplicate safe parameterized indicator references."""
+    rules_list: List[Dict[str, Any]] = []
+    if isinstance(rules_or_pool, list):
+        for item in rules_or_pool:
+            if isinstance(item, dict):
+                rules_list.append(dict(item.get("rules") or item))
+    elif isinstance(rules_or_pool, dict):
+        rules_list.append(rules_or_pool)
+
+    output: Dict[str, Dict[str, Any]] = {}
+    for rules in rules_list:
+        for section in ("executable_entry", "executable_exit"):
+            spec = dict(rules.get(section, {}) or {})
+            for group in ("all", "any"):
+                for condition in spec.get(group) or []:
+                    if not isinstance(condition, dict):
+                        continue
+                    for reference in (condition.get("field"), condition.get("value_field")):
+                        if not isinstance(reference, dict):
+                            continue
+                        valid, _reason = DeclarativeStrategyEngine.validate_indicator_reference(reference)
+                        if valid:
+                            output[DeclarativeStrategyEngine.indicator_field_key(reference)] = dict(reference)
+    return list(output.values())
+
+
+def enrich_advanced_indicator_context(
+    context: Dict[str, Any],
+    rules_or_pool: Any,
+    candle_fetcher,
+) -> Dict[str, Any]:
+    """Fetch each requested timeframe once and add evaluated/previous values."""
+    enriched = dict(context or {})
+    previous = dict(enriched.get("_previous") or {})
+    references = collect_advanced_indicator_references(rules_or_pool)
+    grouped: Dict[str, List[Dict[str, Any]]] = {}
+    for reference in references:
+        grouped.setdefault(str(reference.get("timeframe") or "5m").lower(), []).append(reference)
+
+    compared: List[Dict[str, Any]] = []
+    for timeframe, items in grouped.items():
+        limit = min(600, max(int(item.get("period") or 0) for item in items) + 5)
+        try:
+            rows = _candle_rows(candle_fetcher(timeframe, limit) or [])
+        except Exception:
+            rows = []
+        for reference in items:
+            key = DeclarativeStrategyEngine.indicator_field_key(reference)
+            runtime_value = _indicator_value(rows, reference) if rows else None
+            previous_value = _indicator_value(rows[:-1], reference) if len(rows) > 1 else None
+            enriched[key] = runtime_value
+            previous[key] = previous_value
+            compared.append({
+                "field": key,
+                "requested": dict(reference),
+                "runtime_value": runtime_value,
+                "status": "calculated" if runtime_value is not None else "insufficient_data",
+            })
+    if previous:
+        enriched["_previous"] = previous
+    enriched["_advanced_indicator_values"] = compared
+    return enriched
+
+
+def _enrich_replay_context(
+    context: Dict[str, Any],
+    rules: Dict[str, Any],
+    rows: List[Dict[str, Any]],
+    *,
+    timeframe_rows: Optional[Dict[str, List[Dict[str, Any]]]] = None,
+    cutoff_timestamp: Optional[float] = None,
+) -> Dict[str, Any]:
+    def _fetch(timeframe: str, limit: int):
+        source_rows = rows
+        if timeframe_rows is not None:
+            source_rows = timeframe_rows.get(timeframe, [])
+        if cutoff_timestamp is not None:
+            source_rows = [
+                row for row in source_rows
+                if row.get("timestamp") is not None
+                and float(row["timestamp"]) <= cutoff_timestamp
+            ]
+        return source_rows[-limit:]
+
+    return enrich_advanced_indicator_context(
+        context,
+        rules,
+        _fetch,
+    )
 
 
 def _context(
@@ -281,6 +398,7 @@ def run_historical_replay(
     rules: Dict[str, Any],
     klines: Iterable[Any],
     *,
+    timeframe_klines: Optional[Dict[str, Iterable[Any]]] = None,
     fee_rate: float = 0.001,
     slippage_bps: float = 2.0,
     spread_bps: float = 1.0,
@@ -288,6 +406,21 @@ def run_historical_replay(
 ) -> Dict[str, Any]:
     """단일 포지션 방식의 조건 재생. 실전 수익 보장이 아닌 실행 가능성 보조 검증이다."""
     rows = _candle_rows(klines)
+    replay_timeframes: Dict[str, List[Dict[str, Any]]] = {
+        str(timeframe).lower(): _candle_rows(values)
+        for timeframe, values in (timeframe_klines or {}).items()
+    }
+    if "15m" not in replay_timeframes:
+        replay_timeframes["15m"] = rows
+    requested_timeframes = {
+        str(item.get("timeframe") or "5m").lower()
+        for item in collect_advanced_indicator_references(rules)
+    }
+    missing_timeframes = sorted(requested_timeframes - set(replay_timeframes))
+    if missing_timeframes:
+        raise ValueError(
+            "다중 시간봉 과거 데이터가 필요합니다: " + ", ".join(missing_timeframes)
+        )
     spec = dict((rules or {}).get("executable_entry", {}) or {})
     validation = DeclarativeStrategyEngine.validate_rule_spec(rules)
     if not validation["valid"]:
@@ -324,7 +457,13 @@ def run_historical_replay(
         ma50 = base_context.get("ma50") or rows[index]["close"]
         proxy_signal = "LONG" if ma20 >= ma50 else "SHORT"
         entry_signal = configured_signal if signal_mode == "independent" else proxy_signal
-        current_context = _context(rows, index, entry_signal)
+        current_context = _enrich_replay_context(
+            _context(rows, index, entry_signal),
+            rules,
+            rows[:index + 1],
+            timeframe_rows=replay_timeframes,
+            cutoff_timestamp=rows[index].get("timestamp"),
+        )
         evaluated += 1
         if not DeclarativeStrategyEngine.evaluate_entry(rules, current_context).get("allowed", False):
             continue
@@ -358,7 +497,14 @@ def run_historical_replay(
                     exit_index = future_index
                     break
             explicit_exit = DeclarativeStrategyEngine.evaluate_exit(
-                rules, _context(rows, future_index, entry_signal),
+                rules,
+                _enrich_replay_context(
+                    _context(rows, future_index, entry_signal),
+                    rules,
+                    rows[:future_index + 1],
+                    timeframe_rows=replay_timeframes,
+                    cutoff_timestamp=rows[future_index].get("timestamp"),
+                ),
             )
             if not explicit_exit.get("bypassed", False) and explicit_exit.get("allowed", False):
                 exit_price = candle["close"]

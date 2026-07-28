@@ -57,6 +57,27 @@ def _sha256_of(file_path: Path) -> str:
     return h.hexdigest()
 
 
+def _latest_runtime_source() -> Path:
+    """Windows 실행 파일에 포함되는 최신 런타임 소스를 반환한다."""
+    source_files = [
+        PROJECT_ROOT / "main.py",
+        PROJECT_ROOT / "build_safe.py",
+        PROJECT_ROOT / "aiautotrade.spec",
+        PROJECT_ROOT / "config" / "app_version.py",
+        PROJECT_ROOT / "config" / "windows_version_info.txt",
+    ]
+    for directory in ("api", "config", "trading", "ui", "utils"):
+        source_files.extend(
+            path
+            for path in (PROJECT_ROOT / directory).rglob("*.py")
+            if "__pycache__" not in path.parts
+        )
+    existing_sources = [path for path in source_files if path.exists()]
+    if not existing_sources:
+        return PROJECT_ROOT / "config" / "app_version.py"
+    return max(existing_sources, key=lambda path: path.stat().st_mtime)
+
+
 def _build_manifest(version: str, exe_path: Path, notes_path: Path, repo: str) -> dict:
     has_exe = exe_path.exists()
     exe_name = exe_path.name
@@ -97,10 +118,11 @@ def main() -> int:
     out_dir.mkdir(parents=True, exist_ok=True)
 
     version = _read_release_version()
-    version_source = PROJECT_ROOT / "config" / "app_version.py"
-    if exe_path.exists() and version_source.exists() and exe_path.stat().st_mtime < version_source.stat().st_mtime:
+    latest_runtime_source = _latest_runtime_source()
+    if exe_path.exists() and exe_path.stat().st_mtime < latest_runtime_source.stat().st_mtime:
         print(
-            "error: AITrading.exe가 RELEASE_VERSION 변경보다 오래된 빌드입니다. "
+            "error: AITrading.exe가 최신 런타임 소스보다 오래된 빌드입니다. "
+            f"최신 파일: {latest_runtime_source.relative_to(PROJECT_ROOT)}. "
             "Windows에서 현재 소스를 다시 빌드한 뒤 릴리스 자산을 생성하세요."
         )
         return 2

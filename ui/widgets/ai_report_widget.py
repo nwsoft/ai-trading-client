@@ -122,6 +122,8 @@ class AIReportWidget(CTkFrame):
             if self._disposed or not self.winfo_exists():
                 return None
 
+            job_ref = {"id": None}
+
             def safe_callback():
                 try:
                     if self._disposed or not self.winfo_exists():
@@ -129,8 +131,16 @@ class AIReportWidget(CTkFrame):
                     func(*args, **kwargs)
                 except tk.TclError:
                     return
+                finally:
+                    job_id = job_ref.get("id")
+                    if job_id:
+                        try:
+                            self.after_jobs.remove(job_id)
+                        except (ValueError, AttributeError):
+                            pass
 
             job_id = self.after(delay, safe_callback)
+            job_ref["id"] = job_id
             if not hasattr(self, 'after_jobs') or self.after_jobs is None:
                 self.after_jobs = []
             self.after_jobs.append(job_id)

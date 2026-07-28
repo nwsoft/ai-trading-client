@@ -28,6 +28,9 @@ class MarketTrendWidget(ctk.CTkFrame):
         self._last_refresh_started_at: Optional[datetime] = None
         self._last_refresh_success_at: Optional[datetime] = None
         self._last_refresh_error: str = ""
+        self._disposed = False
+        self._after_jobs = []
+        self._auto_refresh_job = None
 
         # 로그인 직후 과도한 API 호출을 줄이기 위한 인메모리 캐시
         self._trend_cache: Dict[str, Dict[str, Any]] = {}
@@ -47,6 +50,11 @@ class MarketTrendWidget(ctk.CTkFrame):
     # CustomTkinter 패치 제거 (2025-10-30): 렌더링 품질 문제의 원인이었음
 
         self.setup_ui()
+        try:
+            self.bind("<Destroy>", self._on_destroy, add="+")
+            self.bind("<Unmap>", self._on_unmap_hidden, add="+")
+        except Exception:
+            pass
 
     def _color(self, key: str, fallback: str) -> str:
         try:
@@ -278,6 +286,24 @@ class MarketTrendWidget(ctk.CTkFrame):
         self._last_visible_force_refresh_ts = now_ts
         log_ui_perf_metric("market_trend", "map_force_refresh", cooldown_sec=30)
         self.safe_after(100, lambda: self.collect_and_update(force_refresh=True))
+        self._schedule_auto_refresh()
+
+    def _on_unmap_hidden(self, event=None):
+        try:
+            if event is not None and getattr(event, "widget", None) is not self:
+                return
+        except Exception:
+            pass
+        if self._auto_refresh_job is not None:
+            try:
+                self.after_cancel(self._auto_refresh_job)
+            except Exception:
+                pass
+            try:
+                self._after_jobs.remove(self._auto_refresh_job)
+            except (ValueError, AttributeError):
+                pass
+            self._auto_refresh_job = None
 
     def _is_visible_now(self) -> bool:
         """현재 위젯이 실제로 화면에 표시 중인지 확인한다."""
@@ -289,11 +315,19 @@ class MarketTrendWidget(ctk.CTkFrame):
     def start_auto_refresh(self):
         """자동 새로고침 시작"""
         if not self._is_visible_now():
-            self.safe_after(600000, self.start_auto_refresh)
             return
         self.collect_and_update(force_refresh=True)
-        # 10분마다 자동 새로고침
-        self.safe_after(600000, self.start_auto_refresh)
+        self._schedule_auto_refresh()
+
+    def _schedule_auto_refresh(self):
+        if self._disposed or not self._is_visible_now():
+            return
+        if self._auto_refresh_job is not None:
+            try:
+                self.after_cancel(self._auto_refresh_job)
+            except Exception:
+                pass
+        self._auto_refresh_job = self.safe_after(600000, self.start_auto_refresh)
 
     def set_service_context(self, service_name: str) -> None:
         """서비스 컨텍스트 변경 (blockchain / stock / etc.)"""
@@ -1557,9 +1591,11 @@ AI 어시스턴트 활용:
                 return None
 
             # 안전한 콜백 래핑
+            job_ref = {"id": None}
+
             def safe_callback():
                 try:
-                    if not self.winfo_exists():
+                    if self._disposed or not self.winfo_exists():
                         return
                     func(*args, **kwargs)
                 except tk.TclError as e:
@@ -1570,10 +1606,16 @@ AI 어시스턴트 활용:
                 except Exception as e:
                     if "invalid command name" not in str(e) and "TclError" not in str(e) and "border_parts" not in str(e):
                         print(f"market_trend_widget 콜백 오류: {e}")
+                finally:
+                    job_id = job_ref.get("id")
+                    if job_id:
+                        try:
+                            self._after_jobs.remove(job_id)
+                        except (ValueError, AttributeError):
+                            pass
 
             job = self.after(delay, safe_callback)
-            if job and not hasattr(self, '_after_jobs'):
-                self._after_jobs = []
+            job_ref["id"] = job
             if job:
                 self._after_jobs.append(job)
             return job
@@ -1602,6 +1644,7 @@ AI 어시스턴트 활용:
                 except:
                     pass
             self._after_jobs.clear()
+            self._auto_refresh_job = None
         except tk.TclError as e:
             if "invalid command name" in str(e) or "border_parts" in str(e):
                 pass
@@ -1609,3 +1652,17 @@ AI 어시스턴트 활용:
                 raise e
         except Exception as e:
             print(f"market_trend_widget cleanup 오류: {e}")
+
+    def _on_destroy(self, event=None):
+        try:
+            if event is not None and getattr(event, "widget", None) is not self:
+                return
+        except Exception:
+            pass
+        self._disposed = True
+        self.cleanup_after_jobs()
+
+    def destroy(self):
+        self._disposed = True
+        self.cleanup_after_jobs()
+        return super().destroy()

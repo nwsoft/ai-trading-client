@@ -707,7 +707,8 @@ class UnifiedTrader:
 
     def _compute_trade_enabled_exchanges(self) -> List[str]:
         allowed = {'binance', 'bybit', 'okx', 'bitget', 'upbit', 'bithumb'}
-        configured = self.settings.get('trade_enabled_exchanges', []) if isinstance(self.settings, dict) else []
+        settings = self.settings if isinstance(self.settings, dict) else {}
+        configured = settings.get('trade_enabled_exchanges', [])
         normalized = [
             self._normalize_exchange(item)
             for item in (configured or [])
@@ -715,7 +716,11 @@ class UnifiedTrader:
         ]
         if normalized:
             return list(dict.fromkeys(normalized))
-        selected = self._normalize_exchange(self.settings.get('selected_exchange', 'binance'))
+        # Missing key means a pre-scope legacy profile. An explicitly saved
+        # empty list means "no live orders".
+        if 'trade_enabled_exchanges' in settings:
+            return []
+        selected = self._normalize_exchange(settings.get('selected_exchange', 'binance'))
         return [selected] if selected in allowed else ['binance']
 
     def _compute_learning_enabled_exchanges(self) -> List[str]:
@@ -1330,7 +1335,22 @@ class UnifiedTrader:
                 self.logger.info(f"{symbol} 분석 완료 - 시그널: {analysis.get('signal', 'HOLD')} (ex={exchange_name})")
 
                 from .declarative_strategy_engine import DeclarativeStrategyEngine
+                from .custom_strategy_validator import enrich_advanced_indicator_context
                 strategy_pool = getattr(self, 'active_custom_strategy_pool', []) or []
+                custom_rules_by_exchange = getattr(
+                    self, 'active_custom_strategy_rules_by_exchange', {}
+                ) or {}
+                active_rules = strategy_pool or custom_rules_by_exchange.get(exchange_name, {})
+                analysis = enrich_advanced_indicator_context(
+                    analysis,
+                    active_rules,
+                    lambda timeframe, limit: self.exchange_manager.get_klines(
+                        symbol,
+                        interval=timeframe,
+                        limit=limit,
+                        exchange_name=exchange_name,
+                    ),
+                )
                 if strategy_pool:
                     custom_entry = DeclarativeStrategyEngine.evaluate_strategy_pool(
                         strategy_pool,
@@ -1340,7 +1360,6 @@ class UnifiedTrader:
                         market_regime=str((getattr(self, 'last_market_regime_by_exchange', {}) or {}).get(exchange_name, 'range')),
                     )
                 elif analysis.get('signal') in ['LONG', 'SHORT']:
-                    custom_rules_by_exchange = getattr(self, 'active_custom_strategy_rules_by_exchange', {}) or {}
                     custom_entry = DeclarativeStrategyEngine.evaluate_entry(
                         custom_rules_by_exchange.get(exchange_name, {}), analysis,
                     )
@@ -1360,6 +1379,9 @@ class UnifiedTrader:
                     analysis['_selected_custom_strategy_id'] = custom_entry.get('selected_strategy_id')
                     analysis['_custom_strategy_rules'] = dict(custom_entry.get('selected_rules') or {})
                     analysis['_custom_operation_mode'] = custom_entry.get('operation_mode', 'standard')
+                    analysis['_custom_runtime_indicator_values'] = list(
+                        custom_entry.get('runtime_indicator_values') or []
+                    )
                     self.logger.info(
                         f"🧠 {exchange_name} {symbol} AI 커스텀 선택: "
                         f"{custom_entry.get('selected_strategy_name')} "
@@ -1798,6 +1820,21 @@ class UnifiedTrader:
                 order_result = {'status': 'error', 'error': str(e)}
 
             if self._is_order_success(order_result):
+                executed_quantity, executed_price, executed_notional = self._resolve_execution_values(
+                    order_result=order_result,
+                    fallback_quantity=position_size,
+                    exchange_name=exchange_name,
+                    symbol=symbol,
+                )
+                if executed_quantity > 0:
+                    position_size = executed_quantity
+                    order_result["quantity"] = executed_quantity
+                    order_result.setdefault("filled", executed_quantity)
+                if executed_price > 0:
+                    order_result["price"] = executed_price
+                if executed_notional > 0:
+                    order_result["cost"] = executed_notional
+
                 # 포지션 기록 (TP/SL 포함)
                 self._record_position_with_tp_sl(
                     exchange_name,
@@ -1998,15 +2035,21 @@ class UnifiedTrader:
                     asset_class='crypto',
                     status='success',
                     source='noahai_client_unified_trader',
-                    metric_value=float(position_size),
+                    metric_value=float(executed_quantity or position_size),
                     metadata={
                         'exchange': exchange_name,
                         'symbol': symbol,
+                        'quote_currency': (
+                            'KRW'
+                            if str(exchange_name or '').lower() in {'upbit', 'bithumb'}
+                            or 'KRW' in str(symbol or '').upper()
+                            else 'USDT'
+                        ),
                         'signal': signal,
                         'mode': 'demo' if demo else ('paper' if paper else 'live'),
                         'order_id': order_result.get('order_id'),
-                        'executed_price': float(order_result.get('price', 0.0) or 0.0),
-                        'notional_estimate': float(position_size) * float(order_result.get('price', 0.0) or 0.0),
+                        'executed_price': executed_price,
+                        'notional_estimate': executed_notional,
                     },
                 )
                 return {
@@ -2158,6 +2201,73 @@ class UnifiedTrader:
         # 이 함수는 주문 성공 여부만 판별해야 하므로, 실제 주문 실행 코드는 _execute_signal_trade에서만 처리
         # 여기서는 order_result dict의 status, orderId 등만 안전하게 판별
         return False
+
+    def _resolve_execution_values(
+        self,
+        *,
+        order_result: Dict[str, Any],
+        fallback_quantity: float,
+        exchange_name: str,
+        symbol: str,
+    ) -> Tuple[float, float, float]:
+        """거래소별 시장가 응답에서 실제 체결수량·가격·결제금액을 복원한다.
+
+        Upbit/Bithumb CCXT 시장가 주문은 ``price``가 비어 있어도
+        ``filled``/``average``/``cost``가 채워질 수 있다. 이 값을 우선하고,
+        체결 응답에 가격만 없을 때에만 주문 시점 공개 시세를 보조값으로 쓴다.
+        """
+        result = order_result if isinstance(order_result, dict) else {}
+        raw = result.get("raw_result") if isinstance(result.get("raw_result"), dict) else {}
+
+        def _first_positive(*values: Any) -> float:
+            for value in values:
+                try:
+                    number = float(value or 0.0)
+                except (TypeError, ValueError):
+                    continue
+                if number > 0.0:
+                    return number
+            return 0.0
+
+        quantity = _first_positive(
+            result.get("filled"),
+            result.get("executed_qty"),
+            result.get("quantity"),
+            result.get("amount"),
+            raw.get("filled"),
+            raw.get("executed_qty"),
+            raw.get("amount"),
+            fallback_quantity,
+        )
+        price = _first_positive(
+            result.get("average"),
+            result.get("avg_price"),
+            result.get("executed_price"),
+            result.get("price"),
+            raw.get("average"),
+            raw.get("avg_price"),
+            raw.get("price"),
+        )
+        notional = _first_positive(
+            result.get("cost"),
+            result.get("cummulativeQuoteQty"),
+            raw.get("cost"),
+            raw.get("cummulativeQuoteQty"),
+        )
+        if price <= 0.0 and notional > 0.0 and quantity > 0.0:
+            price = notional / quantity
+        if price <= 0.0:
+            try:
+                price = _first_positive(
+                    self.exchange_manager.get_current_price(symbol, exchange_name)
+                    if hasattr(self, "exchange_manager")
+                    else 0.0
+                )
+            except Exception:
+                price = 0.0
+        if notional <= 0.0 and price > 0.0 and quantity > 0.0:
+            notional = price * quantity
+        return quantity, price, notional
 
     def _record_position(self, exchange_name: str, symbol: str, signal: str, quantity: float, order_result: Dict[str, Any]):
         """포지션 기록"""
@@ -2535,7 +2645,10 @@ class UnifiedTrader:
         if not (exit_spec.get("all") or exit_spec.get("any")):
             return False
         try:
-            from .custom_strategy_validator import build_indicator_context
+            from .custom_strategy_validator import (
+                build_indicator_context,
+                enrich_advanced_indicator_context,
+            )
             from .declarative_strategy_engine import DeclarativeStrategyEngine
             klines = self.exchange_manager.get_klines(
                 position.symbol,
@@ -2550,6 +2663,16 @@ class UnifiedTrader:
                 "close": current_price,
                 "signal": position.side.value,
             })
+            context = enrich_advanced_indicator_context(
+                context,
+                rules,
+                lambda timeframe, limit: self.exchange_manager.get_klines(
+                    position.symbol,
+                    interval=timeframe,
+                    limit=limit,
+                    exchange_name=exchange_name,
+                ),
+            )
             result = DeclarativeStrategyEngine.evaluate_exit(rules, context)
             if result.get("allowed", False):
                 self.logger.info(
@@ -3396,6 +3519,12 @@ class UnifiedTrader:
     def start_trading(self, exchange_name: str):
         """거래소별 거래 시작"""
         try:
+            if not self._is_trade_enabled(exchange_name):
+                self.logger.warning(
+                    f"⚠️ {exchange_name} 거래 시작 취소 - 학습 전용 설정입니다. "
+                    "trade_enabled_exchanges에서 실제 주문을 명시적으로 허용해야 합니다."
+                )
+                return False
             if not self._ensure_exchange_initialized(exchange_name):
                 self.logger.warning(f"⚠️ {exchange_name} 거래 시작 취소 - 거래소 초기화 실패")
                 return False

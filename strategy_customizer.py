@@ -477,7 +477,10 @@ class StrategyCustomizer:
         validation_target: Optional[str] = None,
     ) -> Dict[str, Any]:
         """대시보드 숫자 수기 입력 없이 거래소 캔들로 실행 조건과 PnL을 재생한다."""
-        from trading.custom_strategy_validator import run_historical_replay
+        from trading.custom_strategy_validator import (
+            collect_advanced_indicator_references,
+            run_historical_replay,
+        )
 
         _, strategy = self._strategy_for_version(strategy_key, version_id)
         target = str(strategy.get("target_exchange", "") or "").lower()
@@ -489,10 +492,29 @@ class StrategyCustomizer:
             "upbit": "KRW-BTC", "bithumb": "BTC_KRW",
         }.get(target, "BTCUSDT")
         klines: List[Any] = list(historical_data or [])
+        rules = dict(strategy.get("rules", {}) or {})
+        requested_timeframes = sorted({
+            str(item.get("timeframe") or "5m").lower()
+            for item in collect_advanced_indicator_references(rules)
+        })
+        timeframe_klines: Dict[str, List[Any]] = {}
         if historical_data is not None:
-            pass
+            timeframe_klines["15m"] = klines
+            unsupported_history = [item for item in requested_timeframes if item != "15m"]
+            if unsupported_history:
+                raise ValueError(
+                    "외부 과거 데이터 검증에는 시간봉별 캔들이 필요합니다: "
+                    + ", ".join(unsupported_history)
+                )
         elif target in {"", "binance"} and getattr(self.trader, "binance_client", None) is not None:
             klines = self.trader.binance_client.get_klines(selected_symbol, "15m", int(limit))
+            timeframe_klines["15m"] = klines
+            for timeframe in requested_timeframes:
+                if timeframe == "15m":
+                    continue
+                timeframe_klines[timeframe] = self.trader.binance_client.get_klines(
+                    selected_symbol, timeframe, int(limit)
+                )
         else:
             manager = getattr(self.trader, "exchange_manager", None)
             if manager is None:
@@ -500,6 +522,16 @@ class StrategyCustomizer:
             klines = manager.get_klines(
                 selected_symbol, interval="15m", limit=int(limit), exchange_name=target or None,
             )
+            timeframe_klines["15m"] = klines
+            for timeframe in requested_timeframes:
+                if timeframe == "15m":
+                    continue
+                timeframe_klines[timeframe] = manager.get_klines(
+                    selected_symbol,
+                    interval=timeframe,
+                    limit=int(limit),
+                    exchange_name=target or None,
+                )
         trader_settings = dict(getattr(self.trader, "settings", {}) or {}) if self.trader is not None else {}
         validation_costs = dict(trader_settings.get("ai_custom_validation_costs", {}) or {})
         venue_key = str(validation_target or target or ("stock" if is_stock else "binance")).lower()
@@ -517,8 +549,9 @@ class StrategyCustomizer:
             validation_costs.get("spread_bps_round_trip", 1.0),
         ) or 0.0)
         metrics = run_historical_replay(
-            strategy.get("rules", {}),
+            rules,
             klines,
+            timeframe_klines=timeframe_klines,
             fee_rate=fee_rate,
             slippage_bps=slippage_bps,
             spread_bps=spread_bps,

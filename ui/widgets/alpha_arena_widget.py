@@ -141,11 +141,12 @@ class AlphaArenaWidget(CTkFrame):
         # OpenAI만 지원, Qwen은 미지원 표기
         self.engine_combo = CTkComboBox(
             engine_frame,
-            values=["deepseek-3.1"],  # OpenAI만 지원
+            values=["deepseek-v4-flash"],  # 멀티 엔진 실거래는 다음 업데이트
             width=150,
             command=self._on_engine_change
         )
-        self.engine_combo.set(self.arena_settings.get('engine', 'deepseek-3.1'))
+        configured_engine = self.arena_settings.get('engine', 'deepseek-v4-flash')
+        self.engine_combo.set('deepseek-v4-flash' if configured_engine in ('deepseek-3.1', 'deepseek-chat-v3.1', 'deepseek-chat') else configured_engine)
         self.engine_combo.pack(side="left", padx=(0, 10))
         
         # Qwen 미지원 안내
@@ -327,7 +328,8 @@ Alpha Arena 모드는 일반 자동매매와 다릅니다.
             if self.runner and self.runner.running:
                 self.logger.warning("실행 중에는 엔진을 변경할 수 없습니다.")
                 try:
-                    self.engine_combo.set(self.arena_settings.get('engine', 'deepseek-3.1'))
+                    configured_engine = self.arena_settings.get('engine', 'deepseek-v4-flash')
+                    self.engine_combo.set('deepseek-v4-flash' if configured_engine in ('deepseek-3.1', 'deepseek-chat-v3.1', 'deepseek-chat') else configured_engine)
                 except Exception:
                     pass
                 return
@@ -600,4 +602,3 @@ Alpha Arena 모드는 일반 자동매매와 다릅니다.
                 self.runner.stop()
         except Exception:
             pass
-

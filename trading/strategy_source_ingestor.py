@@ -59,12 +59,14 @@ class StrategySourceIngestor:
         ai_client: Optional[OpenAIClient] = None,
         logger: Optional[logging.Logger] = None,
         *,
+        transcription_client: Optional[Any] = None,
         transcription_enabled: bool = True,
         transcription_model: str = "gpt-4o-mini-transcribe",
         audio_max_duration_minutes: int = 45,
         audio_max_file_mb: int = 24,
     ):
         self.ai_client = ai_client
+        self.transcription_client = transcription_client or ai_client
         self.logger = logger or logging.getLogger(__name__)
         self.transcription_enabled = bool(transcription_enabled)
         self.transcription_model = str(transcription_model or "gpt-4o-mini-transcribe")
@@ -391,7 +393,11 @@ class StrategySourceIngestor:
     def _transcribe_youtube_audio(self, url: str, duration: float) -> str:
         if not self.transcription_enabled:
             return ""
-        if not self.ai_client or not self.ai_client.is_ready() or not hasattr(self.ai_client, "transcribe_audio"):
+        if (
+            not self.transcription_client
+            or not self.transcription_client.is_ready()
+            or not hasattr(self.transcription_client, "transcribe_audio")
+        ):
             return ""
         if duration and duration > self.youtube_audio_max_duration_seconds:
             return ""
@@ -418,8 +424,13 @@ class StrategySourceIngestor:
             audio_path = max(audio_files, key=lambda path: path.stat().st_size)
             if audio_path.stat().st_size > self.youtube_audio_max_bytes:
                 return ""
+            if self.transcription_client is None:
+                return ""
             return str(
-                self.ai_client.transcribe_audio(str(audio_path), model=self.transcription_model) or ""
+                self.transcription_client.transcribe_audio(
+                    str(audio_path),
+                    model=self.transcription_model,
+                ) or ""
             ).strip()
 
     def _extract_youtube(self, url: str) -> ExtractedStrategySource:

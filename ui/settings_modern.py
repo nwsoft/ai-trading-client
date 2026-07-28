@@ -29,16 +29,46 @@ sys.path.append(os.path.dirname(os.path.dirname(__file__)))
 from utils.fixed_colors import FIXED_COLORS
 from api.binance_client import BinanceClient, BinanceConfig
 from ui.visual_system import get_ui_icon, style_tabview
+from trading.ai.model_registry import (
+    model_record,
+    model_status_text,
+    selectable_models,
+    validate_model_route,
+)
 import threading
 
 class ModernSettingsWindow:
     """현대적 설정 창 - 고정 스킨 디자인"""
 
-    _AI_MODEL_FALLBACKS = [
-        "gpt-4o-mini", "gpt-4o", "gpt-4.1-mini", "gpt-4.1", "gpt-5-mini", "gpt-5",
-        "gpt-5.4-nano", "gpt-5.4-mini", "gpt-5.4", "gpt-5.5",
-        "gpt-5.6-luna", "gpt-5.6-terra", "gpt-5.6-sol", "gpt-5.6",
-    ]
+    _AI_MODEL_FALLBACKS = selectable_models("openai")
+    _AI_PROVIDER_LABELS = {
+        "OpenAI": "openai",
+        "DeepSeek": "deepseek",
+        "Kimi (NoahAI 시험 연동)": "kimi",
+        "Anthropic Claude": "anthropic",
+        "Google Gemini": "gemini",
+    }
+    _AI_PROVIDER_MODELS = {
+        "openai": _AI_MODEL_FALLBACKS,
+        "deepseek": selectable_models("deepseek"),
+        "kimi": selectable_models("kimi"),
+        "anthropic": selectable_models("anthropic"),
+        "gemini": selectable_models("gemini"),
+    }
+    _AI_PROVIDER_BASE_URLS = {
+        "openai": "",
+        "deepseek": "https://api.deepseek.com",
+        "kimi": "https://api.moonshot.ai/v1",
+        "anthropic": "https://api.anthropic.com",
+        "gemini": "https://generativelanguage.googleapis.com/v1beta/openai/",
+    }
+    _AI_PROVIDER_CONSOLES = {
+        "openai": "https://platform.openai.com/api-keys",
+        "deepseek": "https://platform.deepseek.com/api_keys",
+        "kimi": "https://platform.moonshot.ai/console/api-keys",
+        "anthropic": "https://console.anthropic.com/settings/keys",
+        "gemini": "https://aistudio.google.com/app/apikey",
+    }
 
     _STOCK_BROKER_CHECKLIST_RELATIVE_PATH = os.path.join(
         'docs', 'STOCK_BROKER_WINDOWS_CONNECTION_CHECKLIST_20260611.md'
@@ -87,6 +117,8 @@ class ModernSettingsWindow:
 
         # 설정 데이터
         self.current_settings = current_settings or {}
+        self._ai_provider_key_buffer: Dict[str, str] = {}
+        self._ai_discovered_models: Dict[str, List[str]] = {}
         self.ai_diagnosis_result = self._normalize_ai_diagnosis_result(ai_diagnosis_result)
         # Pylance 타입 에러 방지용 명시적 초기화
         self.exchange_var = None
@@ -617,6 +649,16 @@ class ModernSettingsWindow:
             values['auto_update_enabled'] = bool(self.auto_update_enabled_var.get()) if hasattr(self, 'auto_update_enabled_var') else True
             values['auto_update_auto_download'] = bool(self.auto_update_auto_download_var.get()) if hasattr(self, 'auto_update_auto_download_var') else True
             values['auto_update_auto_apply_on_exit'] = bool(self.auto_update_auto_apply_var.get()) if hasattr(self, 'auto_update_auto_apply_var') else True
+            action_label = (
+                self.auto_update_position_action_combo.get()
+                if hasattr(self, "auto_update_position_action_combo")
+                else "업데이트 연기(권장)"
+            )
+            values["auto_update_open_position_action"] = {
+                "업데이트 연기(권장)": "defer",
+                "포지션 유지(TP/SL 확인)": "keep_with_tp_sl",
+                "전량 청산(체결 확인)": "close_all",
+            }.get(action_label, "defer")
             if hasattr(self, 'auto_update_interval_entry'):
                 interval_text = str(self.auto_update_interval_entry.get() or '').strip()
                 interval_value = int(interval_text) if interval_text else 6
@@ -628,6 +670,7 @@ class ModernSettingsWindow:
             values['auto_update_auto_download'] = True
             values['auto_update_auto_apply_on_exit'] = True
             values['auto_update_check_interval_hours'] = 6
+            values["auto_update_open_position_action"] = "defer"
         return values
 
     def _refresh_update_runtime_diagnostics_label(self):
@@ -682,12 +725,21 @@ class ModernSettingsWindow:
             messagebox.showinfo("업데이트", "적용 가능한 다운로드 업데이트가 없습니다. 먼저 '업데이트 확인'을 실행해 주세요.")
             return
 
-        applied = bool(auto_manager.apply_pending_update_and_restart())
-        if not applied:
-            messagebox.showwarning("업데이트", "업데이트 적용 예약에 실패했습니다. 종료 후 다시 시도해 주세요.")
+        preflight = auto_manager.run_update_preflight()
+        if not preflight.get("ok"):
+            messagebox.showwarning(
+                "업데이트 연기",
+                "현재 실거래 상태에서는 안전하게 업데이트할 수 없어 적용을 연기했습니다.\n\n"
+                f"사유: {preflight.get('reason', 'trading_state_unsafe')}\n"
+                "포지션·미체결 주문을 확인하거나 업데이트 안전 정책을 변경해 주세요.",
+            )
             return
 
-        messagebox.showinfo("업데이트", "업데이트 적용이 예약되었습니다. 앱을 종료합니다.")
+        if not messagebox.askyesno(
+            "업데이트 적용",
+            "거래 상태 사전점검을 통과했습니다.\n안전 종료와 DB flush 후 업데이트를 적용하고 재시작할까요?",
+        ):
+            return
         try:
             if main_app is not None and hasattr(main_app, 'dashboard') and main_app.dashboard:
                 main_app.dashboard.on_closing()
@@ -1930,9 +1982,9 @@ class ModernSettingsWindow:
         self.create_button_area(main_frame)
 
     def create_openai_tab(self):
-        """OpenAI API 설정 탭 - 기존 구조 정확히 재현"""
-        tab = self.tabview.add("OpenAI API")
-        self._add_tab_save_bar(tab, "OpenAI API")
+        """기존 OpenAI 설정과 호환되는 멀티 AI 엔진/API 탭."""
+        tab = self.tabview.add("AI 엔진/API")
+        self._add_tab_save_bar(tab, "AI 엔진/API")
 
         # 스크롤 가능한 프레임
         scroll_frame = ctk.CTkScrollableFrame(tab)
@@ -1945,13 +1997,32 @@ class ModernSettingsWindow:
         # 그룹 제목
         openai_title = ctk.CTkLabel(
             openai_group,
-            text="OpenAI API 설정",
+            text="AI 엔진/API 설정",
             font=ctk.CTkFont(family="Segoe UI", size=18, weight="bold"),
             text_color=self._color("text_primary", "#f9fafb")
         )
         openai_title.pack(pady=(20, 15), padx=20)
 
         _ai_models = list(self._AI_MODEL_FALLBACKS)
+
+        provider_frame = ctk.CTkFrame(openai_group, fg_color="transparent")
+        provider_frame.pack(fill="x", padx=20, pady=(0, 12))
+        ctk.CTkLabel(
+            provider_frame,
+            text="API 키를 설정할 엔진:",
+            font=ctk.CTkFont(family="Segoe UI", size=14, weight="bold"),
+            text_color=self._color("text_primary", "#f9fafb"),
+        ).pack(side="left")
+        self.ai_provider_var = ctk.StringVar(value="OpenAI")
+        self.ai_provider_combo = ctk.CTkComboBox(
+            provider_frame,
+            values=list(self._AI_PROVIDER_LABELS),
+            variable=self.ai_provider_var,
+            state="readonly",
+            width=220,
+            command=self._on_ai_provider_change,
+        )
+        self.ai_provider_combo.pack(side="right")
 
         quick_help_row = ctk.CTkFrame(openai_group, fg_color="transparent")
         quick_help_row.pack(fill="x", padx=20, pady=(0, 10))
@@ -1968,12 +2039,12 @@ class ModernSettingsWindow:
 
         ctk.CTkButton(
             quick_help_row,
-            text="OpenAI 키 발급 안내",
+            text="선택 제공사 키 발급",
             width=170,
             height=32,
             fg_color=self._color("secondary", "#4b5563"),
             hover_color=self._hover_from(self._color("secondary", "#4b5563")),
-            command=lambda: self._show_api_key_help_dialog(kind='openai'),
+            command=self._open_selected_ai_provider_console,
         ).pack(side="left", padx=6)
 
         ctk.CTkButton(
@@ -1998,26 +2069,26 @@ class ModernSettingsWindow:
 
         ctk.CTkButton(
             quick_help_row,
-            text="OpenAI 공식 페이지 열기",
+            text="공식 가격표 열기",
             width=180,
             height=32,
             fg_color=self._color("secondary", "#0f766e"),
             hover_color=self._hover_from(self._color("secondary", "#0f766e")),
-            command=lambda: self._open_external_url("https://platform.openai.com/api-keys", "OpenAI"),
+            command=self._open_selected_ai_pricing,
         ).pack(side="left", padx=6)
 
-        # OpenAI API Key
-        api_key_label = ctk.CTkLabel(
+        # 선택한 AI 제공사 API Key
+        self.ai_api_key_label = ctk.CTkLabel(
             openai_group,
             text="OpenAI API Key:",
             font=ctk.CTkFont(family="Segoe UI", size=14, weight="bold"),
             text_color=self._color("text_primary", "#f9fafb")
         )
-        api_key_label.pack(anchor="w", padx=20, pady=(10, 5))
+        self.ai_api_key_label.pack(anchor="w", padx=20, pady=(10, 5))
 
         self.openai_api_key_entry = ctk.CTkEntry(
             openai_group,
-            placeholder_text="sk-...",
+            placeholder_text="선택한 제공사의 API 키",
             height=40,
             font=ctk.CTkFont(family="Segoe UI", size=14, weight="normal"),
             fg_color=self._color("background", "#050a13"),
@@ -2029,10 +2100,10 @@ class ModernSettingsWindow:
         )
         self.openai_api_key_entry.pack(fill="x", padx=20, pady=(0, 15))
 
-        # OpenAI 호환 Base URL (DeepSeek/OpenRouter/Ollama 등)
+        # OpenAI 호환 Base URL
         openai_base_url_label = ctk.CTkLabel(
             openai_group,
-            text="OpenAI 호환 Base URL (선택):",
+            text="API Base URL:",
             font=ctk.CTkFont(family="Segoe UI", size=14, weight="bold"),
             text_color=self._color("text_primary", "#f9fafb")
         )
@@ -2040,7 +2111,7 @@ class ModernSettingsWindow:
 
         self.openai_base_url_entry = ctk.CTkEntry(
             openai_group,
-            placeholder_text="예: https://api.deepseek.com | https://openrouter.ai/api/v1 | http://localhost:11434/v1",
+            placeholder_text="제공사 선택 시 공식 주소가 자동 입력됩니다.",
             height=38,
             font=ctk.CTkFont(family="Segoe UI", size=13, weight="normal"),
             fg_color=self._color("background", "#050a13"),
@@ -2084,6 +2155,18 @@ class ModernSettingsWindow:
             text_color=self._color("text_primary", "#f9fafb")
         )
         trading_model_label.pack(anchor="w", padx=20, pady=(10, 5))
+        self.ai_analyst_provider_combo = ctk.CTkComboBox(
+            openai_group,
+            values=[
+                label for label, provider in self._AI_PROVIDER_LABELS.items()
+                if provider != "kimi"
+            ],
+            state="readonly",
+            height=34,
+            command=lambda _value: self._on_assignment_provider_change("analyst"),
+        )
+        self.ai_analyst_provider_combo.set("OpenAI")
+        self.ai_analyst_provider_combo.pack(fill="x", padx=20, pady=(0, 5))
 
         self.openai_model_combo = ctk.CTkComboBox(
             openai_group,
@@ -2094,7 +2177,8 @@ class ModernSettingsWindow:
             text_color=self._color("text_primary", "#f9fafb"),
             border_color=self._color("secondary", "#1f2937"),
             border_width=2,
-            corner_radius=8
+            corner_radius=8,
+            command=lambda _value: self._on_assignment_model_change("analyst"),
         )
         self.openai_model_combo.pack(fill="x", padx=20, pady=(0, 15))
 
@@ -2106,6 +2190,15 @@ class ModernSettingsWindow:
             text_color=self._color("text_primary", "#f9fafb")
         )
         assistant_model_label.pack(anchor="w", padx=20, pady=(10, 5))
+        self.ai_assistant_provider_combo = ctk.CTkComboBox(
+            openai_group,
+            values=list(self._AI_PROVIDER_LABELS),
+            state="readonly",
+            height=34,
+            command=lambda _value: self._on_assignment_provider_change("assistant"),
+        )
+        self.ai_assistant_provider_combo.set("OpenAI")
+        self.ai_assistant_provider_combo.pack(fill="x", padx=20, pady=(0, 5))
 
         self.assistant_ai_model_combo = ctk.CTkComboBox(
             openai_group,
@@ -2116,7 +2209,8 @@ class ModernSettingsWindow:
             text_color=self._color("text_primary", "#f9fafb"),
             border_color=self._color("secondary", "#1f2937"),
             border_width=2,
-            corner_radius=8
+            corner_radius=8,
+            command=lambda _value: self._on_assignment_model_change("assistant"),
         )
         self.assistant_ai_model_combo.pack(fill="x", padx=20, pady=(0, 20))
 
@@ -2136,6 +2230,33 @@ class ModernSettingsWindow:
             height=30,
             command=self._refresh_ai_model_catalog,
         ).pack(side="right")
+        ctk.CTkButton(
+            catalog_row,
+            text="실제 API 기능 검증",
+            width=150,
+            height=30,
+            command=self._run_ai_provider_preflight,
+        ).pack(side="right", padx=(0, 6))
+        self.ai_model_lifecycle_label = ctk.CTkLabel(
+            openai_group,
+            text="모델 상태: 권장 목록 · API 키 입력 후 계정 사용 가능 여부 확인",
+            font=ctk.CTkFont(family="Segoe UI", size=11),
+            text_color=self._color("text_secondary", "#9ca3af"),
+            justify="left",
+            wraplength=760,
+        )
+        self.ai_model_lifecycle_label.pack(fill="x", padx=20, pady=(0, 10))
+
+        from trading.ai.provider_catalog import format_provider_price_guide
+        self.ai_price_guide_label = ctk.CTkLabel(
+            openai_group,
+            text=format_provider_price_guide("openai"),
+            font=ctk.CTkFont(family="Segoe UI", size=11),
+            text_color=self._color("text_secondary", "#9ca3af"),
+            justify="left",
+            wraplength=760,
+        )
+        self.ai_price_guide_label.pack(fill="x", padx=20, pady=(0, 14))
 
         transcription_frame = ctk.CTkFrame(openai_group, fg_color=self._color("background", "#050a13"), corner_radius=10)
         transcription_frame.pack(fill="x", padx=20, pady=(0, 14))
@@ -2147,10 +2268,17 @@ class ModernSettingsWindow:
         ).pack(anchor="w", padx=14, pady=(12, 8))
         transcription_options = ctk.CTkFrame(transcription_frame, fg_color="transparent")
         transcription_options.pack(fill="x", padx=14, pady=(0, 8))
+        ctk.CTkLabel(
+            transcription_options,
+            text="전사 엔진 OpenAI(독립)",
+            font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"),
+        ).pack(side="left", padx=(0, 12))
         ctk.CTkLabel(transcription_options, text="전사 모델", font=ctk.CTkFont(family="Segoe UI", size=11)).pack(side="left")
         self.ai_custom_transcription_model_combo = ctk.CTkComboBox(
             transcription_options,
-            values=["gpt-4o-mini-transcribe", "gpt-4o-transcribe"], width=210, height=32,
+            values=selectable_models("openai", capability="transcribe"),
+            width=235,
+            height=32,
         )
         self.ai_custom_transcription_model_combo.set("gpt-4o-mini-transcribe")
         self.ai_custom_transcription_model_combo.pack(side="left", padx=(6, 14))
@@ -2222,6 +2350,18 @@ class ModernSettingsWindow:
             text_color=self._color("text_secondary", "#9ca3af")
         )
         tier_cheap_label.pack(anchor="w", padx=20, pady=(0, 3))
+        self.ai_role_cheap_provider_combo = ctk.CTkComboBox(
+            openai_group,
+            values=[
+                label for label, provider in self._AI_PROVIDER_LABELS.items()
+                if provider != "kimi"
+            ],
+            state="readonly",
+            height=32,
+            command=lambda _value: self._on_assignment_provider_change("frequent_cheap"),
+        )
+        self.ai_role_cheap_provider_combo.set("OpenAI")
+        self.ai_role_cheap_provider_combo.pack(fill="x", padx=20, pady=(0, 4))
         self.ai_role_cheap_combo = ctk.CTkComboBox(
             openai_group,
             values=_tier_models,
@@ -2231,7 +2371,8 @@ class ModernSettingsWindow:
             text_color=self._color("text_primary", "#f9fafb"),
             border_color=self._color("secondary", "#1f2937"),
             border_width=2,
-            corner_radius=8
+            corner_radius=8,
+            command=lambda _value: self._on_assignment_model_change("frequent_cheap"),
         )
         self.ai_role_cheap_combo.set("gpt-4o-mini")
         self.ai_role_cheap_combo.pack(fill="x", padx=20, pady=(0, 8))
@@ -2243,6 +2384,18 @@ class ModernSettingsWindow:
             text_color=self._color("text_secondary", "#9ca3af")
         )
         tier_standard_label.pack(anchor="w", padx=20, pady=(0, 3))
+        self.ai_role_standard_provider_combo = ctk.CTkComboBox(
+            openai_group,
+            values=[
+                label for label, provider in self._AI_PROVIDER_LABELS.items()
+                if provider != "kimi"
+            ],
+            state="readonly",
+            height=32,
+            command=lambda _value: self._on_assignment_provider_change("standard"),
+        )
+        self.ai_role_standard_provider_combo.set("OpenAI")
+        self.ai_role_standard_provider_combo.pack(fill="x", padx=20, pady=(0, 4))
         self.ai_role_standard_combo = ctk.CTkComboBox(
             openai_group,
             values=_tier_models,
@@ -2252,7 +2405,8 @@ class ModernSettingsWindow:
             text_color=self._color("text_primary", "#f9fafb"),
             border_color=self._color("secondary", "#1f2937"),
             border_width=2,
-            corner_radius=8
+            corner_radius=8,
+            command=lambda _value: self._on_assignment_model_change("standard"),
         )
         self.ai_role_standard_combo.set("gpt-4o")
         self.ai_role_standard_combo.pack(fill="x", padx=20, pady=(0, 8))
@@ -2264,6 +2418,18 @@ class ModernSettingsWindow:
             text_color=self._color("text_secondary", "#9ca3af")
         )
         tier_premium_label.pack(anchor="w", padx=20, pady=(0, 3))
+        self.ai_role_premium_provider_combo = ctk.CTkComboBox(
+            openai_group,
+            values=[
+                label for label, provider in self._AI_PROVIDER_LABELS.items()
+                if provider != "kimi"
+            ],
+            state="readonly",
+            height=32,
+            command=lambda _value: self._on_assignment_provider_change("premium"),
+        )
+        self.ai_role_premium_provider_combo.set("OpenAI")
+        self.ai_role_premium_provider_combo.pack(fill="x", padx=20, pady=(0, 4))
         self.ai_role_premium_combo = ctk.CTkComboBox(
             openai_group,
             values=_tier_models,
@@ -2273,7 +2439,8 @@ class ModernSettingsWindow:
             text_color=self._color("text_primary", "#f9fafb"),
             border_color=self._color("secondary", "#1f2937"),
             border_width=2,
-            corner_radius=8
+            corner_radius=8,
+            command=lambda _value: self._on_assignment_model_change("premium"),
         )
         self.ai_role_premium_combo.set("gpt-4o")
         self.ai_role_premium_combo.pack(fill="x", padx=20, pady=(0, 16))
@@ -2342,6 +2509,23 @@ class ModernSettingsWindow:
             text_color=self._color("text_secondary", "#9ca3af")
         )
         self.ai_preset_cost_badge_label.pack(anchor="w", padx=20, pady=(0, 10))
+
+        response_mode_row = ctk.CTkFrame(openai_group, fg_color="transparent")
+        response_mode_row.pack(fill="x", padx=20, pady=(0, 12))
+        ctk.CTkLabel(
+            response_mode_row,
+            text="AI 문답 정책:",
+            font=ctk.CTkFont(family="Segoe UI", size=13, weight="bold"),
+            text_color=self._color("text_secondary", "#9ca3af"),
+        ).pack(side="left")
+        self.assistant_response_mode_combo = ctk.CTkComboBox(
+            response_mode_row,
+            values=["문답 절약형", "질문답변 표준형", "분석 정밀형"],
+            state="readonly",
+            width=190,
+        )
+        self.assistant_response_mode_combo.set("질문답변 표준형")
+        self.assistant_response_mode_combo.pack(side="right")
 
         onboarding_button = ctk.CTkButton(
             openai_group,
@@ -2431,23 +2615,26 @@ class ModernSettingsWindow:
         # 백엔드 설정은 사용자가 건드릴 필요 없음 - 제거됨
 
         # 안내 메시지
-        info_text = """OpenAI API 설정 안내
+        info_text = """AI 엔진/API 설정 안내
 
 • AI 애널리스트 모델: 시장 분석과 신호 후보를 만드는 기본 분석 모델
 • AI 어시스턴트 모델: 사용자와의 대화 및 질의응답에 사용되는 AI 모델
-• 작업별 모델 배치: 빈번 신호·손익 리포트·정밀 진단처럼 역할이 명확한 호출만 별도 모델로 보냅니다
-  같은 모델을 선택해도 정상이며, 역할 값이 없으면 AI 애널리스트 모델로 돌아갑니다
+• 위 엔진 선택은 API 키 편집 대상이며 실제 작업 배치는 각 Provider+모델 선택에서 정합니다
+• DeepSeek·Claude·Gemini는 작업별 배치 지원, Kimi K3/K2.6는 어시스턴트용 NoahAI 시험 연동입니다
+• 작업별 모델 배치: 빈번 신호·손익 리포트·정밀 진단마다 서로 다른 Provider와 모델을 보낼 수 있습니다
+  기존 모델 문자열은 같은 기존 Provider의 새 구조로 자동 변환됩니다
 • 프리셋 선택 가이드:
     - 절약형: API 비용이 가장 중요할 때
     - 균형형: 초보/일반 사용자 기본 권장
     - 정밀형: 진단 정확도가 비용보다 중요할 때
 • AI 설정 적용 방식: 거래 관련 변경은 항상 "사용자 최종확인" 2단계를 거칩니다
 • 어시스턴트 대화로 모델 변경/티어 조정을 요청해도 변경 전/후 확인 없이 저장되지 않습니다
-• API 키: OpenAI에서 발급받은 API 키를 입력하세요
+• API 키: 선택한 제공사의 공식 Console에서 발급한 별도 API 키를 입력하세요
 • ChatGPT 유료(Plus/Team)와 OpenAI API 과금은 별개입니다
 • OpenAI 호환 Base URL(선택): OpenAI 기본 엔드포인트 대신 DeepSeek/OpenRouter/Ollama 등 호환 API를 사용할 때 입력합니다
 • AI 설정 도우미: '키 발급' 도구가 아니라 키 발급 후 모델/적용정책을 도와주는 기능입니다
-• 음성 기능(STT/TTS)은 선택 기능이며 기본값은 비활성입니다"""
+• AI 커스텀 무자막 전사는 분석 Provider와 분리된 OpenAI 전사 프로필을 사용합니다
+• 모델은 권장·계정 확인·미리보기·비권장·종료로 구분되며 종료 모델은 저장할 수 없습니다"""
 
         info_label = ctk.CTkLabel(
             scroll_frame,
@@ -2458,45 +2645,373 @@ class ModernSettingsWindow:
         )
         info_label.pack(fill="x", pady=(0, 20))
 
+    def _selected_ai_provider(self) -> str:
+        label = self.ai_provider_var.get() if hasattr(self, "ai_provider_var") else "OpenAI"
+        return self._AI_PROVIDER_LABELS.get(label, "openai")
+
+    def _on_ai_provider_change(self, _selected_label: Optional[str] = None):
+        """제공사 변경 시 키 버퍼·공식 Base URL·모델 목록을 안전하게 전환한다."""
+        provider = self._selected_ai_provider()
+        previous = str(getattr(self, "_active_ai_provider", "") or "")
+        if previous and hasattr(self, "openai_api_key_entry"):
+            self._ai_provider_key_buffer[previous] = self.openai_api_key_entry.get().strip()
+        self._active_ai_provider = provider
+
+        credentials = self.current_settings.get("ai_credentials", {})
+        provider_cfg = credentials.get(provider, {}) if isinstance(credentials, dict) else {}
+        existing_key = (
+            self._ai_provider_key_buffer.get(provider)
+            or (provider_cfg.get("api_key") if isinstance(provider_cfg, dict) else "")
+            or (self.current_settings.get("openai_api_key", "") if provider == "openai" else "")
+        )
+        if hasattr(self, "openai_api_key_entry"):
+            self.openai_api_key_entry.delete(0, "end")
+            self.openai_api_key_entry.insert(0, str(existing_key or ""))
+        if hasattr(self, "ai_api_key_label"):
+            self.ai_api_key_label.configure(
+                text=f"{self._AI_PROVIDER_LABELS_REVERSE().get(provider, provider)} API Key:"
+            )
+        if hasattr(self, "openai_base_url_entry"):
+            base_url = (
+                provider_cfg.get("base_url")
+                if isinstance(provider_cfg, dict) and provider_cfg.get("base_url") is not None
+                else self._AI_PROVIDER_BASE_URLS.get(provider, "")
+            )
+            self.openai_base_url_entry.delete(0, "end")
+            self.openai_base_url_entry.insert(0, str(base_url or ""))
+
+        if hasattr(self, "ai_catalog_status_label"):
+            suffix = " · 어시스턴트용 NoahAI 시험 연동" if provider == "kimi" else ""
+            self.ai_catalog_status_label.configure(
+                text=(
+                    f"{self._AI_PROVIDER_LABELS_REVERSE().get(provider, provider)} API 자격증명 편집"
+                    f"{suffix} · 모델 배치는 아래 작업별 엔진에서 선택"
+                ),
+                text_color="#38bdf8",
+            )
+        if hasattr(self, "ai_price_guide_label"):
+            try:
+                from trading.ai.provider_catalog import format_provider_price_guide
+                self.ai_price_guide_label.configure(text=format_provider_price_guide(provider))
+            except Exception:
+                pass
+
+    @classmethod
+    def _AI_PROVIDER_LABELS_REVERSE(cls) -> Dict[str, str]:
+        return {value: label for label, value in cls._AI_PROVIDER_LABELS.items()}
+
+    @staticmethod
+    def _assignment_widget_names(scope: str) -> tuple[str, str]:
+        return {
+            "analyst": ("ai_analyst_provider_combo", "openai_model_combo"),
+            "assistant": ("ai_assistant_provider_combo", "assistant_ai_model_combo"),
+            "frequent_cheap": ("ai_role_cheap_provider_combo", "ai_role_cheap_combo"),
+            "standard": ("ai_role_standard_provider_combo", "ai_role_standard_combo"),
+            "premium": ("ai_role_premium_provider_combo", "ai_role_premium_combo"),
+        }[scope]
+
+    def _assignment_provider(self, scope: str) -> str:
+        provider_name, _ = self._assignment_widget_names(scope)
+        combo = getattr(self, provider_name, None)
+        label = combo.get() if combo is not None else "OpenAI"
+        return self._AI_PROVIDER_LABELS.get(label, "openai")
+
+    def _assignment_route(self, scope: str) -> Dict[str, str]:
+        _, model_name = self._assignment_widget_names(scope)
+        combo = getattr(self, model_name, None)
+        provider = self._assignment_provider(scope)
+        model = str(combo.get() if combo is not None else "").strip()
+        if not model:
+            models = self._AI_PROVIDER_MODELS.get(provider, self._AI_MODEL_FALLBACKS)
+            model = str(models[0])
+        return {"provider": provider, "model": model}
+
+    def _on_assignment_provider_change(self, scope: str):
+        provider = self._assignment_provider(scope)
+        if provider == "kimi" and scope != "assistant":
+            provider_name, _ = self._assignment_widget_names(scope)
+            getattr(self, provider_name).set("OpenAI")
+            provider = "openai"
+        _, model_name = self._assignment_widget_names(scope)
+        model_combo = getattr(self, model_name, None)
+        if model_combo is None:
+            return
+        models = list(dict.fromkeys(
+            list(self._AI_PROVIDER_MODELS.get(provider, self._AI_MODEL_FALLBACKS))
+            + [
+                model for model in self._ai_discovered_models.get(provider, [])
+                if model_record(provider, model).get("status") != "retired"
+            ]
+        ))
+        current = str(model_combo.get() or "")
+        model_combo.configure(values=models)
+        model_combo.set(current if current in models else models[0])
+        self._on_assignment_model_change(scope)
+
+    def _on_assignment_model_change(self, scope: str):
+        if not hasattr(self, "ai_model_lifecycle_label"):
+            return
+        route = self._assignment_route(scope)
+        discovered = (
+            self._ai_discovered_models.get(route["provider"])
+            if route["provider"] in self._ai_discovered_models
+            else None
+        )
+        self.ai_model_lifecycle_label.configure(
+            text=(
+                f"{scope}: {self._AI_PROVIDER_LABELS_REVERSE().get(route['provider'], route['provider'])}"
+                f" / {route['model']} · "
+                f"{model_status_text(route['provider'], route['model'], account_models=discovered)}"
+            ),
+            text_color="#f59e0b" if "비권장" in model_status_text(
+                route["provider"], route["model"], account_models=discovered
+            ) else "#38bdf8",
+        )
+
+    def _validate_ai_routes_for_save(
+        self,
+        candidate: Dict[str, Any],
+    ) -> tuple[List[str], List[str]]:
+        """저장 직전 정적 capability와 실제 계정 모델 노출 여부를 검사한다."""
+        routes: List[tuple[str, Dict[str, str], str]] = [
+            ("AI 애널리스트", dict(candidate["ai_provider_profiles"]["analyst"]), "chat_json"),
+            ("AI 어시스턴트", dict(candidate["ai_provider_profiles"]["assistant"]), "chat_text"),
+        ]
+        for tier, route in dict(candidate.get("ai_model_roles", {}) or {}).items():
+            if isinstance(route, dict):
+                routes.append((f"작업별 {tier}", dict(route), "chat_json"))
+        transcription = dict(candidate.get("ai_custom_transcription", {}) or {})
+        if transcription.get("enabled", True):
+            routes.append((
+                "AI 커스텀 음성 전사",
+                {
+                    "provider": str(transcription.get("provider") or "openai"),
+                    "model": str(transcription.get("model") or "gpt-4o-mini-transcribe"),
+                },
+                "transcribe",
+            ))
+
+        errors: List[str] = []
+        warnings: List[str] = []
+        account_cache: Dict[tuple[str, str], Optional[List[str]]] = {}
+        from trading.ai.credentials import hydrate_ai_credentials
+        from trading.ai.provider_router import AIProviderRouter
+
+        runtime = hydrate_ai_credentials(candidate)
+        credentials = runtime.get("ai_credentials", {})
+        for label, route, capability in routes:
+            provider = str(route.get("provider") or "openai").lower()
+            model = str(route.get("model") or "")
+            if provider == "kimi" and label != "AI 어시스턴트":
+                errors.append(f"{label}: Kimi는 실제 키 검증 전까지 어시스턴트 역할만 허용됩니다.")
+                continue
+            static_result = validate_model_route(
+                provider,
+                model,
+                capability=capability,
+            )
+            errors.extend(f"{label}: {item}" for item in static_result["errors"])
+            warnings.extend(f"{label}: {item}" for item in static_result["warnings"])
+            if static_result["errors"]:
+                continue
+
+            credential = credentials.get(provider, {}) if isinstance(credentials, dict) else {}
+            api_key = str(credential.get("api_key") or "") if isinstance(credential, dict) else ""
+            if not api_key:
+                warnings.append(f"{label}: {provider} API 키가 없어 계정 사용 가능 여부는 테스터 검증 대기입니다.")
+                continue
+            cache_key = (provider, capability)
+            if cache_key not in account_cache:
+                try:
+                    router = AIProviderRouter(
+                        provider,
+                        api_key=api_key,
+                        model=model,
+                        base_url=(
+                            credential.get("base_url")
+                            if isinstance(credential, dict)
+                            else None
+                        ),
+                    )
+                    discovered = router.list_models(
+                        include_fallback=False,
+                        capability=capability,
+                    )
+                    if discovered:
+                        account_cache[cache_key] = discovered
+                        if capability != "transcribe":
+                            self._ai_discovered_models[provider] = list(discovered)
+                    else:
+                        account_cache[cache_key] = None
+                        raw_error = router.adapter.client.get_last_error()
+                        warnings.append(
+                            f"{label}: 실제 모델 목록을 확인하지 못했습니다"
+                            f"{': ' + str(raw_error.get('message')) if raw_error else ''}."
+                        )
+                except Exception as exc:
+                    account_cache[cache_key] = None
+                    warnings.append(f"{label}: 실제 API 확인을 완료하지 못했습니다: {exc}")
+            account_models = account_cache.get(cache_key)
+            if account_models is not None:
+                live_result = validate_model_route(
+                    provider,
+                    model,
+                    capability=capability,
+                    account_models=account_models,
+                )
+                errors.extend(f"{label}: {item}" for item in live_result["errors"])
+        return errors, list(dict.fromkeys(warnings))
+
     def _refresh_ai_model_catalog(self):
-        """API 키에 실제 허용된 모델 목록을 비동기로 조회해 모든 모델 선택기에 반영한다."""
+        """선택 제공사 계정에서 실제 허용된 모델 목록을 비동기로 조회한다."""
         api_key = self.openai_api_key_entry.get().strip() if hasattr(self, 'openai_api_key_entry') else ''
         if not api_key:
-            messagebox.showwarning("API 키 필요", "사용 가능 모델 조회를 위해 OpenAI API 키를 먼저 입력하세요.")
+            messagebox.showwarning("API 키 필요", "사용 가능 모델 조회를 위해 선택한 제공사의 API 키를 먼저 입력하세요.")
             return
         if hasattr(self, 'ai_catalog_status_label'):
             self.ai_catalog_status_label.configure(text="모델 카탈로그 조회 중...", text_color="#38bdf8")
+        provider = self._selected_ai_provider()
+        base_url = self.openai_base_url_entry.get().strip() if hasattr(self, 'openai_base_url_entry') else ''
 
         def worker():
             try:
-                from trading.ai.openai_client import OpenAIClient
-                base_url = self.openai_base_url_entry.get().strip() if hasattr(self, 'openai_base_url_entry') else ''
-                client = OpenAIClient(api_key=api_key, base_url=base_url or None)
-                discovered = client.list_chat_models()
+                from trading.ai.provider_router import AIProviderRouter
+                router = AIProviderRouter(
+                    provider,
+                    api_key=api_key,
+                    base_url=base_url or None,
+                )
+                discovered = router.list_models(include_fallback=False)
                 self.root.after(0, lambda: self._apply_ai_model_catalog(discovered))
             except Exception as exc:
                 self.root.after(0, lambda: self._apply_ai_model_catalog([], error=str(exc)))
 
         threading.Thread(target=worker, daemon=True).start()
 
+    def _run_ai_provider_preflight(self):
+        """사용자가 선택한 실제 Provider 계약을 소액 호출로 검증한다."""
+        audio_path = ""
+        if bool(self.ai_custom_transcription_enabled_var.get()):
+            include_audio = messagebox.askyesno(
+                "음성 전사 검증",
+                "짧은 음성 파일까지 선택해 전사를 검증하시겠습니까?\n"
+                "아니오를 선택하면 전사 모델 접근 권한까지만 확인합니다.",
+            )
+            if include_audio:
+                audio_path = filedialog.askopenfilename(
+                    title="전사 검증용 짧은 음성 파일",
+                    filetypes=[
+                        ("Audio", "*.mp3 *.m4a *.wav *.webm *.mp4"),
+                        ("All files", "*.*"),
+                    ],
+                )
+        candidate = copy.deepcopy(self.current_settings)
+        active_provider = self._selected_ai_provider()
+        self._ai_provider_key_buffer[active_provider] = self.openai_api_key_entry.get().strip()
+        credentials = copy.deepcopy(candidate.get("ai_credentials", {}) or {})
+        for provider, api_key in self._ai_provider_key_buffer.items():
+            cfg = dict(credentials.get(provider, {}) or {})
+            if api_key:
+                cfg["api_key"] = api_key
+            if provider == active_provider:
+                cfg["base_url"] = self.openai_base_url_entry.get().strip()
+            credentials[provider] = cfg
+        candidate.update({
+            "ai_provider": self._assignment_provider("analyst"),
+            "ai_credentials": credentials,
+            "ai_provider_profiles": {
+                "analyst": self._assignment_route("analyst"),
+                "assistant": self._assignment_route("assistant"),
+                "transcription": {
+                    "provider": "openai",
+                    "model": self.ai_custom_transcription_model_combo.get(),
+                },
+            },
+            "ai_model_roles": {
+                "frequent_cheap": self._assignment_route("frequent_cheap"),
+                "standard": self._assignment_route("standard"),
+                "premium": self._assignment_route("premium"),
+            },
+            "ai_custom_transcription": {
+                "enabled": bool(self.ai_custom_transcription_enabled_var.get()),
+                "provider": "openai",
+                "model": self.ai_custom_transcription_model_combo.get(),
+            },
+        })
+        self.ai_catalog_status_label.configure(
+            text="실제 API 텍스트·JSON·사용량·오류·전사 계약 검증 중...",
+            text_color="#38bdf8",
+        )
+
+        def worker():
+            try:
+                from trading.ai.preflight import run_ai_provider_preflight
+
+                report = run_ai_provider_preflight(
+                    candidate,
+                    audio_path=audio_path or None,
+                    perform_calls=True,
+                )
+                self.root.after(0, lambda: self._show_ai_preflight_result(report))
+            except Exception as exc:
+                self.root.after(
+                    0,
+                    lambda: messagebox.showerror("AI API 기능 검증 실패", str(exc)),
+                )
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _show_ai_preflight_result(self, report: Dict[str, Any]):
+        results = dict(report.get("results", {}) or {})
+        lines = []
+        for workload, item in results.items():
+            status = str(item.get("status") or "failed")
+            lines.append(
+                f"• {workload}: {item.get('provider', '-')} / {item.get('model', '-')} · {status}"
+            )
+        ok = bool(report.get("ok"))
+        self.ai_catalog_status_label.configure(
+            text=f"실제 API 기능 검증 {'통과' if ok else '미통과'} · 상세 결과 창 확인",
+            text_color="#22c55e" if ok else "#ef4444",
+        )
+        if ok:
+            messagebox.showinfo("AI API 기능 검증 통과", "\n".join(lines))
+        else:
+            messagebox.showwarning(
+                "AI API 기능 검증 미통과",
+                "\n".join(lines)
+                + "\n\nAPI 키·계정 모델 권한·시험 연동 상태 또는 음성 파일을 확인하세요.",
+            )
+
+    def _open_selected_ai_provider_console(self):
+        provider = self._selected_ai_provider()
+        label = self._AI_PROVIDER_LABELS_REVERSE().get(provider, provider)
+        self._open_external_url(self._AI_PROVIDER_CONSOLES.get(provider, ""), f"{label} API 키")
+
+    def _open_selected_ai_pricing(self):
+        provider = self._selected_ai_provider()
+        label = self._AI_PROVIDER_LABELS_REVERSE().get(provider, provider)
+        try:
+            from trading.ai.provider_catalog import OFFICIAL_PRICING_URLS
+            url = OFFICIAL_PRICING_URLS.get(provider, "")
+        except Exception:
+            url = ""
+        self._open_external_url(url, f"{label} 공식 가격")
+
     def _apply_ai_model_catalog(self, discovered: List[str], error: str = ''):
-        current_values = []
-        combo_names = ('openai_model_combo', 'assistant_ai_model_combo', 'ai_role_cheap_combo', 'ai_role_standard_combo', 'ai_role_premium_combo')
-        for combo_name in combo_names:
-            combo = getattr(self, combo_name, None)
-            if combo is not None:
-                current_values.append(combo.get())
-        models = list(dict.fromkeys(list(self._AI_MODEL_FALLBACKS) + list(discovered or []) + current_values))
-        for combo_name in combo_names:
-            combo = getattr(self, combo_name, None)
-            if combo is not None:
-                selected = combo.get()
-                combo.configure(values=models)
-                combo.set(selected)
+        provider = self._selected_ai_provider()
+        if discovered:
+            self._ai_discovered_models[provider] = list(dict.fromkeys(discovered))
+        for scope in ("analyst", "assistant", "frequent_cheap", "standard", "premium"):
+            if self._assignment_provider(scope) == provider:
+                self._on_assignment_provider_change(scope)
         if hasattr(self, 'ai_catalog_status_label'):
             if discovered:
                 self.ai_catalog_status_label.configure(
-                    text=f"API 계정에서 텍스트 모델 {len(discovered)}개 확인 · 선택 목록 갱신 완료",
+                    text=(
+                        f"{self._AI_PROVIDER_LABELS_REVERSE().get(provider, provider)} API 계정에서 "
+                        f"텍스트 모델 {len(discovered)}개 확인 · 권장/비권장 상태와 함께 적용"
+                    ),
                     text_color="#22c55e",
                 )
             else:
@@ -2507,12 +3022,88 @@ class ModernSettingsWindow:
 
     def _apply_ai_model_preset(self, preset_name: str):
         """OpenAI API 탭의 모델 프리셋을 콤보 UI에 즉시 반영한다."""
-        presets: Dict[str, Dict[str, str]] = {
-            'cost_save': {
-                'openai_model': 'gpt-4o-mini',
-                'assistant_ai_model': 'gpt-4o-mini',
-                'frequent_cheap': 'gpt-4o-mini',
-                'standard': 'gpt-4o-mini',
+        provider = self._selected_ai_provider()
+        if provider == "deepseek":
+            presets = {
+                "cost_save": {
+                    "openai_model": "deepseek-v4-flash", "assistant_ai_model": "deepseek-v4-flash",
+                    "frequent_cheap": "deepseek-v4-flash", "standard": "deepseek-v4-flash",
+                    "premium": "deepseek-v4-flash", "label": "절약형",
+                    "desc": "DeepSeek V4 Flash 단일 구성입니다.", "cost_level": "낮음",
+                },
+                "balanced": {
+                    "openai_model": "deepseek-v4-flash", "assistant_ai_model": "deepseek-v4-flash",
+                    "frequent_cheap": "deepseek-v4-flash", "standard": "deepseek-v4-flash",
+                    "premium": "deepseek-v4-pro", "label": "균형형",
+                    "desc": "일반 호출은 Flash, 정밀 작업은 Pro를 사용합니다.", "cost_level": "중간",
+                },
+                "quality": {
+                    "openai_model": "deepseek-v4-pro", "assistant_ai_model": "deepseek-v4-pro",
+                    "frequent_cheap": "deepseek-v4-flash", "standard": "deepseek-v4-pro",
+                    "premium": "deepseek-v4-pro", "label": "정밀형",
+                    "desc": "정밀 작업을 DeepSeek V4 Pro로 배치합니다.", "cost_level": "높음",
+                },
+            }
+        elif provider == "kimi":
+            presets = {
+                name: {
+                    "openai_model": "kimi-k3",
+                    "assistant_ai_model": "kimi-k2.6" if name == "cost_save" else "kimi-k3",
+                    "frequent_cheap": "kimi-k2.6", "standard": "kimi-k2.6", "premium": "kimi-k3",
+                    "label": label, "desc": "Kimi는 어시스턴트용 NoahAI 시험 연동입니다.",
+                    "cost_level": "중간",
+                }
+                for name, label in (("cost_save", "절약형"), ("balanced", "균형형"), ("quality", "정밀형"))
+            }
+        elif provider == "anthropic":
+            presets = {
+                "cost_save": {
+                    "openai_model": "claude-haiku-4-5", "assistant_ai_model": "claude-haiku-4-5",
+                    "frequent_cheap": "claude-haiku-4-5", "standard": "claude-haiku-4-5",
+                    "premium": "claude-sonnet-5", "label": "절약형",
+                    "desc": "빈번 호출은 Haiku, 정밀 작업은 Sonnet을 사용합니다.", "cost_level": "낮음",
+                },
+                "balanced": {
+                    "openai_model": "claude-sonnet-5", "assistant_ai_model": "claude-sonnet-5",
+                    "frequent_cheap": "claude-haiku-4-5", "standard": "claude-sonnet-5",
+                    "premium": "claude-opus-5", "label": "균형형",
+                    "desc": "일반 분석은 Sonnet, 정밀 작업은 Opus를 사용합니다.", "cost_level": "중간",
+                },
+                "quality": {
+                    "openai_model": "claude-opus-5", "assistant_ai_model": "claude-opus-5",
+                    "frequent_cheap": "claude-sonnet-5", "standard": "claude-opus-5",
+                    "premium": "claude-opus-5", "label": "정밀형",
+                    "desc": "복잡한 분석을 Opus 중심으로 배치합니다.", "cost_level": "높음",
+                },
+            }
+        elif provider == "gemini":
+            presets = {
+                "cost_save": {
+                    "openai_model": "gemini-3.5-flash-lite", "assistant_ai_model": "gemini-3.5-flash-lite",
+                    "frequent_cheap": "gemini-3.5-flash-lite", "standard": "gemini-3.5-flash-lite",
+                    "premium": "gemini-3.6-flash", "label": "절약형",
+                    "desc": "Flash-Lite 중심의 고효율 구성입니다.", "cost_level": "낮음",
+                },
+                "balanced": {
+                    "openai_model": "gemini-3.6-flash", "assistant_ai_model": "gemini-3.6-flash",
+                    "frequent_cheap": "gemini-3.5-flash-lite", "standard": "gemini-3.6-flash",
+                    "premium": "gemini-3.1-pro-preview", "label": "균형형",
+                    "desc": "일반 호출은 Flash, 정밀 작업은 Pro Preview를 사용합니다.", "cost_level": "중간",
+                },
+                "quality": {
+                    "openai_model": "gemini-3.1-pro-preview", "assistant_ai_model": "gemini-3.1-pro-preview",
+                    "frequent_cheap": "gemini-3.6-flash", "standard": "gemini-3.1-pro-preview",
+                    "premium": "gemini-3.1-pro-preview", "label": "정밀형",
+                    "desc": "Pro Preview 중심이며 모델 상태와 가격을 공식 페이지에서 확인해야 합니다.", "cost_level": "높음",
+                },
+            }
+        else:
+            presets = {
+                'cost_save': {
+                'openai_model': 'gpt-5.6-luna',
+                'assistant_ai_model': 'gpt-5.6-luna',
+                'frequent_cheap': 'gpt-5.6-luna',
+                'standard': 'gpt-5.6-luna',
                 'premium': 'gpt-5.6-luna',
                 'label': '절약형',
                 'desc': 'API 비용을 최소화하려는 사용자에게 적합합니다.',
@@ -2537,22 +3128,38 @@ class ModernSettingsWindow:
                 'label': '정밀형',
                 'desc': '복잡한 진단 정확도를 우선할 때 적합하지만 비용이 증가할 수 있습니다.',
                 'cost_level': '높음',
-            },
-        }
+                },
+            }
         selected = presets.get(preset_name)
         if not selected:
             return
 
         try:
-            if hasattr(self, 'openai_model_combo'):
+            provider_label = self._AI_PROVIDER_LABELS_REVERSE().get(provider, "OpenAI")
+            if provider != "kimi":
+                for combo_name in (
+                    "ai_analyst_provider_combo",
+                    "ai_role_cheap_provider_combo",
+                    "ai_role_standard_provider_combo",
+                    "ai_role_premium_provider_combo",
+                ):
+                    combo = getattr(self, combo_name, None)
+                    if combo is not None:
+                        combo.set(provider_label)
+                for scope in ("analyst", "frequent_cheap", "standard", "premium"):
+                    self._on_assignment_provider_change(scope)
+            if hasattr(self, "ai_assistant_provider_combo"):
+                self.ai_assistant_provider_combo.set(provider_label)
+                self._on_assignment_provider_change("assistant")
+            if provider != "kimi" and hasattr(self, 'openai_model_combo'):
                 self.openai_model_combo.set(selected['openai_model'])
             if hasattr(self, 'assistant_ai_model_combo'):
                 self.assistant_ai_model_combo.set(selected['assistant_ai_model'])
-            if hasattr(self, 'ai_role_cheap_combo'):
+            if provider != "kimi" and hasattr(self, 'ai_role_cheap_combo'):
                 self.ai_role_cheap_combo.set(selected['frequent_cheap'])
-            if hasattr(self, 'ai_role_standard_combo'):
+            if provider != "kimi" and hasattr(self, 'ai_role_standard_combo'):
                 self.ai_role_standard_combo.set(selected['standard'])
-            if hasattr(self, 'ai_role_premium_combo'):
+            if provider != "kimi" and hasattr(self, 'ai_role_premium_combo'):
                 self.ai_role_premium_combo.set(selected['premium'])
             if hasattr(self, 'ai_preset_cost_badge_label') and self.ai_preset_cost_badge_label:
                 cost_level = selected.get('cost_level', '-')
@@ -5117,6 +5724,75 @@ AI 최적화 시스템과 충돌 발생
         )
         self.bitget_radio.pack(anchor="w", padx=20, pady=8)
 
+        trade_scope_group = ctk.CTkFrame(scroll_frame)
+        trade_scope_group.pack(fill="x", padx=0, pady=(0, 20))
+        ctk.CTkLabel(
+            trade_scope_group,
+            text="실제 주문 실행 거래소",
+            font=ctk.CTkFont(family="Segoe UI", size=18, weight="bold"),
+            text_color=self._color("text_primary", "#f9fafb"),
+        ).pack(anchor="w", padx=20, pady=(16, 4))
+        ctk.CTkLabel(
+            trade_scope_group,
+            text=(
+                "위의 ‘거래소 선택’은 화면·시세·분석·학습 범위입니다. 실제 주문까지 허용할 거래소는 "
+                "아래에서 별도로 선택해야 합니다. API 키·회원등급·수익성·손실한도·주문 가드레일은 계속 적용됩니다."
+            ),
+            font=ctk.CTkFont(family="Segoe UI", size=11),
+            text_color=self._color("text_secondary", "#9ca3af"),
+            justify="left",
+            wraplength=900,
+        ).pack(anchor="w", padx=20, pady=(0, 8))
+        trade_grid = ctk.CTkFrame(trade_scope_group, fg_color="transparent")
+        trade_grid.pack(fill="x", padx=16, pady=(0, 14))
+        self.trade_exchange_vars = {
+            key: ctk.BooleanVar(value=False)
+            for key in ("binance", "upbit", "bithumb", "bybit", "okx", "bitget")
+        }
+        trade_labels = {
+            "binance": "Binance 주문",
+            "bybit": "Bybit 주문",
+            "okx": "OKX 주문",
+            "bitget": "Bitget 주문",
+            "upbit": "Upbit 주문",
+            "bithumb": "Bithumb 주문",
+        }
+        for index, key in enumerate(("binance", "bybit", "okx", "bitget", "upbit", "bithumb")):
+            ctk.CTkCheckBox(
+                trade_grid,
+                text=trade_labels[key],
+                variable=self.trade_exchange_vars[key],
+                font=ctk.CTkFont(family="Segoe UI", size=12),
+                text_color=self._color("text_primary", "#f9fafb"),
+                fg_color=self._color("primary", "#1f6feb"),
+            ).grid(row=index // 3, column=index % 3, sticky="w", padx=8, pady=6)
+        for column in range(3):
+            trade_grid.grid_columnconfigure(column, weight=1)
+        trade_actions = ctk.CTkFrame(trade_scope_group, fg_color="transparent")
+        trade_actions.pack(fill="x", padx=20, pady=(0, 14))
+        ctk.CTkButton(
+            trade_actions,
+            text="활성 거래소를 주문 대상으로 선택",
+            width=230,
+            height=32,
+            command=self._select_enabled_trade_exchanges,
+        ).pack(side="left")
+        ctk.CTkButton(
+            trade_actions,
+            text="주문 선택 모두 해제",
+            width=160,
+            height=32,
+            fg_color="#475569",
+            hover_color="#64748b",
+            command=self._clear_trade_exchanges,
+        ).pack(side="left", padx=8)
+        ctk.CTkLabel(
+            trade_actions,
+            text="선택만으로 주문되지 않으며 ‘설정 저장’ 후 다음 실행부터 적용됩니다.",
+            font=ctk.CTkFont(family="Segoe UI", size=10),
+            text_color=self._color("warning", "#fbbf24"),
+        ).pack(side="left", padx=8)
+
         # 주식/증권사 선택 섹션 (기존 거래소 선택 탭에 추가)
         stock_separator = ctk.CTkFrame(scroll_frame, height=2, fg_color=self._color("secondary", "#1f2937"))
         stock_separator.pack(fill="x", padx=20, pady=(20, 20))
@@ -5755,6 +6431,22 @@ AI 최적화 시스템과 충돌 발생
         except Exception as e:
             print(f"api_type 이벤트 바인딩 실패: {e}")
 
+    def _select_enabled_trade_exchanges(self):
+        """Copy the analysis scope into the live-order draft; saving remains explicit."""
+        for key, trade_var in getattr(self, 'trade_exchange_vars', {}).items():
+            enabled_var = getattr(self, 'exchange_vars', {}).get(key)
+            try:
+                trade_var.set(bool(enabled_var and enabled_var.get()))
+            except Exception:
+                pass
+
+    def _clear_trade_exchanges(self):
+        for trade_var in getattr(self, 'trade_exchange_vars', {}).values():
+            try:
+                trade_var.set(False)
+            except Exception:
+                pass
+
     def on_exchange_changed(self, *args):
         """거래소 변경 이벤트 핸들러"""
         try:
@@ -5801,40 +6493,113 @@ AI 최적화 시스템과 충돌 발생
             # API 설정 복원 (기존과 동일)
             binance_key = self.current_settings.get('binance_api_key', '')
             binance_secret = self.current_settings.get('binance_secret_key', '')
-            openai_key = self.current_settings.get('openai_api_key', '')
-            openai_base_url = str(self.current_settings.get('openai_base_url', '') or '').strip()
+            profiles = self.current_settings.get("ai_provider_profiles", {})
+            analyst_profile = profiles.get("analyst", {}) if isinstance(profiles, dict) else {}
+            assistant_profile = profiles.get("assistant", {}) if isinstance(profiles, dict) else {}
+            primary_provider = str(self.current_settings.get("ai_provider") or "openai").lower()
+            analyst_provider = str(
+                (analyst_profile.get("provider") if isinstance(analyst_profile, dict) else "")
+                or primary_provider
+            ).lower()
+            assistant_provider = str(
+                (assistant_profile.get("provider") if isinstance(assistant_profile, dict) else "")
+                or primary_provider
+            ).lower()
+            active_provider = analyst_provider
+            provider_label = self._AI_PROVIDER_LABELS_REVERSE().get(active_provider, "OpenAI")
+            if hasattr(self, "ai_provider_var"):
+                self.ai_provider_var.set(provider_label)
+            self._active_ai_provider = active_provider
+            credentials = self.current_settings.get("ai_credentials", {})
+            if isinstance(credentials, dict):
+                for credential_provider, credential_value in credentials.items():
+                    if isinstance(credential_value, dict):
+                        self._ai_provider_key_buffer[str(credential_provider)] = str(
+                            credential_value.get("api_key") or ""
+                        )
+            provider_cfg = credentials.get(active_provider, {}) if isinstance(credentials, dict) else {}
+            openai_key = str(
+                (provider_cfg.get("api_key") if isinstance(provider_cfg, dict) else "")
+                or self.current_settings.get('openai_api_key', '')
+                or ""
+            )
+            openai_base_url = str(
+                (provider_cfg.get("base_url") if isinstance(provider_cfg, dict) else "")
+                or self.current_settings.get('openai_base_url', '')
+                or self._AI_PROVIDER_BASE_URLS.get(active_provider, "")
+            ).strip()
+            self._ai_provider_key_buffer[active_provider] = openai_key
 
             print(f"바이낸스 키: {binance_key[:10]}..." if binance_key else "바이낸스 키: 없음")
-            print(f"OpenAI 키: {openai_key[:10]}..." if openai_key else "OpenAI 키: 없음")
+            print(f"{provider_label} API 키: {'설정됨' if openai_key else '없음'}")
 
             self.binance_api_key_entry.insert(0, binance_key)
             self.binance_secret_key_entry.insert(0, binance_secret)
             self.openai_api_key_entry.insert(0, openai_key)
+            if hasattr(self, "ai_api_key_label"):
+                self.ai_api_key_label.configure(text=f"{provider_label} API Key:")
+            if hasattr(self, "ai_price_guide_label"):
+                try:
+                    from trading.ai.provider_catalog import format_provider_price_guide
+                    self.ai_price_guide_label.configure(text=format_provider_price_guide(active_provider))
+                except Exception:
+                    pass
             if hasattr(self, 'openai_base_url_entry'):
                 self.openai_base_url_entry.delete(0, 'end')
                 self.openai_base_url_entry.insert(0, openai_base_url)
 
-            # OpenAI 모델 설정
-            openai_model = self.current_settings.get('openai_model', 'gpt-4o-mini')
-            if openai_model:
-                self.openai_model_combo.set(openai_model)
+            # 애널리스트·어시스턴트·작업별 Provider/모델 복원
+            analyst_label = self._AI_PROVIDER_LABELS_REVERSE().get(analyst_provider, "OpenAI")
+            assistant_label = self._AI_PROVIDER_LABELS_REVERSE().get(assistant_provider, "OpenAI")
+            self.ai_analyst_provider_combo.set(analyst_label)
+            self.ai_assistant_provider_combo.set(assistant_label)
+            self._on_assignment_provider_change("analyst")
+            self._on_assignment_provider_change("assistant")
+            openai_model = str(
+                (analyst_profile.get("model") if isinstance(analyst_profile, dict) else "")
+                or self.current_settings.get('openai_model')
+                or self._AI_PROVIDER_MODELS.get(analyst_provider, self._AI_MODEL_FALLBACKS)[0]
+            )
+            assistant_model = str(
+                (assistant_profile.get("model") if isinstance(assistant_profile, dict) else "")
+                or self.current_settings.get('assistant_ai_model')
+                or self._AI_PROVIDER_MODELS.get(assistant_provider, self._AI_MODEL_FALLBACKS)[0]
+            )
+            self.openai_model_combo.set(openai_model)
+            self.assistant_ai_model_combo.set(assistant_model)
 
-            assistant_model = self.current_settings.get('assistant_ai_model', 'gpt-4o-mini')
-            if assistant_model:
-                self.assistant_ai_model_combo.set(assistant_model)
-
-            # 역할별 모델 티어 복원
             _ai_roles = self.current_settings.get('ai_model_roles', {})
-            _tier_allowed = list(self._AI_MODEL_FALLBACKS)
-            if hasattr(self, 'ai_role_cheap_combo'):
-                v = _ai_roles.get('frequent_cheap', 'gpt-4o-mini')
-                self.ai_role_cheap_combo.set(v if v in _tier_allowed else 'gpt-4o-mini')
-            if hasattr(self, 'ai_role_standard_combo'):
-                v = _ai_roles.get('standard', 'gpt-4o')
-                self.ai_role_standard_combo.set(v if v in _tier_allowed else 'gpt-4o')
-            if hasattr(self, 'ai_role_premium_combo'):
-                v = _ai_roles.get('premium', 'gpt-4o')
-                self.ai_role_premium_combo.set(v if v in _tier_allowed else 'gpt-4o')
+            role_widgets = {
+                "frequent_cheap": ("ai_role_cheap_provider_combo", "ai_role_cheap_combo"),
+                "standard": ("ai_role_standard_provider_combo", "ai_role_standard_combo"),
+                "premium": ("ai_role_premium_provider_combo", "ai_role_premium_combo"),
+            }
+            for tier, (provider_widget, model_widget) in role_widgets.items():
+                raw_route = _ai_roles.get(tier) if isinstance(_ai_roles, dict) else None
+                if isinstance(raw_route, dict):
+                    role_provider = str(raw_route.get("provider") or analyst_provider).lower()
+                    role_model = str(raw_route.get("model") or openai_model)
+                else:
+                    role_provider = analyst_provider
+                    role_model = str(raw_route or openai_model)
+                if role_provider == "kimi":
+                    role_provider = analyst_provider if analyst_provider != "kimi" else "openai"
+                getattr(self, provider_widget).set(
+                    self._AI_PROVIDER_LABELS_REVERSE().get(role_provider, "OpenAI")
+                )
+                self._on_assignment_provider_change(tier)
+                allowed = list(self._AI_PROVIDER_MODELS.get(role_provider, self._AI_MODEL_FALLBACKS))
+                getattr(self, model_widget).set(
+                    role_model if role_model in allowed else allowed[0]
+                )
+
+            if hasattr(self, "assistant_response_mode_combo"):
+                response_mode_label = {
+                    "saver": "문답 절약형",
+                    "standard": "질문답변 표준형",
+                    "premium": "분석 정밀형",
+                }.get(str(self.current_settings.get("assistant_response_mode") or "standard"), "질문답변 표준형")
+                self.assistant_response_mode_combo.set(response_mode_label)
 
             transcription_cfg = self.current_settings.get('ai_custom_transcription', {}) or {}
             if hasattr(self, 'ai_custom_transcription_enabled_var'):
@@ -5965,6 +6730,18 @@ AI 최적화 시스템과 충돌 발생
                     print(f"{key}: {'활성화' if is_enabled else '비활성화'}")
             else:
                 print("exchange_vars가 존재하지 않음")
+            if hasattr(self, 'trade_exchange_vars'):
+                has_explicit_trade_scope = 'trade_enabled_exchanges' in self.current_settings
+                configured_trade = self.current_settings.get('trade_enabled_exchanges', [])
+                if not isinstance(configured_trade, list):
+                    configured_trade = []
+                if not configured_trade and not has_explicit_trade_scope:
+                    selected_trade = str(
+                        self.current_settings.get('selected_exchange', 'binance') or 'binance'
+                    ).strip().lower()
+                    configured_trade = [selected_trade]
+                for key, var in self.trade_exchange_vars.items():
+                    var.set(key in enabled and key in configured_trade)
 
             # 증권사 선택 상태 복원 (다중 선택)
             enabled_brokers = self.current_settings.get('enabled_stock_brokers', [])
@@ -6097,7 +6874,9 @@ AI 최적화 시스템과 충돌 발생
                 
                 # 엔진
                 if hasattr(self, 'alpha_arena_engine_var'):
-                    engine = alpha_arena.get('engine', 'deepseek-3.1')
+                    engine = alpha_arena.get('engine', 'deepseek-v4-flash')
+                    if engine in ('deepseek-3.1', 'deepseek-chat-v3.1', 'deepseek-chat'):
+                        engine = 'deepseek-v4-flash'
                     self.alpha_arena_engine_var.set(engine)
                 
                 # API 키 (DeepSeek, Qwen3)
@@ -6123,7 +6902,9 @@ AI 최적화 시스템과 충돌 발생
                 if hasattr(self, 'alphaarena_enabled_var'):
                     self.alphaarena_enabled_var.set(bool(self.current_settings.get('alphaarena_enabled', False)))
                 if hasattr(self, 'alphaarena_ai_var'):
-                    ai_engine = self.current_settings.get('alphaarena_ai_engine', 'deepseek-chat-v3.1')
+                    ai_engine = self.current_settings.get('alphaarena_ai_engine', 'deepseek-v4-flash')
+                    if ai_engine in ('deepseek-3.1', 'deepseek-chat-v3.1', 'deepseek-chat'):
+                        ai_engine = 'deepseek-v4-flash'
                     self.alphaarena_ai_var.set(ai_engine)
                 if hasattr(self, 'alphaarena_capital_entry'):
                     capital = str(self.current_settings.get('alphaarena_capital', 10000))
@@ -6219,7 +7000,7 @@ AI 최적화 시스템과 충돌 발생
         # 업데이트 일자
         update_date_label = ctk.CTkLabel(
             version_group,
-            text="업데이트 일자: 2026년 7월 1일",
+            text="후보 소스 기준일: 2026년 7월 28일 (Windows 배포 전)",
             font=ctk.CTkFont(family="Segoe UI", size=12),
             text_color="#9ca3af"
         )
@@ -6329,6 +7110,34 @@ AI 최적화 시스템과 충돌 발생
         self.auto_update_interval_entry = ctk.CTkEntry(interval_row, width=80)
         self.auto_update_interval_entry.pack(side="left", padx=(8, 0))
         self.auto_update_interval_entry.insert(0, str(ui_settings.get('auto_update_check_interval_hours', 6)))
+
+        ctk.CTkLabel(
+            auto_update_group,
+            text="열린 포지션·주문이 있을 때:",
+            font=ctk.CTkFont(family="Segoe UI", size=12, weight="bold"),
+            text_color="#d1d5db",
+        ).pack(anchor="w", padx=20, pady=(0, 4))
+        action_value = str(ui_settings.get("auto_update_open_position_action", "defer") or "defer")
+        self.auto_update_position_action_combo = ctk.CTkComboBox(
+            auto_update_group,
+            values=["업데이트 연기(권장)", "포지션 유지(TP/SL 확인)", "전량 청산(체결 확인)"],
+            state="readonly",
+            width=260,
+        )
+        self.auto_update_position_action_combo.set({
+            "defer": "업데이트 연기(권장)",
+            "keep_with_tp_sl": "포지션 유지(TP/SL 확인)",
+            "close_all": "전량 청산(체결 확인)",
+        }.get(action_value, "업데이트 연기(권장)"))
+        self.auto_update_position_action_combo.pack(anchor="w", padx=20, pady=(0, 6))
+        ctk.CTkLabel(
+            auto_update_group,
+            text="기본값은 연기입니다. 유지 모드는 모든 포지션의 거래소 측 TP·SL 확인에 실패하면 중단하고, 청산 모드는 실제 포지션·미체결 주문이 0건임을 확인해야 진행합니다.",
+            font=ctk.CTkFont(family="Segoe UI", size=10),
+            text_color="#94a3b8",
+            wraplength=760,
+            justify="left",
+        ).pack(anchor="w", padx=20, pady=(0, 12))
 
         python_runtime_group = ctk.CTkFrame(scroll_frame)
         python_runtime_group.pack(fill="x", pady=(0, 20))
@@ -6481,20 +7290,108 @@ AI 최적화 시스템과 충돌 발생
     def save_settings(self):
         """설정 저장 - 기존 PyQt5 설정 창과 동일한 로직"""
         try:
+            active_provider = self._selected_ai_provider()
+            analyst_route = self._assignment_route("analyst")
+            assistant_route = self._assignment_route("assistant")
+            role_routes = {
+                "frequent_cheap": self._assignment_route("frequent_cheap"),
+                "standard": self._assignment_route("standard"),
+                "premium": self._assignment_route("premium"),
+            }
+            analyst_provider = analyst_route["provider"]
+            active_key = self.openai_api_key_entry.get().strip()
+            self._ai_provider_key_buffer[active_provider] = active_key
+            ai_credentials = copy.deepcopy(self.current_settings.get("ai_credentials", {}) or {})
+            from trading.ai.credentials import store_credential
+
+            for provider_name in self._AI_PROVIDER_LABELS.values():
+                provider_cfg = dict(ai_credentials.get(provider_name, {}) or {})
+                if provider_name == active_provider:
+                    provider_cfg["base_url"] = (
+                        self.openai_base_url_entry.get().strip()
+                        if hasattr(self, "openai_base_url_entry")
+                        else self._AI_PROVIDER_BASE_URLS.get(provider_name, "")
+                    )
+                else:
+                    provider_cfg.setdefault(
+                        "base_url",
+                        self._AI_PROVIDER_BASE_URLS.get(provider_name, ""),
+                    )
+                buffered_key = str(self._ai_provider_key_buffer.get(provider_name) or "").strip()
+                if buffered_key:
+                    try:
+                        provider_cfg["credential_ref"] = store_credential(
+                            provider_name,
+                            buffered_key,
+                            reference=str(provider_cfg.get("credential_ref") or "") or None,
+                        )
+                        provider_cfg["api_key"] = buffered_key
+                    except Exception as exc:
+                        messagebox.showerror(
+                            "API 키 보안 저장 실패",
+                            f"{provider_name} API 키를 운영체제 보안 저장소에 저장하지 못했습니다.\n\n{exc}",
+                        )
+                        return
+                ai_credentials[provider_name] = provider_cfg
+            provider_cfg = dict(ai_credentials.get(active_provider, {}) or {})
+            response_mode = {
+                "문답 절약형": "saver",
+                "질문답변 표준형": "standard",
+                "분석 정밀형": "premium",
+            }.get(
+                self.assistant_response_mode_combo.get()
+                if hasattr(self, "assistant_response_mode_combo")
+                else "질문답변 표준형",
+                "standard",
+            )
+
+            enabled_exchange_values = [
+                key for key, var in self.exchange_vars.items()
+                if var is not None and hasattr(var, 'get') and var.get()
+            ] if hasattr(self, 'exchange_vars') else list(
+                self.current_settings.get('enabled_exchanges', []) or []
+            )
+            trade_exchange_values = [
+                key for key, var in self.trade_exchange_vars.items()
+                if var is not None and hasattr(var, 'get') and var.get()
+                and key in enabled_exchange_values
+            ] if hasattr(self, 'trade_exchange_vars') else list(
+                self.current_settings.get('trade_enabled_exchanges', []) or []
+            )
+
             # UI에서 설정 값 가져오기 (기존과 동일한 방식)
             new_settings = {
-                # OpenAI 설정
-                'openai_api_key': self.openai_api_key_entry.get(),
-                'openai_base_url': self.openai_base_url_entry.get().strip() if hasattr(self, 'openai_base_url_entry') else str(self.current_settings.get('openai_base_url', '') or '').strip(),
-                'openai_model': self.openai_model_combo.get(),
-                'assistant_ai_model': self.assistant_ai_model_combo.get(),
-                'ai_model_roles': {
-                    'frequent_cheap': self.ai_role_cheap_combo.get() if hasattr(self, 'ai_role_cheap_combo') else 'gpt-4o-mini',
-                    'standard': self.ai_role_standard_combo.get() if hasattr(self, 'ai_role_standard_combo') else 'gpt-4o',
-                    'premium': self.ai_role_premium_combo.get() if hasattr(self, 'ai_role_premium_combo') else 'gpt-4o',
+                # AI 제공사 설정. openai_*는 런타임 하위 호환 키로 유지한다.
+                'ai_provider': analyst_provider,
+                'ai_credentials': ai_credentials,
+                'ai_provider_profiles': {
+                    'analyst': dict(analyst_route),
+                    'assistant': dict(assistant_route),
+                    'transcription': {
+                        'provider': 'openai',
+                        'model': self.ai_custom_transcription_model_combo.get(),
+                    },
                 },
+                'ai_models': {
+                    'analyst': analyst_route["model"],
+                    'assistant': assistant_route["model"],
+                    'roles': copy.deepcopy(role_routes),
+                },
+                'assistant_response_mode': response_mode,
+                'openai_api_key': (
+                    str(self._ai_provider_key_buffer.get(analyst_provider) or "")
+                    if analyst_provider in self._ai_provider_key_buffer
+                    else str((ai_credentials.get(analyst_provider, {}) or {}).get("api_key") or "")
+                ),
+                'openai_base_url': (
+                    str((ai_credentials.get(analyst_provider, {}) or {}).get("base_url") or "")
+                ),
+                'openai_model': analyst_route["model"],
+                'assistant_ai_model': assistant_route["model"],
+                'ai_model_roles': copy.deepcopy(role_routes),
                 'ai_custom_transcription': {
                     'enabled': bool(self.ai_custom_transcription_enabled_var.get()) if hasattr(self, 'ai_custom_transcription_enabled_var') else True,
+                    'provider': 'openai',
                     'model': self.ai_custom_transcription_model_combo.get() if hasattr(self, 'ai_custom_transcription_model_combo') else 'gpt-4o-mini-transcribe',
                     'max_duration_minutes': int(self.ai_custom_transcription_minutes_combo.get()) if hasattr(self, 'ai_custom_transcription_minutes_combo') else 45,
                     'max_file_mb': int(self.ai_custom_transcription_mb_combo.get()) if hasattr(self, 'ai_custom_transcription_mb_combo') else 24,
@@ -6590,7 +7487,9 @@ AI 최적화 시스템과 충돌 발생
                 # AI 설정은 제거됨 - AI가 자동으로 최적화
 
                 # 거래소 선택 (다중 선택)
-                'enabled_exchanges': [k for k,v in self.exchange_vars.items() if v is not None and hasattr(v, 'get') and v.get()],
+                'enabled_exchanges': enabled_exchange_values,
+                'learning_enabled_exchanges': enabled_exchange_values,
+                'trade_enabled_exchanges': trade_exchange_values,
                 
                 # 증권사 선택 (다중 선택)
                 'enabled_stock_brokers': [k for k,v in self.stock_broker_vars.items() if v is not None and hasattr(v, 'get') and v.get()] if hasattr(self, 'stock_broker_vars') else [],
@@ -6844,6 +7743,31 @@ AI 최적화 시스템과 충돌 발생
                     "합의 임계값은 0.10~0.95, 심볼 쿨다운은 0~3600초의 숫자로 입력해 주세요.",
                 )
                 return
+
+            ai_validation_errors, ai_validation_warnings = self._validate_ai_routes_for_save(
+                new_settings
+            )
+            new_settings["ai_validation"] = {
+                "checked_at": datetime.now().isoformat(timespec="seconds"),
+                "ok": not ai_validation_errors,
+                "errors": ai_validation_errors,
+                "warnings": ai_validation_warnings,
+            }
+            if ai_validation_errors:
+                messagebox.showerror(
+                    "AI 엔진 설정 저장 차단",
+                    "사용할 수 없는 모델 또는 기능이 포함되어 있습니다.\n\n"
+                    + "\n".join(f"• {item}" for item in ai_validation_errors[:12]),
+                )
+                return
+            if ai_validation_warnings and hasattr(self, "ai_catalog_status_label"):
+                self.ai_catalog_status_label.configure(
+                    text=(
+                        f"설정 검증 완료 · 경고 {len(ai_validation_warnings)}건"
+                        " (API 키 미설정 항목은 빌드 후 테스터 검증 대기)"
+                    ),
+                    text_color="#f59e0b",
+                )
 
             # 기존 설정과 병합 (기존 방식과 동일)
             # stock_auto_trading.auto_start 업데이트
@@ -7732,10 +8656,10 @@ AI 최적화 시스템과 충돌 발생
         )
         engine_label.pack(anchor="w", padx=20, pady=(5, 5))
 
-        self.alpha_arena_engine_var = ctk.StringVar(value="deepseek-3.1")
+        self.alpha_arena_engine_var = ctk.StringVar(value="deepseek-v4-flash")
         engine_combo = ctk.CTkComboBox(
             ai_group,
-            values=["deepseek-3.1", "qwen3-max"],
+            values=["deepseek-v4-flash"],
             variable=self.alpha_arena_engine_var,
             font=ctk.CTkFont(family="Segoe UI", size=12),
             width=200
@@ -7935,7 +8859,7 @@ AI 최적화 시스템과 충돌 발생
         selected_ai = self.alphaarena_ai_var.get()
 
         # 선택한 AI에 따라 해당 API 키 가져오기
-        if selected_ai == "deepseek-chat-v3.1":
+        if selected_ai in ("deepseek-v4-flash", "deepseek-v4-pro", "deepseek-chat-v3.1"):
             api_key = self.alphaarena_deepseek_key.get()
             provider = "DeepSeek"
         elif selected_ai == "gpt-4o":

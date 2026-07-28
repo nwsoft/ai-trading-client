@@ -205,15 +205,34 @@ class UnifiedTradingManager:
 
             # 결과 통일
             if result and ('id' in result or 'order_id' in result):
-                # 안전 매핑: 바이낸스 네이티브 결과(avg_price/executed_qty) 포함 처리
+                # 안전 매핑: CCXT 시장가 주문은 price가 비어 있고
+                # average/cost/filled만 오는 경우가 있으므로 실제 체결 필드를 우선한다.
                 mapped_price = result.get('price', None)
                 if mapped_price in (None, ''):
                     mapped_price = result.get('avg_price', None)
+                if mapped_price in (None, ''):
+                    mapped_price = result.get('average', None)
                 mapped_qty = result.get('amount', None)
                 if mapped_qty in (None, ''):
                     mapped_qty = result.get('quantity', None)
                 if mapped_qty in (None, ''):
-                    mapped_qty = result.get('executed_qty', quantity)
+                    mapped_qty = result.get('executed_qty', None)
+                if mapped_qty in (None, ''):
+                    mapped_qty = result.get('filled', quantity)
+                mapped_cost = result.get('cost', None)
+                if mapped_cost in (None, ''):
+                    mapped_cost = result.get('cummulativeQuoteQty', None)
+                try:
+                    numeric_qty = float(mapped_qty or 0.0)
+                    numeric_price = float(mapped_price or 0.0)
+                    numeric_cost = float(mapped_cost or 0.0)
+                    if numeric_price <= 0.0 and numeric_cost > 0.0 and numeric_qty > 0.0:
+                        mapped_price = numeric_cost / numeric_qty
+                        numeric_price = float(mapped_price)
+                    if numeric_cost <= 0.0 and numeric_price > 0.0 and numeric_qty > 0.0:
+                        mapped_cost = numeric_price * numeric_qty
+                except (TypeError, ValueError):
+                    pass
                 mapped_type = result.get('type', None) or order_type
                 return {
                     'status': 'success',
@@ -222,6 +241,8 @@ class UnifiedTradingManager:
                     'side': result.get('side', side),
                     'quantity': mapped_qty,
                     'price': mapped_price,
+                    'cost': mapped_cost,
+                    'filled': result.get('filled', mapped_qty),
                     'order_type': mapped_type,
                     'timestamp': result.get('timestamp'),
                     'raw_result': result

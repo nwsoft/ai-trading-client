@@ -3,7 +3,10 @@ from trading.custom_strategy_runtime import (
     limited_live_engine_settings,
     normalize_engine_settings,
 )
-from trading.custom_strategy_validator import run_historical_replay
+from trading.custom_strategy_validator import (
+    enrich_advanced_indicator_context,
+    run_historical_replay,
+)
 from trading.declarative_strategy_engine import DeclarativeStrategyEngine
 from trading.trader import Position, PositionSide, Trader
 from types import SimpleNamespace
@@ -193,6 +196,116 @@ def test_cross_operator_requires_previous_bar_and_detects_real_cross():
     )
     assert crossed["allowed"] is True
     assert already_above["allowed"] is False
+
+
+def test_advanced_mode_supports_custom_periods_timeframes_and_value_comparison():
+    rules = {
+        "executable_entry": {
+            "all": [{
+                "field": {
+                    "indicator": "ema", "period": 17,
+                    "timeframe": "15m", "source": "close",
+                },
+                "operator": "gt_field",
+                "value_field": {
+                    "indicator": "ema", "period": 63,
+                    "timeframe": "1h", "source": "close",
+                },
+            }]
+        }
+    }
+    requested = []
+
+    def fetcher(timeframe, limit):
+        requested.append((timeframe, limit))
+        base = 200 if timeframe == "15m" else 100
+        return [
+            [index, base + index, base + 1 + index, base - 1 + index, base + index, 1000]
+            for index in range(limit)
+        ]
+
+    context = enrich_advanced_indicator_context({"signal": "LONG"}, rules, fetcher)
+    result = DeclarativeStrategyEngine.evaluate_entry(rules, context)
+
+    assert result["allowed"] is True
+    assert {item[0] for item in requested} == {"15m", "1h"}
+    assert len(context["_advanced_indicator_values"]) == 2
+    assert all(item["status"] == "calculated" for item in context["_advanced_indicator_values"])
+
+
+def test_advanced_mode_rejects_unsafe_indicator_and_period():
+    unsafe = DeclarativeStrategyEngine.validate_rule_spec({
+        "executable_entry": {
+            "all": [{
+                "field": {
+                    "indicator": "python", "period": 14,
+                    "timeframe": "1h", "source": "close",
+                },
+                "operator": "gt", "value": 1,
+            }]
+        }
+    })
+    out_of_range = DeclarativeStrategyEngine.validate_rule_spec({
+        "executable_entry": {
+            "all": [{
+                "field": {
+                    "indicator": "ema", "period": 501,
+                    "timeframe": "1h", "source": "close",
+                },
+                "operator": "gt", "value": 1,
+            }]
+        }
+    })
+    assert unsafe["valid"] is False
+    assert "unsupported_indicator" in unsafe["errors"][0]
+    assert out_of_range["valid"] is False
+    assert "indicator_period_out_of_range" in out_of_range["errors"][0]
+
+
+def test_advanced_replay_requires_and_uses_real_timeframe_candles():
+    rules = {
+        "signal_mode": "independent",
+        "entry_signal": "LONG",
+        "engine_settings": {
+            "_unit": "percent_points", "tp_percent": 1.0, "sl_percent": 1.0,
+        },
+        "executable_entry": {
+            "all": [{
+                "field": {
+                    "indicator": "ema", "period": 17,
+                    "timeframe": "15m", "source": "close",
+                },
+                "operator": "gt_field",
+                "value_field": {
+                    "indicator": "ema", "period": 63,
+                    "timeframe": "1h", "source": "close",
+                },
+            }]
+        },
+    }
+    base_rows = [
+        [index * 900_000, 200 + index, 201 + index, 199 + index, 200 + index, 1000]
+        for index in range(360)
+    ]
+    hourly_rows = [
+        [index * 3_600_000, 100 + index, 101 + index, 99 + index, 100 + index, 1000]
+        for index in range(100)
+    ]
+    try:
+        run_historical_replay(rules, base_rows)
+        assert False, "missing requested timeframe must fail closed"
+    except ValueError as exc:
+        assert "1h" in str(exc)
+
+    metrics = run_historical_replay(
+        rules,
+        base_rows,
+        timeframe_klines={"15m": base_rows, "1h": hourly_rows},
+        fee_rate=0.0,
+        slippage_bps=0.0,
+        spread_bps=0.0,
+    )
+    assert metrics["decisions"] > 0
 
 
 def test_binance_position_keeps_selected_custom_exit_rule_for_live_monitor():

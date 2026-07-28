@@ -15,13 +15,52 @@ from .openai_client import OpenAIClient
 
 
 class AIManager:
-    def __init__(self, api_key: str, model: Optional[str] = None, base_url: Optional[str] = None, settings: Optional[Dict[str, Any]] = None):
-        self.api_key = api_key
-        # 🔥 설정 파일에서 모델을 받아오므로 하드코딩 제거
-        self.model = model or "gpt-4o-mini"  # 기본값은 fallback용
-        self.client = OpenAIClient(api_key=api_key, model=self.model, base_url=base_url)
+    def __init__(
+        self,
+        api_key: str,
+        model: Optional[str] = None,
+        base_url: Optional[str] = None,
+        settings: Optional[Dict[str, Any]] = None,
+        provider: Optional[str] = None,
+        workload: str = "analyst",
+    ):
+        runtime_settings: Dict[str, Any] = settings or {}
+        self.provider = str(provider or runtime_settings.get("ai_provider") or "openai").strip().lower()
+        self._provider_router = None
+        if runtime_settings and (runtime_settings.get("ai_credentials") or runtime_settings.get("ai_provider")):
+            try:
+                from .provider_router import AIProviderRouter
+
+                self._provider_router = AIProviderRouter.from_settings(
+                    runtime_settings,
+                    workload=workload,
+                )
+                self.provider = self._provider_router.spec.provider
+                self.model = self._provider_router.adapter.model
+                self.client = self._provider_router.client_facade()
+                self.api_key = self._provider_router.adapter.client.api_key
+            except Exception:
+                self.api_key = api_key
+                self.model = model or "gpt-4o-mini"
+                self.client = OpenAIClient(
+                    api_key=api_key,
+                    model=self.model,
+                    base_url=base_url,
+                    provider=self.provider,
+                )
+        else:
+            self.api_key = api_key
+            # 🔥 설정 파일에서 모델을 받아오므로 하드코딩 제거
+            self.model = model or "gpt-4o-mini"  # 기본값은 fallback용
+            self.client = OpenAIClient(
+                api_key=api_key,
+                model=self.model,
+                base_url=base_url,
+                provider=self.provider,
+            )
         # 역할별 모델 배치를 위한 settings 저장
-        self._settings: Dict[str, Any] = settings or {}
+        self._settings: Dict[str, Any] = runtime_settings
+        self._role_clients: Dict[str, Any] = {}
         # 로거 초기화
         self.logger = logging.getLogger(__name__)
         # 🔥 로그 시스템 통일을 위한 헬퍼 메서드
@@ -29,17 +68,11 @@ class AIManager:
         self.log_event = lambda category, msg, level='INFO': log_event(category, msg, exchange='global', level=level)
         
         # 🔥 모델 정보 로깅 추가
-        self.log_event('analysis', f'AI Manager 초기화 완료 - 모델: {self.model}')
+        self.log_event('analysis', f'AI Manager 초기화 완료 - 제공사: {self.provider}, 모델: {self.model}')
 
-    def _get_model_for_role(self, role: str) -> str:
-        """역할(task type)에 맞는 모델 반환 - ai_model_roles 설정 기반 비용 최적화
-
-        Tier 구분:
-          frequent_cheap  → 빈번 호출(신호분석·패턴·포지션 크기): 기본 gpt-4o-mini
-          standard        → 중요 분석(손익 분석·일일 리포트): 기본 gpt-4o
-          premium         → 정밀 분석(진단·파라미터 최적화): 기본 gpt-4o
-        """
-        _role_to_tier: Dict[str, str] = {
+    @staticmethod
+    def _tier_for_role(role: str) -> str:
+        role_to_tier: Dict[str, str] = {
             'signal_analysis': 'frequent_cheap',
             'pattern_similarity': 'frequent_cheap',
             'pre_entry': 'frequent_cheap',
@@ -50,9 +83,71 @@ class AIManager:
             'diagnosis': 'premium',
             'parameter_optimization': 'premium',
         }
-        tier = _role_to_tier.get(role, 'standard')
+        return role_to_tier.get(role, 'standard')
+
+    def _get_route_for_role(self, role: str) -> Dict[str, str]:
+        """역할별 ``{provider, model}``을 반환하며 모델 문자열 설정도 지원한다."""
+        from .provider_router import normalize_model_route
+
+        tier = self._tier_for_role(role)
         roles_cfg = self._settings.get('ai_model_roles', {})
-        return roles_cfg.get(tier) or self.model
+        value = roles_cfg.get(tier) if isinstance(roles_cfg, dict) else None
+        return normalize_model_route(
+            value,
+            fallback_provider=self.provider,
+            fallback_model=self.model,
+        )
+
+    def _get_model_for_role(self, role: str) -> str:
+        """역할(task type)에 맞는 모델 반환 - ai_model_roles 설정 기반 비용 최적화
+
+        Tier 구분:
+          frequent_cheap  → 빈번 호출(신호분석·패턴·포지션 크기): 기본 gpt-4o-mini
+          standard        → 중요 분석(손익 분석·일일 리포트): 기본 gpt-4o
+          premium         → 정밀 분석(진단·파라미터 최적화): 기본 gpt-4o
+        """
+        return self._get_route_for_role(role)["model"]
+
+    def _get_client_for_role(self, role: str):
+        tier = self._tier_for_role(role)
+        if tier in self._role_clients:
+            return self._role_clients[tier]
+        route = self._get_route_for_role(role)
+        if not self._settings or route["provider"] == self.provider:
+            client = self.client
+        else:
+            try:
+                from .provider_router import AIProviderRouter
+
+                client = AIProviderRouter.from_settings(
+                    self._settings,
+                    workload=tier,
+                ).client_facade()
+            except Exception:
+                client = self.client
+        self._role_clients[tier] = client
+        return client
+
+    def _enabled_for_role(self, role: str) -> bool:
+        client = self._get_client_for_role(role)
+        if client is self.client:
+            return self.enabled()
+        return bool(client) and bool(client.is_ready())
+
+    def _chat_json_for_role(
+        self,
+        role: str,
+        system: str,
+        prompt: str,
+        **kwargs: Any,
+    ) -> Optional[Dict[str, Any]]:
+        client = self._get_client_for_role(role)
+        return client.chat_json(
+            system,
+            prompt,
+            model=self._get_model_for_role(role),
+            **kwargs,
+        )
 
     def enabled(self) -> bool:
         """AI 기능 활성화 여부"""
@@ -61,7 +156,7 @@ class AIManager:
     def analyze_market_conditions(self, symbol: str, market_data: List, indicators: Dict) -> Dict[str, Any]:
         """시장 상황 분석 및 동적 설정 제안"""
         try:
-            if not self.enabled():
+            if not self._enabled_for_role('signal_analysis'):
                 return self._get_default_analysis()
 
             def _read(value: Any, key: str, default: float = 0.0) -> float:
@@ -115,8 +210,10 @@ tp_percent and sl_percent MUST be fractions: 0.001 means 0.1%, not 1%.
 """
             
             use_model = self._get_model_for_role('signal_analysis')
-            result = self.client.chat_json(system, prompt, temperature=0.3, max_tokens=320,
-                                             model=use_model)
+            role_client = self._get_client_for_role('signal_analysis')
+            result = self._chat_json_for_role(
+                'signal_analysis', system, prompt, temperature=0.3, max_tokens=320,
+            )
             if isinstance(result, dict):
                 result["entry_confidence"] = max(
                     0.0, min(float(result.get("entry_confidence", result.get("confidence", 0.5)) or 0.5), 1.0)
@@ -128,7 +225,8 @@ tp_percent and sl_percent MUST be fractions: 0.001 means 0.1%, not 1%.
                     result[key] = max(0.0005, min(value, maximum))
                 result["leverage"] = max(1, min(int(float(result.get("leverage", 1) or 1)), 10))
                 result["_ai_model"] = use_model
-                result["_ai_usage"] = self.client.get_last_usage()
+                result["_ai_provider"] = self._get_route_for_role('signal_analysis')["provider"]
+                result["_ai_usage"] = role_client.get_last_usage()
             return result if result else self._get_default_analysis()
             
         except Exception as e:
@@ -138,14 +236,15 @@ tp_percent and sl_percent MUST be fractions: 0.001 means 0.1%, not 1%.
     def analyze_loss_trade(self, symbol: str, trade_data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         """손절 거래 분석"""
         try:
-            if not self.enabled():
+            if not self._enabled_for_role('loss_analysis'):
                 return None
                 
             system = "You are an expert cryptocurrency trading analyst. Analyze loss patterns and provide specific recommendations for future trades."
             prompt = self._compose_loss_prompt(symbol, trade_data)
             
-            result = self.client.chat_json(system, prompt, temperature=0.2, max_tokens=800,
-                                             model=self._get_model_for_role('loss_analysis'))
+            result = self._chat_json_for_role(
+                'loss_analysis', system, prompt, temperature=0.2, max_tokens=800,
+            )
             if result:
                 self.logger.info(f"{symbol} 손절 분석 완료: {result.get('loss_cause', 'Unknown')}")
             return result
@@ -157,14 +256,15 @@ tp_percent and sl_percent MUST be fractions: 0.001 means 0.1%, not 1%.
     def analyze_profit_trade(self, symbol: str, trade_data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         """익절 거래 분석"""
         try:
-            if not self.enabled():
+            if not self._enabled_for_role('profit_analysis'):
                 return None
                 
             system = "You are an expert cryptocurrency trading analyst. Analyze profit patterns and provide specific recommendations for future trades."
             prompt = self._compose_profit_prompt(symbol, trade_data)
             
-            result = self.client.chat_json(system, prompt, temperature=0.2, max_tokens=800,
-                                             model=self._get_model_for_role('profit_analysis'))
+            result = self._chat_json_for_role(
+                'profit_analysis', system, prompt, temperature=0.2, max_tokens=800,
+            )
             if result:
                 self.logger.info(f"{symbol} 익절 분석 완료: {result.get('profit_cause', 'Unknown')}")
             return result
@@ -176,14 +276,15 @@ tp_percent and sl_percent MUST be fractions: 0.001 means 0.1%, not 1%.
     def analyze_pattern_similarity(self, symbol: str, current_signal_data: Dict[str, Any], recent_patterns: List[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
         """패턴 유사성 분석 (진입 전 검증)"""
         try:
-            if not self.enabled() or not recent_patterns:
+            if not self._enabled_for_role('pattern_similarity') or not recent_patterns:
                 return None
                 
             system = "You are an expert cryptocurrency trading pattern analyzer. Compare current signals with past patterns and make trading decisions."
             prompt = self._compose_similarity_prompt(symbol, current_signal_data, recent_patterns)
             
-            result = self.client.chat_json(system, prompt, temperature=0.2, max_tokens=600,
-                                             model=self._get_model_for_role('pattern_similarity'))
+            result = self._chat_json_for_role(
+                'pattern_similarity', system, prompt, temperature=0.2, max_tokens=600,
+            )
             if result:
                 action = result.get('action', 'PROCEED')
                 self.logger.info(f"{symbol} 패턴 분석: {action} - {result.get('reason', '')}")
@@ -196,7 +297,7 @@ tp_percent and sl_percent MUST be fractions: 0.001 means 0.1%, not 1%.
     def generate_daily_report(self, days: int = 1) -> Dict[str, Any]:
         """일일/주간/월간 리포트 생성"""
         try:
-            if not self.enabled():
+            if not self._enabled_for_role('daily_report'):
                 return {"error": "AI 기능이 비활성화되어 있습니다."}
             
             system = "You are an expert cryptocurrency trading analyst. Generate comprehensive trading reports with actionable insights."
@@ -266,8 +367,9 @@ Provide a detailed report in JSON format:
 }}
 """
             
-            result = self.client.chat_json(system, prompt, temperature=0.3, max_tokens=1500,
-                                             model=self._get_model_for_role('daily_report'))
+            result = self._chat_json_for_role(
+                'daily_report', system, prompt, temperature=0.3, max_tokens=1500,
+            )
             if result:
                 self.logger.info(f"{days}일 리포트 생성 완료")
             return result if result else {"error": "리포트 생성 실패"}
@@ -279,7 +381,7 @@ Provide a detailed report in JSON format:
     def diagnose_trading_issues(self, hours_without_trades: int = 1) -> Dict[str, Any]:
         """거래 부재 문제 진단"""
         try:
-            if not self.enabled():
+            if not self._enabled_for_role('diagnosis'):
                 return {"error": "AI 기능이 비활성화되어 있습니다."}
             
             system = "You are an expert cryptocurrency trading system diagnostician. Analyze why no trades are occurring and provide solutions."
@@ -359,8 +461,9 @@ Provide diagnosis and solutions in JSON format:
 }}
 """
             
-            result = self.client.chat_json(system, prompt, temperature=0.2, max_tokens=1200,
-                                             model=self._get_model_for_role('diagnosis'))
+            result = self._chat_json_for_role(
+                'diagnosis', system, prompt, temperature=0.2, max_tokens=1200,
+            )
             if result:
                 self.logger.info(f"거래 부재 문제 진단 완료: {result.get('diagnosis', {}).get('primary_issue', 'Unknown')}")
             return result if result else {"error": "진단 실패"}
@@ -372,7 +475,7 @@ Provide diagnosis and solutions in JSON format:
     def auto_optimize_parameters(self, diagnosis: Dict[str, Any]) -> Dict[str, Any]:
         """진단 결과를 바탕으로 자동 파라미터 최적화"""
         try:
-            if not self.enabled():
+            if not self._enabled_for_role('parameter_optimization'):
                 return {"error": "AI 기능이 비활성화되어 있습니다."}
             
             system = "You are an expert trading system optimizer. Apply the diagnosis results to optimize trading parameters."
@@ -431,8 +534,9 @@ Provide optimized parameters in JSON format:
 }}
 """
             
-            result = self.client.chat_json(system, prompt, temperature=0.2, max_tokens=1000,
-                                             model=self._get_model_for_role('parameter_optimization'))
+            result = self._chat_json_for_role(
+                'parameter_optimization', system, prompt, temperature=0.2, max_tokens=1000,
+            )
             if result:
                 self.logger.info("파라미터 최적화 완료")
             return result if result else {"error": "최적화 실패"}
@@ -707,7 +811,7 @@ Compare current signal with recent loss patterns and decide. Respond in JSON:
     def optimize_position_size(self, ai_context: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         """AI 기반 포지션 크기 최적화 (사용자 성향 조절 가능)"""
         try:
-            if not self.enabled():
+            if not self._enabled_for_role('position_sizing'):
                 return None
             
             # 🔥 사용자 성향 설정 로드 (settings에서)
@@ -755,8 +859,9 @@ Risk Management Rules:
 Please provide optimal position sizing with detailed reasoning.
 """
             
-            result = self.client.chat_json(system, prompt, temperature=0.2, max_tokens=800,
-                                             model=self._get_model_for_role('position_sizing'))
+            result = self._chat_json_for_role(
+                'position_sizing', system, prompt, temperature=0.2, max_tokens=800,
+            )
             
             if result:
                 self.logger.info(f"AI 포지션 크기 최적화 완료: {result.get('risk_level', 'UNKNOWN')} 접근")

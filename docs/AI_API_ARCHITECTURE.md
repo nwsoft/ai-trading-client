@@ -1,6 +1,6 @@
-# AI API 아키텍처 및 오픈소스 전환 가이드
+# AI API 아키텍처 및 멀티 제공사 가이드
 
-> 기준: 2026-07-26 · v3.9.0.2  
+> 기준: 2026-07-28 · v3.9.0.3 업데이트 배포 대상  
 > 이 문서는 AI 호출 계층의 기술 정본입니다. 금융 인텔리전스 UI·데이터 상태는 `FINANCIAL_INTELLIGENCE_EXPANSION_PLAN_20260723.md`, 사용자 사용법은 `USER_GUIDE.md`와 인앱 매뉴얼을 따릅니다.
 
 ## 📋 목적
@@ -13,16 +13,38 @@ NoahAI의 AI API 구조를 이해하고, 향후 오픈소스 LLM으로 전환할
 ### 계층 구조
 ```
 AIManager (trading/ai/ai_manager.py)
-  ├─ OpenAIClient (trading/ai/openai_client.py)
-  │   ├─ OpenAI SDK 래퍼
-  │   ├─ base_url 지원 (오픈소스 LLM 전환)
-  │   └─ model 설정 가능
+  ├─ AIProviderRouter (trading/ai/provider_router.py)
+  │   ├─ OpenAICompatibleAdapter
+  │   │   ├─ OpenAI
+  │   │   ├─ DeepSeek V4 Flash/Pro
+  │   │   ├─ Google Gemini
+  │   │   └─ Kimi K3/K2.6 (어시스턴트용 NoahAI 시험 연동)
+  │   ├─ AnthropicClient (네이티브 Messages API)
+  │   ├─ ProviderCapabilities
+  │   └─ ProviderResponse / NormalizedProviderError
+  ├─ credential_ref (trading/ai/credentials.py)
+  │   └─ macOS Keychain / Windows Credential Manager
+  ├─ OpenAIClient (하위 호환 SDK 래퍼)
+  ├─ ModelRegistry (권장/미리보기/비권장/종료/capability)
+  ├─ 작업별 route: ai_model_roles.<tier> = {provider, model}
+  ├─ 독립 전사 route: ai_provider_profiles.transcription
   └─ 주요 기능:
       ├─ 시장 분석 (analyze_market_conditions)
       ├─ 청산 분석 (analyze_exit_conditions)
       ├─ 패턴 유사성 검증 (verify_pattern_similarity)
       └─ 대화형 AI (chat_completion)
 ```
+
+AlphaArena 멀티 엔진·실거래 라우팅은 이번 v3.9.0.3 업데이트 범위가 아니다. 종료된
+DeepSeek V3.1 모델만 V4 Flash로 이전하며 기존 주문 가드레일과 단일 실행
+흐름을 유지한다.
+
+Claude Code 앱/CLI 로그인이나 Claude 구독을 자격증명으로 재사용하지 않는다. NoahAI의
+Claude 선택지는 Anthropic Console에서 발급한 별도 API 키와 API 과금을 사용한다.
+Gemini도 Google AI Studio에서 발급한 Gemini API 키를 사용한다.
+
+설정 화면의 가격 비교는 `2026-07-28`, USD/100만 토큰 기준 스냅샷이다. 캐시·장문·배치·
+지역·서비스 티어에 따라 실제 청구가 달라지므로 각 제공사의 공식 가격 링크를 함께 표시한다.
 
 ### 현재 호출 경로의 비용 특성 (2026-07-24 점검)
 
@@ -45,7 +67,7 @@ AIManager (trading/ai/ai_manager.py)
   └─ 안정 HOLD 또는 예산 소진 → 로컬 결과로 계속 운용
 ```
 
-`trade_enabled_exchanges`가 실제 주문 범위, `learning_enabled_exchanges`가 학습 범위다. 두 값이 비어 있으면 선택 거래소만 주문하고 활성 거래소 전체를 학습한다.
+`trade_enabled_exchanges`가 실제 주문 범위, `learning_enabled_exchanges`가 학습 범위다. 주문 키가 명시적으로 빈 목록이면 실제 주문은 0개다. 주문 키 자체가 없는 구버전 프로필만 선택 거래소 1곳으로 호환하며, 학습 범위가 비면 활성 거래소 전체를 사용한다.
 
 ### 2026-07-24 사용자 데이터 교차 점검
 
@@ -60,96 +82,117 @@ OpenAI 비용 CSV는 프로젝트 단위이고 거래소 메타데이터를 포�
 
 ### 핵심 클래스
 
-#### 1. OpenAIClient (`trading/ai/openai_client.py`)
-```python
-class OpenAIClient:
-    def __init__(self, api_key: str, model: Optional[str] = None, base_url: Optional[str] = None):
-        self.api_key = api_key
-        self.model = model or "gpt-3.5-turbo"
-        self.base_url = base_url  # 🔥 오픈소스 전환 핵심
-        # base_url이 있으면 다른 LLM API 사용 가능
-```
+#### 1. AIProviderRouter (`trading/ai/provider_router.py`)
 
-**오픈소스 전환 지원**:
-- `base_url` 파라미터로 다른 API 엔드포인트 사용 가능
-- OpenAI 호환 API를 지원하는 모든 서비스 사용 가능
-- 예: DeepSeek, OpenRouter, Local LLM 서버 등
+- 설정 프로필에서 제공사·모델·credential reference를 읽습니다.
+- 애널리스트·어시스턴트뿐 아니라 frequent_cheap·standard·premium 작업 route를 각각 해석합니다.
+- OpenAI·DeepSeek·Kimi·Gemini는 호환 어댑터로, Claude는 네이티브 Messages 클라이언트로 연결합니다.
+- 모델 목록, 텍스트·JSON, usage·오류 정규화와 capability 검사를 공통 계약으로 제공합니다.
+- 실거래 경로는 제공사 실패 때 다른 제공사로 임의 전환하지 않습니다.
 
-#### 2. AIManager (`trading/ai/ai_manager.py`)
-```python
-class AIManager:
-    def __init__(self, api_key: str, model: Optional[str] = None, base_url: Optional[str] = None):
-        self.client = OpenAIClient(api_key=api_key, model=model, base_url=base_url)
-    
-    def enabled(self) -> bool:
-        """AI 기능 활성화 여부"""
-        return bool(self.api_key) and self.client.is_ready()
-    
-    def analyze_market_conditions(self, symbol: str, market_data: List, indicators: Dict) -> Dict:
-        """시장 분석 (암호화폐/ETF/주식 공통 사용)"""
-        # AI 호출 로직
-        pass
-    
-    def analyze_exit_conditions(self, ...) -> Dict:
-        """청산 분석"""
-        pass
-    
-    def verify_pattern_similarity(self, ...) -> Dict:
-        """패턴 유사성 검증"""
-        pass
-```
+#### 2. OpenAIClient / AnthropicClient
+
+- `OpenAIClient`는 OpenAI와 공식 호환 엔드포인트의 텍스트·JSON 응답을 공통화합니다.
+- `AnthropicClient`는 `x-api-key`와 Anthropic Messages 규약을 사용합니다.
+- 비전·음성 등 capability가 없는 제공사에는 해당 호출을 보내지 않습니다.
+
+#### 3. AIManager
+
+- 시장 분석·청산 분석·패턴 검증·대화 기능은 Router의 공통 facade를 사용합니다.
+- 역할별 route의 Provider가 다르면 해당 Provider credential과 client facade를 별도로 생성·재사용합니다.
+- AI가 비활성화되거나 호출 예산을 소진하면 로컬 분석으로 계속 운용합니다.
+- Provider Router는 모델 호출 계층이며 주문 권한·실제 주문 거래소·손실 가드레일을 변경하지 않습니다.
 
 ---
 
-## 🔄 오픈소스 LLM 전환 방법
+## 🔄 제공사 전환 방법
 
 ### 현재 구조의 장점
-현재 `OpenAIClient`는 이미 `base_url`을 지원하므로, **코드 변경 없이** 다른 LLM API로 전환 가능합니다.
+`AIProviderRouter`가 제공사별 Base URL, 모델 목록, capability와 응답 정규화를
+관리한다. 사용자는 설정 화면에서 제공사를 선택하며 API 키를 JSON에 직접
+작성하지 않는다.
 
 ### 전환 시나리오
 
 #### 시나리오 1: DeepSeek API 사용
 ```python
-# settings.json
 {
-  "openai_api_key": "sk-...",
-  "openai_model": "deepseek-chat",
-  "openai_base_url": "https://api.deepseek.com"
+  "ai_provider": "deepseek",
+  "ai_credentials": {
+    "deepseek": {
+      "credential_ref": "keyring://NoahAI/<account>.deepseek",
+      "base_url": "https://api.deepseek.com"
+    }
+  },
+  "ai_provider_profiles": {
+    "analyst": {"provider": "deepseek", "model": "deepseek-v4-flash"},
+    "assistant": {"provider": "deepseek", "model": "deepseek-v4-flash"},
+    "transcription": {"provider": "openai", "model": "gpt-4o-mini-transcribe"}
+  },
+  "ai_model_roles": {
+    "frequent_cheap": {"provider": "deepseek", "model": "deepseek-v4-flash"},
+    "standard": {"provider": "openai", "model": "gpt-5.6-terra"},
+    "premium": {"provider": "anthropic", "model": "claude-opus-5"}
+  }
 }
 
-# main.py (라인 1600)
-self.ai_manager = AIManager(
-    openai_api_key, 
-    openai_model, 
-    base_url=settings.get('openai_base_url')  # DeepSeek API 사용
-)
+# 런타임
+router = AIProviderRouter.from_settings(settings, workload="assistant")
+client = router.client_facade()
 ```
 
-#### 시나리오 2: OpenRouter 사용 (다양한 모델 선택)
+#### 시나리오 2: Anthropic Claude 사용
 ```python
-# settings.json
 {
-  "openai_api_key": "sk-or-...",
-  "openai_model": "qwen/qwen-2.5-72b-instruct",
-  "openai_base_url": "https://openrouter.ai/api/v1"
+  "ai_provider": "anthropic",
+  "ai_provider_profiles": {
+    "analyst": {"provider": "anthropic", "model": "claude-sonnet-5"},
+    "assistant": {"provider": "anthropic", "model": "claude-haiku-4-5"}
+  }
 }
 ```
 
-#### 시나리오 3: 로컬 LLM 서버 사용
+#### 시나리오 3: Google Gemini 사용
 ```python
-# settings.json
 {
-  "openai_api_key": "not-needed",
-  "openai_model": "local-model",
-  "openai_base_url": "http://localhost:1234/v1"  # Local LLM 서버
+  "ai_provider": "gemini",
+  "ai_provider_profiles": {
+    "analyst": {"provider": "gemini", "model": "gemini-3.6-flash"},
+    "assistant": {"provider": "gemini", "model": "gemini-3.5-flash-lite"}
+  }
 }
 ```
 
 ### 전환 절차
-1. **설정 파일 수정**: `openai_base_url` 추가
-2. **모델명 변경**: `openai_model`을 해당 서비스의 모델명으로 변경
-3. **API 키 설정**: 해당 서비스의 API 키 입력 (로컬 서버는 불필요)
-4. **코드 변경 없음**: 기존 코드 그대로 사용 가능
+1. 앱 `설정 → AI 엔진/API`에서 제공사를 선택합니다.
+2. 선택 제공사의 API 키를 운영체제 보안 저장소에 저장합니다.
+3. 계정 모델 목록을 새로고침하고 역할별 모델을 선택합니다.
+4. 저장 시 정적 capability·종료 상태를 검사하고, 키가 있으면 실제 계정 모델 목록도 확인합니다.
+5. `실제 API 기능 검증`에서 텍스트·JSON·usage·정규화 오류와 선택적 음성 전사를 확인합니다.
+6. 연결 실패 시 이전 설정을 유지하며 다른 제공사로 실거래를 자동 우회하지 않습니다.
+
+### 음성 전사 분리
+
+`StrategySourceIngestor`는 전략 구조화용 `ai_client`와 음성 전사용
+`transcription_client`를 별도로 받습니다. 따라서 premium 분석 route가 Claude·DeepSeek·
+Gemini여도 무자막 YouTube 전사는 `workload="transcription"`의 OpenAI credential과
+전사 모델로 실행됩니다. 공개 자막 우선 정책은 유지합니다.
+
+### 모델 수명주기
+
+`trading/ai/model_registry.py`가 공식 기준 스냅샷과 capability를 관리합니다.
+
+- `recommended`: 신규 기본 권장
+- `available`: 사용 가능하지만 최신 기본은 아님
+- `preview`: 미리보기이며 수명주기가 짧을 수 있음
+- `deprecated`: 비권장 또는 종료 예정, 대체 모델 표시
+- `retired`: 선택 목록 제외 및 저장 차단
+- `experimental`: 공식 모델이지만 NoahAI 실제 키 검증 대기
+
+API `list models` 결과는 수명주기와 별개로 `계정 확인됨` 상태를 부여합니다. 정적
+목록에 있다는 사실만으로 계정 권한이나 실제 호출 성공을 주장하지 않습니다.
+
+OpenRouter·로컬 LLM의 사용자 지정 Base URL은 고급 호환 실험 범위이며 이번 v3.9.0.3 정식 제공사 검증 범위가 아닙니다.
 
 ---
 
@@ -210,18 +253,19 @@ except Exception as e:
 
 ---
 
-## 🚀 오픈소스 전환 로드맵
+## 🚀 제공사·오픈소스 로드맵
 
-### Phase 1: 현재 (OpenAI API)
-- ✅ OpenAI GPT-3.5/GPT-4 사용
-- ✅ `base_url` 지원으로 전환 준비 완료
+### Phase 1: 기존 OpenAI 호환
+- [x] 기존 OpenAI 설정과 Base URL 호환 유지
 
-### Phase 2: 하이브리드 (2026 Q2)
-- [ ] OpenRouter 통합 (다양한 모델 선택)
-- [ ] DeepSeek API 지원
-- [ ] 사용자가 모델 선택 가능
+### Phase 2: v3.9.0.3 업데이트 배포 대상
+- [x] OpenAI·DeepSeek·Claude·Gemini 정식 Router 등록
+- [x] Kimi K3 어시스턴트 시험 등록
+- [x] 동적 모델 목록, capability, credential reference, 응답·사용량·오류 정규화
+- [ ] 실제 제공사 키 인증·모델 목록·과금 계정 E2E
+- [ ] 서명된 Windows 설치본 연결·업데이트 E2E
 
-### Phase 3: 오픈소스 전환 (2026 Q3-Q4)
+### Phase 3: 후속 오픈소스 전환
 - [ ] 로컬 LLM 서버 지원 (Ollama, LM Studio 등)
 - [ ] 완전 오프라인 모드
 - [ ] 외부 토큰 비용 제거와 로컬 장비·전력·운영비를 포함한 총비용 검증
@@ -242,7 +286,7 @@ except Exception as e:
 
 ### 2. 오픈소스 전환 고려
 - **base_url 설정**: 항상 설정 파일에서 읽도록 구현
-- **모델 호환성**: OpenAI 호환 API만 사용
+- **모델 호환성**: 공식 호환 API와 Anthropic 네이티브 Messages 계약을 제공사별로 분리
 - **에러 처리**: API 변경 시에도 안정적으로 동작
 
 ### 3. 코드 일관성
@@ -254,13 +298,14 @@ except Exception as e:
 
 ## 📚 참고 코드
 
-### AIManager 초기화 (main.py)
+### AIManager의 Router 초기화 (`trading/ai/ai_manager.py`)
 ```python
-# 라인 1598-1614
-if openai_api_key:
-    openai_model = settings.get('openai_model', 'gpt-3.5-turbo')
-    openai_base_url = settings.get('openai_base_url')  # 오픈소스 전환용
-    self.ai_manager = AIManager(openai_api_key, openai_model, base_url=openai_base_url)
+if settings:
+    self._provider_router = AIProviderRouter.from_settings(
+        settings,
+        workload="analyst",
+        api_key_override=api_key,
+    )
 ```
 
 ### AI 분석 활용 (trader.py)
@@ -293,9 +338,10 @@ if self.ai_manager and self.ai_manager.enabled():
 - [ ] 오픈소스 전환 고려 (base_url 설정 지원)
 
 ### 오픈소스 전환 준비
-- [ ] 설정 파일에 `openai_base_url` 필드 추가
-- [ ] 코드에서 하드코딩된 API 엔드포인트 제거
-- [ ] 다양한 모델 지원 테스트
+- [x] 기존 `openai_base_url` 호환 유지
+- [x] 정식 제공사 엔드포인트를 ProviderSpec으로 분리
+- [x] 5개 제공사 모델 계약·가격 카탈로그 무자격증명 회귀
+- [ ] 실제 제공사 키로 모델 목록·텍스트·JSON·사용량·오류 검증
 - [ ] 로컬 LLM 서버 연동 테스트
 - [ ] 로컬 모델의 지연·정확도·운영비 비교
 - [ ] OpenAI 프로젝트/키/사용자/거래소별 비용 귀속 메타데이터

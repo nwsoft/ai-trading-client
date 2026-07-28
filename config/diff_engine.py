@@ -34,7 +34,11 @@ def compute_settings_diff(old: Dict[str, Any], new: Dict[str, Any]) -> Dict[str,
     logging_changed = any(k in changed for k in {'log_level'})
     ai_changed = any(
         k in changed
-        for k in {'openai_api_key', 'openai_model', 'assistant_ai_model', 'ai_model_roles'}
+        for k in {
+            'openai_api_key', 'openai_model', 'assistant_ai_model', 'ai_model_roles',
+            'ai_provider', 'ai_credentials', 'ai_provider_profiles', 'ai_models',
+            'assistant_response_mode', 'assistant_token_budget', 'assistant_context_policy',
+        }
     )
     enabled_exchanges_changed = 'enabled_exchanges' in changed
     # 넓게: 각 거래소의 key/secret/passphrase 변경

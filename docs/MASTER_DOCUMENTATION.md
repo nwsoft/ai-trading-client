@@ -1,6 +1,6 @@
 # NoahAI 마스터 문서
 
-> 최신 동기화: 2026-07-26 · v3.9.0.2  
+> 최신 동기화: 2026-07-28 · v3.9.0.3 후보 소스, 공식 배포 v3.9.0.2  
 > 이 파일은 공식 문서의 지도입니다. 기능의 사실 판단은 코드 → 테스트 → 아래 정본 순서로 확인합니다.
 
 ## 공식 정본
@@ -20,6 +20,7 @@
 | 배포 | `docs/DEPLOY_CHECKLIST.md` | 배포 전후 운영 게이트 |
 | 테스트 | `docs/TEST_STATUS.md` | 최신 자동·GUI 검증 근거 |
 | AI 커스텀·어시스턴트 QA | `docs/AI_CUSTOM_ASSISTANT_TEST_RUNBOOK_v3.9.0.2.md` | 순서·계정·기대 결과 |
+| Teayu 테스터 진단 | `docs/TESTER_260728_STABILITY_EXCHANGE_REPORT.md` | 강제종료 후보·주문 범위·재검증 |
 | 기술 백서 | `docs/NOAHAI_TECHNICAL_WHITEPAPER.md` | 기술 철학·구조 공식 설명 |
 | 사업 설명 | `docs/BUSINESS_PROPOSAL_2026.md` | 구현과 로드맵을 구분한 사업 문서 |
 | 문서 정책 | `docs/DOCUMENTATION_POLICY.md` | 중복 방지·정합성 규칙 |
@@ -40,7 +41,7 @@
 - AI 커스텀 구현 기록: `docs/V3900_IMPLEMENTATION_RECORD_20260722.md`
 - 빌드·배포 상태: `docs/BUILD_GUIDE.md`, `docs/DEPLOY_CHECKLIST.md`, `deploy/release-manifest.json`
 
-Windows EXE를 새로 만들기 전 릴리스 매니페스트의 `pending_windows_rebuild`는 정상적인 차단 상태입니다. 과거 EXE의 파일명만 바꾸어 v3.9.0.2로 배포하지 않습니다.
+v3.9.0.2 Windows EXE는 이전 고객 배포본입니다. 오늘 변경을 담는 v3.9.0.3 manifest는 `pending_windows_rebuild`이며 현재 소스로 새 Windows 빌드를 검증하기 전에는 v3.9.0.3 변경이 배포됐다고 보지 않습니다.
 
 ## 기능별 상세 문서
 

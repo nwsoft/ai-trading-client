@@ -8,6 +8,9 @@ from typing import Any, Dict, List, Tuple
 
 
 class DeclarativeStrategyEngine:
+    ALLOWED_INDICATORS = {"sma", "ema", "rsi", "atr", "volume_sma"}
+    ALLOWED_TIMEFRAMES = {"1m", "3m", "5m", "15m", "30m", "1h", "2h", "4h", "6h", "12h", "1d"}
+    ALLOWED_SOURCES = {"open", "high", "low", "close", "volume"}
     ALLOWED_FIELDS = {
         "signal", "confidence",
         "open", "high", "low", "close", "current_price", "price",
@@ -41,15 +44,64 @@ class DeclarativeStrategyEngine:
             return value
 
     @classmethod
+    def indicator_field_key(cls, reference: Any) -> str:
+        if not isinstance(reference, dict):
+            return str(reference or "").strip()
+        name = str(reference.get("indicator") or reference.get("name") or "").strip().lower()
+        timeframe = str(reference.get("timeframe") or "5m").strip().lower()
+        source = str(reference.get("source") or ("volume" if name == "volume_sma" else "close")).strip().lower()
+        try:
+            period = int(reference.get("period"))
+        except Exception:
+            period = 0
+        return f"custom_{name}_{period}_{timeframe}_{source}"
+
+    @classmethod
+    def validate_indicator_reference(cls, reference: Any) -> Tuple[bool, str]:
+        if not isinstance(reference, dict):
+            return False, "invalid_indicator_reference"
+        name = str(reference.get("indicator") or reference.get("name") or "").strip().lower()
+        timeframe = str(reference.get("timeframe") or "5m").strip().lower()
+        source = str(reference.get("source") or ("volume" if name == "volume_sma" else "close")).strip().lower()
+        try:
+            period = int(reference.get("period"))
+        except Exception:
+            return False, "invalid_indicator_period"
+        if name not in cls.ALLOWED_INDICATORS:
+            return False, f"unsupported_indicator:{name}"
+        if timeframe not in cls.ALLOWED_TIMEFRAMES:
+            return False, f"unsupported_timeframe:{timeframe}"
+        if source not in cls.ALLOWED_SOURCES:
+            return False, f"unsupported_indicator_source:{source}"
+        if not 2 <= period <= 500:
+            return False, f"indicator_period_out_of_range:{period}"
+        if name == "atr" and source not in {"close", "high", "low"}:
+            return False, f"invalid_atr_source:{source}"
+        return True, "supported"
+
+    @classmethod
+    def _field_key(cls, reference: Any) -> Tuple[str, str]:
+        if isinstance(reference, dict):
+            valid, reason = cls.validate_indicator_reference(reference)
+            return (cls.indicator_field_key(reference), "supported") if valid else ("", reason)
+        field = str(reference or "").strip()
+        if field not in cls.ALLOWED_FIELDS:
+            return "", f"unsupported_field:{field}"
+        return field, "supported"
+
+    @classmethod
     def validate_condition_spec(cls, condition: Dict[str, Any]) -> Tuple[bool, str]:
-        field = str(condition.get("field") or "").strip()
+        field, field_reason = cls._field_key(condition.get("field"))
         operator = str(condition.get("operator") or "").strip().lower()
-        if field not in cls.ALLOWED_FIELDS or operator not in cls.OPERATORS:
-            return False, f"unsupported:{field}/{operator}"
+        if not field:
+            return False, field_reason
+        if operator not in cls.OPERATORS:
+            return False, f"unsupported_operator:{operator}"
         if operator in {"gt_field", "lt_field", "crosses_above", "crosses_below"}:
-            value_field = str(condition.get("value_field") or condition.get("value") or "").strip()
-            if value_field not in cls.ALLOWED_FIELDS:
-                return False, f"unsupported_value_field:{value_field}"
+            raw_value_field = condition.get("value_field", condition.get("value"))
+            value_field, value_reason = cls._field_key(raw_value_field)
+            if not value_field:
+                return False, f"unsupported_value_field:{value_reason}"
         elif "value" not in condition or condition.get("value") is None:
             return False, f"missing_value:{field}/{operator}"
         elif operator in {"in", "not_in"} and not isinstance(
@@ -84,7 +136,7 @@ class DeclarativeStrategyEngine:
 
     @classmethod
     def _condition(cls, condition: Dict[str, Any], context: Dict[str, Any]) -> Tuple[bool, str]:
-        field = str(condition.get("field") or "").strip()
+        field, _field_reason = cls._field_key(condition.get("field"))
         operator = str(condition.get("operator") or "").strip().lower()
         supported, reason = cls.validate_condition_spec(condition)
         if not supported:
@@ -97,9 +149,11 @@ class DeclarativeStrategyEngine:
         expected = condition.get("value")
         value_field = ""
         if operator in {"gt_field", "lt_field", "crosses_above", "crosses_below"}:
-            value_field = str(condition.get("value_field") or expected or "")
-            if value_field not in cls.ALLOWED_FIELDS:
-                return False, f"unsupported_value_field:{value_field}"
+            value_field, value_reason = cls._field_key(
+                condition.get("value_field", expected)
+            )
+            if not value_field:
+                return False, f"unsupported_value_field:{value_reason}"
             expected = context.get(value_field)
         if actual is None or expected is None:
             return False, f"missing:{field}"
@@ -276,6 +330,9 @@ class DeclarativeStrategyEngine:
                     "signal_mode": signal_mode,
                     "entry_signal": entry_signal if signal_mode == "independent" else base_signal,
                     "operation_mode": str(item.get("operation_mode") or "standard"),
+                    "runtime_indicator_values": list(
+                        evaluation_context.get("_advanced_indicator_values") or []
+                    ),
                     "evaluated": evaluated,
                 }
         if not evaluated:

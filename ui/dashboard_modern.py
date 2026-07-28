@@ -138,6 +138,14 @@ class ModernDashboard(ctk.CTk):
         # CustomTkinter 5.1.3 - dark 모드에서 corner_radius 정상 작동!
         print("CustomTkinter 5.1.3 사용 중 - corner_radius 정상")
         super().__init__()
+        try:
+            from ui.typography import configure_platform_typography
+            from utils.runtime_stability import install_tk_exception_hook
+
+            configure_platform_typography(self)
+            install_tk_exception_hook(self)
+        except Exception:
+            pass
         # 최상위 창 배경을 명확히 지정하여 하위 프레임의 라운드가 시각적으로 드러나도록 함
         try:
             self.configure(fg_color=self._color('background', '#050a13'))
@@ -292,11 +300,25 @@ class ModernDashboard(ctk.CTk):
 
         # 거래소 정보 업데이트
         self.update_exchange_info()
+        try:
+            if (
+                "trade_enabled_exchanges" in self.settings
+                and not list(self.settings.get("trade_enabled_exchanges") or [])
+                and list(self.settings.get("enabled_exchanges") or [])
+            ):
+                self.safe_after(
+                    1800,
+                    self._show_toast,
+                    "거래소 연결은 활성화되어 있지만 실제 주문 허용 거래소는 0개입니다. 설정 → 거래소 선택에서 주문 대상을 선택해 주세요.",
+                    8000,
+                )
+        except Exception:
+            pass
 
         # 초기화 중 거래소/탭 재구성 순서에 따라 동적 탭의 자식이 비는 경우를
         # 막기 위해 전체 UI 구성이 끝난 뒤 현재 서비스 화면을 한 번 더 보장한다.
         try:
-            self.after(1500, self._ensure_current_financial_intelligence_content)
+            self.safe_after(1500, self._ensure_current_financial_intelligence_content)
         except Exception:
             pass
 
@@ -1749,7 +1771,13 @@ class ModernDashboard(ctk.CTk):
                     openai_model = self.settings.get('openai_model', 'gpt-4o-mini') if hasattr(self, 'settings') and self.settings else 'gpt-4o-mini'
                     openai_base_url = self.settings.get('openai_base_url') if hasattr(self, 'settings') and self.settings else None
                 
-                ai_manager = AIManager(api_key=api_key, model=openai_model, base_url=openai_base_url)
+                ai_manager = AIManager(
+                    api_key=api_key,
+                    model=openai_model,
+                    base_url=openai_base_url,
+                    settings=current_settings if 'current_settings' in locals() else self.settings,
+                    workload="analyst",
+                )
                 # AI Manager 자체에서 로그를 출력하므로 중복 제거
                 self.logger.info(f"AI Manager 초기화 완료 (모델: {openai_model})")
                 return ai_manager
@@ -2045,22 +2073,6 @@ class ModernDashboard(ctk.CTk):
                 widget = None
                 try:
                     from ui.widgets.ai_assistant_widget import AIAssistantWidget
-                    # ai_manager 준비(없으면 초기화 시도)
-                    ai_manager = getattr(self, 'ai_manager', None)
-                    if ai_manager is None:
-                        # 빌드 환경 대응: path_utils를 통해 설정 직접 로드
-                        try:
-                            from config.settings import load_settings
-                            current_settings = load_settings()
-                            api_key = current_settings.get('openai_api_key', '')
-                        except Exception:
-                            # fallback: self.settings 사용
-                            api_key = (self.settings or {}).get('openai_api_key', '')
-                        
-                        ai_manager = self._init_ai_manager(api_key)
-                        if ai_manager:
-                            self.ai_manager = ai_manager
-                    
                     # 빌드 환경 대응: assistant_ai_model도 path_utils를 통해 로드
                     try:
                         from config.settings import load_settings
@@ -2072,7 +2084,18 @@ class ModernDashboard(ctk.CTk):
                         self.logger.warning(f"설정 파일 로드 실패, fallback 사용: {e}")
                         import traceback
                         self.logger.debug(traceback.format_exc())
+                        current_settings = self.settings or {}
                         model_name = (self.settings or {}).get('assistant_ai_model', 'gpt-4o')
+
+                    # 어시스턴트는 analyst와 별도 workload 프로필로 라우팅한다.
+                    from trading.ai.ai_manager import AIManager
+                    ai_manager = AIManager(
+                        api_key=str(current_settings.get('openai_api_key', '') or ''),
+                        model=str(model_name or ''),
+                        base_url=str(current_settings.get('openai_base_url', '') or '') or None,
+                        settings=current_settings,
+                        workload="assistant",
+                    )
                     
                     # 모델명 정규화 (잘못된 모델명 자동 수정)
                     from ui.widgets.ai_assistant_widget import AIAssistantWidget
@@ -2278,14 +2301,18 @@ class ModernDashboard(ctk.CTk):
                         from config.settings import load_settings
                         current_settings = load_settings()
                         arena_settings = current_settings.get('alpha_arena', {})
-                        engine = arena_settings.get('engine', 'deepseek-3.1')
+                        engine = arena_settings.get('engine', 'deepseek-v4-flash')
                         
                         # 선택한 엔진에 맞는 API 키 가져오기
                         base_url = None
-                        if engine == 'deepseek-3.1':
+                        if engine in ('deepseek-3.1', 'deepseek-chat-v3.1', 'deepseek-chat', 'deepseek-v4-flash'):
                             api_key = arena_settings.get('deepseek_api_key', '') or current_settings.get('alphaarena_deepseek_api_key', '')
-                            model = 'deepseek-chat'  # DeepSeek Chat API 모델명
+                            model = 'deepseek-v4-flash'
                             base_url = 'https://api.deepseek.com'  # DeepSeek API 엔드포인트
+                        elif engine == 'deepseek-v4-pro':
+                            api_key = arena_settings.get('deepseek_api_key', '') or current_settings.get('alphaarena_deepseek_api_key', '')
+                            model = 'deepseek-v4-pro'
+                            base_url = 'https://api.deepseek.com'
                         elif engine == 'qwen3-max':
                             api_key = arena_settings.get('qwen_api_key', '') or current_settings.get('alphaarena_alibaba_api_key', '')
                             # DashScope OpenAI-compatible 엔드포인트를 기본 사용
@@ -5986,10 +6013,17 @@ class ModernDashboard(ctk.CTk):
             label = self._exchange_status_labels.get(exchange)
             if not label:
                 return
-            if str(status).lower().startswith('run'):
-                label.configure(text="진행 중")
+            normalized = str(status or "").lower()
+            if normalized.startswith('run'):
+                label.configure(text="진행 중", text_color="#22c55e")
+            elif normalized == "learning_only":
+                label.configure(text="학습 전용 · 주문 미허용", text_color="#f59e0b")
+            elif normalized == "invalid_key":
+                label.configure(text="API 키 확인 필요", text_color="#ef4444")
+            elif normalized == "error":
+                label.configure(text="시작 오류", text_color="#ef4444")
             else:
-                label.configure(text="정지")
+                label.configure(text="정지", text_color="#94a3b8")
         except Exception:
             pass
 
@@ -9255,10 +9289,10 @@ class ModernDashboard(ctk.CTk):
                 try:
                     if strategy_label.winfo_exists():
                         strategy_label.configure(text=self._exchange_custom_strategy_summary(exchange))
-                        self.thread_safe_after(5000, _refresh_strategy_status)
+                        self._schedule_visible_refresh(strategy_label, 5000, _refresh_strategy_status)
                 except Exception:
                     pass
-            self.thread_safe_after(500, _refresh_strategy_status)
+            self._schedule_visible_refresh(strategy_label, 500, _refresh_strategy_status)
         except Exception as e:
             print(f"제어 섹션 생성 실패: {exchange} - {e}")
 
@@ -9324,10 +9358,10 @@ class ModernDashboard(ctk.CTk):
                     status_label.configure(text=f"잔고 오류: {str(ie)[:22]}", text_color="#ef4444")
                 # 잔고는 주기적으로 갱신되어야 사용자 체감이 좋다.
                 try:
-                    self.thread_safe_after(7000, refresh_once)
+                    self._schedule_visible_refresh(parent, 7000, refresh_once)
                 except Exception:
                     pass
-            self.thread_safe_after(100, refresh_once)
+            self._schedule_visible_refresh(parent, 100, refresh_once)
         except Exception as e:
             print(f"잔고 섹션 생성 실패: {exchange} - {e}")
 
@@ -9560,7 +9594,7 @@ class ModernDashboard(ctk.CTk):
                             quote = 'KRW' if exchange in {'upbit', 'bithumb'} else 'USDT'
                             self._render_position_cards(body, count_label, replay_positions, quote=quote)
                             try:
-                                self.thread_safe_after(7000, refresh_once)
+                                self._schedule_visible_refresh(parent, 7000, refresh_once)
                             except Exception:
                                 pass
                             return
@@ -9636,10 +9670,10 @@ class ModernDashboard(ctk.CTk):
                     count_label.configure(text="조회 오류", text_color="#ef4444")
                 # 주기 갱신
                 try:
-                    self.thread_safe_after(3000, refresh_once)
+                    self._schedule_visible_refresh(parent, 3000, refresh_once)
                 except Exception:
                     pass
-            self.thread_safe_after(150, refresh_once)
+            self._schedule_visible_refresh(parent, 150, refresh_once)
         except Exception as e:
             print(f"포지션 섹션 생성 실패: {exchange} - {e}")
 
@@ -9786,10 +9820,10 @@ class ModernDashboard(ctk.CTk):
                     status_label.configure(text=f"통계 오류: {ie}", text_color="#ef4444")
                 # 주기 갱신
                 try:
-                    self.thread_safe_after(5000, refresh_once)
+                    self._schedule_visible_refresh(parent, 5000, refresh_once)
                 except Exception:
                     pass
-            self.thread_safe_after(200, refresh_once)
+            self._schedule_visible_refresh(parent, 200, refresh_once)
         except Exception as e:
             print(f"통계 섹션 생성 실패: {exchange} - {e}")
 
@@ -9989,10 +10023,10 @@ class ModernDashboard(ctk.CTk):
                 except Exception as ie:
                     status_label.configure(text=f"잔고 오류: {str(ie)[:22]}", text_color="#ef4444")
                 try:
-                    self.thread_safe_after(7000, refresh_once)
+                    self._schedule_visible_refresh(parent, 7000, refresh_once)
                 except Exception:
                     pass
-            self.thread_safe_after(100, refresh_once)
+            self._schedule_visible_refresh(parent, 100, refresh_once)
             
         except Exception as e:
             print(f"잔고 섹션 생성 실패: {broker} - {e}")
@@ -10049,10 +10083,10 @@ class ModernDashboard(ctk.CTk):
                     count_label.configure(text="조회 오류", text_color="#ef4444")
                 # 주기 갱신
                 try:
-                    self.thread_safe_after(5000, refresh_once)
+                    self._schedule_visible_refresh(parent, 5000, refresh_once)
                 except Exception:
                     pass
-            self.thread_safe_after(200, refresh_once)
+            self._schedule_visible_refresh(parent, 200, refresh_once)
             
         except Exception as e:
             print(f"포지션 섹션 생성 실패: {broker} - {e}")
@@ -10140,10 +10174,10 @@ class ModernDashboard(ctk.CTk):
                     status_label.configure(text=f"통계 오류: {ie}", text_color="#ef4444")
                 # 주기 갱신
                 try:
-                    self.thread_safe_after(5000, refresh_once)
+                    self._schedule_visible_refresh(parent, 5000, refresh_once)
                 except Exception:
                     pass
-            self.thread_safe_after(200, refresh_once)
+            self._schedule_visible_refresh(parent, 200, refresh_once)
             
         except Exception as e:
             print(f"통계 섹션 생성 실패: {broker} - {e}")
@@ -11270,6 +11304,8 @@ class ModernDashboard(ctk.CTk):
                 return None
 
             # lambda 함수를 안전하게 래핑
+            job_ref = {"id": None}
+
             def safe_callback():
                 try:
                     # 콜백 실행 전 다시 한번 확인
@@ -11291,8 +11327,16 @@ class ModernDashboard(ctk.CTk):
                     # 위젯 파괴 오류는 무시
                     if "invalid command name" not in str(e) and "TclError" not in str(e) and "border_parts" not in str(e):
                         print(f"콜백 실행 오류: {e}")
+                finally:
+                    job_id = job_ref.get("id")
+                    if job_id:
+                        try:
+                            self.after_jobs.remove(job_id)
+                        except (ValueError, AttributeError):
+                            pass
 
             job_id = self.after(delay, safe_callback)
+            job_ref["id"] = job_id
             if job_id:
                 self.after_jobs.append(job_id)
             return job_id
@@ -11329,6 +11373,80 @@ class ModernDashboard(ctk.CTk):
                 return None
         except Exception as e:
             print(f"thread_safe_after 오류: {e}")
+            return None
+
+    def _schedule_visible_refresh(self, owner_widget, delay_ms, callback):
+        """화면에 보이는 섹션만 반복 갱신하고 재진입 시 즉시 재개한다."""
+        if owner_widget is None or callback is None:
+            return None
+        try:
+            registry = getattr(owner_widget, "_noah_visible_refresh_registry", None)
+            if not isinstance(registry, dict):
+                registry = {}
+                setattr(owner_widget, "_noah_visible_refresh_registry", registry)
+
+            key = id(callback)
+            state = registry.get(key)
+            if state is None:
+                state = {"job": None, "disposed": False}
+                registry[key] = state
+
+                def _run():
+                    state["job"] = None
+                    try:
+                        if (
+                            state["disposed"]
+                            or getattr(self, "_is_destroying", False)
+                            or not self.winfo_exists()
+                            or not owner_widget.winfo_exists()
+                            or not owner_widget.winfo_viewable()
+                        ):
+                            return
+                    except Exception:
+                        return
+                    callback()
+
+                def _queue(delay=0):
+                    if state["disposed"] or state["job"] is not None:
+                        return
+                    state["job"] = self.safe_after(max(0, int(delay)), _run)
+
+                def _on_map(event=None):
+                    if event is not None and getattr(event, "widget", None) is not owner_widget:
+                        return
+                    _queue(0)
+
+                def _on_unmap(event=None):
+                    if event is not None and getattr(event, "widget", None) is not owner_widget:
+                        return
+                    job_id = state.get("job")
+                    if job_id is not None:
+                        try:
+                            self.after_cancel(job_id)
+                        except Exception:
+                            pass
+                        try:
+                            self.after_jobs.remove(job_id)
+                        except (ValueError, AttributeError):
+                            pass
+                    state["job"] = None
+
+                def _on_destroy(event=None):
+                    if event is not None and getattr(event, "widget", None) is not owner_widget:
+                        return
+                    state["disposed"] = True
+                    _on_unmap()
+
+                state["queue"] = _queue
+                owner_widget.bind("<Map>", _on_map, add="+")
+                owner_widget.bind("<Unmap>", _on_unmap, add="+")
+                owner_widget.bind("<Destroy>", _on_destroy, add="+")
+
+            queue_refresh = state.get("queue")
+            if callable(queue_refresh):
+                queue_refresh(delay_ms)
+            return state.get("job")
+        except Exception:
             return None
 
     def _drain_ui_call_queue(self):
@@ -11375,18 +11493,6 @@ class ModernDashboard(ctk.CTk):
                     pass
             self.after_jobs.clear()
 
-            # Tkinter의 모든 after() 작업 취소 시도
-            try:
-                self.tk.call('after', 'cancel', 'all')
-            except tk.TclError as e:
-                if "invalid command name" in str(e) or "border_parts" in str(e):
-                    # 위젯이 삭제된 경우 무시
-                    pass
-                else:
-                    raise e
-            except:
-                pass
-
         except tk.TclError as e:
             if "invalid command name" in str(e) or "border_parts" in str(e):
                 # 위젯이 삭제된 경우 무시
@@ -11403,17 +11509,26 @@ class ModernDashboard(ctk.CTk):
 
             # 거래 중지 -> DB flush -> 로그 flush 후 위젯을 파괴한다.
             try:
+                shutdown_ok = True
                 if hasattr(self, 'main_app') and self.main_app and hasattr(self.main_app, 'shutdown_for_exit'):
-                    self.main_app.shutdown_for_exit()
+                    shutdown_ok = bool(self.main_app.shutdown_for_exit())
             except Exception as shutdown_e:
+                shutdown_ok = False
                 print(f"안전 종료 정리 경고: {shutdown_e}")
 
             # 종료 직전 자동 업데이트 적용(다운로드 완료 + 자동적용 ON인 경우)
             try:
-                if hasattr(self, 'main_app') and self.main_app and hasattr(self.main_app, 'prepare_update_apply_on_exit'):
+                if (
+                    shutdown_ok
+                    and hasattr(self, 'main_app')
+                    and self.main_app
+                    and hasattr(self.main_app, 'prepare_update_apply_on_exit')
+                ):
                     applied = bool(self.main_app.prepare_update_apply_on_exit())
                     if applied:
                         print("[AUTO_UPDATE] 종료 시 업데이트 적용 스크립트 예약 완료")
+                elif not shutdown_ok:
+                    print("[AUTO_UPDATE] 안전 종료 또는 DB flush 실패로 업데이트 적용을 연기합니다.")
             except Exception as _up_e:
                 print(f"자동 업데이트 적용 예약 실패: {_up_e}")
 
@@ -11506,6 +11621,29 @@ class ModernDashboard(ctk.CTk):
     def cleanup_all_widgets(self):
         """모든 위젯의 after() 작업 정리"""
         try:
+            cleaned_ids = set()
+
+            def cleanup_widget_tree(parent):
+                try:
+                    children = list(parent.winfo_children())
+                except Exception:
+                    children = []
+                for child in children:
+                    cleanup_widget_tree(child)
+                    child_id = id(child)
+                    if child_id in cleaned_ids:
+                        continue
+                    cleaned_ids.add(child_id)
+                    for method_name in ("cleanup_after_jobs", "_cancel_after_jobs", "cleanup"):
+                        cleanup = getattr(child, method_name, None)
+                        if callable(cleanup):
+                            try:
+                                cleanup()
+                            except Exception:
+                                pass
+
+            cleanup_widget_tree(self)
+
             # AI 리포트 위젯 정리
             if (
                 hasattr(self, 'ai_report_widget')

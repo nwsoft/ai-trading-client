@@ -119,6 +119,7 @@ def _get_loguru_logger():
 # 타입 추론 오류 방지를 위해 명시적으로 Any로 주석 처리
 _DASHBOARD_REF: Dict[str, Any] = {"obj": None}
 _SHUTDOWN_IN_PROGRESS = False
+_RUNTIME_SESSION_STARTED = False
 
 def _graceful_shutdown():
     """인터프리터 종료/크래시 등 모든 종료 경로에서 마지막 안전 정리"""
@@ -149,6 +150,11 @@ def _graceful_shutdown():
     try:
         from log_system.log_adapter import flush_pending_logs
         flush_pending_logs()
+    except Exception:
+        pass
+    try:
+        from utils.runtime_stability import mark_clean_shutdown
+        mark_clean_shutdown("graceful_shutdown_handler")
     except Exception:
         pass
 
@@ -876,6 +882,11 @@ class NoahAIClient:
                 normalized_policy.get("policy_version", "missing"),
             )
 
+        # 1분 상태 확인 성공 시 현재 실행 거래소를 함께 보고한다.
+        # 시작/중지 이벤트만으로는 앱 비정상 종료나 장기 실행 사용자의
+        # 1일·7일·30일·90일 분포가 오래된 상태로 남을 수 있다.
+        self._emit_exchange_runtime_snapshot(trigger="heartbeat:status_check")
+
     def create_user_files_in_account_folder(self, username, user_info, access_token=None):
         """token.json을 사용자 폴더에 생성 (credentials.json은 login_modern.py에서 처리)"""
         try:
@@ -1144,9 +1155,30 @@ class NoahAIClient:
             # atexit 핸들러 등록 (프로그램 시작 후)
             atexit.register(_graceful_shutdown)
 
+            # 갑작스런 종료를 추측이 아닌 세션 표식·예외 로그로 진단한다.
+            global _RUNTIME_SESSION_STARTED
+            if not _RUNTIME_SESSION_STARTED:
+                try:
+                    from utils.runtime_stability import begin_runtime_session
+
+                    stability = begin_runtime_session()
+                    _RUNTIME_SESSION_STARTED = True
+                    if stability.get("previous_unclean"):
+                        logger = self._get_main_logger()
+                        if logger:
+                            logger.warning(
+                                "이전 실행이 정상 종료 표식 없이 끝났습니다. "
+                                "runtime_stability.jsonl에서 마지막 예외·종료 시각을 확인합니다."
+                            )
+                except Exception as stability_exc:
+                    logger = self._get_main_logger()
+                    if logger:
+                        logger.warning(f"런타임 안정성 진단 초기화 실패: {stability_exc}")
+
             # Windows UI 일관성을 위한 CustomTkinter 전역 초기화
             try:
                 import customtkinter as ctk
+                from ui.typography import configure_platform_typography
                 # ✅ CustomTkinter 5.1.3으로 다운그레이드 완료!
                 # 이 버전은 dark 모드에서도 corner_radius가 정상 작동합니다
                 ctk.set_appearance_mode("dark")
@@ -1159,6 +1191,11 @@ class NoahAIClient:
                     ctk.set_widget_scaling(1.0)
                 if hasattr(ctk, 'set_window_scaling'):
                     ctk.set_window_scaling(1.0)
+                family = configure_platform_typography()
+                try:
+                    print(f"[UI] 플랫폼 기본 글꼴 적용: {family}")
+                except Exception:
+                    pass
             except Exception as _e:
                 logger = self._get_main_logger()
                 if logger:
@@ -1189,6 +1226,13 @@ class NoahAIClient:
         except Exception as e:
             logger = self._get_main_logger()
             logger.error(f"애플리케이션 시작 오류: {e}")
+            try:
+                from utils.runtime_stability import record_exception
+                record_exception(
+                    type(e), e, e.__traceback__, source="application_start", fatal=True,
+                )
+            except Exception:
+                pass
             sys.exit(1)
 
     def cleanup_and_exit(self):
@@ -1594,7 +1638,12 @@ class NoahAIClient:
                     from trading.ai.ai_manager import AIManager as _AIManager
                     api_key = str(self.settings.get('openai_api_key', '') or '')
                     model = str(self.settings.get('openai_model', '') or '')
-                    self.ai_manager = _AIManager(api_key=api_key, model=model)
+                    self.ai_manager = _AIManager(
+                        api_key=api_key,
+                        model=model,
+                        settings=self.settings,
+                        workload="analyst",
+                    )
             except Exception as e:
                 logger = self._get_main_logger()
                 if logger:
@@ -1972,7 +2021,12 @@ class NoahAIClient:
 
             if openai_api_key:
                 # 🔥 설정 파일에서 모델을 우선적으로 사용
-                self.ai_manager = AIManager(openai_api_key, openai_model, settings=self.settings)
+                self.ai_manager = AIManager(
+                    openai_api_key,
+                    openai_model,
+                    settings=self.settings,
+                    workload="analyst",
+                )
                 # AI 매니저 초기화 로그는 AIManager 클래스에서 자동 출력됨
 
                 # 🔥 Optimizer에 AI 매니저 전달
@@ -2569,6 +2623,8 @@ class NoahAIClient:
                         ui_root=self.dashboard,
                         notify_callback=self._notify_auto_update,
                     )
+                    if self.auto_update_manager.needs_post_update_health_check():
+                        self.dashboard.safe_after(1000, self._run_post_update_health_async)
             except Exception as _up_e:
                 if logger:
                     logger.warning(f"자동 업데이트 스케줄러 시작 실패: {_up_e}")
@@ -2631,6 +2687,10 @@ class NoahAIClient:
                 self.auto_update_manager = AutoUpdateManager(settings=self.settings, logger=logger)
             else:
                 self.auto_update_manager.update_settings(self.settings)
+            self.auto_update_manager.set_safety_callbacks(
+                preflight_callback=self._prepare_update_trading_safety,
+                health_callback=self._post_update_health_check,
+            )
         except Exception as e:
             logger = self._get_main_logger()
             if logger:
@@ -2647,6 +2707,29 @@ class NoahAIClient:
         except Exception:
             pass
 
+    def _run_post_update_health_async(self) -> None:
+        import threading
+
+        def worker():
+            manager = self.auto_update_manager
+            if manager is None:
+                return
+            result = manager.complete_post_update_health_check()
+            if result.get("ok") and result.get("needed"):
+                self._notify_auto_update(str(result.get("message") or "업데이트 완료"))
+                self._notify_auto_update("안전을 위해 신규 주문은 사용자가 거래 재개를 확인할 때까지 잠겨 있습니다.")
+                return
+            if not result.get("ok"):
+                self._notify_auto_update("업데이트 health check 실패: 이전 EXE 자동 복원을 예약했습니다.")
+                try:
+                    dashboard = getattr(self, "dashboard", None)
+                    if dashboard is not None:
+                        dashboard.thread_safe_after(500, dashboard.on_closing)
+                except Exception:
+                    pass
+
+        threading.Thread(target=worker, name="UpdateHealthCheck", daemon=True).start()
+
     def prepare_update_apply_on_exit(self) -> bool:
         """앱 종료 직전에 다운로드된 업데이트를 적용하고 재시작을 예약한다."""
         try:
@@ -2656,6 +2739,178 @@ class NoahAIClient:
         except Exception:
             return False
 
+    @staticmethod
+    def _update_position_symbol(position: Any) -> str:
+        if isinstance(position, dict):
+            return str(position.get("symbol") or position.get("code") or "").upper()
+        return str(getattr(position, "symbol", "") or "").upper()
+
+    def _collect_update_exchange_state(self) -> Dict[str, Any]:
+        """Read-only exchange state used by update preflight and restart recovery."""
+        state: Dict[str, Any] = {"ok": True, "positions": [], "open_orders": [], "submitting": [], "errors": []}
+        trader = getattr(self, "trader", None)
+        binance_client = getattr(trader, "binance_client", None) if trader is not None else None
+        trade_scope = list((self.settings or {}).get("trade_enabled_exchanges", []) or [])
+        if binance_client is not None:
+            try:
+                for position in binance_client.get_positions() or []:
+                    state["positions"].append({"exchange": "binance", "symbol": self._update_position_symbol(position)})
+                for order in binance_client.get_open_orders("") or []:
+                    row = dict(order) if isinstance(order, dict) else {}
+                    row["exchange"] = "binance"
+                    state["open_orders"].append(row)
+            except Exception as exc:
+                state["errors"].append(f"binance:{exc}")
+            for symbol, active in dict(getattr(trader, "trade_entered", {}) or {}).items():
+                if active:
+                    state["submitting"].append({"exchange": "binance", "symbol": str(symbol)})
+        elif "binance" in {str(item).lower() for item in trade_scope}:
+            state["errors"].append("binance:adapter_unavailable")
+
+        unified = getattr(self, "unified_trader", None)
+        manager = getattr(unified, "unified_manager", None) if unified is not None else None
+        for exchange in [str(item).lower() for item in trade_scope if str(item).lower() != "binance"]:
+            adapter = None
+            try:
+                if manager is not None:
+                    trading_type = "futures" if exchange in {"bybit", "okx", "bitget"} else "spot"
+                    adapter = manager.get_exchange(exchange, trading_type)
+                if adapter is None:
+                    state["errors"].append(f"{exchange}:adapter_unavailable")
+                    continue
+                for position in adapter.get_positions() or []:
+                    state["positions"].append({"exchange": exchange, "symbol": self._update_position_symbol(position)})
+                for order in adapter.get_open_orders(None) or []:
+                    row = dict(order) if isinstance(order, dict) else {}
+                    row["exchange"] = exchange
+                    state["open_orders"].append(row)
+            except Exception as exc:
+                state["errors"].append(f"{exchange}:{exc}")
+            for symbol, active in dict((getattr(unified, "trade_entered", {}) or {}).get(exchange, {}) or {}).items():
+                if active:
+                    state["submitting"].append({"exchange": exchange, "symbol": str(symbol)})
+        state["positions"] = [row for row in state["positions"] if row.get("symbol")]
+        state["ok"] = not state["errors"]
+        return state
+
+    def _verify_update_position_protection(self, state: Dict[str, Any]) -> Dict[str, Any]:
+        missing = []
+        trader = getattr(self, "trader", None)
+        unified = getattr(self, "unified_trader", None)
+        for position in state.get("positions", []):
+            exchange = str(position.get("exchange") or "")
+            symbol = str(position.get("symbol") or "")
+            protected = False
+            try:
+                if exchange == "binance" and trader is not None:
+                    protected = bool(trader._has_attached_tp_sl(symbol))
+                elif exchange in {"bybit", "okx", "bitget"} and unified is not None:
+                    tp, sl = unified._get_restored_tp_sl_prices(exchange, symbol)
+                    protected = bool(tp and sl)
+            except Exception:
+                protected = False
+            if not protected:
+                missing.append({"exchange": exchange, "symbol": symbol})
+        return {"ok": not missing, "missing_tp_sl": missing}
+
+    def _prepare_update_trading_safety(self, action: str) -> Dict[str, Any]:
+        state = self._collect_update_exchange_state()
+        if not state.get("ok"):
+            return {"ok": False, "reason": "exchange_state_read_failed", "state": state}
+        if state.get("submitting"):
+            return {"ok": False, "reason": "order_submission_in_progress", "state": state}
+        has_risk_state = bool(state.get("positions") or state.get("open_orders"))
+        if not has_risk_state:
+            return {"ok": True, "action": action, "expected_positions": []}
+        if action == "defer":
+            return {"ok": False, "reason": "open_positions_or_orders", "state": state}
+        if action == "keep_with_tp_sl":
+            protection = self._verify_update_position_protection(state)
+            if not protection.get("ok"):
+                return {"ok": False, "reason": "tp_sl_not_verified", "state": state, **protection}
+            return {
+                "ok": True,
+                "action": action,
+                "expected_positions": list(state.get("positions") or []),
+                "tp_sl_verified": True,
+            }
+        if action == "close_all":
+            trader = getattr(self, "trader", None)
+            for position in list(state.get("positions") or []):
+                if position.get("exchange") == "binance" and trader is not None:
+                    trader._close_position_market(str(position.get("symbol") or ""))
+            try:
+                if trader is not None:
+                    for order in state.get("open_orders") or []:
+                        if order.get("exchange") == "binance" and order.get("symbol"):
+                            trader.binance_client.cancel_all_orders(str(order.get("symbol")))
+            except Exception:
+                pass
+            unified = getattr(self, "unified_trader", None)
+            if unified is not None:
+                for exchange in sorted({
+                    str(row.get("exchange") or "")
+                    for row in state.get("positions") or []
+                    if row.get("exchange") != "binance"
+                }):
+                    unified.stop_trading(exchange, close_all=True)
+            deadline = time.time() + 12
+            confirmed = state
+            while time.time() < deadline:
+                time.sleep(1)
+                confirmed = self._collect_update_exchange_state()
+                if confirmed.get("ok") and not confirmed.get("positions") and not confirmed.get("open_orders"):
+                    return {"ok": True, "action": action, "expected_positions": [], "fills_confirmed": True}
+            return {"ok": False, "reason": "close_fill_not_confirmed", "state": confirmed}
+        return {"ok": False, "reason": "unknown_update_position_action"}
+
+    def _post_update_health_check(self, transaction: Dict[str, Any]) -> Dict[str, Any]:
+        checks: Dict[str, Any] = {"version": True, "db": False, "api": False, "positions": False}
+        try:
+            import sqlite3
+            from path_utils import get_db_file_path
+            db_path = get_db_file_path()
+            if not os.path.exists(db_path):
+                raise FileNotFoundError(db_path)
+            with sqlite3.connect(db_path, timeout=5) as connection:
+                checks["db"] = str(connection.execute("PRAGMA quick_check").fetchone()[0]).lower() == "ok"
+        except Exception as exc:
+            checks["db_error"] = str(exc)
+        state = self._collect_update_exchange_state()
+        checks["api"] = bool(state.get("ok"))
+        expected = {
+            (str(row.get("exchange") or ""), str(row.get("symbol") or ""))
+            for row in ((transaction.get("preflight") or {}).get("expected_positions") or [])
+        }
+        actual = {
+            (str(row.get("exchange") or ""), str(row.get("symbol") or ""))
+            for row in (state.get("positions") or [])
+        }
+        checks["positions"] = expected == actual
+        return {
+            "ok": all(checks.get(key) is True for key in ("version", "db", "api", "positions")),
+            "checks": checks,
+            "expected_positions": sorted(expected),
+            "actual_positions": sorted(actual),
+        }
+
+    def _allow_trading_after_update(self) -> bool:
+        manager = self.auto_update_manager
+        if manager is None or not manager.is_trading_locked():
+            return True
+        if manager.needs_post_update_health_check():
+            self._notify_auto_update("업데이트 복구 검증이 끝나지 않아 신규 주문이 잠겨 있습니다.")
+            return False
+        try:
+            from tkinter import messagebox
+            resume = messagebox.askyesno(
+                "업데이트 후 거래 재개",
+                "업데이트 health check가 통과했습니다.\n포지션과 API 상태를 확인한 뒤 신규 주문을 다시 허용할까요?",
+            )
+        except Exception:
+            resume = False
+        return bool(resume and manager.acknowledge_user_resume())
+
     def on_toggle_trading(self, is_running: bool):
         """자동거래 토글 처리 (상태 매니저 우선)"""
         try:
@@ -2663,6 +2918,8 @@ class NoahAIClient:
             logger.info(f"🔍 main.py on_toggle_trading 호출됨 - is_running: {is_running}")
 
             if is_running:
+                if not self._allow_trading_after_update():
+                    return False
                 # 🔥 상태 머신 기반 시작
                 if hasattr(self, 'state') and self.state.can_start():
                     self.state.mark_starting('binance', True)
@@ -2755,6 +3012,10 @@ class NoahAIClient:
             ex = (exchange or "").lower().strip() or "binance"
             logger.info(f"🚀 거래소별 시작 요청: {ex}")
 
+            if not self._allow_trading_after_update():
+                logger.warning("업데이트 후 사용자 재개 확인 전이라 신규 주문을 차단했습니다.")
+                return False
+
             if not self._is_exchange_allowed_by_membership(ex):
                 logger.warning(
                     "회원등급 거래소 차단: grade=%s exchange=%s policy_version=%s",
@@ -2801,6 +3062,31 @@ class NoahAIClient:
                     f"{ex} 자동거래 시작은 지원되지 않습니다. 증권 탭에서 연결/분석 기능을 사용하세요."
                 )
                 self._schedule_dashboard_trading_status("IDLE")
+                return False
+
+            # 화면·분석·학습 활성화와 실제 주문 허용은 별도 설정이다.
+            # 과거 설정은 selected_exchange 한 곳을 주문 대상으로 해석해 무중단 호환한다.
+            has_explicit_trade_scope = 'trade_enabled_exchanges' in self.settings
+            configured_trade = self.settings.get('trade_enabled_exchanges', [])
+            if not isinstance(configured_trade, list):
+                configured_trade = []
+            if not configured_trade and not has_explicit_trade_scope:
+                configured_trade = [
+                    str(self.settings.get('selected_exchange', 'binance') or 'binance').strip().lower()
+                ]
+            normalized_trade = {
+                str(item or '').strip().lower() for item in configured_trade
+            }
+            if ex not in normalized_trade:
+                logger.warning(
+                    f"🧠 {ex}는 현재 학습 전용입니다. 설정 → 거래소 선택 → "
+                    "실제 주문 실행 거래소에서 명시적으로 허용해야 시작할 수 있습니다."
+                )
+                try:
+                    if getattr(self, 'dashboard', None) and hasattr(self.dashboard, '_update_exchange_status'):
+                        self.dashboard._update_exchange_status(ex, 'learning_only')
+                except Exception:
+                    pass
                 return False
 
             # 🔥 상태 우선 검사 (다중 거래소 병렬 시작 허용)
@@ -3996,6 +4282,16 @@ class NoahAIClient:
                 flush_pending_logs()
             except Exception:
                 ok = False
+            try:
+                from utils.runtime_stability import mark_clean_shutdown
+                mark_clean_shutdown("application_shutdown_for_exit")
+            except Exception:
+                ok = False
+            try:
+                if self.auto_update_manager is not None:
+                    self.auto_update_manager.record_shutdown_result(ok)
+            except Exception:
+                ok = False
         return ok
 
     # 🔥 사용되지 않는 거래 실행 함수들 제거됨 (2025-10-20):
@@ -4017,6 +4313,13 @@ def main():
         app = NoahAIClient()
         app.start()
     except Exception as e:
+        try:
+            from utils.runtime_stability import record_exception
+            record_exception(
+                type(e), e, e.__traceback__, source="main_entrypoint", fatal=True,
+            )
+        except Exception:
+            pass
         try:
             import logging
             logger = logging.getLogger("NoahAI")

@@ -89,6 +89,24 @@ def format_percent(value: float, decimal_places: int = 2) -> str:
     """✅ 퍼센트 변환 함수 통일"""
     return f"{value * 100:.{decimal_places}f}%"
 
+
+def _as_utc(value: datetime) -> datetime:
+    """Normalize persisted legacy timestamps and new aware timestamps to UTC."""
+    if not isinstance(value, datetime):
+        return datetime.now(timezone.utc)
+    if value.tzinfo is None:
+        return value.replace(tzinfo=timezone.utc)
+    return value.astimezone(timezone.utc)
+
+
+def _elapsed_minutes(value: datetime) -> float:
+    return max(0.0, (datetime.now(timezone.utc) - _as_utc(value)).total_seconds() / 60.0)
+
+
+def _elapsed_milliseconds(value: datetime) -> int:
+    return max(0, int((datetime.now(timezone.utc) - _as_utc(value)).total_seconds() * 1000))
+
+
 class Trader:
     """실시간 거래 실행 및 포지션 모니터링"""
     # 클래스 수준 타입 힌트로 인스턴스 속성 타입을 명시 (정적 분석기 경고 감소)
@@ -1070,7 +1088,7 @@ class Trader:
                 leverage=leverage,
                 pnl=None,  # 청산 시에만 설정
                 pnl_percent=None,
-                entry_time=datetime.now(),
+                entry_time=datetime.now(timezone.utc),
                 exit_time=None,  # 청산 시에만 설정
                 reason=f"AI {mode} mode{reason_suffix}",
                 side=side,
@@ -2050,7 +2068,19 @@ class Trader:
                         self._generate_ai_learning_data('binance', symbol, signal_data)
 
                         from .declarative_strategy_engine import DeclarativeStrategyEngine
+                        from .custom_strategy_validator import enrich_advanced_indicator_context
                         strategy_pool = getattr(self, 'active_custom_strategy_pool', []) or []
+                        active_rules = (
+                            strategy_pool
+                            or (getattr(self, 'active_custom_strategy_rules', {}) or {})
+                        )
+                        signal_data = enrich_advanced_indicator_context(
+                            signal_data,
+                            active_rules,
+                            lambda timeframe, limit: self.binance_client.get_klines(
+                                symbol, timeframe, limit
+                            ),
+                        )
                         if strategy_pool:
                             custom_entry = DeclarativeStrategyEngine.evaluate_strategy_pool(
                                 strategy_pool,
@@ -2080,6 +2110,9 @@ class Trader:
                             signal_data['_selected_custom_strategy'] = custom_entry.get('selected_strategy_name')
                             signal_data['_selected_custom_strategy_id'] = custom_entry.get('selected_strategy_id')
                             signal_data['_custom_strategy_rules'] = dict(custom_entry.get('selected_rules') or {})
+                            signal_data['_custom_runtime_indicator_values'] = list(
+                                custom_entry.get('runtime_indicator_values') or []
+                            )
                             signal_data['_custom_operation_mode'] = custom_entry.get('operation_mode', 'standard')
                             self.log_event(
                                 'strategy',
@@ -4039,7 +4072,10 @@ class Trader:
         if not (exit_spec.get("all") or exit_spec.get("any")):
             return False
         try:
-            from .custom_strategy_validator import build_indicator_context
+            from .custom_strategy_validator import (
+                build_indicator_context,
+                enrich_advanced_indicator_context,
+            )
             from .declarative_strategy_engine import DeclarativeStrategyEngine
             market_data = self.analyzer.get_market_data(position.symbol) if self.analyzer else None
             rows = [
@@ -4060,6 +4096,13 @@ class Trader:
                 "close": position.current_price,
                 "signal": position.side.value,
             })
+            context = enrich_advanced_indicator_context(
+                context,
+                rules,
+                lambda timeframe, limit: self.binance_client.get_klines(
+                    position.symbol, timeframe, limit
+                ),
+            )
             result = DeclarativeStrategyEngine.evaluate_exit(rules, context)
             if result.get("allowed", False):
                 self.log_event(
@@ -4188,7 +4231,7 @@ class Trader:
                     pass
 
             # 보유 시간 기반 조정
-            holding_time = (datetime.now() - position.entry_time).total_seconds() / 60
+            holding_time = _elapsed_minutes(position.entry_time)
             if holding_time > 20:  # 20분 이상 보유 시 임계값 낮춤
                 time_factor = max(0.5, 1.0 - (holding_time - 20) * 0.01)
                 base_threshold *= time_factor
@@ -4291,7 +4334,7 @@ class Trader:
                 'entry_price': position.entry_price,
                 'current_price': position.current_price,
                 'unrealized_pnl_percent': position.unrealized_pnl_percent,
-                'holding_time_minutes': (datetime.now() - position.entry_time).total_seconds() / 60,
+                'holding_time_minutes': _elapsed_minutes(position.entry_time),
                 'leverage': position.leverage
             }
 
@@ -5146,7 +5189,7 @@ class Trader:
                             time.sleep(5)
                             continue
 
-                    current_time = datetime.now()
+                    current_time = datetime.now(timezone.utc)
 
                     # 데이터 포인트 저장 (기존 시스템 스타일)
                     self.price_data_points[symbol].append({
@@ -5168,7 +5211,7 @@ class Trader:
 
                     # 10개마다 상태 체크 (요약 출력 + 스로틀링/임계값 적용)
                     if data_count % 10 == 0:
-                        holding_time = (current_time - position.entry_time).total_seconds() / 60
+                        holding_time = _elapsed_minutes(position.entry_time)
                         profit_rate = position.unrealized_pnl_percent
 
                         # 🔍 개발/상세 모드에서는 항상 전체 로그 출력 (스로틀링 비활성화)
@@ -5657,7 +5700,7 @@ class Trader:
                         # datetime, timezone은 이미 모듈 레벨에서 임포트되어 있음 (Line 13)
                         entry_time = position.entry_time if hasattr(position, 'entry_time') else datetime.now(timezone.utc)
                         exit_time = datetime.now(timezone.utc)
-                        holding_time_ms = int((exit_time - entry_time).total_seconds() * 1000) if isinstance(entry_time, datetime) else 0
+                        holding_time_ms = _elapsed_milliseconds(entry_time) if isinstance(entry_time, datetime) else 0
                         
                         # 거래 결과 판단
                         trade_result = 'PROFIT' if pnl_percent > 0 else 'LOSS'
@@ -5848,7 +5891,7 @@ class Trader:
                                     # datetime, timezone은 이미 모듈 레벨에서 임포트되어 있음 (Line 13)
                                     entry_time = position.entry_time if hasattr(position, 'entry_time') else datetime.now(timezone.utc)
                                     exit_time = datetime.now(timezone.utc)
-                                    holding_time_ms = int((exit_time - entry_time).total_seconds() * 1000) if isinstance(entry_time, datetime) else 0
+                                    holding_time_ms = _elapsed_milliseconds(entry_time) if isinstance(entry_time, datetime) else 0
                                     
                                     trade_result = 'PROFIT' if pnl_percent > 0 else 'LOSS'
                                     
@@ -5900,7 +5943,7 @@ class Trader:
 
             holding_minutes = 0.0
             try:
-                holding_minutes = (datetime.now(timezone.utc) - position.entry_time).total_seconds() / 60
+                holding_minutes = _elapsed_minutes(position.entry_time)
             except Exception:
                 holding_minutes = 0.0
 
@@ -5932,7 +5975,7 @@ class Trader:
 
             holding_minutes = 0.0
             try:
-                holding_minutes = (datetime.now(timezone.utc) - position.entry_time).total_seconds() / 60
+                holding_minutes = _elapsed_minutes(position.entry_time)
             except Exception:
                 holding_minutes = 0.0
 

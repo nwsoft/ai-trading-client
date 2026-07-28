@@ -1,7 +1,45 @@
-## 2026-07-26 - v3.9.0.2 AI 커스텀 실행정합·레퍼럴·거래 통계·AI 어시스턴트 고도화
+## 2026-07-28 - v3.9.0.3 Windows 업데이트 배포 대상 (배포 전)
+
+- Teayu 테스터 데이터에서 숨은 AI 학습 탭의 1.2초 무한 callback과 137만 줄 UI 성능 로그 누적을 확인하고 표시 이벤트 1회 갱신·callback 정리·20MB×3 로그 회전으로 수정
+- 다른 업데이트 캐시의 `AITrading.new.exe`도 정식 설치 대상으로 오인하지 않게 차단하고 과거 적용 스크립트에서 정상 EXE 복구
+- Binance 포지션 모니터의 naive/aware 보유시간 예외를 UTC aware 계산으로 통일
+- 명시적으로 빈 실제 주문 범위는 주문 0개로 처리하고, 설정에 활성 거래소 주문 대상 일괄 선택 버튼 추가
+- AI 커스텀 고급모드에 사용자 지표 기간, 조건별 시간봉, AND/OR, 진입·전체 청산 편집과 요청값·실제 계산값 비교 추가
+- 기존 AI 애널리스트·어시스턴트 호출에 Provider Router와 capability 스키마 추가
+- OpenAI 하위 호환을 유지하면서 DeepSeek V4 Flash/Pro 정식 경로와 동적 모델 조회 추가
+- Kimi K3를 AI 어시스턴트 시험 제공사로 추가
+- Anthropic Claude를 네이티브 Messages API로, Google Gemini를 공식 OpenAI 호환 API로 추가
+- 애널리스트·어시스턴트·빈번/표준/정밀 작업별 모델 설정을 `{provider, model}` 구조로 변경하고 기존 문자열 설정 자동 이전
+- AI 커스텀 무자막 YouTube 전사를 분석 Provider에서 분리한 OpenAI 전사 프로필로 연결하고 다중 화자 전사 모델 추가
+- Claude Sonnet 5·Opus 5·Fable 5, Gemini 3.5 Flash-Lite·3.6 Flash, Kimi K3·K2.6 공식 모델 목록 반영
+- 모델을 권장·계정 확인·미리보기·비권장·종료로 구분하고 종료/capability 불일치 저장 차단
+- API 키가 있으면 저장 시 계정 모델 목록을 실제 확인하고 `실제 API 기능 검증`에서 텍스트·JSON·usage·오류·선택적 전사 점검
+- 설정에서 5개 제공사의 기준일 가격 비교와 공식 가격 링크, 제공사별 절약/균형/정밀 프리셋 제공
+- 텍스트·JSON·finish reason·입출력/캐시 토큰·오류 코드·재시도 가능 여부 공통 정규화
+- API 키는 운영체제 보안 저장소에 저장하고 설정·백업에는 credential reference만 기록
+- 문답 절약형/표준형/정밀형별 최근 대화·입력·출력 예산 적용
+- AlphaArena 멀티 엔진 실거래는 후속 업데이트로 분리하고 종료된 DeepSeek V3.1 별칭만 V4 Flash로 안전 이전
+- Windows의 CustomTkinter·Tk 기본 글꼴을 설치된 `Malgun Gothic` 우선으로 통일하고 macOS·Linux도 운영체제별 한국어 글꼴 폴백 적용
+- 비정상 종료 세션 표식, 메인·스레드·Tk callback 예외 JSONL, 지원 환경의 네이티브 치명 오류 faulthandler 진단 추가
+- 활성 거래소와 실제 주문 허용 거래소를 설정에서 분리하고 학습 전용 시작 요청을 명시적으로 차단
+- AI 커스텀에 AI 자동 대응 1개와 검토용 기본 전략 4개, 대화형 설명·입력창 전달 추가
+- 전략 초안을 불러와도 분석·저장·승인·자동검증·최종 적용은 자동 실행하지 않고 HOLD·공통 가드레일을 우선
+- 금융 인텔리전스의 작업 없는 50ms 큐 폴링을 제거하고, 실제 작업·화면 진입 때만 확인하도록 전체 주요 탭 callback 수명주기 정리
+- 거래소·증권사 상세 탭의 잔고·포지션·통계 3~7초 API 갱신은 화면이 보일 때만 실행하고, 다시 열면 즉시 재개하도록 공통 가시성 스케줄러 적용
+- 업데이트 전 포지션·미체결 주문·제출중 상태를 확인하고 기본 연기, TP·SL 전수 검증 또는 전량 청산 체결 확인 후에만 진행
+- 종료·DB/log flush 실패 시 적용 금지, release manifest SHA와 Windows Authenticode 필수 검증, 단계/버전/해시/대상 경로 영속 저널 적용
+- 재시작 후 버전·DB·API·포지션 복구 health check, 실패 시 이전 EXE 자동 복원, 성공 알림과 사용자 거래 재개 전 신규 주문 잠금
+- 탭 callback·업데이트 P0·멀티 Provider 역할 라우팅·독립 전사·모델 수명주기 집중 회귀 통과, 전체 자동 회귀 `1,135 passed, 6 skipped, 0 failed, 4 warnings`
+- README·문서 색인·사용자 가이드·AI API 아키텍처·확장 계획·기술 백서·인앱 매뉴얼의 사용 순서, DeepSeek V4/AlphaArena 범위, v3.9.0.3 배포 전 게이트 표기를 동기화
+
+## 2026-07-27 - v3.9.0.2 AI 커스텀 실행정합·레퍼럴·거래 통계·AI 어시스턴트 고도화
 
 ### 2026-07-27 KPI 수집·대시보드 정합
 
+- 1일·7일·30일·90일 사용자별 최신 실행 스냅샷으로 0개~6개·7개 이상·2개 이상 동시 실행 분포 비교
+- 상태 확인 성공 시 1분 실행 스냅샷 heartbeat 전송으로 장기 실행·비정상 종료 뒤 상태 최신성 보강
+- KRW 실제 체결·금액 유효·실패 건수와 Upbit·Bithumb 학습/거래 이벤트를 분리 표시
+- CCXT 시장가 응답의 average·filled·cost를 정규화해 price 누락 시에도 KRW 결제금액과 진입가격 복원
 - Binance 안전 종료와 Unified `close_all`이 추적 포지션의 기존 정상 청산 경로를 재사용하도록 변경
 - 포지션 진입·부분 청산·종료 이벤트는 서버 오류·일시 장애 때 최대 3회 재시도하고 앱 종료 전 KPI 큐를 제한 시간 안에 flush
 - 체결 이벤트에 `quote_currency`를 기록해 Upbit·Bithumb·KRW 심볼은 KRW, 해외 USDT 페어는 USDT 거래량으로 분리
@@ -9,7 +47,7 @@
 - daltrading SQLite WAL·30초 busy timeout으로 고빈도 적재와 관리자 조회의 잠금 경합 완화
 - 수백만 KPI 대시보드의 반복 전체 스캔·`datetime()` 정렬을 제거하고 이벤트유형·사용자·시각 복합 인덱스 적용
 - daltrading 운영 DB 백업·WAL 보존 마이그레이션과 EC2 배포 완료, 공개 4개 경로·레퍼럴 선택·CD-Key 비활성·운영 원본 집계 검증
-- 전체 회귀 `1,076 passed, 6 skipped, 3 warnings`, UI 정합 `12 passed`, daltrading 정책·KPI·회원·DB 동시성 회귀 `19 passed`
+- 전체 회귀 `1,079 passed, 6 skipped, 3 warnings`, daltrading 정책·KPI 회귀 `20 passed`
 
 ### 2026-07-27 클라이언트 거래 통계·리포트 운용 지표
 
@@ -42,7 +80,7 @@
 - AI API가 없을 때도 시장·탐색·지표·전략 검증·이벤트·기업·기관 메뉴 사용법을 답하는 로컬 NoahAI 제품 도움말 추가
 - 생활금융 상단·내부 탭의 배경, 카드, Segoe UI 글꼴, 선택/비선택 대비를 공통 고정 스킨에 맞춤
 - 생활금융 목표 진행률의 미지원 `value=` 생성자 인수를 `.set()` 방식으로 교체해 초기 데이터 새로고침 중단 수정
-- 화면 정합 최종 패치 포함 전체 회귀 `1,076 passed, 6 skipped, 3 warnings`, UI 정합 `12 passed`, 대시보드 집중 `39 passed`, 문서 정합성 PASS. daltrading 정책·KPI·회원·DB 동시성 `19 passed`와 macOS 실위젯 렌더링 결과 유지
+- 기간별 실행 분포·KRW 체결금액 보강 포함 전체 회귀 `1,079 passed, 6 skipped, 3 warnings`, daltrading `20 passed`, 문서 정합성 PASS
 
 ### AI 어시스턴트
 

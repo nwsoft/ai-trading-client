@@ -74,10 +74,10 @@ def check_release_version_markers(text_map: Dict[str, str]) -> List[str]:
         errors.append("[MANUAL] 인앱 메뉴얼 제목이 USER_MANUAL_TITLE 상수를 사용하지 않습니다.")
 
     app_version = text_map.get("app_version", "")
-    if 'RELEASE_HIGHLIGHT = "AI 커스텀·레퍼럴·거래 통계 고도화"' not in app_version:
+    if 'RELEASE_HIGHLIGHT = "안정성·멀티 AI API·AI 커스텀 통합"' not in app_version:
         errors.append("[APP_VERSION] 대시보드 사용자용 최신 업데이트 요약이 현행 변경과 다릅니다.")
 
-    expected_release_line = f"현재 배포 기준 버전: **v{RELEASE_VERSION}**"
+    expected_release_line = f"현재 업데이트 배포 대상 버전: **v{RELEASE_VERSION}**"
     if expected_release_line not in user_guide:
         errors.append(f"[USER_GUIDE] '{expected_release_line}' 문구가 없습니다.")
 
@@ -125,6 +125,77 @@ def check_for_higher_version_mentions(text_map: Dict[str, str]) -> List[str]:
 
 def check_release_surface_alignment(text_map: Dict[str, str]) -> List[str]:
     """동일 버전의 핵심 변경이 사용자 노출·기술·검증 문서에 함께 있는지 확인한다."""
+    if RELEASE_VERSION == "3.9.0.3":
+        required = {
+            "manual_widget": (
+                "v3.9.0.3 업데이트 배포 대상",
+                "v3.9.0.2는 이전 고객 배포본",
+                "OpenAI·DeepSeek·Anthropic Claude·Google Gemini",
+                "사용자 재개 전 신규 주문 잠금",
+                "1,128 passed",
+            ),
+            "user_guide": (
+                "현재 업데이트 배포 대상 버전: **v3.9.0.3**",
+                "v3.9.0.2 GitHub EXE는 이전 고객 배포본",
+                "실제 주문 실행 거래소",
+                "1,128 passed",
+            ),
+            "release_notes": (
+                "v3.9.0.3 Windows 업데이트 배포 대상",
+                "Anthropic Claude·Google Gemini",
+                "pending_windows_rebuild",
+                "1,128 passed",
+            ),
+            "deploy_release_notes": (
+                "v3.9.0.3 Windows 업데이트 배포 대상",
+                "v3.9.0.2는 이전 Windows 배포본",
+                "pending_windows_rebuild",
+            ),
+            "changelog": (
+                "v3.9.0.3 Windows 업데이트 배포 대상",
+                "Provider Router",
+                "사용자 거래 재개 전 신규 주문 잠금",
+            ),
+            "update_plan": (
+                "v3.9.0.3 업데이트에 멀티 AI API 확장 포함",
+                "AlphaArena 멀티 엔진 비교와 실거래 연결만 다음 업데이트",
+                "사용자 재개 전 주문 잠금",
+            ),
+            "execution_guide": (
+                "v3.9.0.3 Windows 업데이트 배포 대상",
+                "v3.9.0.2는 이전 배포본",
+                "실제 주문 실행 거래소",
+            ),
+            "test_status": (
+                "v3.9.0.3 업데이트 배포 대상 검증",
+                "v3.9.0.2는 이전 고객 배포본",
+                "1128 passed",
+                "pending_windows_rebuild",
+            ),
+            "readme": (
+                "현재 배포 버전: v3.9.0.2",
+                "v3.9.0.3 업데이트 배포 대상 소스",
+                "pending_windows_rebuild",
+            ),
+            "docs_readme": (
+                "현재 배포 v3.9.0.2 / 업데이트 대상 v3.9.0.3",
+                "AI_ENGINE_EXPANSION_PLAN_v3.9.0.3.md",
+                "pending_windows_rebuild",
+            ),
+            "deploy_checklist": (
+                "v3.9.0.3 안정성·멀티 AI API·AI 커스텀 통합",
+                "v3.9.0.2 이전 배포본",
+                "Get-AuthenticodeSignature",
+            ),
+        }
+        errors: List[str] = []
+        for surface, markers in required.items():
+            text = text_map.get(surface, "")
+            for marker in markers:
+                if marker not in text:
+                    errors.append(f"[RELEASE_SURFACE] {surface}: '{marker}' 누락")
+        return errors
+
     if RELEASE_VERSION != "3.9.0.2":
         return []
     required = {
@@ -133,33 +204,33 @@ def check_release_surface_alignment(text_map: Dict[str, str]) -> List[str]:
             "비중첩 단일 포지션",
             "사용자별 감사로그",
             "실제 운용",
-            "1,076 passed",
+            "1,079 passed",
         ),
         "user_guide": (
             "### 2026-07-27 v3.9.0.2",
             "직전·현재 캔들",
             "사용자별 영속 감사로그",
             "실제 체결금액",
-            "1,076 passed",
+            "1,079 passed",
         ),
         "release_notes": (
             "AI 커스텀 실행정합",
             "crossover/crossunder",
             "실제 체결금액",
-            "1,076 passed",
+            "1,079 passed",
             "pending_windows_rebuild",
         ),
         "deploy_release_notes": (
             "2026-07-27 - v3.9.0.2",
             "실제 체결금액",
-            "1,076 passed",
+            "1,079 passed",
             "pending_windows_rebuild",
         ),
         "changelog": (
             "AI 커스텀 실행정합",
             "crosses_above",
             "클라이언트 거래 통계·리포트 운용 지표",
-            "1,076 passed",
+            "1,079 passed",
             "prekey",
         ),
         "architecture": (
@@ -176,24 +247,24 @@ def check_release_surface_alignment(text_map: Dict[str, str]) -> List[str]:
             "사용자별 감사로그",
             "실행하지 않았습니다",
             "거래 통계·AI 리포트",
-            "1,076 passed",
+            "1,079 passed",
         ),
         "test_status": (
-            "1076 passed",
+            "1079 passed",
             "81 passed",
             "prekey",
         ),
         "readme": (
-            "현재 릴리스: v3.9.0.2",
+            "통합 배포 준비 버전: v3.9.0.2",
             "실제 체결금액",
-            "1,076 passed",
+            "1,079 passed",
             "보호 작업",
         ),
         "docs_readme": (
             "AI 커스텀·레퍼럴·거래 통계 고도화",
             "실제 체결금액",
-            "1,076 passed",
-            "Windows 신규 EXE",
+            "1,079 passed",
+            "pending_windows_rebuild",
         ),
         "ai_custom_architecture": (
             "crosses_above",
@@ -271,7 +342,7 @@ def main() -> int:
 
     print("\n결과: PASS")
     print("- 핵심 표기 일치: dashboard/manual/user_guide/policy")
-    print("- v3.9.0.2 변경 표면 일치: README/manual/release/guide/architecture/flow/plan/deploy/test")
+    print(f"- v{RELEASE_VERSION} 변경 표면 일치: README/manual/release/guide/architecture/flow/plan/deploy/test")
     return 0
 
 

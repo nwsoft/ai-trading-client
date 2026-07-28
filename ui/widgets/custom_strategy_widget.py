@@ -13,10 +13,17 @@ import customtkinter as ctk
 from tkinter import filedialog, messagebox
 
 from trading.ai.openai_client import OpenAIClient
+from trading.custom_strategy_presets import (
+    get_beginner_preset,
+    list_beginner_presets,
+)
 from trading.strategy_source_ingestor import StrategySourceIngestor
 
 
 class CustomStrategyWidget(ctk.CTkScrollableFrame):
+    BEGINNER_PRESET_LABELS = {
+        item["name"]: item["key"] for item in list_beginner_presets()
+    }
     SOURCE_LABELS = {
         "자동 판별": "auto",
         "텍스트/메모": "text",
@@ -53,7 +60,7 @@ class CustomStrategyWidget(ctk.CTkScrollableFrame):
         self.refresh_versions()
 
     def _font(self, size: int, weight: str = "normal"):
-        return ctk.CTkFont(family="Segoe UI", size=size, weight=weight)
+        return ctk.CTkFont(size=size, weight=weight)
 
     def _runtime_settings(self) -> Dict[str, Any]:
         dashboard_settings = getattr(self.dashboard, "settings", None)
@@ -62,7 +69,18 @@ class CustomStrategyWidget(ctk.CTkScrollableFrame):
     def _selected_ai_model(self) -> str:
         settings = self._runtime_settings()
         roles = settings.get("ai_model_roles", {}) or {}
-        return str(roles.get("premium") or settings.get("openai_model") or "gpt-5.6-terra")
+        premium = roles.get("premium") if isinstance(roles, dict) else None
+        if isinstance(premium, dict):
+            return str(premium.get("model") or settings.get("openai_model") or "gpt-5.6-terra")
+        return str(premium or settings.get("openai_model") or "gpt-5.6-terra")
+
+    def _selected_ai_provider(self) -> str:
+        settings = self._runtime_settings()
+        roles = settings.get("ai_model_roles", {}) or {}
+        premium = roles.get("premium") if isinstance(roles, dict) else None
+        if isinstance(premium, dict):
+            return str(premium.get("provider") or settings.get("ai_provider") or "openai")
+        return str(settings.get("ai_provider") or "openai")
 
     def _open_ai_settings(self):
         opener = getattr(self.dashboard, "show_settings_dialog", None)
@@ -77,14 +95,20 @@ class CustomStrategyWidget(ctk.CTkScrollableFrame):
     def _refresh_ai_model_status(self) -> None:
         if not hasattr(self, "ai_model_status"):
             return
-        api_ready = bool(
-            str(self._runtime_settings().get("openai_api_key", "") or "").strip()
-            or str(os.getenv("OPENAI_API_KEY", "") or "").strip()
-        )
+        api_ready = False
+        try:
+            from trading.ai.provider_router import AIProviderRouter
+
+            api_ready = AIProviderRouter.from_settings(
+                self._runtime_settings(),
+                workload="premium",
+            ).client_facade().is_ready()
+        except Exception:
+            api_ready = bool(str(os.getenv("OPENAI_API_KEY", "") or "").strip())
         self.ai_model_status.configure(
             text=(
-                f"사용 AI: {self._selected_ai_model()} · 정밀 분석 역할"
-                if api_ready else "OpenAI API 미설정 · 규칙 기반 1차 추출만 가능"
+                f"사용 AI: {self._selected_ai_provider()} / {self._selected_ai_model()} · 정밀 분석 역할"
+                if api_ready else "정밀 분석 역할 API 미설정 · 규칙 기반 1차 추출만 가능"
             ),
             text_color=("#38bdf8" if api_ready else "#f59e0b"),
         )
@@ -145,6 +169,55 @@ class CustomStrategyWidget(ctk.CTkScrollableFrame):
             card.pack(side="left", fill="x", expand=True, padx=4)
             ctk.CTkLabel(card, text=title, font=self._font(11), text_color="#91a4bd").pack(anchor="w", padx=10, pady=(8, 0))
             ctk.CTkLabel(card, text=value, font=self._font(13, "bold"), text_color=color).pack(anchor="w", padx=10, pady=(0, 8))
+
+        preset_card = ctk.CTkFrame(
+            self, fg_color="#111827", corner_radius=16,
+            border_width=1, border_color="#273449",
+        )
+        preset_card.pack(fill="x", padx=14, pady=8)
+        preset_top = ctk.CTkFrame(preset_card, fg_color="transparent")
+        preset_top.pack(fill="x", padx=16, pady=(13, 7))
+        ctk.CTkLabel(
+            preset_top,
+            text="초보자 시작: AI 자동 대응 + 검토용 기본 전략 4개",
+            font=self._font(16, "bold"),
+            text_color="#f8fafc",
+        ).pack(side="left")
+        self.beginner_preset_combo = ctk.CTkComboBox(
+            preset_top,
+            values=list(self.BEGINNER_PRESET_LABELS),
+            width=260,
+            height=34,
+        )
+        self.beginner_preset_combo.set("AI가 시장에 맞춰 자동 대응")
+        self.beginner_preset_combo.pack(side="right", padx=(8, 0))
+        ctk.CTkButton(
+            preset_top,
+            text="선택 내용 불러오기",
+            width=135,
+            height=34,
+            command=self.load_beginner_preset,
+        ).pack(side="right", padx=8)
+        ctk.CTkButton(
+            preset_top,
+            text="AI에게 설명 듣기",
+            width=130,
+            height=34,
+            fg_color="#0f766e",
+            hover_color="#0d9488",
+            command=self._ask_selected_preset,
+        ).pack(side="right")
+        ctk.CTkLabel(
+            preset_card,
+            text=(
+                "기본 선택인 AI 자동 대응은 기존 NoahAI 시장판단입니다. 나머지 4개는 편집 가능한 초안이며 "
+                "성과를 보장하지 않습니다. 국면·다중 시간대·유동성·손익비가 충돌하면 HOLD가 항상 우선합니다."
+            ),
+            font=self._font(11),
+            text_color="#a9bad0",
+            justify="left",
+            wraplength=1120,
+        ).pack(anchor="w", padx=16, pady=(0, 13))
 
         source_card = ctk.CTkFrame(self, fg_color="#111827", corner_radius=16, border_width=1, border_color="#273449")
         source_card.pack(fill="x", padx=14, pady=8)
@@ -294,6 +367,59 @@ class CustomStrategyWidget(ctk.CTkScrollableFrame):
         )
         self.analyze_button.pack(side="right")
 
+        advanced_card = ctk.CTkFrame(
+            self, fg_color="#111827", corner_radius=16,
+            border_width=1, border_color="#273449",
+        )
+        advanced_card.pack(fill="x", padx=14, pady=8)
+        advanced_header = ctk.CTkFrame(advanced_card, fg_color="transparent")
+        advanced_header.pack(fill="x", padx=16, pady=(14, 8))
+        ctk.CTkLabel(
+            advanced_header,
+            text="고급모드 · 안전한 다중 시간대 규칙 편집",
+            font=self._font(16, "bold"),
+            text_color="#f8fafc",
+        ).pack(side="left")
+        ctk.CTkButton(
+            advanced_header, text="예제 넣기", width=90, height=30,
+            command=self._insert_advanced_template,
+        ).pack(side="right")
+        ctk.CTkButton(
+            advanced_header, text="AI 추출값 불러오기", width=145, height=30,
+            fg_color="#0f766e", hover_color="#0d9488",
+            command=self._load_extracted_rules_to_advanced,
+        ).pack(side="right", padx=8)
+        ctk.CTkLabel(
+            advanced_card,
+            text=(
+                "EMA·SMA·RSI·ATR·거래량 평균의 기간(2~500), 시간봉, AND(all)·OR(any), "
+                "진입·전체 청산 조건을 직접 편집합니다. 임의 Python/Pine 코드는 실행하지 않습니다."
+            ),
+            font=self._font(11), text_color="#a9bad0", justify="left", wraplength=1120,
+        ).pack(anchor="w", padx=16, pady=(0, 8))
+        self.advanced_rules_text = ctk.CTkTextbox(
+            advanced_card, height=190, fg_color="#0b1120",
+            border_width=1, border_color="#334155",
+            text_color="#dbeafe", wrap="none",
+        )
+        self.advanced_rules_text.pack(fill="x", padx=16, pady=(0, 8))
+        self.advanced_rules_text.insert(
+            "1.0",
+            "선택 사항입니다. ‘예제 넣기’ 또는 ‘AI 추출값 불러오기’를 사용하세요.",
+        )
+        advanced_actions = ctk.CTkFrame(advanced_card, fg_color="transparent")
+        advanced_actions.pack(fill="x", padx=16, pady=(0, 14))
+        self.advanced_validation_label = ctk.CTkLabel(
+            advanced_actions,
+            text="고급 규칙 미사용",
+            font=self._font(11), text_color="#94a3b8",
+        )
+        self.advanced_validation_label.pack(side="left")
+        ctk.CTkButton(
+            advanced_actions, text="규칙 안전성 검사", width=145, height=32,
+            command=lambda: self._validate_advanced_editor(show_dialog=True),
+        ).pack(side="right")
+
         result_card = ctk.CTkFrame(self, fg_color="#111827", corner_radius=16, border_width=1, border_color="#273449")
         result_card.pack(fill="x", padx=14, pady=8)
         result_header = ctk.CTkFrame(result_card, fg_color="transparent")
@@ -334,6 +460,42 @@ class CustomStrategyWidget(ctk.CTkScrollableFrame):
         self.active_pool_label.pack(side="right", padx=12)
         self.version_rows = ctk.CTkFrame(self.versions_card, fg_color="transparent")
         self.version_rows.pack(fill="x", padx=12, pady=(0, 12))
+
+    def load_beginner_preset(self, preset_key: Optional[str] = None) -> bool:
+        """선택 프리셋을 입력창에만 불러온다. 분석·저장·승인은 자동 수행하지 않는다."""
+        key = str(
+            preset_key
+            or self.BEGINNER_PRESET_LABELS.get(self.beginner_preset_combo.get())
+            or "auto_regime"
+        )
+        preset = get_beginner_preset(key)
+        if not preset:
+            messagebox.showwarning("기본 전략", "선택한 기본 전략을 찾지 못했습니다.")
+            return False
+        self.beginner_preset_combo.set(str(preset["name"]))
+        if not bool(preset.get("executable_template")):
+            messagebox.showinfo(
+                "AI 자동 대응",
+                str(preset.get("summary") or "")
+                + "\n\n별도 커스텀 전략을 자동 저장하지 않습니다. "
+                "시장 조건이 불명확하면 HOLD하며 기존 NoahAI 가드레일을 그대로 사용합니다.",
+            )
+            return True
+        self.reference_entry.delete(0, "end")
+        self.kind_combo.set("텍스트/메모")
+        self.source_text.delete("1.0", "end")
+        self.source_text.insert("1.0", str(preset.get("source_text") or ""))
+        self.result_status.configure(
+            text="프리셋 초안 로드 · AI 분석 필요",
+            text_color="#38bdf8",
+        )
+        self.analysis_result = None
+        self.save_button.configure(state="disabled")
+        return True
+
+    def _ask_selected_preset(self) -> None:
+        name = self.beginner_preset_combo.get()
+        self._ask_assistant("preset:" + name)
 
     def _on_signal_mode_change(self, selected: Optional[str] = None) -> None:
         """초보 화면에는 고급 독립 진입 옵션을 노출하지 않는다."""
@@ -387,7 +549,15 @@ class CustomStrategyWidget(ctk.CTkScrollableFrame):
             if assistant is None or tab_widget is None:
                 raise RuntimeError("AI 어시스턴트 탭을 준비하지 못했습니다.")
             tab_widget.set("AI 어시스턴트")
-            if topic == "analysis_result" and self.analysis_result:
+            if topic.startswith("preset:"):
+                preset_name = topic.split(":", 1)[1]
+                prompt = (
+                    f"AI 커스텀의 초보자 프리셋 ‘{preset_name}’을 설명해줘. "
+                    "적합한 시장상황, 진입을 보류하는 HOLD 조건, 상대적 위험, "
+                    "초안을 불러온 뒤 분석·검토·저장하는 버튼 순서를 알려줘. "
+                    "높은 승률이나 수익을 보장하는 표현은 사용하지 마."
+                )
+            elif topic == "analysis_result" and self.analysis_result:
                 source = dict(self.analysis_result.get("source", {}) or {})
                 suggestion = dict(self.analysis_result.get("market_regime_suggestion", {}) or {})
                 missing = list(self.analysis_result.get("missing_conditions", []) or [])
@@ -448,20 +618,40 @@ class CustomStrategyWidget(ctk.CTkScrollableFrame):
         try:
             settings = self._runtime_settings()
             model = self._selected_ai_model()
-            client = OpenAIClient(
-                api_key=str(settings.get("openai_api_key", "") or ""),
-                model=model,
-                base_url=str(settings.get("openai_base_url", "") or "") or None,
-            )
+            try:
+                from trading.ai.provider_router import AIProviderRouter
+
+                client = AIProviderRouter.from_settings(
+                    settings,
+                    workload="premium",
+                ).client_facade()
+                transcription_client = AIProviderRouter.from_settings(
+                    settings,
+                    workload="transcription",
+                ).client_facade()
+            except Exception:
+                client = OpenAIClient(
+                    api_key=str(settings.get("openai_api_key", "") or ""),
+                    model=model,
+                    base_url=str(settings.get("openai_base_url", "") or "") or None,
+                )
+                transcription_client = client
             transcription = dict(settings.get("ai_custom_transcription", {}) or {})
             result = StrategySourceIngestor(
                 client if client.is_ready() else None,
+                transcription_client=(
+                    transcription_client if transcription_client.is_ready() else None
+                ),
                 transcription_enabled=bool(transcription.get("enabled", True)),
                 transcription_model=str(transcription.get("model", "gpt-4o-mini-transcribe") or "gpt-4o-mini-transcribe"),
                 audio_max_duration_minutes=int(transcription.get("max_duration_minutes", 45) or 45),
                 audio_max_file_mb=int(transcription.get("max_file_mb", 24) or 24),
             ).analyze(value, kind)
-            result["ai_model"] = model if client.is_ready() else "규칙 기반 추출(API 미사용)"
+            result["ai_model"] = (
+                f"{self._selected_ai_provider()} / {model}"
+                if client.is_ready()
+                else "규칙 기반 추출(API 미사용)"
+            )
             self.after(0, lambda result=result: self._show_analysis(result))
         except Exception as exc:
             error = str(exc) or exc.__class__.__name__
@@ -589,6 +779,106 @@ class CustomStrategyWidget(ctk.CTkScrollableFrame):
         scope = self._scope_value()
         return scope.split(":", 1)[1] if scope.startswith(("exchange:", "broker:")) else ""
 
+    def _insert_advanced_template(self):
+        template = {
+            "executable_entry": {
+                "all": [
+                    {
+                        "field": {
+                            "indicator": "ema", "period": 17,
+                            "timeframe": "1h", "source": "close",
+                        },
+                        "operator": "gt_field",
+                        "value_field": {
+                            "indicator": "ema", "period": 63,
+                            "timeframe": "1h", "source": "close",
+                        },
+                    }
+                ],
+                "any": [
+                    {
+                        "field": {
+                            "indicator": "rsi", "period": 14,
+                            "timeframe": "15m", "source": "close",
+                        },
+                        "operator": "gte", "value": 50,
+                    }
+                ],
+            },
+            "executable_exit": {
+                "any": [
+                    {
+                        "field": {
+                            "indicator": "rsi", "period": 14,
+                            "timeframe": "15m", "source": "close",
+                        },
+                        "operator": "gte", "value": 72,
+                    }
+                ]
+            },
+        }
+        self.advanced_rules_text.delete("1.0", "end")
+        self.advanced_rules_text.insert("1.0", json.dumps(template, ensure_ascii=False, indent=2))
+        self._validate_advanced_editor(show_dialog=False)
+
+    def _load_extracted_rules_to_advanced(self):
+        if not self.analysis_result:
+            messagebox.showinfo("고급 규칙", "먼저 AI 분석 및 전략 초안을 만들어 주세요.")
+            return
+        rules = dict(self.analysis_result.get("rules", {}) or {})
+        extracted = {
+            key: rules.get(key)
+            for key in ("executable_entry", "executable_exit")
+            if rules.get(key)
+        }
+        if not extracted:
+            messagebox.showwarning(
+                "고급 규칙",
+                "AI가 실행 가능한 선언형 조건을 추출하지 못했습니다. 예제를 바탕으로 직접 입력해 주세요.",
+            )
+            return
+        self.advanced_rules_text.delete("1.0", "end")
+        self.advanced_rules_text.insert("1.0", json.dumps(extracted, ensure_ascii=False, indent=2))
+        self._validate_advanced_editor(show_dialog=False)
+
+    def _validate_advanced_editor(self, *, show_dialog: bool = False) -> Optional[Dict[str, Any]]:
+        raw = self.advanced_rules_text.get("1.0", "end").strip()
+        if not raw or raw.startswith("선택 사항입니다"):
+            self.advanced_validation_label.configure(text="고급 규칙 미사용", text_color="#94a3b8")
+            return {}
+        try:
+            payload = json.loads(raw)
+            if not isinstance(payload, dict):
+                raise ValueError("최상위 값은 JSON 객체여야 합니다.")
+            unsupported = set(payload) - {"executable_entry", "executable_exit"}
+            if unsupported:
+                raise ValueError("지원하지 않는 키: " + ", ".join(sorted(unsupported)))
+            from trading.declarative_strategy_engine import DeclarativeStrategyEngine
+
+            validation = DeclarativeStrategyEngine.validate_rule_spec(payload)
+            if not validation.get("valid"):
+                raise ValueError("; ".join(validation.get("errors") or []))
+        except Exception as exc:
+            self.advanced_validation_label.configure(
+                text=f"차단됨 · {exc}", text_color="#ef4444",
+            )
+            if show_dialog:
+                messagebox.showerror(
+                    "고급 규칙 차단",
+                    f"안전한 선언형 규칙으로 해석할 수 없습니다.\n\n{exc}",
+                )
+            return None
+        self.advanced_validation_label.configure(
+            text="안전성 검사 통과 · 저장 전 최종 검토 필요", text_color="#22c55e",
+        )
+        if show_dialog:
+            messagebox.showinfo(
+                "고급 규칙 검사",
+                "허용 지표·기간·시간봉·연산자 검사에 통과했습니다. "
+                "전략 저장·승인·과거 검증 전에는 실행되지 않습니다.",
+            )
+        return payload
+
     def _save_version(self):
         if not self.analysis_result:
             return
@@ -600,6 +890,16 @@ class CustomStrategyWidget(ctk.CTkScrollableFrame):
         source = self.analysis_result.get("source", {}) or {}
         engine = self.analysis_result.get("engine_settings", {}) or {}
         rules = dict(self.analysis_result.get("rules", {}) or {})
+        advanced_rules = self._validate_advanced_editor(show_dialog=False)
+        if advanced_rules is None:
+            messagebox.showerror(
+                "전략 버전 저장 실패",
+                "고급 규칙이 안전성 검사에 통과하지 못했습니다. 표시된 오류를 먼저 수정하세요.",
+            )
+            return
+        if advanced_rules:
+            rules.update(advanced_rules)
+            rules["advanced_mode"] = True
         scope = self._scope_value()
         target = self._target_value()
         regimes = self._selected_market_regimes()

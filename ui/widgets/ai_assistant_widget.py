@@ -1427,6 +1427,78 @@ class AIAssistantWidget(CTkFrame):
             "원문 보강이 필요합니다. 적용된 전략도 실제 주문 때 NoahAI 시장판단과 수익성·리스크·주문 가드레일을 다시 통과합니다."
         )
 
+    def _build_ai_custom_preset_support(self, message: str) -> Optional[str]:
+        """기본 전략을 설명하고 명시 요청 시 AI 커스텀 입력창까지만 전달한다."""
+        from trading.custom_strategy_presets import (
+            get_beginner_preset,
+            list_beginner_presets,
+            preset_key_from_text,
+        )
+
+        raw = str(message or "")
+        compact = raw.lower().replace(" ", "")
+        key = preset_key_from_text(raw)
+        preset_topic = key is not None or any(
+            token in compact
+            for token in ("기본전략", "전략프리셋", "초보자전략", "전략5개", "전략4개")
+        )
+        if not preset_topic:
+            return None
+
+        if key is None:
+            lines = [
+                f"- {item['name']}: {item['summary']} ({item['risk']})"
+                for item in list_beginner_presets()
+            ]
+            return (
+                "NoahAI입니다. 초보자 기본 화면은 AI 자동 대응 1개와 검토용 전략 4개로 구성합니다.\n"
+                + "\n".join(lines)
+                + "\n어떤 전략도 높은 승률이나 수익을 보장하지 않습니다. "
+                "AI 커스텀에서 초안을 불러온 뒤 XAI 분석·사용자 검토·저장·승인·자동검증을 거쳐야 합니다."
+            )
+
+        preset = get_beginner_preset(key)
+        if not preset:
+            return None
+        wants_handoff = any(
+            token in compact
+            for token in ("넣어줘", "불러줘", "초안만들", "전략만들", "입력해줘", "저장하는방법")
+        )
+        handoff_note = ""
+        if wants_handoff and bool(preset.get("executable_template")):
+            dashboard = getattr(self, "parent_dashboard", None)
+            try:
+                if dashboard is None:
+                    raise RuntimeError("대시보드 연결 없음")
+                dashboard._ensure_custom_strategy_tab()
+                widget = getattr(dashboard, "custom_strategy_widget", None)
+                if widget is None or not widget.load_beginner_preset(key):
+                    raise RuntimeError("AI 커스텀 입력창 준비 실패")
+                if getattr(dashboard, "tab_widget", None) is not None:
+                    dashboard.tab_widget.set("AI 커스텀")
+                handoff_note = (
+                    "\n요청한 초안을 AI 커스텀 입력창에 불러왔습니다. 아직 분석·저장·승인·실행하지 않았습니다."
+                )
+            except Exception as exc:
+                self.logger.warning(f"기본 전략 AI 커스텀 전달 실패: {exc}")
+                handoff_note = "\nAI 커스텀 탭을 열고 같은 이름의 프리셋에서 ‘선택 내용 불러오기’를 눌러 주세요."
+        elif wants_handoff:
+            handoff_note = (
+                "\nAI 자동 대응은 별도 커스텀 전략으로 저장하지 않습니다. "
+                "기존 NoahAI 시장판단과 공통 HOLD·위험 가드레일을 사용합니다."
+            )
+
+        return (
+            f"NoahAI입니다. ‘{preset['name']}’은 {preset['summary']}\n"
+            f"{preset['risk']}이며 적합 국면은 {', '.join(preset.get('regimes') or ['사용자 확인'])}입니다.\n"
+            "국면 불일치, 큰·작은 시간대 충돌, 유동성·스프레드·예상 손익비 미달, "
+            "성과 악화 또는 급격한 고변동에서는 HOLD가 우선합니다. "
+            "높은 승률이나 미래 수익을 보장하는 프리셋이 아닙니다."
+            + handoff_note
+            + "\n진행 순서: 초안 불러오기 → AI 분석 → XAI 규칙·누락 조건 검토 → 전략 버전 저장 → "
+            "사용자 승인 → 자동검증 → 최종 적용."
+        )
+
     @staticmethod
     def _build_financial_intelligence_support(message: str) -> Optional[str]:
         """금융 인텔리전스 메뉴 사용법을 API 없이도 정확히 안내한다."""
@@ -1558,17 +1630,60 @@ class AIAssistantWidget(CTkFrame):
             )
         return None
 
-    def _recent_conversation_for_prompt(self) -> str:
-        """현재 질문 직전의 최근 대화만 짧게 직렬화한다."""
+    def _assistant_response_policy(self) -> Dict[str, Any]:
+        """저장된 문답 모드의 토큰·컨텍스트 예산을 정규화한다."""
+        defaults = {
+            "standard": {"max_input_chars": 12000, "max_output_tokens": 1200, "include_recent_turns": 8, "include_summary": True},
+            "saver": {"max_input_chars": 6000, "max_output_tokens": 500, "include_recent_turns": 4, "include_summary": True},
+            "premium": {"max_input_chars": 20000, "max_output_tokens": 2200, "include_recent_turns": 12, "include_summary": True},
+        }
+        try:
+            from config.settings import load_settings
+
+            settings = load_settings()
+        except Exception:
+            settings = {}
+        mode = str(settings.get("assistant_response_mode") or "standard").lower()
+        if mode not in defaults:
+            mode = "standard"
+        policy = dict(defaults[mode])
+        budgets = settings.get("assistant_token_budget", {})
+        if isinstance(budgets, dict) and isinstance(budgets.get(mode), dict):
+            policy.update(budgets[mode])
+        contexts = settings.get("assistant_context_policy", {})
+        if isinstance(contexts, dict) and isinstance(contexts.get(mode), dict):
+            policy.update(contexts[mode])
+        policy["mode"] = mode
+        policy["max_input_chars"] = max(2000, min(int(policy.get("max_input_chars", 12000)), 40000))
+        policy["max_output_tokens"] = max(200, min(int(policy.get("max_output_tokens", 1200)), 4000))
+        policy["include_recent_turns"] = max(0, min(int(policy.get("include_recent_turns", 8)), 20))
+        return policy
+
+    def _recent_conversation_for_prompt(self, policy: Optional[Dict[str, Any]] = None) -> str:
+        """문답 모드 예산에 맞춰 최근 대화와 압축 메모를 직렬화한다."""
+        policy = policy or self._assistant_response_policy()
         history = list(getattr(self, "_conversation_messages", []) or [])
         if history and history[-1].get("role") == "user":
             history = history[:-1]
+        recent_turns = int(policy.get("include_recent_turns", 8) or 0)
+        selected = history[-recent_turns:] if recent_turns else []
         lines: List[str] = []
-        for item in history[-8:]:
+        older = history[:-recent_turns] if recent_turns and len(history) > recent_turns else []
+        if older and bool(policy.get("include_summary", True)):
+            summary_parts = []
+            for item in older[-6:]:
+                role = "사용자" if item.get("role") == "user" else "NoahAI"
+                content = " ".join(str(item.get("content") or "").split())
+                if content:
+                    summary_parts.append(f"{role}:{content[:120]}")
+            if summary_parts:
+                lines.append("이전 대화 압축 메모: " + " | ".join(summary_parts)[:700])
+        per_item_limit = 350 if policy.get("mode") == "saver" else 700
+        for item in selected:
             role = "사용자" if item.get("role") == "user" else "NoahAI"
             content = str(item.get("content") or "").strip().replace("\x00", "")
             if content:
-                lines.append(f"{role}: {content[:700]}")
+                lines.append(f"{role}: {content[:per_item_limit]}")
         return "\n".join(lines) if lines else "이전 대화 없음"
 
     def generate_ai_response(self, message: str):
@@ -1629,6 +1744,11 @@ class AIAssistantWidget(CTkFrame):
                         self._insert_confirm_buttons(safe_proposal, message)
                 return
 
+            ai_custom_preset_support = self._build_ai_custom_preset_support(message)
+            if ai_custom_preset_support:
+                self.add_ai_message(ai_custom_preset_support)
+                return
+
             ai_custom_support = self._build_ai_custom_support(message)
             if ai_custom_support:
                 self.add_ai_message(ai_custom_support)
@@ -1652,6 +1772,10 @@ class AIAssistantWidget(CTkFrame):
 
             # 현재 거래 상황 데이터 수집
             context = self._get_current_trading_context()
+            response_policy = self._assistant_response_policy()
+            max_context_chars = int(response_policy.get("max_input_chars", 12000))
+            if len(context) > max_context_chars:
+                context = context[:max_context_chars] + "\n[문답 정책에 따라 이후 컨텍스트 생략]"
 
             # 사용자 요청 의도 분석 (설정 변경 요청인지 확인)
             is_settings_change_request = self._is_settings_change_request(message)
@@ -1710,7 +1834,7 @@ class AIAssistantWidget(CTkFrame):
 현재 서비스 컨텍스트: {service_label}
 
 최근 대화:
-{self._recent_conversation_for_prompt()}
+{self._recent_conversation_for_prompt(response_policy)}
 
 현재 거래 상황:
 {context}
@@ -1720,9 +1844,15 @@ class AIAssistantWidget(CTkFrame):
 사용자가 내용을 확인 후 직접 적용 여부를 결정합니다."""
             else:
                 # 일반 분석/조언 질문
+                response_mode_instruction = {
+                    "saver": "답변은 핵심 결론부터 짧게 제시하고, 중복 서론 없이 필수 근거와 위험만 설명하세요.",
+                    "standard": "결론, 핵심 근거, 필요한 조언을 균형 있게 설명하세요.",
+                    "premium": "결론과 함께 비교 근거, 반대 가능성, 위험 요소를 더 정밀하게 설명하세요.",
+                }.get(response_policy.get("mode"), "")
                 system_prompt = f"""당신은 NoahAI(노아AI) 공식 제품 어시스턴트이며, {service_profile.get('expert_role', '금융 투자 분석 전문가입니다.')}
 사용자가 정체성을 물으면 "저는 NoahAI입니다."라고 명확히 답하세요.
 제품 기능·설정 경로를 모르면 추정하지 말고 필요한 화면·현재값을 재질문하세요.
+문답 정책: {response_mode_instruction}
 
 【NoahAI 어시스턴트 핵심 철학】
 당신은 사용자의 자산을 보호하는 것이 최우선입니다.
@@ -1796,7 +1926,7 @@ class AIAssistantWidget(CTkFrame):
 현재 서비스 컨텍스트: {service_label}
 
 최근 대화:
-{self._recent_conversation_for_prompt()}
+{self._recent_conversation_for_prompt(response_policy)}
 
 현재 거래 상황:
 {context}
@@ -1813,10 +1943,13 @@ class AIAssistantWidget(CTkFrame):
             self.logger.debug(f"AI 응답 생성 시도: 모델={assistant_model}, AI Manager 활성={self.ai_manager.enabled() if self.ai_manager else False}")
 
             # AI 매니저를 통한 응답 생성
+            response_max_tokens = int(response_policy.get("max_output_tokens", 1200))
+            if is_settings_change_request:
+                response_max_tokens = max(900, response_max_tokens)
             ai_response = self.ai_manager.chat_completion([
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_prompt}
-            ], model=assistant_model)
+            ], model=assistant_model, max_tokens=response_max_tokens)
 
             if ai_response:
                 if isinstance(ai_response, str) and (
@@ -3958,7 +4091,7 @@ AI 상태: {ai_status}"""
         required = ", ".join(gate_labels.get(item, item) for item in gates)
         return (
             f"요청을 ‘{understood}’으로 이해했습니다. 주문이나 상태 변경은 실행하지 않았습니다.\n\n"
-            "현재 v3.9.0.2의 NoahAI 어시스턴트는 이 작업을 채팅에서 직접 실행하지 않습니다. "
+            "현재 v3.9.0.3의 NoahAI 어시스턴트는 이 작업을 채팅에서 직접 실행하지 않습니다. "
             f"실행 권한을 열기 전에 {required} 검증이 필요합니다.\n"
             "지금은 현재 시장·포지션·설정의 위험을 분석하거나, 대시보드에서 사용자가 직접 실행할 "
             "정확한 위치와 확인 항목을 안내할 수 있습니다."

@@ -50,6 +50,9 @@ class AILearningWidget(CTkFrame):
         self._learning_cache_ts: float = 0.0
         self._learning_cache_ttl_sec: int = 180
         self._last_visible_force_refresh_ts: float = 0.0
+        self._after_jobs = set()
+        self._is_destroying = False
+        self._initial_defer_logged = False
 
         # AI 학습 데이터 저장용 (콜백 업데이트를 위해 필요)
         self.learning_data: List[Dict] = []
@@ -63,10 +66,22 @@ class AILearningWidget(CTkFrame):
 
         # 초기 로드는 이벤트 루프 시작 후로 지연 (대시보드 표시를 먼저 보장)
         try:
-            self.after_idle(self._initial_load_async)
+            job_ref = {"id": None}
+
+            def _initial_runner():
+                job_id = job_ref.get("id")
+                if job_id:
+                    self._after_jobs.discard(job_id)
+                if not self._is_destroying:
+                    self._initial_load_async()
+
+            job_id = self.after_idle(_initial_runner)
+            job_ref["id"] = job_id
+            if job_id:
+                self._after_jobs.add(job_id)
         except Exception:
             # after_idle 사용이 불가한 환경에서는 최소 지연으로 예약
-            self.after(0, self._initial_load_async)
+            self._schedule_after(0, self._initial_load_async)
         try:
             self.bind("<Map>", self._on_map_visible, add="+")
         except Exception:
@@ -77,6 +92,47 @@ class AILearningWidget(CTkFrame):
             return bool(self.winfo_exists() and self.winfo_ismapped() and self.winfo_viewable())
         except Exception:
             return False
+
+    def _schedule_after(self, delay_ms: int, callback):
+        """Schedule a widget callback that can be cancelled during tab recreation."""
+        if self._is_destroying:
+            return None
+        try:
+            job_ref = {"id": None}
+
+            def _runner():
+                job_id = job_ref.get("id")
+                if job_id:
+                    self._after_jobs.discard(job_id)
+                if not self._is_destroying:
+                    callback()
+
+            job_id = self.after(delay_ms, _runner)
+            job_ref["id"] = job_id
+            if job_id:
+                self._after_jobs.add(job_id)
+            return job_id
+        except Exception:
+            return None
+
+    def cleanup_after_jobs(self):
+        """Cancel every outstanding Tk callback owned by this widget."""
+        self._is_destroying = True
+        for job_id in list(self._after_jobs):
+            try:
+                self.after_cancel(job_id)
+            except Exception:
+                pass
+        self._after_jobs.clear()
+        self.auto_update_timer = None
+        self.data_update_timer = None
+
+    def destroy(self):
+        self.cleanup_after_jobs()
+        try:
+            super().destroy()
+        except Exception:
+            pass
 
     def _on_map_visible(self, event=None):
         """탭 진입 시 1회 강제 새로고침 트리거"""
@@ -94,10 +150,7 @@ class AILearningWidget(CTkFrame):
             return
         self._last_visible_force_refresh_ts = now_ts
         log_ui_perf_metric("ai_learning", "map_force_refresh", cooldown_sec=30)
-        try:
-            self.after(100, lambda: self.refresh_learning_data(force_refresh=True))
-        except Exception:
-            pass
+        self._schedule_after(100, lambda: self.refresh_learning_data(force_refresh=True))
 
     def _color(self, key: str, fallback: Optional[str] = None) -> str:
         if fallback is None:
@@ -680,9 +733,14 @@ class AILearningWidget(CTkFrame):
     def _initial_load_async(self):
         """이벤트 루프 시작 후 안전하게 초기 데이터/상태를 채웁니다."""
         try:
+            if self._is_destroying:
+                return
             if not self._is_visible_now():
-                log_ui_perf_metric("ai_learning", "initial_defer_not_visible", delay_ms=1200)
-                self.after(1200, self._initial_load_async)
+                # Hidden tabs are refreshed by the <Map> event. Polling here used
+                # to create an endless callback and millions of disk log writes.
+                if not self._initial_defer_logged:
+                    log_ui_perf_metric("ai_learning", "initial_defer_until_visible")
+                    self._initial_defer_logged = True
                 return
             self.load_learning_data()
             # 상태/성능은 데이터 렌더 예약과 무관하게 업데이트 가능
@@ -839,7 +897,10 @@ class AILearningWidget(CTkFrame):
                         self.create_data_row(item, (idx - 0) + 2)
                     if end_idx < len(to_render):
                         # 다음 배치 예약
-                        self.after(self.BATCH_DELAY_MS, lambda: render_batch(end_idx))
+                        self._schedule_after(
+                            self.BATCH_DELAY_MS,
+                            lambda: render_batch(end_idx),
+                        )
                     else:
                         # 모든 배치 완료 후 성능/요약 갱신
                         try:

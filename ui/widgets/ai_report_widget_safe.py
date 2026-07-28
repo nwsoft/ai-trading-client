@@ -37,6 +37,8 @@ class AIReportWidgetSafe(CTkFrame):
         kwargs.setdefault("corner_radius", 10)
         super().__init__(parent, **kwargs)
         self.logger = logging.getLogger(__name__)
+        self._after_jobs = []
+        self._disposed = False
         
         # 초기화 상태 플래그
         self.is_initialized = False
@@ -52,9 +54,82 @@ class AIReportWidgetSafe(CTkFrame):
         # 자동 리포트 생성 타이머
         self.report_timer = None
         self.last_report_generation = None
+        self.bind("<Map>", self._on_map_visible, add="+")
+        self.bind("<Unmap>", self._on_unmap_hidden, add="+")
+        self.bind("<Destroy>", self._on_destroyed, add="+")
         
         # 초기 리포트 생성
-        self.after(1000, self.auto_generate_reports)
+        self._schedule_report_refresh(1000)
+
+    def _safe_after(self, delay_ms, callback):
+        if self._disposed:
+            return None
+        job_ref = {"id": None}
+
+        def _runner():
+            job_id = job_ref.get("id")
+            if job_id in self._after_jobs:
+                self._after_jobs.remove(job_id)
+            if not self._disposed:
+                callback()
+
+        try:
+            job_id = self.after(delay_ms, _runner)
+            job_ref["id"] = job_id
+            self._after_jobs.append(job_id)
+            return job_id
+        except Exception:
+            return None
+
+    def _schedule_report_refresh(self, delay_ms=0):
+        if self._disposed or self.report_timer is not None:
+            return
+        self.report_timer = self._safe_after(delay_ms, self._run_visible_report_refresh)
+
+    def _run_visible_report_refresh(self):
+        self.report_timer = None
+        try:
+            if not self.winfo_exists() or not self.winfo_viewable():
+                return
+        except Exception:
+            return
+        self.auto_generate_reports()
+
+    def _on_map_visible(self, event=None):
+        if event is not None and getattr(event, "widget", None) is not self:
+            return
+        self._schedule_report_refresh(0)
+
+    def _on_unmap_hidden(self, event=None):
+        if event is not None and getattr(event, "widget", None) is not self:
+            return
+        if self.report_timer is not None:
+            try:
+                self.after_cancel(self.report_timer)
+            except Exception:
+                pass
+            if self.report_timer in self._after_jobs:
+                self._after_jobs.remove(self.report_timer)
+            self.report_timer = None
+
+    def _on_destroyed(self, event=None):
+        if event is not None and getattr(event, "widget", None) is not self:
+            return
+        self.cleanup_after_jobs()
+
+    def cleanup_after_jobs(self):
+        self._disposed = True
+        for job_id in list(self._after_jobs):
+            try:
+                self.after_cancel(job_id)
+            except Exception:
+                pass
+        self._after_jobs.clear()
+        self.report_timer = None
+
+    def destroy(self):
+        self.cleanup_after_jobs()
+        return super().destroy()
         
     def _color(self, key: str, fallback: Optional[str] = None) -> str:
         if fallback is None:
@@ -291,7 +366,7 @@ class AIReportWidgetSafe(CTkFrame):
                 return
                 
             # 비동기로 리포트 생성 (UI 블록 방지)
-            self.after(100, self._generate_reports_async)
+            self._safe_after(100, self._generate_reports_async)
             
         except Exception as e:
             print(f"AI 리포트 생성 오류: {e}")

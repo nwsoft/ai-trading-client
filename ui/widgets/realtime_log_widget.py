@@ -1214,6 +1214,8 @@ class RealtimeLogWidget(ctk.CTkFrame):
                 return None
 
             # 안전한 콜백 래핑
+            job_ref = {"id": None}
+
             def safe_callback():
                 try:
                     if not self.winfo_exists():
@@ -1229,8 +1231,16 @@ class RealtimeLogWidget(ctk.CTkFrame):
                 except Exception as e:
                     if "invalid command name" not in str(e) and "TclError" not in str(e) and "border_parts" not in str(e):
                         print(f"realtime_log_widget 콜백 오류: {e}")
+                finally:
+                    job_id = job_ref.get("id")
+                    if job_id:
+                        try:
+                            self._after_jobs.remove(job_id)
+                        except (ValueError, AttributeError):
+                            pass
 
             job = self.after(delay, safe_callback)
+            job_ref["id"] = job
             if job:
                 self._after_jobs.append(job)
             return job

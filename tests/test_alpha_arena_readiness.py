@@ -375,14 +375,14 @@ class TestReadinessChecklist:
         assert runner.on_error is not None
 
     def test_readiness_engine_default_is_deepseek(self):
-        """기본 엔진이 deepseek-3.1 인지 확인."""
+        """기본 엔진이 종료된 V3.1이 아닌 DeepSeek V4 Flash인지 확인."""
         client = MockBinanceClient()
         runner = AlphaArenaRunner(
             binance_client=client,
             ai_manager=object(),
             settings={'alpha_arena': {}},
         )
-        assert runner.engine == 'deepseek-3.1'
+        assert runner.engine == 'deepseek-v4-flash'
 
     def test_readiness_available_engines_includes_qwen(self):
         """사용 가능 엔진 목록에 qwen3-max 포함 확인."""
@@ -559,4 +559,3 @@ class TestLiquidationPriceCalc:
         """레버리지 1x LONG 청산가는 약 0에 가까워야 한다 (실제 계산 확인)."""
         liq = self._calc_liquidation(100.0, 1, 'LONG')
         assert liq < 60.0, f"1x LONG 청산가가 예상보다 높음: {liq:.4f}"
-

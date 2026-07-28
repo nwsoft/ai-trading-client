@@ -213,6 +213,11 @@ if (-not $SkipReleaseUpload) {
     if ([string]::IsNullOrWhiteSpace($exeProductVersion) -or $exeProductVersion.Trim() -ne $releaseVersion) {
         Fail "EXE ProductVersion mismatch. exe=$exeProductVersion RELEASE_VERSION=$releaseVersion. Rebuild on Windows before upload."
     }
+    $signature = Get-AuthenticodeSignature -FilePath $exePath
+    if ($signature.Status -ne "Valid" -or -not $signature.SignerCertificate) {
+        Fail "AITrading.exe must have a valid Windows Authenticode signature before release upload. status=$($signature.Status)"
+    }
+    Write-Host "[RELEASE_TAG] Authenticode valid: $($signature.SignerCertificate.Subject)"
 
     Write-Host "[RELEASE_TAG] Generating release assets..."
     & $pythonCmd scripts/generate_release_assets.py --out-dir deploy --exe deploy/AITrading.exe --repo $repoSlug

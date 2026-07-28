@@ -255,6 +255,62 @@ def test_unified_manager_quality_control_fallbacks_to_market():
     assert "limit_rejected" in ";".join(result["errors"])
 
 
+def test_unified_manager_normalizes_ccxt_market_fill_cost_and_average():
+    from trading.unified_trading_manager import UnifiedTradingManager
+
+    manager = UnifiedTradingManager.__new__(UnifiedTradingManager)
+    manager.logger = MagicMock()
+    exchange = MagicMock()
+    exchange.place_order.return_value = {
+        "id": "krw-1",
+        "symbol": "BTC/KRW",
+        "side": "buy",
+        "filled": 0.002,
+        "average": 150_000_000,
+        "cost": 300_000,
+        "type": "market",
+    }
+    manager.get_exchange = lambda *_args, **_kwargs: exchange
+
+    result = manager.place_order_unified(
+        "upbit",
+        "spot",
+        "BTC/KRW",
+        "buy",
+        0.002,
+        order_type="MARKET",
+    )
+
+    assert result["status"] == "success"
+    assert result["quantity"] == 0.002
+    assert result["price"] == 150_000_000
+    assert result["cost"] == 300_000
+
+
+def test_unified_trader_resolves_krw_notional_when_market_price_is_missing():
+    from trading.unified_trader import UnifiedTrader
+
+    trader = UnifiedTrader.__new__(UnifiedTrader)
+    trader.exchange_manager = MagicMock()
+    trader.exchange_manager.get_current_price.return_value = 150_000_000
+
+    quantity, price, notional = trader._resolve_execution_values(
+        order_result={
+            "status": "success",
+            "filled": 0.002,
+            "cost": 300_000,
+            "price": None,
+        },
+        fallback_quantity=0.002,
+        exchange_name="upbit",
+        symbol="BTC/KRW",
+    )
+
+    assert quantity == 0.002
+    assert price == 150_000_000
+    assert notional == 300_000
+
+
 def test_unified_trader_cycle_blocks_on_profitability_gate():
     from trading.unified_trader import UnifiedTrader
 
