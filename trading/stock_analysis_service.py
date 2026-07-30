@@ -38,6 +38,18 @@ from trading.ops_automation import OpsAutomationEngine
 from trading.portfolio_orchestrator import PortfolioOrchestrator
 from trading.profitability_validation import ProfitabilityValidator
 from trading.strategy_engine import StrategyEngine
+from trading.execution_mode import ExecutionMode
+from trading.trade_candidate import apply_trade_candidate, evaluate_trade_candidate
+from trading.exit_policy import (
+    build_exit_policy,
+    format_exit_policy,
+    record_insurance_submission,
+)
+from trading.opportunity_coordinator import (
+    get_opportunity_coordinator,
+    normalize_multi_venue_policy,
+)
+from trading.stock_exit_policy import resolve_stock_exit_thresholds
 
 logger = logging.getLogger(__name__)
 
@@ -428,6 +440,185 @@ def asset_mode_matches(asset_mode: str, is_etf: bool) -> bool:
     return True
 
 
+def select_stock_universe(
+    adapter: Any,
+    configured_symbols: Optional[List[str]] = None,
+    asset_mode: str = 'all',
+    limit: int = 8,
+    custom_strategy_pool: Optional[List[Dict[str, Any]]] = None,
+) -> List[str]:
+    """증권사 제공 목록에서 자동매매 분석 유니버스를 선정한다.
+
+    사용자 지정 종목을 우선한다. 자동 선정은 KOSPI/KOSDAQ과 ETF를 모두
+    조회하고 거래대금(없으면 거래량×가격, 최후에는 시가총액) 순으로 정렬한다.
+    통합 모드는 주식과 ETF를 균형 배분한다. 이는 수익 예측 추천이 아니라 이후
+    시장국면·신호·위험 검증에 넣을 유동성 후보를 고르는 단계다.
+    """
+    normalized_limit = max(1, int(limit or 8))
+    configured = list(
+        dict.fromkeys(
+            str(symbol or '').strip().upper()
+            for symbol in (configured_symbols or [])
+            if str(symbol or '').strip()
+        )
+    )
+    def _numeric(item: Dict[str, Any], *keys: str) -> float:
+        for key in keys:
+            try:
+                value = float(item.get(key, 0) or 0)
+                if value > 0:
+                    return value
+            except (TypeError, ValueError):
+                continue
+        return 0.0
+
+    def _is_tradable(item: Dict[str, Any]) -> bool:
+        status = str(item.get('status', '') or '').strip().lower()
+        return status not in {
+            'halted', 'suspended', 'inactive', 'delisted', 'stop', 'stopped',
+            '거래정지', '상장폐지',
+        }
+
+    def _score(item: Dict[str, Any], index: int) -> tuple:
+        direct_value = _numeric(
+            item,
+            'trade_value',
+            'trading_value',
+            'turnover',
+            'acc_trade_value',
+        )
+        if direct_value <= 0:
+            direct_value = (
+                _numeric(item, 'volume', 'acc_volume')
+                * _numeric(item, 'price', 'current_price', 'close')
+            )
+        if direct_value <= 0:
+            direct_value = _numeric(item, 'market_cap')
+        return direct_value, -index
+
+    def _dedupe_and_rank(items: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        unique: Dict[str, Dict[str, Any]] = {}
+        order: List[str] = []
+        for item in items:
+            if not isinstance(item, dict) or not _is_tradable(item):
+                continue
+            code = str(item.get('code') or item.get('symbol') or '').strip().upper()
+            if not code:
+                continue
+            if code not in unique:
+                order.append(code)
+                unique[code] = dict(item)
+        indexed = [(index, unique[code]) for index, code in enumerate(order)]
+        return [
+            item
+            for _, item in sorted(
+                indexed,
+                key=lambda pair: _score(pair[1], pair[0]),
+                reverse=True,
+            )
+        ]
+
+    stock_items: List[Dict[str, Any]] = []
+    if hasattr(adapter, 'get_stock_list'):
+        for market in ('KOSPI', 'KOSDAQ'):
+            try:
+                stock_items.extend(
+                    dict(item or {})
+                    for item in (adapter.get_stock_list(market) or [])
+                    if isinstance(item, dict)
+                )
+            except Exception:
+                continue
+
+    etf_items: List[Dict[str, Any]] = []
+    if hasattr(adapter, 'get_etf_list'):
+        try:
+            etf_items = [
+                dict(item or {})
+                for item in (adapter.get_etf_list() or [])
+                if isinstance(item, dict)
+            ]
+        except Exception:
+            etf_items = []
+
+    ranked_stocks = _dedupe_and_rank(stock_items)
+    ranked_etfs = _dedupe_and_rank(etf_items)
+    mode = normalize_asset_mode(asset_mode)
+
+    if mode == 'stock':
+        selected_items = ranked_stocks[:normalized_limit]
+    elif mode == 'etf':
+        selected_items = ranked_etfs[:normalized_limit]
+    else:
+        stock_quota = (normalized_limit + 1) // 2
+        etf_quota = normalized_limit // 2
+        selected_items = ranked_stocks[:stock_quota] + ranked_etfs[:etf_quota]
+        selected_codes = {
+            str(item.get('code') or item.get('symbol') or '').strip().upper()
+            for item in selected_items
+        }
+        if len(selected_items) < normalized_limit:
+            remaining = [
+                item
+                for item in ranked_stocks[stock_quota:] + ranked_etfs[etf_quota:]
+                if str(item.get('code') or item.get('symbol') or '').strip().upper()
+                not in selected_codes
+            ]
+            selected_items.extend(remaining[:normalized_limit - len(selected_items)])
+
+    from .selection_policy import (
+        SelectionPolicy,
+        combine_selection_paths,
+        select_advanced_strategy_universe,
+    )
+
+    automatic_candidates = [
+        {
+            **dict(item),
+            'symbol': str(
+                item.get('code') or item.get('symbol') or ''
+            ).strip().upper(),
+            'asset_type': 'etf' if bool(item.get('is_etf', False)) else 'stock',
+        }
+        for item in selected_items
+        if str(item.get('code') or item.get('symbol') or '').strip()
+    ]
+    general_selection = SelectionPolicy(
+        target=str(getattr(adapter, 'broker_name', '') or 'stock_broker'),
+        asset_class='stock',
+        limit=normalized_limit,
+    ).resolve(
+        automatic_candidates=automatic_candidates,
+        pinned_symbols=configured,
+    )
+    all_ranked = (
+        ranked_stocks
+        if mode == 'stock'
+        else ranked_etfs
+        if mode == 'etf'
+        else ranked_stocks + ranked_etfs
+    )
+    market_candidates = [
+        {
+            **dict(item),
+            'symbol': str(item.get('code') or item.get('symbol') or '').strip().upper(),
+            'asset_type': 'etf' if bool(item.get('is_etf', False)) else 'stock',
+        }
+        for item in all_ranked
+        if str(item.get('code') or item.get('symbol') or '').strip()
+    ]
+    advanced_selection = select_advanced_strategy_universe(
+        strategy_pool=custom_strategy_pool,
+        market_candidates=market_candidates,
+        pinned_symbols=configured,
+        asset_class='stock',
+        target=str(getattr(adapter, 'broker_name', '') or 'stock_broker'),
+        default_limit=normalized_limit,
+    )
+    resolved = combine_selection_paths(general_selection, advanced_selection)
+    return [str(item.get('symbol') or '').strip().upper() for item in resolved]
+
+
 def filter_positions_by_asset_mode(positions: List[Dict[str, Any]], asset_mode: str = 'all') -> List[Dict[str, Any]]:
     """주식/ETF 자산 모드에 맞게 포지션을 필터링한다."""
     normalized = normalize_asset_mode(asset_mode)
@@ -496,6 +687,8 @@ class StockAnalysisService:
     대시보드와 AI 어시스턴트가 어댑터 직접 접근 없이 분석 결과를 가져올
     단일 진입점.
     """
+    _paper_positions_by_broker: Dict[str, Dict[str, Dict[str, Any]]] = {}
+    _custom_exit_plans_by_broker: Dict[str, Dict[str, Dict[str, Any]]] = {}
 
     def __init__(self, adapter: Any, broker_name: str = '', recorder: Optional[Any] = None):
         """
@@ -513,6 +706,115 @@ class StockAnalysisService:
         self._regime_cache: Optional[str] = None
         self._regime_cache_time: float = 0.0
         self._REGIME_CACHE_TTL: float = 300.0
+
+    def _paper_positions(self) -> Dict[str, Dict[str, Any]]:
+        return self._paper_positions_by_broker.setdefault(str(self.broker_name).lower(), {})
+
+    def _custom_exit_plans(self) -> Dict[str, Dict[str, Any]]:
+        """현재 프로세스의 증권 포지션별 승인 전략 청산계획."""
+        return self._custom_exit_plans_by_broker.setdefault(
+            str(self.broker_name).lower(),
+            {},
+        )
+
+    def _restore_custom_exit_plan(self, symbol: str) -> Dict[str, Any]:
+        """재시작 뒤 최근 XAI 진입 기록에서 활성 전략 청산계획을 복원한다."""
+        cached = dict(self._custom_exit_plans().get(symbol, {}) or {})
+        if cached:
+            return cached
+        recorder = self._get_recorder()
+        getter = getattr(recorder, 'get_ai_decisions', None) if recorder is not None else None
+        if not callable(getter):
+            return {}
+        try:
+            rows = getter(symbol=symbol, limit=30) or []
+        except Exception:
+            return {}
+        for row in rows:
+            decision_type = str(row.get('decision_type') or '')
+            payload = dict(row.get('decision_data') or {})
+            validation = dict(payload.get('validation') or {})
+            action = str(payload.get('action') or '').upper()
+            if decision_type == 'stock_auto_exit_symbol' and bool(validation.get('success')):
+                break
+            if decision_type != 'stock_auto_trade_symbol' or action != 'BUY':
+                continue
+            if not bool(validation.get('success')):
+                continue
+            candidate = dict(validation.get('trade_candidate') or {})
+            if not candidate.get('strategy_name'):
+                break
+            restored = {
+                'strategy_id': candidate.get('strategy_id'),
+                'strategy_key': candidate.get('strategy_key'),
+                'strategy_version_id': candidate.get('strategy_version_id'),
+                'strategy_name': candidate.get('strategy_name'),
+                'strategy_role': candidate.get('strategy_role'),
+                'operation_mode': candidate.get('operation_mode'),
+                'engine_settings': dict(candidate.get('engine_settings') or {}),
+                'rules': dict(candidate.get('selected_rules') or {}),
+                'exit_plan': dict(candidate.get('exit_plan') or {}),
+                'market_regime': candidate.get('market_regime'),
+            }
+            self._custom_exit_plans()[symbol] = restored
+            return restored
+        return {}
+
+    def _place_paper_stock_order(
+        self,
+        *,
+        symbol: str,
+        side: str,
+        quantity: float,
+        price: float,
+        order_type: str,
+    ) -> tuple[bool, Dict[str, Any], List[str]]:
+        if price <= 0 or quantity <= 0:
+            return False, {}, ['paper_price_or_quantity_invalid']
+        now = datetime.now(timezone.utc)
+        positions = self._paper_positions()
+        side_upper = str(side).upper()
+        if side_upper == 'BUY':
+            existing = positions.get(symbol)
+            previous_qty = self._to_float((existing or {}).get('quantity'), default=0.0)
+            previous_price = self._to_float((existing or {}).get('entry_price'), default=0.0)
+            total_qty = previous_qty + quantity
+            average_price = (
+                ((previous_price * previous_qty) + (price * quantity)) / total_qty
+                if total_qty > 0 else price
+            )
+            positions[symbol] = {
+                'symbol': symbol,
+                'code': symbol,
+                'quantity': total_qty,
+                'entry_price': average_price,
+                'current_price': price,
+                'opened_at': (existing or {}).get('opened_at') or now.isoformat(),
+                'execution_mode': 'paper',
+            }
+        elif side_upper == 'SELL':
+            existing = positions.get(symbol)
+            if not existing:
+                return False, {}, ['paper_position_not_found']
+            remaining = self._to_float(existing.get('quantity')) - quantity
+            if remaining > 1e-9:
+                existing['quantity'] = remaining
+                existing['current_price'] = price
+            else:
+                positions.pop(symbol, None)
+
+        return True, {
+            'status': 'paper_filled',
+            'success': True,
+            'simulated': True,
+            'order_id': f"paper-{self.broker_name}-{symbol}-{int(now.timestamp() * 1000)}",
+            'symbol': symbol,
+            'side': side_upper,
+            'quantity': quantity,
+            'price': price,
+            'filled_price': price,
+            'order_type': order_type,
+        }, []
 
     def _get_recorder(self) -> Optional[Any]:
         """Recorder 인스턴스를 지연 로드한다."""
@@ -2060,11 +2362,14 @@ class StockAnalysisService:
             }], 0)
 
         positions: List[Dict[str, Any]] = []
-        try:
-            if hasattr(self.adapter, 'get_positions'):
-                positions = self.adapter.get_positions() or []
-        except Exception:
-            positions = []
+        if execution_mode == ExecutionMode.PAPER.value:
+            positions = [dict(value) for value in self._paper_positions().values()]
+        else:
+            try:
+                if hasattr(self.adapter, 'get_positions'):
+                    positions = self.adapter.get_positions() or []
+            except Exception:
+                positions = []
         positions = filter_positions_by_asset_mode(positions, asset_mode)
 
         for position in positions:
@@ -2084,16 +2389,63 @@ class StockAnalysisService:
                 })
                 continue
 
-            exit_decision = evaluate_stock_position_exit(
-                position=position,
-                analysis_result=analysis,
-                policy=policy,
-                market_regime=market_regime,
-            )
+            custom_exit_plan = self._restore_custom_exit_plan(symbol)
+            custom_exit_result: Dict[str, Any] = {}
+            effective_exit_policy = dict(policy)
+            effective_exit_regime = market_regime
+            if custom_exit_plan:
+                settings = dict(custom_exit_plan.get('engine_settings') or {})
+                tp_fraction = self._to_float(settings.get('tp_percent'), default=0.0)
+                sl_fraction = self._to_float(settings.get('sl_percent'), default=0.0)
+                if tp_fraction > 0:
+                    effective_exit_policy['take_profit_percent'] = tp_fraction * 100.0
+                    effective_exit_policy['etf_take_profit_percent'] = tp_fraction * 100.0
+                if sl_fraction > 0:
+                    effective_exit_policy['stop_loss_percent'] = sl_fraction * 100.0
+                    effective_exit_policy['etf_stop_loss_percent'] = sl_fraction * 100.0
+                # 사용자 전략의 TP/SL을 국면 배수로 다시 쓰거나 기본 SELL
+                # 신호로 청산하지 않는다. 명시 청산 규칙과 원형 TP/SL만 사용한다.
+                effective_exit_policy['use_signal_exit'] = False
+                effective_exit_regime = 'range'
+                try:
+                    from trading.declarative_strategy_engine import DeclarativeStrategyEngine
+
+                    custom_exit_result = DeclarativeStrategyEngine.evaluate_exit(
+                        dict(custom_exit_plan.get('rules') or {}),
+                        dict(analysis),
+                    )
+                except Exception as exc:
+                    custom_exit_result = {
+                        'allowed': False,
+                        'reason': f'custom_exit_evaluation_error:{exc}',
+                    }
+
+            if custom_exit_result.get('allowed'):
+                exit_decision = {
+                    'should_exit': True,
+                    'reason': (
+                        f"custom_exit:{custom_exit_plan.get('strategy_name') or '-'}:"
+                        f"{custom_exit_plan.get('strategy_version_id') or '-'}"
+                    ),
+                    'policy_snapshot': effective_exit_policy,
+                    'custom_exit_result': custom_exit_result,
+                }
+            else:
+                exit_decision = evaluate_stock_position_exit(
+                    position=position,
+                    analysis_result=analysis,
+                    policy=effective_exit_policy,
+                    market_regime=effective_exit_regime,
+                )
+                if custom_exit_plan:
+                    exit_decision['custom_strategy'] = custom_exit_plan
+                    exit_decision['custom_exit_result'] = custom_exit_result
             if not bool(exit_decision.get('should_exit')):
                 continue
 
-            if execution_mode != 'mock' and not bool(allow_live_order):
+            if execution_mode == ExecutionMode.LEARNING.value or (
+                execution_mode in {ExecutionMode.LIVE.value, 'live_api'} and not bool(allow_live_order)
+            ):
                 decisions.append({
                     'symbol': symbol,
                     'action': 'SELL',
@@ -2104,15 +2456,25 @@ class StockAnalysisService:
                 continue
 
             current_price = self._to_float(analysis.get('current_price'), default=0.0)
-            success, order_result, call_errors = self._place_stock_order(
-                symbol=symbol,
-                side='SELL',
-                quantity=quantity,
-                price=None,
-                order_type='MARKET',
-            )
+            if execution_mode == ExecutionMode.PAPER.value:
+                success, order_result, call_errors = self._place_paper_stock_order(
+                    symbol=symbol,
+                    side='SELL',
+                    quantity=quantity,
+                    price=current_price,
+                    order_type='MARKET',
+                )
+            else:
+                success, order_result, call_errors = self._place_stock_order(
+                    symbol=symbol,
+                    side='SELL',
+                    quantity=quantity,
+                    price=None,
+                    order_type='MARKET',
+                )
             if success:
                 executed_orders += 1
+                self._custom_exit_plans().pop(symbol, None)
 
             decisions.append({
                 'symbol': symbol,
@@ -2143,27 +2505,28 @@ class StockAnalysisService:
                 },
             )
 
-            emit_kpi_event(
-                event_type='trade_order_executed' if success else 'trade_order_failed',
-                category='trade',
-                asset_class='etf' if bool(analysis.get('is_etf')) else 'stock',
-                status='success' if success else 'failed',
-                source='noahai_client_stock_auto_exit',
-                metric_value=float(quantity),
-                metadata={
-                    'broker': self.broker_name,
-                    'symbol': symbol,
-                    'quote_currency': 'KRW',
-                    'side': 'SELL',
-                    'close': True,
-                    'reason': exit_decision.get('reason', ''),
-                    'execution_mode': execution_mode,
-                    'executed_price': current_price,
-                    'notional_estimate': float(quantity) * float(current_price or 0.0),
-                },
-            )
+            if execution_mode in {ExecutionMode.LIVE.value, 'live_api'}:
+                emit_kpi_event(
+                    event_type='trade_order_executed' if success else 'trade_order_failed',
+                    category='trade',
+                    asset_class='etf' if bool(analysis.get('is_etf')) else 'stock',
+                    status='success' if success else 'failed',
+                    source='noahai_client_stock_auto_exit',
+                    metric_value=float(quantity),
+                    metadata={
+                        'broker': self.broker_name,
+                        'symbol': symbol,
+                        'quote_currency': 'KRW',
+                        'side': 'SELL',
+                        'close': True,
+                        'reason': exit_decision.get('reason', ''),
+                        'execution_mode': execution_mode,
+                        'executed_price': current_price,
+                        'notional_estimate': float(quantity) * float(current_price or 0.0),
+                    },
+                )
 
-            if success:
+            if success and execution_mode in {ExecutionMode.LIVE.value, 'live_api'}:
                 self._insert_auto_trade_log(
                     symbol=symbol,
                     side='SELL',
@@ -2193,6 +2556,7 @@ class StockAnalysisService:
         auto_risk_policy: Optional[Dict[str, Any]] = None,
         exit_policy: Optional[Dict[str, Any]] = None,
         custom_strategy_pool: Optional[List[Dict[str, Any]]] = None,
+        execution_mode_override: Optional[str] = None,
     ) -> Dict[str, Any]:
         """주식/ETF 자동매매 1회 사이클을 실행한다 (신호→주문)."""
         normalized_symbols = [str(s or '').strip().upper() for s in symbols or [] if str(s or '').strip()]
@@ -2208,7 +2572,13 @@ class StockAnalysisService:
             normalized_max_orders = 1
 
         adapter_api_type = str(getattr(self.adapter, 'api_type', '') or '').strip().lower()
-        execution_mode = 'mock' if adapter_api_type == 'mock' else 'live_api'
+        requested_mode = str(execution_mode_override or '').strip().lower()
+        if requested_mode in {mode.value for mode in ExecutionMode}:
+            execution_mode = requested_mode
+        elif adapter_api_type == 'mock':
+            execution_mode = 'mock'
+        else:
+            execution_mode = 'live_api'
         normalized_asset_mode = normalize_asset_mode(asset_mode)
 
         # ── api_type/api_version 조합 방어 검증 (실행 경로) ──────────────────
@@ -2262,12 +2632,45 @@ class StockAnalysisService:
         runtime_snapshot = self._sync_runtime_state_snapshot()
 
         cached_positions: List[Dict[str, Any]] = []
-        try:
-            if hasattr(self.adapter, 'get_positions'):
-                cached_positions = self.adapter.get_positions() or []
-        except Exception:
-            cached_positions = []
+        if execution_mode == ExecutionMode.PAPER.value:
+            cached_positions = [dict(value) for value in self._paper_positions().values()]
+        else:
+            try:
+                if hasattr(self.adapter, 'get_positions'):
+                    cached_positions = self.adapter.get_positions() or []
+            except Exception:
+                cached_positions = []
         cached_recent_trades = self._get_recent_trade_samples(limit=400)
+        strategy_performance_context = {
+            'recent_win_rate': 0.5,
+            'consecutive_losses': 0,
+        }
+        if cached_recent_trades:
+            recent_sample = list(cached_recent_trades)[-30:]
+            pnl_values: List[float] = []
+            for trade in recent_sample:
+                if not isinstance(trade, dict):
+                    continue
+                pnl_values.append(
+                    self._to_float(
+                        trade.get(
+                            'pnl_percent',
+                            trade.get('realized_pnl', trade.get('pnl', 0.0)),
+                        ),
+                        default=0.0,
+                    )
+                )
+            if pnl_values:
+                strategy_performance_context['recent_win_rate'] = (
+                    sum(1 for pnl in pnl_values if pnl > 0) / len(pnl_values)
+                )
+                consecutive_losses = 0
+                for pnl in reversed(pnl_values):
+                    if pnl < 0:
+                        consecutive_losses += 1
+                    else:
+                        break
+                strategy_performance_context['consecutive_losses'] = consecutive_losses
 
         profitability_policy = {}
         strategy_policy = {}
@@ -2400,44 +2803,6 @@ class StockAnalysisService:
                 })
                 continue
 
-            if profitability_blocked:
-                decisions.append({
-                    'symbol': symbol,
-                    'action': 'SKIP',
-                    'reason': 'profitability_blocked',
-                    'profitability_report': profitability_report,
-                    'analysis_type': analysis.get('analysis_type'),
-                    'score_model': analysis.get('score_model'),
-                    'analysis_reasoning': analysis.get('reasoning', ''),
-                })
-                continue
-
-            strategy_allowed, strategy_meta = strategy_engine.should_trade(
-                symbol=symbol,
-                analysis_result=analysis,
-                runtime_state=strategy_runtime_state,
-                policy=effective_strategy_policy,
-            )
-            if not strategy_allowed:
-                decisions.append({
-                    'symbol': symbol,
-                    'action': 'SKIP',
-                    'reason': 'strategy_blocked',
-                    'strategy_reasons': list(strategy_meta.get('reasons') or []),
-                    'strategy_regime': strategy_meta.get('regime'),
-                    'strategy_candidate_regime': strategy_meta.get('candidate_regime'),
-                    'strategy_regime_confidence': strategy_meta.get('regime_confidence'),
-                    'strategy_regime_observed_at': strategy_meta.get('regime_observed_at'),
-                    'strategy_regime_transition_pending': strategy_meta.get(
-                        'regime_transition_pending'
-                    ),
-                    'strategy_consensus': strategy_meta.get('consensus'),
-                    'analysis_type': analysis.get('analysis_type'),
-                    'score_model': analysis.get('score_model'),
-                    'analysis_reasoning': analysis.get('reasoning', ''),
-                })
-                continue
-
             is_etf = bool(analysis.get('is_etf', False))
             if not asset_mode_matches(normalized_asset_mode, is_etf):
                 decisions.append({
@@ -2454,51 +2819,145 @@ class StockAnalysisService:
                 buy_threshold=effective_buy_threshold,
                 sell_threshold=effective_sell_threshold,
             )
-            # 활성 커스텀 전략은 기존 AI 확인·필터 또는 독립 신호 방식으로 동작한다.
-            if custom_strategy_pool:
-                from trading.declarative_strategy_engine import DeclarativeStrategyEngine
-                custom_context = dict(analysis)
-                custom_context.update({
-                    'signal': {'BUY': 'LONG', 'SELL': 'SHORT'}.get(signal, 'HOLD'),
-                    'confidence': max(0.0, min(1.0, self._to_float(analysis.get('score')) / 100.0)),
-                    'current_price': self._to_float(analysis.get('current_price')),
+            custom_context = dict(analysis)
+            custom_context.update({
+                'signal': {'BUY': 'LONG', 'SELL': 'SHORT'}.get(signal, 'HOLD'),
+                'confidence': max(0.0, min(1.0, self._to_float(analysis.get('score')) / 100.0)),
+                'current_price': self._to_float(analysis.get('current_price')),
+                '_strategy_performance': dict(strategy_performance_context),
+            })
+            candidate = evaluate_trade_candidate(
+                symbol=symbol,
+                context=custom_context,
+                strategy_pool=custom_strategy_pool,
+                asset_class='stock',
+                target=self.broker_name,
+                market_regime=market_regime,
+            )
+            analysis = apply_trade_candidate(analysis, candidate)
+            signal = {'LONG': 'BUY', 'SHORT': 'SELL'}.get(candidate.final_signal, 'HOLD')
+            stock_thresholds = resolve_stock_exit_thresholds(
+                policy=exit_policy,
+                is_etf=is_etf,
+                market_regime=candidate.market_regime,
+            )
+            requested_tp = float(
+                candidate.exit_plan.requested_tp_fraction or 0.0
+            )
+            requested_sl = float(
+                candidate.exit_plan.requested_sl_fraction or 0.0
+            )
+            strategy_exit = bool(
+                candidate.exit_plan.strategy_owned
+                and requested_tp > 0.0
+                and requested_sl > 0.0
+            )
+            stock_exit_snapshot = build_exit_policy(
+                settings={
+                    'default_tp': stock_thresholds['fallback_tp_fraction'],
+                    'default_sl': stock_thresholds['fallback_sl_fraction'],
+                },
+                exit_plan=candidate.to_dict().get('exit_plan', {}),
+                effective_tp_fraction=(
+                    requested_tp
+                    if strategy_exit
+                    else stock_thresholds['effective_tp_fraction']
+                ),
+                effective_sl_fraction=(
+                    requested_sl
+                    if strategy_exit
+                    else stock_thresholds['effective_sl_fraction']
+                ),
+                effective_reason=(
+                    'AI 커스텀 전략 원형'
+                    if strategy_exit
+                    else str(stock_thresholds['reason'])
+                ),
+                entry_price=analysis.get('current_price', 0.0),
+                side=signal,
+                asset_class='etf' if is_etf else 'stock',
+                target=self.broker_name,
+                symbol=symbol,
+            )
+            analysis['_exit_policy'] = stock_exit_snapshot
+            self.log_event(
+                'stock_auto_trade',
+                (
+                    f"{symbol} 후보={candidate.final_signal} 출처={candidate.signal_source} "
+                    f"역할={candidate.strategy_role} 전략={candidate.strategy_name or '기본 AI'} "
+                    f"버전={candidate.strategy_version_id or '-'} 국면={candidate.market_regime} "
+                    f"위험예산={candidate.engine_settings.get('risk_per_trade_percent', '-')} "
+                    f"TP={candidate.engine_settings.get('tp_percent', '-')} "
+                    f"SL={candidate.engine_settings.get('sl_percent', '-')}"
+                ),
+            )
+            self.log_event(
+                'stock_auto_trade',
+                f"{symbol} {format_exit_policy(stock_exit_snapshot)}",
+            )
+
+            if not candidate.allowed:
+                decisions.append({
+                    'symbol': symbol,
+                    'action': 'SKIP',
+                    'reason': 'custom_strategy_not_matched',
+                    'custom_strategy': candidate.to_dict(),
                 })
-                custom_entry = DeclarativeStrategyEngine.evaluate_strategy_pool(
-                    custom_strategy_pool,
-                    custom_context,
-                    asset_class='stock',
-                    target=self.broker_name,
-                    market_regime=market_regime,
+                continue
+
+            # 고급 커스텀은 사용자 전략 원형이 주 전략이다. NoahAI 전체
+            # 수익성·합의 임계값은 기본/일반 후보에만 적용한다.
+            if candidate.requires_noah_strategy_policy and profitability_blocked:
+                decisions.append({
+                    'symbol': symbol,
+                    'action': 'SKIP',
+                    'reason': 'profitability_blocked',
+                    'profitability_report': profitability_report,
+                    'trade_candidate': candidate.to_dict(),
+                    'analysis_type': analysis.get('analysis_type'),
+                    'score_model': analysis.get('score_model'),
+                    'analysis_reasoning': analysis.get('reasoning', ''),
+                })
+                continue
+
+            if candidate.requires_noah_strategy_policy:
+                strategy_allowed, strategy_meta = strategy_engine.should_trade(
+                    symbol=symbol,
+                    analysis_result=analysis,
+                    runtime_state=strategy_runtime_state,
+                    policy=effective_strategy_policy,
                 )
-                if not custom_entry.get('allowed', False):
+                if not strategy_allowed:
                     decisions.append({
-                        'symbol': symbol, 'action': 'SKIP',
-                        'reason': 'custom_strategy_not_matched', 'custom_strategy': custom_entry,
+                        'symbol': symbol,
+                        'action': 'SKIP',
+                        'reason': 'strategy_blocked',
+                        'strategy_reasons': list(strategy_meta.get('reasons') or []),
+                        'strategy_regime': strategy_meta.get('regime'),
+                        'strategy_candidate_regime': strategy_meta.get('candidate_regime'),
+                        'strategy_regime_confidence': strategy_meta.get('regime_confidence'),
+                        'strategy_regime_observed_at': strategy_meta.get('regime_observed_at'),
+                        'strategy_regime_transition_pending': strategy_meta.get(
+                            'regime_transition_pending'
+                        ),
+                        'strategy_consensus': strategy_meta.get('consensus'),
+                        'trade_candidate': candidate.to_dict(),
+                        'analysis_type': analysis.get('analysis_type'),
+                        'score_model': analysis.get('score_model'),
+                        'analysis_reasoning': analysis.get('reasoning', ''),
                     })
                     continue
-                if custom_entry.get('selected_strategy_name'):
-                    if custom_entry.get('signal_mode') == 'independent':
-                        signal = 'BUY' if custom_entry.get('entry_signal') == 'LONG' else 'SELL'
-                    engine_settings = dict(custom_entry.get('engine_settings') or {})
-                    if 'signal_threshold' in engine_settings:
-                        custom_threshold = float(engine_settings['signal_threshold'])
-                        if custom_threshold <= 1.0:
-                            custom_threshold *= 100.0
-                        if self._to_float(analysis.get('score')) < custom_threshold:
-                            decisions.append({
-                                'symbol': symbol, 'action': 'SKIP',
-                                'reason': 'custom_signal_threshold_not_met',
-                                'strategy': custom_entry.get('selected_strategy_name'),
-                            })
-                            continue
-                    analysis['_selected_custom_strategy'] = custom_entry.get('selected_strategy_name')
-                    analysis['_custom_engine_settings'] = engine_settings
-                    analysis['_custom_operation_mode'] = custom_entry.get('operation_mode', 'standard')
             if signal == 'HOLD':
+                hold_reason = (
+                    'custom_strategy_not_matched'
+                    if candidate.custom_evaluated and candidate.signal_source == 'custom_blocked'
+                    else 'threshold_not_met'
+                )
                 decisions.append({
                     'symbol': symbol,
                     'action': 'HOLD',
-                    'reason': 'threshold_not_met',
+                    'reason': hold_reason,
+                    'trade_candidate': candidate.to_dict(),
                     'score': analysis.get('score'),
                     'momentum': analysis.get('momentum'),
                     'analysis_type': analysis.get('analysis_type'),
@@ -2516,7 +2975,8 @@ class StockAnalysisService:
                         'confidence': max(0.0, min(1.0, self._to_float(analysis.get('score')) / 100.0)),
                         'market_regime': market_regime,
                         'validation': {
-                            'reason': 'threshold_not_met',
+                            'reason': hold_reason,
+                            'trade_candidate': candidate.to_dict(),
                             'score': analysis.get('score'),
                             'momentum': analysis.get('momentum'),
                             'effective_buy_threshold': effective_buy_threshold,
@@ -2611,12 +3071,14 @@ class StockAnalysisService:
                 )
                 continue
 
-            if execution_mode != 'mock' and not bool(allow_live_order):
+            if execution_mode in {ExecutionMode.LIVE.value, 'live_api'} and not bool(allow_live_order):
+                order_block_reason = 'live_order_blocked'
                 decisions.append({
                     'symbol': symbol,
                     'action': signal,
-                    'reason': 'live_order_blocked',
+                    'reason': order_block_reason,
                     'execution_mode': execution_mode,
+                    'trade_candidate': candidate.to_dict(),
                     'analysis_type': analysis.get('analysis_type'),
                     'score_model': analysis.get('score_model'),
                     'analysis_reasoning': analysis.get('reasoning', ''),
@@ -2632,8 +3094,9 @@ class StockAnalysisService:
                         'confidence': max(0.0, min(1.0, self._to_float(analysis.get('score')) / 100.0)),
                         'market_regime': market_regime,
                         'validation': {
-                            'reason': 'live_order_blocked',
+                            'reason': order_block_reason,
                             'execution_mode': execution_mode,
+                            'trade_candidate': candidate.to_dict(),
                             'effective_buy_threshold': effective_buy_threshold,
                             'effective_sell_threshold': effective_sell_threshold,
                         },
@@ -2735,6 +3198,84 @@ class StockAnalysisService:
                 )
                 continue
 
+            multi_venue_policy = normalize_multi_venue_policy(
+                dict((auto_risk_policy or {}).get('multi_venue_execution', {}) or {})
+            )
+            opportunity_coordinator = get_opportunity_coordinator()
+            opportunity_auth = opportunity_coordinator.authorize(
+                policy=multi_venue_policy,
+                asset_class='stock',
+                target=self.broker_name,
+                symbol=symbol,
+                direction=signal,
+                quantity=effective_qty,
+                price=current_price,
+                stop_fraction=float(
+                    ((stock_exit_snapshot.get('effective') or {}).get('sl_fraction'))
+                    or 0.0
+                ),
+                strategy_version=candidate.strategy_version_id,
+                account_scope=self.broker_name,
+                reserve=execution_mode != ExecutionMode.LEARNING.value,
+            )
+            opportunity_snapshot = opportunity_auth.to_dict()
+            if not opportunity_auth.allowed:
+                decisions.append({
+                    'symbol': symbol,
+                    'action': signal,
+                    'reason': 'multi_venue_execution_blocked',
+                    'opportunity': opportunity_snapshot,
+                    'trade_candidate': candidate.to_dict(),
+                    'analysis_type': analysis.get('analysis_type'),
+                    'score_model': analysis.get('score_model'),
+                    'analysis_reasoning': analysis.get('reasoning', ''),
+                })
+                continue
+            effective_qty = opportunity_auth.authorized_quantity
+            if opportunity_auth.quantity_factor != 1.0:
+                try:
+                    split_guardrail = evaluate_stock_order_guardrails(
+                        symbol=symbol,
+                        side=signal,
+                        quantity=effective_qty,
+                        price=(
+                            request_price
+                            if request_price is not None
+                            else (current_price if current_price > 0 else None)
+                        ),
+                        order_type=selected_order_type,
+                        broker=self.broker_name,
+                        asset_mode=normalized_asset_mode,
+                        is_etf=is_etf,
+                        daily_order_count=self._get_today_order_count(),
+                        guardrails=guardrails,
+                    )
+                except Exception as split_guardrail_exc:
+                    split_guardrail = {
+                        'allowed': False,
+                        'reasons': [f'split_guardrail_check_error:{split_guardrail_exc}'],
+                    }
+                if not bool(split_guardrail.get('allowed')):
+                    opportunity_coordinator.release(opportunity_auth)
+                    decisions.append({
+                        'symbol': symbol,
+                        'action': signal,
+                        'reason': 'multi_venue_split_guardrail_blocked',
+                        'guardrail_reasons': list(split_guardrail.get('reasons') or []),
+                        'opportunity': opportunity_snapshot,
+                        'trade_candidate': candidate.to_dict(),
+                    })
+                    continue
+            self.log_event(
+                'stock_auto_trade',
+                (
+                    f"{symbol} 동일기회={opportunity_auth.opportunity_id} "
+                    f"실행정책={opportunity_auth.execution_mode} "
+                    f"브로커={self.broker_name} 수량계수={opportunity_auth.quantity_factor:.4f} "
+                    f"통합예상손실={opportunity_auth.aggregate_estimated_loss:.4f}"
+                ),
+            )
+
             idempotency_key = self._build_stock_order_idempotency_key(
                 symbol=symbol,
                 side=signal,
@@ -2743,7 +3284,7 @@ class StockAnalysisService:
                 price=request_price,
             )
             recorder = self._get_recorder()
-            if recorder is not None:
+            if recorder is not None and execution_mode == ExecutionMode.LIVE.value:
                 try:
                     is_dup = False
                     checker = getattr(recorder, 'is_duplicate_stock_order_key', None)
@@ -2757,6 +3298,7 @@ class StockAnalysisService:
                 except Exception:
                     is_dup = False
                 if is_dup:
+                    opportunity_coordinator.release(opportunity_auth)
                     decisions.append({
                         'symbol': symbol,
                         'action': signal,
@@ -2768,8 +3310,71 @@ class StockAnalysisService:
                     })
                     continue
 
+            if execution_mode == ExecutionMode.LEARNING.value:
+                trade_plan = {
+                    'broker': self.broker_name,
+                    'symbol': symbol,
+                    'signal': signal,
+                    'quantity': effective_qty,
+                    'reference_price': current_price,
+                    'order_type': selected_order_type,
+                    'request_price': request_price,
+                    'strategy': candidate.strategy_name or '기본 AI',
+                    'strategy_version': candidate.strategy_version_id,
+                    'candidate_source': candidate.signal_source,
+                    'exit_plan': candidate.to_dict().get('exit_plan', {}),
+                    'order_validation_passed': True,
+                    'opportunity': opportunity_snapshot,
+                }
+                decisions.append({
+                    'symbol': symbol,
+                    'action': signal,
+                    'reason': 'learning_order_blocked_after_full_pipeline',
+                    'execution_mode': execution_mode,
+                    'trade_candidate': candidate.to_dict(),
+                    'trade_plan': trade_plan,
+                    'analysis_type': analysis.get('analysis_type'),
+                    'score_model': analysis.get('score_model'),
+                    'analysis_reasoning': analysis.get('reasoning', ''),
+                })
+                self._persist_xai_decision(
+                    symbol=symbol,
+                    decision_type='stock_auto_trade_symbol',
+                    payload={
+                        'broker': self.broker_name,
+                        'symbol': symbol,
+                        'action': signal,
+                        'reasoning': analysis.get('reasoning', ''),
+                        'confidence': max(
+                            0.0,
+                            min(1.0, self._to_float(analysis.get('score')) / 100.0),
+                        ),
+                        'market_regime': market_regime,
+                        'validation': {
+                            'reason': 'learning_order_blocked_after_full_pipeline',
+                            'execution_mode': execution_mode,
+                            'trade_candidate': candidate.to_dict(),
+                            'trade_plan': trade_plan,
+                            'effective_buy_threshold': effective_buy_threshold,
+                            'effective_sell_threshold': effective_sell_threshold,
+                        },
+                    },
+                )
+                continue
+
             execution_attempts += 1
-            if bool(execution_policy.get('enabled', False)):
+            if execution_mode == ExecutionMode.PAPER.value:
+                started = pytime.perf_counter()
+                success, order_result, call_errors = self._place_paper_stock_order(
+                    symbol=symbol,
+                    side=signal,
+                    quantity=effective_qty,
+                    price=current_price,
+                    order_type=selected_order_type,
+                )
+                latency_ms = (pytime.perf_counter() - started) * 1000.0
+                slippage_bps = 0.0
+            elif bool(execution_policy.get('enabled', False)):
                 success, order_result, call_errors, latency_ms, slippage_bps = execution_optimizer.execute_with_quality_control(
                     place_order_fn=lambda dyn_order_type, dyn_price: self._place_stock_order(
                         symbol=symbol,
@@ -2810,20 +3415,61 @@ class StockAnalysisService:
                 slippage_samples.append(slippage_bps)
 
             if success:
+                opportunity_coordinator.record_result(
+                    opportunity_auth,
+                    status=(
+                        'paper_filled'
+                        if execution_mode == ExecutionMode.PAPER.value
+                        else 'filled'
+                    ),
+                    order_id=str(
+                        (order_result or {}).get('order_id')
+                        or (order_result or {}).get('orderId')
+                        or ''
+                    ),
+                )
                 executed_orders += 1
                 strategy_runtime_state[f'last_trade_at::{symbol.upper()}'] = datetime.now()
-                self._insert_auto_trade_log(
-                    symbol=symbol,
-                    side=signal,
-                    quantity=effective_qty,
-                    price=current_price,
-                    score=self._to_float(analysis.get('score')),
-                    momentum=self._to_float(analysis.get('momentum')),
-                    asset_class='etf' if bool(analysis.get('is_etf')) else 'stock',
-                    execution_mode=execution_mode,
-                    order_result=order_result if isinstance(order_result, dict) else {},
+                stock_exit_snapshot = record_insurance_submission(
+                    stock_exit_snapshot,
+                    status=(
+                        'paper_virtual_exit_no_broker_submission'
+                        if execution_mode == ExecutionMode.PAPER.value
+                        else 'portfolio_monitor_exit_no_broker_insurance_order'
+                    ),
                 )
-                if recorder is not None:
+                analysis['_exit_policy'] = stock_exit_snapshot
+                self.log_event(
+                    'stock_auto_trade',
+                    f"{symbol} {format_exit_policy(stock_exit_snapshot)}",
+                )
+                if candidate.strategy_name and signal == 'BUY':
+                    self._custom_exit_plans()[symbol] = {
+                        'strategy_id': candidate.strategy_id,
+                        'strategy_key': candidate.strategy_key,
+                        'strategy_version_id': candidate.strategy_version_id,
+                        'strategy_name': candidate.strategy_name,
+                        'strategy_role': candidate.strategy_role,
+                        'operation_mode': candidate.operation_mode,
+                        'engine_settings': dict(candidate.engine_settings),
+                        'rules': dict(candidate.selected_rules),
+                        'exit_plan': candidate.to_dict().get('exit_plan', {}),
+                        'market_regime': candidate.market_regime,
+                        'exit_policy': dict(stock_exit_snapshot),
+                    }
+                if execution_mode in {ExecutionMode.LIVE.value, 'live_api'}:
+                    self._insert_auto_trade_log(
+                        symbol=symbol,
+                        side=signal,
+                        quantity=effective_qty,
+                        price=current_price,
+                        score=self._to_float(analysis.get('score')),
+                        momentum=self._to_float(analysis.get('momentum')),
+                        asset_class='etf' if bool(analysis.get('is_etf')) else 'stock',
+                        execution_mode=execution_mode,
+                        order_result=order_result if isinstance(order_result, dict) else {},
+                    )
+                if recorder is not None and execution_mode in {ExecutionMode.LIVE.value, 'live_api'}:
                     try:
                         saver = getattr(recorder, 'save_stock_order_idempotency', None)
                         if callable(saver):
@@ -2838,8 +3484,15 @@ class StockAnalysisService:
                             )
                     except Exception:
                         pass
+            else:
+                opportunity_coordinator.release(opportunity_auth)
+                opportunity_coordinator.record_result(
+                    opportunity_auth,
+                    status='failed',
+                    detail='; '.join(call_errors[:2]) if call_errors else '',
+                )
 
-            if recorder is not None:
+            if recorder is not None and execution_mode in {ExecutionMode.LIVE.value, 'live_api'}:
                 try:
                     metric_saver = getattr(recorder, 'save_stock_execution_metric', None)
                     if callable(metric_saver):
@@ -2859,27 +3512,28 @@ class StockAnalysisService:
                     pass
 
             asset_class = 'etf' if bool(analysis.get('is_etf')) else 'stock'
-            emit_kpi_event(
-                event_type='trade_order_executed' if success else 'trade_order_failed',
-                category='trade',
-                asset_class=asset_class,
-                status='success' if success else 'failed',
-                source='noahai_client_stock_auto',
-                metric_value=float(effective_qty),
-                metadata={
-                    'broker': self.broker_name,
-                    'symbol': symbol,
-                    'quote_currency': 'KRW',
-                    'side': signal,
-                    'close': bool(signal == 'SELL'),
-                    'execution_mode': execution_mode,
-                    'order_type': selected_order_type,
-                    'score': self._to_float(analysis.get('score')),
-                    'reason': '; '.join(call_errors[:2]) if call_errors else '',
-                    'executed_price': self._to_float((order_result if isinstance(order_result, dict) else {}).get('price'), default=0.0),
-                    'notional_estimate': float(effective_qty) * self._to_float((order_result if isinstance(order_result, dict) else {}).get('price'), default=0.0),
-                },
-            )
+            if execution_mode in {ExecutionMode.LIVE.value, 'live_api'}:
+                emit_kpi_event(
+                    event_type='trade_order_executed' if success else 'trade_order_failed',
+                    category='trade',
+                    asset_class=asset_class,
+                    status='success' if success else 'failed',
+                    source='noahai_client_stock_auto',
+                    metric_value=float(effective_qty),
+                    metadata={
+                        'broker': self.broker_name,
+                        'symbol': symbol,
+                        'quote_currency': 'KRW',
+                        'side': signal,
+                        'close': bool(signal == 'SELL'),
+                        'execution_mode': execution_mode,
+                        'order_type': selected_order_type,
+                        'score': self._to_float(analysis.get('score')),
+                        'reason': '; '.join(call_errors[:2]) if call_errors else '',
+                        'executed_price': self._to_float((order_result if isinstance(order_result, dict) else {}).get('price'), default=0.0),
+                        'notional_estimate': float(effective_qty) * self._to_float((order_result if isinstance(order_result, dict) else {}).get('price'), default=0.0),
+                    },
+                )
 
             decisions.append({
                 'symbol': symbol,
@@ -2895,6 +3549,8 @@ class StockAnalysisService:
                 'errors': call_errors,
                 'latency_ms': round(latency_ms, 2),
                 'idempotency_key': idempotency_key,
+                'opportunity': opportunity_snapshot,
+                'trade_candidate': candidate.to_dict(),
             })
 
             self._persist_xai_decision(
@@ -2910,6 +3566,8 @@ class StockAnalysisService:
                         'success': success,
                         'execution_mode': execution_mode,
                         'errors': call_errors[:2],
+                        'opportunity': opportunity_snapshot,
+                        'trade_candidate': candidate.to_dict(),
                         'effective_buy_threshold': effective_buy_threshold,
                         'effective_sell_threshold': effective_sell_threshold,
                     },
@@ -2983,22 +3641,23 @@ class StockAnalysisService:
             'effective_sell_threshold': effective_sell_threshold,
         })
 
-        emit_kpi_event(
-            event_type='trade_execution_quality',
-            category='trade',
-            asset_class='stock',
-            status='success',
-            source='noahai_client_stock_auto',
-            metric_value=float(quality_score),
-            metadata={
-                'broker': self.broker_name,
-                'execution_mode': execution_mode,
-                'attempted_orders': execution_attempts,
-                'failed_orders': execution_failures,
-                'avg_latency_ms': round(avg_latency_ms, 2),
-                'avg_slippage_bps': round(avg_slippage_bps, 2),
-            },
-        )
+        if execution_mode in {ExecutionMode.LIVE.value, 'live_api'}:
+            emit_kpi_event(
+                event_type='trade_execution_quality',
+                category='trade',
+                asset_class='stock',
+                status='success',
+                source='noahai_client_stock_auto',
+                metric_value=float(quality_score),
+                metadata={
+                    'broker': self.broker_name,
+                    'execution_mode': execution_mode,
+                    'attempted_orders': execution_attempts,
+                    'failed_orders': execution_failures,
+                    'avg_latency_ms': round(avg_latency_ms, 2),
+                    'avg_slippage_bps': round(avg_slippage_bps, 2),
+                },
+            )
 
         self._persist_xai_decision(
             symbol=f"{self.broker_name}_PORTFOLIO",

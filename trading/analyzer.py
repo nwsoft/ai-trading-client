@@ -477,9 +477,26 @@ class Analyzer:
             # 비용 제어는 거래를 중단하지 않는다. 먼저 로컬 신호를 계산한 뒤
             # 시장 이벤트가 있거나 거래 후보일 때만 LLM을 새로 호출한다.
             basic_signal = self._generate_basic_signal(coin, market_data, indicators, market_state, config)
+            if bool((config or {}).get("_skip_ai_enhancement", False)):
+                result = dict(basic_signal)
+                result.update({
+                    "ai_call_mode": "local_strategy_universe",
+                    "ai_cost_control_reason": "advanced_independent_base_ai_shadow_disabled",
+                    "strategy_variant": "custom_independent_local_context",
+                    "ai_model": "",
+                    "ai_optimized": False,
+                })
+                return result
 
             # AI 기반 분석 (AI 매니저가 있는 경우)
-            if self.ai_manager and self.ai_manager.enabled():
+            if (
+                self.ai_manager
+                and getattr(
+                    self.ai_manager,
+                    'enabled_for_role',
+                    lambda _role: self.ai_manager.enabled(),
+                )('signal_analysis')
+            ):
                 exchange = str(self._exchange_context or "binance")
                 decision = self.ai_inference_policy.decide(
                     exchange=exchange,
@@ -1321,13 +1338,42 @@ class Analyzer:
             return 0.0, 0.0
 
     def calculate_volatility_for_symbol(self, symbol: str) -> float:
-        """심볼별 변동성 계산 (바이낸스 API 표준 방식)"""
+        """심볼별 변동성 계산.
+
+        다중 거래소 분석 중에는 현재 거래소의 24시간 티커를 사용한다.
+        타 거래소 심볼을 BinanceClient로 넘기면 ``LA/KRW`` 또는
+        ``BTC/USDT:USDT`` 같은 값이 잘못 정규화되어 Invalid symbol 오류가
+        반복되므로, Binance 직접 폴백은 Binance 컨텍스트에서만 허용한다.
+        """
         try:
             self.logger.debug(f"🔄 {symbol} 변동성 계산 시작")
 
-            # 바이낸스 API의 24시간 티커 데이터 사용
+            exchange_context = str(self._exchange_context or 'binance').lower().strip()
+
+            # 현재 거래소의 24시간 티커 데이터 사용
             try:
-                if self.binance_client and hasattr(self.binance_client, 'get_ticker'):
+                if self.exchange_manager and hasattr(self.exchange_manager, 'get_24h_ticker'):
+                    ticker = self.exchange_manager.get_24h_ticker(
+                        symbol,
+                        exchange_name=exchange_context,
+                    )
+                    if ticker and 'priceChangePercent' in ticker:
+                        volatility = float(ticker['priceChangePercent'])
+                        self.logger.debug(
+                            f"✅ {symbol} 변동성 계산 완료 "
+                            f"({exchange_context} 24h 티커): {volatility:.2f}%"
+                        )
+                        return abs(volatility)
+            except Exception as e:
+                self.logger.debug(f"{exchange_context} 24h 티커 조회 실패: {e}")
+
+            # ExchangeManager가 없는 구버전 Binance 경로만 직접 폴백한다.
+            try:
+                if (
+                    exchange_context == 'binance'
+                    and self.binance_client
+                    and hasattr(self.binance_client, 'get_ticker')
+                ):
                     ticker = self.binance_client.get_ticker(symbol)
                     if ticker and 'priceChangePercent' in ticker:
                         volatility = float(ticker['priceChangePercent'])
@@ -2322,9 +2368,20 @@ class Analyzer:
     def _analyze_current_market_conditions(self) -> Dict:
         """현재 시장 상황 분석"""
         try:
+            # 거래소별로 실제 지원 가능성이 높은 대표 심볼만 사용한다.
+            # 국내 현물 거래소에 BNBUSDT를 반복 요청하면 지원 심볼이 없어
+            # 매 분석마다 불필요한 캔들 조회 경고가 발생한다.
+            exchange_context = str(self._exchange_context or 'binance').lower().strip()
+            if exchange_context in {'upbit', 'bithumb'}:
+                representative_symbols = ['BTC/KRW', 'ETH/KRW']
+            elif exchange_context == 'binance':
+                representative_symbols = ['BTCUSDT', 'ETHUSDT', 'BNBUSDT']
+            else:
+                representative_symbols = ['BTC/USDT:USDT', 'ETH/USDT:USDT']
+
             # 메이저 코인들의 변동성 분석
             major_volatility = []
-            for symbol in ['BTCUSDT', 'ETHUSDT', 'BNBUSDT']:
+            for symbol in representative_symbols:
                 try:
                     klines = self._get_klines(symbol, '15m', 20)
                     if klines:

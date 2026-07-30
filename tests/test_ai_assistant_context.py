@@ -210,7 +210,48 @@ class AIAssistantContextTests(unittest.TestCase):
         self.assertIn("실행 엔진 적용값", response)
         self.assertIn("상위 전략 운영 계층", response)
         self.assertIn("기존 전략을 저장 대상으로 골라 새 버전", response)
-        self.assertIn("NoahAI 시장판단과 수익성·리스크·주문 가드레일", response)
+        self.assertIn("기본/재확인 역할은 NoahAI 합의·수익성·공통 안전 경계", response)
+        self.assertIn("독립 역할은 기본 AI 합의·전체 수익성으로 재심사하지 않으며", response)
+        self.assertIn("전략 UniversePolicy", response)
+        self.assertIn("전체 시장(권장)·종목·둘 다·사용 안 함", response)
+
+    def test_multi_venue_help_reports_current_policy_and_parallel_meaning(self):
+        widget = self._make_widget()
+        widget.parent_dashboard = SimpleNamespace(
+            settings={
+                "enabled_exchanges": ["bitget", "okx"],
+                "trade_enabled_exchanges": ["bitget", "okx"],
+                "enabled_stock_brokers": ["kiwoom"],
+                "multi_venue_execution": {"mode": "parallel"},
+            }
+        )
+
+        response = widget._build_multi_venue_support(
+            "같은 BTC 신호가 여러 거래소에 오면 중복 주문 아닌가요?"
+        )
+
+        self.assertIn("선택한 각 대상에서 각각 실행", response)
+        self.assertIn("bitget, okx", response)
+        self.assertIn("양쪽 주문이 정상", response)
+        self.assertIn("같은 거래소·같은 계좌·같은 신호", response)
+
+    def test_execution_mode_help_explains_learning_without_live_scope(self):
+        widget = self._make_widget()
+        widget.parent_dashboard = SimpleNamespace(
+            settings={
+                "paper_trading": False,
+                "enabled_exchanges": ["binance"],
+                "trade_enabled_exchanges": [],
+            }
+        )
+
+        response = widget._build_execution_mode_support(
+            "실제 주문 실행 거래소 없이 학습만 하는 건가요?"
+        )
+
+        self.assertIn("현재 실행 상태: LEARNING", response)
+        self.assertIn("종목선정", response)
+        self.assertIn("신규 주문은 보내지 않습니다", response)
 
     def test_identity_answer_is_always_noahai(self):
         widget = self._make_widget()

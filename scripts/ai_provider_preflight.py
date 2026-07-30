@@ -19,13 +19,18 @@ from trading.ai.preflight import run_ai_provider_preflight
 
 def main() -> int:
     parser = argparse.ArgumentParser()
+    parser.add_argument("--account", default="", help="점검할 사용자 계정 데이터 디렉터리")
     parser.add_argument("--audio", default="", help="전사 검증용 짧은 음성 파일")
     parser.add_argument("--models-only", action="store_true", help="유료 텍스트/JSON 호출 생략")
     parser.add_argument("--output", default="", help="결과 JSON 저장 경로")
     args = parser.parse_args()
 
+    if args.account:
+        from path_utils import set_current_user_account
+        set_current_user_account(args.account)
+
     report = run_ai_provider_preflight(
-        load_settings(),
+        load_settings(persist_migrations=False),
         audio_path=args.audio or None,
         perform_calls=not args.models_only,
     )

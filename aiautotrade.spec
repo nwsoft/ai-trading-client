@@ -80,10 +80,6 @@ a = Analysis(
     'theme_system.font_system',
         # 🔥 표준 logging은 자동 포함되므로 제거 (충돌 방지)
         'openai',
-        'keyring',
-        'keyring.backends',
-        'keyring.backends.Windows',
-        'keyring.backends.macOS',
         'numpy',
         'pandas',
         'loguru',

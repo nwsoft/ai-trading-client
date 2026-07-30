@@ -14,6 +14,7 @@
 """
 from __future__ import annotations
 
+from pathlib import Path
 import time
 from typing import Any, Dict, List
 from unittest.mock import MagicMock, patch
@@ -24,6 +25,15 @@ from trading.exchanges.adapters.shinhan_stock_adapter import ShinhanStockAdapter
 from trading.exchanges.adapters.mirae_asset_stock_adapter import MiraeAssetStockAdapter
 from trading.exchanges.adapters.stock_mock_adapter import StockMockAdapter
 from trading.stock_analysis_service import StockAnalysisService
+
+
+def test_stock_connect_success_logs_never_embed_full_account_number():
+    for relative_path in (
+        "trading/exchanges/adapters/shinhan_stock_adapter.py",
+        "trading/exchanges/adapters/mirae_asset_stock_adapter.py",
+    ):
+        source = Path(relative_path).read_text(encoding="utf-8")
+        assert '연결 성공 (account: {self.account_no' not in source
 
 
 # ──────────────────────────────────────────────────────────────────────────────

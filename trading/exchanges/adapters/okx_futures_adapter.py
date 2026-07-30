@@ -200,6 +200,8 @@ class OkxFuturesAdapter(FuturesExchange):
                 'ETH': balance.get('ETH', {}).get('total', 0),
             }
         except Exception as e:
+            self.last_error = str(e)
+            self.last_auth_guidance = self._build_auth_guidance(e)
             self.logger.error(f"잔고 조회 실패: {e}")
             return {}
 
@@ -215,6 +217,8 @@ class OkxFuturesAdapter(FuturesExchange):
                 'balances': balance
             }
         except Exception as e:
+            self.last_error = str(e)
+            self.last_auth_guidance = self._build_auth_guidance(e)
             self.logger.error(f"계정 정보 조회 실패: {e}")
             return {}
     

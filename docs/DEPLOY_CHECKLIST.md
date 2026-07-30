@@ -1,4 +1,4 @@
-# 배포 체크리스트 (2026-07-28 · v3.9.0.3 후보 기준)
+# 배포 체크리스트 (2026-07-29 · v3.9.0.4 후보 기준)
 
 운영 환경 배포 전/후 점검해야 할 항목을 정리했습니다. 이 문서는 `noahai_client/build_safe.py`의 현재 PyInstaller 스펙을 기준으로 작성되었습니다.
 
@@ -22,6 +22,7 @@
   - 증권 어댑터(hidden import): `trading.exchanges.exchange_factory`, `trading.exchanges.adapters.kiwoom_stock_adapter`, `trading.exchanges.adapters.stock_mock_adapter`, `trading.exchanges.adapters.shinhan_stock_adapter`, `trading.exchanges.adapters.mirae_asset_stock_adapter`, `trading.exchanges.adapters.korea_investment_stock_adapter` (실브로커 4개 + mock 1개)
   - 키움 전용(Windows 빌드 시 자동 추가): `pykiwoom`, `pykiwoom.kiwoom`, `PyQt5`, `PyQt5.QtWidgets`, `PyQt5.QtCore`, `PyQt5.QtGui`, `PyQt5.QAxContainer`
   - 유틸: `openai`, `numpy`, `pandas`, `loguru`, `aiohttp`, `ujson`, `dateparser`, `colorama`, `dotenv`, `psutil` 등
+  - AI 자격증명: v3.9.0.4는 필수 `keyring`·Windows 보안 저장소 hidden import 없음
   - 플랫폼 주의: `win32_setctime`는 Windows 전용. macOS/Linux 빌드 시 제거/무시 필요
 - excludes
   - macOS/Linux: `PyQt5`, `PySide6`, `qt4`, `qt6`, `wx`, `gtk` 등
@@ -53,15 +54,21 @@
 - 숨은 금융 인텔리전스 탭에서 작업 없는 50ms 큐 폴링이 없고, 탭 파괴 후 callback이 재등록되지 않는지 확인
 - 숨은 거래소·증권사 상세 탭에서 잔고·포지션·통계 API 호출이 중지되고, 다시 열면 최신값을 즉시 조회하는지 확인
 - 비정상 종료 시 `runtime_stability.jsonl`·`runtime_faulthandler.log`를 회수하고 정상 종료와 구분
+- 깨끗한 Windows PC에서 Python·pip·keyring 설치 없이 AI API 키 저장→앱 종료→재시작 복원이 되는지 확인
+- v3.9.0.3 `credential_ref`만 있는 Provider는 일반 설정 저장을 막지 않고 `키 재입력 필요`로 표시되며, 키를 다시 입력하면 로컬 키가 정본이 되는지 확인
+- 설정·백업을 지원 로그 압축에 포함하지 않으며 사용자별 설정 경로 권한과 마스킹 UI를 확인
+- Binance 탭 진입 후 12초 안에 잔고 값·연결 대기·조회 실패가 표시되고 카드가 영구 `로딩 중`에 머물지 않는지 확인
+- 실제 AI 기능 검증 중 설정 창을 닫아도 `invalid command name` TclError가 기록되지 않는지 확인
+- Binance 진입 직후 실제 포지션 확인 뒤 TP/SL 1:1이 생성되고, 이미 청산된 포지션에는 `-4509` 보호주문을 반복하지 않는지 확인
 - `trade_enabled_exchanges=[]` 저장 시 모든 실제 주문이 차단되고, 활성 거래소 일괄 선택 후 저장할 때만 선택 거래소 주문이 허용되는지 확인
 - Binance/Bybit/OKX/Bitget/Upbit/Bithumb을 최소 위험으로 각각 주문 제출·체결·취소/청산 E2E 확인
 - AI 커스텀 고급모드에서 EMA 17·63, 15분·1시간 조건과 미지원 기간 501 차단, 런타임 실제 계산값 메타데이터를 확인
-- 대시보드 하단에 `v3.9.0.3 안정성·멀티 AI API·AI 커스텀 통합` 요약과 `업데이트·사용법` 버튼이 노출되는지 확인
+- 대시보드 하단에 `v3.9.0.4 설정 정본·실행 모드·페이퍼 안전성 통합` 요약과 `업데이트·사용법` 버튼이 노출되는지 확인
 - 1500×980과 배포 최소 지원 해상도에서 하단 3영역이 한 줄로 유지되고 거래소·분석 탭의 마지막 카드·버튼이 잘리지 않는지 확인
 - macOS와 Windows에서 상단 서비스·매뉴얼·설정·종료 아이콘의 모양·크기·정렬이 동일한지 확인
 - 현재 서비스의 고유 선택 색상·테두리와 비선택 탭의 배경 구분이 명확한지 확인
 - `업데이트·사용법` 클릭 시 사용자 매뉴얼 `업데이트` 탭이 열리고, 여기서 `AI 커스텀`·`금융 인텔리전스` 상세 사용법으로 이동 가능한지 확인
-- 사용자 매뉴얼 `업데이트` 최상단에 v3.9.0.3 변경·제한·배포 상태와 v3.9.0.2 이전 배포본 안내가 노출되는지 확인
+- 사용자 매뉴얼 `업데이트` 최상단에 v3.9.0.4 변경·제한·배포 상태와 v3.9.0.2 이전 배포본 안내가 노출되는지 확인
 - 대시보드 업데이트 카드에 `안정성·멀티 AI API·AI 커스텀 통합`이 표시되는지 확인
 - 거래 통계 기존 4개 KPI 아래 실제 운용 한 줄에 USDT·KRW 체결금액과 평균 보유시간·유효 건수가 표시되는지 확인
 - AI 자동 리포트 오늘·주간·월간·실시간에 같은 통화 분리·청산일·보유시간 기준이 표시되는지 확인
@@ -217,12 +224,12 @@ OS별 권한/경로 팁
 3) 릴리즈 권한 확인
   - 워크플로의 `permissions: contents: write`가 유지되어야 릴리즈 업로드 가능
 4) 태그 기반 배포 실행
-  - 버전 업데이트 커밋 후 `git tag v3.9.0.3` / `git push origin v3.9.0.3`
+  - 버전 업데이트 커밋 후 `git tag v3.9.0.4` / `git push origin v3.9.0.4`
   - 이후 버전도 동일 패턴
-  - Windows 자동화 스크립트 사용 가능: `powershell -ExecutionPolicy Bypass -File scripts/release_tag_push.ps1 -Version 3.9.0.3 -Branch main -PushBranch`
+  - Windows 자동화 스크립트 사용 가능: `powershell -ExecutionPolicy Bypass -File scripts/release_tag_push.ps1 -Version 3.9.0.4 -Branch main -PushBranch`
 
 전환 운영 기준(질문 반영)
-- `v3.9.0.3`:
+- `v3.9.0.4`:
   - 클라이언트 저장소 릴리즈 업로드(필수)
   - 웹사이트 저장소 공지/다운로드 안내 반영(권장)
 - `v3.9.0.1`부터:

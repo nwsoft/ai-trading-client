@@ -218,6 +218,16 @@ class Evaluator:
                 exchange_client=exchange_client,
                 adjustment_factor=1.0,
             )
+            # 고급 AI 커스텀은 NoahAI 최종 점수 선정을 재사용하지 않는다.
+            # 거래소 지원·유동성·데이터 품질을 통과한 이 로컬 후보 원본을
+            # StrategyUniversePolicy가 별도로 필터할 수 있도록 거래소별 보존한다.
+            if not hasattr(self, "last_market_universe_candidates_by_exchange"):
+                self.last_market_universe_candidates_by_exchange = {}
+            universe_key = str(exchange or "binance").strip().lower()
+            self.last_market_universe_candidates_by_exchange[universe_key] = [
+                dict(item) if isinstance(item, dict) else {"symbol": str(item or "")}
+                for item in (valid_coins or [])
+            ]
             _t_stage['analysis'] = time.perf_counter() - _t_analysis_start
             self.logger.info(f"✅ 기본 분석 완료: {len(valid_coins)}개 유효한 코인")
 
@@ -333,6 +343,11 @@ class Evaluator:
                     exchange_client=exchange_client,
                     adjustment_factor=factor,
                 )
+                if adjusted_coins:
+                    self.last_market_universe_candidates_by_exchange[universe_key] = [
+                        dict(item) if isinstance(item, dict) else {"symbol": str(item or "")}
+                        for item in adjusted_coins
+                    ]
                 self.logger.info(f"⏱️ 기준 완화 분석 소요시간: {factor:.2f} → {len(adjusted_coins) if adjusted_coins else 0}개, {(time.perf_counter()-_t_fb_iter_start):.2f}s")
 
                 if len(adjusted_coins) >= (num_alt + num_major):
@@ -1739,36 +1754,43 @@ class Evaluator:
 
             self.logger.info(f"🎯 목표 비율: 메이저 {target_major_count}개, 알트코인 {target_alt_count}개")
 
-            # 🔥 목표 비율에 맞춰 조정
-            current_major = len(major_coins)
-            current_alt = len(alt_coins)
+            # 목표 비율은 선택 수량에만 사용한다. 알트코인을 메이저로
+            # 재분류하면 위험 분류·화면 표시·후속 비중 정책이 모두 오염된다.
+            ranked_major = sorted(
+                major_coins,
+                key=lambda x: x.get('overall_score', 0),
+                reverse=True,
+            )
+            ranked_alt = sorted(
+                alt_coins,
+                key=lambda x: x.get('overall_score', 0),
+                reverse=True,
+            )
+            selected_major = ranked_major[:target_major_count]
+            selected_alt = ranked_alt[:target_alt_count]
 
-            if current_major != target_major_count or current_alt != target_alt_count:
-                self.logger.info(f"비율 조정: 메이저 {current_major}→{target_major_count}개, 알트코인 {current_alt}→{target_alt_count}개")
-
-                # 메이저 코인 조정
-                if current_major > target_major_count:
-                    # 메이저 코인 제거 (점수 낮은 순)
-                    major_coins = sorted(major_coins, key=lambda x: x.get('overall_score', 0), reverse=True)[:target_major_count]
-                    self.logger.info(f"메이저 코인 제거: {current_major}개 → {len(major_coins)}개")
-                elif current_major < target_major_count:
-                    # 메이저 코인 부족 - 점수가 높은 알트코인을 메이저로 승격
-                    shortage = target_major_count - current_major
-                    alt_coins_sorted = sorted(alt_coins, key=lambda x: x.get('overall_score', 0), reverse=True)
-
-                    for i in range(min(shortage, len(alt_coins_sorted))):
-                        promoted_coin = alt_coins_sorted[i]
-                        promoted_coin['is_major'] = True
-                        major_coins.append(promoted_coin)
-                        alt_coins.remove(promoted_coin)
-
-                    self.logger.info(f"알트코인 메이저 승격: {shortage}개")
-
-                # 알트코인 조정
-                if len(alt_coins) > target_alt_count:
-                    # 알트코인 제거 (점수 낮은 순)
-                    alt_coins = sorted(alt_coins, key=lambda x: x.get('overall_score', 0), reverse=True)[:target_alt_count]
-                    self.logger.info(f"알트코인 제거: {current_alt}개 → {len(alt_coins)}개")
+            # 한 분류가 부족하면 다른 분류의 다음 고득점 후보로 총수만
+            # 채우되 is_major 원본 분류는 절대 변경하지 않는다.
+            remaining_slots = max(0, target_total - len(selected_major) - len(selected_alt))
+            leftovers = (
+                ranked_major[len(selected_major):]
+                + ranked_alt[len(selected_alt):]
+            )
+            leftovers = sorted(
+                leftovers,
+                key=lambda x: x.get('overall_score', 0),
+                reverse=True,
+            )
+            for coin in leftovers[:remaining_slots]:
+                if bool(coin.get('is_major', False)):
+                    selected_major.append(coin)
+                else:
+                    selected_alt.append(coin)
+            if len(selected_major) < target_major_count:
+                self.logger.info(
+                    f"메이저 후보 부족: 목표 {target_major_count}개, 실제 {len(selected_major)}개 "
+                    "(알트 분류 변경 없이 총수만 보완)"
+                )
 
             # 🔥 최종 선택: 점수 순으로 정렬하여 상위 코인 선택
             self.logger.info("🎯 최종 코인 선택 (점수 순 정렬)")
@@ -1776,9 +1798,6 @@ class Evaluator:
             # 🔥 시장 상황에 따른 비율 조정이 완료되었으므로 추가 로직 불필요
             # 메뉴얼에 따라 시장 상황별로 적절한 비율로 조정됨
 
-            # 최종 선택된 코인들
-            selected_major = major_coins
-            selected_alt = alt_coins
             self.logger.info(f"✅ 최종 선택: 메이저 {len(selected_major)}개, 알트코인 {len(selected_alt)}개")
 
             # 최종 결과 병합

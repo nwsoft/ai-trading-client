@@ -26,22 +26,25 @@ def test_user_surfaces_share_provider_scope_and_menu_path():
         assert "AI 엔진/API" in source
 
 
-def test_v3902_is_previous_release_and_v3903_is_update_candidate():
+def test_release_metadata_and_installed_manual_are_scoped_separately():
     assert "현재 배포 버전: v3.9.0.2" in _read("README.md")
-    assert "v3.9.0.3 업데이트 배포 대상 소스" in _read("README.md")
-    assert "v3.9.0.3 Windows 업데이트 배포 대상" in _read("RELEASE_NOTES.md")
-    assert "v3.9.0.2는 이전 고객 배포본" in _read("ui/widgets/user_manual_widget.py")
+    assert "v3.9.0.4 업데이트 배포 대상 소스" in _read("README.md")
+    assert "v3.9.0.4 설정 정본·실행 모드 통합" in _read("RELEASE_NOTES.md")
+    manual = _read("ui/widgets/user_manual_widget.py")
+    assert "현재 설치 버전" in manual
+    assert "v3.9.0.4 최신 업데이트" in manual
+    assert "새 Windows 빌드 전 업데이트 대상" not in manual
     assert "서명된 Windows" in _read("docs/AI_API_USER_GUIDE.md")
     manifest = json.loads(_read("deploy/release-manifest.json"))
-    assert manifest["version"] == "3.9.0.3"
+    assert manifest["version"] == "3.9.0.4"
     assert manifest["build_status"] == "pending_windows_rebuild"
     assert manifest["previous_published_asset"]["customer_deployed"] is True
     assert manifest["previous_published_asset"]["purpose"] == "previous_stable_release"
-    assert _read("deploy/version.txt").strip() == "3.9.0.3"
-    assert 'RELEASE_VERSION = "3.9.0.3"' in _read("config/app_version.py")
-    assert "FileVersion', u'3.9.0.3" in _read("config/windows_version_info.txt")
-    assert "ProductVersion', u'3.9.0.3" in _read("config/windows_version_info.txt")
-    assert 'RELEASE_HIGHLIGHT = "안정성·멀티 AI API·AI 커스텀 통합"' in _read("config/app_version.py")
+    assert _read("deploy/version.txt").strip() == "3.9.0.4"
+    assert 'RELEASE_VERSION = "3.9.0.4"' in _read("config/app_version.py")
+    assert "FileVersion', u'3.9.0.4" in _read("config/windows_version_info.txt")
+    assert "ProductVersion', u'3.9.0.4" in _read("config/windows_version_info.txt")
+    assert 'RELEASE_HIGHLIGHT = "설정 정본·실행 모드·페이퍼 안전성 통합"' in _read("config/app_version.py")
 
 
 def test_alpha_arena_scope_does_not_claim_deprecated_engine_is_current():
@@ -65,7 +68,8 @@ def test_ai_architecture_is_router_first_not_legacy_openai_only():
     architecture = _read("docs/AI_API_ARCHITECTURE.md")
     assert "AIProviderRouter" in architecture
     assert "AnthropicClient" in architecture
-    assert "credential_ref" in architecture
+    assert "로컬 credential 호환 계층" in architecture
+    assert "Windows Credential Manager" not in architecture
     assert "ProviderCapabilities" in architecture
     assert "Phase 2: 하이브리드" not in architecture
     assert "[ ] DeepSeek API 지원" not in architecture

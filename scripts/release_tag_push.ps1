@@ -6,7 +6,8 @@ param(
     [switch]$SkipCommit,
     [switch]$PushBranch,
     [switch]$StrictBranchPush,
-    [switch]$SkipReleaseUpload
+    [switch]$SkipReleaseUpload,
+    [switch]$RequireAuthenticode
 )
 
 $ErrorActionPreference = "Stop"
@@ -214,10 +215,24 @@ if (-not $SkipReleaseUpload) {
         Fail "EXE ProductVersion mismatch. exe=$exeProductVersion RELEASE_VERSION=$releaseVersion. Rebuild on Windows before upload."
     }
     $signature = Get-AuthenticodeSignature -FilePath $exePath
-    if ($signature.Status -ne "Valid" -or -not $signature.SignerCertificate) {
-        Fail "AITrading.exe must have a valid Windows Authenticode signature before release upload. status=$($signature.Status)"
+    if ($RequireAuthenticode) {
+        if ($signature.Status -ne "Valid" -or -not $signature.SignerCertificate) {
+            Fail "AITrading.exe must have a valid Windows Authenticode signature before release upload. status=$($signature.Status)"
+        }
+        Write-Host "[RELEASE_TAG] Authenticode required and valid: $($signature.SignerCertificate.Subject)"
+    } else {
+        if ($signature.Status -eq "Valid" -and $signature.SignerCertificate) {
+            $subject = $signature.SignerCertificate.Subject
+            $issuer = $signature.SignerCertificate.Issuer
+            if ($subject -eq $issuer) {
+                Write-Warning "[RELEASE_TAG] Self-signed Authenticode detected (subject=issuer). For external distribution, unsigned or CA-signed is recommended."
+            } else {
+                Write-Host "[RELEASE_TAG] Authenticode present: $subject"
+            }
+        } else {
+            Write-Host "[RELEASE_TAG] Unsigned executable allowed (RequireAuthenticode not set)."
+        }
     }
-    Write-Host "[RELEASE_TAG] Authenticode valid: $($signature.SignerCertificate.Subject)"
 
     Write-Host "[RELEASE_TAG] Generating release assets..."
     & $pythonCmd scripts/generate_release_assets.py --out-dir deploy --exe deploy/AITrading.exe --repo $repoSlug

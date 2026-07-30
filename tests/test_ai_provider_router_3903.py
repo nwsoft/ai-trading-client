@@ -15,17 +15,6 @@ from trading.ai.provider_router import (
 )
 
 
-class _MemoryKeyring:
-    def __init__(self):
-        self.values = {}
-
-    def set_password(self, service, username, value):
-        self.values[(service, username)] = value
-
-    def get_password(self, service, username):
-        return self.values.get((service, username))
-
-
 def test_provider_capability_schema_has_required_v3903_providers():
     schema = provider_capability_schema()
     assert set(schema) == {"openai", "deepseek", "kimi", "anthropic", "gemini"}
@@ -133,8 +122,7 @@ def test_model_listing_accepts_provider_prefixes():
     ]
 
 
-def test_credential_reference_round_trip_and_disk_scrubbing():
-    memory_keyring = _MemoryKeyring()
+def test_local_credential_round_trip_keeps_provider_key_without_os_dependency():
     settings = {
         "ai_provider": "deepseek",
         "openai_api_key": "secret-value",
@@ -145,37 +133,35 @@ def test_credential_reference_round_trip_and_disk_scrubbing():
             }
         },
     }
-    with patch("trading.ai.credentials._keyring_module", return_value=memory_keyring):
-        stored, warnings = prepare_ai_credentials_for_storage(settings, strict=True)
-        assert warnings == []
-        assert stored["openai_api_key"] == ""
-        assert "api_key" not in stored["ai_credentials"]["deepseek"]
-        assert stored["ai_credentials"]["deepseek"]["credential_ref"].startswith("keyring://NoahAI/")
+    stored, warnings = prepare_ai_credentials_for_storage(settings, strict=True)
+    assert warnings == []
+    assert stored["openai_api_key"] == "secret-value"
+    assert stored["ai_credentials"]["deepseek"]["api_key"] == "secret-value"
+    assert "credential_ref" not in stored["ai_credentials"]["deepseek"]
 
-        hydrated = hydrate_ai_credentials(stored)
-        assert hydrated["ai_credentials"]["deepseek"]["api_key"] == "secret-value"
-        assert hydrated["openai_api_key"] == "secret-value"
+    hydrated = hydrate_ai_credentials(stored)
+    assert hydrated["ai_credentials"]["deepseek"]["api_key"] == "secret-value"
+    assert hydrated["openai_api_key"] == "secret-value"
 
 
-def test_existing_alphaarena_key_is_secured_without_enabling_multi_engine():
-    memory_keyring = _MemoryKeyring()
+def test_existing_alphaarena_key_stays_local_without_enabling_multi_engine():
     settings = {
         "alpha_arena": {
             "engine": "deepseek-v4-flash",
             "deepseek_api_key": "arena-secret",
+            "credential_refs": {"deepseek": "keyring://NoahAI/old.deepseek"},
         },
         "alphaarena_deepseek_api_key": "arena-secret",
     }
-    with patch("trading.ai.credentials._keyring_module", return_value=memory_keyring):
-        stored, warnings = prepare_ai_credentials_for_storage(settings, strict=True)
-        assert warnings == []
-        assert stored["alpha_arena"]["engine"] == "deepseek-v4-flash"
-        assert stored["alpha_arena"]["deepseek_api_key"] == ""
-        assert stored["alphaarena_deepseek_api_key"] == ""
-        assert stored["alpha_arena"]["credential_refs"]["deepseek"].startswith("keyring://NoahAI/")
+    stored, warnings = prepare_ai_credentials_for_storage(settings, strict=True)
+    assert warnings == []
+    assert stored["alpha_arena"]["engine"] == "deepseek-v4-flash"
+    assert stored["alpha_arena"]["deepseek_api_key"] == "arena-secret"
+    assert stored["alphaarena_deepseek_api_key"] == "arena-secret"
+    assert "credential_refs" not in stored["alpha_arena"]
 
-        hydrated = hydrate_ai_credentials(stored)
-        assert hydrated["alpha_arena"]["deepseek_api_key"] == "arena-secret"
+    hydrated = hydrate_ai_credentials(stored)
+    assert hydrated["alpha_arena"]["deepseek_api_key"] == "arena-secret"
 
 
 def test_usage_normalizes_kimi_cached_tokens_and_finish_reason():
@@ -248,10 +234,9 @@ def test_kimi_k3_uses_current_completion_limit_without_temperature():
     assert "temperature" not in captured
 
 
-def test_save_settings_writes_only_credential_reference_and_private_mode(tmp_path):
+def test_save_settings_keeps_local_ai_key_and_private_file_mode(tmp_path):
     from config.settings import save_settings
 
-    memory_keyring = _MemoryKeyring()
     config_path = tmp_path / "settings.json"
     backup_dir = tmp_path / "backups"
     config_path.write_text(
@@ -265,28 +250,29 @@ def test_save_settings_writes_only_credential_reference_and_private_mode(tmp_pat
             "openai": {"api_key": "secret-value", "base_url": ""},
         },
     }
-    with (
-        patch("trading.ai.credentials._keyring_module", return_value=memory_keyring),
-        patch("config.settings._get_settings_paths", return_value=(str(config_path), str(backup_dir))),
+    with patch(
+        "config.settings._get_settings_paths",
+        return_value=(str(config_path), str(backup_dir)),
     ):
         assert save_settings(settings) is True
 
     persisted = json.loads(config_path.read_text(encoding="utf-8"))
-    assert persisted["openai_api_key"] == ""
-    assert "api_key" not in persisted["ai_credentials"]["openai"]
-    assert persisted["ai_credentials"]["openai"]["credential_ref"].startswith("keyring://NoahAI/")
+    assert persisted["openai_api_key"] == "secret-value"
+    assert persisted["ai_credentials"]["openai"]["api_key"] == "secret-value"
+    assert "credential_ref" not in persisted["ai_credentials"]["openai"]
     assert stat.S_IMODE(config_path.stat().st_mode) == 0o600
     backups = list(backup_dir.glob("settings_*.json"))
     assert len(backups) == 1
-    assert "old-plaintext-secret" not in backups[0].read_text(encoding="utf-8")
+    assert "old-plaintext-secret" in backups[0].read_text(encoding="utf-8")
 
 
-def test_reset_preserves_credential_reference():
+def test_reset_preserves_local_api_key_and_unresolved_reference():
     from config.settings import _preserve_sensitive_values
 
     current = {
         "ai_credentials": {
             "openai": {
+                "api_key": "local-secret",
                 "credential_ref": "keyring://NoahAI/account.openai",
                 "base_url": "",
             }
@@ -301,4 +287,5 @@ def test_reset_preserves_credential_reference():
         }
     }
     merged = _preserve_sensitive_values(current, defaults)
+    assert merged["ai_credentials"]["openai"]["api_key"] == "local-secret"
     assert merged["ai_credentials"]["openai"]["credential_ref"] == "keyring://NoahAI/account.openai"

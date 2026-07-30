@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 from copy import deepcopy
 from datetime import datetime, timezone
 from pathlib import Path
@@ -87,6 +88,10 @@ class CustomStrategyPipeline:
             payload = json.loads(self.storage_path.read_text(encoding="utf-8"))
             self.strategies = dict(payload.get("strategies", {}) or {})
             self.active_versions = dict(payload.get("active_versions", {}) or {})
+            try:
+                os.chmod(self.storage_path, 0o600)
+            except OSError:
+                pass
         except Exception as exc:
             self.logger.warning(f"커스텀 전략 저장소 로드 실패: {exc}")
 
@@ -102,7 +107,15 @@ class CustomStrategyPipeline:
             "updated_at": self._now(),
         }
         temp_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+        try:
+            os.chmod(temp_path, 0o600)
+        except OSError:
+            pass
         temp_path.replace(self.storage_path)
+        try:
+            os.chmod(self.storage_path, 0o600)
+        except OSError:
+            pass
 
     def _version_number(self, strategy_key: str) -> int:
         versions = self.strategies.get(strategy_key, [])

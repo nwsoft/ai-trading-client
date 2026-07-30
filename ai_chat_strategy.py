@@ -14,6 +14,8 @@ from typing import Dict, List, Optional, Any, Tuple
 from dataclasses import dataclass, asdict
 from enum import Enum
 
+from trading.custom_strategy_runtime import normalize_engine_settings
+
 class ChatIntentType(Enum):
     """대화 의도 분류"""
     MARKET_ANALYSIS = "market_analysis"
@@ -72,6 +74,7 @@ class AITradingChatbot:
                 name="안전 우선",
                 description="낮은 리스크, 안정적 수익 추구",
                 parameters={
+                    "_unit": "percent_points",
                     "leverage": 1,
                     "position_size": 0.05,  # 5%
                     "tp_percent": 0.12,
@@ -86,6 +89,7 @@ class AITradingChatbot:
                 name="균형 전략",
                 description="중간 리스크, 균형잡힌 수익",
                 parameters={
+                    "_unit": "percent_points",
                     "leverage": 1,
                     "position_size": 0.10,  # 10%
                     "tp_percent": 0.18,
@@ -100,6 +104,7 @@ class AITradingChatbot:
                 name="적극 공격",
                 description="높은 리스크, 높은 수익 추구",
                 parameters={
+                    "_unit": "percent_points",
                     "leverage": 2,
                     "position_size": 0.15,  # 15%
                     "tp_percent": 0.25,
@@ -331,6 +336,19 @@ class AITradingChatbot:
                 "signal_threshold": getattr(self.analyzer, 'user_signal_threshold', 70) if self.analyzer else 70
             }
         return {}
+
+    @staticmethod
+    def _to_runtime_trade_settings(parameters: Dict[str, Any]) -> Dict[str, Any]:
+        """표시용 퍼센트 포인트를 주문 엔진의 fraction 단위로 한 번만 변환한다."""
+        normalized = normalize_engine_settings(parameters)
+        runtime_settings: Dict[str, Any] = {}
+        if "leverage" in normalized:
+            runtime_settings["default_leverage"] = normalized["leverage"]
+        if "tp_percent" in normalized:
+            runtime_settings["default_tp"] = normalized["tp_percent"]
+        if "sl_percent" in normalized:
+            runtime_settings["default_sl"] = normalized["sl_percent"]
+        return runtime_settings
     
     def _calculate_strategy_changes(self, current: Dict, target: Dict) -> Dict[str, tuple]:
         """전략 변경사항 계산"""
@@ -882,14 +900,7 @@ class AITradingChatbot:
             if action_type in ["strategy_change", "safety_mode"]:
                 # 트레이더 설정 업데이트
                 if self.trader:
-                    new_settings = {}
-                    if "leverage" in parameters:
-                        new_settings["default_leverage"] = parameters["leverage"]
-                    if "tp_percent" in parameters:
-                        new_settings["default_tp"] = parameters["tp_percent"]
-                    if "sl_percent" in parameters:
-                        new_settings["default_sl"] = parameters["sl_percent"]
-                    
+                    new_settings = self._to_runtime_trade_settings(parameters)
                     self.trader.update_settings(new_settings)
                 
                 # 분석기 설정 업데이트
@@ -922,14 +933,7 @@ class AITradingChatbot:
             
             # 기본 설정 복원
             if self.trader:
-                restore_settings = {}
-                if "leverage" in self.default_settings_backup:
-                    restore_settings["default_leverage"] = self.default_settings_backup["leverage"]
-                if "tp_percent" in self.default_settings_backup:
-                    restore_settings["default_tp"] = self.default_settings_backup["tp_percent"]
-                if "sl_percent" in self.default_settings_backup:
-                    restore_settings["default_sl"] = self.default_settings_backup["sl_percent"]
-                
+                restore_settings = self._to_runtime_trade_settings(self.default_settings_backup)
                 self.trader.update_settings(restore_settings)
             
             if self.analyzer and "signal_threshold" in self.default_settings_backup:

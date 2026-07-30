@@ -129,6 +129,14 @@ class StrategyCustomizer:
             rules["target_scope"] = target_scope
             rules["target_exchange"] = str(strategy_config.get("target_exchange", "") or "").lower()
             rules["market_regimes"] = list(strategy_config.get("market_regimes", ["all"]) or ["all"])
+            rules["regime_scope"] = str(
+                strategy_config.get("regime_scope", rules.get("regime_scope", "market"))
+                or "market"
+            ).strip().lower()
+            rules["universe_policy"] = dict(
+                strategy_config.get("universe_policy", rules.get("universe_policy", {}))
+                or {}
+            )
             rules["priority"] = max(1, min(int(strategy_config.get("priority", 5) or 5), 10))
             rules["signal_mode"] = str(
                 strategy_config.get("signal_mode", rules.get("signal_mode", "confirm")) or "confirm"
@@ -153,6 +161,8 @@ class StrategyCustomizer:
                 "target_exchange": str(strategy_config.get("target_exchange", "") or "").lower(),
                 "target_scope": target_scope,
                 "market_regimes": list(strategy_config.get("market_regimes", ["all"]) or ["all"]),
+                "regime_scope": rules["regime_scope"],
+                "universe_policy": dict(rules["universe_policy"]),
                 "priority": max(1, min(int(strategy_config.get("priority", 5) or 5), 10)),
                 "signal_mode": rules["signal_mode"],
                 "entry_signal": rules["entry_signal"],
@@ -228,6 +238,8 @@ class StrategyCustomizer:
                     "target_exchange": str(rules.get("target_exchange", "") or "").lower(),
                     "target_scope": str(rules.get("target_scope", "asset:crypto") or "asset:crypto").lower(),
                     "market_regimes": list(rules.get("market_regimes", ["all"]) or ["all"]),
+                    "regime_scope": str(rules.get("regime_scope", "market") or "market"),
+                    "universe_policy": dict(rules.get("universe_policy", {}) or {}),
                     "priority": max(1, min(int(rules.get("priority", 5) or 5), 10)),
                     "signal_mode": str(rules.get("signal_mode", "confirm") or "confirm").lower(),
                     "entry_signal": str(rules.get("entry_signal", "") or "").upper(),
@@ -314,10 +326,8 @@ class StrategyCustomizer:
             return False
 
     def _apply_strategy_values(self, strategy_id: str, strategy: Dict[str, Any]) -> bool:
-        """승인된 전략 값을 실제 런타임 컴포넌트에 반영한다."""
+        """승인 전략을 활성 풀에 반영하되 사용자 전략은 글로벌 기본값을 바꾸지 않는다."""
         try:
-            
-            # 1. 기본 파라미터 적용
             operation_mode = str(strategy.get("operation_mode", "standard") or "standard").lower()
             base_params = (
                 limited_live_engine_settings(strategy.get("base_params", {}))
@@ -327,7 +337,12 @@ class StrategyCustomizer:
                     (strategy.get("rules", {}) or {}).get("risk_model", {}),
                 )
             )
-            if self.trader:
+
+            # 내부 런타임 프로파일은 AI 커스텀 사용자 전략이 아니며, 사용자가
+            # 명시적으로 선택한 경우에만 기존 전역 프로파일 경로를 유지한다.
+            # 사용자 전략은 후보별 engine_settings로만 전달해 다른 전략과
+            # 글로벌 TP/SL·레버리지·Analyzer 임계값을 오염시키지 않는다.
+            if strategy.get("trusted_system", False) and self.trader:
                 trader_settings = {}
                 if "leverage" in base_params:
                     trader_settings["default_leverage"] = base_params["leverage"]
@@ -335,54 +350,20 @@ class StrategyCustomizer:
                     trader_settings["default_tp"] = base_params["tp_percent"]
                 if "sl_percent" in base_params:
                     trader_settings["default_sl"] = base_params["sl_percent"]
-                
-                target_exchange = str(strategy.get("target_exchange", "") or "").lower()
-                target_scope = str(strategy.get("target_scope", "") or "").lower()
-                if target_scope.startswith("exchange:") and target_exchange and target_exchange != "binance":
-                    per_exchange_settings = getattr(self.trader, "custom_engine_settings_by_exchange", {}) or {}
-                    per_exchange_settings[target_exchange] = dict(base_params)
-                    setattr(self.trader, "custom_engine_settings_by_exchange", per_exchange_settings)
-                elif target_scope in {"exchange:binance", ""}:
+                if trader_settings:
                     self.trader.update_settings(trader_settings)
                     optimizer = getattr(self.trader, "optimizer", None)
-                    if optimizer is not None and trader_settings:
+                    if optimizer is not None:
                         updater = getattr(optimizer, "update_settings", None)
                         if callable(updater):
                             updater(trader_settings)
-            
-            # 2. 분석기 설정 적용
-            if self.analyzer and "signal_threshold" in base_params:
-                target_exchange = str(strategy.get("target_exchange", "") or "").lower()
-                try:
-                    self.analyzer.set_user_signal_threshold(
-                        base_params["signal_threshold"],
-                        exchange_name=target_exchange or None,
-                    )
-                except TypeError:
-                    self.analyzer.set_user_signal_threshold(base_params["signal_threshold"])
-            
-            # 3. 코인 필터 적용
-            if "filters" in strategy and self.evaluator:
-                self._apply_coin_filters(strategy["filters"])
-            
-            # 4. 리스크 규칙 적용
-            if "risk_rules" in strategy and self.risk_manager:
-                self._apply_risk_rules(strategy["risk_rules"])
-            
-            # 5. 활성 전략 설정
-            if self.trader is not None:
-                target_exchange = str(strategy.get("target_exchange", "") or "").lower()
-                target_scope = str(strategy.get("target_scope", "") or "").lower()
-                if target_scope.startswith("exchange:") and target_exchange and target_exchange != "binance":
-                    per_exchange = getattr(self.trader, "active_custom_strategy_rules_by_exchange", {}) or {}
-                    per_exchange[target_exchange] = dict(strategy.get("rules", {}) or {})
-                    setattr(self.trader, "active_custom_strategy_rules_by_exchange", per_exchange)
-                elif target_scope in {"exchange:binance", ""}:
-                    setattr(self.trader, "active_custom_strategy_rules", dict(strategy.get("rules", {}) or {}))
+
             self.active_strategy_id = strategy_id
             self._refresh_runtime_strategy_pool()
-            
-            self.logger.info(f"전략 적용 완료: {strategy['name']} ({strategy_id})")
+            self.logger.info(
+                f"전략 활성 풀 반영 완료: {strategy['name']} ({strategy_id}, "
+                f"role={strategy.get('signal_mode', 'confirm')}, mode={operation_mode})"
+            )
             return True
             
         except Exception as e:
@@ -818,8 +799,20 @@ class StrategyCustomizer:
             self.logger.error(f"리스크 규칙 적용 오류: {e}")
     
     def apply_dynamic_adjustment(self, adjustment_type: str, context: Dict) -> bool:
-        """동적 조절 적용"""
+        """레거시 전역 동적 조절 진입점.
+
+        사용자 AI 커스텀 전략의 조정은 후보 평가 시 전략별로 적용한다.
+        이 공개 경로가 글로벌 Trader/Analyzer 설정을 바꾸지 않도록 차단한다.
+        """
         try:
+            if self.active_strategy_id:
+                active = self.user_strategies.get(self.active_strategy_id, {})
+                if active and not active.get("trusted_system", False):
+                    self.logger.debug(
+                        "사용자 전략 동적 조절은 후보별 선언형 평가에서 적용: %s",
+                        adjustment_type,
+                    )
+                    return False
             if adjustment_type in self.dynamic_adjusters:
                 adjuster_func = self.dynamic_adjusters[adjustment_type]
                 result = adjuster_func(context)
@@ -1116,6 +1109,8 @@ class StrategyCustomizer:
                     "target_exchange": strategy.get("target_exchange", ""),
                     "target_scope": strategy.get("target_scope", "asset:crypto"),
                     "market_regimes": list(strategy.get("market_regimes", ["all"]) or ["all"]),
+                    "regime_scope": str(strategy.get("regime_scope", "market") or "market"),
+                    "universe_policy": dict(strategy.get("universe_policy", {}) or {}),
                     "priority": int(strategy.get("priority", 5) or 5),
                     "signal_mode": str(strategy.get("signal_mode", "confirm") or "confirm"),
                     "entry_signal": str(strategy.get("entry_signal", "") or ""),
@@ -1151,6 +1146,8 @@ class StrategyCustomizer:
                 "engine_settings": engine_settings,
                 "target_scope": strategy.get("target_scope", "asset:crypto"),
                 "market_regimes": list(strategy.get("market_regimes", ["all"]) or ["all"]),
+                "regime_scope": str(strategy.get("regime_scope", "market") or "market"),
+                "universe_policy": dict(strategy.get("universe_policy", {}) or {}),
                 "priority": int(strategy.get("priority", 5) or 5),
                 "signal_mode": str(strategy.get("signal_mode", "confirm") or "confirm"),
                 "entry_signal": str(strategy.get("entry_signal", "") or ""),
@@ -1163,6 +1160,11 @@ class StrategyCustomizer:
     def _refresh_runtime_strategy_pool(self) -> None:
         if self.trader is not None:
             setattr(self.trader, "active_custom_strategy_pool", self.get_active_strategy_pool())
+            # v3.9.0.4부터 활성 전략 풀만 런타임 정본이다. 과거 단일 규칙과
+            # 거래소별 글로벌 설정은 실행 경로에서 재사용하지 않는다.
+            setattr(self.trader, "active_custom_strategy_rules", {})
+            setattr(self.trader, "active_custom_strategy_rules_by_exchange", {})
+            setattr(self.trader, "custom_engine_settings_by_exchange", {})
     
     def backup_strategy(self, strategy_id: str) -> bool:
         """전략 백업"""

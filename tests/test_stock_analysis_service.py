@@ -793,6 +793,76 @@ class TestStockAnalysisService:
         skip_decisions = [d for d in result['decisions'] if d.get('reason') == 'profitability_blocked']
         assert len(skip_decisions) >= 1
 
+    def test_independent_custom_stock_bypasses_noah_profitability_policy(self, svc):
+        """고급 커스텀은 사용자 전략 후보를 전체 NoahAI 성과로 재차단하지 않는다."""
+        svc.adapter.api_type = 'mock'
+        svc.adapter.place_order.return_value = {
+            'status': 'success',
+            'order_id': 'CUSTOM-INDEPENDENT-1',
+            'execution_mode': 'mock',
+            'success': True,
+        }
+        svc._get_recent_trade_samples = lambda *a, **kw: [
+            {'pnl': -100.0, 'fee': 0.0, 'quantity': 1.0, 'price': 10000.0}
+            for _ in range(25)
+        ]
+        analysis = dict(self._MOCK_ANALYSIS_BUY)
+        analysis.update({'score': 0, 'signal': 'HOLD', 'rsi': 30})
+        independent_pool = [{
+            'id': 'stock-independent',
+            'strategy_key': 'stock-independent-key',
+            'version_id': 'stock-independent-v1',
+            'name': '주식 독립 RSI',
+            'priority': 10,
+            'target_scope': 'asset:stock',
+            'market_regimes': ['range'],
+            'signal_mode': 'independent',
+            'entry_signal': 'LONG',
+            'engine_settings': {
+                '_unit': 'fraction',
+                'tp_percent': 0.02,
+                'sl_percent': 0.01,
+                'position_size': 0.05,
+            },
+            'rules': {
+                'executable_entry': {
+                    'all': [{'field': 'rsi', 'operator': 'lt', 'value': 40}],
+                },
+                'executable_exit': {
+                    'all': [{'field': 'rsi', 'operator': 'gt', 'value': 70}],
+                },
+            },
+        }]
+
+        with patch.object(svc, 'get_market_regime', return_value='range'), \
+             patch.object(svc, 'analyze_symbol', return_value=analysis):
+            result = svc.run_auto_trade_cycle(
+                symbols=['005930'],
+                quantity=1,
+                order_type='MARKET',
+                buy_threshold=35,
+                sell_threshold=10,
+                max_orders=1,
+                allow_live_order=False,
+                guardrails={'enabled': False},
+                exit_policy={'enable_exit_policy': False},
+                custom_strategy_pool=independent_pool,
+                auto_risk_policy={
+                    'profitability_validation': {
+                        'enabled': True,
+                        'min_trades': 5,
+                        'min_win_rate': 0.99,
+                    },
+                    'strategy_engine': {'enabled': True, 'consensus_threshold': 0.99},
+                },
+            )
+
+        assert result['orders_executed'] == 1
+        decision = result['decisions'][0]
+        assert decision['action'] == 'BUY'
+        assert decision['trade_candidate']['signal_source'] == 'custom_independent'
+        assert decision['trade_candidate']['strategy_version_id'] == 'stock-independent-v1'
+
     def test_run_auto_trade_cycle_profitability_bypassed_on_few_trades(self, svc):
         """거래 데이터 부족 시 수익성 검증 bypass → 주문 차단 없음."""
         svc.adapter.api_type = 'mock'
@@ -828,3 +898,47 @@ class TestStockAnalysisService:
         assert result['status'] == 'ok'
         skip_decisions = [d for d in result['decisions'] if d.get('reason') == 'profitability_blocked']
         assert len(skip_decisions) == 0
+
+    def test_stock_custom_exit_uses_entry_strategy_version_without_regime_rewrite(self, svc):
+        """주식도 진입 전략의 명시 청산을 평가하고 기본 SELL 정책으로 바꾸지 않는다."""
+        from trading.execution_mode import ExecutionMode
+
+        svc.adapter.get_positions.return_value = [{
+            'symbol': '005930',
+            'code': '005930',
+            'quantity': 1,
+            'pnl_rate': 0.1,
+            'is_etf': False,
+        }]
+        svc._custom_exit_plans()['005930'] = {
+            'strategy_name': '주식 독립 RSI',
+            'strategy_version_id': 'stock-independent-v1',
+            'strategy_role': 'independent',
+            'engine_settings': {'tp_percent': 0.02, 'sl_percent': 0.01},
+            'rules': {
+                'executable_exit': {
+                    'all': [{'field': 'rsi', 'operator': 'gt', 'value': 70}],
+                },
+            },
+        }
+        analysis = dict(self._MOCK_ANALYSIS_BUY)
+        analysis.update({'rsi': 80, 'signal': 'BUY'})
+
+        with patch.object(svc, 'analyze_symbol', return_value=analysis):
+            decisions, orders = svc._run_auto_exit_cycle(
+                asset_mode='all',
+                allow_live_order=False,
+                execution_mode=ExecutionMode.LEARNING.value,
+                remaining_order_budget=1,
+                exit_policy={
+                    'enable_exit_policy': True,
+                    'take_profit_percent': 99.0,
+                    'stop_loss_percent': 99.0,
+                    'use_signal_exit': True,
+                },
+                market_regime='bear',
+            )
+
+        assert orders == 0
+        assert decisions[0]['reason'] == 'exit_live_order_blocked'
+        assert decisions[0]['exit_reason'] == 'custom_exit:주식 독립 RSI:stock-independent-v1'

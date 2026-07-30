@@ -1,13 +1,17 @@
 from datetime import datetime
+import json
 from pathlib import Path
 import subprocess
 import sys
 
 import pytest
 
-from config.settings import normalize_trade_rate
+from ai_chat_strategy import AITradingChatbot
+from config.settings import load_settings, normalize_trade_rate
 from trading.ai.auto_optimizer import AIAutoOptimizer
 from trading.optimizer import Optimizer
+from trading.trader import Trader
+from trading.unified_trader import UnifiedTrader
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -49,6 +53,160 @@ def test_price_like_tp_is_rejected_to_safe_fraction():
     assert normalize_trade_rate(8307.968009445398, kind="tp") == (0.0018, True)
     assert normalize_trade_rate(0.18, kind="tp") == (0.0018, True)
     assert normalize_trade_rate(1.0, kind="sl") == (0.01, True)
+    assistant_source = (
+        ROOT / "ui" / "widgets" / "ai_assistant_widget.py"
+    ).read_text(encoding="utf-8")
+    assert "settings.get('default_tp', 0.18)" not in assistant_source
+    assert "settings.get('default_sl', 0.20)" not in assistant_source
+    assert "settings.get('default_sl', 0.10)" not in assistant_source
+    trader_source = (ROOT / "trading" / "trader.py").read_text(encoding="utf-8")
+    assert "enhanced_params.get('tp_percent', 0.18)" not in trader_source
+    assert "enhanced_params.get('sl_percent', 0.20)" not in trader_source
+    assert "✅ TP/SL 설정 정규화 완료" not in trader_source
+    assert "✅ TP/SL 설정 확인 완료 (주문 단위 fraction)" in trader_source
+
+
+def test_legacy_percent_tp_sl_is_persisted_once_on_settings_load(
+    tmp_path,
+    monkeypatch,
+):
+    config_path = tmp_path / "settings.json"
+    config_path.write_text(
+        json.dumps(
+            {
+                "version": "3.9.0.3",
+                "default_tp": 0.18,
+                "default_sl": 0.2,
+                "_ai_custom_runtime_safe_default_v3900_applied": True,
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr("path_utils.get_config_dir", lambda: str(tmp_path))
+
+    first = load_settings()
+    persisted_after_first = json.loads(config_path.read_text(encoding="utf-8"))
+    second = load_settings()
+    persisted_after_second = json.loads(config_path.read_text(encoding="utf-8"))
+
+    assert first["default_tp"] == pytest.approx(0.0018)
+    assert first["default_sl"] == pytest.approx(0.0020)
+    assert second["default_tp"] == pytest.approx(0.0018)
+    assert second["default_sl"] == pytest.approx(0.0020)
+    assert persisted_after_first["default_tp"] == pytest.approx(0.0018)
+    assert persisted_after_first["default_sl"] == pytest.approx(0.0020)
+    assert persisted_after_second == persisted_after_first
+
+
+def test_runtime_strategy_preset_converts_percent_points_before_trader_update():
+    class _Trader:
+        def __init__(self):
+            self.settings = {
+                "default_leverage": 1,
+                "default_tp": 0.0018,
+                "default_sl": 0.0020,
+            }
+            self.updates = []
+
+        def update_settings(self, values):
+            self.updates.append(dict(values))
+            self.settings.update(values)
+
+    trader = _Trader()
+    chatbot = AITradingChatbot(None, trader, None)
+
+    balanced = chatbot.strategy_presets["balanced"].parameters
+    assert balanced["_unit"] == "percent_points"
+    assert chatbot.apply_strategy_changes({
+        "type": "strategy_change",
+        "parameters": balanced,
+    })
+
+    assert trader.updates == [{
+        "default_leverage": 1,
+        "default_tp": pytest.approx(0.0018),
+        "default_sl": pytest.approx(0.0020),
+    }]
+
+
+def test_unified_trader_defensively_normalizes_legacy_tp_sl_for_all_exchanges():
+    class _Logger:
+        def info(self, _message):
+            pass
+
+        def warning(self, _message):
+            pass
+
+    trader = object.__new__(UnifiedTrader)
+    trader.settings = {"default_tp": 0.0018, "default_sl": 0.0020}
+    trader.logger = _Logger()
+    trader.enabled_exchanges = []
+    trader.trade_enabled_exchanges = []
+    trader.learning_enabled_exchanges = []
+    trader._compute_enabled_exchanges = lambda: []
+    trader._compute_trade_enabled_exchanges = lambda: []
+    trader._compute_learning_enabled_exchanges = lambda: []
+    trader.trade_stats = {}
+    trader.paper_trade_stats = {}
+    trader.active_positions = {}
+    trader.paper_positions = {}
+    trader.monitoring_flags = {}
+    trader.monitoring_threads = {}
+    trader.trade_entered = {}
+    trader.ai_optimization_cache = {}
+    trader.pattern_analysis_cache = {}
+    trader.price_data_points = {}
+    trader.advanced_order_managers = {}
+    trader.selected_coins = {}
+    trader.position_sizing_snapshots = {}
+    trader._initialized_exchanges = set()
+    trader.trading_cycles = {}
+    trader._winrate_window = 10
+
+    trader.update_settings({"default_tp": 0.18, "default_sl": 0.2})
+
+    assert trader.settings["default_tp"] == pytest.approx(0.0018)
+    assert trader.settings["default_sl"] == pytest.approx(0.0020)
+
+
+def test_missing_runtime_profile_does_not_force_balanced_settings():
+    class _Chatbot:
+        strategy_presets = {"balanced": object()}
+
+        def __init__(self):
+            self.actions = []
+
+        def apply_strategy_changes(self, action):
+            self.actions.append(action)
+
+    chatbot = _Chatbot()
+
+    trader = object.__new__(Trader)
+    trader.settings = {}
+    trader.ai_trading_chatbot = chatbot
+    trader._runtime_profile_applied = None
+    trader.strategy_customizer = None
+    trader.log_event = lambda *_args, **_kwargs: None
+    trader._apply_connected_strategy_runtime()
+
+    unified = object.__new__(UnifiedTrader)
+    unified.settings = {}
+    unified.ai_trading_chatbot = chatbot
+    unified._runtime_profile_applied = None
+    unified.strategy_customizer = None
+    unified.log_event = lambda *_args, **_kwargs: None
+    unified._apply_connected_strategy_runtime_unified("bybit")
+
+    main_source = (ROOT / "main.py").read_text(encoding="utf-8")
+    startup_profile_section = main_source.split(
+        "def _apply_runtime_strategy_profile", 1
+    )[1].split("def _sync_strategy_customizer_profile", 1)[0]
+
+    assert chatbot.actions == []
+    assert trader._runtime_profile_applied == ""
+    assert unified._runtime_profile_applied == ""
+    assert "get('strategy_runtime_profile', '')" in startup_profile_section
+    assert "profile = 'balanced'" not in startup_profile_section
 
 
 def test_optimizer_reads_explicit_trade_columns_in_correct_order():

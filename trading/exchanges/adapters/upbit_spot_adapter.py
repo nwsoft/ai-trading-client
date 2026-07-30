@@ -17,6 +17,8 @@ class UpbitSpotAdapter(SpotExchange):
         self.secret_key = secret_key
         self.exchange = None
         self.logger = logging.getLogger(__name__)
+        self.last_error: str = ""
+        self.last_auth_guidance: str = ""
         from log_system.log_adapter import log_event
         self.log_event = lambda category, msg, level='INFO': log_event(category, msg, exchange='upbit', level=level)
         self._trade_history_notice_emitted = False
@@ -78,8 +80,11 @@ class UpbitSpotAdapter(SpotExchange):
             
             self.exchange.load_markets()
             self.is_connected = True
+            self.last_error = ""
+            self.last_auth_guidance = ""
             return True
         except Exception as e:
+            self.last_error = str(e)
             self.log_event('system', f"업비트 연결 실패: {e}", level='ERROR')
             return False
     
@@ -103,6 +108,7 @@ class UpbitSpotAdapter(SpotExchange):
                 'ETH': self._extract_total_balance(balance, 'ETH'),
             }
         except Exception as e:
+            self.last_error = str(e)
             self.log_event('system', f"잔고 조회 실패: {e}", level='ERROR')
             return {}
     
@@ -112,6 +118,8 @@ class UpbitSpotAdapter(SpotExchange):
             return {}
         try:
             balance = self.get_balance()
+            if not balance:
+                return {}
             return {
                 'available_balance': balance.get('KRW', 0),
                 'total_balance': balance.get('KRW', 0),
@@ -185,6 +193,9 @@ class UpbitSpotAdapter(SpotExchange):
                 try:
                     self.exchange.fetch_balance()  # type: ignore
                 except Exception as e:
+                    self.last_error = str(e)
+                    if 'ip' in self.last_error.lower():
+                        self.last_auth_guidance = "업비트 API 키의 허용 IP 설정을 확인하세요."
                     self.log_event('system', f"업비트 API 키 검증 실패: {e}", level='ERROR')
                     return False
 

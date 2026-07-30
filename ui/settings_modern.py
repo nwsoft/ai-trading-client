@@ -119,6 +119,7 @@ class ModernSettingsWindow:
         self.current_settings = current_settings or {}
         self._ai_provider_key_buffer: Dict[str, str] = {}
         self._ai_discovered_models: Dict[str, List[str]] = {}
+        self._closed = False
         self.ai_diagnosis_result = self._normalize_ai_diagnosis_result(ai_diagnosis_result)
         # Pylance 타입 에러 방지용 명시적 초기화
         self.exchange_var = None
@@ -143,6 +144,7 @@ class ModernSettingsWindow:
 
         # 창 닫기 이벤트 핸들러 설정
         self.root.protocol("WM_DELETE_WINDOW", self.on_closing)
+        self.root.bind("<Destroy>", self._mark_window_closed, add="+")
 
         # 중앙 정렬
         self.center_window()
@@ -150,6 +152,44 @@ class ModernSettingsWindow:
     def _color(self, key: str, fallback: str = "#9ca3af") -> str:
         """고정 색상 접근 헬퍼"""
         return FIXED_COLORS.get(key, fallback)
+
+    def _mark_window_closed(self, event=None) -> None:
+        if event is None or getattr(event, "widget", None) is self.root:
+            self._closed = True
+
+    def _window_alive(self) -> bool:
+        try:
+            return not self._closed and bool(self.root.winfo_exists())
+        except Exception:
+            return False
+
+    def _read_live_widget(self, attribute: str, default: Any = "") -> Any:
+        """파괴 중인 설정 입력 위젯의 Tcl command를 다시 호출하지 않는다."""
+        if not self._window_alive():
+            return default
+        widget = getattr(self, attribute, None)
+        if widget is None or not hasattr(widget, "get"):
+            return default
+        try:
+            if hasattr(widget, "winfo_exists") and not widget.winfo_exists():
+                return default
+            return widget.get()
+        except (tk.TclError, RuntimeError):
+            return default
+
+    def _dispatch_window_result(self, callback) -> bool:
+        """백그라운드 AI 조회 결과를 살아 있는 설정 창에만 전달한다."""
+        if not self._window_alive():
+            return False
+        try:
+            def guarded():
+                if self._window_alive():
+                    callback()
+
+            self.root.after(0, guarded)
+            return True
+        except (tk.TclError, RuntimeError):
+            return False
 
     def _apply_window_branding(self, window) -> None:
         """설정/확인창에 Python 기본 아이콘 대신 NoahAI 아이콘을 적용한다."""
@@ -1946,6 +1986,18 @@ class ModernSettingsWindow:
             text_color=self._color("text_primary", "#f9fafb")
         )
         self._title_label.pack(pady=(0, 20))
+
+        ctk.CTkLabel(
+            main_frame,
+            text=(
+                "권장 순서: ① 일반에서 운용 모드 확인 → ② 거래소 선택에서 분석 범위와 주문 권한 분리 "
+                "→ ③ 필요한 연결만 설정 → ④ 고급 정책은 근거가 있을 때만 변경"
+            ),
+            font=ctk.CTkFont(family="Segoe UI", size=12),
+            text_color=self._color("text_secondary", "#94a3b8"),
+            justify="center",
+            wraplength=1080,
+        ).pack(pady=(0, 14))
         
         # AI 진단 결과 표시 (있는 경우)
         if self.ai_diagnosis_result:
@@ -1959,15 +2011,14 @@ class ModernSettingsWindow:
         )
         self.tabview.pack(fill="both", expand=True, pady=(0, 20))
 
-        # 탭들 생성 (테마 탭 제거됨)
-        self.create_openai_tab()
-        self.create_exchange_api_tab()
-        self.create_exchange_selection_tab()
-        # self.create_theme_settings_tab()  # 테마 시스템 제거로 삭제됨
+        # 사용자 의사결정 순서로 배치한다. 탭 이름은 기존 바로가기 호환을 유지한다.
         self.create_general_tab()
-        self.create_ai_settings_tab()
+        self.create_exchange_selection_tab()
+        self.create_exchange_api_tab()
+        self.create_openai_tab()
         self.create_advanced_layers_tab()
         self.create_alphaarena_tab()
+        self.create_ai_settings_tab()
         self.create_update_info_tab()  # 자동업데이트/수동 업데이트 관리 탭 (가장 오른쪽)
         style_tabview(
             self.tabview,
@@ -1984,7 +2035,7 @@ class ModernSettingsWindow:
     def create_openai_tab(self):
         """기존 OpenAI 설정과 호환되는 멀티 AI 엔진/API 탭."""
         tab = self.tabview.add("AI 엔진/API")
-        self._add_tab_save_bar(tab, "AI 엔진/API")
+        self._add_tab_save_bar(tab, "4. AI 엔진 연결")
 
         # 스크롤 가능한 프레임
         scroll_frame = ctk.CTkScrollableFrame(tab)
@@ -2630,6 +2681,8 @@ class ModernSettingsWindow:
 • AI 설정 적용 방식: 거래 관련 변경은 항상 "사용자 최종확인" 2단계를 거칩니다
 • 어시스턴트 대화로 모델 변경/티어 조정을 요청해도 변경 전/후 확인 없이 저장되지 않습니다
 • API 키: 선택한 제공사의 공식 Console에서 발급한 별도 API 키를 입력하세요
+• v3.9.0.4는 Windows 보안 저장소나 추가 패키지 없이 다른 API 키와 같은 사용자별 로컬 설정에 저장합니다
+  설정·백업에는 민감정보가 있으므로 지원 전달 시 해당 파일을 포함하지 마세요
 • ChatGPT 유료(Plus/Team)와 OpenAI API 과금은 별개입니다
 • OpenAI 호환 Base URL(선택): OpenAI 기본 엔드포인트 대신 DeepSeek/OpenRouter/Ollama 등 호환 API를 사용할 때 입력합니다
 • AI 설정 도우미: '키 발급' 도구가 아니라 키 발급 후 모델/적용정책을 도와주는 기능입니다
@@ -2668,8 +2721,17 @@ class ModernSettingsWindow:
             self.openai_api_key_entry.delete(0, "end")
             self.openai_api_key_entry.insert(0, str(existing_key or ""))
         if hasattr(self, "ai_api_key_label"):
+            has_unresolved_reference = bool(
+                isinstance(provider_cfg, dict)
+                and provider_cfg.get("credential_ref")
+                and not str(existing_key or "").strip()
+            )
+            suffix = " · v3.9.0.3 키 재입력 필요" if has_unresolved_reference else ""
             self.ai_api_key_label.configure(
-                text=f"{self._AI_PROVIDER_LABELS_REVERSE().get(provider, provider)} API Key:"
+                text=(
+                    f"{self._AI_PROVIDER_LABELS_REVERSE().get(provider, provider)} "
+                    f"API Key{suffix}:"
+                )
             )
         if hasattr(self, "openai_base_url_entry"):
             base_url = (
@@ -2864,14 +2926,16 @@ class ModernSettingsWindow:
 
     def _refresh_ai_model_catalog(self):
         """선택 제공사 계정에서 실제 허용된 모델 목록을 비동기로 조회한다."""
-        api_key = self.openai_api_key_entry.get().strip() if hasattr(self, 'openai_api_key_entry') else ''
+        if not self._window_alive():
+            return
+        api_key = str(self._read_live_widget("openai_api_key_entry", "") or "").strip()
         if not api_key:
             messagebox.showwarning("API 키 필요", "사용 가능 모델 조회를 위해 선택한 제공사의 API 키를 먼저 입력하세요.")
             return
         if hasattr(self, 'ai_catalog_status_label'):
             self.ai_catalog_status_label.configure(text="모델 카탈로그 조회 중...", text_color="#38bdf8")
         provider = self._selected_ai_provider()
-        base_url = self.openai_base_url_entry.get().strip() if hasattr(self, 'openai_base_url_entry') else ''
+        base_url = str(self._read_live_widget("openai_base_url_entry", "") or "").strip()
 
         def worker():
             try:
@@ -2882,16 +2946,26 @@ class ModernSettingsWindow:
                     base_url=base_url or None,
                 )
                 discovered = router.list_models(include_fallback=False)
-                self.root.after(0, lambda: self._apply_ai_model_catalog(discovered))
+                self._dispatch_window_result(
+                    lambda: self._apply_ai_model_catalog(discovered)
+                )
             except Exception as exc:
-                self.root.after(0, lambda: self._apply_ai_model_catalog([], error=str(exc)))
+                error = str(exc)
+                self._dispatch_window_result(
+                    lambda: self._apply_ai_model_catalog([], error=error)
+                )
 
         threading.Thread(target=worker, daemon=True).start()
 
     def _run_ai_provider_preflight(self):
         """사용자가 선택한 실제 Provider 계약을 소액 호출로 검증한다."""
+        if not self._window_alive():
+            return
         audio_path = ""
-        if bool(self.ai_custom_transcription_enabled_var.get()):
+        transcription_enabled = bool(
+            self._read_live_widget("ai_custom_transcription_enabled_var", False)
+        )
+        if transcription_enabled:
             include_audio = messagebox.askyesno(
                 "음성 전사 검증",
                 "짧은 음성 파일까지 선택해 전사를 검증하시겠습니까?\n"
@@ -2906,15 +2980,22 @@ class ModernSettingsWindow:
                     ],
                 )
         candidate = copy.deepcopy(self.current_settings)
-        active_provider = self._selected_ai_provider()
-        self._ai_provider_key_buffer[active_provider] = self.openai_api_key_entry.get().strip()
+        try:
+            active_provider = self._selected_ai_provider()
+        except (tk.TclError, RuntimeError):
+            return
+        self._ai_provider_key_buffer[active_provider] = str(
+            self._read_live_widget("openai_api_key_entry", "") or ""
+        ).strip()
         credentials = copy.deepcopy(candidate.get("ai_credentials", {}) or {})
         for provider, api_key in self._ai_provider_key_buffer.items():
             cfg = dict(credentials.get(provider, {}) or {})
             if api_key:
                 cfg["api_key"] = api_key
             if provider == active_provider:
-                cfg["base_url"] = self.openai_base_url_entry.get().strip()
+                cfg["base_url"] = str(
+                    self._read_live_widget("openai_base_url_entry", "") or ""
+                ).strip()
             credentials[provider] = cfg
         candidate.update({
             "ai_provider": self._assignment_provider("analyst"),
@@ -2924,7 +3005,10 @@ class ModernSettingsWindow:
                 "assistant": self._assignment_route("assistant"),
                 "transcription": {
                     "provider": "openai",
-                    "model": self.ai_custom_transcription_model_combo.get(),
+                    "model": self._read_live_widget(
+                        "ai_custom_transcription_model_combo",
+                        "gpt-4o-mini-transcribe",
+                    ),
                 },
             },
             "ai_model_roles": {
@@ -2933,9 +3017,12 @@ class ModernSettingsWindow:
                 "premium": self._assignment_route("premium"),
             },
             "ai_custom_transcription": {
-                "enabled": bool(self.ai_custom_transcription_enabled_var.get()),
+                "enabled": transcription_enabled,
                 "provider": "openai",
-                "model": self.ai_custom_transcription_model_combo.get(),
+                "model": self._read_live_widget(
+                    "ai_custom_transcription_model_combo",
+                    "gpt-4o-mini-transcribe",
+                ),
             },
         })
         self.ai_catalog_status_label.configure(
@@ -2952,16 +3039,20 @@ class ModernSettingsWindow:
                     audio_path=audio_path or None,
                     perform_calls=True,
                 )
-                self.root.after(0, lambda: self._show_ai_preflight_result(report))
+                self._dispatch_window_result(
+                    lambda: self._show_ai_preflight_result(report)
+                )
             except Exception as exc:
-                self.root.after(
-                    0,
-                    lambda: messagebox.showerror("AI API 기능 검증 실패", str(exc)),
+                error = str(exc)
+                self._dispatch_window_result(
+                    lambda: messagebox.showerror("AI API 기능 검증 실패", error),
                 )
 
         threading.Thread(target=worker, daemon=True).start()
 
     def _show_ai_preflight_result(self, report: Dict[str, Any]):
+        if not self._window_alive():
+            return
         results = dict(report.get("results", {}) or {})
         lines = []
         for workload, item in results.items():
@@ -3653,11 +3744,48 @@ class ModernSettingsWindow:
     def create_general_tab(self):
         """일반 설정 탭: 페이퍼 트레이딩 토글 등 공통 옵션"""
         tab = self.tabview.add("일반")
-        self._add_tab_save_bar(tab, "일반 설정")
+        self._add_tab_save_bar(tab, "1. 운용 모드")
 
         # 스크롤 가능한 프레임
         scroll_frame = ctk.CTkScrollableFrame(tab)
         scroll_frame.pack(fill="both", expand=True, padx=20, pady=20)
+
+        try:
+            from config.settings_contract import audit_settings_contract
+
+            contract_report = audit_settings_contract(self.current_settings)
+        except Exception:
+            contract_report = {
+                "schema_version": "확인 불가",
+                "mode": "UNKNOWN",
+                "mode_message": "설정 상태를 다시 불러와 주세요.",
+                "archived_legacy_count": 0,
+                "issues": [],
+            }
+        contract_group = ctk.CTkFrame(scroll_frame)
+        contract_group.pack(fill="x", pady=(0, 20))
+        ctk.CTkLabel(
+            contract_group,
+            text="설정 정리 상태",
+            font=ctk.CTkFont(family="Segoe UI", size=18, weight="bold"),
+            text_color=self._color("text_primary", "#f9fafb"),
+        ).pack(anchor="w", padx=20, pady=(16, 6))
+        ctk.CTkLabel(
+            contract_group,
+            text=(
+                f"정본 v{contract_report.get('schema_version')} · 현재 모드 "
+                f"{contract_report.get('mode')} · 호환 보관 "
+                f"{contract_report.get('archived_legacy_count', 0)}개 · "
+                f"모순 {len(contract_report.get('issues', []))}건 · 주문 권한 확인 "
+                f"{'완료' if contract_report.get('trade_scope_confirmed') else '미설정'}\n"
+                f"{contract_report.get('mode_message')}\n"
+                "화면에 없는 지표·캐시·주기 값은 서비스별 자동 정책이며 사용자가 직접 맞출 필요가 없습니다."
+            ),
+            font=ctk.CTkFont(family="Segoe UI", size=11),
+            text_color=self._color("info", "#60a5fa"),
+            justify="left",
+            wraplength=980,
+        ).pack(anchor="w", padx=20, pady=(0, 16))
 
         # 일반 설정 그룹
         general_group = ctk.CTkFrame(scroll_frame)
@@ -3665,7 +3793,7 @@ class ModernSettingsWindow:
 
         title = ctk.CTkLabel(
             general_group,
-            text="일반 설정",
+            text="1. 운용 모드",
             font=ctk.CTkFont(family="Segoe UI", size=18, weight="bold"),
             text_color=self._color("text_primary", "#f9fafb")
         )
@@ -3680,6 +3808,18 @@ class ModernSettingsWindow:
             variable=self.paper_trading_var
         )
         paper_switch.pack(anchor="w", padx=20, pady=(4, 12))
+        ctk.CTkLabel(
+            general_group,
+            text=(
+                "실시간 시세·AI 분석·전략·가드레일은 그대로 실행하고 주문과 포지션만 내부에서 가상 체결합니다.\n"
+                "저장 후 거래 시작을 누르면 선택된 모든 암호화폐 거래소와 증권사에 적용되며, "
+                "'실제 주문 실행 거래소'를 선택하지 않아도 작동합니다. 실제 계좌·주문·실거래 KPI는 변경하지 않습니다."
+            ),
+            font=ctk.CTkFont(family="Segoe UI", size=11),
+            text_color=self._color("info", "#60a5fa"),
+            justify="left",
+            wraplength=980,
+        ).pack(anchor="w", padx=20, pady=(0, 14))
 
         # 관리자 전용: 방송 리플레이 설정
         self.broadcast_replay_enabled_var = None
@@ -3763,6 +3903,13 @@ class ModernSettingsWindow:
             variable=self.always_on_top_var
         )
         always_on_top_switch.pack(anchor="w", padx=20, pady=(4, 12))
+        ctk.CTkLabel(
+            general_group,
+            text="ON이면 저장 즉시 대시보드 창에 적용되고, 다음 실행 때도 최상단 상태를 복원합니다. 기본값은 OFF입니다.",
+            font=ctk.CTkFont(family="Segoe UI", size=11),
+            text_color=self._color("text_secondary", "#9ca3af"),
+            justify="left",
+        ).pack(anchor="w", padx=20, pady=(0, 14))
 
         # 관리자 전용 데모 모드 토글
         try:
@@ -4004,7 +4151,7 @@ class ModernSettingsWindow:
     def create_exchange_api_tab(self):
         """거래소 API 설정 탭 - 기존 구조 정확히 재현"""
         tab = self.tabview.add("거래소 API")
-        self._add_tab_save_bar(tab, "거래소·증권사 API")
+        self._add_tab_save_bar(tab, "3. 거래 연결")
 
         # 스크롤 가능한 프레임
         scroll_frame = ctk.CTkScrollableFrame(tab)
@@ -5321,7 +5468,7 @@ class ModernSettingsWindow:
     def create_ai_settings_tab(self):
         """AI 설정 탭 - 안전한 정보만 표시 (위험한 설정 제거)"""
         tab = self.tabview.add("AI 시스템 상태")
-        self._add_tab_save_bar(tab, "AI 시스템·시장국면")
+        self._add_tab_save_bar(tab, "7. 자동 관리 상태·진단")
 
         # 스크롤 가능한 프레임
         scroll_frame = ctk.CTkScrollableFrame(tab)
@@ -5587,7 +5734,7 @@ AI 최적화 시스템과 충돌 발생
     def create_exchange_selection_tab(self):
         """거래소 선택 탭 - 기존 구조 정확히 재현"""
         tab = self.tabview.add("거래소 선택")
-        self._add_tab_save_bar(tab, "거래소·증권사 선택")
+        self._add_tab_save_bar(tab, "2. 운용 범위·주문 권한")
 
         # 스크롤 가능한 프레임
         scroll_frame = ctk.CTkScrollableFrame(tab)
@@ -5596,7 +5743,7 @@ AI 최적화 시스템과 충돌 발생
         # 제목
         title_label = ctk.CTkLabel(
             scroll_frame,
-            text="거래소 선택",
+            text="2. 운용 범위·주문 권한",
             font=ctk.CTkFont(family="Segoe UI", size=24, weight="bold"),
             text_color=self._color("text_primary", "#f9fafb")
         )
@@ -5607,9 +5754,10 @@ AI 최적화 시스템과 충돌 발생
 
 • 현재 지원: 바이낸스, 업비트, 빗썸, 바이비트, OKX, 비트겟
 • 다중 선택: 여러 거래소를 동시에 선택할 수 있습니다
-• API 키: 선택한 거래소의 API 키를 반드시 입력해야 합니다
+• API 키: 공개 시세·분석은 지원 거래소에서 키 없이 가능할 수 있으며, 실잔고·포지션·실주문에는 유효한 키가 필요합니다
 • 선물 거래: 바이낸스, 바이비트, OKX, 비트겟
-• 현물 거래: 업비트, 빗썸"""
+• 현물 거래: 업비트, 빗썸
+• 핵심: 위 선택은 관찰·분석 범위이고, 아래 선택만 신규 실주문 권한입니다"""
 
         description_label = ctk.CTkLabel(
             scroll_frame,
@@ -5728,15 +5876,17 @@ AI 최적화 시스템과 충돌 발생
         trade_scope_group.pack(fill="x", padx=0, pady=(0, 20))
         ctk.CTkLabel(
             trade_scope_group,
-            text="실제 주문 실행 거래소",
+            text="실제 주문 실행 거래소 (신규 진입 허용)",
             font=ctk.CTkFont(family="Segoe UI", size=18, weight="bold"),
             text_color=self._color("text_primary", "#f9fafb"),
         ).pack(anchor="w", padx=20, pady=(16, 4))
         ctk.CTkLabel(
             trade_scope_group,
             text=(
-                "위의 ‘거래소 선택’은 화면·시세·분석·학습 범위입니다. 실제 주문까지 허용할 거래소는 "
-                "아래에서 별도로 선택해야 합니다. API 키·회원등급·수익성·손실한도·주문 가드레일은 계속 적용됩니다."
+                "위의 ‘거래소 선택’만 체크해도 시작 후 시세 수집·코인 선정·AI 분석·학습·잔고/포지션 조회가 동작하며 "
+                "신규 실주문은 0건입니다. 그중 신규 진입까지 허용할 거래소만 아래에서 추가 선택하세요. "
+                "v3.9.0.4 최초 실행은 과도기 자동복사 여부를 알 수 없는 기존 주문 목록을 해제하므로, LIVE 사용자는 여기서 다시 선택하고 저장해야 합니다. "
+                "기존 포지션 조회·보호와 API 키·회원등급·손실한도·주문 가드레일은 계속 적용됩니다."
             ),
             font=ctk.CTkFont(family="Segoe UI", size=11),
             text_color=self._color("text_secondary", "#9ca3af"),
@@ -5788,10 +5938,43 @@ AI 최적화 시스템과 충돌 발생
         ).pack(side="left", padx=8)
         ctk.CTkLabel(
             trade_actions,
-            text="선택만으로 주문되지 않으며 ‘설정 저장’ 후 다음 실행부터 적용됩니다.",
+            text="아래를 비우면 모든 활성 거래소가 학습 전용으로 시작됩니다. ‘설정 저장’ 후 다음 실행부터 적용됩니다.",
             font=ctk.CTkFont(family="Segoe UI", size=10),
             text_color=self._color("warning", "#fbbf24"),
         ).pack(side="left", padx=8)
+
+        multi_venue_row = ctk.CTkFrame(trade_scope_group, fg_color="#0f172a", corner_radius=10)
+        multi_venue_row.pack(fill="x", padx=20, pady=(0, 14))
+        ctk.CTkLabel(
+            multi_venue_row,
+            text="같은 투자 기회가 여러 거래소에서 발생할 때",
+            font=ctk.CTkFont(family="Segoe UI", size=12, weight="bold"),
+            text_color=self._color("text_primary", "#f9fafb"),
+        ).pack(side="left", padx=(12, 8), pady=10)
+        self.multi_venue_mode_combo = ctk.CTkComboBox(
+            multi_venue_row,
+            values=[
+                "선택한 거래소에서 각각 실행 (권장)",
+                "총위험을 거래소별로 분할",
+                "우선순위 한 곳만 실행",
+            ],
+            width=270,
+            height=34,
+        )
+        self.multi_venue_mode_combo.set("선택한 거래소에서 각각 실행 (권장)")
+        self.multi_venue_mode_combo.pack(side="left", pady=10)
+        ctk.CTkLabel(
+            multi_venue_row,
+            text=(
+                "BTC 신호를 Bitget·OKX에서 각각 실행하는 것은 정상 병렬 실행입니다. "
+                "같은 거래소·계좌에 같은 신호가 반복 제출될 때만 중복으로 차단합니다. "
+                "한 곳만 실행은 저장된 비용 우선순위가 없으면 실제 주문 목록의 첫 번째 대상을 사용합니다."
+            ),
+            font=ctk.CTkFont(family="Segoe UI", size=10),
+            text_color="#93c5fd",
+            justify="left",
+            wraplength=510,
+        ).pack(side="left", padx=12, pady=10)
 
         # 주식/증권사 선택 섹션 (기존 거래소 선택 탭에 추가)
         stock_separator = ctk.CTkFrame(scroll_frame, height=2, fg_color=self._color("secondary", "#1f2937"))
@@ -6084,7 +6267,10 @@ AI 최적화 시스템과 충돌 발생
 
         ctk.CTkLabel(
             stock_ctrl_frame,
-            text="'실주문 허용'을 켜야 실제 증권사 주문이 나갑니다. 끄면 분석·계획만 기록되고 실행되지 않습니다.",
+            text=(
+                "'실주문 허용'을 켜야 실제 증권사 주문이 나갑니다. 끄면 기본적으로 분석·계획만 수행합니다. "
+                "단, 설정 → 일반의 페이퍼 트레이딩이 ON이면 실주문 허용과 무관하게 내부 가상 주문이 실행됩니다."
+            ),
             font=ctk.CTkFont(family="Segoe UI", size=11),
             text_color="#f59e0b",
             justify="left"
@@ -6530,14 +6716,27 @@ AI 최적화 시스템과 충돌 발생
             ).strip()
             self._ai_provider_key_buffer[active_provider] = openai_key
 
-            print(f"바이낸스 키: {binance_key[:10]}..." if binance_key else "바이낸스 키: 없음")
+            print(f"바이낸스 키: {'설정됨' if binance_key else '없음'}")
             print(f"{provider_label} API 키: {'설정됨' if openai_key else '없음'}")
 
             self.binance_api_key_entry.insert(0, binance_key)
             self.binance_secret_key_entry.insert(0, binance_secret)
             self.openai_api_key_entry.insert(0, openai_key)
             if hasattr(self, "ai_api_key_label"):
-                self.ai_api_key_label.configure(text=f"{provider_label} API Key:")
+                has_unresolved_reference = bool(
+                    isinstance(provider_cfg, dict)
+                    and provider_cfg.get("credential_ref")
+                    and not openai_key
+                )
+                suffix = " · v3.9.0.3 키 재입력 필요" if has_unresolved_reference else ""
+                self.ai_api_key_label.configure(
+                    text=f"{provider_label} API Key{suffix}:"
+                )
+                if has_unresolved_reference:
+                    print(
+                        f"⚠️ {provider_label}은 v3.9.0.3 보안 저장 참조만 남아 있습니다. "
+                        "AI 기능을 사용하려면 API 키를 한 번 다시 입력해 주세요."
+                    )
             if hasattr(self, "ai_price_guide_label"):
                 try:
                     from trading.ai.provider_catalog import format_provider_price_guide
@@ -6742,6 +6941,19 @@ AI 최적화 시스템과 충돌 발생
                     configured_trade = [selected_trade]
                 for key, var in self.trade_exchange_vars.items():
                     var.set(key in enabled and key in configured_trade)
+            if hasattr(self, "multi_venue_mode_combo"):
+                multi_mode = str(
+                    (
+                        self.current_settings.get("multi_venue_execution", {})
+                        or {}
+                    ).get("mode", "parallel")
+                    or "parallel"
+                ).lower()
+                self.multi_venue_mode_combo.set({
+                    "parallel": "선택한 거래소에서 각각 실행 (권장)",
+                    "split": "총위험을 거래소별로 분할",
+                    "best": "우선순위 한 곳만 실행",
+                }.get(multi_mode, "선택한 거래소에서 각각 실행 (권장)"))
 
             # 증권사 선택 상태 복원 (다중 선택)
             enabled_brokers = self.current_settings.get('enabled_stock_brokers', [])
@@ -6897,35 +7109,6 @@ AI 최적화 시스템과 충돌 발생
                     # 경고 메시지 업데이트
                     if hasattr(self, '_update_capital_warning'):
                         self._update_capital_warning()
-                
-                # 레거시 설정도 복원 (하위 호환성)
-                if hasattr(self, 'alphaarena_enabled_var'):
-                    self.alphaarena_enabled_var.set(bool(self.current_settings.get('alphaarena_enabled', False)))
-                if hasattr(self, 'alphaarena_ai_var'):
-                    ai_engine = self.current_settings.get('alphaarena_ai_engine', 'deepseek-v4-flash')
-                    if ai_engine in ('deepseek-3.1', 'deepseek-chat-v3.1', 'deepseek-chat'):
-                        ai_engine = 'deepseek-v4-flash'
-                    self.alphaarena_ai_var.set(ai_engine)
-                if hasattr(self, 'alphaarena_capital_entry'):
-                    capital = str(self.current_settings.get('alphaarena_capital', 10000))
-                    self.alphaarena_capital_entry.delete(0, 'end')
-                    self.alphaarena_capital_entry.insert(0, capital)
-                if hasattr(self, 'alphaarena_leverage_var'):
-                    leverage = self.current_settings.get('alphaarena_leverage_range', '10-20x')
-                    self.alphaarena_leverage_var.set(leverage)
-                # API 키들 복원 (레거시)
-                if hasattr(self, 'alphaarena_deepseek_key'):
-                    self.alphaarena_deepseek_key.insert(0, self.current_settings.get('alphaarena_deepseek_api_key', ''))
-                if hasattr(self, 'alphaarena_openai_key'):
-                    self.alphaarena_openai_key.insert(0, self.current_settings.get('alphaarena_openai_api_key', ''))
-                if hasattr(self, 'alphaarena_anthropic_key'):
-                    self.alphaarena_anthropic_key.insert(0, self.current_settings.get('alphaarena_anthropic_api_key', ''))
-                if hasattr(self, 'alphaarena_google_key'):
-                    self.alphaarena_google_key.insert(0, self.current_settings.get('alphaarena_google_api_key', ''))
-                if hasattr(self, 'alphaarena_xai_key'):
-                    self.alphaarena_xai_key.insert(0, self.current_settings.get('alphaarena_xai_api_key', ''))
-                if hasattr(self, 'alphaarena_alibaba_key'):
-                    self.alphaarena_alibaba_key.insert(0, self.current_settings.get('alphaarena_alibaba_api_key', ''))
             except Exception as e:
                 print(f"Alpha Arena 설정 복원 실패: {e}")
 
@@ -6963,7 +7146,7 @@ AI 최적화 시스템과 충돌 발생
     def create_update_info_tab(self):
         """업데이트 정보 탭 - 버전 및 새로운 기능 안내"""
         tab = self.tabview.add("업데이트")
-        self._add_tab_save_bar(tab, "업데이트 설정")
+        self._add_tab_save_bar(tab, "8. 업데이트")
 
         # 스크롤 가능한 프레임
         scroll_frame = ctk.CTkScrollableFrame(tab)
@@ -7000,7 +7183,7 @@ AI 최적화 시스템과 충돌 발생
         # 업데이트 일자
         update_date_label = ctk.CTkLabel(
             version_group,
-            text="후보 소스 기준일: 2026년 7월 28일 (Windows 배포 전)",
+            text="후보 소스 기준일: 2026년 7월 29일 (Windows 배포 전)",
             font=ctk.CTkFont(family="Segoe UI", size=12),
             text_color="#9ca3af"
         )
@@ -7302,7 +7485,6 @@ AI 최적화 시스템과 충돌 발생
             active_key = self.openai_api_key_entry.get().strip()
             self._ai_provider_key_buffer[active_provider] = active_key
             ai_credentials = copy.deepcopy(self.current_settings.get("ai_credentials", {}) or {})
-            from trading.ai.credentials import store_credential
 
             for provider_name in self._AI_PROVIDER_LABELS.values():
                 provider_cfg = dict(ai_credentials.get(provider_name, {}) or {})
@@ -7317,21 +7499,20 @@ AI 최적화 시스템과 충돌 발생
                         "base_url",
                         self._AI_PROVIDER_BASE_URLS.get(provider_name, ""),
                     )
-                buffered_key = str(self._ai_provider_key_buffer.get(provider_name) or "").strip()
-                if buffered_key:
-                    try:
-                        provider_cfg["credential_ref"] = store_credential(
-                            provider_name,
-                            buffered_key,
-                            reference=str(provider_cfg.get("credential_ref") or "") or None,
-                        )
+                if provider_name in self._ai_provider_key_buffer:
+                    buffered_key = str(
+                        self._ai_provider_key_buffer.get(provider_name) or ""
+                    ).strip()
+                    if buffered_key:
                         provider_cfg["api_key"] = buffered_key
-                    except Exception as exc:
-                        messagebox.showerror(
-                            "API 키 보안 저장 실패",
-                            f"{provider_name} API 키를 운영체제 보안 저장소에 저장하지 못했습니다.\n\n{exc}",
-                        )
-                        return
+                        provider_cfg.pop("credential_ref", None)
+                    elif not provider_cfg.get("credential_ref"):
+                        # 로컬 키는 입력란을 비운 뒤 저장하면 실제로 삭제된다.
+                        provider_cfg.pop("api_key", None)
+                    else:
+                        # v3.9.0.3 참조만 남은 설정은 사용자가 새 키를
+                        # 입력하기 전까지 단서를 보존한다.
+                        provider_cfg.pop("api_key", None)
                 ai_credentials[provider_name] = provider_cfg
             provider_cfg = dict(ai_credentials.get(active_provider, {}) or {})
             response_mode = {
@@ -7490,6 +7671,21 @@ AI 최적화 시스템과 충돌 발생
                 'enabled_exchanges': enabled_exchange_values,
                 'learning_enabled_exchanges': enabled_exchange_values,
                 'trade_enabled_exchanges': trade_exchange_values,
+                '_trade_scope_user_confirmed_v3904': True,
+                'multi_venue_execution': {
+                    **dict(self.current_settings.get('multi_venue_execution', {}) or {}),
+                    'enabled': True,
+                    'mode': {
+                        '선택한 거래소에서 각각 실행 (권장)': 'parallel',
+                        '총위험을 거래소별로 분할': 'split',
+                        '우선순위 한 곳만 실행': 'best',
+                    }.get(
+                        self.multi_venue_mode_combo.get()
+                        if hasattr(self, 'multi_venue_mode_combo')
+                        else '',
+                        'parallel',
+                    ),
+                },
                 
                 # 증권사 선택 (다중 선택)
                 'enabled_stock_brokers': [k for k,v in self.stock_broker_vars.items() if v is not None and hasattr(v, 'get') and v.get()] if hasattr(self, 'stock_broker_vars') else [],
@@ -7579,14 +7775,14 @@ AI 최적화 시스템과 충돌 발생
                     # 기본값 유지
                     if 'ui_settings' not in new_settings:
                         new_settings['ui_settings'] = {}
-                    new_settings['ui_settings']['always_on_top'] = self.current_settings.get('ui_settings', {}).get('always_on_top', True)
+                    new_settings['ui_settings']['always_on_top'] = self.current_settings.get('ui_settings', {}).get('always_on_top', False)
                     new_settings['ui_settings']['auto_show_stock_broker_diagnosis_after_save'] = self.current_settings.get('ui_settings', {}).get('auto_show_stock_broker_diagnosis_after_save', True)
                     new_settings['ui_settings'].update(self._collect_auto_update_ui_settings())
-                    print(f"UI 설정 기본값 유지: always_on_top = {self.current_settings.get('ui_settings', {}).get('always_on_top', True)}")
+                    print(f"UI 설정 기본값 유지: always_on_top = {self.current_settings.get('ui_settings', {}).get('always_on_top', False)}")
             except Exception as e:
                 if 'ui_settings' not in new_settings:
                     new_settings['ui_settings'] = {}
-                new_settings['ui_settings']['always_on_top'] = self.current_settings.get('ui_settings', {}).get('always_on_top', True)
+                new_settings['ui_settings']['always_on_top'] = self.current_settings.get('ui_settings', {}).get('always_on_top', False)
                 new_settings['ui_settings']['auto_show_stock_broker_diagnosis_after_save'] = self.current_settings.get('ui_settings', {}).get('auto_show_stock_broker_diagnosis_after_save', True)
                 new_settings['ui_settings'].update(self._collect_auto_update_ui_settings())
                 print(f"UI 설정 저장 오류: {e}")
@@ -7635,14 +7831,10 @@ AI 최적화 시스템과 충돌 발생
                 if hasattr(self, 'alpha_arena_deepseek_api_key_var'):
                     deepseek_key = self.alpha_arena_deepseek_api_key_var.get().strip()
                     alpha_arena['deepseek_api_key'] = deepseek_key
-                    # 레거시 키도 저장 (하위 호환성)
-                    new_settings['alphaarena_deepseek_api_key'] = deepseek_key
                 
                 if hasattr(self, 'alpha_arena_qwen_api_key_var'):
                     qwen_key = self.alpha_arena_qwen_api_key_var.get().strip()
                     alpha_arena['qwen_api_key'] = qwen_key
-                    # 레거시 키도 저장 (하위 호환성)
-                    new_settings['alphaarena_alibaba_api_key'] = qwen_key
                 
                 # 거래 설정은 내부 가드레일로만 사용 (기본값 유지)
                 # 사용자가 조절하지 않으므로 기존 값 유지 또는 기본값 사용
@@ -7680,31 +7872,6 @@ AI 최적화 시스템과 충돌 발생
                     }
                 
                 new_settings['alpha_arena'] = alpha_arena
-                
-                # 레거시 설정도 저장 (하위 호환성)
-                if hasattr(self, 'alphaarena_enabled_var') and self.alphaarena_enabled_var is not None:
-                    new_settings['alphaarena_enabled'] = bool(self.alphaarena_enabled_var.get())
-                if hasattr(self, 'alphaarena_ai_var') and self.alphaarena_ai_var is not None:
-                    new_settings['alphaarena_ai_engine'] = self.alphaarena_ai_var.get()
-                if hasattr(self, 'alphaarena_capital_entry') and self.alphaarena_capital_entry is not None:
-                    capital_text = self.alphaarena_capital_entry.get().strip()
-                    if capital_text:
-                        new_settings['alphaarena_capital'] = float(capital_text)
-                if hasattr(self, 'alphaarena_leverage_var') and self.alphaarena_leverage_var is not None:
-                    new_settings['alphaarena_leverage_range'] = self.alphaarena_leverage_var.get()
-                # API 키들 저장 (레거시)
-                if hasattr(self, 'alphaarena_deepseek_key'):
-                    new_settings['alphaarena_deepseek_api_key'] = self.alphaarena_deepseek_key.get()
-                if hasattr(self, 'alphaarena_openai_key'):
-                    new_settings['alphaarena_openai_api_key'] = self.alphaarena_openai_key.get()
-                if hasattr(self, 'alphaarena_anthropic_key'):
-                    new_settings['alphaarena_anthropic_api_key'] = self.alphaarena_anthropic_key.get()
-                if hasattr(self, 'alphaarena_google_key'):
-                    new_settings['alphaarena_google_api_key'] = self.alphaarena_google_key.get()
-                if hasattr(self, 'alphaarena_xai_key'):
-                    new_settings['alphaarena_xai_api_key'] = self.alphaarena_xai_key.get()
-                if hasattr(self, 'alphaarena_alibaba_key'):
-                    new_settings['alphaarena_alibaba_api_key'] = self.alphaarena_alibaba_key.get()
             except Exception as e:
                 print(f"Alpha Arena 설정 저장 실패: {e}")
                 import traceback
@@ -7714,7 +7881,11 @@ AI 최적화 시스템과 충돌 발생
             try:
                 if hasattr(self, '_atl_vars') and self._atl_vars:
                     existing_atl = copy.deepcopy(
-                        self.current_settings.get("advanced_trading_layers", {})
+                        getattr(
+                            self,
+                            '_atl_pending_policy',
+                            self.current_settings.get("advanced_trading_layers", {}),
+                        )
                     )
                     for key, var in self._atl_vars.items():
                         if key not in existing_atl:
@@ -8336,24 +8507,29 @@ AI 최적화 시스템과 충돌 발생
     def create_advanced_layers_tab(self):
         """고급 자동매매 계층 설정 탭 - 프리셋 전환 + 개별 ON/OFF"""
         tab = self.tabview.add("고급 매매 계층")
-        self._add_tab_save_bar(tab, "고급 매매 계층")
+        self._add_tab_save_bar(tab, "5. 고급 정책 (선택)")
 
         scroll_frame = ctk.CTkScrollableFrame(tab)
         scroll_frame.pack(fill="both", expand=True, padx=20, pady=20)
 
         # ── 현재 설정에서 advanced_trading_layers 읽기 ──────────────
         atl = self.current_settings.get("advanced_trading_layers", {})
+        self._atl_pending_policy = copy.deepcopy(atl)
 
         # ── 타이틀 ─────────────────────────────────────────────────
         ctk.CTkLabel(
             scroll_frame,
-            text="고급 자동매매 계층 설정",
+            text="5. 고급 정책 (선택)",
             font=ctk.CTkFont(family="Segoe UI", size=20, weight="bold"),
             text_color=self._color("text_primary", "#f9fafb"),
         ).pack(pady=(10, 4))
         ctk.CTkLabel(
             scroll_frame,
-            text="각 계층을 개별 ON/OFF 하거나, 프리셋 버튼으로 한 번에 전환하세요.\n모든 계층은 Binance·CCXT·주식 경로에 공통 적용됩니다.",
+            text=(
+                "각 계층을 개별 ON/OFF 하거나, 프리셋 버튼으로 한 번에 전환하세요.\n"
+                "표준 자동매매 경로(Binance·Bybit·OKX·Bitget·Upbit·Bithumb·증권)에 적용됩니다. "
+                "학습 전용은 주문 계층을 실행하지 않으며 AlphaArena는 별도 실행 체계입니다."
+            ),
             font=ctk.CTkFont(family="Segoe UI", size=12),
             text_color=self._color("text_secondary", "#9ca3af"),
             justify="center",
@@ -8411,6 +8587,10 @@ AI 최적화 시스템과 충돌 발생
                 }
 
             chosen = presets.get(preset_name, {})
+            from trading.advanced_layer_config import deep_merge_policy, policy_changes
+            before_policy = copy.deepcopy(self._atl_pending_policy)
+            self._atl_pending_policy = deep_merge_policy(before_policy, chosen)
+            changes = policy_changes(before_policy, self._atl_pending_policy)
             layer_keys = [
                 "profitability_validation",
                 "portfolio_orchestration",
@@ -8437,8 +8617,19 @@ AI 최적화 시스템과 충돌 발생
             # 상태 레이블 업데이트
             colors = {"dev": "#94a3b8", "safe": "#22c55e", "aggressive": "#f59e0b"}
             self._preset_status_label.configure(
-                text=f"프리셋 '{preset_name}' 적용됨",
+                text=f"프리셋 '{preset_name}' 적용됨 · 저장 대기 · 세부값 {len(changes)}개 변경",
                 text_color=colors.get(preset_name, "#f9fafb"),
+            )
+            preview_items = [
+                f"{item['path']}: {item['before']} → {item['after']}"
+                for item in changes[:5]
+            ]
+            self._preset_preview_label.configure(
+                text=(
+                    "변경 미리보기: " + "  |  ".join(preview_items)
+                    if preview_items
+                    else "변경 미리보기: 현재 설정과 동일"
+                )
             )
 
         ctk.CTkButton(
@@ -8462,6 +8653,15 @@ AI 최적화 시스템과 충돌 발생
             text_color=self._color("text_secondary", "#94a3b8"),
         )
         self._preset_status_label.pack(pady=(0, 8))
+        self._preset_preview_label = ctk.CTkLabel(
+            preset_group,
+            text="프리셋을 누르면 저장 전 변경값을 여기에 표시합니다.",
+            font=ctk.CTkFont(size=11),
+            text_color=self._color("text_secondary", "#94a3b8"),
+            wraplength=980,
+            justify="left",
+        )
+        self._preset_preview_label.pack(padx=16, pady=(0, 14))
 
         # ── 개별 계층 ON/OFF 스위치 ────────────────────────────────
         layers_group = ctk.CTkFrame(scroll_frame, corner_radius=12)
@@ -8520,8 +8720,12 @@ AI 최적화 시스템과 충돌 발생
         ctk.CTkLabel(
             strategy_detail_group,
             text=(
-                "고변동장 평가 계속은 차단 해제가 아니라, 합의 점수·수익성·리스크·주문 가드레일을 "
-                "그대로 통과한 기회만 평가한다는 뜻입니다."
+                "이 엔진은 새로운 매매전략을 만드는 기능이 아니라, AI가 만든 진입 후보를 한 번 더 거르는 후행 필터입니다.\n"
+                "합의 임계값은 0.10~0.95이며 높을수록 진입이 보수적입니다(예: 0.60이면 합의점수 0.60 이상만 통과). "
+                "심볼 쿨다운은 같은 종목의 재진입 최소 대기시간(0~3600초)입니다.\n"
+                "이 합의·수익성 재평가는 기본 AI와 '기본 AI 후보 재확인' 역할에 적용됩니다. "
+                "'사용자 전략 원형 독립 실행'은 전략값을 재심사하지 않고 시장국면·계좌·주문 안전만 통과합니다. "
+                "고변동장 '평가 계속'도 무조건 진입을 뜻하지 않습니다."
             ),
             font=ctk.CTkFont(family="Segoe UI", size=11),
             text_color=self._color("text_secondary", "#9ca3af"),
@@ -8585,7 +8789,7 @@ AI 최적화 시스템과 충돌 발생
     def create_alphaarena_tab(self):
         """AlphaArena 모드 설정 탭 (새로운 alpha_arena 구조 적용)"""
         tab = self.tabview.add("AlphaArena")
-        self._add_tab_save_bar(tab, "AlphaArena")
+        self._add_tab_save_bar(tab, "6. AlphaArena 실험실")
 
         # 스크롤 가능한 프레임
         scroll_frame = ctk.CTkScrollableFrame(tab)
@@ -8597,7 +8801,7 @@ AI 최적화 시스템과 충돌 발생
 
         intro_title = ctk.CTkLabel(
             intro_group,
-            text="Alpha Arena 모드",
+            text="6. AlphaArena 실험실",
             font=ctk.CTkFont(family="Segoe UI", size=18, weight="bold"),
             text_color=self._color("text_primary", "#f9fafb")
         )

@@ -54,6 +54,41 @@ def normalize_stock_exit_policy(policy: Dict[str, Any] | None) -> Dict[str, Any]
     return merged
 
 
+def resolve_stock_exit_thresholds(
+    *,
+    policy: Dict[str, Any] | None,
+    is_etf: bool,
+    market_regime: Optional[str] = None,
+) -> Dict[str, Any]:
+    """화면 저장값(퍼센트 포인트)을 런타임 정본(fraction)으로 변환한다."""
+
+    normalized = normalize_stock_exit_policy(policy)
+    tp_key = 'etf_take_profit_percent' if is_etf else 'take_profit_percent'
+    sl_key = 'etf_stop_loss_percent' if is_etf else 'stop_loss_percent'
+    fallback_tp_points = float(normalized.get(tp_key, 4.0 if is_etf else 5.0) or 0.0)
+    fallback_sl_points = float(normalized.get(sl_key, 6.0 if is_etf else 8.0) or 0.0)
+    regime_key = str(market_regime or 'normal').lower().strip()
+    multipliers = _REGIME_MULTIPLIERS.get(
+        regime_key,
+        _REGIME_MULTIPLIERS['normal'],
+    )
+    return {
+        'unit': 'fraction',
+        'fallback_tp_fraction': fallback_tp_points / 100.0,
+        'fallback_sl_fraction': fallback_sl_points / 100.0,
+        'effective_tp_fraction': (
+            fallback_tp_points * multipliers['tp_mult']
+        ) / 100.0,
+        'effective_sl_fraction': (
+            fallback_sl_points * multipliers['sl_mult']
+        ) / 100.0,
+        'regime': regime_key,
+        'reason': (
+            f"stock_{'etf' if is_etf else 'equity'}_regime:{regime_key}"
+        ),
+    }
+
+
 def evaluate_stock_position_exit(
     *,
     position: Dict[str, Any],
@@ -79,16 +114,16 @@ def evaluate_stock_position_exit(
     except Exception:
         pnl_rate = 0.0
 
-    tp_key = 'etf_take_profit_percent' if is_etf else 'take_profit_percent'
-    sl_key = 'etf_stop_loss_percent' if is_etf else 'stop_loss_percent'
-    take_profit = float(normalized.get(tp_key, 4.0 if is_etf else 5.0) or 0.0)
-    stop_loss = float(normalized.get(sl_key, 6.0 if is_etf else 8.0) or 0.0)
-
-    # 레짐 기반 동적 조정
-    regime_key = str(market_regime or 'normal').lower().strip()
-    mults = _REGIME_MULTIPLIERS.get(regime_key, _REGIME_MULTIPLIERS['normal'])
-    effective_tp = take_profit * mults['tp_mult']
-    effective_sl = stop_loss * mults['sl_mult']
+    thresholds = resolve_stock_exit_thresholds(
+        policy=normalized,
+        is_etf=is_etf,
+        market_regime=market_regime,
+    )
+    take_profit = float(thresholds['fallback_tp_fraction']) * 100.0
+    stop_loss = float(thresholds['fallback_sl_fraction']) * 100.0
+    effective_tp = float(thresholds['effective_tp_fraction']) * 100.0
+    effective_sl = float(thresholds['effective_sl_fraction']) * 100.0
+    regime_key = str(thresholds['regime'])
     regime_adjusted = regime_key not in ('normal', 'range', '')
 
     if take_profit > 0 and pnl_rate >= effective_tp:

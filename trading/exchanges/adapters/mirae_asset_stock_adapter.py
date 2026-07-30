@@ -341,7 +341,8 @@ class MiraeAssetStockAdapter(StockExchange):
                     pass
 
             self.is_connected = True
-            self.log_event('system', f'{self._broker_label()} 연결 성공 (account: {self.account_no or "unknown"})')
+            account_state = 'configured' if self.account_no else 'unavailable'
+            self.log_event('system', f'{self._broker_label()} 연결 성공 (account: {account_state})')
             return True
 
         except Exception as e:

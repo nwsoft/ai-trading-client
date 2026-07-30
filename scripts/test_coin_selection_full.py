@@ -182,7 +182,7 @@ def create_binance_compatible_data_client(public_client):
     return _BinanceCompatibleDataClient(ex)
 
 
-def test_coin_selection_simple(exchange: str = 'binance', num_major: int = 5, num_alt: int = 15):
+def run_coin_selection_simple(exchange: str = 'binance', num_major: int = 5, num_alt: int = 15):
     """
     간단한 코인 선택 테스트 (실제 Evaluator 없이 설정값 기반)
     
@@ -261,7 +261,7 @@ def test_coin_selection_simple(exchange: str = 'binance', num_major: int = 5, nu
         return None
 
 
-def test_coin_selection_with_evaluator(exchange: str = 'binance', num_major: int = 5, num_alt: int = 15):
+def run_coin_selection_with_evaluator(exchange: str = 'binance', num_major: int = 5, num_alt: int = 15):
     """
     실제 Evaluator 로직을 사용한 코인 선택 테스트
     
@@ -415,13 +415,13 @@ def main():
     args = parser.parse_args()
     
     if args.evaluator:
-        test_coin_selection_with_evaluator(
+        run_coin_selection_with_evaluator(
             exchange=args.exchange,
             num_major=args.major,
             num_alt=args.alt
         )
     else:
-        test_coin_selection_simple(
+        run_coin_selection_simple(
             exchange=args.exchange,
             num_major=args.major,
             num_alt=args.alt

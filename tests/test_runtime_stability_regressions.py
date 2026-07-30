@@ -5,7 +5,7 @@ from utils import perf_metrics_logger
 
 
 def test_elapsed_time_accepts_legacy_naive_datetime():
-    legacy_timestamp = datetime.utcnow() - timedelta(minutes=3)
+    legacy_timestamp = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(minutes=3)
     elapsed = _elapsed_minutes(legacy_timestamp)
     assert 2.9 <= elapsed <= 3.1
 

@@ -17,6 +17,8 @@ class BithumbSpotAdapter(SpotExchange):
         self.secret_key = secret_key
         self.exchange = None
         self.logger = logging.getLogger(__name__)
+        self.last_error: str = ""
+        self.last_auth_guidance: str = ""
         from log_system.log_adapter import log_event
         self.log_event = lambda category, msg, level='INFO': log_event(category, msg, exchange='bithumb', level=level)
         # 거래내역 조회 경로 캐시: my_trades | orders_fallback | unsupported
@@ -136,9 +138,12 @@ class BithumbSpotAdapter(SpotExchange):
             self.exchange = ccxt.bithumb(config)  # type: ignore
             self.exchange.load_markets()
             self.is_connected = True
+            self.last_error = ""
+            self.last_auth_guidance = ""
             self.log_event('system', f"빗썸 연결 성공 ({mode})")
             return True
         except Exception as e:
+            self.last_error = str(e)
             self.log_event('system', f"빗썸 연결 실패: {e}", level='ERROR')
             return False
     
@@ -161,6 +166,7 @@ class BithumbSpotAdapter(SpotExchange):
                 'ETH': self._extract_total_balance(balance, 'ETH'),
             }
         except Exception as e:
+            self.last_error = str(e)
             self.log_event('system', f"잔고 조회 실패: {e}", level='ERROR')
             return {}
     
@@ -170,6 +176,8 @@ class BithumbSpotAdapter(SpotExchange):
             return {}
         try:
             balance = self.get_balance()
+            if not balance:
+                return {}
             return {
                 'available_balance': balance.get('KRW', 0),
                 'total_balance': balance.get('KRW', 0),
@@ -411,6 +419,9 @@ class BithumbSpotAdapter(SpotExchange):
                 try:
                     self.exchange.fetch_balance()  # type: ignore
                 except Exception as e:
+                    self.last_error = str(e)
+                    if 'ip' in self.last_error.lower():
+                        self.last_auth_guidance = "빗썸 API 키의 허용 IP 설정을 확인하세요."
                     self.log_event('system', f"빗썸 API 키 검증 실패: {e}", level='ERROR')
                     return False
 

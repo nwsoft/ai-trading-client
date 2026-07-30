@@ -280,7 +280,13 @@ class DeclarativeStrategyEngine:
         """최대 10개 활성 전략 중 범위·국면·모드·진입조건이 맞는 한 전략을 선택한다."""
         if not strategies:
             return {"allowed": True, "bypassed": True, "reason": "no_active_strategy_pool"}
-        regime = cls.REGIME_ALIASES.get(str(market_regime or "").upper(), str(market_regime or "range").lower())
+        from .selection_policy import (
+            normalize_regime_scope,
+            resolve_effective_market_regime,
+            resolve_market_regimes,
+        )
+
+        regimes_context = resolve_market_regimes(context, market_regime)
         candidates = sorted(
             [item for item in strategies if isinstance(item, dict)],
             key=lambda item: int(item.get("priority", 5) or 5),
@@ -288,17 +294,71 @@ class DeclarativeStrategyEngine:
         )[:10]
         evaluated = []
         scoped = []
+        eligible_modes = {
+            str(value or "").strip().lower()
+            for value in (context.get("_eligible_strategy_modes") or [])
+            if str(value or "").strip()
+        }
+        eligible_strategy_ids = {
+            str(value or "").strip()
+            for value in (context.get("_eligible_strategy_ids") or [])
+            if str(value or "").strip()
+        }
         for item in candidates:
             if not cls._scope_matches(item.get("target_scope", ""), asset_class=asset_class, target=target):
                 continue
-            scoped.append(item)
-            regimes = [str(value).strip().lower() for value in (item.get("market_regimes") or ["all"])]
-            if "all" not in regimes and regime not in regimes:
-                continue
             rules = dict(item.get("rules") or {})
             signal_mode = str(item.get("signal_mode") or rules.get("signal_mode") or "confirm").lower()
+            strategy_identity = str(
+                item.get("version_id")
+                or item.get("id")
+                or item.get("strategy_key")
+                or ""
+            )
+            if eligible_modes and signal_mode not in eligible_modes:
+                continue
+            if (
+                eligible_strategy_ids
+                and signal_mode == "independent"
+                and strategy_identity
+                and strategy_identity not in eligible_strategy_ids
+            ):
+                continue
+            scoped.append(item)
+            allowed_regimes = [
+                str(value).strip().lower()
+                for value in (item.get("market_regimes") or rules.get("market_regimes") or ["all"])
+            ]
+            regime_scope = normalize_regime_scope(
+                item.get("regime_scope") or rules.get("regime_scope") or "market"
+            )
+            effective_regime, regime_source = resolve_effective_market_regime(
+                context,
+                market_regime,
+                regime_scope,
+            )
+            market_value = regimes_context["market"]
+            symbol_value = regimes_context["symbol"] or market_value
+            if regime_scope == "none" or "all" in allowed_regimes:
+                regime_matches = True
+            elif regime_scope == "both":
+                regime_matches = (
+                    market_value in allowed_regimes
+                    and symbol_value in allowed_regimes
+                )
+            elif regime_scope == "symbol":
+                regime_matches = symbol_value in allowed_regimes
+            else:
+                regime_matches = market_value in allowed_regimes
+            if not regime_matches:
+                continue
             entry_signal = str(item.get("entry_signal") or rules.get("entry_signal") or "").upper()
             evaluation_context = dict(context or {})
+            evaluation_context["_market_regime"] = market_value
+            evaluation_context["_symbol_market_regime"] = symbol_value
+            evaluation_context["market_regime"] = effective_regime
+            evaluation_context["_market_regime_source"] = regime_source
+            evaluation_context["_regime_scope"] = regime_scope
             base_signal = str(evaluation_context.get("signal") or "HOLD").upper()
             if signal_mode == "independent":
                 if entry_signal not in {"LONG", "SHORT"}:
@@ -313,20 +373,68 @@ class DeclarativeStrategyEngine:
             entry = cls.evaluate_entry(rules, evaluation_context)
             evaluated.append({"name": item.get("name", "사용자 전략"), "result": entry})
             if entry.get("allowed", False):
-                from .custom_strategy_runtime import derive_strategy_risk_settings
+                from .custom_strategy_runtime import (
+                    derive_strategy_risk_settings,
+                    normalize_engine_settings,
+                )
+                engine_values = dict(item.get("engine_settings") or {})
+
+                # 국면·성과 조정은 선택된 전략 후보 안에서만 적용한다.
+                # 글로벌 Trader/Analyzer 설정을 바꾸면 다른 활성 전략의
+                # 통계적 성격까지 오염되므로 금지한다.
+                regime_parameters = dict(
+                    rules.get(
+                        "regime_parameters",
+                        rules.get("market_condition_parameters", {}),
+                    )
+                    or {}
+                )
+                regime_override = regime_parameters.get(
+                    symbol_value if regime_scope == "symbol" else market_value,
+                    {},
+                )
+                if isinstance(regime_override, dict) and regime_override:
+                    engine_values.update(normalize_engine_settings(regime_override))
+
+                performance = dict(
+                    evaluation_context.get("_strategy_performance", {}) or {}
+                )
+                consecutive_losses = int(performance.get("consecutive_losses", 0) or 0)
+                recent_win_rate = float(performance.get("recent_win_rate", 0.5) or 0.5)
+                for adjustment in list(rules.get("performance_adjustments", []) or []):
+                    if not isinstance(adjustment, dict):
+                        continue
+                    condition = dict(adjustment.get("when", {}) or {})
+                    loss_min = int(condition.get("consecutive_losses_gte", -1) or -1)
+                    win_min = float(condition.get("recent_win_rate_gte", -1) or -1)
+                    matched = (
+                        (loss_min >= 0 and consecutive_losses >= loss_min)
+                        or (win_min >= 0 and recent_win_rate >= win_min)
+                    )
+                    if matched:
+                        engine_values.update(
+                            normalize_engine_settings(dict(adjustment.get("set", {}) or {}))
+                        )
+                        break
                 engine_settings = derive_strategy_risk_settings(
-                    item.get("engine_settings"),
+                    engine_values,
                     rules.get("risk_model"),
                     evaluation_context,
                 )
                 return {
                     **entry,
                     "selected_strategy_id": item.get("id"),
+                    "selected_strategy_key": item.get("strategy_key"),
+                    "selected_version_id": item.get("version_id"),
                     "selected_strategy_name": item.get("name", "사용자 전략"),
                     "selected_rules": rules,
                     "engine_settings": engine_settings,
                     "target_scope": item.get("target_scope"),
-                    "market_regime": regime,
+                    "market_regime": effective_regime,
+                    "overall_market_regime": market_value,
+                    "symbol_market_regime": symbol_value,
+                    "regime_scope": regime_scope,
+                    "market_regime_source": regime_source,
                     "signal_mode": signal_mode,
                     "entry_signal": entry_signal if signal_mode == "independent" else base_signal,
                     "operation_mode": str(item.get("operation_mode") or "standard"),
@@ -349,7 +457,7 @@ class DeclarativeStrategyEngine:
                     "bypassed": False,
                     "reason": "custom_paused_outside_selected_regime",
                     "transition_action": "pause",
-                    "market_regime": regime,
+                    "market_regime": regimes_context["market"],
                     "evaluated": [],
                 }
             return {
@@ -357,13 +465,13 @@ class DeclarativeStrategyEngine:
                 "bypassed": True,
                 "reason": "delegated_to_noah_outside_selected_regime",
                 "transition_action": "delegate_to_noah",
-                "market_regime": regime,
+                "market_regime": regimes_context["market"],
                 "evaluated": [],
             }
         return {
             "allowed": False,
             "bypassed": False,
             "reason": "no_strategy_matched_current_scope_regime_and_entry",
-            "market_regime": regime,
+            "market_regime": regimes_context["market"],
             "evaluated": evaluated,
         }

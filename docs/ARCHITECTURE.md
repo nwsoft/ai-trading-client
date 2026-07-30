@@ -900,7 +900,7 @@ optimized_params = self._get_ai_enhanced_parameters_unified(
 ### API 키 관리
 
 ```text
-환경설정 → API 키 입력 → 암호화 저장 → 거래소 연동
+환경설정 → API 키 입력 → 사용자별 로컬 저장 → 거래소 연동
 ```
 
 ## 📈 성능 최적화

@@ -1,6 +1,6 @@
 # AI API 아키텍처 및 멀티 제공사 가이드
 
-> 기준: 2026-07-28 · v3.9.0.3 업데이트 배포 대상  
+> 기준: 2026-07-29 · v3.9.0.4 업데이트 배포 대상. 멀티 Provider 구현은 v3.9.0.3 후보에서 시작해 v3.9.0.4에 포함  
 > 이 문서는 AI 호출 계층의 기술 정본입니다. 금융 인텔리전스 UI·데이터 상태는 `FINANCIAL_INTELLIGENCE_EXPANSION_PLAN_20260723.md`, 사용자 사용법은 `USER_GUIDE.md`와 인앱 매뉴얼을 따릅니다.
 
 ## 📋 목적
@@ -22,8 +22,8 @@ AIManager (trading/ai/ai_manager.py)
   │   ├─ AnthropicClient (네이티브 Messages API)
   │   ├─ ProviderCapabilities
   │   └─ ProviderResponse / NormalizedProviderError
-  ├─ credential_ref (trading/ai/credentials.py)
-  │   └─ macOS Keychain / Windows Credential Manager
+  ├─ 로컬 credential 호환 계층 (trading/ai/credentials.py)
+  │   └─ 거래소·증권사 키와 같은 사용자별 settings.json 정책
   ├─ OpenAIClient (하위 호환 SDK 래퍼)
   ├─ ModelRegistry (권장/미리보기/비권장/종료/capability)
   ├─ 작업별 route: ai_model_roles.<tier> = {provider, model}
@@ -58,6 +58,8 @@ Gemini도 Google AI Studio에서 발급한 Gemini API 키를 사용한다.
 
 기존에는 거래가 0건이어도 AI 활성 상태에서 심볼 분석이 반복되면 비용이 발생했다. v3.9.0.1 후속 패치부터 `OpportunityAwareInferencePolicy`가 로컬 신호를 먼저 계산하고 동일 상태는 캐시한다. 새 캔들·가격·RSI·MACD·국면 변화 또는 탐색 주기에는 즉시 재분석한다. 일·월·거래소별 예산 소진 시에도 로컬 신호와 주문 경로는 중단하지 않는다. 다심볼 단일 요청은 신호 품질 A/B 전이므로 남아 있다.
 
+v3.9.0.4 감사에서는 시장분석 정책 밖의 보조 호출도 별도로 제한했다. `Optimizer`의 포지션 크기 요청은 신선한 15분 캐시를 우선하고 방향·1% 가격·0.10 신뢰도 변화에서만 갱신한다. `AIManager`의 손실패턴 비교는 동일 신호·동일 손실 표본을 5분 재사용한다. 두 경로는 실패 후 120초 쿨다운을 사용한다. 성과 기반 파라미터 최적화는 최소 10거래 후 새 5거래마다 한 번만 역할별 Provider로 요청하며 동일 실패 표본을 거래 사이클마다 반복하지 않는다.
+
 현재 호출 경로:
 
 ```
@@ -65,6 +67,21 @@ Gemini도 Google AI Studio에서 발급한 Gemini API 키를 사용한다.
   ├─ LONG/SHORT 후보 또는 시장 이벤트 → LLM 신규 호출
   ├─ 동일 시장상태 → 15분 캐시 재사용
   └─ 안정 HOLD 또는 예산 소진 → 로컬 결과로 계속 운용
+```
+
+보조 호출 경계:
+
+```
+최종 진입 후보
+  ├─ 포지션 크기 → 15분 상태 캐시 + 변화 이벤트 + 실패 120초 쿨다운
+  └─ 최근 손실패턴 있음 → 동일 패턴 5분 캐시 + 실패 120초 쿨다운
+
+완료 거래
+  ├─ 손익 복기 → 포지션 종료 이벤트당 1회
+  └─ 임계값 최적화 → 10거래 이후 새 5거래당 최대 1회
+
+사용자 작업
+  └─ 전략 원문·차트·어시스턴트 → 사용자가 요청한 때만 호출
 ```
 
 `trade_enabled_exchanges`가 실제 주문 범위, `learning_enabled_exchanges`가 학습 범위다. 주문 키가 명시적으로 빈 목록이면 실제 주문은 0개다. 주문 키 자체가 없는 구버전 프로필만 선택 거래소 1곳으로 호환하며, 학습 범위가 비면 활성 거래소 전체를 사용한다.
@@ -84,7 +101,7 @@ OpenAI 비용 CSV는 프로젝트 단위이고 거래소 메타데이터를 포�
 
 #### 1. AIProviderRouter (`trading/ai/provider_router.py`)
 
-- 설정 프로필에서 제공사·모델·credential reference를 읽습니다.
+- 설정 프로필에서 제공사·모델·로컬 API 키를 읽습니다.
 - 애널리스트·어시스턴트뿐 아니라 frequent_cheap·standard·premium 작업 route를 각각 해석합니다.
 - OpenAI·DeepSeek·Kimi·Gemini는 호환 어댑터로, Claude는 네이티브 Messages 클라이언트로 연결합니다.
 - 모델 목록, 텍스트·JSON, usage·오류 정규화와 capability 검사를 공통 계약으로 제공합니다.
@@ -120,7 +137,7 @@ OpenAI 비용 CSV는 프로젝트 단위이고 거래소 메타데이터를 포�
   "ai_provider": "deepseek",
   "ai_credentials": {
     "deepseek": {
-      "credential_ref": "keyring://NoahAI/<account>.deepseek",
+      "api_key": "<사용자별 로컬 설정>",
       "base_url": "https://api.deepseek.com"
     }
   },
@@ -165,7 +182,7 @@ client = router.client_facade()
 
 ### 전환 절차
 1. 앱 `설정 → AI 엔진/API`에서 제공사를 선택합니다.
-2. 선택 제공사의 API 키를 운영체제 보안 저장소에 저장합니다.
+2. 선택 제공사의 API 키를 사용자별 로컬 설정에 저장합니다.
 3. 계정 모델 목록을 새로고침하고 역할별 모델을 선택합니다.
 4. 저장 시 정적 capability·종료 상태를 검사하고, 키가 있으면 실제 계정 모델 목록도 확인합니다.
 5. `실제 API 기능 검증`에서 텍스트·JSON·usage·정규화 오류와 선택적 음성 전사를 확인합니다.
@@ -261,7 +278,7 @@ except Exception as e:
 ### Phase 2: v3.9.0.3 업데이트 배포 대상
 - [x] OpenAI·DeepSeek·Claude·Gemini 정식 Router 등록
 - [x] Kimi K3 어시스턴트 시험 등록
-- [x] 동적 모델 목록, capability, credential reference, 응답·사용량·오류 정규화
+- [x] 동적 모델 목록, capability, 로컬 자격증명 호환, 응답·사용량·오류 정규화
 - [ ] 실제 제공사 키 인증·모델 목록·과금 계정 E2E
 - [ ] 서명된 Windows 설치본 연결·업데이트 E2E
 

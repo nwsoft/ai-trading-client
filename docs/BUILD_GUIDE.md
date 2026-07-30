@@ -8,11 +8,13 @@
 
 > UI 정책: 본 프로젝트의 GUI는 CustomTkinter만 지원합니다. PyQt5/PySide6는 Windows 빌드에서 키움증권 OpenAPI+ 지원 목적으로만 포함됩니다 (레거시 UI 파일은 ImportError 스텁으로 남아 있습니다).
 
-배포 대상 릴리스: `https://github.com/nwsoft/ai-trading-client/releases/tag/v3.9.0.3`
+배포 대상 릴리스: `https://github.com/nwsoft/ai-trading-client/releases/tag/v3.9.0.4`
 
-> v3.9.0.2 Windows EXE는 실제 크기 `361,527,883`바이트와 SHA-256 `d9a9792f…7bb4c3`을 확인한 이전 고객 배포본입니다. 오늘 변경을 담는 v3.9.0.3 manifest는 `pending_windows_rebuild`이며 Windows에서 현재 소스를 새로 빌드한 뒤 크기·SHA·서명·설치·로그인·전수 클릭·자동업데이트를 다시 검증해야 합니다.
+> v3.9.0.2 Windows EXE는 실제 크기 `361,527,883`바이트와 SHA-256 `d9a9792f…7bb4c3`을 확인한 이전 고객 배포본입니다. 오늘 변경을 담는 v3.9.0.4 manifest는 `pending_windows_rebuild`이며 Windows에서 현재 소스를 새로 빌드한 뒤 크기·SHA·서명·설치·로그인·전수 클릭·자동업데이트를 다시 검증해야 합니다.
 
 > 생활금융 기본 비교 데이터는 `data/finance_products`만 안전 빌드에 포함합니다. 계정·거래·사용자 설정 등 나머지 `data`는 계속 제외됩니다. 패키지 내 기본 데이터가 누락되거나 손상되면 앱 내장 예비 데이터로 폴백합니다.
+
+> v3.9.0.4 배포 계약: v3.9.0.3 후보에서 추가된 필수 `keyring`·Windows 보안 저장소 의존성을 철회했습니다. `build_safe.py`와 두 requirements/spec에는 keyring이 없어야 하며 최종 사용자는 추가 패키지를 설치하지 않습니다.
 
 ## 🛠️ 개발 환경 설정
 
@@ -50,6 +52,8 @@ pip install pipwin && pipwin install pyaudio
 | `requirements.txt` | 개발/macOS 환경 공통 의존성 |
 | `requirements_windows.txt` | Windows 배포 전용 (pykiwoom, PyQt5, win32-setctime 포함) |
 
+`requirements_windows.txt`와 생성되는 spec에는 `keyring`, Windows Credential Manager backend, 관련 metadata 수집이 없어야 합니다.
+
 ## 🚀 빌드 방법
 
 ### 자동 빌드 (권장)
@@ -66,6 +70,15 @@ python build_safe.py --platform macos
 # Linux
 python build_safe.py --platform linux
 ```
+
+Windows 빌드 후 깨끗한 사용자 계정에서 다음을 반드시 확인합니다.
+
+1. Python·pip·keyring이 설치되지 않은 상태에서도 AI API 키 저장 성공
+2. 앱 종료·재시작 뒤 사용자별 로컬 키 복원
+3. v3.9.0.3 `credential_ref`만 있는 설정에서도 일반 설정 저장 성공
+4. 키를 다시 입력한 Provider는 로컬 키가 정본이 되고 과거 참조 제거
+5. 설정·백업이 지원 로그 묶음과 배포 파일에 포함되지 않음
+6. Binance 탭이 12초 안에 값 또는 명확한 연결·조회 상태 표시
 
 참고
 - `build_safe.py`의 기본 게이트 프로필은 `prekey`입니다 (`--gate-profile` 미지정 시).
@@ -98,15 +111,16 @@ powershell -ExecutionPolicy Bypass -File scripts/build_windows_safe.ps1 -GatePro
 태그 기반 GitHub 릴리즈를 한 번에 처리하려면 아래 스크립트를 사용합니다.
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File scripts/release_tag_push.ps1 -Version 3.9.0.3 -Branch main -PushBranch
+powershell -ExecutionPolicy Bypass -File scripts/release_tag_push.ps1 -Version 3.9.0.4 -Branch main -PushBranch
 ```
 
 옵션
-- `-Version`: 필수. `3.9.0.3` 또는 `v3.9.0.3` 모두 허용
+- `-Version`: 필수. `3.9.0.4` 또는 `v3.9.0.4` 모두 허용
 - `-Branch`: 기본 `main`
 - `-PushBranch`: 태그 push 전에 브랜치도 함께 push
 - `-StrictBranchPush`: `-PushBranch` 실패 시 즉시 중단(기본은 경고 후 태그/릴리즈 업로드 계속)
 - `-SkipCommit`: 커밋 없이 기존 HEAD 기준으로 태그만 생성/푸시
+- `-RequireAuthenticode`: 선택. 지정 시에만 EXE 유효 코드서명을 필수로 강제 (기본 정책은 unsigned 허용)
 
 #### 빠른 실행 레시피 (복붙용)
 
@@ -115,7 +129,7 @@ powershell -ExecutionPolicy Bypass -File scripts/release_tag_push.ps1 -Version 3
 1) **가장 안전한 기본 배포(권장)**
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File scripts/release_tag_push.ps1 -Version 3.9.0.3
+powershell -ExecutionPolicy Bypass -File scripts/release_tag_push.ps1 -Version 3.9.0.4
 ```
 
 - 태그 push + GitHub 릴리즈 에셋 업로드까지 수행
@@ -124,7 +138,7 @@ powershell -ExecutionPolicy Bypass -File scripts/release_tag_push.ps1 -Version 3
 2) **브랜치도 같이 push (실패해도 릴리즈는 계속 진행)**
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File scripts/release_tag_push.ps1 -Version 3.9.0.3 -Branch main -PushBranch
+powershell -ExecutionPolicy Bypass -File scripts/release_tag_push.ps1 -Version 3.9.0.4 -Branch main -PushBranch
 ```
 
 - `main` push가 거절돼도 태그/릴리즈 업로드는 계속 진행
@@ -132,7 +146,7 @@ powershell -ExecutionPolicy Bypass -File scripts/release_tag_push.ps1 -Version 3
 3) **브랜치 push 실패 시 즉시 중단(엄격 모드)**
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File scripts/release_tag_push.ps1 -Version 3.9.0.3 -Branch main -PushBranch -StrictBranchPush
+powershell -ExecutionPolicy Bypass -File scripts/release_tag_push.ps1 -Version 3.9.0.4 -Branch main -PushBranch -StrictBranchPush
 ```
 
 - 팀 정책상 브랜치 push 성공이 필수일 때 사용
@@ -140,7 +154,7 @@ powershell -ExecutionPolicy Bypass -File scripts/release_tag_push.ps1 -Version 3
 4) **이미 커밋한 상태에서 태그/릴리즈만 수행**
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File scripts/release_tag_push.ps1 -Version 3.9.0.3 -SkipCommit
+powershell -ExecutionPolicy Bypass -File scripts/release_tag_push.ps1 -Version 3.9.0.4 -SkipCommit
 ```
 
 - 로컬 변경 자동 커밋 없이 현재 HEAD 기준으로 태그/릴리즈 처리
@@ -149,7 +163,7 @@ powershell -ExecutionPolicy Bypass -File scripts/release_tag_push.ps1 -Version 3
 
 ```powershell
 python scripts/generate_release_assets.py --out-dir deploy --exe deploy/AITrading.exe --repo nwsoft/ai-trading-client
-gh release upload v3.9.0.3 deploy/AITrading.exe deploy/version.txt deploy/release_notes.md deploy/release-manifest.json --repo nwsoft/ai-trading-client --clobber
+gh release upload v3.9.0.4 deploy/AITrading.exe deploy/version.txt deploy/release_notes.md deploy/release-manifest.json --repo nwsoft/ai-trading-client --clobber
 ```
 
 - 태그를 새로 만들지 않고 릴리즈 에셋만 교체
@@ -165,7 +179,7 @@ git push origin main
 재정렬 후 릴리즈를 다시 실행합니다.
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File scripts/release_tag_push.ps1 -Version 3.9.0.3 -Branch main -PushBranch
+powershell -ExecutionPolicy Bypass -File scripts/release_tag_push.ps1 -Version 3.9.0.4 -Branch main -PushBranch
 ```
 
 주의

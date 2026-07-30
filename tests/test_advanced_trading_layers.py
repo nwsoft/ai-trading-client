@@ -368,7 +368,18 @@ def test_unified_trader_cycle_records_allocation_and_ops_metrics():
     trader.exchange_manager.get_exchange_balance.return_value = {"status": "success", "balance": {"USDT": {"free": 10000}}}
     trader.exchange_manager.get_current_price.return_value = 50000.0
     trader.unified_manager = MagicMock()
-    trader.unified_manager.get_exchange.return_value = object()
+    trader.unified_manager.get_exchange.return_value = SimpleNamespace(
+        exchange=SimpleNamespace(
+            markets={
+                "BTCUSDT": {
+                    "active": True,
+                    "swap": True,
+                    "quote": "USDT",
+                }
+            }
+        ),
+        _normalize_symbol=lambda symbol: symbol,
+    )
     trader.main_app = SimpleNamespace(selected_coins=[{"symbol": "BTCUSDT"}])
     trader.monitoring_flags = {"bybit": True}
     trader.portfolio_allocation_cache = {}
@@ -486,6 +497,8 @@ def test_binance_order_quality_control_fallbacks_to_market():
 
     trader = Trader.__new__(Trader)
     trader.settings = {
+        "_trade_scope_user_confirmed_v3904": True,
+        "trade_enabled_exchanges": ["binance"],
         "advanced_trading_layers": {
             "execution_optimizer": {
                 "enabled": True,
@@ -534,6 +547,8 @@ def test_binance_cycle_profitability_gate_blocks_early():
 
     trader = Trader.__new__(Trader)
     trader.settings = {
+        "_trade_scope_user_confirmed_v3904": True,
+        "trade_enabled_exchanges": ["binance"],
         "advanced_trading_layers": {
             "profitability_validation": {
                 "enabled": True,

@@ -39,9 +39,26 @@ from .exchange_manager import ExchangeManager
 from .unified_trading_manager import UnifiedTradingManager
 from .ops_automation import OpsAutomationEngine
 from .portfolio_orchestrator import PortfolioOrchestrator
+from .opportunity_coordinator import (
+    get_opportunity_coordinator,
+    policy_from_settings,
+)
 from .profitability_validation import ProfitabilityValidator
 from .strategy_engine import StrategyEngine
 from .custom_strategy_runtime import apply_engine_settings_to_trade_config
+from .trade_candidate import apply_trade_candidate, evaluate_trade_candidate
+from .selection_policy import (
+    SelectionPolicy,
+    combine_selection_paths,
+    select_advanced_strategy_universe,
+)
+from .exit_policy import (
+    build_exit_policy,
+    format_exit_policy,
+    record_insurance_submission,
+)
+from .execution_mode import ExecutionMode, resolve_crypto_execution_mode
+from .market_data_utils import kline_number
 from api.kpi_client import emit_kpi_event, flush_kpi_events
 from api.position_kpi import emit_position_closed, emit_position_opened, utc_now
 
@@ -388,7 +405,8 @@ class UnifiedTrader:
             self.logger = logger
         else:
             self.logger = logging.getLogger(__name__)
-        self.active_positions = {}  # {exchange: {symbol: Position}}
+        self.active_positions = {}  # 실제 포지션 {exchange: {symbol: Position}}
+        self.paper_positions = {}  # 가상 포지션 {exchange: {symbol: Position}}
         self.monitoring_flags = {}  # {exchange: bool}
         self.monitoring_threads = {}  # {exchange: Thread}
         self.advanced_order_managers = {}
@@ -400,6 +418,7 @@ class UnifiedTrader:
         self.pattern_analysis_cache = {}  # {exchange: {symbol: Dict}}
         self._rr_adaptive_state: Dict[str, Dict[str, Any]] = {}
         self.trade_stats = {}  # {exchange: {'total_trades': 0, 'profitable_trades': 0, 'total_pnl': 0.0}}
+        self.paper_trade_stats = {}  # PAPER 전용 통계(DB·실거래 통계와 분리)
         self.selected_coins = {}  # {exchange: List[Dict]}
         self.trading_cycles = {}  # {exchange: bool}
         self.trade_entered = {}  # {exchange: {symbol: bool}}
@@ -445,7 +464,7 @@ class UnifiedTrader:
     def _apply_connected_strategy_runtime_unified(self, exchange_name: str):
         """연결된 StrategyCustomizer/AITradingChatbot을 거래소별 루프에 반영."""
         try:
-            profile = str(self.settings.get('strategy_runtime_profile', 'balanced') or 'balanced').strip().lower()
+            profile = str(self.settings.get('strategy_runtime_profile', '') or '').strip().lower()
             mode = str(self.settings.get('strategy_runtime_mode', 'adaptive') or 'adaptive').strip().lower()
 
             if self.ai_trading_chatbot and self._runtime_profile_applied != profile:
@@ -456,6 +475,8 @@ class UnifiedTrader:
                     })
                     self._runtime_profile_applied = profile
                     self.log_event('strategy', f"전략 프로파일 적용: {profile}", exchange=exchange_name)
+                elif not profile:
+                    self._runtime_profile_applied = ''
 
             if mode == 'adaptive' and self.strategy_customizer:
                 market_regime = 'NORMAL'
@@ -486,12 +507,20 @@ class UnifiedTrader:
                 except Exception:
                     pass
 
-                applied_market = self.strategy_customizer.apply_dynamic_adjustment('market_condition', {'market_condition': market_regime})
-                applied_perf = self.strategy_customizer.apply_dynamic_adjustment('performance_based', {'performance': perf})
-                if applied_market or applied_perf:
-                    self.log_event('strategy', f"adaptive 조정 적용: market={applied_market}, perf={applied_perf}, regime={market_regime}, win_rate={perf.get('recent_win_rate', 0.0):.2f}", exchange=exchange_name)
-                else:
-                    self.log_event('strategy', "adaptive 조정 스킵: 활성 전략 또는 조정 조건 미충족", exchange=exchange_name)
+                runtime_contexts = dict(
+                    getattr(self, '_custom_strategy_runtime_context_by_exchange', {}) or {}
+                )
+                runtime_contexts[exchange_name] = {
+                    'market_regime': market_regime,
+                    'performance': dict(perf),
+                }
+                self._custom_strategy_runtime_context_by_exchange = runtime_contexts
+                self.log_event(
+                    'strategy',
+                    f"adaptive 후보 컨텍스트 갱신: regime={market_regime}, "
+                    f"win_rate={perf.get('recent_win_rate', 0.0):.2f}",
+                    exchange=exchange_name,
+                )
         except Exception as e:
             self.logger.warning(f"{exchange_name} 전략 런타임 반영 오류: {e}")
 
@@ -521,7 +550,7 @@ class UnifiedTrader:
             def _ccxt_supported(sym: str) -> bool:
                 try:
                     if not adapter or not hasattr(adapter, 'exchange'):
-                        return True  # 확인 불가 시 통과
+                        return False
                     exch = getattr(adapter, 'exchange')
                     markets = getattr(exch, 'markets', None) or {}
                     if not markets:
@@ -614,9 +643,13 @@ class UnifiedTrader:
             return filtered if filtered else coins
         except Exception as e:
             try:
-                self.logger.warning(f"사전 심볼 필터 오류(통과): {e}")
+                self.logger.warning(f"사전 심볼 필터 오류: {e}")
             except Exception:
                 pass
+            if str(exchange_name or '').lower() in {
+                'bybit', 'okx', 'bitget', 'upbit', 'bithumb',
+            }:
+                return []
             return coins
 
     @staticmethod
@@ -708,6 +741,8 @@ class UnifiedTrader:
     def _compute_trade_enabled_exchanges(self) -> List[str]:
         allowed = {'binance', 'bybit', 'okx', 'bitget', 'upbit', 'bithumb'}
         settings = self.settings if isinstance(self.settings, dict) else {}
+        if not bool(settings.get('_trade_scope_user_confirmed_v3904', False)):
+            return []
         configured = settings.get('trade_enabled_exchanges', [])
         normalized = [
             self._normalize_exchange(item)
@@ -741,6 +776,36 @@ class UnifiedTrader:
                 return True
             scope = self._compute_trade_enabled_exchanges()
             self.trade_enabled_exchanges = scope
+        return self._normalize_exchange(exchange_name) in scope
+
+    def _execution_mode(self, exchange_name: str) -> ExecutionMode:
+        return resolve_crypto_execution_mode(
+            getattr(self, 'settings', {}) if isinstance(getattr(self, 'settings', {}), dict) else {},
+            exchange_name,
+            live_enabled=self._is_trade_enabled(exchange_name),
+        )
+
+    def _position_store(self, exchange_name: str) -> Dict[str, Position]:
+        if self._execution_mode(exchange_name) == ExecutionMode.PAPER:
+            if not hasattr(self, 'paper_positions'):
+                self.paper_positions = {}
+            return self.paper_positions.setdefault(exchange_name, {})
+        return self.active_positions.setdefault(exchange_name, {})
+
+    def _trade_stats_store(self, exchange_name: str) -> Dict[str, Any]:
+        stores = self.paper_trade_stats if self._execution_mode(exchange_name) == ExecutionMode.PAPER else self.trade_stats
+        return stores.setdefault(exchange_name, {
+            'total_trades': 0,
+            'profitable_trades': 0,
+            'losing_trades': 0,
+            'total_pnl': 0.0,
+        })
+
+    def _is_learning_enabled(self, exchange_name: str) -> bool:
+        scope = getattr(self, 'learning_enabled_exchanges', None)
+        if scope is None:
+            scope = self._compute_learning_enabled_exchanges()
+            self.learning_enabled_exchanges = scope
         return self._normalize_exchange(exchange_name) in scope
 
     def _get_advanced_layers_settings(self, exchange_name: str) -> Dict[str, Any]:
@@ -842,13 +907,25 @@ class UnifiedTrader:
                 'losing_trades': 0,
                 'total_pnl': 0.0
             }
+            self.paper_trade_stats.setdefault(exchange, {
+                'total_trades': 0,
+                'profitable_trades': 0,
+                'losing_trades': 0,
+                'total_pnl': 0.0,
+            })
 
             # DB에서 이전 통계 로드
-            self._load_trade_stats_from_db(exchange)
+            if self._execution_mode(exchange) != ExecutionMode.PAPER:
+                self._load_trade_stats_from_db(exchange)
 
-            # 거래소별 활성 포지션 초기화 및 복구
+            # 실제·가상 포지션 저장소를 분리한다. PAPER에서는 실계좌
+            # 포지션을 가져오지 않아 가상 청산/보호주문과 섞이지 않게 한다.
             self.active_positions[exchange] = {}
-            self._restore_positions_from_exchange(exchange)
+            self.paper_positions.setdefault(exchange, {})
+            if self._execution_mode(exchange) != ExecutionMode.PAPER:
+                self._restore_positions_from_exchange(exchange)
+            else:
+                self.logger.info(f"🧪 {exchange} PAPER 초기화 - 실제 포지션 복구 생략")
 
             # 거래소별 모니터링 플래그 초기화
             self.monitoring_flags[exchange] = False
@@ -922,20 +999,82 @@ class UnifiedTrader:
 
                 # 비바이낸스에서 거래소 클라이언트가 없으면 바이낸스 폴백을 금지
                 if exchange_name != 'binance' and not ex_client_for_eval:
-                    self.logger.warning(f"⚠️ {exchange_name} 클라이언트 없음 - 바이낸스 폴백 대신 거래소 기본 코인 사용")
-                    default_coins = self._get_default_coins(exchange_name)
-                    self.selected_coins[exchange_name] = list(default_coins or [])
+                    self.logger.warning(
+                        f"⚠️ {exchange_name} 클라이언트 없음 - 지원 심볼을 확인할 수 없어 코인 선택 중단"
+                    )
+                    self.selected_coins[exchange_name] = []
                     if hasattr(self, 'main_app') and self.main_app:
                         if not hasattr(self.main_app, 'selected_coins_by_exchange'):
                             self.main_app.selected_coins_by_exchange = {}
-                        self.main_app.selected_coins_by_exchange[exchange_name] = list(default_coins or [])
-                    return default_coins
+                        self.main_app.selected_coins_by_exchange[exchange_name] = []
+                    return []
 
                 selected_coins = self.evaluator.select_trading_coins(
                     num_alt=15,
                     num_major=5,
+                    regime=str(
+                        (getattr(self, 'last_market_regime_by_exchange', {}) or {}).get(
+                            exchange_name,
+                            'normal',
+                        )
+                    ),
                     exchange=exchange_name,
                     exchange_client=ex_client_for_eval
+                )
+                selection_cfg = dict(
+                    (self.settings or {}).get('crypto_selection', {}) or {}
+                )
+                manual_by_exchange = dict(
+                    selection_cfg.get('manual_symbols_by_exchange', {}) or {}
+                )
+                general_selection = SelectionPolicy(
+                    target=exchange_name,
+                    asset_class='crypto',
+                    limit=20,
+                ).resolve(
+                    automatic_candidates=list(selected_coins or []),
+                    pinned_symbols=list(
+                        manual_by_exchange.get(
+                            str(exchange_name or '').strip().lower(),
+                            [],
+                        )
+                        or []
+                    ),
+                )
+                raw_market_universe = list(
+                    (
+                        getattr(
+                            self.evaluator,
+                            "last_market_universe_candidates_by_exchange",
+                            {},
+                        )
+                        or {}
+                    ).get(str(exchange_name or "").strip().lower(), [])
+                    or []
+                )
+                advanced_selection = select_advanced_strategy_universe(
+                    strategy_pool=list(
+                        getattr(self, "active_custom_strategy_pool", []) or []
+                    ),
+                    market_candidates=raw_market_universe or selected_coins,
+                    pinned_symbols=list(
+                        manual_by_exchange.get(
+                            str(exchange_name or "").strip().lower(),
+                            [],
+                        )
+                        or []
+                    ),
+                    asset_class="crypto",
+                    target=exchange_name,
+                    default_limit=20,
+                )
+                selected_coins = combine_selection_paths(
+                    general_selection,
+                    advanced_selection,
+                )
+                selected_coins = self._prefilter_supported_coins(
+                    exchange_name,
+                    selected_coins,
                 )
                 # 거래소별 코인 목록은 항상 분리 보관
                 self.selected_coins[exchange_name] = list(selected_coins or [])
@@ -955,6 +1094,50 @@ class UnifiedTrader:
             else:
                 # 기본 코인 목록 사용
                 default_coins = self._get_default_coins(exchange_name)
+                selection_cfg = dict(
+                    (self.settings or {}).get('crypto_selection', {}) or {}
+                )
+                manual_by_exchange = dict(
+                    selection_cfg.get('manual_symbols_by_exchange', {}) or {}
+                )
+                general_selection = SelectionPolicy(
+                    target=exchange_name,
+                    asset_class='crypto',
+                    limit=20,
+                ).resolve(
+                    automatic_candidates=list(default_coins or []),
+                    pinned_symbols=list(
+                        manual_by_exchange.get(
+                            str(exchange_name or '').strip().lower(),
+                            [],
+                        )
+                        or []
+                    ),
+                )
+                advanced_selection = select_advanced_strategy_universe(
+                    strategy_pool=list(
+                        getattr(self, "active_custom_strategy_pool", []) or []
+                    ),
+                    market_candidates=default_coins,
+                    pinned_symbols=list(
+                        manual_by_exchange.get(
+                            str(exchange_name or "").strip().lower(),
+                            [],
+                        )
+                        or []
+                    ),
+                    asset_class="crypto",
+                    target=exchange_name,
+                    default_limit=20,
+                )
+                default_coins = combine_selection_paths(
+                    general_selection,
+                    advanced_selection,
+                )
+                default_coins = self._prefilter_supported_coins(
+                    exchange_name,
+                    default_coins,
+                )
                 self.selected_coins[exchange_name] = list(default_coins or [])
 
                 # main_app에도 거래소별 맵으로 동기화
@@ -1042,7 +1225,15 @@ class UnifiedTrader:
                 if self.analyzer:
                     try:
                         inference_started = time.perf_counter()
-                        signal_data = self.analyzer.generate_trading_signal(symbol, exchange_name=exchange_name)
+                        analysis_config = self.settings
+                        if str(coin.get("_selection_pipeline") or "") == "advanced":
+                            analysis_config = dict(self.settings or {})
+                            analysis_config["_skip_ai_enhancement"] = True
+                        signal_data = self.analyzer.generate_trading_signal(
+                            symbol,
+                            config=analysis_config,
+                            exchange_name=exchange_name,
+                        )
                         inference_ms = (time.perf_counter() - inference_started) * 1000.0
                         emit_kpi_event(
                             event_type='ai_inference_completed',
@@ -1076,6 +1267,25 @@ class UnifiedTrader:
                             },
                         )
                         raise
+                    if not isinstance(signal_data, dict):
+                        self.logger.warning(
+                            f"⚠️ {exchange_name} {symbol} 분석 응답 형식 오류: "
+                            f"{type(signal_data).__name__} → HOLD로 격리"
+                        )
+                        signal_data = {
+                            "signal": "HOLD",
+                            "confidence": 0.0,
+                            "reason": "분석기 응답 형식 오류",
+                        }
+                    signal_data["_selection_pipeline"] = str(
+                        coin.get("_selection_pipeline") or "general"
+                    )
+                    signal_data["_eligible_strategy_modes"] = list(
+                        coin.get("_eligible_strategy_modes") or []
+                    )
+                    signal_data["_eligible_strategy_ids"] = list(
+                        coin.get("_eligible_strategy_ids") or []
+                    )
                     analysis_results[symbol] = signal_data
                     # 코인별 완료 로그 (핵심 지표 요약은 선택적으로 표시)
                     try:
@@ -1111,13 +1321,6 @@ class UnifiedTrader:
                     except Exception:
                         pass
 
-                    # 실제 주문 거래소와 학습 대상 거래소는 별도로 선택할 수 있다.
-                    learning_scope = getattr(self, 'learning_enabled_exchanges', None)
-                    if learning_scope is None:
-                        learning_scope = self._compute_learning_enabled_exchanges()
-                        self.learning_enabled_exchanges = learning_scope
-                    if exchange_name in learning_scope:
-                        self._generate_ai_learning_data(exchange_name, symbol, signal_data)
                 else:
                     # 기본 분석 결과
                     analysis_results[symbol] = {
@@ -1142,6 +1345,7 @@ class UnifiedTrader:
         """거래소별 거래 사이클 실행 (바이낸스와 동일한 로직)"""
         try:
             self.logger.info(f"🔄 {exchange_name} 거래 사이클 시작")
+            execution_mode = self._execution_mode(exchange_name)
             learning_scope = getattr(self, 'learning_enabled_exchanges', None)
             if learning_scope is None:
                 learning_scope = self._compute_learning_enabled_exchanges()
@@ -1167,7 +1371,7 @@ class UnifiedTrader:
 
             # 1. 거래 모드 확인 (페이퍼/데모/실제)
             try:
-                paper = bool(self.settings.get('paper_trading', False)) if isinstance(self.settings, dict) else False
+                paper = execution_mode == ExecutionMode.PAPER
                 demo = bool(self.settings.get('demo_mode', False)) if isinstance(self.settings, dict) else False
 
                 if demo:
@@ -1201,7 +1405,7 @@ class UnifiedTrader:
 
                 self.logger.info(f"거래 모드: {mode_text} (ex={exchange_name})")
             except Exception:
-                paper = False
+                paper = execution_mode == ExecutionMode.PAPER
                 demo = False
                 mode_text = 'REAL'
 
@@ -1222,6 +1426,27 @@ class UnifiedTrader:
                 self.log_event('system', f"{exchange_name} 선택된 코인 없음 - 코인 선택 필요", exchange=exchange_name, level='WARNING')
                 return
 
+            # Evaluator의 극한 폴백은 문자열 심볼을 반환할 수 있다. 이후
+            # 포트폴리오·실행 루프는 dict 계약만 사용하도록 여기서 통일한다.
+            selected_coins = self._prefilter_supported_coins(
+                exchange_name,
+                selected_coins,
+            )
+            selected_coins = [
+                dict(item)
+                if isinstance(item, dict)
+                else {"symbol": str(item or "").strip()}
+                for item in selected_coins
+                if (
+                    str(item.get("symbol") or "").strip()
+                    if isinstance(item, dict)
+                    else str(item or "").strip()
+                )
+            ]
+            if not selected_coins:
+                self.logger.warning(f"{exchange_name} 지원되는 분석 심볼 없음 (ex={exchange_name})")
+                return
+
             self.log_event('system', f"📈 {exchange_name} 선택된 코인: {len(selected_coins)}개", exchange=exchange_name)
 
             # 2. 코인 분석
@@ -1232,21 +1457,12 @@ class UnifiedTrader:
 
             self.logger.info(f"📊 {exchange_name} 분석 완료: {len(analysis_results)}개 (ex={exchange_name})")
 
-            # 주 거래소와 학습 거래소를 분리한다. 학습 전용 거래소는 시그널과
-            # 학습 데이터까지만 갱신하고 주문은 제출하지 않는다.
-            if not self._is_trade_enabled(exchange_name):
+            # LEARNING도 커스텀 후보까지 전체 판단하고 주문만 차단한다.
+            learning_only = execution_mode == ExecutionMode.LEARNING
+            if execution_mode == ExecutionMode.PAPER:
                 self.logger.info(
-                    f"🧠 {exchange_name} 학습 전용 사이클 완료 - 실제 주문 거래소: "
-                    f"{', '.join(self.trade_enabled_exchanges)}"
+                    f"🧪 {exchange_name} PAPER 주문 판단 시작 - 실제 주문 API 0건"
                 )
-                self._monitor_exchange_positions(exchange_name)
-                self.cycle_execution_metrics[exchange_name] = {
-                    'attempted_orders': 0,
-                    'failed_orders': 0,
-                    'quality_score': 100.0,
-                    'learning_only': True,
-                }
-                return
 
             layer_settings = self._get_advanced_layers_settings(exchange_name)
             recent_trades = self._get_recent_trade_samples_unified(exchange_name, limit=200)
@@ -1254,10 +1470,14 @@ class UnifiedTrader:
                 recent_trades=recent_trades,
                 policy=dict(layer_settings.get('profitability_validation', {}) or {}),
             )
-            if bool((layer_settings.get('profitability_validation', {}) or {}).get('enabled', False)) and not bool(profitability_report.get('enabled', True)):
-                self.logger.warning(f"⛔ {exchange_name} 수익성 검증 차단: {profitability_report.get('reasons', [])}")
-                self._monitor_exchange_positions(exchange_name)
-                return
+            profitability_blocked = bool(
+                (layer_settings.get('profitability_validation', {}) or {}).get('enabled', False)
+            ) and not bool(profitability_report.get('enabled', True))
+            if profitability_blocked:
+                self.logger.warning(
+                    f"⚠️ {exchange_name} 기본/confirm 후보 수익성 정책 차단: "
+                    f"{profitability_report.get('reasons', [])} · independent 전략은 버전별 검증 사용"
+                )
             if profitability_report.get('stage') in {'limited_live_learning', 'recovery_learning'}:
                 stage_label = (
                     '성과회복 제한 운용'
@@ -1290,9 +1510,6 @@ class UnifiedTrader:
                     break
                 symbol = coin.get('symbol', '')
                 analysis = analysis_results.get(symbol, {})
-                if isinstance(analysis, dict) and profitability_report.get('stage') in {'limited_live_learning', 'recovery_learning'}:
-                    analysis['_cold_start_profile'] = dict(profitability_report)
-
                 # 🔥 상세 분석 과정 로깅 (거래소 정보 포함)
                 self.logger.info(f"[{symbol}] 분석 과정 상세: (ex={exchange_name})")
                 self.logger.info(f"   • 시그널: {analysis.get('signal', 'HOLD')} (ex={exchange_name})")
@@ -1334,16 +1551,11 @@ class UnifiedTrader:
 
                 self.logger.info(f"{symbol} 분석 완료 - 시그널: {analysis.get('signal', 'HOLD')} (ex={exchange_name})")
 
-                from .declarative_strategy_engine import DeclarativeStrategyEngine
                 from .custom_strategy_validator import enrich_advanced_indicator_context
                 strategy_pool = getattr(self, 'active_custom_strategy_pool', []) or []
-                custom_rules_by_exchange = getattr(
-                    self, 'active_custom_strategy_rules_by_exchange', {}
-                ) or {}
-                active_rules = strategy_pool or custom_rules_by_exchange.get(exchange_name, {})
                 analysis = enrich_advanced_indicator_context(
                     analysis,
-                    active_rules,
+                    strategy_pool,
                     lambda timeframe, limit: self.exchange_manager.get_klines(
                         symbol,
                         interval=timeframe,
@@ -1351,45 +1563,83 @@ class UnifiedTrader:
                         exchange_name=exchange_name,
                     ),
                 )
-                if strategy_pool:
-                    custom_entry = DeclarativeStrategyEngine.evaluate_strategy_pool(
-                        strategy_pool,
-                        analysis,
-                        asset_class="crypto",
-                        target=exchange_name,
-                        market_regime=str((getattr(self, 'last_market_regime_by_exchange', {}) or {}).get(exchange_name, 'range')),
-                    )
-                elif analysis.get('signal') in ['LONG', 'SHORT']:
-                    custom_entry = DeclarativeStrategyEngine.evaluate_entry(
-                        custom_rules_by_exchange.get(exchange_name, {}), analysis,
-                    )
-                else:
-                    custom_entry = {'allowed': True, 'bypassed': True, 'reason': 'no_base_signal'}
-                if not custom_entry.get('allowed', False):
+                runtime_strategy_context = dict(
+                    (
+                        getattr(
+                            self,
+                            '_custom_strategy_runtime_context_by_exchange',
+                            {},
+                        )
+                        or {}
+                    ).get(exchange_name, {})
+                    or {}
+                )
+                analysis['_strategy_performance'] = dict(
+                    runtime_strategy_context.get('performance', {}) or {}
+                )
+                candidate = evaluate_trade_candidate(
+                    symbol=symbol,
+                    context=analysis,
+                    strategy_pool=strategy_pool,
+                    asset_class="crypto",
+                    target=exchange_name,
+                    market_regime=str(
+                        (getattr(self, 'last_market_regime_by_exchange', {}) or {}).get(
+                            exchange_name, 'range'
+                        )
+                    ),
+                )
+                analysis = apply_trade_candidate(analysis, candidate)
+                learning_scope = getattr(self, 'learning_enabled_exchanges', None)
+                if learning_scope is None:
+                    learning_scope = self._compute_learning_enabled_exchanges()
+                    self.learning_enabled_exchanges = learning_scope
+                if exchange_name in learning_scope and not learning_only:
+                    self._generate_ai_learning_data(exchange_name, symbol, analysis)
+                if not candidate.allowed:
+                    if learning_only and exchange_name in learning_scope:
+                        learning_payload = dict(analysis)
+                        learning_payload['_learning_decision'] = 'candidate_blocked'
+                        learning_payload['_learning_block_reason'] = str(candidate.reason)
+                        self._generate_ai_learning_data(exchange_name, symbol, learning_payload)
                     self.logger.info(
                         f"⏸️ {exchange_name} {symbol} AI 커스텀 HOLD - 현재 범위·국면·진입조건 미충족: "
-                        f"{custom_entry.get('reason')}"
+                        f"{candidate.reason}"
                     )
                     continue
-                if custom_entry.get('selected_strategy_name'):
-                    if custom_entry.get('signal_mode') == 'independent':
-                        analysis['signal'] = str(custom_entry.get('entry_signal') or '').upper()
-                    analysis['_custom_engine_settings'] = dict(custom_entry.get('engine_settings') or {})
-                    analysis['_selected_custom_strategy'] = custom_entry.get('selected_strategy_name')
-                    analysis['_selected_custom_strategy_id'] = custom_entry.get('selected_strategy_id')
-                    analysis['_custom_strategy_rules'] = dict(custom_entry.get('selected_rules') or {})
-                    analysis['_custom_operation_mode'] = custom_entry.get('operation_mode', 'standard')
-                    analysis['_custom_runtime_indicator_values'] = list(
-                        custom_entry.get('runtime_indicator_values') or []
-                    )
+                if candidate.strategy_name:
                     self.logger.info(
                         f"🧠 {exchange_name} {symbol} AI 커스텀 선택: "
-                        f"{custom_entry.get('selected_strategy_name')} "
-                        f"(방식={custom_entry.get('signal_mode', 'confirm')}, "
-                        f"운용={custom_entry.get('operation_mode', 'standard')}, 국면={custom_entry.get('market_regime')})"
+                        f"{candidate.strategy_name} (버전={candidate.strategy_version_id or '-'}, "
+                        f"방식={candidate.strategy_role}, 운용={candidate.operation_mode}, "
+                        f"국면={candidate.market_regime}, 국면기준={candidate.regime_scope}, "
+                        f"후보출처={candidate.signal_source}, "
+                        f"위험예산={candidate.engine_settings.get('risk_per_trade_percent', '-')}, "
+                        f"TP={candidate.engine_settings.get('tp_percent', '-')}, "
+                        f"SL={candidate.engine_settings.get('sl_percent', '-')})"
                     )
 
-                if analysis.get('signal') in ['LONG', 'SHORT']:
+                if profitability_blocked and candidate.requires_noah_strategy_policy:
+                    if learning_only and exchange_name in learning_scope:
+                        learning_payload = dict(analysis)
+                        learning_payload['_learning_decision'] = 'profitability_blocked'
+                        learning_payload['_learning_block_reason'] = str(
+                            profitability_report.get('reasons', [])
+                        )
+                        self._generate_ai_learning_data(exchange_name, symbol, learning_payload)
+                    self.logger.warning(
+                        f"⛔ {exchange_name} {symbol} 기본/confirm 후보 수익성 검증 차단: "
+                        f"{profitability_report.get('reasons', [])}"
+                    )
+                    continue
+
+                if (
+                    profitability_report.get('stage') in {'limited_live_learning', 'recovery_learning'}
+                    and candidate.requires_noah_strategy_policy
+                ):
+                    analysis['_cold_start_profile'] = dict(profitability_report)
+
+                if analysis.get('signal') in ['LONG', 'SHORT'] and candidate.requires_noah_strategy_policy:
                     strategy_allowed, strategy_meta = strategy_engine.should_trade(
                         symbol=symbol,
                         analysis_result={
@@ -1400,6 +1650,13 @@ class UnifiedTrader:
                         policy=dict(layer_settings.get('strategy_engine', {}) or {}),
                     )
                     if not strategy_allowed:
+                        if learning_only and exchange_name in learning_scope:
+                            learning_payload = dict(analysis)
+                            learning_payload['_learning_decision'] = 'strategy_guardrail_blocked'
+                            learning_payload['_learning_block_reason'] = str(
+                                strategy_meta.get('reasons', [])
+                            )
+                            self._generate_ai_learning_data(exchange_name, symbol, learning_payload)
                         custom_name = analysis.get('_selected_custom_strategy', '기본 AI')
                         self.logger.warning(
                             f"⛔ {exchange_name} {symbol} {custom_name} HOLD - 후행 전략 가드레일 차단: "
@@ -1407,11 +1664,31 @@ class UnifiedTrader:
                         )
                         continue
 
+                if analysis.get('signal') in ['LONG', 'SHORT']:
                     self.logger.info(f"[{symbol}] 거래 실행 시작 - 시그널: {analysis.get('signal')} (ex={exchange_name})")
 
                     # 거래 실행
+                    if learning_only:
+                        analysis['_learning_only'] = True
                     trade_result = self._execute_signal_trade(exchange_name, symbol, analysis)
                     status = trade_result.get('status')
+                    if learning_only:
+                        if exchange_name in learning_scope:
+                            learning_payload = dict(analysis)
+                            learning_payload['_learning_decision'] = str(status or 'unknown')
+                            learning_payload['_learning_block_reason'] = str(
+                                trade_result.get('reason') or trade_result.get('error') or ''
+                            )
+                            learning_payload['_learning_trade_plan'] = dict(
+                                trade_result.get('trade_plan') or {}
+                            )
+                            self._generate_ai_learning_data(exchange_name, symbol, learning_payload)
+                        self.logger.info(
+                            f"🧠 {exchange_name} {symbol} LEARNING 전체 판단 완료 - "
+                            f"후보={candidate.final_signal}, 출처={candidate.signal_source}, "
+                            f"전략={candidate.strategy_name or '기본 AI'}, 결과={status} · 실제 주문 0건"
+                        )
+                        continue
                     cycle_metrics['attempted'] += 1
                     latency_ms = float(trade_result.get('latency_ms', 0.0) or 0.0)
                     slippage_bps = float(trade_result.get('slippage_bps', 0.0) or 0.0)
@@ -1435,6 +1712,13 @@ class UnifiedTrader:
                         self.logger.warning(f"❌ {exchange_name} {symbol} 거래 실행 실패: {err}")
                         self.logger.warning(f"{symbol} 거래 실행 실패: {err} (ex={exchange_name})")
                 else:
+                    if learning_only and exchange_name in learning_scope:
+                        learning_payload = dict(analysis)
+                        learning_payload['_learning_decision'] = 'hold'
+                        learning_payload['_learning_block_reason'] = str(
+                            analysis.get('reason') or f"final_signal={analysis.get('signal', 'HOLD')}"
+                        )
+                        self._generate_ai_learning_data(exchange_name, symbol, learning_payload)
                     # HOLD 신호인 경우에도 상세 로그 출력
                     self.logger.info(f"[{symbol}] 거래 시그널 없음 - {analysis.get('signal', 'HOLD')} (거래 실행 생략) (ex={exchange_name})")
 
@@ -1488,23 +1772,35 @@ class UnifiedTrader:
                     anomalies,
                 ),
                 'profitability_validation': profitability_report,
+                'learning_only': learning_only,
             }
 
-            self.logger.info(f"✅ {exchange_name} 거래 사이클 완료: {trades_executed}개 거래 실행")
-            self.logger.info(f"거래 사이클 완료: {trades_executed}개 거래 실행 (ex={exchange_name})")
+            if learning_only:
+                self.logger.info(
+                    f"🧠 {exchange_name} LEARNING 판단 사이클 완료: 실제 주문 0개 "
+                    "(기본 AI·AI 커스텀·안전 경계 판단 기록)"
+                )
+            else:
+                self.logger.info(f"✅ {exchange_name} 거래 사이클 완료: {trades_executed}개 거래 실행")
+                self.logger.info(f"거래 사이클 완료: {trades_executed}개 거래 실행 (ex={exchange_name})")
 
         except Exception as e:
             self.logger.error(f"{exchange_name} 거래 사이클 실패: {e}")
 
     def _execute_signal_trade(self, exchange_name: str, symbol: str, analysis: Dict[str, Any]) -> Dict[str, Any]:
         """거래소별 신호 거래 실행 (AI 기반 고급 거래 실행)"""
+        opportunity_auth = None
         try:
             signal = analysis.get('signal', 'HOLD')
             confidence = analysis.get('confidence', 0.0)
+            learning_only = bool(analysis.get('_learning_only', False))
+            independent_custom = analysis.get('_custom_signal_mode') == 'independent'
+            custom_engine_settings = dict(analysis.get('_custom_engine_settings') or {})
 
             # 거래 모드 확인
             try:
-                paper = bool(self.settings.get('paper_trading', False)) if isinstance(self.settings, dict) else False
+                execution_mode = self._execution_mode(exchange_name)
+                paper = execution_mode == ExecutionMode.PAPER
                 demo = bool(self.settings.get('demo_mode', False)) if isinstance(self.settings, dict) else False
 
                 if demo:
@@ -1522,7 +1818,8 @@ class UnifiedTrader:
                         self.logger.warning(f"⚠️ 데모 모드 권한 확인 실패로 demo_mode를 비활성화합니다: {admin_check_err}")
                         demo = False
             except Exception:
-                paper = False
+                execution_mode = self._execution_mode(exchange_name)
+                paper = execution_mode == ExecutionMode.PAPER
                 demo = False
 
             # 데모 모드에서 신호 향상
@@ -1533,49 +1830,72 @@ class UnifiedTrader:
                 self.logger.debug(f"🎭 [DEMO] 신호 향상: {analysis.get('signal', 'HOLD')} → {signal}, 신뢰도: {confidence:.2f}")
 
             # 리스크 관리: 코인 스킵 체크
-            if self.risk_manager and self.risk_manager.should_skip_coin(symbol):
+            if not paper and self.risk_manager and self.risk_manager.should_skip_coin(symbol):
                 return {'status': 'skipped', 'reason': f'리스크 관리로 스킵: {symbol}'}
 
             # 리스크 관리: 일일 손실 한도 체크
-            if self.risk_manager and self.risk_manager.check_daily_loss_limit():
+            if not paper and self.risk_manager and self.risk_manager.check_daily_loss_limit():
                 return {'status': 'skipped', 'reason': '일일 손실 한도 초과'}
 
-            # AI 기반 진입 전 분석
-            pre_entry_analysis = self._perform_pre_entry_analysis_unified(exchange_name, symbol, analysis)
-            if not pre_entry_analysis['proceed']:
-                return {'status': 'skipped', 'reason': f'AI 진입 전 분석 실패: {pre_entry_analysis["reason"]}'}
-
-            # 🔥 동적 TP/SL 계산 (CCXT 거래소용)
-            dynamic_tp_sl = self._calculate_dynamic_tp_sl_unified(exchange_name, symbol, analysis)
-
-            # RR 가드레일 strict 모드에서 미충족 시 진입 차단
-            if dynamic_tp_sl.get('rr_guardrail_enabled', False) and not dynamic_tp_sl.get('rr_guardrail_passed', True):
-                rr_after = float(dynamic_tp_sl.get('rr_after', 0.0) or 0.0)
-                rr_min = float(dynamic_tp_sl.get('rr_min', 2.0) or 2.0)
-                return {
-                    'status': 'skipped',
-                    'reason': f'RR 가드레일 미충족: {rr_after:.2f} < {rr_min:.2f}'
+            if independent_custom:
+                # 고급 AI 커스텀은 사용자 전략 원형이 주 전략이다. NoahAI의
+                # 진입 재심사·동적 임계값·동적 TP/SL로 전략을 다시 쓰지 않는다.
+                requested_tp = float(custom_engine_settings.get('tp_percent', 0.0) or 0.0)
+                requested_sl = float(custom_engine_settings.get('sl_percent', 0.0) or 0.0)
+                if requested_tp <= 0.0 or requested_sl <= 0.0:
+                    return {
+                        'status': 'skipped',
+                        'reason': (
+                            '고급 커스텀 전략 청산계획 누락: '
+                            f'tp={requested_tp:.6f}, sl={requested_sl:.6f}'
+                        ),
+                    }
+                analysis['tp_percent'] = requested_tp
+                analysis['sl_percent'] = requested_sl
+                pre_entry_analysis = {
+                    'proceed': True,
+                    'reason': 'independent_custom_strategy_integrity',
+                    'strategy_integrity_preserved': True,
                 }
+                self._log_trade_event(
+                    'analysis',
+                    (
+                        f"{symbol} 고급 커스텀 전략 청산값 원형 유지: "
+                        f"tp={requested_tp:.6f}({requested_tp*100:.3f}%), "
+                        f"sl={requested_sl:.6f}({requested_sl*100:.3f}%)"
+                    ),
+                    exchange=exchange_name,
+                )
+            else:
+                # 기본·일반 경로에서만 NoahAI 진입 재심사와 동적 계획을 적용한다.
+                pre_entry_analysis = self._perform_pre_entry_analysis_unified(exchange_name, symbol, analysis)
+                if not pre_entry_analysis['proceed']:
+                    return {'status': 'skipped', 'reason': f'AI 진입 전 분석 실패: {pre_entry_analysis["reason"]}'}
 
-            # 🔥 FIX: 동적 계산 결과를 analysis에 반영 (이후 optimized_params에 자동 전달)
-            analysis['tp_percent'] = dynamic_tp_sl['tp']
-            analysis['sl_percent'] = dynamic_tp_sl['sl']
+                dynamic_tp_sl = self._calculate_dynamic_tp_sl_unified(exchange_name, symbol, analysis)
+                if dynamic_tp_sl.get('rr_guardrail_enabled', False) and not dynamic_tp_sl.get('rr_guardrail_passed', True):
+                    rr_after = float(dynamic_tp_sl.get('rr_after', 0.0) or 0.0)
+                    rr_min = float(dynamic_tp_sl.get('rr_min', 2.0) or 2.0)
+                    return {
+                        'status': 'skipped',
+                        'reason': f'RR 가드레일 미충족: {rr_after:.2f} < {rr_min:.2f}'
+                    }
 
-            if self.settings.get('verbose_trade_logging', False):
-                self._log_trade_event('analysis', f"{symbol} 동적 TP/SL 계산: tp={dynamic_tp_sl['tp']:.6f}({dynamic_tp_sl['tp']*100:.3f}%), sl={dynamic_tp_sl['sl']:.6f}({dynamic_tp_sl['sl']*100:.3f}%)", exchange=exchange_name)
+                analysis['tp_percent'] = dynamic_tp_sl['tp']
+                analysis['sl_percent'] = dynamic_tp_sl['sl']
 
-            # 패턴 유사성 분석 (바이낸스와 동일한 로직)
-            pattern_decision = self._analyze_pattern_similarity_unified(exchange_name, symbol, analysis)
-            if pattern_decision.get('action') == 'SKIP':
-                return {'status': 'skipped', 'reason': f'패턴 유사성 분석: SKIP - {pattern_decision.get("reason", "")}'}
-            elif pattern_decision.get('action') == 'ADJUST':
-                # 보수적 조정 적용
-                analysis = self._apply_pattern_adjustments(analysis, pattern_decision)
+                if self.settings.get('verbose_trade_logging', False):
+                    self._log_trade_event('analysis', f"{symbol} 동적 TP/SL 계산: tp={dynamic_tp_sl['tp']:.6f}({dynamic_tp_sl['tp']*100:.3f}%), sl={dynamic_tp_sl['sl']:.6f}({dynamic_tp_sl['sl']*100:.3f}%)", exchange=exchange_name)
 
-            # 동적 신뢰도 임계값 계산
-            dynamic_threshold = self._calculate_dynamic_confidence_threshold_unified(exchange_name, symbol, analysis)
-            if confidence < dynamic_threshold:
-                return {'status': 'skipped', 'reason': f'동적 신뢰도 부족: {confidence:.2f} < {dynamic_threshold:.2f}'}
+                pattern_decision = self._analyze_pattern_similarity_unified(exchange_name, symbol, analysis)
+                if pattern_decision.get('action') == 'SKIP':
+                    return {'status': 'skipped', 'reason': f'패턴 유사성 분석: SKIP - {pattern_decision.get("reason", "")}'}
+                if pattern_decision.get('action') == 'ADJUST':
+                    analysis = self._apply_pattern_adjustments(analysis, pattern_decision)
+
+                dynamic_threshold = self._calculate_dynamic_confidence_threshold_unified(exchange_name, symbol, analysis)
+                if confidence < dynamic_threshold:
+                    return {'status': 'skipped', 'reason': f'동적 신뢰도 부족: {confidence:.2f} < {dynamic_threshold:.2f}'}
 
             # 리스크 분석 로그 (verbose)
             try:
@@ -1605,7 +1925,7 @@ class UnifiedTrader:
                 pass
 
             # 포지션 수 체크
-            active_positions = self.active_positions.get(exchange_name, {})
+            active_positions = self._position_store(exchange_name)
             # max_positions은 AI/동적 파라미터로만 결정 (수동 설정 완전 제거)
             max_positions = self._get_ai_max_positions(exchange_name)
             cold_start = dict(analysis.get('_cold_start_profile', {}) or {})
@@ -1617,20 +1937,42 @@ class UnifiedTrader:
 
             # AI 강화 파라미터 적용
             optimized_params = self._get_ai_enhanced_parameters_unified(exchange_name, symbol, analysis, pre_entry_analysis)
-            custom_engine_settings = getattr(self, 'custom_engine_settings_by_exchange', {}) or {}
-            optimized_params = apply_engine_settings_to_trade_config(
-                optimized_params, custom_engine_settings.get(exchange_name, {}) or {}
-            )
             optimized_params = apply_engine_settings_to_trade_config(
                 optimized_params, analysis.get('_custom_engine_settings', {}) or {}
             )
             optimized_params['_selected_custom_strategy'] = analysis.get('_selected_custom_strategy')
             optimized_params['_selected_custom_strategy_id'] = analysis.get('_selected_custom_strategy_id')
+            optimized_params['_selected_custom_strategy_key'] = analysis.get('_selected_custom_strategy_key')
+            optimized_params['_selected_custom_strategy_version_id'] = analysis.get('_selected_custom_strategy_version_id')
+            optimized_params['_custom_signal_mode'] = analysis.get('_custom_signal_mode')
+            optimized_params['_custom_operation_mode'] = analysis.get('_custom_operation_mode')
+            optimized_params['_exit_plan'] = dict(analysis.get('_exit_plan') or {})
             optimized_params['_custom_strategy_rules'] = dict(analysis.get('_custom_strategy_rules') or {})
+            exit_plan = dict(optimized_params.get('_exit_plan') or {})
+            optimized_params['_exit_policy'] = build_exit_policy(
+                settings=self.settings,
+                exit_plan=exit_plan,
+                effective_tp_fraction=optimized_params.get('tp_percent', 0.0),
+                effective_sl_fraction=optimized_params.get('sl_percent', 0.0),
+                effective_reason=(
+                    'AI 커스텀 전략 원형'
+                    if exit_plan.get('strategy_owned')
+                    else '종목·변동성 기반 동적 청산'
+                ),
+                entry_price=analysis.get('current_price', analysis.get('price', 0.0)),
+                side=signal,
+                asset_class='crypto',
+                target=exchange_name,
+                symbol=symbol,
+            )
+            self.logger.info(
+                f"{exchange_name} {symbol} "
+                f"{format_exit_policy(optimized_params['_exit_policy'])}"
+            )
 
             # 거래 실행
             exchange_client = self.get_exchange_client(exchange_name)
-            if not exchange_client and not paper:
+            if not exchange_client and not paper and not learning_only:
                 return {'status': 'error', 'error': '거래소 클라이언트 없음'}
 
             # 포지션 크기 계산 및 최소 노셔널 보정
@@ -1644,11 +1986,16 @@ class UnifiedTrader:
             allocation_result = self.portfolio_allocation_cache.get(exchange_name, {}) if isinstance(self.portfolio_allocation_cache, dict) else {}
             if allocation_result:
                 try:
-                    position_size = PortfolioOrchestrator().quantity_from_allocation(
+                    allocated_size = PortfolioOrchestrator().quantity_from_allocation(
                         symbol=symbol,
                         price=float(current_price_hint or 0.0),
                         fallback_qty=position_size,
                         allocation_result=allocation_result,
+                    )
+                    position_size = (
+                        min(position_size, allocated_size)
+                        if independent_custom and position_size > 0 and allocated_size > 0
+                        else allocated_size
                     )
                 except Exception:
                     pass
@@ -1662,6 +2009,86 @@ class UnifiedTrader:
 
             # 레버리지 기본값 설정 (try 블록 밖에서 선언)
             leverage = int(self.settings.get('default_leverage', 10)) if isinstance(self.settings, dict) else 10
+            desired_leverage_raw = optimized_params.get(
+                'leverage',
+                self.settings.get('default_leverage', 10),
+            )
+            leverage = self._clamp_leverage(exchange_name, desired_leverage_raw)
+            if cold_start:
+                leverage = min(leverage, int(cold_start.get('max_leverage', 1) or 1))
+
+            authorized_targets = (
+                list(getattr(self, "trade_enabled_exchanges", []) or [])
+                if execution_mode == ExecutionMode.LIVE
+                else list(getattr(self, "enabled_exchanges", []) or [])
+            )
+            opportunity_policy = policy_from_settings(
+                self.settings,
+                authorized_targets=authorized_targets,
+            )
+            opportunity_auth = get_opportunity_coordinator().authorize(
+                policy=opportunity_policy,
+                asset_class="crypto",
+                target=exchange_name,
+                symbol=symbol,
+                direction=signal,
+                quantity=position_size,
+                price=float(current_price_hint or analysis.get("current_price", 0.0) or 0.0),
+                stop_fraction=float(optimized_params.get("sl_percent", 0.0) or 0.0),
+                strategy_version=str(
+                    analysis.get("_selected_custom_strategy_version_id")
+                    or "noah_base"
+                ),
+                account_scope=str(
+                    self.settings.get("account_id")
+                    or self.settings.get("user_id")
+                    or f"{exchange_name}:{id(self)}"
+                ),
+                reserve=not learning_only,
+            )
+            optimized_params["_opportunity"] = opportunity_auth.to_dict()
+            if not opportunity_auth.allowed:
+                return {
+                    "status": "skipped",
+                    "reason": f"다중 거래소 기회 정책 차단: {opportunity_auth.reason}",
+                    "opportunity": opportunity_auth.to_dict(),
+                }
+            position_size = float(opportunity_auth.authorized_quantity or 0.0)
+            self.logger.info(
+                f"🔗 {exchange_name} {symbol} 기회연결: "
+                f"id={opportunity_auth.opportunity_id}, mode={opportunity_auth.execution_mode}, "
+                f"target={exchange_name}, qty_factor={opportunity_auth.quantity_factor:.4f}, "
+                f"aggregate_targets={opportunity_auth.aggregate_targets}, "
+                f"aggregate_loss={opportunity_auth.aggregate_estimated_loss:.4f} "
+                f"{opportunity_auth.quote_currency}"
+            )
+
+            # LEARNING은 여기까지 기본/커스텀 후보, 수익성·전략 게이트,
+            # pre-entry, 동적/전략 청산값, 포트폴리오·수량·최소 노셔널,
+            # 레버리지 한도를 모두 평가한다. 이후 set_leverage/set_margin_type와
+            # 주문 제출은 외부 상태를 바꾸므로 정확히 이 경계에서 차단한다.
+            if learning_only:
+                return {
+                    'status': 'learning_planned',
+                    'reason': 'LEARNING 모드: 전체 판단 완료 후 주문 제출 차단',
+                    'trade_plan': {
+                        'exchange': exchange_name,
+                        'symbol': symbol,
+                        'signal': signal,
+                        'confidence': float(confidence or 0.0),
+                        'quantity': float(position_size or 0.0),
+                        'reference_price': float(current_price_hint or 0.0),
+                        'leverage': int(leverage),
+                        'tp_percent': float(optimized_params.get('tp_percent', 0.0) or 0.0),
+                        'sl_percent': float(optimized_params.get('sl_percent', 0.0) or 0.0),
+                        'strategy': analysis.get('_selected_custom_strategy') or '기본 AI',
+                        'strategy_version': analysis.get('_selected_custom_strategy_version_id'),
+                        'candidate_source': analysis.get('_candidate_source', 'base_ai'),
+                        'exit_plan': dict(analysis.get('_exit_plan') or {}),
+                        'exit_policy': dict(optimized_params.get('_exit_policy') or {}),
+                        'opportunity': opportunity_auth.to_dict(),
+                    },
+                }
 
             # 레버리지/마진 타입 설정 (선물 거래소에서만)
             try:
@@ -1820,6 +2247,15 @@ class UnifiedTrader:
                 order_result = {'status': 'error', 'error': str(e)}
 
             if self._is_order_success(order_result):
+                get_opportunity_coordinator().record_result(
+                    opportunity_auth,
+                    status="paper_filled" if paper else "submitted",
+                    order_id=str(
+                        order_result.get("order_id")
+                        or order_result.get("id")
+                        or ""
+                    ),
+                )
                 executed_quantity, executed_price, executed_notional = self._resolve_execution_values(
                     order_result=order_result,
                     fallback_quantity=position_size,
@@ -1967,15 +2403,41 @@ class UnifiedTrader:
                                                 trigger_price_type=trigger_src,
                                             )
                                         if isinstance(result, dict) and result.get('status') == 'success':
+                                            optimized_params['_exit_policy'] = record_insurance_submission(
+                                                optimized_params.get('_exit_policy'),
+                                                submitted_tp_price=tp_price,
+                                                submitted_sl_price=sl_price,
+                                                status='submitted_to_exchange',
+                                                order_ids={
+                                                    'tp': result.get('tp_order_id'),
+                                                    'sl': result.get('sl_order_id'),
+                                                },
+                                            )
                                             self.logger.info(f"🛡️ {exchange_name} {symbol} 보험 TP/SL 설정 완료(TP:{tp_price:.6f}, SL:{sl_price:.6f})")
+                                            self.logger.info(
+                                                f"{exchange_name} {symbol} "
+                                                f"{format_exit_policy(optimized_params['_exit_policy'])}"
+                                            )
                                             # 성공 시 지원 가능으로 캐시
                                             try:
                                                 self._tp_sl_support_cache[exchange_name] = True
                                             except Exception:
                                                 pass
                                         else:
+                                            optimized_params['_exit_policy'] = record_insurance_submission(
+                                                optimized_params.get('_exit_policy'),
+                                                status='exchange_submission_failed',
+                                            )
                                             self.logger.warning(f"{exchange_name} {symbol} 보험 TP/SL 설정 실패(계속): {result}")
+                                            self.logger.warning(
+                                                f"{exchange_name} {symbol} "
+                                                f"{format_exit_policy(optimized_params['_exit_policy'])}"
+                                            )
                                     except Exception as ccxt_e:
+                                        optimized_params['_exit_policy'] = record_insurance_submission(
+                                            optimized_params.get('_exit_policy'),
+                                            status=f'exchange_submission_error:{type(ccxt_e).__name__}',
+                                        )
                                         self.logger.warning(f"{exchange_name} {symbol} 보험 TP/SL 설정 오류(계속): {ccxt_e}")
                                         # 명백한 미지원 키워드가 포함된 경우만 미지원 캐시
                                         try:
@@ -1984,8 +2446,42 @@ class UnifiedTrader:
                                                 self._tp_sl_support_cache[exchange_name] = False
                                         except Exception:
                                             pass
+                            else:
+                                optimized_params['_exit_policy'] = record_insurance_submission(
+                                    optimized_params.get('_exit_policy'),
+                                    status='adapter_insurance_order_not_supported',
+                                )
+                                self.logger.info(
+                                    f"{exchange_name} {symbol} "
+                                    f"{format_exit_policy(optimized_params['_exit_policy'])}"
+                                )
                         except Exception:
-                            pass
+                            optimized_params['_exit_policy'] = record_insurance_submission(
+                                optimized_params.get('_exit_policy'),
+                                status='insurance_order_disabled_or_unavailable',
+                            )
+                            self.logger.info(
+                                f"{exchange_name} {symbol} "
+                                f"{format_exit_policy(optimized_params['_exit_policy'])}"
+                            )
+                    elif paper_mode:
+                        optimized_params['_exit_policy'] = record_insurance_submission(
+                            optimized_params.get('_exit_policy'),
+                            status='paper_virtual_exit_no_exchange_submission',
+                        )
+                        self.logger.info(
+                            f"{exchange_name} {symbol} "
+                            f"{format_exit_policy(optimized_params['_exit_policy'])}"
+                        )
+                    elif exchange_name in ('upbit', 'bithumb'):
+                        optimized_params['_exit_policy'] = record_insurance_submission(
+                            optimized_params.get('_exit_policy'),
+                            status='spot_monitor_exit_no_insurance_order',
+                        )
+                        self.logger.info(
+                            f"{exchange_name} {symbol} "
+                            f"{format_exit_policy(optimized_params['_exit_policy'])}"
+                        )
                 except Exception:
                     pass
                 # 진입 시점 사이징 스냅샷 저장(성과 매핑용)
@@ -2007,7 +2503,8 @@ class UnifiedTrader:
                         'sizing_detail': getattr(self, '_last_sizing_detail', None),
                         'confidence': analysis.get('confidence', None),
                         'tp_percent': analysis.get('tp_percent', None),
-                        'sl_percent': analysis.get('sl_percent', None)
+                        'sl_percent': analysis.get('sl_percent', None),
+                        'exit_policy': dict(optimized_params.get('_exit_policy') or {}),
                     }
                     self.position_sizing_snapshots[(exchange_name, symbol)] = snapshot
                 except Exception:
@@ -2016,8 +2513,8 @@ class UnifiedTrader:
                 # 거래 진입 DB 로그 (Recorder) 기록 시도
                 try:
                     if hasattr(self, 'recorder') and self.recorder:
-                        pos = (self.active_positions.get(exchange_name, {}) or {}).get(symbol)
-                        if pos is not None:
+                        pos = (self._position_store(exchange_name) or {}).get(symbol)
+                        if pos is not None and not paper:
                             trade_params = {
                                 'reason': analysis.get('reason', 'AI signal'),
                                 'exchange': exchange_name,
@@ -2029,29 +2526,30 @@ class UnifiedTrader:
                                 self.logger.warning(f"Recorder 진입 로그 실패(계속): {rec_e}")
                 except Exception:
                     pass
-                emit_kpi_event(
-                    event_type='trade_order_executed',
-                    category='trade',
-                    asset_class='crypto',
-                    status='success',
-                    source='noahai_client_unified_trader',
-                    metric_value=float(executed_quantity or position_size),
-                    metadata={
-                        'exchange': exchange_name,
-                        'symbol': symbol,
-                        'quote_currency': (
-                            'KRW'
-                            if str(exchange_name or '').lower() in {'upbit', 'bithumb'}
-                            or 'KRW' in str(symbol or '').upper()
-                            else 'USDT'
-                        ),
-                        'signal': signal,
-                        'mode': 'demo' if demo else ('paper' if paper else 'live'),
-                        'order_id': order_result.get('order_id'),
-                        'executed_price': executed_price,
-                        'notional_estimate': executed_notional,
-                    },
-                )
+                if not paper:
+                    emit_kpi_event(
+                        event_type='trade_order_executed',
+                        category='trade',
+                        asset_class='crypto',
+                        status='success',
+                        source='noahai_client_unified_trader',
+                        metric_value=float(executed_quantity or position_size),
+                        metadata={
+                            'exchange': exchange_name,
+                            'symbol': symbol,
+                            'quote_currency': (
+                                'KRW'
+                                if str(exchange_name or '').lower() in {'upbit', 'bithumb'}
+                                or 'KRW' in str(symbol or '').upper()
+                                else 'USDT'
+                            ),
+                            'signal': signal,
+                            'mode': 'demo' if demo else 'live',
+                            'order_id': order_result.get('order_id'),
+                            'executed_price': executed_price,
+                            'notional_estimate': executed_notional,
+                        },
+                    )
                 return {
                     'status': 'success',
                     'order': order_result,
@@ -2060,6 +2558,12 @@ class UnifiedTrader:
                     'slippage_bps': float(order_result.get('slippage_bps', 0.0) or 0.0),
                 }
             else:
+                get_opportunity_coordinator().release(opportunity_auth)
+                get_opportunity_coordinator().record_result(
+                    opportunity_auth,
+                    status="failed",
+                    detail=str(order_result.get("error") or order_result),
+                )
                 # 실패 상세 원인 전파(원문 보존)
                 reason = order_result.get('error')
                 if not reason:
@@ -2096,6 +2600,13 @@ class UnifiedTrader:
                 }
 
         except Exception as e:
+            if opportunity_auth is not None:
+                get_opportunity_coordinator().release(opportunity_auth)
+                get_opportunity_coordinator().record_result(
+                    opportunity_auth,
+                    status="failed",
+                    detail=str(e),
+                )
             self.logger.error(f"❌ {exchange_name} {symbol} 거래 실행 실패: {e}")
             emit_kpi_event(
                 event_type='trade_order_failed',
@@ -2301,10 +2812,7 @@ class UnifiedTrader:
                 sl_price=sl_price
             )
 
-            if exchange_name not in self.active_positions:
-                self.active_positions[exchange_name] = {}
-
-            self.active_positions[exchange_name][symbol] = position
+            self._position_store(exchange_name)[symbol] = position
             self.logger.info(f"📝 {exchange_name} {symbol} 포지션 기록 완료")
 
         except Exception as e:
@@ -2313,7 +2821,7 @@ class UnifiedTrader:
     def _monitor_exchange_positions(self, exchange_name: str):
         """거래소별 포지션 모니터링 (바이낸스와 동일한 로직)"""
         try:
-            active_positions = self.active_positions.get(exchange_name, {})
+            active_positions = self._position_store(exchange_name)
             if not active_positions:
                 return
 
@@ -2360,6 +2868,8 @@ class UnifiedTrader:
         - bybit/okx/bitget: CCXT 어댑터 fetch_open_orders 사용, type/info 휴리스틱 판별
         """
         try:
+            if self._execution_mode(exchange_name) == ExecutionMode.PAPER:
+                return
             positions = self.active_positions.get(exchange_name, {}) or {}
             if not positions:
                 return
@@ -2766,12 +3276,7 @@ class UnifiedTrader:
         """포지션 청산 (바이낸스와 동일한 로직)"""
         try:
             # paper_trading 모드에서는 네트워크 호출 없이 즉시 성공 처리
-            paper = False
-            try:
-                if isinstance(self.settings, dict):
-                    paper = bool(self.settings.get('paper_trading', False))
-            except Exception:
-                paper = False
+            paper = self._execution_mode(exchange_name) == ExecutionMode.PAPER
 
             if paper:
                 now_ts = int(datetime.now(timezone.utc).timestamp() * 1000)
@@ -2859,7 +3364,7 @@ class UnifiedTrader:
 
                 # 거래 청산 DB 로그 (Recorder) 기록 시도
                 try:
-                    if hasattr(self, 'recorder') and self.recorder:
+                    if not paper and hasattr(self, 'recorder') and self.recorder:
                         # 트리거 사유는 상세 판별이 어려워 우선 일반 사유로 기록
                         reason = 'auto_exit'
                         try:
@@ -2941,36 +3446,36 @@ class UnifiedTrader:
                 except Exception:
                     pass
 
-                # 포지션 제거
-                if exchange_name in self.active_positions and symbol in self.active_positions[exchange_name]:
-                    del self.active_positions[exchange_name][symbol]
+                # 실행 모드별 저장소에서만 제거한다.
+                self._position_store(exchange_name).pop(symbol, None)
 
                 # 거래 통계 업데이트
                 self._update_trade_stats_unified(exchange_name, pnl_percent)
 
-                emit_kpi_event(
-                    event_type='trade_order_executed',
-                    category='trade',
-                    asset_class='crypto',
-                    status='success',
-                    source='noahai_client_unified_trader_close',
-                    metric_value=float(position.quantity),
-                    metadata={
-                        'exchange': exchange_name,
-                        'symbol': symbol,
-                        'quote_currency': (
-                            'KRW'
-                            if str(exchange_name or '').lower() in {'upbit', 'bithumb'}
-                            or 'KRW' in str(symbol or '').upper()
-                            else 'USDT'
-                        ),
-                        'side': 'CLOSE',
-                        'close': True,
-                        'reason': 'auto_close',
-                        'executed_price': float(current_price or 0.0),
-                        'notional_estimate': float(position.quantity) * float(current_price or 0.0),
-                    },
-                )
+                if not paper:
+                    emit_kpi_event(
+                        event_type='trade_order_executed',
+                        category='trade',
+                        asset_class='crypto',
+                        status='success',
+                        source='noahai_client_unified_trader_close',
+                        metric_value=float(position.quantity),
+                        metadata={
+                            'exchange': exchange_name,
+                            'symbol': symbol,
+                            'quote_currency': (
+                                'KRW'
+                                if str(exchange_name or '').lower() in {'upbit', 'bithumb'}
+                                or 'KRW' in str(symbol or '').upper()
+                                else 'USDT'
+                            ),
+                            'side': 'CLOSE',
+                            'close': True,
+                            'reason': 'auto_close',
+                            'executed_price': float(current_price or 0.0),
+                            'notional_estimate': float(position.quantity) * float(current_price or 0.0),
+                        },
+                    )
                 if getattr(position, 'entry_time_source', 'execution') == 'execution':
                     exit_order_id = None
                     if isinstance(order_result, dict):
@@ -3001,7 +3506,7 @@ class UnifiedTrader:
                     )
 
                 # RiskManager 이력 업데이트 (거래소 필터 정합성 보장)
-                if hasattr(self, 'risk_manager') and self.risk_manager:
+                if not paper and hasattr(self, 'risk_manager') and self.risk_manager:
                     try:
                         entry_time = position.entry_time if hasattr(position, 'entry_time') else datetime.now(timezone.utc)
                         exit_time = datetime.now(timezone.utc)
@@ -3021,10 +3526,11 @@ class UnifiedTrader:
                         self.logger.warning(f"{exchange_name} {symbol} RiskManager 이력 업데이트 실패(계속): {rm_err}")
 
                 # AI 분석 (익절/손절)
-                if pnl_percent > 0:
-                    self._perform_profit_analysis_unified(exchange_name, symbol, position, pnl_data)
-                else:
-                    self._perform_loss_analysis_unified(exchange_name, symbol, position, pnl_data)
+                if not paper:
+                    if pnl_percent > 0:
+                        self._perform_profit_analysis_unified(exchange_name, symbol, position, pnl_data)
+                    else:
+                        self._perform_loss_analysis_unified(exchange_name, symbol, position, pnl_data)
 
                 # 사이징 스냅샷과 결과 매핑 로그
                 try:
@@ -3097,7 +3603,9 @@ class UnifiedTrader:
                 # 잔여 TP/SL 등 미체결 주문 정리
                 try:
                     # 바이낸스는 trader.py에서 처리 (문서 가이드라인 준수)
-                    if exchange_name == 'binance':
+                    if paper:
+                        pass
+                    elif exchange_name == 'binance':
                         pass  # 바이낸스는 스킵
                     elif exchange_name in ('bybit','okx','bitget','upbit','bithumb'):
                         # CCXT 거래소: 어댑터의 get_open_orders/cancel_order 사용
@@ -3149,16 +3657,7 @@ class UnifiedTrader:
     def _update_trade_stats_unified(self, exchange_name: str, pnl_percent: float):
         """거래 통계 업데이트 (거래소별)"""
         try:
-            if exchange_name not in self.trade_stats:
-                self.trade_stats[exchange_name] = {
-                    'total_trades': 0,
-                    'profitable_trades': 0,
-                    'losing_trades': 0,
-                    'total_pnl': 0.0,
-                    'win_rate': 0.0
-                }
-
-            stats = self.trade_stats[exchange_name]
+            stats = self._trade_stats_store(exchange_name)
             stats['total_trades'] += 1
             stats['total_pnl'] += pnl_percent
 
@@ -3170,7 +3669,7 @@ class UnifiedTrader:
             stats['win_rate'] = (stats['profitable_trades'] / stats['total_trades']) * 100
 
             # DB에도 최신 통계 저장 (dashboard와 일관성 유지)
-            if hasattr(self, 'recorder') and self.recorder:
+            if self._execution_mode(exchange_name) == ExecutionMode.LIVE and hasattr(self, 'recorder') and self.recorder:
                 stats_for_db = stats.copy()
                 stats_for_db['winning_trades'] = stats_for_db.get('profitable_trades', 0)
                 self.recorder.save_exchange_trade_stats(exchange_name, stats_for_db)
@@ -3198,7 +3697,14 @@ class UnifiedTrader:
     def _perform_profit_analysis_unified(self, exchange_name: str, symbol: str, position: Position, pnl_data: Dict[str, Any]):
         """익절 분석 (거래소별)"""
         try:
-            if not self.ai_manager or not self.ai_manager.enabled():
+            if (
+                not self.ai_manager
+                or not getattr(
+                    self.ai_manager,
+                    'enabled_for_role',
+                    lambda _role: self.ai_manager.enabled(),
+                )('profit_analysis')
+            ):
                 return
 
             # 익절 분석 요청 데이터 구성
@@ -3233,7 +3739,14 @@ class UnifiedTrader:
     def _perform_loss_analysis_unified(self, exchange_name: str, symbol: str, position: Position, pnl_data: Dict[str, Any]):
         """손절 분석 (거래소별)"""
         try:
-            if not self.ai_manager or not self.ai_manager.enabled():
+            if (
+                not self.ai_manager
+                or not getattr(
+                    self.ai_manager,
+                    'enabled_for_role',
+                    lambda _role: self.ai_manager.enabled(),
+                )('loss_analysis')
+            ):
                 return
 
             # 손절 분석 요청 데이터 구성
@@ -3278,7 +3791,14 @@ class UnifiedTrader:
     def _analyze_pattern_similarity_unified(self, exchange_name: str, symbol: str, analysis: Dict[str, Any]) -> Dict[str, Any]:
         """패턴 유사성 분석 (바이낸스와 동일한 로직)"""
         try:
-            if not self.ai_manager or not self.ai_manager.enabled():
+            if (
+                not self.ai_manager
+                or not getattr(
+                    self.ai_manager,
+                    'enabled_for_role',
+                    lambda _role: self.ai_manager.enabled(),
+                )('pattern_similarity')
+            ):
                 return {'action': 'PROCEED', 'reason': 'AI 비활성화'}
 
             # 최근 손실 패턴 조회
@@ -3386,27 +3906,19 @@ class UnifiedTrader:
             # PnL 계산 (간단한 퍼센트 기반)
             pnl_percent = self._calc_pnl_percent(position, exit_price)
 
-            # 통계 업데이트
-            if exchange_name not in self.trade_stats:
-                self.trade_stats[exchange_name] = {
-                    'total_trades': 0,
-                    'profitable_trades': 0,
-                    'losing_trades': 0,
-                    'total_pnl': 0.0
-                }
-
-            self.trade_stats[exchange_name]['total_trades'] += 1
-            self.trade_stats[exchange_name]['total_pnl'] += pnl_percent
+            stats = self._trade_stats_store(exchange_name)
+            stats['total_trades'] += 1
+            stats['total_pnl'] += pnl_percent
 
             if pnl_percent > 0:
-                self.trade_stats[exchange_name]['profitable_trades'] += 1
+                stats['profitable_trades'] += 1
             else:
-                self.trade_stats[exchange_name]['losing_trades'] += 1
+                stats['losing_trades'] += 1
 
             # DB에 통계 저장
-            if hasattr(self, 'recorder') and self.recorder:
+            if self._execution_mode(exchange_name) == ExecutionMode.LIVE and hasattr(self, 'recorder') and self.recorder:
                 # UnifiedTrader는 profitable_trades 사용, Recorder는 winning_trades 사용
-                stats_for_db = self.trade_stats[exchange_name].copy()
+                stats_for_db = stats.copy()
                 stats_for_db['winning_trades'] = stats_for_db.get('profitable_trades', 0)
                 self.recorder.save_exchange_trade_stats(exchange_name, stats_for_db)
                 self.logger.info(f"✅ {exchange_name} 거래 통계 DB 저장 완료")
@@ -3437,6 +3949,9 @@ class UnifiedTrader:
     def _restore_positions_from_exchange(self, exchange_name: str):
         """거래소에서 실제 포지션 조회하여 복구 (max_positions 제한 적용)"""
         try:
+            if self._execution_mode(exchange_name) == ExecutionMode.PAPER:
+                self.logger.info(f"🧪 {exchange_name} PAPER - 실제 포지션 복구 차단")
+                return
             # Binance는 고유 Trader 경로에서 처리하므로 여기서 스킵
             if str(exchange_name).lower() == 'binance':
                 self.logger.info("바이낸스 포지션 복구는 Trader 경로에서 처리됨 (Unified 경로 스킵)")
@@ -3507,26 +4022,38 @@ class UnifiedTrader:
     def get_active_positions(self, exchange_name: Optional[str] = None) -> Dict[str, Dict[str, Position]]:
         """활성 포지션 조회"""
         if exchange_name:
-            return {exchange_name: self.active_positions.get(exchange_name, {})}
-        return self.active_positions
+            return {exchange_name: self._position_store(exchange_name)}
+        result: Dict[str, Dict[str, Position]] = {}
+        exchanges = set(self.active_positions) | set(getattr(self, 'paper_positions', {}))
+        for name in exchanges:
+            result[name] = self._position_store(name)
+        return result
 
     def get_trade_stats(self, exchange_name: Optional[str] = None) -> Dict[str, Any]:
         """거래 통계 조회"""
         if exchange_name:
-            return self.trade_stats.get(exchange_name, {})
-        return self.trade_stats
+            return self._trade_stats_store(exchange_name)
+        return {
+            name: self._trade_stats_store(name)
+            for name in (set(self.trade_stats) | set(self.paper_trade_stats))
+        }
 
     def start_trading(self, exchange_name: str):
-        """거래소별 거래 시작"""
+        """거래소별 실행 시작.
+
+        학습 범위에만 포함된 거래소도 분석·학습 루프를 시작한다. 실제 주문은
+        execute_trading_cycle_unified의 주문 단계에서 별도로 차단한다.
+        """
         try:
-            if not self._is_trade_enabled(exchange_name):
+            trade_enabled = self._is_trade_enabled(exchange_name)
+            learning_enabled = self._is_learning_enabled(exchange_name)
+            if not trade_enabled and not learning_enabled:
                 self.logger.warning(
-                    f"⚠️ {exchange_name} 거래 시작 취소 - 학습 전용 설정입니다. "
-                    "trade_enabled_exchanges에서 실제 주문을 명시적으로 허용해야 합니다."
+                    f"⚠️ {exchange_name} 실행 시작 취소 - 거래·학습 활성 범위에 없습니다."
                 )
                 return False
             if not self._ensure_exchange_initialized(exchange_name):
-                self.logger.warning(f"⚠️ {exchange_name} 거래 시작 취소 - 거래소 초기화 실패")
+                self.logger.warning(f"⚠️ {exchange_name} 실행 시작 취소 - 거래소 초기화 실패")
                 return False
 
             # 이미 실행 중이면 중복 스레드 생성 방지
@@ -3556,8 +4083,14 @@ class UnifiedTrader:
             monitoring_thread.start()
             self.monitoring_threads[exchange_name] = monitoring_thread
 
-            self.logger.info(f"🚀 {exchange_name} 거래 시작")
-            self.logger.info(f"거래 시작 (ex={exchange_name})")
+            execution_mode = self._execution_mode(exchange_name)
+            mode_label = {
+                ExecutionMode.LIVE: "실거래",
+                ExecutionMode.PAPER: "페이퍼",
+                ExecutionMode.LEARNING: "학습 전용",
+            }[execution_mode]
+            self.logger.info(f"🚀 {exchange_name} {mode_label} 실행 시작")
+            self.logger.info(f"{mode_label} 실행 시작 (ex={exchange_name})")
             return True
 
         except Exception as e:
@@ -3576,6 +4109,10 @@ class UnifiedTrader:
 
             # close_all 정책: 보유 포지션 즉시 시장가 청산
             if close_all:
+                if self._execution_mode(exchange_name) == ExecutionMode.PAPER:
+                    self.paper_positions.setdefault(exchange_name, {}).clear()
+                    self.logger.info(f"🧪 {exchange_name} PAPER 포지션 전체 정리 완료")
+                    return
                 try:
                     exchange = self.unified_manager.get_exchange(exchange_name)
                     if exchange:
@@ -3744,7 +4281,11 @@ class UnifiedTrader:
                 return
 
             # 2. AI Manager 활성화 체크
-            if not self.ai_manager.enabled():
+            if not getattr(
+                self.ai_manager,
+                'enabled_for_role',
+                lambda _role: self.ai_manager.enabled(),
+            )('parameter_optimization'):
                 return  # 조용히 스킵
 
             # 3. 거래 데이터 수집 (거래소별)
@@ -3795,6 +4336,9 @@ class UnifiedTrader:
             # 6. 거래 성과 분석
             context = self._collect_trading_context_for_ai(all_trades, exchange_name)
 
+            # 같은 거래 표본에서 응답 오류가 나도 매 사이클 재호출하지 않는다.
+            self._last_adjust_count_by_exchange[exchange_name] = total_count
+
             # 7. AI에게 최적값 질문
             ai_result = self._ask_ai_for_optimal_threshold(context, exchange_name)
 
@@ -3803,9 +4347,6 @@ class UnifiedTrader:
 
             # 8. AI 추천값 적용
             self._apply_ai_threshold_recommendation(ai_result, context, exchange_name)
-
-            # 9. 조절 카운터 업데이트
-            self._last_adjust_count_by_exchange[exchange_name] = total_count
 
         except Exception as e:
             self.logger.error(f"[{exchange_name}] AI 자동 조절 오류: {e}")
@@ -3892,12 +4433,22 @@ Response in JSON format:
 """
 
             # AI에게 질문
-            result = self.ai_manager.client.chat_json(
-                system_prompt=system_prompt,
-                user_prompt=user_prompt,
-                temperature=0.3,
-                max_tokens=500
-            )
+            role_call = getattr(self.ai_manager, 'chat_json_for_role', None)
+            if callable(role_call):
+                result = role_call(
+                    'parameter_optimization',
+                    system_prompt,
+                    user_prompt,
+                    temperature=0.3,
+                    max_tokens=500,
+                )
+            else:
+                result = self.ai_manager.client.chat_json(
+                    system_prompt=system_prompt,
+                    user_prompt=user_prompt,
+                    temperature=0.3,
+                    max_tokens=500
+                )
 
             return result
 
@@ -3986,6 +4537,14 @@ Response in JSON format:
                 'sl_percent': signal_data.get('sl_percent', 0.0),
                 'leverage': signal_data.get('leverage', 1.0),
                 'source': 'analyzer_cycle',
+                'signal_source': signal_data.get('_signal_source', 'noah_base'),
+                'custom_signal_mode': signal_data.get('_custom_signal_mode', 'none'),
+                'custom_operation_mode': signal_data.get('_custom_operation_mode', 'standard'),
+                'selected_custom_strategy': signal_data.get('_selected_custom_strategy'),
+                'selected_custom_strategy_id': signal_data.get('_selected_custom_strategy_id'),
+                'selected_custom_strategy_key': signal_data.get('_selected_custom_strategy_key'),
+                'selected_custom_strategy_version_id': signal_data.get('_selected_custom_strategy_version_id'),
+                'trade_candidate': dict(signal_data.get('_trade_candidate') or {}),
                 'recent_win_rate': perf.get('recent_win_rate', 0.0),
                 'recent_loss_rate': perf.get('recent_loss_rate', 0.0),
                 'recent_trade_count': perf.get('recent_trade_count', 0),
@@ -4356,9 +4915,8 @@ Response in JSON format:
             if not klines or len(klines) < 10:
                 return 'normal'
 
-            from typing import cast, Dict, Any
-            prices = [float(cast(Dict[str, Any], k)['close']) for k in klines]
-            volumes = [float(cast(Dict[str, Any], k)['volume']) for k in klines]
+            prices = [kline_number(k, "close") for k in klines]
+            volumes = [kline_number(k, "volume") for k in klines]
 
             # 간단한 RSI 계산 (10기간)
             gains = []
@@ -5011,10 +5569,7 @@ Response in JSON format:
                 custom_strategy_rules=dict(optimized_params.get('_custom_strategy_rules') or {}),
             )
 
-            if exchange_name not in self.active_positions:
-                self.active_positions[exchange_name] = {}
-
-            self.active_positions[exchange_name][symbol] = position
+            self._position_store(exchange_name)[symbol] = position
             entry_order_id = (
                 order_result.get('order_id')
                 or order_result.get('orderId')
@@ -5043,7 +5598,8 @@ Response in JSON format:
     def get_exchange_statistics(self, exchange_name: str) -> Dict[str, Any]:
         """거래소별 통계 조회"""
         try:
-            if exchange_name not in self.trade_stats:
+            stats_store = self._trade_stats_store(exchange_name)
+            if not stats_store:
                 return {
                     'total_trades': 0,
                     'profitable_trades': 0,
@@ -5056,8 +5612,8 @@ Response in JSON format:
                     'active_positions': 0
                 }
 
-            stats = self.trade_stats[exchange_name].copy()
-            stats['active_positions'] = len(self.active_positions.get(exchange_name, {}))
+            stats = stats_store.copy()
+            stats['active_positions'] = len(self._position_store(exchange_name))
 
             # 평균 수익/손실 계산
             if stats['total_trades'] > 0:
@@ -5083,7 +5639,8 @@ Response in JSON format:
             total_profitable = 0
             total_pnl = 0.0
 
-            for exchange_name in self.trade_stats.keys():
+            exchange_names = set(self.trade_stats) | set(self.paper_trade_stats)
+            for exchange_name in exchange_names:
                 exchange_stats = self.get_exchange_statistics(exchange_name)
                 all_stats[exchange_name] = exchange_stats
 
@@ -5097,7 +5654,10 @@ Response in JSON format:
                 'profitable_trades': total_profitable,
                 'total_pnl': total_pnl,
                 'win_rate': (total_profitable / total_trades * 100) if total_trades > 0 else 0.0,
-                'active_positions': sum(len(pos) for pos in self.active_positions.values())
+                'active_positions': sum(
+                    len(self._position_store(name))
+                    for name in exchange_names
+                )
             }
 
             return all_stats
@@ -5209,8 +5769,45 @@ Response in JSON format:
 
     def update_settings(self, new_settings: Dict[str, Any]):
         """설정 업데이트"""
-        self.settings.update(new_settings)
-        self.logger.info(f"UnifiedTrader 설정 업데이트: {new_settings}")
+        sanitized = dict(new_settings or {})
+        from config.settings import normalize_trade_rate
+        for key, kind in (("default_tp", "tp"), ("default_sl", "sl")):
+            if key not in sanitized:
+                continue
+            fallback, _ = normalize_trade_rate(
+                self.settings.get(key, 0.0018 if kind == "tp" else 0.0020),
+                kind=kind,
+            )
+            sanitized[key], changed = normalize_trade_rate(
+                sanitized[key],
+                kind=kind,
+                fallback=fallback,
+            )
+            if changed:
+                try:
+                    raw_rate = float(new_settings[key])
+                    maximum = 0.05 if kind == "tp" else 0.03
+                    legacy_percent = (
+                        math.isfinite(raw_rate) and maximum < raw_rate <= 5.0
+                    )
+                except Exception:
+                    legacy_percent = False
+                if legacy_percent:
+                    self.logger.info(
+                        f"{key} 레거시 퍼센트 단위 자동 변환: "
+                        f"{new_settings[key]} → {sanitized[key]}"
+                    )
+                else:
+                    self.logger.warning(
+                        f"⚠️ {key} 비정상 입력 안전값 복구: "
+                        f"{new_settings[key]} → {sanitized[key]}"
+                    )
+        previous_modes = {
+            ex: self._execution_mode(ex)
+            for ex in getattr(self, 'enabled_exchanges', [])
+        }
+        self.settings.update(sanitized)
+        self.logger.info(f"UnifiedTrader 설정 업데이트: {sanitized}")
 
         # 활성 거래소 목록 재계산
         self.enabled_exchanges = self._compute_enabled_exchanges()
@@ -5220,7 +5817,9 @@ Response in JSON format:
         # 비활성 거래소 데이터 정리
         containers = [
             self.trade_stats,
+            self.paper_trade_stats,
             self.active_positions,
+            self.paper_positions,
             self.monitoring_flags,
             self.monitoring_threads,
             self.trade_entered,
@@ -5240,6 +5839,14 @@ Response in JSON format:
         self._initialized_exchanges = {
             ex for ex in self._initialized_exchanges if ex in self.enabled_exchanges
         }
+        for exchange_name in self.enabled_exchanges:
+            if previous_modes.get(exchange_name) != self._execution_mode(exchange_name):
+                self.monitoring_flags[exchange_name] = False
+                self.trading_cycles[exchange_name] = False
+                self._initialized_exchanges.discard(exchange_name)
+                self.logger.info(
+                    f"🔄 {exchange_name} 실행 모드 변경 - 안전한 재초기화를 위해 실행을 중지했습니다."
+                )
         self._recent_outcomes = {ex: deque(maxlen=self._winrate_window) for ex in self.enabled_exchanges}
 
     # 🔥 사용되지 않는 함수 제거됨 (2025-10-20):
@@ -5753,9 +6360,11 @@ Response in JSON format:
             # 시장 변동성 계산
             volatility = self._calculate_market_volatility_unified(exchange_name, symbol)
 
-            # 기본 임계값
-            base_tp = 0.0018 * 100  # 0.18%
-            base_sl = 0.002 * 100   # 0.20%
+            # 설정 정본은 비율(0.0018=0.18%), 아래 계산은 퍼센트 포인트다.
+            configured_tp = float((self.settings or {}).get('default_tp', 0.0018) or 0.0018)
+            configured_sl = float((self.settings or {}).get('default_sl', 0.0020) or 0.0020)
+            base_tp = configured_tp * 100.0
+            base_sl = configured_sl * 100.0
 
             # 변동성 기반 조정
             if volatility > 0.02:  # 높은 변동성 (2% 이상)
@@ -5838,8 +6447,7 @@ Response in JSON format:
                 return 0.01  # 기본값
 
             # 가격 변화율 계산
-            from typing import cast, Dict, Any
-            prices = [float(cast(Dict[str, Any], k)['close']) for k in klines]
+            prices = [kline_number(k, "close") for k in klines]
             price_changes = [(prices[i] - prices[i-1]) / prices[i-1] for i in range(1, len(prices))]
 
             # 변동성 (표준편차)

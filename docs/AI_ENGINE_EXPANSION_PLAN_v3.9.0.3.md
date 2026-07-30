@@ -3,7 +3,7 @@
 
 기준일: 2026-07-28
 대상 버전: v3.9.0.3 Windows 업데이트
-현재 상태: v3.9.0.3 업데이트 대상 구현 완료, 실제 제공사 키·코드서명 Windows 설치본 검증 후 배포
+현재 상태: v3.9.0.3 후보 구현을 v3.9.0.4에 포함 완료, 실제 제공사 키·코드서명 Windows 설치본 검증 후 배포
 
 ---
 
@@ -142,7 +142,7 @@ AI API 확장과 함께 다음 항목을 같은 Windows 후보 빌드에서 검�
 - AIProviderRouter
   - provider=openai|deepseek|kimi|anthropic|gemini
   - model
-  - credential_ref
+  - api_key(사용자별 로컬 설정)
   - base_url(optional)
 - OpenAICompatibleAdapter
   - OpenAI
@@ -183,7 +183,7 @@ AI API 확장과 함께 다음 항목을 같은 Windows 후보 빌드에서 검�
 ### 7-1. 새 권장 스키마
 
 - ai_provider: openai | deepseek | kimi | anthropic | gemini
-- ai_credentials: provider별 `credential_ref`와 base_url
+- ai_credentials: provider별 `api_key`와 base_url
 - ai_provider_profiles:
   - analyst
   - assistant
@@ -203,7 +203,7 @@ AI API 확장과 함께 다음 항목을 같은 Windows 후보 빌드에서 검�
 
 초기에는 아래 키를 그대로 유지하며 매핑 계층으로 흡수한다.
 
-- openai_api_key -> 운영체제 보안 저장소의 ai_credentials.openai.credential_ref
+- openai_api_key -> ai_credentials.openai.api_key 로컬 호환 저장
 - openai_base_url -> ai_credentials.openai.base_url
 - openai_model -> ai_models.analyst
 - assistant_ai_model -> ai_models.assistant
@@ -211,10 +211,10 @@ AI API 확장과 함께 다음 항목을 같은 Windows 후보 빌드에서 검�
 
 ### 7-3. 저장/로드 규칙
 
-- 저장 시: API 키는 macOS Keychain/Windows Credential Manager에 저장하고 JSON에는 `credential_ref`만 저장
+- v3.9.0.4 정책 수정: API 키는 거래소·증권사 키와 같은 사용자별 로컬 설정에 저장하고 Keychain/Windows Credential Manager를 요구하지 않음
 - 로드 시: 새 스키마 우선, 없으면 레거시 키 fallback
-- 레거시 `openai_api_key`는 보안 저장소 이전 성공 후 디스크에서 비우고 런타임 메모리에서만 복원
-- settings.json과 자동 백업의 AI 평문 키를 credential reference로 교체하고, 가능한 운영체제에서 파일 권한을 사용자 전용(0600)으로 제한
+- 레거시 `openai_api_key`와 provider별 `api_key`를 호환 유지
+- 가능한 운영체제에서 설정 파일 권한을 사용자 전용(0600)으로 제한하며 설정·백업을 지원 로그 묶음에서 제외
 
 ---
 
@@ -228,7 +228,7 @@ AI API 확장과 함께 다음 항목을 같은 Windows 후보 빌드에서 검�
 ### 8-2. 필수 UI 요소
 
 - API 키를 편집할 엔진 드롭다운
-- 선택 엔진 API 키 입력 필드(운영체제 보안 저장)
+- 선택 엔진 API 키 입력 필드(거래소·증권사 키와 같은 사용자별 로컬 저장)
 - 애널리스트/어시스턴트별 Provider+모델 선택
 - 빈번/표준/정밀 작업별 Provider+모델 배치
 - 절약형/균형형/정밀형 프리셋
@@ -389,8 +389,8 @@ AI API 확장과 함께 다음 항목을 같은 Windows 후보 빌드에서 검�
   - 대응: 균형형 기본 권장 + 즉시 롤백 버튼
 - 리스크: 가격·한도·모델 ID 변경
   - 대응: 동적 모델 조회 + 공식 fallback 목록 + 릴리스 시점 문서 확인
-- 리스크: API 키 보안 저장소 접근 실패
-  - 대응: 새 키 저장 차단 + 기존 레거시 사용자의 무중단 실행 + 명시적 이전 경고
+- 리스크: 설정·백업 전달 시 API 키 노출
+  - 대응: 사용자별 설정 파일 권한 제한 + 입력 마스킹 + 지원 로그 묶음에서 설정·백업 제외
 
 ---
 
@@ -439,11 +439,11 @@ Windows 빌드에서 확인하는 외부 게이트다. 이 항목을 통과하�
   "ai_provider": "openai",
   "ai_credentials": {
     "openai": {
-      "credential_ref": "keyring://NoahAI/<account>.openai",
+      "api_key": "<사용자별 로컬 설정>",
       "base_url": ""
     },
     "deepseek": {
-      "credential_ref": "keyring://NoahAI/<account>.deepseek",
+      "api_key": "<사용자별 로컬 설정>",
       "base_url": "https://api.deepseek.com"
     }
   },

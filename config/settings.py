@@ -12,6 +12,8 @@ import shutil
 import math
 from typing import Dict, Any, List
 
+from config.settings_contract import normalize_settings_contract
+
 # 🔒 보호할 설정 항목 리스트 (템플릿 병합 시 덮어쓰지 않음)
 PROTECTED_SETTINGS = [
     'analyzer_settings.user_signal_threshold',
@@ -208,15 +210,15 @@ def deep_merge_settings(existing: Dict[str, Any], template: Dict[str, Any], pare
     result = existing.copy()
 
     for key, template_value in template.items():
+        current_key_path = f"{parent_key}.{key}" if parent_key else key
         if key not in result:
             # 새로운 키는 추가
             result[key] = template_value
-            print(f"  ➕ 새 설정 추가: {key} = {template_value}")
+            print(f"  ➕ 새 설정 추가: {current_key_path}")
         elif isinstance(template_value, dict) and isinstance(result[key], dict):
             # 🔥 재귀적으로 병합 (2단계 이상 중첩도 처리)
             # 모든 딕셔너리는 사용자 설정 보존 (새로운 키만 추가)
             # 단, 보호된 설정 항목은 절대 덮어쓰지 않음
-            current_key_path = f"{parent_key}.{key}" if parent_key else key
             merged_dict = deep_merge_settings(result[key], template_value, parent_key=current_key_path)
             result[key] = merged_dict
         elif key == 'ui_settings' and isinstance(template_value, dict):
@@ -230,21 +232,20 @@ def deep_merge_settings(existing: Dict[str, Any], template: Dict[str, Any], pare
                 for ui_key, ui_value in template_value.items():
                     if ui_key not in merged_ui:
                         merged_ui[ui_key] = ui_value
-                        print(f"    ➕ UI 설정 항목 추가: {ui_key} = {ui_value}")
+                        print(f"    ➕ UI 설정 항목 추가: ui_settings.{ui_key}")
                 result[key] = merged_ui
         elif isinstance(template_value, list) and isinstance(result[key], list):
             # 모든 리스트는 사용자 설정 보존 (템플릿으로 덮어쓰지 않음)
             if result[key] != template_value:
-                print(f"  🔒 리스트 설정 보존: {key} = {result[key]} (템플릿: {template_value})")
+                print(f"  🔒 리스트 설정 보존: {current_key_path}")
             continue
         else:
             # 스칼라 값은 사용자 설정 보존 (API 키 등 개인정보 및 사용자 선호)
             # 🔒 보호된 설정 항목 확인
-            current_key_path = f"{parent_key}.{key}" if parent_key else key
             if current_key_path in PROTECTED_SETTINGS:
                 # 보호된 설정은 절대 덮어쓰지 않음
                 if result[key] != template_value:
-                    print(f"  🔒 보호된 설정 보존: {current_key_path} = {result[key]} (템플릿: {template_value})")
+                    print(f"  🔒 보호된 설정 보존: {current_key_path}")
                 continue
             
             if key in ['binance_api_key', 'binance_secret_key', 'upbit_api_key', 'upbit_secret_key',
@@ -258,7 +259,7 @@ def deep_merge_settings(existing: Dict[str, Any], template: Dict[str, Any], pare
             elif result[key] != template_value:
                 # 중요한 설정은 사용자 값 보존 (절대 덮어쓰지 않음)
                 if key in ['min_trade_amount', 'log_level']:
-                    print(f"  🔒 중요 설정 보존: {key} = {result[key]} (템플릿: {template_value})")
+                    print(f"  🔒 중요 설정 보존: {current_key_path}")
                     continue
                 elif key == 'user_signal_threshold':
                     # user_signal_threshold는 AI가 자동 조절: 구버전 기본값(20)만 업데이트
@@ -267,11 +268,11 @@ def deep_merge_settings(existing: Dict[str, Any], template: Dict[str, Any], pare
                         print(f"  🔄 user_signal_threshold 업데이트: 20 → {template_value} (AI 자동 조절 준비)")
                     else:
                         # AI가 조절한 값이면 보존
-                        print(f"  🤖 user_signal_threshold 보존: {result[key]} (AI 조절 완료)")
+                        print(f"  🤖 user_signal_threshold 보존: {current_key_path}")
                     continue
                 elif key == 'min_trade_amount':
                     # min_trade_amount는 사용자 설정 보존 (5는 정확한 최소값)
-                    print(f"  🔒 min_trade_amount 보존: {result[key]} (사용자 설정)")
+                    print(f"  🔒 min_trade_amount 보존: {current_key_path}")
                     continue
                 elif key == 'symbol_min_notional_overrides':
                     # 심볼별 오버라이드는 기존 설정과 병합 (덮어쓰지 않음)
@@ -279,15 +280,15 @@ def deep_merge_settings(existing: Dict[str, Any], template: Dict[str, Any], pare
                         merged_overrides = result[key].copy()
                         merged_overrides.update(template_value)
                         result[key] = merged_overrides
-                        print(f"  🔄 symbol_min_notional_overrides 병합: {merged_overrides}")
+                        print(f"  🔄 설정 병합: {current_key_path}")
                     else:
                         result[key] = template_value
-                        print(f"  ➕ symbol_min_notional_overrides 추가: {template_value}")
+                        print(f"  ➕ 설정 추가: {current_key_path}")
                     continue
                 else:
                     # 기존 사용자 설정 보존 (템플릿으로 덮어쓰지 않음)
                     if result[key] != template_value:
-                        print(f"  🔒 사용자 설정 보존: {key} = {result[key]} (템플릿: {template_value})")
+                        print(f"  🔒 사용자 설정 보존: {current_key_path}")
                     # 변경하지 않음 (continue 생략 - 다음 키로 계속)
 
     return result
@@ -306,14 +307,18 @@ def detect_settings_changes(old: Dict[str, Any], new: Dict[str, Any]) -> List[st
             elif isinstance(new_dict[key], dict) and isinstance(old_dict[key], dict):
                 compare_dicts(old_dict[key], new_dict[key], full_key)
             elif new_dict[key] != old_dict[key]:
-                changes.append(f"설정 변경: {full_key} = {old_dict[key]} → {new_dict[key]}")
+                changes.append(f"설정 변경: {full_key}")
 
     compare_dicts(old, new)
     return changes
 
 
-def load_settings() -> Dict[str, Any]:
-    """설정 파일 로드 (PyInstaller 배포 환경 대응)"""
+def load_settings(*, persist_migrations: bool = True) -> Dict[str, Any]:
+    """설정 파일 로드 (PyInstaller 배포 환경 대응).
+
+    진단 도구는 ``persist_migrations=False``로 호출해 현재 파일을 변경하지
+    않고 마이그레이션 결과만 메모리에서 검증할 수 있다.
+    """
     try:
         # PyInstaller 환경 감지
         if getattr(sys, 'frozen', False):
@@ -596,9 +601,20 @@ def load_settings() -> Dict[str, Any]:
             if replay_init_changed:
                 needs_save = True
 
+            # v3.9.0.4: 실행 설정을 하나의 정본으로 정리한다.
+            settings, contract_report, contract_changed = normalize_settings_contract(settings)
+            if contract_changed:
+                print(
+                    "🧭 설정 정본 v3.9.0.4 적용: "
+                    f"{len(contract_report.get('normalized_keys', []))}개 항목 정리"
+                )
+                needs_save = True
+
             # 변경이 있을 때만 저장 (로그인/초기화 시 불필요한 디스크 I/O 방지)
-            if needs_save:
+            if needs_save and persist_migrations:
                 save_settings(settings)
+            elif needs_save:
+                print("ℹ️ 읽기 전용 설정 점검: 마이그레이션 결과를 저장하지 않았습니다.")
 
             from trading.ai.credentials import hydrate_ai_credentials
             return hydrate_ai_credentials(settings)
@@ -618,10 +634,14 @@ def load_settings() -> Dict[str, Any]:
 
         # adminjung 계정 최초 1회 방송 리플레이 기본값 자동 초기화
         settings, _ = _apply_adminjung_broadcast_replay_defaults(settings)
+        settings, _, _ = normalize_settings_contract(settings)
 
         # 사용자 설정 파일 생성
-        save_settings(settings)
-        print(f"✅ 사용자 설정 파일 생성: {config_path}")
+        if persist_migrations:
+            save_settings(settings)
+            print(f"✅ 사용자 설정 파일 생성: {config_path}")
+        else:
+            print("ℹ️ 읽기 전용 설정 점검: 사용자 설정 파일을 생성하지 않았습니다.")
 
         from trading.ai.credentials import hydrate_ai_credentials
         return hydrate_ai_credentials(settings)
@@ -727,60 +747,6 @@ def list_settings_backups(limit: int = 20) -> List[str]:
         return []
 
 
-def _redact_ai_secrets_from_backups(settings_snapshot: Dict[str, Any]) -> None:
-    """기존 설정 백업의 AI 평문 키를 현재 credential_ref로 교체한다."""
-    try:
-        _, backup_dir = _get_settings_paths()
-        if not os.path.isdir(backup_dir):
-            return
-        current_credentials = copy.deepcopy(settings_snapshot.get("ai_credentials", {}) or {})
-        if isinstance(current_credentials, dict):
-            for cfg in current_credentials.values():
-                if isinstance(cfg, dict):
-                    cfg.pop("api_key", None)
-        current_alpha = settings_snapshot.get("alpha_arena", {})
-        current_alpha_refs = (
-            copy.deepcopy(current_alpha.get("credential_refs", {}) or {})
-            if isinstance(current_alpha, dict)
-            else {}
-        )
-        legacy_alpha_fields = (
-            "alphaarena_deepseek_api_key",
-            "alphaarena_alibaba_api_key",
-            "alphaarena_openai_api_key",
-            "alphaarena_anthropic_api_key",
-            "alphaarena_google_api_key",
-            "alphaarena_xai_api_key",
-        )
-        for name in os.listdir(backup_dir):
-            if not (name.startswith("settings_") and name.endswith(".json")):
-                continue
-            path = os.path.join(backup_dir, name)
-            try:
-                with open(path, "r", encoding="utf-8") as file:
-                    backup = json.load(file)
-                backup["openai_api_key"] = ""
-                backup["ai_credentials"] = copy.deepcopy(current_credentials)
-                alpha = backup.get("alpha_arena")
-                if isinstance(alpha, dict):
-                    alpha["deepseek_api_key"] = ""
-                    alpha["qwen_api_key"] = ""
-                    alpha["credential_refs"] = copy.deepcopy(current_alpha_refs)
-                for field in legacy_alpha_fields:
-                    if field in backup:
-                        backup[field] = ""
-                with open(path, "w", encoding="utf-8") as file:
-                    json.dump(backup, file, ensure_ascii=False, indent=2)
-                try:
-                    os.chmod(path, 0o600)
-                except OSError:
-                    pass
-            except Exception:
-                continue
-    except Exception:
-        pass
-
-
 def restore_settings_from_backup(backup_path: str) -> bool:
     """지정한 백업 파일로 settings.json을 복구한다."""
     try:
@@ -811,9 +777,8 @@ def save_settings(settings: Dict[str, Any]) -> bool:
         config_path, _ = _get_settings_paths()
         from trading.ai.credentials import prepare_ai_credentials_for_storage
 
-        settings_to_save, credential_warnings = prepare_ai_credentials_for_storage(settings)
-        for warning in credential_warnings:
-            print(f"⚠️ {warning}")
+        settings_to_save, _ = prepare_ai_credentials_for_storage(settings)
+        settings_to_save, _, _ = normalize_settings_contract(settings_to_save)
         if _repair_tp_sl_settings(settings_to_save):
             print("🔧 저장 전 비정상 TP/SL 설정을 복구했습니다.")
 
@@ -830,8 +795,6 @@ def save_settings(settings: Dict[str, Any]) -> bool:
             os.chmod(config_path, 0o600)
         except OSError:
             pass
-        _redact_ai_secrets_from_backups(settings_to_save)
-
         print(f"✅ 설정 파일 저장: {config_path}")
         return True
 
@@ -842,6 +805,13 @@ def save_settings(settings: Dict[str, Any]) -> bool:
 
 def get_default_settings() -> Dict[str, Any]:
     """기본 설정 반환"""
+    # v3.9.0.4부터 settings_template.json을 새 설치와 초기화의 단일 정본으로 사용한다.
+    template = load_settings_template()
+    if template:
+        normalized, _, _ = normalize_settings_contract(template)
+        return normalized
+
+    # 패키지 손상 등으로 템플릿을 읽지 못할 때만 사용하는 최소 호환 폴백.
     return {
         # 거래 설정
         'default_leverage': 10,
@@ -928,6 +898,16 @@ def get_default_settings() -> Dict[str, Any]:
             'max_daily_calls_per_exchange': 300,
             'max_monthly_market_calls': 30000,
             'max_cache_entries': 1000,
+            # 진입 후보의 AI 포지션 크기 제안은 시장분석 호출과 별도이므로
+            # 신선한 캐시를 우선하고 의미 있는 상태 변경에만 다시 호출한다.
+            'position_sizing_cache_sec': 900,
+            'position_sizing_retry_cooldown_sec': 120,
+            'position_sizing_price_change_bps': 100.0,
+            'position_sizing_confidence_delta': 0.10,
+            'position_sizing_max_cache_entries': 100,
+            'pattern_similarity_cache_sec': 300,
+            'pattern_similarity_retry_cooldown_sec': 120,
+            'pattern_similarity_max_cache_entries': 300,
         },
         # API 설정
         'binance_api_key': '',
@@ -936,11 +916,11 @@ def get_default_settings() -> Dict[str, Any]:
         'openai_base_url': '',
         'ai_provider': 'openai',
             'ai_credentials': {
-                'openai': {'credential_ref': '', 'base_url': ''},
-                'deepseek': {'credential_ref': '', 'base_url': 'https://api.deepseek.com'},
-                'kimi': {'credential_ref': '', 'base_url': 'https://api.moonshot.ai/v1'},
-                'anthropic': {'credential_ref': '', 'base_url': 'https://api.anthropic.com'},
-                'gemini': {'credential_ref': '', 'base_url': 'https://generativelanguage.googleapis.com/v1beta/openai/'},
+                'openai': {'api_key': '', 'base_url': ''},
+                'deepseek': {'api_key': '', 'base_url': 'https://api.deepseek.com'},
+                'kimi': {'api_key': '', 'base_url': 'https://api.moonshot.ai/v1'},
+                'anthropic': {'api_key': '', 'base_url': 'https://api.anthropic.com'},
+                'gemini': {'api_key': '', 'base_url': 'https://generativelanguage.googleapis.com/v1beta/openai/'},
             },
         'ai_provider_profiles': {
             'analyst': {'provider': 'openai', 'model': ''},
@@ -966,10 +946,23 @@ def get_default_settings() -> Dict[str, Any]:
         'bybit_secret_key': '',
         'selected_exchange': 'binance',
         'enabled_exchanges': ['binance'],
-        # 비어 있으면 selected_exchange만 실제 주문, enabled_exchanges는 학습/분석에 사용한다.
+        # 사용자가 명시적으로 고른 거래소만 LIVE 신규 주문을 허용한다.
         'trade_enabled_exchanges': [],
         # 비어 있으면 enabled_exchanges 전체를 학습한다.
         'learning_enabled_exchanges': [],
+        'multi_venue_execution': {
+            'enabled': True,
+            # 사용자가 실제 주문 대상으로 고른 거래소마다 독립 실행한다.
+            'mode': 'parallel',
+            'opportunity_window_sec': 60,
+            'duplicate_window_sec': 120,
+            # 0은 실제 주문 대상으로 고른 거래소 수를 그대로 허용한다.
+            'max_parallel_targets': 0,
+            # 값이 0이면 통화별 별도 상한을 두지 않고 기존 계좌 가드레일을 사용한다.
+            'max_loss_by_currency': {'USDT': 0.0, 'KRW': 0.0},
+            'best_target': '',
+            'target_cost_bps': {},
+        },
         'enabled_stock_brokers': [],
         'stock_broker_configs': {
             'kiwoom': {
@@ -1525,7 +1518,6 @@ def get_default_settings() -> Dict[str, Any]:
             'initial_capital_benchmark': 10000,  # 초기 자금 기준 (10000=만불, 1000=천불, 100=백불)
             'deepseek_api_key': '',
             'qwen_api_key': '',
-            'credential_refs': {},
             'tick_interval_sec': 60,  # 기본 60초, 최소 30초 (내부 가드레일)
             'tick_trigger': 'interval',  # 'interval' 또는 'candle_close_3m' (기본 interval, UI 노출 X)
             'symbols': ['BTCUSDT', 'ETHUSDT', 'SOLUSDT', 'XRPUSDT', 'DOGEUSDT', 'BNBUSDT'],

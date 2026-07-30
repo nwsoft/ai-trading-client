@@ -7,9 +7,9 @@
 """
 
 import json
-import multiprocessing as mp
+import argparse
 import os
-import queue
+import subprocess
 import sys
 from pathlib import Path
 from typing import Dict, Any, List
@@ -24,15 +24,31 @@ from trading.exchange_manager import ExchangeManager
 DOMESTIC_EXCHANGES = ["upbit", "bithumb"]
 OVERSEAS_EXCHANGES = ["bybit", "okx", "bitget", "binance"]
 DEFAULT_TIMEOUT_SEC = int(os.environ.get("EXCHANGE_READINESS_TIMEOUT_SEC", "25") or "25")
+WORKER_RESULT_PREFIX = "__READINESS_RESULT__="
 
 
-def load_user_settings() -> Dict[str, Any]:
-    user_settings = Path("data/nwsoft/config/settings.json")
+def resolve_settings_path(
+    settings_file: str = "",
+    account: str = "",
+) -> Path:
+    if settings_file:
+        return Path(settings_file).expanduser().resolve()
+    if account:
+        normalized = str(account).strip()
+        if not normalized or Path(normalized).name != normalized:
+            raise ValueError("account는 경로가 아닌 계정 디렉터리명이어야 합니다.")
+        return (ROOT / "data" / normalized / "config" / "settings.json").resolve()
+    from path_utils import get_config_dir
+    return (Path(get_config_dir()) / "settings.json").resolve()
+
+
+def load_user_settings(
+    settings_file: str = "",
+    account: str = "",
+) -> Dict[str, Any]:
+    user_settings = resolve_settings_path(settings_file, account)
     if user_settings.exists():
         return json.loads(user_settings.read_text(encoding="utf-8"))
-    fallback = Path("data/settings.json")
-    if fallback.exists():
-        return json.loads(fallback.read_text(encoding="utf-8"))
     return {}
 
 
@@ -165,37 +181,25 @@ def check_one(base_settings: Dict[str, Any], exchange: str) -> Dict[str, Any]:
     return result
 
 
-def _check_one_worker(base_settings: Dict[str, Any], exchange: str, out_queue: Any) -> None:
-    try:
-        out_queue.put(check_one(base_settings, exchange))
-    except Exception as e:
-        out_queue.put(
-            {
-                "exchange": exchange,
-                "enabled": exchange in base_settings.get("enabled_exchanges", []),
-                "key_ready": key_ready(base_settings, exchange),
-                "validate": False,
-                "balance_status": "error",
-                "balance_message": f"worker_error: {e}",
-                "root_cause": "unknown",
-                "action": f"{exchange} readiness worker 오류를 확인하세요.",
-            }
-        )
-
-
 def check_one_with_timeout(base_settings: Dict[str, Any], exchange: str, timeout_sec: int = DEFAULT_TIMEOUT_SEC) -> Dict[str, Any]:
     if timeout_sec <= 0:
         return check_one(base_settings, exchange)
 
-    ctx = mp.get_context("spawn")
-    out_queue = ctx.Queue()
-    process = ctx.Process(target=_check_one_worker, args=(base_settings, exchange, out_queue))
-    process.start()
-    process.join(timeout_sec)
-
-    if process.is_alive():
-        process.terminate()
-        process.join(2)
+    try:
+        completed = subprocess.run(
+            [
+                sys.executable,
+                str(Path(__file__).resolve()),
+                "--worker-exchange",
+                exchange,
+            ],
+            input=json.dumps(base_settings, ensure_ascii=False),
+            text=True,
+            capture_output=True,
+            timeout=timeout_sec,
+            check=False,
+        )
+    except subprocess.TimeoutExpired:
         timeout_result = {
             "exchange": exchange,
             "enabled": exchange in base_settings.get("enabled_exchanges", []),
@@ -207,12 +211,15 @@ def check_one_with_timeout(base_settings: Dict[str, Any], exchange: str, timeout
         timeout_result.update(classify_result(timeout_result))
         return timeout_result
 
-    try:
-        result = out_queue.get_nowait()
-        if isinstance(result, dict):
-            return result
-    except queue.Empty:
-        pass
+    for line in reversed((completed.stdout or "").splitlines()):
+        if not line.startswith(WORKER_RESULT_PREFIX):
+            continue
+        try:
+            result = json.loads(line[len(WORKER_RESULT_PREFIX):])
+            if isinstance(result, dict):
+                return result
+        except json.JSONDecodeError:
+            break
 
     fallback = {
         "exchange": exchange,
@@ -220,7 +227,7 @@ def check_one_with_timeout(base_settings: Dict[str, Any], exchange: str, timeout
         "key_ready": key_ready(base_settings, exchange),
         "validate": False,
         "balance_status": "error",
-        "balance_message": "worker_exited_without_result",
+        "balance_message": f"worker_exit_{completed.returncode}_without_result",
     }
     fallback.update(classify_result(fallback))
     return fallback
@@ -259,25 +266,70 @@ def print_summary(results: List[Dict[str, Any]]) -> None:
             print(f"  - {item.get('exchange')}: {item.get('root_cause')}")
 
 
-def main() -> None:
-    settings = load_user_settings()
+def main() -> int:
+    parser = argparse.ArgumentParser(description="거래소별 인증·잔고 읽기 전용 준비도 점검")
+    parser.add_argument("--account", default="", help="점검할 사용자 계정 디렉터리명")
+    parser.add_argument("--settings-file", default="", help="점검할 settings.json 명시 경로")
+    parser.add_argument("--timeout", type=int, default=DEFAULT_TIMEOUT_SEC)
+    parser.add_argument("--strict", action="store_true", help="하나라도 준비되지 않으면 실패 종료")
+    parser.add_argument("--worker-exchange", default="", help=argparse.SUPPRESS)
+    args = parser.parse_args()
+
+    if args.worker_exchange:
+        try:
+            worker_settings = json.loads(sys.stdin.read() or "{}")
+            worker_result = check_one(worker_settings, args.worker_exchange)
+        except Exception as exc:
+            worker_result = {
+                "exchange": args.worker_exchange,
+                "enabled": False,
+                "key_ready": False,
+                "validate": False,
+                "balance_status": "error",
+                "balance_message": f"worker_error: {exc}",
+            }
+            worker_result.update(classify_result(worker_result))
+        print(WORKER_RESULT_PREFIX + json.dumps(worker_result, ensure_ascii=False))
+        return 0
+
+    try:
+        settings_path = resolve_settings_path(args.settings_file, args.account)
+        settings = load_user_settings(args.settings_file, args.account)
+    except Exception as exc:
+        print(f"설정 경로 해석 실패: {exc}")
+        return 2
     if not settings:
-        print("설정 파일을 찾을 수 없습니다. data/nwsoft/config/settings.json 또는 data/settings.json 확인 필요")
-        return
+        print(f"설정 파일을 찾을 수 없습니다: {settings_path}")
+        return 2
 
     print("거래소 준비도 점검 시작")
+    print(f"settings={settings_path}")
     print(f"selected_exchange={settings.get('selected_exchange')}")
     print(f"enabled_exchanges={settings.get('enabled_exchanges', [])}")
 
-    domestic_results = print_group("1) 국내 거래소 점검 (현물 전용)", DOMESTIC_EXCHANGES, settings)
-    overseas_results = print_group("2) 해외 거래소 점검 (선물 중심)", OVERSEAS_EXCHANGES, settings)
-    print_summary(domestic_results + overseas_results)
+    domestic_results = print_group(
+        "1) 국내 거래소 점검 (현물 전용)",
+        DOMESTIC_EXCHANGES,
+        settings,
+        timeout_sec=args.timeout,
+    )
+    overseas_results = print_group(
+        "2) 해외 거래소 점검 (선물 중심)",
+        OVERSEAS_EXCHANGES,
+        settings,
+        timeout_sec=args.timeout,
+    )
+    results = domestic_results + overseas_results
+    print_summary(results)
 
     print("\n점검 기준:")
     print("- key_ready=True: 필수 키/추가필드(예: okx_passphrase, bitget_password)까지 설정됨")
     print("- validate=True: 인증 포함 연결 검증 통과")
     print("- balance_status=success: 계정 정보 조회까지 성공")
+    if args.strict and any(item.get("root_cause") != "ready" for item in results):
+        return 1
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())

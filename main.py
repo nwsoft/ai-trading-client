@@ -80,6 +80,11 @@ class TradingStateManager:
 
 # 프로젝트 모듈
 from trading.trading_worker import TradingWorker
+from trading.selection_policy import (
+    SelectionPolicy,
+    combine_selection_paths,
+    select_advanced_strategy_universe,
+)
 from membership_policy import (
     ALLOWED_USER_GRADES as MEMBERSHIP_ALLOWED_USER_GRADES,
     REFERRAL_SAFE_EXCHANGES as MEMBERSHIP_REFERRAL_SAFE_EXCHANGES,
@@ -1382,9 +1387,10 @@ class NoahAIClient:
 
             # OpenAI API 키 검증 (필수: 없으면 설정 창으로 유도)
             try:
-                _masked = (openai_api_key[:4] + "***" + openai_api_key[-4:]) if openai_api_key else "<EMPTY>"
                 _len = len(openai_api_key) if openai_api_key else 0
-                logger = self._get_main_logger(); logger.info(f"OpenAI API Key 상태: len={_len}, masked={_masked}")
+                logger = self._get_main_logger(); logger.info(
+                    f"OpenAI API Key 상태: 설정={'예' if _len else '아니오'}, 길이={_len}"
+                )
             except Exception as _e:
                 try:
                     import traceback as _tb
@@ -3012,7 +3018,24 @@ class NoahAIClient:
             ex = (exchange or "").lower().strip() or "binance"
             logger.info(f"🚀 거래소별 시작 요청: {ex}")
 
-            if not self._allow_trading_after_update():
+            # LEARNING / PAPER / LIVE 실행 모드는 주문 범위와 페이퍼 설정을
+            # 한 곳에서 판정한다. PAPER는 실제 주문 허용보다 항상 우선한다.
+            from trading.execution_mode import ExecutionMode, resolve_crypto_execution_mode
+            execution_mode = resolve_crypto_execution_mode(self.settings, ex)
+            live_orders_enabled = execution_mode == ExecutionMode.LIVE
+
+            enabled_scope = self.settings.get('learning_enabled_exchanges')
+            if not isinstance(enabled_scope, list) or not enabled_scope:
+                enabled_scope = self.settings.get('enabled_exchanges', [])
+            normalized_enabled = {
+                str(item or '').strip().lower()
+                for item in (enabled_scope if isinstance(enabled_scope, list) else [])
+            }
+            if normalized_enabled and ex not in normalized_enabled and not live_orders_enabled:
+                logger.warning(f"⚠️ {ex} 실행 시작 취소 - 설정의 활성 거래소 범위에 없습니다.")
+                return False
+
+            if live_orders_enabled and not self._allow_trading_after_update():
                 logger.warning("업데이트 후 사용자 재개 확인 전이라 신규 주문을 차단했습니다.")
                 return False
 
@@ -3064,30 +3087,14 @@ class NoahAIClient:
                 self._schedule_dashboard_trading_status("IDLE")
                 return False
 
-            # 화면·분석·학습 활성화와 실제 주문 허용은 별도 설정이다.
-            # 과거 설정은 selected_exchange 한 곳을 주문 대상으로 해석해 무중단 호환한다.
-            has_explicit_trade_scope = 'trade_enabled_exchanges' in self.settings
-            configured_trade = self.settings.get('trade_enabled_exchanges', [])
-            if not isinstance(configured_trade, list):
-                configured_trade = []
-            if not configured_trade and not has_explicit_trade_scope:
-                configured_trade = [
-                    str(self.settings.get('selected_exchange', 'binance') or 'binance').strip().lower()
-                ]
-            normalized_trade = {
-                str(item or '').strip().lower() for item in configured_trade
-            }
-            if ex not in normalized_trade:
-                logger.warning(
-                    f"🧠 {ex}는 현재 학습 전용입니다. 설정 → 거래소 선택 → "
-                    "실제 주문 실행 거래소에서 명시적으로 허용해야 시작할 수 있습니다."
+            if execution_mode == ExecutionMode.PAPER:
+                logger.info(
+                    f"🧪 {ex} PAPER 실행 - 실제 주문·보호주문 API를 차단하고 가상 체결로 기록합니다."
                 )
-                try:
-                    if getattr(self, 'dashboard', None) and hasattr(self.dashboard, '_update_exchange_status'):
-                        self.dashboard._update_exchange_status(ex, 'learning_only')
-                except Exception:
-                    pass
-                return False
+            elif not live_orders_enabled:
+                logger.info(
+                    f"🧠 {ex} 학습 전용 실행 - 시세·분석·학습은 수행하고 신규 실주문은 차단합니다."
+                )
 
             # 🔥 상태 우선 검사 (다중 거래소 병렬 시작 허용)
             allow_parallel_start = False
@@ -3136,9 +3143,28 @@ class NoahAIClient:
                     try:
                         if hasattr(self.dashboard, 'thread_safe_after'):
                             self.dashboard.thread_safe_after(0, lambda: self.dashboard.set_trading_status("RUNNING"))
+                        if hasattr(self.dashboard, '_update_exchange_status'):
+                            mode_status = (
+                                'running'
+                                if execution_mode == ExecutionMode.LIVE
+                                else 'paper_running'
+                                if execution_mode == ExecutionMode.PAPER
+                                else 'learning_running'
+                            )
+                            self.dashboard.thread_safe_after(
+                                0,
+                                lambda status=mode_status: self.dashboard._update_exchange_status(ex, status),
+                            )
                     except Exception as ui_e:
                         logger.warning(f"{ex} 시작 UI 갱신 예약 생략: {ui_e}")
-                logger.info(f"✅ {ex} 거래 시작 성공")
+                mode_label = (
+                    "실거래"
+                    if execution_mode == ExecutionMode.LIVE
+                    else "페이퍼"
+                    if execution_mode == ExecutionMode.PAPER
+                    else "학습 전용"
+                )
+                logger.info(f"✅ {ex} {mode_label} 실행 시작 성공")
                 self._emit_exchange_runtime_snapshot(trigger=f"start:{ex}")
             else:
                 if not allow_parallel_start:
@@ -3403,8 +3429,14 @@ class NoahAIClient:
         )
         if getattr(self, "trader", None) is not None:
             self.trader.active_custom_strategy_pool = list(pool)
+            self.trader.active_custom_strategy_rules = {}
+            self.trader.active_custom_strategy_rules_by_exchange = {}
+            self.trader.custom_engine_settings_by_exchange = {}
         if getattr(self, "unified_trader", None) is not None:
             self.unified_trader.active_custom_strategy_pool = list(pool)
+            self.unified_trader.active_custom_strategy_rules = {}
+            self.unified_trader.active_custom_strategy_rules_by_exchange = {}
+            self.unified_trader.custom_engine_settings_by_exchange = {}
         self.active_custom_strategy_pool = list(pool)
         return pool
 
@@ -3415,10 +3447,18 @@ class NoahAIClient:
             chatbot = getattr(self, 'ai_trading_chatbot', None)
             if not chatbot:
                 return
-            profile = str(self.settings.get('strategy_runtime_profile', 'balanced') or 'balanced').strip().lower()
+            profile = str(self.settings.get('strategy_runtime_profile', '') or '').strip().lower()
             presets = getattr(chatbot, 'strategy_presets', {}) or {}
+            if not profile:
+                if logger:
+                    logger.info("ℹ️ 런타임 전략 프로파일 미선택 - 저장된 거래 설정 유지")
+                return
             if profile not in presets:
-                profile = 'balanced'
+                if logger:
+                    logger.warning(
+                        f"알 수 없는 런타임 전략 프로파일 '{profile}' - 저장된 거래 설정 유지"
+                    )
+                return
             preset_parameters = dict(presets[profile].parameters)
             chatbot.apply_strategy_changes({
                 'type': 'strategy_change',
@@ -3427,6 +3467,10 @@ class NoahAIClient:
 
             # adaptive 동적 조정이 no-op되지 않도록 StrategyCustomizer 활성 전략을 동기화
             self._sync_strategy_customizer_profile(profile=profile, base_params=preset_parameters)
+            for engine_name in ('trader', 'unified_trader'):
+                engine = getattr(self, engine_name, None)
+                if engine is not None:
+                    engine._runtime_profile_applied = profile
 
             if logger:
                 logger.info(f"✅ 런타임 전략 프로파일 적용: {profile}")
@@ -3791,14 +3835,65 @@ class NoahAIClient:
                     if logger:
                         logger.warning(f"코인 선택 실패(계속 진행): {e_sel}")
 
-            # 4) 선택 결과 정규화 및 저장
-            normalized_selected = []
-            for c in selected_coins:
-                if isinstance(c, dict):
-                    normalized_selected.append(c)
-                else:
-                    normalized_selected.append({'symbol': str(c)})
-            self.selected_coins = normalized_selected
+            # 4) 공통 SelectionPolicy 적용
+            # AI 커스텀 전략은 여기서 종목을 몰래 바꾸지 않는다. 사용자가
+            # BINANCE에 고정한 종목을 우선 포함하고 자동 후보로 나머지를 채운 뒤,
+            # 각 종목의 분석 결과에 대해 전략을 정확히 한 번 평가한다.
+            selection_cfg = dict(settings.get('crypto_selection', {}) or {})
+            manual_by_exchange = dict(
+                selection_cfg.get('manual_symbols_by_exchange', {}) or {}
+            )
+            pinned_symbols = list(manual_by_exchange.get('binance', []) or [])
+            binance_client = getattr(self, 'binance_client', None)
+            if binance_client and hasattr(binance_client, 'is_valid_symbol'):
+                valid_pinned = []
+                for pinned in pinned_symbols:
+                    try:
+                        if binance_client.is_valid_symbol(str(pinned)):
+                            valid_pinned.append(pinned)
+                        elif logger:
+                            logger.warning(
+                                f"⚠️ BINANCE 고정 종목 제외(거래소 미지원): {pinned}"
+                            )
+                    except Exception:
+                        continue
+                pinned_symbols = valid_pinned
+            general_selection = SelectionPolicy(
+                target='binance',
+                asset_class='crypto',
+                limit=total_coins,
+            ).resolve(
+                automatic_candidates=selected_coins,
+                pinned_symbols=pinned_symbols,
+            )
+            strategy_pool = list(
+                getattr(getattr(self, "trader", None), "active_custom_strategy_pool", [])
+                or getattr(self, "active_custom_strategy_pool", [])
+                or []
+            )
+            raw_market_universe = list(
+                (
+                    getattr(
+                        evaluator,
+                        "last_market_universe_candidates_by_exchange",
+                        {},
+                    )
+                    or {}
+                ).get("binance", [])
+                or []
+            )
+            advanced_selection = select_advanced_strategy_universe(
+                strategy_pool=strategy_pool,
+                market_candidates=raw_market_universe or selected_coins,
+                pinned_symbols=pinned_symbols,
+                asset_class="crypto",
+                target="binance",
+                default_limit=total_coins,
+            )
+            self.selected_coins = combine_selection_paths(
+                general_selection,
+                advanced_selection,
+            )
 
             if not self.selected_coins:
                 if logger:

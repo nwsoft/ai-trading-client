@@ -97,10 +97,31 @@ class Optimizer:
         self.optimization_history = []
         self.pattern_db = {}
         
-        # 🔥 AI 캐싱 시스템
+        # AI 포지션 크기 최적화 캐시. 시장분석 추론 캐시와는 별도 경로이므로
+        # 동일한 ai_cost_control 설정 아래에서 호출 조건을 명시적으로 제한한다.
+        ai_cost_cfg = dict(self.settings.get('ai_cost_control', {}) or {})
         self.ai_cache = {}
-        self.cache_duration = 3600  # 1시간 캐시 유효
-        self.max_cache_size = 50     # 최대 캐시 항목 수
+        self.ai_last_attempt = {}
+        self.cache_duration = max(
+            60,
+            int(ai_cost_cfg.get('position_sizing_cache_sec', 900) or 900),
+        )
+        self.ai_retry_cooldown_sec = max(
+            10,
+            int(ai_cost_cfg.get('position_sizing_retry_cooldown_sec', 120) or 120),
+        )
+        self.ai_position_price_change_bps = max(
+            1.0,
+            float(ai_cost_cfg.get('position_sizing_price_change_bps', 100.0) or 100.0),
+        )
+        self.ai_position_confidence_delta = max(
+            0.01,
+            float(ai_cost_cfg.get('position_sizing_confidence_delta', 0.10) or 0.10),
+        )
+        self.max_cache_size = max(
+            10,
+            int(ai_cost_cfg.get('position_sizing_max_cache_entries', 100) or 100),
+        )
         
         self.logger.info("Optimizer 초기화 완료 (settings/binance_client/ai_manager 연동 + AI 캐싱 시스템)")
         
@@ -165,7 +186,24 @@ class Optimizer:
                     sanitized[key], kind=kind, fallback=fallback
                 )
                 if changed:
-                    self.logger.warning(f"⚠️ {key} 입력 단위/범위 정규화: {new_settings[key]} → {sanitized[key]}")
+                    try:
+                        raw_rate = float(new_settings[key])
+                        maximum = 0.05 if kind == "tp" else 0.03
+                        legacy_percent = (
+                            math.isfinite(raw_rate) and maximum < raw_rate <= 5.0
+                        )
+                    except Exception:
+                        legacy_percent = False
+                    if legacy_percent:
+                        self.logger.info(
+                            f"{key} 레거시 퍼센트 단위 자동 변환: "
+                            f"{new_settings[key]} → {sanitized[key]}"
+                        )
+                    else:
+                        self.logger.warning(
+                            f"⚠️ {key} 비정상 입력 안전값 복구: "
+                            f"{new_settings[key]} → {sanitized[key]}"
+                        )
         self.settings.update(sanitized)
         
         # 🔥 중요 설정값 검증
@@ -680,6 +718,7 @@ class Optimizer:
             # AI 호출이 필요한지 판단
             if self._should_call_ai(symbol, confidence, ai_context):
                 try:
+                    self._mark_ai_attempt(symbol)
                     # 🔥 settings 정보를 AI 컨텍스트에 추가
                     ai_context['settings'] = self.settings
                     ai_decision = self.ai_manager.optimize_position_size(ai_context)
@@ -1412,7 +1451,14 @@ class Optimizer:
             self.recorder.execute_query(query, (
                 symbol,
                 'PARAMETER_OPTIMIZATION',
-                json.dumps(optimization_result),
+                json.dumps(
+                    optimization_result,
+                    default=lambda value: (
+                        value.isoformat()
+                        if isinstance(value, datetime)
+                        else str(value)
+                    ),
+                ),
                 datetime.now()
             ))
             
@@ -1469,47 +1515,49 @@ class Optimizer:
     
     # 🔥 AI 캐싱 시스템 메서드들
     def _should_call_ai(self, symbol: str, confidence: float, context: Dict) -> bool:
-        """AI 호출이 필요한지 판단 (단기 거래에 맞게 현실적으로 조정)"""
+        """포지션 크기 AI를 호출할지 판단한다.
+
+        신선한 캐시는 신뢰도가 높거나 SHORT라는 이유만으로 우회하지 않는다.
+        캐시 만료, 방향 변경, 의미 있는 가격/신뢰도 변화만 재호출 사유다.
+        실패 직후에는 짧은 재시도 쿨다운을 두어 장애 시 호출 폭주를 막는다.
+        """
         import time
-        
-        # 1. 캐시가 없거나 만료된 경우 (더 짧은 간격)
+
+        now = time.time()
+        last_attempt = float(self.ai_last_attempt.get(symbol, 0.0) or 0.0)
+        if last_attempt and now - last_attempt < self.ai_retry_cooldown_sec:
+            return False
+
         if symbol not in self.ai_cache:
             return True
-        
+
         cache_data = self.ai_cache[symbol]
-        # 🔥 단기 거래에 맞게 캐시 시간 단축 (1시간 → 15분)
-        if time.time() - cache_data['timestamp'] > 900:  # 15분
+        if now - float(cache_data.get('timestamp', 0.0) or 0.0) > self.cache_duration:
             return True
-        
-        # 2. 시장 상황이 변한 경우 (단기 거래에 맞게 조정)
+
+        current_signal = str(context.get('signal') or '').upper()
+        cached_signal = str(cache_data.get('signal') or '').upper()
+        if current_signal and cached_signal and current_signal != cached_signal:
+            return True
+
         current_price = context.get('current_price', 0)
         cached_price = cache_data.get('price', 0)
         if current_price > 0 and cached_price > 0:
             price_change = abs(current_price - cached_price) / cached_price
-            # 🔥 5% → 1%로 조정 (단기 거래에 현실적)
-            if price_change > 0.01:  # 1% 이상 가격 변동
+            if price_change * 10000.0 >= self.ai_position_price_change_bps:
                 return True
-        
-        # 3. 신뢰도 기반 호출 (더 현실적인 수준)
-        # 🔥 0.9 → 0.7로 조정 (단기 거래에서 달성 가능)
-        if confidence > 0.7:
+
+        cached_confidence = float(cache_data.get('confidence', confidence) or 0.0)
+        confidence_change = abs(float(confidence or 0.0) - cached_confidence)
+        if confidence_change + 1e-12 >= self.ai_position_confidence_delta:
             return True
-        
-        # 4. 손실 패턴 감지 (더 민감하게)
-        if context.get('signal') == 'SHORT' and confidence < 0.7:
-            return True
-        
-        # 5. 🔥 새로운 조건: 거래 빈도 기반
-        last_trade_time = cache_data.get('last_trade_time', 0)
-        if time.time() - last_trade_time > 1800:  # 30분마다 거래 없으면 AI 호출
-            return True
-        
-        # 6. 🔥 새로운 조건: 변동성 기반
-        volatility = context.get('volatility', 0)
-        if volatility > 0.02:  # 2% 이상 변동성
-            return True
-        
-        return False  # 캐시된 결과 사용
+
+        return False
+
+    def _mark_ai_attempt(self, symbol: str) -> None:
+        """성공 여부와 무관하게 호출 시각을 기록해 장애 시 재시도 폭주를 막는다."""
+        import time
+        self.ai_last_attempt[symbol] = time.time()
     
     def _cache_ai_decision(self, symbol: str, ai_decision: Dict, context: Dict):
         """AI 결정 결과를 캐시에 저장"""
@@ -1529,6 +1577,7 @@ class Optimizer:
             'price': context.get('current_price', 0),
             'timestamp': time.time(),
             'confidence': context.get('confidence', 0.5),
+            'signal': str(context.get('signal') or '').upper(),
             'last_trade_time': time.time()  # 🔥 거래 시간 기록 추가
         }
         
@@ -1536,8 +1585,11 @@ class Optimizer:
     
     def _get_cached_ai_decision(self, symbol: str) -> Optional[Dict]:
         """캐시된 AI 결정 결과 가져오기"""
+        import time
         if symbol in self.ai_cache:
             cache_data = self.ai_cache[symbol]
+            if time.time() - float(cache_data.get('timestamp', 0.0) or 0.0) > self.cache_duration:
+                return None
             return {
                 'position_size_factor': cache_data['position_size_factor'],
                 'risk_level': cache_data['risk_level'],
@@ -1548,6 +1600,7 @@ class Optimizer:
     def clear_ai_cache(self):
         """AI 캐시 초기화"""
         self.ai_cache.clear()
+        self.ai_last_attempt.clear()
         self.logger.info("🚀 AI 캐시 초기화 완료")
     
     def get_ai_cache_status(self) -> Dict:
@@ -1556,5 +1609,6 @@ class Optimizer:
             'cache_size': len(self.ai_cache),
             'max_cache_size': self.max_cache_size,
             'cache_duration': self.cache_duration,
+            'retry_cooldown_sec': self.ai_retry_cooldown_sec,
             'cached_symbols': list(self.ai_cache.keys())
         }

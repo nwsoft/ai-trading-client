@@ -56,6 +56,13 @@ class ExchangeManager:
                 'invalid api',
                 'invalid access',
                 'invalid_access_key',
+                'invalid ip',
+                'unmatched ip',
+                'ip mismatch',
+                'not verified ip',
+                'unverified ip',
+                'access ip',
+                'whitelist',
                 'apikey',
                 'api key',
                 'access key',
@@ -245,6 +252,16 @@ class ExchangeManager:
                     'message': 'API 키가 유효하지 않아 잔고 조회 생략'
                 }
 
+            # 거래소 탭의 직접 조회도 전체 잔고 조회와 같은 상태 계약을
+            # 사용한다. 키가 없을 때 클라이언트 생성을 시도해
+            # client_unavailable로 흐리지 않고 사용자가 조치할 상태를 준다.
+            if not self._has_valid_api_keys(normalized_name):
+                return {
+                    'exchange': normalized_name,
+                    'status': 'no_api_keys',
+                    'message': 'API 키가 설정되지 않음',
+                }
+
             # 캐시 확인 (force_refresh가 True면 캐시 무시)
             cache_key = f"{normalized_name}_balance"
             now = datetime.now()
@@ -327,6 +344,18 @@ class ExchangeManager:
             # 연결 확인
             if not client.is_connected:
                 if not client.connect():
+                    raw_error = str(getattr(client, 'last_error', '') or '')
+                    auth_guidance = str(
+                        getattr(client, 'last_auth_guidance', '') or ''
+                    ).strip()
+                    if self._is_auth_error_message(raw_error) or auth_guidance:
+                        normalized = self._normalize_exchange_name(exchange_name)
+                        self.invalid_api_keys.add(normalized)
+                        return {
+                            'exchange': exchange_name,
+                            'status': 'invalid_api_keys',
+                            'message': auth_guidance or 'API 인증 정보가 유효하지 않습니다.',
+                        }
                     return {
                         'exchange': exchange_name,
                         'status': 'connection_failed',
@@ -334,8 +363,46 @@ class ExchangeManager:
                     }
             
             # 잔고 조회
+            # 일부 CCXT 어댑터는 인증/IP 오류를 예외로 다시 올리지 않고
+            # 빈 dict로 반환한다. 빈 응답을 정상 잔고로 캐시하면 거래소 탭이
+            # 계속 "로딩중"이거나 준비도 점검이 거짓 성공으로 표시된다.
+            if hasattr(client, 'last_error'):
+                client.last_error = ''
+            if hasattr(client, 'last_auth_guidance'):
+                client.last_auth_guidance = ''
+
             balance = client.get_balance()
             account_info = client.get_account_info()
+
+            raw_error = str(getattr(client, 'last_error', '') or '').strip()
+            auth_guidance = str(
+                getattr(client, 'last_auth_guidance', '') or ''
+            ).strip()
+            if raw_error or auth_guidance:
+                if self._is_auth_error_message(raw_error) or auth_guidance:
+                    normalized = self._normalize_exchange_name(exchange_name)
+                    self.invalid_api_keys.add(normalized)
+                    return {
+                        'exchange': exchange_name,
+                        'status': 'invalid_api_keys',
+                        'message': auth_guidance or 'API 인증 또는 접근 정책을 확인하세요.',
+                    }
+                return {
+                    'exchange': exchange_name,
+                    'status': 'error',
+                    'error': raw_error or '잔고 조회 중 거래소 오류가 발생했습니다.',
+                }
+
+            if (
+                not isinstance(balance, dict)
+                or not isinstance(account_info, dict)
+                or not account_info
+            ):
+                return {
+                    'exchange': exchange_name,
+                    'status': 'empty_response',
+                    'error': '거래소가 유효한 잔고/계정 정보를 반환하지 않았습니다.',
+                }
             
             result = {
                 'exchange': exchange_name,

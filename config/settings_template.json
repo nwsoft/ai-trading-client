@@ -1,9 +1,10 @@
 {
+  "_settings_schema_version": "3.9.0.4",
+  "_trade_scope_user_confirmed_v3904": false,
   "default_leverage": 10,
   "default_margin_type": "ISOLATED",
   "default_tp": 0.0018,
   "default_sl": 0.002,
-  "entry_order_type": "market",
   "tp_sl_settings": {
     "enabled": true,
     "trigger_price_source": "mark",
@@ -54,7 +55,6 @@
   "demo_mode": false,
   "broadcast_replay_enabled": false,
   "broadcast_replay_source_account": "",
-  "ai_enabled": true,
   "ai_cost_control": {
     "_comment": "거래는 계속 유지하고 동일 시장상태의 반복 AI 호출만 줄이는 자동 정책",
     "enabled": true,
@@ -66,7 +66,15 @@
     "max_daily_market_calls": 1200,
     "max_daily_calls_per_exchange": 300,
     "max_monthly_market_calls": 30000,
-    "max_cache_entries": 1000
+    "max_cache_entries": 1000,
+    "position_sizing_cache_sec": 900,
+    "position_sizing_retry_cooldown_sec": 120,
+    "position_sizing_price_change_bps": 100.0,
+    "position_sizing_confidence_delta": 0.10,
+    "position_sizing_max_cache_entries": 100,
+    "pattern_similarity_cache_sec": 300,
+    "pattern_similarity_retry_cooldown_sec": 120,
+    "pattern_similarity_max_cache_entries": 300
   },
   "binance_api_key": "",
   "binance_secret_key": "",
@@ -74,11 +82,11 @@
   "openai_base_url": "",
   "ai_provider": "openai",
   "ai_credentials": {
-    "openai": {"credential_ref": "", "base_url": ""},
-    "deepseek": {"credential_ref": "", "base_url": "https://api.deepseek.com"},
-    "kimi": {"credential_ref": "", "base_url": "https://api.moonshot.ai/v1"},
-    "anthropic": {"credential_ref": "", "base_url": "https://api.anthropic.com"},
-    "gemini": {"credential_ref": "", "base_url": "https://generativelanguage.googleapis.com/v1beta/openai/"}
+    "openai": {"api_key": "", "base_url": ""},
+    "deepseek": {"api_key": "", "base_url": "https://api.deepseek.com"},
+    "kimi": {"api_key": "", "base_url": "https://api.moonshot.ai/v1"},
+    "anthropic": {"api_key": "", "base_url": "https://api.anthropic.com"},
+    "gemini": {"api_key": "", "base_url": "https://generativelanguage.googleapis.com/v1beta/openai/"}
   },
   "ai_provider_profiles": {
     "analyst": {"provider": "openai", "model": ""},
@@ -108,6 +116,19 @@
   ],
   "trade_enabled_exchanges": [],
   "learning_enabled_exchanges": [],
+  "multi_venue_execution": {
+    "enabled": true,
+    "mode": "parallel",
+    "opportunity_window_sec": 60,
+    "duplicate_window_sec": 120,
+    "max_parallel_targets": 0,
+    "max_loss_by_currency": {
+      "USDT": 0.0,
+      "KRW": 0.0
+    },
+    "best_target": "",
+    "target_cost_bps": {}
+  },
   "advanced_trading_layers": {
     "profitability_validation": {
       "enabled": true,
@@ -165,6 +186,7 @@
   "advanced_trading_policy_presets": {
     "dev": {
       "profitability_validation": {"enabled": false},
+      "portfolio_orchestration": {"enabled": false},
       "execution_optimizer": {"enabled": false},
       "strategy_engine": {"enabled": false},
       "ops_automation": {"enabled": false}
@@ -368,14 +390,8 @@
   },
   "life_finance_sync_dir": "",
   "life_finance_backup_dir": "",
-  "backend_url": "http://localhost:8000",
-  "api_timeout": 10,
-  "ai_signal_enabled": true,
   "rsi_period": 14,
-  "ma_period": 20,
   "bb_period": 20,
-  "optimization_interval": 6,
-  "learning_period": 7,
   "ai_learning_min_samples": 20,
   "federated_learning": {
     "enabled": false,
@@ -403,16 +419,8 @@
   "log_level": "DEBUG",
   "verbose_trade_logging": false,
   "detailed_logs_enabled": true,
-  "log_file_size_limit": 200,
-  "log_retention_days": 30,
   "position_sizing_debug": false,
   "position_sizing_persist": false,
-  "analytics_refresh_interval_minutes": 30,
-  "clear_logs_on_restart": true,
-  "db_backup_interval": 24,
-  "db_backup_retention": 7,
-  "cache_timeout": 30,
-  "max_concurrent_requests": 10,
   "max_positions": 3,
   "position_mode": "multi",
   "min_trade_amount": 20,
@@ -420,7 +428,6 @@
   "include_fees": true,
   "taker_fee_percent_per_side": 0.02,
   "slippage_estimate_percent": 0.03,
-  "auto_coin_selection": true,
   "symbol_min_notional_overrides": {
     "ETHUSDT": 20.0
   },
@@ -750,13 +757,6 @@
     }
   },
   "dynamic_thresholds_high_multiplier": 1.5,
-  "dynamic_thresholds_hysteresis_enabled": true,
-  "dynamic_thresholds_hysteresis": {
-    "high_enter_mult": 1.65,
-    "high_exit_mult": 1.28,
-    "low_enter_mult": 1.0,
-    "low_exit_mult": 1.1
-  },
   "dynamic_thresholds_mode": "auto",
   "dynamic_thresholds_manual_regime": "NORMAL",
   "operation_mode": "guided",
@@ -806,37 +806,6 @@
       "min_position_size": 0.001
     }
   },
-  "strategy_config": {
-    "volatility_thresholds": [
-      1.0,
-      3.0,
-      5.0,
-      7.0,
-      10.0
-    ],
-    "volume_thresholds": {
-      "optimal_min": 1000000,
-      "optimal_max": 100000000,
-      "acceptable_min": 500000,
-      "acceptable_max": 1000000000
-    },
-    "weights": {
-      "volatility_weight": 0.30,
-      "volume_stability_weight": 0.25,
-      "trend_weight": 0.25,
-      "frequency_weight": 0.10,
-      "rsi_weight": 0.05,
-      "depth_weight": 0.05
-    },
-    "base_scores": {
-      "volatility_initial": 50,
-      "volume_initial": 50,
-      "trend_base": 60,
-      "frequency_base": 70,
-      "technical_base": 60,
-      "risk_base": 70
-    }
-  },
   "futures_selection": {
     "bybit": {
       "max_candidates": 100,
@@ -871,16 +840,6 @@
   "risk_upshift_threshold": 60,
   "risk_shift_factor_down": 0.85,
   "risk_shift_factor_up": 1.10,
-  "alphaarena_enabled": false,
-  "alphaarena_ai_engine": "deepseek-v4-flash",
-  "alphaarena_capital": 10000,
-  "alphaarena_leverage_range": "10-20x",
-  "alphaarena_deepseek_api_key": "",
-  "alphaarena_openai_api_key": "",
-  "alphaarena_anthropic_api_key": "",
-  "alphaarena_google_api_key": "",
-  "alphaarena_xai_api_key": "",
-  "alphaarena_alibaba_api_key": "",
   "alpha_arena": {
     "enabled": false,
     "exchange": "binance-futures",
@@ -889,7 +848,6 @@
     "initial_capital_benchmark": 10000,
     "deepseek_api_key": "",
     "qwen_api_key": "",
-    "credential_refs": {},
     "tick_interval_sec": 60,
     "tick_trigger": "interval",
     "symbols": [

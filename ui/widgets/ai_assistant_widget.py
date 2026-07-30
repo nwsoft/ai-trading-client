@@ -705,6 +705,8 @@ class AIAssistantWidget(CTkFrame):
                 "expert_role": "당신은 주식·ETF 투자 분석 전문가입니다.",
                 "quick_questions": [
                     ("증권 연결 점검", "현재 증권사 연결/설정 상태를 점검하고 문제 가능성을 알려주세요"),
+                    ("다중 증권사 실행", "같은 주식 신호가 여러 증권사에 오면 내 현재 설정에서 어떻게 실행되고 위험은 어떻게 합산되는지 알려줘"),
+                    ("AI 커스텀 종목선정", "AI 커스텀 일반과 고급에서 주식·ETF 후보를 어떻게 고르는지 현재 설정 기준으로 알려줘"),
                     ("ETF vs 주식", "지금 상황에서 ETF와 개별 주식 중 어떤 접근이 적절한지 비교해 주세요"),
                     ("섹터 리스크", "현재 시장에서 주의해야 할 섹터 리스크를 정리해 주세요"),
                     ("변동성 대응", "변동성이 큰 장에서 손실을 줄이는 대응 전략을 제안해 주세요"),
@@ -777,6 +779,8 @@ class AIAssistantWidget(CTkFrame):
                 "quick_questions": [
                     ("High vol 설정", "high vol 차단이 지금 켜져 있는지와 설정 위치, 남아 있는 가드레일을 알려줘"),
                     ("AI 커스텀 사용법", "AI 커스텀에서 외부 전략을 분석한 뒤 실제 적용하기까지 순서와 확인 항목을 알려줘"),
+                    ("다중 거래소 실행", "같은 BTC 신호가 여러 거래소에 오면 내 현재 설정에서 어떻게 실행되고 위험은 어떻게 합산되는지 알려줘"),
+                    ("일반·고급 종목선정", "AI 커스텀 일반과 고급의 코인 선정 및 국면 기준 차이를 현재 설정 기준으로 알려줘"),
                     ("게이트 원인 점검", "수익성 검증 차단 원인을 최근 로그와 설정 기준(min_trades, min_win_rate, min_sharpe, min_walkforward_pass_rate)으로 요약해줘"),
                 ("게이트 임시 OFF", "수익성 게이트를 임시 OFF(dev)로 전환하는 절차를 단계별로 안내하고, 적용 후 무엇을 점검해야 하는지 알려줘"),
                 ("게이트 기준 완화", "수익성 게이트 기준 완화안을 제안해줘. min_trades, min_win_rate, min_sharpe, min_walkforward_pass_rate를 보수/중립/공격 3단계로 보여줘"),
@@ -1337,7 +1341,8 @@ class AIAssistantWidget(CTkFrame):
         )
         safety = (
             "‘평가 계속’은 고변동장 주문을 무조건 허용하는 기능이 아닙니다. "
-            "신호 합의 임계값, 수익성 검증, AI 커스텀 조건, 포지션·손실 한도와 주문 가드레일은 그대로 적용됩니다. "
+            "기본 AI와 '기본 AI 후보 재확인'에는 신호 합의 임계값·수익성 검증이 적용됩니다. "
+            "'사용자 전략 원형 독립 실행'에는 이를 다시 적용하지 않고 시장국면·포지션·손실 한도와 주문 안전만 적용합니다. "
             "OpenAI 최신 모델은 분석 품질을 보조하지만 이 가드레일을 대신 검증하거나 우회하지 않으며 거래 기회를 보장하지 않습니다."
         )
 
@@ -1410,21 +1415,117 @@ class AIAssistantWidget(CTkFrame):
 
         return (
             "NoahAI입니다. NoahAI는 TradingView를 없애는 제품이 아니라, TradingView·영상·문서·Pine 전략을 "
-            "AI가 이해하고 검증하여 시장국면에 맞게 안전하게 운용하는 상위 전략 운영 계층입니다.\n"
+            "AI가 이해하고 검증하여 시장국면에 맞게 안전하게 운용하는 상위 전략 운영 계층입니다. "
+            "사용자가 익숙한 전략에서 초기 가치를 확인하고 NoahAI 학습은 이후 국면 선택·감독·기록 품질을 높입니다.\n"
             f"현재 AI 커스텀 실자동매매 사용 스위치: {'ON' if runtime_enabled else 'OFF'}\n"
             "사용 순서: AI 커스텀 → 텍스트/Pine/PDF/차트/영상/YouTube/TradingView 입력 → "
             "AI 분석 및 전략 초안 → XAI의 출처 근거·진입/청산·손절/익절·위험예산·누락 조건 확인 → "
             "적용 범위·시장상황·전략 역할 선택 → 버전 저장 → 사용자 승인 → 자동검증 → 최종 적용 → 거래소/증권 시작.\n"
+            "‘기본 AI 후보 재확인’은 NoahAI 후보를 사용자 조건으로 확인합니다. ‘사용자 전략 원형 독립 실행’은 "
+            "사용자 전략이 방향·지표·시간봉·임계값·TP/SL·청산을 결정하고 NoahAI는 시장국면·계좌·주문 안전만 감독합니다.\n"
+            "일반 종목선정은 사용자 고정 + NoahAI 자동 선정 → 종목 분석 → 기본 AI 후보 → 커스텀 확인 순서입니다. "
+            "고급 종목선정은 사용자 고정 + 전략 UniversePolicy → 거래 가능·유동성·스프레드·변동성 로컬 필터 "
+            "→ 전략 지표 → 독립 평가 순서이며 후보선정 때문에 LLM을 추가 호출하지 않습니다.\n"
+            "국면 기준은 전략마다 전체 시장(권장)·종목·둘 다·사용 안 함 중 명시합니다. 선택한 기준의 데이터가 "
+            "없으면 다른 기준으로 몰래 대체하지 않고 HOLD 사유를 기록합니다.\n"
             "원본 전략이 바뀌면 자료를 다시 입력하고 기존 전략을 저장 대상으로 골라 새 버전을 만들면 됩니다. "
             "한 번의 자동검증 결과를 본 뒤 일반 운용 또는 허용된 1배·최대 1% 안전 시험은 사용자가 결정합니다.\n"
             "XAI의 ‘규칙’은 원문에서 구조화한 조건이고, ‘실행 엔진 적용값’은 주문 판단에 전달할 TP/SL·포지션·임계값입니다. "
             "현재 선언형 실행은 RSI·MACD·볼린저·SMA/EMA 20·50·200·ADX·ATR·거래량·시간 조건과 "
-            "명시적 코인 청산 조건을 지원하며, 미지원 필드는 승인 전에 차단합니다. 자동검증은 진입·청산 양쪽 수수료, "
+            "코인과 주식/ETF의 명시 청산 조건을 지원하며, 미지원 필드는 승인 전에 차단합니다. 자동검증은 진입·청산 양쪽 수수료, "
             "슬리피지와 스프레드를 분리해 총비용 반영 PnL·Profit Factor·기대값·국면별 결과를 보여줍니다.\n"
             "자막·화면·Pine 근거가 없거나 조건이 빠지면 추정하지 않고 승인·실행을 차단합니다.\n"
             "사용자가 원하는 장에는 모든 시장상황/상승/하락/횡보/고변동/저변동 중 선택해 적용할 수 있고 "
-            "거래소·증권사별 범위도 고를 수 있습니다. 다만 지원하지 않는 지표·보호된 스크립트·불완전한 영상은 "
-            "원문 보강이 필요합니다. 적용된 전략도 실제 주문 때 NoahAI 시장판단과 수익성·리스크·주문 가드레일을 다시 통과합니다."
+            "거래소·증권사별 범위도 고를 수 있습니다. 여러 실제 주문 대상의 기본값은 각 대상 실행이며, "
+            "같은 기회를 하나의 ID로 연결해 통합 예상손실과 결과를 관리합니다. 사용자가 고른 경우에만 "
+            "총위험 분할 또는 우선순위 한 곳을 적용합니다. 다만 지원하지 않는 지표·보호된 스크립트·불완전한 영상은 "
+            "원문 보강이 필요합니다. 기본/재확인 역할은 NoahAI 합의·수익성·공통 안전 경계를 통과하고, "
+            "독립 역할은 기본 AI 합의·전체 수익성으로 재심사하지 않으며 공통 시장국면·계좌·주문 안전 경계를 통과합니다."
+        )
+
+    def _build_multi_venue_support(self, message: str) -> Optional[str]:
+        """다중 거래소·증권사 실행 계약과 현재 설정을 API 없이 설명한다."""
+        normalized = str(message or "").lower().replace("-", " ").replace("_", " ")
+        if not any(token in normalized for token in (
+            "다중 거래소", "여러 거래소", "양쪽 거래소", "같은 btc",
+            "동일 종목", "다중 증권사", "여러 증권사", "각각 실행",
+            "총위험 분할", "최적 한 곳", "우선순위 한 곳", "중복 주문",
+        )):
+            return None
+        dashboard = getattr(self, "parent_dashboard", None)
+        settings = (
+            getattr(dashboard, "settings", {})
+            if dashboard is not None
+            else {}
+        )
+        if not isinstance(settings, dict) or not settings:
+            try:
+                from config.settings import load_settings
+                settings = load_settings() or {}
+            except Exception:
+                settings = {}
+        multi = dict(settings.get("multi_venue_execution", {}) or {})
+        mode = str(multi.get("mode") or "parallel").lower()
+        mode_label = {
+            "parallel": "선택한 각 대상에서 각각 실행",
+            "split": "총위험을 대상 수로 분할",
+            "best": "우선순위 한 곳만 실행",
+        }.get(mode, "선택한 각 대상에서 각각 실행")
+        enabled = list(settings.get("enabled_exchanges", []) or [])
+        live = list(settings.get("trade_enabled_exchanges", []) or [])
+        brokers = list(settings.get("enabled_stock_brokers", []) or [])
+        return (
+            "NoahAI입니다.\n"
+            f"현재 다중 실행 방식: {mode_label}\n"
+            f"관찰·분석 거래소: {', '.join(enabled) if enabled else '없음'}\n"
+            f"실제 주문 거래소: {', '.join(live) if live else '없음'}\n"
+            f"활성 증권사: {', '.join(str(v) for v in brokers) if brokers else '없음'}\n"
+            "Bitget과 OKX가 모두 실제 주문 대상이고 BTC 조건과 각 계좌 안전검사를 통과하면, 기본 방식에서는 "
+            "양쪽 주문이 정상입니다. 동일 종목이라는 이유만으로 한 곳을 강제하지 않습니다.\n"
+            "대신 같은 자산·방향·전략·시간창을 동일 기회 ID로 묶어 거래소별 주문 결과와 통합 예상 노출·손실을 "
+            "기록합니다. 같은 거래소·같은 계좌·같은 신호가 반복 제출될 때만 중복으로 차단합니다.\n"
+            "‘총위험 분할’은 주문 수량을 실제 주문 대상 수로 나누고, ‘우선순위 한 곳’은 저장된 비용표나 "
+            "지정 대상이 있으면 이를 사용하며 없으면 실제 주문 목록의 첫 번째 대상만 허용합니다. "
+            "이 선택은 설정 → 거래소 선택에서 바꿀 수 있습니다.\n"
+            "전략 SL이 통합 위험을 넘으면 SL을 임의로 좁히지 않고 수량을 줄이거나 주문을 차단합니다."
+        )
+
+    def _build_execution_mode_support(self, message: str) -> Optional[str]:
+        """LEARNING·PAPER·LIVE와 위/아래 거래소 선택을 로컬에서 설명한다."""
+        normalized = str(message or "").lower().replace("-", " ").replace("_", " ")
+        if not any(token in normalized for token in (
+            "learning", "paper", "live", "러닝", "페이퍼 트레이딩",
+            "실제 주문 실행 거래소", "학습만", "실주문 없이",
+        )):
+            return None
+        dashboard = getattr(self, "parent_dashboard", None)
+        settings = (
+            getattr(dashboard, "settings", {})
+            if dashboard is not None
+            else {}
+        )
+        if not isinstance(settings, dict) or not settings:
+            try:
+                from config.settings import load_settings
+                settings = load_settings() or {}
+            except Exception:
+                settings = {}
+        paper = bool(settings.get("paper_trading", False))
+        observed = list(settings.get("enabled_exchanges", []) or [])
+        live = list(settings.get("trade_enabled_exchanges", []) or [])
+        current = "PAPER" if paper else ("LIVE/LEARNING 거래소별 분리" if live else "LEARNING")
+        return (
+            "NoahAI입니다.\n"
+            f"현재 실행 상태: {current}\n"
+            f"관찰·분석 거래소: {', '.join(observed) if observed else '없음'}\n"
+            f"실제 주문 거래소: {', '.join(live) if live else '없음'}\n"
+            "LEARNING은 종목선정·시장/기본 AI·AI 커스텀·위험·수량·청산계획·주문규격까지 전부 계산하고 "
+            "판단과 차단 사유를 기록하지만 외부 상태 변경과 신규 주문은 보내지 않습니다.\n"
+            "PAPER는 같은 판단 파이프라인 뒤에 내부 가상 주문·포지션·손익을 만들며 거래소·증권사 주문 API와 "
+            "실계좌·실거래 KPI를 바꾸지 않습니다. 설정 → 일반의 페이퍼 ON이 다른 모드보다 우선합니다.\n"
+            "LIVE는 페이퍼 OFF이고 아래쪽 실제 주문 대상에 명시된 거래소 또는 증권 실주문 권한만 후보가 됩니다. "
+            "API·최소수량·시장시간·손실한도·가드레일을 모두 통과해야 실제 주문합니다.\n"
+            "따라서 위쪽 거래소 선택만 한 상태도 의미가 있습니다. 시세·분석·학습을 계속하되 실주문은 차단됩니다."
         )
 
     def _build_ai_custom_preset_support(self, message: str) -> Optional[str]:
@@ -1749,6 +1850,16 @@ class AIAssistantWidget(CTkFrame):
                 self.add_ai_message(ai_custom_preset_support)
                 return
 
+            execution_mode_support = self._build_execution_mode_support(message)
+            if execution_mode_support:
+                self.add_ai_message(execution_mode_support)
+                return
+
+            multi_venue_support = self._build_multi_venue_support(message)
+            if multi_venue_support:
+                self.add_ai_message(multi_venue_support)
+                return
+
             ai_custom_support = self._build_ai_custom_support(message)
             if ai_custom_support:
                 self.add_ai_message(ai_custom_support)
@@ -1882,12 +1993,17 @@ class AIAssistantWidget(CTkFrame):
 
 	8. **제품 지식**:
 	   - AI 커스텀은 소스 입력 → XAI 구조화 → 사용자 승인 → 자동검증 → 최종 적용 → 거래 시작 순서입니다.
+	   - 일반 역할은 사용자 고정 + NoahAI 자동 선정 → 기본 AI 후보 → 커스텀 확인 순서입니다.
+	   - 고급 역할은 사용자 고정 + StrategyUniversePolicy → 로컬 사전필터 → 전략 지표 → 사용자 전략 독립 평가 순서이며 기본 AI 동의를 요구하지 않습니다.
+	   - 국면 기준은 전략별로 전체 시장·종목·둘 다·사용 안 함 중 명시하며, 데이터가 없을 때 다른 범위로 몰래 대체하지 않습니다.
+	   - 여러 실제 주문 거래소·증권사의 기본값은 각 대상 실행입니다. 동일 기회 ID로 통합 위험과 결과를 관리하며 동일 대상·계좌·신호 재제출만 중복 차단합니다.
+	   - 총위험 분할과 우선순위 한 곳은 사용자가 설정 → 거래소 선택에서 명시적으로 선택했을 때만 적용합니다.
 	   - YouTube·TradingView 분석값은 초안이며 출처 근거와 누락 조건을 확인해야 합니다.
 	   - 코인 정보는 내 계좌·선택 코인의 운용 상태이고, 코인 탐색은 여러 코인을 조건으로 비교하는 시장 검색입니다.
 	   - 금융 인텔리전스의 시장·탐색·지표·검증 결과만으로 주문하거나 설정을 바꾸지 않습니다.
 	   - 뉴스·공시·기관 데이터의 '운영 데이터 연결 필요'는 사용자 입력 오류가 아니며 임의 값을 만들지 않는 상태입니다.
 	   - 고변동장 설정은 설정 → 고급 자동매매 → 전략 엔진 세부 설정 → 고변동장 처리입니다.
-   - "평가 계속"도 수익성·합의·리스크·주문 가드레일을 우회하지 않습니다.
+   - "평가 계속"에서 기본 AI/후보 재확인은 수익성·합의·리스크·주문 경계를, 사용자 전략 원형 독립 실행은 사용자가 정한 국면 범위·계좌·주문 안전 경계를 통과합니다.
    - OpenAI 최신 모델이 자동으로 전략 수익성이나 high vol 진입을 보장한다고 설명하지 마세요.
 
 【증권사 연결 FAQ — 기술 지원 지식】
@@ -2358,8 +2474,8 @@ class AIAssistantWidget(CTkFrame):
 
             # 현재 설정에서 정보 추출
             leverage = settings.get('default_leverage', 1)
-            tp = settings.get('default_tp', 0.18)
-            sl = settings.get('default_sl', 0.20)
+            tp = settings.get('default_tp', 0.0018)
+            sl = settings.get('default_sl', 0.0020)
             preferences = settings.get('ai_trading_preferences', {}) if isinstance(settings.get('ai_trading_preferences', {}), dict) else {}
             risk_tolerance = str(preferences.get('risk_tolerance', 'MODERATE')).upper()
             risk_map = {'CONSERVATIVE': '보수', 'MODERATE': '균형', 'AGGRESSIVE': '적극'}
@@ -2801,6 +2917,58 @@ AI 상태: {ai_status}"""
 
             current_service = getattr(dashboard, 'current_service', getattr(self, 'assistant_service_context', 'blockchain'))
             context_parts.append(f"현재 서비스: {current_service}")
+            settings_snapshot = (
+                getattr(dashboard, 'settings', {})
+                if isinstance(getattr(dashboard, 'settings', {}), dict)
+                else {}
+            )
+            enabled_exchanges = list(settings_snapshot.get('enabled_exchanges', []) or [])
+            live_exchanges = list(settings_snapshot.get('trade_enabled_exchanges', []) or [])
+            multi_venue = dict(settings_snapshot.get('multi_venue_execution', {}) or {})
+            multi_mode = str(multi_venue.get('mode') or 'parallel').lower()
+            context_parts.append(
+                "실행 모드 우선순위: "
+                + (
+                    "PAPER"
+                    if bool(settings_snapshot.get('paper_trading', False))
+                    else ("LIVE/LEARNING 거래소별 분리" if live_exchanges else "LEARNING")
+                )
+            )
+            context_parts.append(
+                f"관찰·분석 거래소: {', '.join(enabled_exchanges) if enabled_exchanges else '없음'}"
+            )
+            context_parts.append(
+                f"실제 주문 거래소: {', '.join(live_exchanges) if live_exchanges else '없음'}"
+            )
+            context_parts.append(
+                "다중 실행 방식: "
+                + {
+                    'parallel': '선택한 각 대상 실행',
+                    'split': '총위험 분할',
+                    'best': '우선순위 한 곳',
+                }.get(multi_mode, '선택한 각 대상 실행')
+            )
+            active_pool = list(
+                getattr(
+                    getattr(dashboard, 'main_app', None),
+                    'active_custom_strategy_pool',
+                    [],
+                )
+                or []
+            )
+            if active_pool:
+                strategy_summaries = []
+                for item in active_pool[:8]:
+                    if not isinstance(item, dict):
+                        continue
+                    strategy_summaries.append(
+                        f"{item.get('name') or item.get('strategy_name') or '전략'}"
+                        f"(역할={item.get('signal_mode') or item.get('strategy_role') or 'confirm'}, "
+                        f"국면={item.get('regime_scope') or 'market'}, "
+                        f"버전={item.get('version_id') or item.get('strategy_version_id') or '-'})"
+                    )
+                if strategy_summaries:
+                    context_parts.append("활성 AI 커스텀: " + ", ".join(strategy_summaries))
 
             if str(current_service).lower() == 'stock':
                 try:
@@ -2916,8 +3084,8 @@ AI 상태: {ai_status}"""
             if hasattr(dashboard, 'settings') and dashboard.settings:
                 settings = dashboard.settings
                 context_parts.append(f"레버리지: {settings.get('default_leverage', 1)}x")
-                context_parts.append(f"TP: {settings.get('default_tp', 0.15)*100:.1f}%")
-                context_parts.append(f"SL: {settings.get('default_sl', 0.10)*100:.1f}%")
+                context_parts.append(f"TP: {settings.get('default_tp', 0.0015)*100:.1f}%")
+                context_parts.append(f"SL: {settings.get('default_sl', 0.0020)*100:.1f}%")
                 context_parts.append(f"최소 거래 금액: {settings.get('min_trade_amount', 5)} USDT")
 
                 # AI 거래 설정
@@ -4091,7 +4259,7 @@ AI 상태: {ai_status}"""
         required = ", ".join(gate_labels.get(item, item) for item in gates)
         return (
             f"요청을 ‘{understood}’으로 이해했습니다. 주문이나 상태 변경은 실행하지 않았습니다.\n\n"
-            "현재 v3.9.0.3의 NoahAI 어시스턴트는 이 작업을 채팅에서 직접 실행하지 않습니다. "
+            "현재 v3.9.0.4의 NoahAI 어시스턴트는 이 작업을 채팅에서 직접 실행하지 않습니다. "
             f"실행 권한을 열기 전에 {required} 검증이 필요합니다.\n"
             "지금은 현재 시장·포지션·설정의 위험을 분석하거나, 대시보드에서 사용자가 직접 실행할 "
             "정확한 위치와 확인 항목을 안내할 수 있습니다."

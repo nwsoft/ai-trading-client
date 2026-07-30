@@ -48,6 +48,12 @@ class CustomStrategyWidget(ctk.CTkScrollableFrame):
         "하락장": ["bear"], "횡보장": ["range"],
         "고변동성": ["volatile"], "저변동성": ["calm"],
     }
+    REGIME_SCOPE_LABELS = {
+        "전체 시장 기준 (권장)": "market",
+        "종목별 국면 기준": "symbol",
+        "전체 시장 + 종목 모두": "both",
+        "국면으로 제한하지 않음": "none",
+    }
 
     def __init__(self, master, *, dashboard=None, settings: Optional[Dict[str, Any]] = None, **kwargs):
         super().__init__(master, fg_color="#0b1120", corner_radius=0, **kwargs)
@@ -292,6 +298,15 @@ class CustomStrategyWidget(ctk.CTkScrollableFrame):
         self.regime_combo = ctk.CTkComboBox(action, values=list(self.REGIME_LABELS), width=220, height=36)
         self.regime_combo.set("모든 시장상황")
         self.regime_combo.pack(side="left")
+        ctk.CTkLabel(action, text="국면 기준", font=self._font(11), text_color="#91a4bd").pack(side="left", padx=(14, 6))
+        self.regime_scope_combo = ctk.CTkComboBox(
+            action,
+            values=list(self.REGIME_SCOPE_LABELS),
+            width=205,
+            height=36,
+        )
+        self.regime_scope_combo.set("전체 시장 기준 (권장)")
+        self.regime_scope_combo.pack(side="left")
         ctk.CTkLabel(action, text="우선순위", font=self._font(11), text_color="#91a4bd").pack(side="left", padx=(14, 6))
         self.priority_combo = ctk.CTkComboBox(action, values=[str(v) for v in range(10, 0, -1)], width=70, height=36)
         self.priority_combo.set("5")
@@ -302,12 +317,12 @@ class CustomStrategyWidget(ctk.CTkScrollableFrame):
         ctk.CTkLabel(signal_row, text="전략 역할", font=self._font(11), text_color="#91a4bd").pack(side="left", padx=(0, 6))
         self.signal_mode_combo = ctk.CTkComboBox(
             signal_row,
-            values=["기본 AI와 함께 사용 (권장)", "내 전략이 진입 신호 생성 (고급)"],
-            width=230,
+            values=["기본 AI 후보 재확인 (권장)", "사용자 전략 원형 독립 실행 (고급)"],
+            width=255,
             height=36,
             command=self._on_signal_mode_change,
         )
-        self.signal_mode_combo.set("기본 AI와 함께 사용 (권장)")
+        self.signal_mode_combo.set("기본 AI 후보 재확인 (권장)")
         self.signal_mode_combo.pack(side="left")
         self.entry_signal_label = ctk.CTkLabel(
             signal_row, text="진입 방향", font=self._font(11), text_color="#91a4bd",
@@ -322,8 +337,88 @@ class CustomStrategyWidget(ctk.CTkScrollableFrame):
             font=self._font(10), text_color="#64748b",
         )
         self.signal_mode_help_label.pack(side="left", padx=12)
+        ctk.CTkLabel(
+            source_card,
+            text=(
+                "전략 역할과 실행 안전등급은 주문 환경과 별개입니다. "
+                "LEARNING은 전체 판단만 기록, PAPER는 가상 체결, LIVE는 명시 허용 범위만 실주문 후보입니다."
+            ),
+            font=self._font(10),
+            text_color="#60a5fa",
+            justify="left",
+        ).pack(anchor="w", padx=16, pady=(0, 8))
+
+        self.strategy_universe_card = ctk.CTkFrame(
+            source_card,
+            fg_color="#0b1120",
+            corner_radius=10,
+            border_width=1,
+            border_color="#334155",
+        )
+        universe_title = ctk.CTkFrame(self.strategy_universe_card, fg_color="transparent")
+        universe_title.pack(fill="x", padx=12, pady=(10, 6))
+        ctk.CTkLabel(
+            universe_title,
+            text="고급 전략 종목 풀 · StrategyUniversePolicy",
+            font=self._font(12, "bold"),
+            text_color="#dbeafe",
+        ).pack(side="left")
+        ctk.CTkLabel(
+            universe_title,
+            text="LLM 호출 없이 거래소·증권사 제공 데이터만 사전 필터합니다.",
+            font=self._font(10),
+            text_color="#38bdf8",
+        ).pack(side="right")
+
+        universe_symbols = ctk.CTkFrame(self.strategy_universe_card, fg_color="transparent")
+        universe_symbols.pack(fill="x", padx=12, pady=4)
+        ctk.CTkLabel(universe_symbols, text="항상 평가할 종목", font=self._font(10), text_color="#91a4bd").pack(side="left")
+        self.universe_include_entry = ctk.CTkEntry(
+            universe_symbols,
+            width=290,
+            height=32,
+            placeholder_text="예: BTCUSDT, ETHUSDT 또는 005930",
+        )
+        self.universe_include_entry.pack(side="left", padx=(6, 14))
+        ctk.CTkLabel(universe_symbols, text="제외 종목", font=self._font(10), text_color="#91a4bd").pack(side="left")
+        self.universe_exclude_entry = ctk.CTkEntry(
+            universe_symbols,
+            width=260,
+            height=32,
+            placeholder_text="쉼표로 구분",
+        )
+        self.universe_exclude_entry.pack(side="left", padx=6)
+
+        universe_filters = ctk.CTkFrame(self.strategy_universe_card, fg_color="transparent")
+        universe_filters.pack(fill="x", padx=12, pady=(4, 10))
+        filter_specs = (
+            ("24h 최소 거래대금", "universe_min_volume_entry", "0", 130),
+            ("최대 스프레드(bp)", "universe_max_spread_entry", "30", 85),
+            ("최소 변동성(%)", "universe_min_vol_entry", "0", 75),
+            ("최대 변동성(%)", "universe_max_vol_entry", "100", 75),
+            ("최대 후보", "universe_limit_entry", "20", 65),
+        )
+        for label, attr, default, width in filter_specs:
+            ctk.CTkLabel(
+                universe_filters, text=label, font=self._font(10), text_color="#91a4bd",
+            ).pack(side="left", padx=(0 if attr == "universe_min_volume_entry" else 10, 4))
+            entry = ctk.CTkEntry(universe_filters, width=width, height=30)
+            entry.insert(0, default)
+            entry.pack(side="left")
+            setattr(self, attr, entry)
+        ctk.CTkLabel(
+            self.strategy_universe_card,
+            text=(
+                "직접 입력·코인/주식 정보에서 고정한 종목은 항상 평가하지만 강제 주문하지 않습니다. "
+                "진입조건·데이터 품질·계좌·주문 안전을 모두 통과해야 합니다."
+            ),
+            font=self._font(10),
+            text_color="#fbbf24",
+            justify="left",
+        ).pack(anchor="w", padx=12, pady=(0, 10))
 
         risk_row = ctk.CTkFrame(source_card, fg_color="transparent")
+        self.risk_row = risk_row
         risk_row.pack(fill="x", padx=16, pady=(0, 8))
         ctk.CTkLabel(risk_row, text="전략 위험예산", font=self._font(11), text_color="#91a4bd").pack(side="left", padx=(0, 6))
         self.risk_per_trade_combo = ctk.CTkComboBox(
@@ -500,7 +595,7 @@ class CustomStrategyWidget(ctk.CTkScrollableFrame):
     def _on_signal_mode_change(self, selected: Optional[str] = None) -> None:
         """초보 화면에는 고급 독립 진입 옵션을 노출하지 않는다."""
         mode = str(selected or self.signal_mode_combo.get() or "")
-        independent = mode.startswith("내 전략이 진입 신호")
+        independent = mode.startswith("사용자 전략 원형 독립 실행")
         if independent:
             self.entry_signal_label.pack(
                 side="left", padx=(14, 6), before=self.signal_mode_help_label,
@@ -509,14 +604,25 @@ class CustomStrategyWidget(ctk.CTkScrollableFrame):
                 side="left", before=self.signal_mode_help_label,
             )
             self.signal_mode_help_label.configure(
-                text="고급: 내 LONG/SHORT 규칙이 후보를 만들지만 가드레일과 주문 검증은 그대로 적용됩니다."
+                text=(
+                    "고급: 내 전략의 방향·조건·TP/SL은 바꾸지 않습니다. "
+                    "NoahAI는 국면·계좌·주문 안전만 감독합니다."
+                )
             )
+            if not self.strategy_universe_card.winfo_manager():
+                self.strategy_universe_card.pack(
+                    fill="x",
+                    padx=16,
+                    pady=(0, 8),
+                    before=getattr(self, "risk_row", None),
+                )
         else:
             self.entry_signal_label.pack_forget()
             self.entry_signal_combo.pack_forget()
             self.signal_mode_help_label.configure(
                 text="기본 AI의 실시간 후보를 내 전략 조건으로 한 번 더 확인합니다."
             )
+            self.strategy_universe_card.pack_forget()
 
     def _choose_file(self):
         path = filedialog.askopenfilename(
@@ -594,6 +700,48 @@ class CustomStrategyWidget(ctk.CTkScrollableFrame):
 
     def _selected_market_regimes(self) -> list[str]:
         return list(self._regime_value_map.get(self.regime_combo.get(), ["all"]) or ["all"])
+
+    @staticmethod
+    def _split_symbols(value: str) -> list[str]:
+        return list(
+            dict.fromkeys(
+                token.strip().upper()
+                for token in str(value or "").replace(";", ",").split(",")
+                if token.strip()
+            )
+        )
+
+    def _strategy_universe_policy(self, signal_mode: str) -> Dict[str, Any]:
+        if str(signal_mode or "").lower() != "independent":
+            return {}
+
+        def number(attr: str, default: float) -> float:
+            widget = getattr(self, attr, None)
+            try:
+                return float(widget.get())
+            except Exception:
+                return float(default)
+
+        return {
+            "include_symbols": self._split_symbols(self.universe_include_entry.get()),
+            "exclude_symbols": self._split_symbols(self.universe_exclude_entry.get()),
+            "min_quote_volume": max(
+                0.0, number("universe_min_volume_entry", 0.0)
+            ),
+            "max_spread_bps": max(
+                0.0, number("universe_max_spread_entry", 30.0)
+            ),
+            "min_volatility_percent": max(
+                0.0, number("universe_min_vol_entry", 0.0)
+            ),
+            "max_volatility_percent": max(
+                0.0, number("universe_max_vol_entry", 100.0)
+            ),
+            "max_candidates": max(
+                1, min(200, int(number("universe_limit_entry", 20)))
+            ),
+            "ranking": "liquidity",
+        }
 
     def _input_value(self) -> str:
         reference = self.reference_entry.get().strip()
@@ -903,11 +1051,20 @@ class CustomStrategyWidget(ctk.CTkScrollableFrame):
         scope = self._scope_value()
         target = self._target_value()
         regimes = self._selected_market_regimes()
+        regime_scope = self.REGIME_SCOPE_LABELS.get(
+            self.regime_scope_combo.get(),
+            "market",
+        )
         rules["target_exchange"] = target if scope.startswith("exchange:") else ""
         rules["target_scope"] = scope
         rules["market_regimes"] = regimes
+        rules["regime_scope"] = regime_scope
         rules["priority"] = int(self.priority_combo.get() or 5)
-        signal_mode = "independent" if self.signal_mode_combo.get().startswith("내 전략이 진입 신호") else "confirm"
+        signal_mode = (
+            "independent"
+            if self.signal_mode_combo.get().startswith("사용자 전략 원형 독립 실행")
+            else "confirm"
+        )
         selected_entry = self.entry_signal_combo.get()
         entry_signal = selected_entry if selected_entry in {"LONG", "SHORT"} else str(rules.get("entry_signal", "") or "").upper()
         if signal_mode == "independent" and entry_signal not in {"LONG", "SHORT"}:
@@ -918,6 +1075,8 @@ class CustomStrategyWidget(ctk.CTkScrollableFrame):
             return
         rules["signal_mode"] = signal_mode
         rules["entry_signal"] = entry_signal
+        universe_policy = self._strategy_universe_policy(signal_mode)
+        rules["universe_policy"] = universe_policy
         rules["risk_model"] = {
             "risk_per_trade_percent": float(self.risk_per_trade_combo.get()),
             "max_margin_usage_percent": float(self.max_margin_combo.get()),
@@ -938,6 +1097,8 @@ class CustomStrategyWidget(ctk.CTkScrollableFrame):
                 "target_exchange": target if scope.startswith("exchange:") else "",
                 "target_scope": scope,
                 "market_regimes": regimes,
+                "regime_scope": regime_scope,
+                "universe_policy": universe_policy,
                 "priority": int(self.priority_combo.get() or 5),
                 "signal_mode": signal_mode,
                 "entry_signal": entry_signal,
@@ -964,7 +1125,7 @@ class CustomStrategyWidget(ctk.CTkScrollableFrame):
         messagebox.showinfo(
             "전략 버전 저장",
             f"검토 및 전략 버전이 저장되었습니다.\n\nID: {strategy_id}\n적용 범위: {self.target_combo.get()}\n"
-            f"시장상황: {self.regime_combo.get()}\n"
+            f"시장상황: {self.regime_combo.get()}\n국면 기준: {self.regime_scope_combo.get()}\n"
             + (
                 f"상태: 조건 보완 필요 ({len(missing)}개)\n원문을 보강해 다시 분석·저장해야 승인할 수 있습니다."
                 if missing else
@@ -1031,7 +1192,10 @@ class CustomStrategyWidget(ctk.CTkScrollableFrame):
             ctk.CTkLabel(
                 row, text=(
                     f"{scope_names.get(scope.lower(), scope)} · {item.get('name', '사용자 전략')} · "
-                    f"v{item.get('version', '-')} · 우선 {item.get('priority', 5)}"
+                    f"v{item.get('version', '-')} · "
+                    f"역할 {'독립 원형' if str(item.get('signal_mode', 'confirm')) == 'independent' else '기본 후보 재확인'} · "
+                    f"국면기준 {str(item.get('regime_scope') or (item.get('rules') or {}).get('regime_scope') or 'market')} · "
+                    f"우선 {item.get('priority', 5)}"
                 ),
                 font=self._font(12, "bold"), text_color="#e5edf6",
             ).pack(side="left", padx=12, pady=10)
@@ -1066,7 +1230,9 @@ class CustomStrategyWidget(ctk.CTkScrollableFrame):
                 ).pack(side="right", padx=8)
             status_text = labels.get(status, status)
             if status == "active" and str(item.get("operation_mode", "standard")) == "limited_live":
-                status_text = "적용 중 · 1배/최대 1% 제한운용"
+                status_text = "적용 중 · 1배/최대 1% 제한시험"
+            elif status == "active":
+                status_text = "적용 중 · 검증 통과 운용"
             ctk.CTkLabel(row, text=status_text, font=self._font(11), text_color="#a9bad0").pack(side="right", padx=8)
             advice = dict(item.get("improvement_advice", {}) or {})
             actions = list(advice.get("actions", []) or [])
@@ -1232,12 +1398,13 @@ class CustomStrategyWidget(ctk.CTkScrollableFrame):
         if not messagebox.askyesno(
             "1% 제한운용 확인" if limited else "전략 최종 적용",
             f"{item.get('name', '사용자 전략')} v{item.get('version', '-')}를 적용할까요?\n\n"
-            f"범위: {item.get('target_scope', '-')}\n시장상황: {', '.join(item.get('market_regimes') or ['all'])}\n\n"
+            f"범위: {item.get('target_scope', '-')}\n시장상황: {', '.join(item.get('market_regimes') or ['all'])}\n"
+            f"국면 기준: {item.get('regime_scope') or (item.get('rules') or {}).get('regime_scope') or 'market'}\n\n"
             + (
                 "자동검증 미통과 결과를 이해하고 최소단위로 시험하는 선택입니다.\n"
                 "레버리지 1배·전략 포지션 비중 최대 1%가 강제되며 기존 가드레일이 계속 우선합니다."
                 if limited else
-                "검증 통과 전략을 일반 운용으로 활성화합니다. 기존 가드레일은 계속 우선합니다."
+                "검증 통과 운용으로 활성화합니다. 전략 역할과 공통 계좌·주문 안전 경계가 함께 적용됩니다."
             ),
         ):
             return
@@ -1250,7 +1417,7 @@ class CustomStrategyWidget(ctk.CTkScrollableFrame):
                 app.sync_custom_strategy_runtime_pools()
             messagebox.showinfo(
                 "전략 적용 완료",
-                ("전략이 1배·최대 1% 제한운용으로 활성화되었습니다. " if limited else "전략이 일반 운용으로 활성화되었습니다. ")
+                ("전략이 1배·최대 1% 제한시험으로 활성화되었습니다. " if limited else "전략이 검증 통과 운용으로 활성화되었습니다. ")
                 + "거래소 시작 후 범위·시장상황·진입조건이 맞을 때 자동 선택되며 차단 사유는 실시간 로그에 표시됩니다.",
             )
             self.refresh_versions()

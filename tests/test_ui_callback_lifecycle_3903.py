@@ -22,9 +22,13 @@ def test_dashboard_recursively_cleans_owned_widget_jobs():
 def test_exchange_and_broker_sections_refresh_only_while_visible():
     source = (ROOT / "ui" / "dashboard_modern.py").read_text(encoding="utf-8")
     assert "def _schedule_visible_refresh" in source
+    assert "def _run_visible_refresh_async" in source
     assert 'owner_widget.bind("<Map>", _on_map, add="+")' in source
     assert 'owner_widget.bind("<Unmap>", _on_unmap, add="+")' in source
     assert "not owner_widget.winfo_viewable()" in source
+    assert 'f"exchange_balance:{exchange}"' in source
+    assert 'f"exchange_positions:{exchange}"' in source
+    assert 'name=f"dashboard_refresh_{refresh_key}"' in source
     assert "thread_safe_after(7000, refresh_once)" not in source
     assert "thread_safe_after(5000, refresh_once)" not in source
     assert "thread_safe_after(3000, refresh_once)" not in source

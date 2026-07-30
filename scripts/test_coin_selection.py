@@ -43,7 +43,7 @@ def load_settings_safe() -> Dict[str, Any]:
         }
 
 
-def test_coin_selection(exchange: str = 'binance', num_major: int = 5, num_alt: int = 15):
+def run_coin_selection_check(exchange: str = 'binance', num_major: int = 5, num_alt: int = 15):
     """
     코인 선택 로직 테스트
     
@@ -183,7 +183,7 @@ def main():
     
     args = parser.parse_args()
     
-    test_coin_selection(
+    run_coin_selection_check(
         exchange=args.exchange,
         num_major=args.major,
         num_alt=args.alt

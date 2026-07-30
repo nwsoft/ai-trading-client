@@ -2381,6 +2381,49 @@ class BinanceClient:
                 self.log_event('order', f"[{symbol}] 🔧 헤지 모드 감지: positionSide={position_side} 추가")
             else:
                 self.log_event('order', f"[{symbol}] 🔧 단일 포지션 모드: positionSide 미사용")
+
+            # 시장가 진입 응답 직후에는 Binance의 포지션 정보 반영이 늦을 수
+            # 있다. 포지션이 보이지 않는 상태에서 closePosition 보호주문을
+            # 반복 제출하면 -4509가 발생하므로 제한 시간 동안 먼저 확인한다.
+            position_visible = False
+            for verify_attempt in range(5):
+                try:
+                    rows = self.client.futures_position_information(symbol=symbol)
+                    for row in rows or []:
+                        amount = float(row.get("positionAmt", 0) or 0)
+                        row_side = str(row.get("positionSide") or "BOTH").upper()
+                        side_matches = (
+                            not is_dual
+                            or row_side == str(position_side).upper()
+                        )
+                        if side_matches and abs(amount) > 0:
+                            position_visible = True
+                            break
+                except Exception as exc:
+                    if verify_attempt == 4:
+                        self.log_event(
+                            "order",
+                            f"[{symbol}] 포지션 반영 확인 오류: {exc}",
+                            level="WARNING",
+                        )
+                if position_visible:
+                    break
+                if verify_attempt < 4:
+                    time.sleep(0.25 + (verify_attempt * 0.25))
+
+            if not position_visible:
+                message = (
+                    "실제 열린 포지션이 확인되지 않아 TP/SL 보호주문을 제출하지 않았습니다. "
+                    "진입 반영 지연 또는 이미 청산된 포지션일 수 있습니다."
+                )
+                self.log_event("order", f"[{symbol}] ⚠️ {message}", level="WARNING")
+                skipped = {
+                    "status": "skipped",
+                    "code": "position_not_open",
+                    "error": message,
+                }
+                return skipped, dict(skipped)
+
             # 🔥 closePosition=True 사용 시 수량 미전송 (전량 청산)
             # Binance API 규칙: closePosition=True일 때 quantity 파라미터를 전송하면 안 됨
             # 따라서 quantity 자동 조회 로직도 불필요함
@@ -2473,7 +2516,6 @@ class BinanceClient:
                                         self.log_event('order', f"[{symbol}] ⚠️ 기존 Algo Order 취소 실패: {e}", level='WARNING')
                     
                     # 취소 완료 대기 (타이밍 이슈 방지)
-                    import time
                     time.sleep(0.5)
                     self.log_event('order', f"[{symbol}] ✅ 기존 TP/SL 주문 취소 완료")
                 else:

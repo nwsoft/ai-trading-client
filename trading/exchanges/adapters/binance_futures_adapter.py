@@ -1,8 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""
-바이낸스 선물 어댑터 (python-binance 기반으로 변경 필요, CCXT 사용 금지)
-"""
+"""바이낸스 선물 어댑터 (python-binance 기반)."""
 
 import logging
 from typing import Dict, List, Optional, Any
@@ -11,7 +9,7 @@ from api.binance_client import BinanceClient, BinanceConfig
 
 class BinanceFuturesAdapter(FuturesExchange):
     """바이낸스 선물 어댑터 (python-binance 기반)"""
-    supports_order_request = False
+    supports_order_request = True
 
     def __init__(self, api_key: str, secret_key: str, **kwargs):
         super(BinanceFuturesAdapter, self).__init__("binance")
@@ -19,6 +17,8 @@ class BinanceFuturesAdapter(FuturesExchange):
         self.secret_key = secret_key
         self.testnet = kwargs.get('testnet', False)
         self.logger = logging.getLogger(__name__)
+        self.last_error: str = ""
+        self.last_auth_guidance: str = ""
         
         # 🔥 로그 시스템 통일을 위한 헬퍼 메서드
         from log_system.log_adapter import log_event
@@ -27,19 +27,21 @@ class BinanceFuturesAdapter(FuturesExchange):
         self.client: Optional[BinanceClient] = None
     
     def connect(self) -> bool:
+        if not self.api_key or not self.secret_key:
+            self.last_error = "missing_credentials"
+            self.last_auth_guidance = "바이낸스 API 키와 시크릿을 모두 입력하세요."
+            return False
         try:
-            cfg = BinanceConfig(api_key=self.api_key or "", secret_key=self.secret_key or "", testnet=self.testnet)
-            self.client = BinanceClient(cfg)
-            # 가벼운 호출로 유효성 확인 (공개 엔드포인트도 가능하지만, 키 검증 위해 계정정보 시도)
-            try:
-                _ = self.client.get_account_info()
-            except Exception:
-                # 계정 호출 실패해도 클라이언트는 유지 (잔고 조회 시 최종 판별)
-                pass
+            if self.client is None:
+                cfg = BinanceConfig(api_key=self.api_key or "", secret_key=self.secret_key or "", testnet=self.testnet)
+                self.client = BinanceClient(cfg)
             self.is_connected = True
+            self.last_error = ""
+            self.last_auth_guidance = ""
             self.log_event('system', "바이낸스 선물 연결 성공 (python-binance)")
             return True
         except Exception as e:
+            self.last_error = str(e)
             self.log_event('system', f"바이낸스 연결 실패: {e}", level='ERROR')
             self.is_connected = False
             return False
@@ -62,6 +64,7 @@ class BinanceFuturesAdapter(FuturesExchange):
                         pass
             return flat
         except Exception as e:
+            self.last_error = str(e)
             self.log_event('system', f"바이낸스 잔고 조회 실패: {e}", level='ERROR')
             return {}
 
@@ -71,16 +74,27 @@ class BinanceFuturesAdapter(FuturesExchange):
             return {}
         try:
             info = self.client.get_account_info()
-            return info if isinstance(info, dict) else {}
+            if isinstance(info, dict) and info:
+                return info
+            self.last_error = "account_info_empty"
+            return {}
         except Exception as e:
+            self.last_error = str(e)
             self.log_event('system', f"바이낸스 계정 정보 조회 실패: {e}", level='ERROR')
             return {}
     
     def get_positions(self) -> List[Dict[str, Any]]:
-        if not self.is_connected:
+        if not self.is_connected or not self.client:
             return []
-        # CCXT 제거, 실제 포지션 조회는 python-binance 기반으로 변경 필요
-        return []
+        try:
+            return [
+                dict(vars(position)) if hasattr(position, '__dict__') else dict(position)
+                for position in self.client.get_positions()
+            ]
+        except Exception as e:
+            self.last_error = str(e)
+            self.log_event('system', f"바이낸스 포지션 조회 실패: {e}", level='ERROR')
+            return []
     
     def place_order(self, order_request) -> Dict[str, Any]:
         """OrderRequest 기반 주문 실행 위임"""
@@ -102,36 +116,59 @@ class BinanceFuturesAdapter(FuturesExchange):
             return False
     
     def get_open_orders(self, symbol: Optional[str] = None) -> List[Dict[str, Any]]:
-        if not self.is_connected:
+        if not self.is_connected or not self.client:
             return []
-        # CCXT 코드 삭제, python-binance 기반으로 구현 필요
-        return []
+        try:
+            return self.client.get_open_orders(symbol or '')
+        except Exception as e:
+            self.last_error = str(e)
+            self.log_event('system', f"바이낸스 미체결 주문 조회 실패: {e}", level='ERROR')
+            return []
     
     def get_trade_history(self, symbol: Optional[str] = None, limit: int = 100) -> List[Dict[str, Any]]:
-        if not self.is_connected:
+        if not self.is_connected or not self.client:
             return []
-        # CCXT 코드 삭제, python-binance 기반으로 구현 필요
-        return []
+        try:
+            if symbol:
+                return self.client.get_trade_history(symbol, limit)
+            return self.client.get_recent_trades('', limit)
+        except Exception as e:
+            self.last_error = str(e)
+            self.log_event('system', f"바이낸스 거래내역 조회 실패: {e}", level='ERROR')
+            return []
     
     def set_leverage(self, symbol: str, leverage: int) -> bool:
-        if not self.is_connected:
+        if not self.is_connected or not self.client:
             return False
-        # CCXT 코드 삭제, python-binance 기반으로 구현 필요
-        return False
+        return self.client.set_leverage(symbol, leverage)
     
     def get_leverage(self, symbol: str) -> int:
-        if not self.is_connected:
+        if not self.is_connected or not self.client:
             return 1
-        # CCXT 코드 삭제, python-binance 기반으로 구현 필요
+        normalized = str(symbol or '').upper().replace('/', '').split(':', 1)[0]
+        for position in self.client.get_positions():
+            if str(getattr(position, 'symbol', '')).upper() == normalized:
+                return int(getattr(position, 'leverage', 1) or 1)
         return 1
     
     def set_margin_type(self, symbol: str, margin_type: str) -> bool:
-        # CCXT 코드 삭제, python-binance 기반으로 구현 필요
-        return False
+        if not self.is_connected or not self.client:
+            return False
+        normalized = 'CROSSED' if str(margin_type).upper().startswith('CROSS') else 'ISOLATED'
+        return self.client.set_margin_type(symbol, normalized)
     
     def get_funding_rate(self, symbol: str) -> float:
-        # CCXT 코드 삭제, python-binance 기반으로 구현 필요
-        return 0.0
+        if not self.is_connected or not self.client:
+            return 0.0
+        try:
+            rows = self.client.futures_funding_rate(symbol, limit=1)
+            if not rows:
+                return 0.0
+            return float(rows[-1].get('fundingRate') or 0.0)
+        except Exception as e:
+            self.last_error = str(e)
+            self.logger.error(f"펀딩비 조회 실패: {e}")
+            return 0.0
     
     def get_24h_ticker(self, symbol: str) -> Dict[str, Any]:
         try:
@@ -154,8 +191,12 @@ class BinanceFuturesAdapter(FuturesExchange):
             bool: 연결이 성공하고 API 키가 유효하면 True, 그렇지 않으면 False
         """
         try:
-            # connect() 메서드를 통해 검증 (BinanceClient의 get_account_info 호출)
-            return self.connect()
+            if not self.connect() or not self.client:
+                return False
+            valid = bool(self.client.validate_credentials())
+            if not valid:
+                self.last_error = "credential_validation_failed"
+            return valid
         except Exception as e:
             self.logger.error(f"API 키 검증 실패: {e}")
             return False

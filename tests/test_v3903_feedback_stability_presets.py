@@ -10,6 +10,7 @@ from trading.custom_strategy_presets import (
     recommend_preset_for_regime,
 )
 from trading.strategy_source_ingestor import StrategySourceIngestor
+from trading.trader import Trader
 from trading.unified_trader import UnifiedTrader
 from ui.typography import (
     WINDOWS_KOREAN_FONT,
@@ -139,14 +140,56 @@ def test_reviewable_presets_fail_closed_without_ai_structuring():
         assert result["ready_for_review"] is False
 
 
-def test_unified_start_rejects_learning_only_exchange_before_initialization():
+def test_unified_start_allows_learning_only_exchange_and_starts_loop():
     trader = object.__new__(UnifiedTrader)
     trader.logger = logging.getLogger("test-learning-only")
     trader._is_trade_enabled = lambda _exchange: False
-    trader._ensure_exchange_initialized = lambda _exchange: (_ for _ in ()).throw(
-        AssertionError("학습 전용 거래소에서 초기화가 호출되면 안 됩니다.")
+    trader._is_learning_enabled = lambda _exchange: True
+    trader._ensure_exchange_initialized = lambda _exchange: True
+    trader.monitoring_flags = {}
+    trader.monitoring_threads = {}
+    trader.trading_cycles = {}
+    trader.selected_coins = {"bybit": [{"symbol": "BTC/USDT:USDT"}]}
+    trader._monitoring_loop = lambda _exchange: None
+
+    assert trader.start_trading("bybit") is True
+    trader.monitoring_threads["bybit"].join(timeout=1)
+    assert trader.monitoring_flags["bybit"] is True
+
+
+def test_binance_explicit_empty_trade_scope_blocks_new_entry_at_final_guard():
+    trader = object.__new__(Trader)
+    trader.settings = {
+        "selected_exchange": "binance",
+        "enabled_exchanges": ["binance"],
+        "trade_enabled_exchanges": [],
+    }
+    trader.log_event = lambda *args, **kwargs: None
+
+    class _OrderMustNotBeSubmitted:
+        def place_futures_order(self, **kwargs):
+            raise AssertionError("학습 전용 모드에서 주문 API를 호출하면 안 됩니다.")
+
+    trader.binance_client = _OrderMustNotBeSubmitted()
+
+    assert trader._is_live_entry_enabled("binance") is False
+    assert trader.execute_single_trade({"symbol": "BTCUSDT"}) is False
+    blocked = trader._place_entry_order_with_quality_control_binance(
+        "BTCUSDT",
+        "BUY",
+        0.001,
+        {},
+        {},
     )
-    assert trader.start_trading("bybit") is False
+    assert blocked["status"] == "BLOCKED"
+    assert blocked["error"] == "learning_only"
+
+
+def test_binance_legacy_profile_without_v3904_confirmation_is_fail_closed():
+    trader = object.__new__(Trader)
+    trader.settings = {"selected_exchange": "binance"}
+    assert trader._is_live_entry_enabled("binance") is False
+    assert trader._is_live_entry_enabled("bybit") is False
 
 
 def test_feedback_surfaces_expose_trade_scope_and_preset_handoff():
@@ -155,11 +198,13 @@ def test_feedback_surfaces_expose_trade_scope_and_preset_handoff():
     assistant_source = (ROOT / "ui" / "widgets" / "ai_assistant_widget.py").read_text(encoding="utf-8")
     main_source = (ROOT / "main.py").read_text(encoding="utf-8")
     assert "실제 주문 실행 거래소" in settings_source
+    assert "아래를 비우면 모든 활성 거래소가 학습 전용으로 시작됩니다." in settings_source
     assert "'trade_enabled_exchanges': trade_exchange_values" in settings_source
     assert "초보자 시작: AI 자동 대응 + 검토용 기본 전략 4개" in custom_source
     assert "고급모드 · 안전한 다중 시간대 규칙 편집" in custom_source
     assert "load_beginner_preset" in assistant_source
     assert "begin_runtime_session" in main_source
+    assert "학습 전용 실행 - 시세·분석·학습은 수행하고 신규 실주문은 차단합니다." in main_source
 
 
 def test_preset_lookup_returns_copy():

@@ -208,6 +208,11 @@ def _run_tp_sl_order_creation() -> bool:
             print(f"\n📋 TP/SL 주문 결과 분석:")
             tp_error = str(tp_order_result.get('error', '')).lower()
             sl_error = str(sl_order_result.get('error', '')).lower()
+            position_not_open = any(
+                isinstance(result, dict)
+                and result.get('code') == 'position_not_open'
+                for result in (tp_order_result, sl_order_result)
+            )
             
             if not tp_success:
                 print(f"   - TP 오류: {tp_order_result.get('error', 'Unknown')}")
@@ -221,7 +226,7 @@ def _run_tp_sl_order_creation() -> bool:
             
             # -4120 오류가 사라지고 포지션 관련 거절은 API 호출 성공으로 간주
             if '-4120' not in tp_error and '-4120' not in sl_error:
-                if 'position' in tp_error or 'position' in sl_error:
+                if position_not_open or 'position' in tp_error or 'position' in sl_error:
                     print(f"\n   ✅ 성공: 포지션이 없어서 주문이 거부되었지만, API 호출 자체는 정상입니다.")
                     print(f"   실제 포지션이 있을 때는 정상 작동할 것입니다.")
                     return True  # API는 정상 작동

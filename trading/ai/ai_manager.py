@@ -7,9 +7,12 @@ AI 매니저: 손절/익절 분석, 패턴 유사성 검증, 진입 전 검증, 
 from typing import Optional, Dict, Any, List
 from datetime import datetime
 import json
+import hashlib
 import logging
 import math
 import os
+import threading
+import time
 
 from .openai_client import OpenAIClient
 
@@ -61,6 +64,9 @@ class AIManager:
         # 역할별 모델 배치를 위한 settings 저장
         self._settings: Dict[str, Any] = runtime_settings
         self._role_clients: Dict[str, Any] = {}
+        self._pattern_similarity_cache: Dict[str, Dict[str, Any]] = {}
+        self._pattern_similarity_last_attempt: Dict[str, float] = {}
+        self._pattern_similarity_lock = threading.RLock()
         # 로거 초기화
         self.logger = logging.getLogger(__name__)
         # 🔥 로그 시스템 통일을 위한 헬퍼 메서드
@@ -152,6 +158,25 @@ class AIManager:
     def enabled(self) -> bool:
         """AI 기능 활성화 여부"""
         return bool(self.api_key) and self.client.is_ready()
+
+    def enabled_for_role(self, role: str) -> bool:
+        """역할별 라우팅 제공사와 자격증명을 기준으로 실제 호출 가능 여부를 반환한다."""
+        try:
+            return self._enabled_for_role(role)
+        except Exception:
+            return False
+
+    def chat_json_for_role(
+        self,
+        role: str,
+        system: str,
+        prompt: str,
+        **kwargs: Any,
+    ) -> Optional[Dict[str, Any]]:
+        """역할별 제공사·모델 라우팅을 지키는 공용 JSON 호출 경계."""
+        if not self.enabled_for_role(role):
+            return None
+        return self._chat_json_for_role(role, system, prompt, **kwargs)
 
     def analyze_market_conditions(self, symbol: str, market_data: List, indicators: Dict) -> Dict[str, Any]:
         """시장 상황 분석 및 동적 설정 제안"""
@@ -278,7 +303,53 @@ tp_percent and sl_percent MUST be fractions: 0.001 means 0.1%, not 1%.
         try:
             if not self._enabled_for_role('pattern_similarity') or not recent_patterns:
                 return None
-                
+
+            cost_cfg = dict(self._settings.get('ai_cost_control', {}) or {})
+            cache_sec = max(
+                30.0,
+                float(cost_cfg.get('pattern_similarity_cache_sec', 300) or 300),
+            )
+            retry_cooldown = max(
+                10.0,
+                float(cost_cfg.get('pattern_similarity_retry_cooldown_sec', 120) or 120),
+            )
+            max_entries = max(
+                10,
+                int(cost_cfg.get('pattern_similarity_max_cache_entries', 300) or 300),
+            )
+            # 호출 시각 자체는 시장 상태가 아니므로 제외한다. 현재 신호와 최근
+            # 손실 표본이 같을 때만 같은 키가 되어 진입 루프의 중복 호출을 막는다.
+            signal_snapshot = {
+                key: value
+                for key, value in dict(current_signal_data or {}).items()
+                if key not in {'timestamp', 'requested_at', 'created_at'}
+            }
+            cache_payload = {
+                'symbol': str(symbol or '').upper(),
+                'signal': signal_snapshot,
+                'patterns': list(recent_patterns or []),
+            }
+            serialized = json.dumps(
+                cache_payload,
+                ensure_ascii=False,
+                sort_keys=True,
+                default=str,
+                separators=(',', ':'),
+            )
+            cache_key = hashlib.sha256(serialized.encode('utf-8')).hexdigest()
+            now = time.time()
+            with self._pattern_similarity_lock:
+                cached = self._pattern_similarity_cache.get(cache_key)
+                if cached and now - float(cached.get('timestamp', 0.0) or 0.0) <= cache_sec:
+                    result = cached.get('result')
+                    return dict(result) if isinstance(result, dict) else None
+                last_attempt = float(
+                    self._pattern_similarity_last_attempt.get(cache_key, 0.0) or 0.0
+                )
+                if last_attempt and now - last_attempt < retry_cooldown:
+                    return None
+                self._pattern_similarity_last_attempt[cache_key] = now
+
             system = "You are an expert cryptocurrency trading pattern analyzer. Compare current signals with past patterns and make trading decisions."
             prompt = self._compose_similarity_prompt(symbol, current_signal_data, recent_patterns)
             
@@ -286,6 +357,19 @@ tp_percent and sl_percent MUST be fractions: 0.001 means 0.1%, not 1%.
                 'pattern_similarity', system, prompt, temperature=0.2, max_tokens=600,
             )
             if result:
+                with self._pattern_similarity_lock:
+                    self._pattern_similarity_cache[cache_key] = {
+                        'timestamp': now,
+                        'result': dict(result),
+                    }
+                    if len(self._pattern_similarity_cache) > max_entries:
+                        oldest_key = min(
+                            self._pattern_similarity_cache,
+                            key=lambda key: float(
+                                self._pattern_similarity_cache[key].get('timestamp', 0.0) or 0.0
+                            ),
+                        )
+                        self._pattern_similarity_cache.pop(oldest_key, None)
                 action = result.get('action', 'PROCEED')
                 self.logger.info(f"{symbol} 패턴 분석: {action} - {result.get('reason', '')}")
             return result

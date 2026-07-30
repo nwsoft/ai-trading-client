@@ -325,7 +325,7 @@ def verify_safe_build(target_platform: str) -> bool:
     print(f"✅ 배포 준비 완료: {dest}")
     return True
 
-def ensure_build_dependencies(target_platform: str):
+def ensure_build_dependencies(target_platform: str) -> bool:
     """빌드에 필요한 패키지를 requirements 파일로 자동 설치."""
     if target_platform == 'windows':
         req_file = 'requirements_windows.txt'
@@ -333,8 +333,8 @@ def ensure_build_dependencies(target_platform: str):
         req_file = 'requirements.txt'
 
     if not os.path.exists(req_file):
-        print(f"⚠️  {req_file} 파일이 없어 의존성 자동 설치를 건너뜁니다.")
-        return
+        print(f"❌ {req_file} 파일이 없어 배포 의존성을 보장할 수 없습니다.")
+        return False
 
     print(f"\n📦 빌드 의존성 설치 중 ({req_file})...")
     result = subprocess.run(
@@ -344,7 +344,7 @@ def ensure_build_dependencies(target_platform: str):
     if result.returncode == 0:
         print(f"✅ 의존성 설치 완료 ({req_file})")
     else:
-        print(f"⚠️  일부 패키지 설치 실패 (빌드는 계속 진행):")
+        print("❌ 일부 패키지 설치 실패:")
         if result.stderr:
             # 핵심 오류 줄만 출력
             for line in result.stderr.splitlines():
@@ -353,6 +353,21 @@ def ensure_build_dependencies(target_platform: str):
 
     # 음성 의존성은 환경별 실패 포인트가 많아 별도 보정 설치를 추가한다.
     ensure_voice_dependencies(target_platform)
+
+    missing = [
+        module_name
+        for module_name in ("PyInstaller",)
+        if importlib.util.find_spec(module_name) is None
+    ]
+    if missing:
+        print(
+            "❌ 배포 필수 모듈 누락: "
+            + ", ".join(missing)
+            + " · 최종 사용자에게 설치를 전가하지 않기 위해 빌드를 중단합니다."
+        )
+        return False
+    print("✅ 배포 필수 모듈 확인: PyInstaller")
+    return result.returncode == 0
 
 
 def ensure_voice_dependencies(target_platform: str):
@@ -417,7 +432,9 @@ def main():
                 return
 
         # 1. 빌드 의존성 자동 설치 (requirements 파일 기반)
-        ensure_build_dependencies(target_platform)
+        if not ensure_build_dependencies(target_platform):
+            print("❌ 빌드 의존성 계약을 충족하지 못해 빌드를 중단합니다.")
+            return
 
         # 2. 안전한 빌드 환경 준비
         backed_up_files = create_safe_build_environment()

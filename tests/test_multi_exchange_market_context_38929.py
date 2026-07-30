@@ -21,6 +21,10 @@ class _ExchangeManagerSpy:
         self.calls.append((symbol, "price", 0, exchange_name))
         return 123.0
 
+    def get_24h_ticker(self, symbol, exchange_name=None):
+        self.calls.append((symbol, "ticker", 0, exchange_name))
+        return {"priceChangePercent": 1.25}
+
 
 def test_analyzer_market_data_uses_requested_exchange_and_isolated_cache():
     manager = _ExchangeManagerSpy()
@@ -69,6 +73,9 @@ class _BinanceMustNotBeUsed:
     def get_current_price(self, *args, **kwargs):
         raise AssertionError("non-Binance analysis must not fall back to Binance")
 
+    def get_ticker(self, *args, **kwargs):
+        raise AssertionError("non-Binance ticker analysis must not use Binance")
+
 
 def test_non_binance_empty_data_does_not_cross_fallback_to_binance():
     analyzer = Analyzer(binance_client=_BinanceMustNotBeUsed(), exchange_manager=_EmptyExchangeManager())
@@ -76,6 +83,27 @@ def test_non_binance_empty_data_does_not_cross_fallback_to_binance():
 
     assert analyzer._get_klines("BTC/USDT:USDT", "5m", 50) == []
     assert analyzer._get_current_price("BTC/USDT:USDT") is None
+
+
+def test_non_binance_volatility_uses_requested_exchange_ticker():
+    manager = _ExchangeManagerSpy()
+    analyzer = Analyzer(binance_client=_BinanceMustNotBeUsed(), exchange_manager=manager)
+    analyzer._exchange_context = "bitget"
+
+    assert analyzer.calculate_volatility_for_symbol("BTC/USDT:USDT") == 1.25
+    assert ("BTC/USDT:USDT", "ticker", 0, "bitget") in manager.calls
+
+
+def test_krw_market_conditions_do_not_probe_unsupported_bnb_futures_symbol():
+    manager = _ExchangeManagerSpy()
+    analyzer = Analyzer(binance_client=_BinanceMustNotBeUsed(), exchange_manager=manager)
+    analyzer._exchange_context = "upbit"
+
+    result = analyzer._analyze_current_market_conditions()
+    symbols = [call[0] for call in manager.calls if call[1] == "15m"]
+
+    assert result["level"] in {"LOW", "NORMAL", "HIGH"}
+    assert symbols == ["BTC/KRW", "ETH/KRW"]
 
 
 class _MarketExchange:
@@ -114,6 +142,21 @@ def test_okx_string_fallback_survives_supported_symbol_prefilter():
     assert filtered == [{"symbol": "BTC/USDT:USDT", "is_major": True}]
 
 
+def test_supported_symbol_prefilter_fails_closed_without_exchange_adapter():
+    trader = UnifiedTrader.__new__(UnifiedTrader)
+    trader.unified_manager = None
+    trader.logger = type(
+        "L",
+        (),
+        {
+            "info": lambda *args, **kwargs: None,
+            "warning": lambda *args, **kwargs: None,
+        },
+    )()
+
+    assert trader._prefilter_supported_coins("okx", ["BTCUSDT"]) == []
+
+
 def test_binance_cycle_does_not_shadow_module_time_import():
     source = Path("trading/trader.py").read_text(encoding="utf-8")
     tree = ast.parse(source)
@@ -123,6 +166,20 @@ def test_binance_cycle_does_not_shadow_module_time_import():
     )
     local_time_imports = [
         node for node in ast.walk(cycle)
+        if isinstance(node, ast.Import) and any(alias.name == "time" and alias.asname is None for alias in node.names)
+    ]
+    assert local_time_imports == []
+
+
+def test_close_position_does_not_shadow_module_time_for_delayed_ui_refresh():
+    source = Path("trading/trader.py").read_text(encoding="utf-8")
+    tree = ast.parse(source)
+    close_position = next(
+        node for node in ast.walk(tree)
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name == "close_position"
+    )
+    local_time_imports = [
+        node for node in ast.walk(close_position)
         if isinstance(node, ast.Import) and any(alias.name == "time" and alias.asname is None for alias in node.names)
     ]
     assert local_time_imports == []

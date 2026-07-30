@@ -1,4 +1,25 @@
-## v3.9.0.3 업데이트 배포 대상 검증 (2026-07-28, Windows 배포 전)
+## v3.9.0.4 소스·출시 준비 검증 (2026-07-30)
+
+### 2026-07-29 설정 정본·실행 모드·사용자 안내
+
+- 전체 자동 회귀: **1,219 passed, 6 skipped, 0 failed**
+- SelectionPolicy·StrategyUniversePolicy·regime_scope·동일기회·ExitPolicy 집중 회귀: **51 passed**
+- AI 시장분석·포지션 크기·손실패턴 캐시, 실패 쿨다운, 역할별 Provider 경계, 거래소 지원 심볼 fail-closed, KOSPI·KOSDAQ·ETF 유니버스 집중 회귀: **PASS**
+- 멀티 거래소 E2E **72 passed**, 증권 집중 회귀 **157 passed, 6 skipped**, `prekey` 릴리스 게이트 **PASS**
+- Teayu_02 읽기 전용 실연결: Upbit·Bithumb·Bybit·OKX·Bitget 인증/IP 차단, Binance 계정 정보 빈 응답으로 암호화폐 6개 모두 운영 준비 미완료
+- 빈 잔고 거짓 성공·인증 원인 오분류·진단 설정 변경·비밀값 로그·전략 파일 권한·준비도 프로세스 정리·Binance 폴백 미구현을 회귀 수정
+- 통합 판정 정본: `INTEGRATED_AUDIT_v3.9.0.4_20260729.md`
+- Teayu_02 장애 집중 회귀: 필수 keyring 제거, v3.9.0.3 참조 호환 저장, 전 거래소 잔고 정본·숨은 탭 재개·12초 제한·terminal 상태, AI 설정창 수명주기, 배열/dict OHLCV, 문자열 심볼 HOLD 격리, datetime 저장, TP/SL 포지션 확인 **12 passed**
+- TP/SL 무결성 집중 회귀: 구버전 퍼센트 단위 최초 1회 저장, AI 화면 fraction 기본값, 비정상 값 안전 복구 포함 **8 passed**
+- Teayu_02 원본 로그 증거: 지연 잔고 갱신 `NameError` 90건, 비정상 종료 감지 4건, 파괴 위젯 `TclError` 1건, 과거 UI 성능 로그 1,393,277줄. 원본은 수정하지 않음
+- requirements와 두 PyInstaller 스펙에 keyring·Windows 보안 저장소 의존성이 없음을 자동 검증. Windows 최종 사용자는 별도 패키지 설치 없음
+- `runtime_faulthandler.log`에는 native fatal stack이 없어 비정상 종료의 단일 원인을 단정하지 않으며 서명 Windows 설치본 장시간 검증을 외부 게이트로 유지
+- 설정 v3.9.0.4 정본·레거시 보관·AlphaArena 이전·범위 부분집합 집중 회귀: **4 passed**
+- 설정 템플릿 감사: 정본 `3.9.0.4`, LEARNING 기본값, 레거시·모순 0건 **PASS**
+- Teayu 2026-07-29 설정 증거 감사: 실행 미사용 과거 설정 20개, AlphaArena 중복 10개, 확인 표식 없는 실주문 6개 확인. 원본 증거 파일은 수정하지 않음
+- 동일 설정의 v3.9.0.4 메모리 마이그레이션: 정본 3.9.0.4, 과거 값 25개 호환 보관, LEARNING 잠금, 모순 0건 **PASS**
+- 문서·버전 정합성 검사와 Python 문법·JSON 구문: **PASS**
+- v3.9.0.4 manifest: `pending_windows_rebuild`, 후보 EXE 크기·SHA는 의도적으로 비어 있고 v3.9.0.2 이전 고객 배포 자산만 별도 기록
 
 ### 2026-07-28 작업별 멀티 Provider·독립 전사·모델 수명주기
 
@@ -16,16 +37,16 @@
 - AI 커스텀 사용자 기간·다중 시간봉·AND/OR·안전 차단 포함 관련 통합 회귀: **35 passed**
 - 실제 주문은 만들지 않았으며 Windows 새 EXE의 거래소별 최소 주문·24~72시간 실행은 외부 게이트
 - Provider Router·capability·공통 텍스트/JSON/사용량/오류 계약 집중 회귀: **13 passed**
-- AI 엔진 계약·설정 백업·credential reference 보안 통합 집중 회귀: **16 passed**
+- AI 엔진 계약·v3.9.0.3 credential reference 호환·로컬 설정 저장 집중 회귀: **16 passed**
 - 탭 callback 수명주기·업데이트 P0·Claude/Gemini·가격 카탈로그 집중 회귀: **32 passed, 0 failed**
 - AI 엔진 문서 정합 회귀: **5 passed, 0 failed**
 - 전체 자동 회귀: **1128 passed, 6 skipped, 0 failed, 3 warnings**
 - Python 문법·`settings_template.json` 구문: **PASS**
-- macOS Keychain 임시 credential 저장·조회·삭제 왕복: **PASS**
-- 현재 계정 설정 마이그레이션: 기존 OpenAI 모델 보존, 새 provider profile/model schema 생성, AlphaArena `deepseek-v4-flash` 이전, `settings.json` 권한 `0600`, AI 키 평문 없음 **PASS**
+- v3.9.0.3 Keychain/keyring 자동 이전은 v3.9.0.4 정책에서 철회
+- 현재 계정 설정 마이그레이션: 기존 OpenAI 모델·로컬 키 보존, 새 provider profile/model schema 생성, AlphaArena `deepseek-v4-flash` 이전, `settings.json` 권한 `0600` **PASS**
 - OpenAI·DeepSeek·Anthropic·Gemini 실연결 검증 경로: **준비 완료**. 현재 계정과 환경 변수에 제공사 API 키가 없어 인증·동적 모델 목록 확인은 건너뜀
 - AlphaArena 멀티 엔진 비교·실거래 연결은 이번 후보에서 제외하고 다음 업데이트로 이관
-- v3.9.0.2는 이전 고객 배포본이며, 오늘 변경은 실제 제공사 키·서명 Windows 빌드·설치·자동복원 검증 후 v3.9.0.3으로 배포
+- v3.9.0.2는 이전 고객 배포본이며, 오늘 변경은 실제 제공사 키·서명 Windows 빌드·설치·자동복원 검증 후 v3.9.0.4로 배포
 - Windows 글꼴·비정상 종료 진단·학습/주문 거래소 분리·AI 커스텀 1+4 프리셋 집중 회귀: **10 passed**
 - 위 피드백 회귀와 기존 AI Provider Router·거래소 범위 회귀 통합: **25 passed**
 - 프리셋 무키 분석: 지원하지 않는 선언형 조건은 없으며, ATR·스윙 손절 등 확정 불가 값은 누락 조건으로 남겨 승인 준비 상태를 차단 **PASS**
@@ -48,14 +69,14 @@
 - Python 문법, 사용자 매뉴얼 JSON, daltrading Jinja 전체 템플릿 파싱: **PASS**.
 - 앞선 UI 정합 집중 회귀 `127 passed`, 문서·사용자 노출 동기화, macOS 실화면 검증 결과는 유지한다.
 - macOS 1500×980 실화면: 블록체인 거래 통계 약 7행 표시와 표 단일 스크롤, 금융 인텔리전스 초보자 안내·AI 질문 버튼, 생활금융 공통 고정 스킨 렌더링 **PASS**.
-- 소스/문서 버전 단일 소스(`config/app_version.py`) 기준 현재 업데이트 대상은 `v3.9.0.3` (2026-07-28)
-- GitHub에 배포된 v3.9.0.2 EXE는 `361,527,883`바이트, SHA-256 `d9a9792fba81601cb8cdf3ac63312677210c4558ed4dcb7aea314ad67a7bb4c3`인 이전 안정 배포본이다. 최신 v3.9.0.3 manifest는 `pending_windows_rebuild`이며 새 EXE 검증이 필요하다.
+- 소스/문서 버전 단일 소스(`config/app_version.py`) 기준 현재 업데이트 대상은 `v3.9.0.4` (2026-07-29)
+- GitHub에 배포된 v3.9.0.2 EXE는 `361,527,883`바이트, SHA-256 `d9a9792fba81601cb8cdf3ac63312677210c4558ed4dcb7aea314ad67a7bb4c3`인 이전 안정 배포본이다. 최신 v3.9.0.4 manifest는 `pending_windows_rebuild`이며 새 EXE 검증이 필요하다.
 - 전체 자동 테스트 최신 실행: `1079 passed, 6 skipped, 3 warnings` (2026-07-27, macOS/Python 3.13, 기간별 실행 분포·KRW 체결금액 포함)
 - 경고 3건은 기존 `scripts/test_coin_selection*.py`의 list 반환이며 실패는 아니다.
 - AI 커스텀·어시스턴트 집중 회귀: `81 passed, 0 failed`.
 - Python 문법 검사: 어시스턴트·AI 커스텀·인앱 매뉴얼·설정·선언형 엔진·신규 테스트 파일 PASS.
 - 문서 정합성 검사: `scripts/doc_consistency_check.py` PASS.
-- v3.9.0.3 업데이트 표면 정합성: README·문서 진입점·인앱 업데이트·사용자 가이드·릴리스 노트·Windows 배포용 `deploy/release_notes.md`·변경이력·공통/AI 커스텀 아키텍처·AI 어시스턴트·거래 흐름·계획·배포 체크리스트·테스트 상태 필수 항목 **PASS**.
+- v3.9.0.4 업데이트 표면 정합성: README·설정 정본 안내·문서 진입점·인앱 업데이트·사용자 가이드·릴리스 노트·Windows 배포용 `deploy/release_notes.md`·변경이력·공통/AI 커스텀 아키텍처·AI 어시스턴트·거래 흐름·계획·배포 체크리스트·테스트 상태 필수 항목 **PASS**.
 - 신규 대상 테스트: EMA200 워밍업, 비용 반영 검증, 미지원 조건 차단, 코인 명시 청산, AI 커스텀 명시/제외 시장국면 추천, NoahAI 정체성·대화 문맥·모호한 요청 재질문·강제 최종확인, 설정 타입 레지스트리·중첩값 롤백을 포함한다.
 - QA 절차 정본: `AI_CUSTOM_ASSISTANT_TEST_RUNBOOK_v3.9.0.2.md`. 실제 비밀번호·API 키는 문서에 저장하지 않는다.
 
@@ -88,7 +109,7 @@
 - 문서 구조 감사: `docs` 최상위 179개 → 103개, 이력 79개는 `docs/archive/`로 이동, 런타임 보고서 1,168개는 공식 문서에서 분리 **PASS**
 - 빌드 사전 게이트(`release_gate.py --profile prekey`): 증권 회귀 `150 passed, 6 skipped`, 모드 매트릭스·무키 점검·문서 정합·사용자 노출 동기화·다중 거래소 불변조건·준비도 체인 **PASS**. 이번 AI 커스텀·어시스턴트 변경 29개 파일을 `SYNC_GUARD_CHANGED_FILES`로 명시했다.
 - 실연동 준비도: 선택 거래소 Binance는 인증·잔고 조회 준비 완료. Upbit·Bithumb·Bybit·OKX·Bitget은 현재 키/권한/네트워크/추가 자격증명 점검이 필요하며 배포 후 해당 거래소 실운용 전 재검증한다.
-- 현재 남은 외부 게이트: v3.9.0.3 Windows 빌드·설치·전수 실클릭, YouTube/TradingView 실제 URL 입력 E2E, SEC/DART 운영 자격증명, 각 실제 거래소 장시간 또는 최소단위 검증
+- 현재 남은 외부 게이트: v3.9.0.4 Windows 빌드·설치·전수 실클릭, YouTube/TradingView 실제 URL 입력 E2E, SEC/DART 운영 자격증명, 각 실제 거래소 장시간 또는 최소단위 검증
 
 ---
 
@@ -655,3 +676,10 @@
    - test_unified_system.py, test_paper_flow.py를 paper 모드로 수행하여 거래 가드/파이프라인을 빠르게 검증
 
 업데이트: 추후 테스트가 완료되는 즉시 본 문서에 “PASS/FAIL 및 로그 링크”를 추가하겠습니다.
+## 2026-07-29 - v3.9.0.3 실행 모드·페이퍼 안전성·고급 계층 정합화
+
+- 전체 자동 회귀: `1,147 passed, 6 skipped, 3 warnings`
+- 신규 안전 회귀: LEARNING/PAPER/LIVE 우선순위, Binance 저수준 실주문 차단, Binance·Unified 페이퍼 포지션 격리, 증권 페이퍼 내부 체결, 고급 프리셋 상세값 deep merge, 항상 최상단 기본 OFF, 증권 고급 계층 연결
+- Python 구문 검증: `main.py`, 설정/대시보드, Binance/Unified/증권 실행 경로 통과
+- 경고 3건은 기존 `scripts/test_coin_selection*.py` 테스트가 `None` 대신 리스트를 반환하는 `PytestReturnNotNoneWarning`
+- Windows EXE 빌드는 사용자 수행 범위로 남겼고 `deploy/release-manifest.json`은 `pending_windows_rebuild` 상태로 표시
