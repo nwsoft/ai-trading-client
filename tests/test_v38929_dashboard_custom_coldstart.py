@@ -45,14 +45,15 @@ class Formatter:
     _format_balance_number = ModernDashboard._format_balance_number
 formatter = Formatter()
 metrics = ModernDashboard._balance_metric_items(
-    formatter, 'binance', {'ETH': 1.25, 'USDT': 1234.5, 'BTC': 0.02, 'XRP': 50}
+    formatter, 'binance', {'USDT': 1234.5, 'BTC': 0, 'ETH': 0, 'XRP': 50, 'SOL': 2}
 )
-assert metrics == [('USDT', '1,234.50'), ('BTC', '0.02'), ('ETH', '1.25')], metrics
+assert metrics == [('USDT', '1,234.50'), ('XRP', '50'), ('SOL', '2')], metrics
 krw_metrics = ModernDashboard._balance_metric_items(
-    formatter, 'upbit', {'BTC': 0.01, 'KRW': 2500000, 'ETH': 0.5}
+    formatter, 'upbit', {'KRW': 2500000, 'BTC': 0, 'ETH': 0, 'XRP': 75}
 )
 assert krw_metrics[0] == ('KRW', '2,500,000'), krw_metrics
-assert len(krw_metrics) == 3, krw_metrics
+assert krw_metrics[1] == ('XRP', '75'), krw_metrics
+assert len(krw_metrics) == 2, krw_metrics
 """
     completed = subprocess.run(
         [sys.executable, "-c", script], cwd=ROOT, capture_output=True, text=True, timeout=20,
@@ -354,14 +355,14 @@ def test_windows_executable_metadata_is_aligned_to_3904():
     version_info = (ROOT / "config" / "windows_version_info.txt").read_text(encoding="utf-8")
     spec = (ROOT / "aiautotrade.spec").read_text(encoding="utf-8")
     safe_builder = (ROOT / "build_safe.py").read_text(encoding="utf-8")
-    assert "filevers=(3, 9, 0, 4)" in version_info
-    assert "ProductVersion', u'3.9.0.4'" in version_info
+    assert "filevers=(3, 9, 0, 5)" in version_info
+    assert "ProductVersion', u'3.9.0.5'" in version_info
     assert "version='config/windows_version_info.txt'" in spec
     assert "version='config/windows_version_info.txt'" in safe_builder
-    assert 'RELEASE_VERSION = "3.9.0.4"' in (ROOT / "config" / "app_version.py").read_text(encoding="utf-8")
-    assert (ROOT / "deploy" / "version.txt").read_text(encoding="utf-8").strip() == "3.9.0.4"
+    assert 'RELEASE_VERSION = "3.9.0.5"' in (ROOT / "config" / "app_version.py").read_text(encoding="utf-8")
+    assert (ROOT / "deploy" / "version.txt").read_text(encoding="utf-8").strip() == "3.9.0.5"
     manifest = json.loads((ROOT / "deploy" / "release-manifest.json").read_text(encoding="utf-8"))
-    assert manifest["version"] == "3.9.0.4"
+    assert manifest["version"] == "3.9.0.5"
     exe_asset = manifest["assets"]["exe"]
     assert manifest.get("build_status") == "pending_windows_rebuild"
     assert exe_asset["size"] == 0
@@ -375,7 +376,7 @@ def test_windows_executable_metadata_is_aligned_to_3904():
         for chunk in iter(lambda: exe_file.read(1024 * 1024), b""):
             digest.update(chunk)
     assert previous_asset["sha256"] == digest.hexdigest()
-    assert "/v3.9.0.4/AITrading.exe" in manifest["assets"]["exe"]["download_url"]
+    assert "/v3.9.0.5/AITrading.exe" in manifest["assets"]["exe"]["download_url"]
     release_builder = (ROOT / "scripts" / "generate_release_assets.py").read_text(encoding="utf-8")
     assert "AITrading.exe가 최신 런타임 소스보다 오래된 빌드" in release_builder
     assert "_latest_runtime_source" in release_builder

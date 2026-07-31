@@ -3034,7 +3034,7 @@ class Trader:
                 if hasattr(self, 'binance_client') and self.binance_client:
                     if hasattr(self.binance_client, 'calculate_precise_quantity'):
                         # 목표 거래 금액으로 정확한 수량 계산
-                        target_value = qty * price
+                        target_value = max(qty * price, float(min_notional) * 1.01)
                         precise_qty = self.binance_client.calculate_precise_quantity(symbol, target_value)
                         if precise_qty and precise_qty > 0:
                             self.log_event('trade', f"[{symbol}] 🔧 정밀도 수량 계산: {qty} → {precise_qty} (목표: {target_value:.2f} USDT)")

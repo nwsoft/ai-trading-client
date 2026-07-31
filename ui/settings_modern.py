@@ -209,7 +209,7 @@ class ModernSettingsWindow:
             pass
 
     def _add_tab_save_bar(self, tab, section_name: str) -> None:
-        """긴 설정 탭에서도 저장 동작을 즉시 찾을 수 있는 고정 상단 바를 만든다."""
+        """긴 설정 탭에서 저장과 문맥 도움말을 즉시 찾을 수 있는 상단 바를 만든다."""
         bar = ctk.CTkFrame(
             tab, height=44, fg_color="#111827", corner_radius=10,
             border_width=1, border_color="#273449",
@@ -233,6 +233,65 @@ class ModernSettingsWindow:
             hover_color="#059669",
             command=self.save_settings,
         ).pack(side="right", padx=8, pady=6)
+        ctk.CTkButton(
+            bar,
+            text="AI에게 묻기",
+            image=get_ui_icon("spark", (15, 15), "#ffffff"),
+            compound="left",
+            width=128,
+            height=32,
+            font=ctk.CTkFont(family="Segoe UI", size=13, weight="bold"),
+            fg_color=self._color("primary", "#3b82f6"),
+            hover_color="#2563eb",
+            command=lambda name=section_name: self._ask_ai_about_settings(name),
+        ).pack(side="right", padx=(4, 0), pady=6)
+
+    def _ask_ai_about_settings(self, section_name: str) -> None:
+        """현재 설정 탭의 목적·저장값·영향을 AI 어시스턴트에 질문한다."""
+        try:
+            dashboard = getattr(self, "parent", None)
+            if dashboard is None:
+                messagebox.showinfo(
+                    "AI에게 묻기",
+                    "대시보드가 연결되지 않아 AI 어시스턴트를 열 수 없습니다.",
+                )
+                return
+
+            if hasattr(dashboard, "_ensure_ai_assistant_tab"):
+                dashboard._ensure_ai_assistant_tab()
+            assistant = getattr(dashboard, "ai_assistant_widget", None)
+            if assistant is None or not hasattr(assistant, "send_quick_question"):
+                messagebox.showwarning(
+                    "AI에게 묻기",
+                    "AI 어시스턴트를 불러오지 못했습니다. 대시보드에서 다시 시도해 주세요.",
+                )
+                return
+
+            prompt = (
+                f"설정 → {section_name} 화면을 현재 저장 설정 기준으로 설명해줘. "
+                "각 항목의 목적, 현재 상태, 변경 시 영향, 초보자 권장값과 주의사항을 "
+                "구분해서 알려줘. API 키나 비밀값은 표시하지 말고, 설정을 직접 변경하지도 마."
+            )
+
+            if hasattr(dashboard, "tab_widget") and dashboard.tab_widget:
+                dashboard.tab_widget.set("AI 어시스턴트")
+
+            # 모달 설정 창이 대시보드 조작을 막지 않도록 값은 유지한 채 잠시 숨긴다.
+            try:
+                self.root.grab_release()
+            except Exception:
+                pass
+            try:
+                self.root.withdraw()
+            except Exception:
+                pass
+
+            assistant.send_quick_question(prompt)
+        except Exception as exc:
+            messagebox.showerror(
+                "AI에게 묻기",
+                f"설정 도움말을 열 수 없습니다.\n\n오류: {exc}",
+            )
 
     def _ask_save_on_close(self):
         """NoahAI 브랜딩을 유지하는 저장/폐기/계속 편집 대화상자."""
@@ -501,14 +560,16 @@ class ModernSettingsWindow:
 
                 result = auto_manager.check_for_updates(manual=True)
                 if not result.get('ok'):
+                    reason = str(result.get("reason") or "latest_release_unavailable")
+                    reason_text = self._auto_update_reason_text(reason)
                     if hasattr(self, 'update_status_label') and self.update_status_label is not None:
                         self.update_status_label.configure(
-                            text="업데이트 확인 실패: 원격 릴리즈 정보를 가져오지 못했습니다.",
+                            text=f"업데이트 확인 실패: {reason_text}",
                             text_color="#f59e0b",
                         )
                     messagebox.showwarning(
                         "업데이트 확인",
-                        "원격 릴리즈 정보를 가져오지 못했습니다. 네트워크/저장소 상태를 확인해 주세요.",
+                        f"{reason_text}\n\n오류 코드: {reason}",
                     )
                     return
 
@@ -521,7 +582,10 @@ class ModernSettingsWindow:
                 if update_available:
                     color = "#60a5fa"
                     suffix = " (다운로드 완료)" if downloaded else ""
+                    download_error = str(result.get("download_error") or "")
                     status_text = f"새 버전 발견: {latest_version} (현재 v{current_version}){suffix}"
+                    if download_error:
+                        status_text += f" · {self._auto_update_reason_text(download_error)}"
                     if hasattr(self, 'update_status_label') and self.update_status_label is not None:
                         self.update_status_label.configure(text=status_text, text_color=color)
 
@@ -666,10 +730,28 @@ class ModernSettingsWindow:
 
             if event == 'download_failed':
                 reason = str(payload.get('reason', 'download_failed') or 'download_failed')
-                label.configure(text=f"업데이트 다운로드 실패: {reason}", text_color="#f59e0b")
+                label.configure(
+                    text=f"업데이트 다운로드 실패: {self._auto_update_reason_text(reason)} ({reason})",
+                    text_color="#f59e0b",
+                )
                 return
         except Exception:
             pass
+
+    @staticmethod
+    def _auto_update_reason_text(reason: str) -> str:
+        return {
+            "latest_release_unavailable": "GitHub 최신 릴리즈 정보를 가져오지 못했습니다.",
+            "latest_version_missing": "릴리즈 버전 정보가 없습니다.",
+            "release_manifest_or_sha256_missing": "검증 manifest 또는 필수 SHA-256이 없습니다.",
+            "sha256_mismatch": "다운로드 파일의 SHA-256이 manifest와 다릅니다.",
+            "untrusted_release_url": "GitHub HTTPS가 아닌 배포 주소라 차단했습니다.",
+            "exe_asset_not_found": "릴리즈에서 Windows EXE를 찾지 못했습니다.",
+            "download_failed": "파일 다운로드에 실패했습니다.",
+            "stable_target_unavailable": "정상 설치 EXE 경로를 확인할 수 없습니다.",
+            "shutdown_not_confirmed": "안전 종료가 확인되지 않아 적용하지 않았습니다.",
+            "preflight_blocked": "열린 포지션·주문 안전 점검에서 적용이 보류됐습니다.",
+        }.get(str(reason or ""), str(reason or "알 수 없는 오류"))
 
     def _open_latest_release_page(self):
         """최근 확인된 릴리즈 페이지를 연다."""
@@ -7296,6 +7378,19 @@ AI 최적화 시스템과 충돌 발생
 
         ctk.CTkLabel(
             auto_update_group,
+            text=(
+                "실행 15초 뒤 최초 1회 확인하며 이후 위 주기를 사용합니다. "
+                "인증서는 요구하지 않고 GitHub HTTPS + manifest SHA-256을 필수 검증합니다. "
+                "무서명 EXE는 Windows 평판 경고가 나타날 수 있습니다."
+            ),
+            font=ctk.CTkFont(family="Segoe UI", size=10),
+            text_color="#94a3b8",
+            wraplength=760,
+            justify="left",
+        ).pack(anchor="w", padx=20, pady=(0, 10))
+
+        ctk.CTkLabel(
+            auto_update_group,
             text="열린 포지션·주문이 있을 때:",
             font=ctk.CTkFont(family="Segoe UI", size=12, weight="bold"),
             text_color="#d1d5db",
@@ -7671,7 +7766,7 @@ AI 최적화 시스템과 충돌 발생
                 'enabled_exchanges': enabled_exchange_values,
                 'learning_enabled_exchanges': enabled_exchange_values,
                 'trade_enabled_exchanges': trade_exchange_values,
-                '_trade_scope_user_confirmed_v3904': True,
+                '_trade_scope_user_confirmed_v3905': True,
                 'multi_venue_execution': {
                     **dict(self.current_settings.get('multi_venue_execution', {}) or {}),
                     'enabled': True,

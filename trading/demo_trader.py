@@ -34,12 +34,12 @@ class DemoTrader:
         
         # 가상 잔고 (각 거래소별)
         self.virtual_balances = {
-            'binance': {'USDT': 10000.0, 'BTC': 0.0, 'ETH': 0.0},
-            'upbit': {'KRW': 15000000.0, 'BTC': 0.0, 'ETH': 0.0},
-            'bybit': {'USDT': 10000.0, 'BTC': 0.0, 'ETH': 0.0},
-            'okx': {'USDT': 10000.0, 'BTC': 0.0, 'ETH': 0.0},
-            'bitget': {'USDT': 10000.0, 'BTC': 0.0, 'ETH': 0.0},
-            'bithumb': {'KRW': 15000000.0, 'BTC': 0.0, 'ETH': 0.0}
+            'binance': {'USDT': 10000.0},
+            'upbit': {'KRW': 15000000.0},
+            'bybit': {'USDT': 10000.0},
+            'okx': {'USDT': 10000.0},
+            'bitget': {'USDT': 10000.0},
+            'bithumb': {'KRW': 15000000.0}
         }
         
         # 거래 기록 (성과 분석용)
@@ -257,6 +257,7 @@ class DemoTrader:
                 'total_trades': 0,
                 'win_rate': 0.0,
                 'total_profit': 0.0,
+                'total_profit_percent': 0.0,
                 'avg_profit_per_trade': 0.0,
                 'hourly_return_rate': 0.0,
                 'demo_mode': True
@@ -302,17 +303,21 @@ class DemoTrader:
         """데모 거래 로그 출력"""
         status_emoji = "🟢" if trade_result['is_winning'] else "🔴"
         profit_sign = "+" if trade_result['profit_amount'] >= 0 else ""
+        quote_asset = 'KRW' if exchange_name in {'upbit', 'bithumb'} else 'USDT'
+        quote_balance = float(
+            (self.virtual_balances.get(exchange_name) or {}).get(quote_asset, 0.0)
+        )
         
         self.logger.info(
             f"{status_emoji} [DEMO] {exchange_name} {trade_result['symbol']} "
             f"{trade_result['side'].upper()} - "
             f"수익: {profit_sign}{trade_result['profit_percent']:.2f}% "
             f"({profit_sign}{trade_result['profit_amount']:.2f}) - "
-            f"잔고: {self.virtual_balances[exchange_name]['USDT']:.2f} USDT"
+            f"잔고: {quote_balance:.2f} {quote_asset}"
         )
         
         # 성과 요약 로그
-        if self.performance_stats['total_trades'] % 10 == 0:
+        if self.performance_stats['total_trades'] > 0 and self.performance_stats['total_trades'] % 10 == 0:
             summary = self.get_performance_summary()
             self.logger.info(
                 f"📊 [DEMO] 성과 요약 - "

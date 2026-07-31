@@ -6,6 +6,7 @@
 
 import sqlite3
 import json
+import hashlib
 import logging
 import os
 import time
@@ -474,6 +475,30 @@ class Recorder:
                     )
                 """)
 
+                # 거래소 원장 기준 실제 체결 내역. trade_log는 NoahAI가 추적한
+                # 진입-청산 성과이고, 이 테이블은 수동 주문을 포함한 거래소 체결
+                # 원장을 보존한다. 두 의미를 섞어 승률/PnL을 왜곡하지 않는다.
+                cursor.execute("""
+                    CREATE TABLE IF NOT EXISTS exchange_execution_log (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        execution_key TEXT NOT NULL UNIQUE,
+                        exchange TEXT NOT NULL,
+                        trade_id TEXT,
+                        order_id TEXT,
+                        symbol TEXT NOT NULL,
+                        side TEXT,
+                        price REAL DEFAULT 0.0,
+                        quantity REAL DEFAULT 0.0,
+                        cost REAL DEFAULT 0.0,
+                        fee REAL DEFAULT 0.0,
+                        fee_currency TEXT,
+                        executed_at DATETIME,
+                        raw_status TEXT,
+                        source TEXT DEFAULT 'exchange_api',
+                        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+                    )
+                """)
+
                 # 주식/ETF 브로커·자산유형별 거래 통계 테이블
                 cursor.execute("""
                     CREATE TABLE IF NOT EXISTS stock_trade_stats (
@@ -564,6 +589,10 @@ class Recorder:
                 # 성능 인덱스: 거래소/청산시간 조합 조회 최적화
                 try:
                     cursor.execute("CREATE INDEX IF NOT EXISTS idx_trade_exchange_exit_time ON trade_log(exchange, exit_time)")
+                    cursor.execute(
+                        "CREATE INDEX IF NOT EXISTS idx_exchange_execution_venue_time "
+                        "ON exchange_execution_log(exchange, executed_at)"
+                    )
                     conn.commit()
                 except Exception:
                     pass
@@ -1233,6 +1262,124 @@ class Recorder:
                 return []
 
         return []
+
+    @staticmethod
+    def _execution_number(value: Any) -> float:
+        try:
+            return float(value or 0.0)
+        except Exception:
+            return 0.0
+
+    @staticmethod
+    def _execution_time_text(value: Any) -> str:
+        if value in (None, ''):
+            return ''
+        try:
+            numeric = float(value)
+            if numeric > 1e12:
+                numeric /= 1000.0
+            return datetime.fromtimestamp(numeric).strftime('%Y-%m-%d %H:%M:%S')
+        except Exception:
+            pass
+        try:
+            parsed = datetime.fromisoformat(str(value).replace('Z', '+00:00'))
+            return parsed.replace(tzinfo=None).strftime('%Y-%m-%d %H:%M:%S')
+        except Exception:
+            return str(value)[:32]
+
+    def save_exchange_execution_history(
+        self,
+        exchange: str,
+        trades: List[Dict[str, Any]],
+        *,
+        source: str = 'exchange_api',
+    ) -> Dict[str, int]:
+        """거래소 실제 체결 원장을 중복 없이 저장한다.
+
+        이 데이터는 ``trade_log``의 청산 성과와 별도다. 거래소 API가 PnL을
+        제공하지 않는 현물 매수/매도 체결을 임의로 수익/손실로 만들지 않는다.
+        """
+        venue = str(exchange or '').strip().lower()
+        result = {'received': len(trades or []), 'inserted': 0, 'skipped': 0}
+        if not venue or not trades:
+            return result
+
+        try:
+            with sqlite3.connect(self.db_path, timeout=20.0) as conn:
+                cursor = conn.cursor()
+                for trade in trades:
+                    if not isinstance(trade, dict):
+                        result['skipped'] += 1
+                        continue
+                    symbol = str(trade.get('symbol') or '').strip().upper()
+                    side = str(trade.get('side') or '').strip().lower()
+                    trade_id = str(trade.get('id') or trade.get('trade_id') or '').strip()
+                    order_id = str(trade.get('order') or trade.get('order_id') or '').strip()
+                    executed_at = self._execution_time_text(
+                        trade.get('timestamp')
+                        or trade.get('datetime')
+                        or trade.get('time')
+                        or trade.get('filled_at')
+                    )
+                    quantity = self._execution_number(
+                        trade.get('amount') or trade.get('filled') or trade.get('quantity')
+                    )
+                    price = self._execution_number(
+                        trade.get('average') or trade.get('price') or trade.get('filled_price')
+                    )
+                    cost = self._execution_number(trade.get('cost'))
+                    if cost <= 0 and price > 0 and quantity > 0:
+                        cost = price * quantity
+
+                    fee_value = 0.0
+                    fee_currency = ''
+                    fee_obj = trade.get('fee')
+                    if isinstance(fee_obj, dict):
+                        fee_value = self._execution_number(fee_obj.get('cost'))
+                        fee_currency = str(fee_obj.get('currency') or '').strip().upper()
+                    else:
+                        fee_value = self._execution_number(
+                            trade.get('fee_cost') or trade.get('feeCost') or fee_obj
+                        )
+
+                    if not symbol or quantity <= 0 or (not trade_id and not order_id and not executed_at):
+                        result['skipped'] += 1
+                        continue
+
+                    identity = '|'.join([
+                        venue, trade_id, order_id, symbol, side, executed_at,
+                        f'{quantity:.12f}', f'{price:.12f}',
+                    ])
+                    execution_key = hashlib.sha256(identity.encode('utf-8')).hexdigest()
+                    cursor.execute(
+                        """
+                        INSERT OR IGNORE INTO exchange_execution_log (
+                            execution_key, exchange, trade_id, order_id, symbol, side,
+                            price, quantity, cost, fee, fee_currency, executed_at,
+                            raw_status, source
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        """,
+                        (
+                            execution_key, venue, trade_id or None, order_id or None,
+                            symbol, side, price, quantity, cost, fee_value,
+                            fee_currency or None, executed_at or None,
+                            str(trade.get('status') or '').strip() or None,
+                            str(source or 'exchange_api'),
+                        ),
+                    )
+                    if cursor.rowcount > 0:
+                        result['inserted'] += 1
+                    else:
+                        result['skipped'] += 1
+                conn.commit()
+        except Exception as exc:
+            log_event(
+                'trade',
+                f"거래소 체결 원장 저장 오류({venue}): {exc}",
+                exchange=venue,
+                level='ERROR',
+            )
+        return result
 
     def get_trade_history(self, symbol: Optional[str] = None, days: int = 30, since_ts: Optional[float] = None) -> List[Dict]:
         """거래 히스토리 조회"""

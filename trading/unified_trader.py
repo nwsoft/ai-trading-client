@@ -824,7 +824,19 @@ class UnifiedTrader:
             if client is None or not hasattr(client, 'get_trade_history'):
                 return []
             rows = client.get_trade_history(limit=limit) or []
-            return [dict(row) for row in rows if isinstance(row, dict)]
+            normalized = [dict(row) for row in rows if isinstance(row, dict)]
+            # 실행 중에도 거래소 원장과 로컬 원장을 주기적으로 대조한다.
+            # INSERT OR IGNORE 기반이라 화면 수동 동기화와 겹쳐도 중복되지 않는다.
+            if normalized:
+                recorder = getattr(self, "recorder", None)
+                saver = getattr(recorder, "save_exchange_execution_history", None)
+                if callable(saver):
+                    saver(
+                        exchange_name,
+                        normalized,
+                        source="runtime_exchange_reconcile",
+                    )
+            return normalized
         except Exception:
             return []
 
@@ -2026,6 +2038,7 @@ class UnifiedTrader:
                 self.settings,
                 authorized_targets=authorized_targets,
             )
+            minimum_validated_size = float(position_size or 0.0)
             opportunity_auth = get_opportunity_coordinator().authorize(
                 policy=opportunity_policy,
                 asset_class="crypto",
@@ -2054,6 +2067,19 @@ class UnifiedTrader:
                     "opportunity": opportunity_auth.to_dict(),
                 }
             position_size = float(opportunity_auth.authorized_quantity or 0.0)
+            if position_size < minimum_validated_size * (1.0 - 1e-9):
+                post_auth_size, post_auth_note = self._ensure_min_notional(
+                    exchange_name,
+                    symbol,
+                    position_size,
+                )
+                if post_auth_size > position_size * (1.0 + 1e-9):
+                    get_opportunity_coordinator().release(opportunity_auth)
+                    return {
+                        "status": "skipped",
+                        "reason": f"위험 분할 후 거래소 최소 주문 규격 미달: {post_auth_note}",
+                        "opportunity": opportunity_auth.to_dict(),
+                    }
             self.logger.info(
                 f"🔗 {exchange_name} {symbol} 기회연결: "
                 f"id={opportunity_auth.opportunity_id}, mode={opportunity_auth.execution_mode}, "
@@ -2270,6 +2296,15 @@ class UnifiedTrader:
                     order_result["price"] = executed_price
                 if executed_notional > 0:
                     order_result["cost"] = executed_notional
+
+                if not paper:
+                    self._record_exchange_execution(
+                        exchange_name,
+                        symbol,
+                        side_for_ccxt,
+                        order_result,
+                        source='noahai_entry_order',
+                    )
 
                 # 포지션 기록 (TP/SL 포함)
                 self._record_position_with_tp_sl(
@@ -2650,7 +2685,7 @@ class UnifiedTrader:
         return self._execute_signal_trade(exchange_name, symbol, analysis)
 
     def _ensure_min_notional(self, exchange_name: str, symbol: str, position_size: float) -> Tuple[float, str]:
-        """최소 거래 금액(USDT 등) 충족하도록 수량 조정. 조정 사유 반환"""
+        """설정과 거래소 market 규격을 함께 충족하는 승인 전 수량을 계산한다."""
         try:
             # 현재가 조회 (ExchangeManager 경유)
             current_price = None
@@ -2676,11 +2711,36 @@ class UnifiedTrader:
 
             sym_key = symbol.replace('/', '').replace('-', '')
             min_notional = float(min_notional_overrides.get(sym_key, min_trade_amount))
+            min_amount = 0.0
+            ccxt_exchange = None
+            normalized_symbol = symbol
+            try:
+                adapter = self.get_exchange_client(exchange_name)
+                ccxt_exchange = getattr(adapter, 'exchange', None)
+                if ccxt_exchange is not None:
+                    normalized_symbol = self._normalize_symbol_for_adapter(adapter, symbol)
+                    from trading.exchanges.order_constraints import resolve_ccxt_order_limits
+                    resolved_limits = resolve_ccxt_order_limits(
+                        ccxt_exchange,
+                        normalized_symbol,
+                    )
+                    min_amount = resolved_limits['min_amount']
+                    min_notional = max(
+                        min_notional,
+                        resolved_limits['min_cost'],
+                    )
+            except Exception:
+                ccxt_exchange = None
+
+            target_notional = min_notional * 1.01 if min_notional > 0 else 0.0
             notional = position_size * float(current_price)
-            if notional >= min_notional:
+            if notional >= target_notional and position_size >= min_amount:
                 return position_size, ''
             # 상향 보정
-            required_size = (min_notional / float(current_price))
+            required_size = max(
+                min_amount,
+                target_notional / float(current_price) if target_notional > 0 else 0.0,
+            )
             # 상한/하한 적용 재사용
             # 최소 단위는 내부 min_position_size 이상
             try:
@@ -2689,7 +2749,20 @@ class UnifiedTrader:
             except Exception:
                 min_size = 0.0
             adjusted = max(required_size, min_size)
-            return adjusted, f"{notional:.4f} < min {min_notional:.4f} → size {position_size:.6f} → {adjusted:.6f}"
+            if ccxt_exchange is not None:
+                try:
+                    from trading.exchanges.order_constraints import ccxt_amount_ceiling
+                    adjusted = ccxt_amount_ceiling(
+                        ccxt_exchange,
+                        normalized_symbol,
+                        adjusted,
+                    )
+                except Exception:
+                    pass
+            return adjusted, (
+                f"{notional:.4f} < target {target_notional:.4f}, "
+                f"min_qty {min_amount:.8f} → size {position_size:.8f} → {adjusted:.8f}"
+            )
         except Exception:
             return position_size, ''
 
@@ -2700,13 +2773,20 @@ class UnifiedTrader:
         status = str(order_result.get('status', '')).upper()
         if status == 'SUCCESS':
             return True
-        if status in ('FILLED', 'PARTIALLY_FILLED', 'PENDING', 'NEW'):
+        if status in ('CLOSED', 'FILLED', 'PARTIALLY_FILLED', 'PENDING', 'NEW'):
             return True
         # UnifiedTradingManager 표준 포맷
         if order_result.get('order_id') and order_result.get('symbol'):
             return True
         # 원시 바이낸스 포맷
         if order_result.get('orderId'):
+            return True
+        # CCXT 원시 주문 포맷. 실패/취소 상태는 id가 있어도 성공으로 보지 않는다.
+        if (
+            order_result.get('id')
+            and order_result.get('symbol')
+            and status not in {'FAILED', 'ERROR', 'CANCELED', 'CANCELLED', 'REJECTED', 'EXPIRED'}
+        ):
             return True
         # 바이낸스 네이티브 클라이언트 주문 성공 판별 (OrderRequest 기반)
         # 이 함수는 주문 성공 여부만 판별해야 하므로, 실제 주문 실행 코드는 _execute_signal_trade에서만 처리
@@ -3309,7 +3389,7 @@ class UnifiedTrader:
                         # 실패 시 reduceOnly 강제 경로로 1회 재시도
                         try:
                             st = str(order_result.get('status','')).lower()
-                            if st not in ('success','filled','pending','new'):
+                            if st not in ('success', 'closed', 'filled', 'pending', 'new'):
                                 ex = getattr(exchange_client, 'exchange', None)
                                 if ex is not None:
                                     try:
@@ -3356,11 +3436,19 @@ class UnifiedTrader:
                 except Exception as e:
                     order_result = {'status': 'error', 'error': str(e)}
 
-            if order_result.get('status') == 'success':
+            if self._is_order_success(order_result):
                 # PnL 계산
                 pnl_data = self._calculate_pnl_unified(position, current_price)
                 pnl_percent = pnl_data.get('net_pnl_percent', 0.0)
                 closed_at = utc_now()
+                if not paper:
+                    self._record_exchange_execution(
+                        exchange_name,
+                        symbol,
+                        'sell' if position.side == PositionSide.LONG else 'buy',
+                        order_result,
+                        source='noahai_exit_order',
+                    )
 
                 # 거래 청산 DB 로그 (Recorder) 기록 시도
                 try:
@@ -5595,6 +5683,50 @@ Response in JSON format:
         except Exception as e:
             self.logger.error(f"❌ {exchange_name} {symbol} 포지션 기록 실패: {e}")
 
+    def _record_exchange_execution(
+        self,
+        exchange_name: str,
+        symbol: str,
+        side: str,
+        order_result: Dict[str, Any],
+        *,
+        source: str,
+    ) -> None:
+        """실주문 결과를 거래소 체결 원장에 즉시 기록한다."""
+        recorder = getattr(self, 'recorder', None)
+        saver = getattr(recorder, 'save_exchange_execution_history', None)
+        if not callable(saver) or not isinstance(order_result, dict):
+            return
+        try:
+            raw = order_result.get('raw_result')
+            payload = dict(raw) if isinstance(raw, dict) else {}
+            payload.update({
+                'id': payload.get('id') or order_result.get('order_id') or order_result.get('id'),
+                'order': payload.get('order') or order_result.get('order_id') or order_result.get('id'),
+                'symbol': payload.get('symbol') or order_result.get('symbol') or symbol,
+                'side': payload.get('side') or order_result.get('side') or side,
+                'price': (
+                    payload.get('average') or payload.get('price')
+                    or order_result.get('price')
+                ),
+                'amount': (
+                    payload.get('filled') or payload.get('amount')
+                    or order_result.get('filled') or order_result.get('quantity')
+                ),
+                'filled': (
+                    payload.get('filled') or order_result.get('filled')
+                    or order_result.get('quantity')
+                ),
+                'cost': payload.get('cost') or order_result.get('cost'),
+                'timestamp': payload.get('timestamp') or order_result.get('timestamp'),
+                'status': payload.get('status') or order_result.get('status'),
+            })
+            saver(exchange_name, [payload], source=source)
+        except Exception as exc:
+            self.logger.warning(
+                f"{exchange_name} {symbol} 실제 체결 원장 기록 실패(거래 계속): {exc}"
+            )
+
     def get_exchange_statistics(self, exchange_name: str) -> Dict[str, Any]:
         """거래소별 통계 조회"""
         try:
@@ -5807,7 +5939,15 @@ Response in JSON format:
             for ex in getattr(self, 'enabled_exchanges', [])
         }
         self.settings.update(sanitized)
-        self.logger.info(f"UnifiedTrader 설정 업데이트: {sanitized}")
+        # API 키/토큰 등 설정값 자체를 로그에 출력하지 않는다. 설정 저장 직후
+        # 이 메서드를 호출하므로 키 이름만으로도 민감할 수 있는 항목은 제외한다.
+        sensitive_tokens = ('key', 'secret', 'token', 'password', 'passphrase', 'credential')
+        safe_keys = sorted(
+            str(key)
+            for key in sanitized.keys()
+            if not any(token in str(key).lower() for token in sensitive_tokens)
+        )
+        self.logger.info(f"UnifiedTrader 설정 동기화 완료: 항목 {len(sanitized)}개, 일반 설정 키={safe_keys[:20]}")
 
         # 활성 거래소 목록 재계산
         self.enabled_exchanges = self._compute_enabled_exchanges()

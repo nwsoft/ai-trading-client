@@ -37,7 +37,7 @@ TARGETS: Dict[str, Path] = {
     "test_status": DOCS / "TEST_STATUS.md",
     "readme": ROOT / "README.md",
     "docs_readme": DOCS / "README.md",
-    "settings_reference": DOCS / "SETTINGS_REFERENCE_v3.9.0.4.md",
+    "settings_reference": DOCS / "SETTINGS_REFERENCE_v3.9.0.5.md",
     "ai_custom_architecture": DOCS / "AI_CUSTOM_STRATEGY_ARCHITECTURE.md",
     "assistant_guide": DOCS / "AI_ASSISTANT_GUIDE.md",
     "trading_flow": DOCS / "TRADING_FLOW.md",
@@ -75,7 +75,7 @@ def check_release_version_markers(text_map: Dict[str, str]) -> List[str]:
         errors.append("[MANUAL] 인앱 메뉴얼 제목이 USER_MANUAL_TITLE 상수를 사용하지 않습니다.")
 
     app_version = text_map.get("app_version", "")
-    if 'RELEASE_HIGHLIGHT = "설정 정본·실행 모드·페이퍼 안전성 통합"' not in app_version:
+    if 'RELEASE_HIGHLIGHT = "최소주문·포지션 갱신 공통 계약"' not in app_version:
         errors.append("[APP_VERSION] 대시보드 사용자용 최신 업데이트 요약이 현행 변경과 다릅니다.")
 
     expected_release_line = f"현재 설치 기준 버전: **v{RELEASE_VERSION}**"
@@ -126,54 +126,57 @@ def check_for_higher_version_mentions(text_map: Dict[str, str]) -> List[str]:
 
 def check_release_surface_alignment(text_map: Dict[str, str]) -> List[str]:
     """동일 버전의 핵심 변경이 사용자 노출·기술·검증 문서에 함께 있는지 확인한다."""
-    if RELEASE_VERSION == "3.9.0.4":
+    if RELEASE_VERSION == "3.9.0.5":
         required = {
             "manual_widget": (
-                "v3.9.0.4 최신 업데이트",
+                "v3.9.0.5 최신 업데이트",
+                "Update Patch 1",
                 "LEARNING",
                 "PAPER > LIVE > LEARNING",
                 "기존 값은 호환 보관",
             ),
             "user_guide": (
-                "현재 설치 기준 버전: **v3.9.0.4**",
+                "현재 설치 기준 버전: **v3.9.0.5**",
+                "v3.9.0.5 Fix Patch 식별",
                 "처음 설정과 실행 모드",
                 "실제 주문 실행 거래소",
-                "SETTINGS_REFERENCE_v3.9.0.4.md",
+                "SETTINGS_REFERENCE_v3.9.0.5.md",
             ),
             "release_notes": (
-                "v3.9.0.4 설정 정본·실행 모드 통합",
-                "과거 최상위 설정 20개",
+                "v3.9.0.5 Update Patch 1",
+                "Bithumb",
                 "pending_windows_rebuild",
             ),
             "deploy_release_notes": (
-                "v3.9.0.4 설정 정본·실행 모드 통합",
+                "v3.9.0.5 Update Patch 1",
                 "pending_windows_rebuild",
             ),
             "changelog": (
-                "v3.9.0.4 설정 정본",
-                "AlphaArena 이중 스키마",
+                "v3.9.0.5 Update Patch 1",
+                "Bithumb",
             ),
             "update_plan": (
-                "v3.9.0.4 설정 정본·사용자 안내 통합",
-                "비밀값 없는 설정 감사 CLI",
+                "Update Patch 1 · Bybit 실행 모드",
+                "1,254 passed, 6 skipped",
             ),
             "test_status": (
-                "v3.9.0.4 소스·출시 준비 검증",
+                "v3.9.0.5 소스·출시 준비 검증",
+                "1,254 passed, 6 skipped",
                 "pending_windows_rebuild",
             ),
             "readme": (
-                "현재 배포 버전: v3.9.0.2",
-                "v3.9.0.4 업데이트 배포 대상 소스",
+                "현재 배포 버전: v3.9.0.5 Fix Patch 1",
+                "v3.9.0.5 Update Patch 1 업데이트 대상 소스",
                 "pending_windows_rebuild",
             ),
             "docs_readme": (
-                "현재 배포 v3.9.0.2 / 업데이트 대상 v3.9.0.4",
-                "SETTINGS_REFERENCE_v3.9.0.4.md",
+                "현재 공개 v3.9.0.5 Fix Patch 1 / 재빌드 대상 Update Patch 1",
+                "SETTINGS_REFERENCE_v3.9.0.5.md",
             ),
             "deploy_checklist": (
-                "v3.9.0.4 설정 정본·실행 모드·페이퍼 안전성 통합",
+                "v3.9.0.5",
                 "v3.9.0.2 이전 배포본",
-                "Get-AuthenticodeSignature",
+                "authenticode_required=false",
             ),
             "settings_reference": (
                 "설정 철학",
@@ -250,7 +253,7 @@ def check_release_surface_alignment(text_map: Dict[str, str]) -> List[str]:
             "deploy_checklist": (
                 "v3.9.0.3 안정성·멀티 AI API·AI 커스텀 통합",
                 "v3.9.0.2 이전 배포본",
-                "Get-AuthenticodeSignature",
+                "authenticode_required=false",
             ),
         }
         errors: List[str] = []

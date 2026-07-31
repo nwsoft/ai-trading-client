@@ -1714,6 +1714,13 @@ class NoahAIClient:
                 try:
                     self.unified_trader.exchange_manager = self.exchange_manager
                     self.unified_trader.unified_manager = self.unified_manager
+                    # 설정 창에서 바꾼 PAPER/LIVE/거래소 실행 범위를 기존
+                    # UnifiedTrader 인스턴스에도 즉시 전달한다. 매니저 참조만
+                    # 교체하면 Bybit/OKX/Bitget/Upbit/Bithumb 경로는 생성 당시의
+                    # 실행 모드를 계속 사용하게 된다.
+                    update_trader_settings = getattr(self.unified_trader, 'update_settings', None)
+                    if callable(update_trader_settings):
+                        update_trader_settings(self.settings)
                     # UnifiedTrader에 AIManager 주입 메서드가 있을 경우에만 시도
                     try:
                         if hasattr(self, 'ai_manager') and self.ai_manager:
@@ -3143,14 +3150,23 @@ class NoahAIClient:
                     try:
                         if hasattr(self.dashboard, 'thread_safe_after'):
                             self.dashboard.thread_safe_after(0, lambda: self.dashboard.set_trading_status("RUNNING"))
-                        if hasattr(self.dashboard, '_update_exchange_status'):
-                            mode_status = (
-                                'running'
-                                if execution_mode == ExecutionMode.LIVE
-                                else 'paper_running'
-                                if execution_mode == ExecutionMode.PAPER
-                                else 'learning_running'
+                        mode_status = (
+                            'running'
+                            if execution_mode == ExecutionMode.LIVE
+                            else 'paper_running'
+                            if execution_mode == ExecutionMode.PAPER
+                            else 'learning_running'
+                        )
+                        if hasattr(self.dashboard, 'sync_exchange_runtime_state'):
+                            self.dashboard.thread_safe_after(
+                                0,
+                                lambda status=mode_status: self.dashboard.sync_exchange_runtime_state(
+                                    ex,
+                                    True,
+                                    status,
+                                ),
                             )
+                        elif hasattr(self.dashboard, '_update_exchange_status'):
                             self.dashboard.thread_safe_after(
                                 0,
                                 lambda status=mode_status: self.dashboard._update_exchange_status(ex, status),
@@ -3569,6 +3585,11 @@ class NoahAIClient:
                 if hasattr(self, 'dashboard') and self.dashboard:
                     self.dashboard.is_auto_trading = bool(running_any)
                     self._schedule_dashboard_trading_status("RUNNING" if running_any else "STOPPED")
+                    if hasattr(self.dashboard, 'sync_exchange_runtime_state'):
+                        self.dashboard.thread_safe_after(
+                            0,
+                            lambda: self.dashboard.sync_exchange_runtime_state(ex, False, "stopped"),
+                        )
                 logger.info(f"✅ {ex} 거래 정지 성공")
                 self._emit_exchange_runtime_snapshot(trigger=f"stop:{ex}")
             else:
@@ -3581,6 +3602,17 @@ class NoahAIClient:
                 else:
                     self.state.mark_stopped()
                     self._schedule_dashboard_trading_status("STOPPED")
+                if hasattr(self, 'dashboard') and self.dashboard and hasattr(
+                    self.dashboard,
+                    'sync_exchange_runtime_state',
+                ):
+                    self.dashboard.thread_safe_after(
+                        0,
+                        lambda: self.dashboard.sync_exchange_runtime_state(
+                            ex,
+                            bool(target_running),
+                        ),
+                    )
 
             return ok
 

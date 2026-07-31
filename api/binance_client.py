@@ -1292,6 +1292,51 @@ class BinanceClient:
             self.logger.error(f"잔고 조회 오류: {e}")
             return {}
 
+    def get_balance_snapshot(self) -> Dict:
+        """한 번의 futures_account 호출로 잔고와 계정 요약을 함께 반환한다."""
+        if not self._has_api_keys():
+            self.logger.debug("잔고 스냅샷 조회 건너뜀: API 키 없음")
+            return {}
+        try:
+            ts = self.get_synced_timestamp()
+            rw = self.config.recv_window
+            raw = self.client.futures_account(timestamp=ts, recvWindow=rw)
+            if not isinstance(raw, dict) or 'assets' not in raw:
+                return {}
+
+            balances: Dict[str, Dict[str, float]] = {}
+            for asset in raw.get('assets', []) or []:
+                try:
+                    name = str(asset.get('asset') or '').strip().upper()
+                    if not name:
+                        continue
+                    wallet_balance = float(asset.get('walletBalance', 0) or 0)
+                    if wallet_balance > 0 or name == 'USDT':
+                        balances[name] = {
+                            'wallet_balance': wallet_balance,
+                            'unrealized_profit': float(asset.get('unrealizedProfit', 0) or 0),
+                            'margin_balance': float(asset.get('marginBalance', 0) or 0),
+                            'available_balance': float(asset.get('availableBalance', 0) or 0),
+                        }
+                except (ValueError, TypeError):
+                    continue
+
+            account_info = {
+                'total_wallet_balance': float(raw.get('totalWalletBalance', 0) or 0),
+                'total_unrealized_profit': float(raw.get('totalUnrealizedProfit', 0) or 0),
+                'total_margin_balance': float(raw.get('totalMarginBalance', 0) or 0),
+                'available_balance': float(raw.get('availableBalance', 0) or 0),
+                'total_position_initial_margin': float(raw.get('totalPositionInitialMargin', 0) or 0),
+                'total_open_order_initial_margin': float(raw.get('totalOpenOrderInitialMargin', 0) or 0),
+                'total_cross_wallet_balance': float(raw.get('totalCrossWalletBalance', 0) or 0),
+                'total_cross_un_pnl': float(raw.get('totalCrossUnPnl', 0) or 0),
+                'update_time': raw.get('updateTime'),
+            }
+            return {'balance': balances, 'account_info': account_info}
+        except Exception as e:
+            self.logger.error(f"잔고 스냅샷 조회 오류: {e}")
+            return {}
+
     def get_current_price(self, symbol: str) -> float:
         """현재가 조회"""
         try:
@@ -1799,13 +1844,10 @@ class BinanceClient:
                 except Exception:
                     pass
 
-            # 4) MIN_NOTIONAL 보정 비활성화 (Optimizer에서 이미 처리됨)
-            # 🔥 단일 권위 원칙: Optimizer에서 MIN_NOTIONAL 보정 완료
-            # 필요시 아래 주석을 해제하여 거래소 측 보정 활성화 가능
-            # ENABLE_BROKER_SIDE_NOTIONAL_FIX = False
-            ENABLE_BROKER_SIDE_NOTIONAL_FIX = False
-
-            if ENABLE_BROKER_SIDE_NOTIONAL_FIX:
+            # 4) API 제출 직전 필터와 현재가를 최종 권위로 사용한다.
+            # 앞단 계산 뒤 step 내림이나 시세 하락이 발생해도 최소금액 아래 주문을
+            # 제출하지 않도록 시장가/지정가에만 여유를 둔 올림 보정을 적용한다.
+            if order_request.order_type in {'MARKET', 'LIMIT'}:
                 try:
                     if min_notional and float(min_notional) > 0:
                         # 시장가일 경우 현재가, 지정가 주문은 지정가 사용
@@ -1816,16 +1858,21 @@ class BinanceClient:
                             notional = qty * cur_price
                             if notional < float(min_notional):
                                 import math as _math
-                                required = (float(min_notional) * 1.005) / cur_price  # 소폭 여유 0.5%
+                                required = (float(min_notional) * 1.01) / cur_price
                                 if step_size and step_size > 0:
                                     qty = _math.ceil(required / step_size) * step_size
                                 else:
                                     qty = required
                                 if min_qty and qty < min_qty:
                                     qty = min_qty
-                                self.logger.debug(f"[{order_request.symbol}] 🔧 거래소 측 MIN_NOTIONAL 보정: {qty}")
-                except Exception:
-                    pass
+                                self.logger.info(
+                                    f"[{order_request.symbol}] 거래소 제출 직전 MIN_NOTIONAL 보정: "
+                                    f"{notional:.8f} → {qty * cur_price:.8f} USDT (qty={qty})"
+                                )
+                except Exception as exc:
+                    self.logger.warning(
+                        f"[{order_request.symbol}] 제출 직전 MIN_NOTIONAL 검증 실패: {exc}"
+                    )
 
             order_params = {
                 'symbol': order_request.symbol,
@@ -3315,9 +3362,9 @@ class BinanceClient:
             # 목표 USDT 값으로 수량 계산
             quantity = target_value / current_price
 
-            # step_size에 맞게 보정 (보수적으로 floor)
+            # 목표 금액을 밑돌지 않도록 거래소 수량 step 단위로 올림
             if step_size > 0:
-                quantity = math.floor(quantity / step_size) * step_size
+                quantity = math.ceil(quantity / step_size) * step_size
 
             # 정밀도 반영
             formatted_quantity = float(format(quantity, f'.{qty_precision}f'))

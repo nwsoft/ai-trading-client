@@ -11,12 +11,14 @@ import re
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Dict, Optional
 from urllib import error as urllib_error
 from urllib import request as urllib_request
+from urllib.parse import urlparse
 
 
 class AutoUpdateManager:
@@ -43,6 +45,8 @@ class AutoUpdateManager:
         self._health_callback: Optional[Callable[[Dict[str, Any]], Dict[str, Any]]] = None
         self._apply_started = False
         self._shutdown_confirmed = False
+        self._check_running = False
+        self._sha_cache: Dict[str, Any] = {}
 
         self.last_check_result: Dict[str, Any] = {}
         self.pending_update: Dict[str, Any] = {}
@@ -99,7 +103,12 @@ class AutoUpdateManager:
         if not self.enabled or self._ui_root is None:
             return
 
-        initial_delay_ms = 60 * 1000
+        # 사용자가 앱을 짧게 실행해도 새 버전을 확인할 수 있도록 초기 검사를
+        # 빠르게 시작한다. 네트워크 조회는 _scheduled_check의 백그라운드
+        # 스레드에서 수행하므로 UI를 막지 않는다.
+        # 초기 렌더링·거래소 연결과 디스크/네트워크 경쟁하지 않도록 15초 뒤
+        # 한 번 확인한다. 이후 주기는 사용자가 설정한 1~72시간 값이다.
+        initial_delay_ms = 15 * 1000
         self._after_job = self._ui_root.after(initial_delay_ms, self._scheduled_check)
         self._log_info(f"auto-update scheduler started (interval={self.check_interval_hours}h)")
 
@@ -154,7 +163,32 @@ class AutoUpdateManager:
             self.last_check_result = result
             return result
 
-        update_available = self._normalize_version(latest_version) > self._normalize_version(current_version)
+        latest_tuple = self._normalize_version(latest_version)
+        current_tuple = self._normalize_version(current_version)
+        update_available = latest_tuple > current_tuple
+        update_reason = "newer_version" if update_available else ""
+        installed_sha = ""
+        release_sha = ""
+
+        # Fix Patch는 제품 버전 문자열을 유지한 채 같은 GitHub release의
+        # SHA 검증 EXE를 교체할 수 있다. 버전만 비교하면 3.9.0.4 Fix Patch 1
+        # 사용자가 같은 3.9.0.4 Fix Patch 2를 영원히 감지하지 못하므로,
+        # frozen Windows 설치본에서는 manifest SHA까지 비교한다.
+        if latest_tuple == current_tuple:
+            verification = self._fetch_verification_policy_from_manifest(release.get("assets", []))
+            release_sha = str(verification.get("sha256") or "")
+            if (
+                sys.platform.startswith("win")
+                and getattr(sys, "frozen", False)
+                and not release_sha
+            ):
+                result["reason"] = "release_manifest_or_sha256_missing"
+                self.last_check_result = result
+                return result
+            installed_sha = self._installed_executable_sha()
+            if release_sha and installed_sha and release_sha != installed_sha:
+                update_available = True
+                update_reason = "same_version_asset_changed"
 
         result.update({
             "ok": True,
@@ -163,7 +197,12 @@ class AutoUpdateManager:
             "release_url": release.get("html_url", ""),
             "repo": release.get("_repo", ""),
             "update_available": update_available,
+            "update_reason": update_reason,
         })
+        if installed_sha:
+            result["installed_sha256"] = installed_sha
+        if release_sha:
+            result["release_sha256"] = release_sha
 
         if not update_available:
             self.last_check_result = result
@@ -186,6 +225,7 @@ class AutoUpdateManager:
                         "asset_path": dl.get("asset_path", ""),
                         "downloaded": True,
                         "sha256": dl.get("sha256", ""),
+                        "verification": dict(dl.get("verification") or {}),
                     }
                 )
                 self._write_transaction(
@@ -196,6 +236,7 @@ class AutoUpdateManager:
                     asset_path=dl.get("asset_path", ""),
                     target_path=str(self.install_target_exe),
                     release_url=release.get("html_url", ""),
+                    verification=dict(dl.get("verification") or {}),
                 )
             else:
                 result["download_error"] = dl.get("reason", "download_failed")
@@ -236,6 +277,8 @@ class AutoUpdateManager:
         exe_url = str(exe_asset.get("browser_download_url") or "").strip()
         if not exe_url:
             return {"ok": False, "reason": "exe_url_missing"}
+        if not self._is_trusted_github_https_url(exe_url):
+            return {"ok": False, "reason": "untrusted_release_url"}
 
         staged_name = exe_name
         if exe_name.lower() == "aitrading.exe":
@@ -259,7 +302,8 @@ class AutoUpdateManager:
             self._emit_progress(event="download_failed", reason="download_failed")
             return {"ok": False, "reason": "download_failed"}
 
-        expected_sha = self._fetch_expected_sha_from_manifest(assets)
+        verification = self._fetch_verification_policy_from_manifest(assets)
+        expected_sha = str(verification.get("sha256") or "")
         actual_sha = self._sha256_file(tmp_path)
 
         if not expected_sha:
@@ -290,14 +334,6 @@ class AutoUpdateManager:
                 pass
         tmp_path.rename(target_path)
 
-        if self._requires_windows_signature() and not self._verify_windows_signature(target_path):
-            try:
-                target_path.unlink(missing_ok=True)
-            except Exception:
-                pass
-            self._emit_progress(event="download_failed", reason="windows_signature_invalid")
-            return {"ok": False, "reason": "windows_signature_invalid"}
-
         # 오래된 버전 캐시/스크립트는 정리해 누적 오염을 방지한다.
         self._prune_update_cache(keep_latest_versions=2)
 
@@ -315,6 +351,7 @@ class AutoUpdateManager:
             "asset_path": str(target_path),
             "sha256": actual_sha,
             "expected_sha": expected_sha,
+            "verification": verification,
             "version": version,
         }
 
@@ -343,10 +380,6 @@ class AutoUpdateManager:
         if not expected_sha or self._sha256_file(asset_path) != expected_sha:
             self._write_transaction("verification_failed", error="staged_sha256_invalid")
             return False
-        if self._requires_windows_signature() and not self._verify_windows_signature(asset_path):
-            self._write_transaction("verification_failed", error="windows_signature_invalid")
-            return False
-
         preflight = self.run_update_preflight()
         if not preflight.get("ok"):
             self._write_transaction(
@@ -390,6 +423,11 @@ class AutoUpdateManager:
             target_path=str(target_exe),
             backup_path=str(backup_path),
             preflight=preflight,
+            verification=dict(
+                self.pending_update.get("verification")
+                or self.transaction.get("verification")
+                or {}
+            ),
             awaiting_user_resume=True,
         )
 
@@ -556,21 +594,50 @@ exit 1
             return False
 
     def _scheduled_check(self):
-        try:
-            res = self.check_for_updates(manual=False)
-            if res.get("update_available"):
-                latest = res.get("latest_version", "")
-                downloaded = bool(res.get("downloaded"))
-                if downloaded:
-                    self._notify(f"새 버전 {latest} 다운로드 완료. 앱 종료 시 자동 업데이트됩니다.")
+        if not self.enabled or self._ui_root is None:
+            return
+
+        # 다음 검사는 UI 스레드에서 먼저 예약하고, 이번 네트워크 요청만 별도
+        # 스레드로 보낸다. 동일 검사가 겹치는 것도 차단한다.
+        interval_ms = self.check_interval_hours * 60 * 60 * 1000
+        self._after_job = self._ui_root.after(interval_ms, self._scheduled_check)
+        if self._check_running:
+            return
+        self._check_running = True
+
+        def _worker():
+            def _notify_on_ui(message: str) -> None:
+                root = self._ui_root
+                dispatcher = getattr(root, "thread_safe_after", None) if root is not None else None
+                if callable(dispatcher):
+                    dispatcher(0, self._notify, message)
                 else:
-                    self._notify(f"새 버전 {latest} 감지됨. 업데이트 탭에서 확인하세요.")
-        except Exception as exc:
-            self._log_warning(f"scheduled update check failed: {exc}")
-        finally:
-            if self.enabled and self._ui_root is not None:
-                interval_ms = self.check_interval_hours * 60 * 60 * 1000
-                self._after_job = self._ui_root.after(interval_ms, self._scheduled_check)
+                    self._notify(message)
+
+            try:
+                res = self.check_for_updates(manual=False)
+                if res.get("update_available"):
+                    latest = res.get("latest_version", "")
+                    downloaded = bool(res.get("downloaded"))
+                    if downloaded:
+                        _notify_on_ui(f"새 버전 {latest} 다운로드 완료. 앱 종료 시 자동 업데이트됩니다.")
+                    else:
+                        reason = str(res.get("download_error") or "다운로드 대기")
+                        _notify_on_ui(f"새 버전 {latest} 감지됨. 자동 다운로드 실패/대기: {reason}")
+                elif not res.get("ok"):
+                    self._log_warning(
+                        f"scheduled update check unavailable: {res.get('reason', 'unknown')}"
+                    )
+            except Exception as exc:
+                self._log_warning(f"scheduled update check failed: {exc}")
+            finally:
+                self._check_running = False
+
+        threading.Thread(
+            target=_worker,
+            name="NoahAIAutoUpdateCheck",
+            daemon=True,
+        ).start()
 
     def _fetch_latest_release(self) -> Optional[Dict[str, Any]]:
         headers = {
@@ -595,7 +662,7 @@ exit 1
                 continue
         return None
 
-    def _fetch_expected_sha_from_manifest(self, assets: Any) -> str:
+    def _fetch_verification_policy_from_manifest(self, assets: Any) -> Dict[str, Any]:
         try:
             manifest_asset = None
             for asset in assets:
@@ -607,8 +674,8 @@ exit 1
                 return ""
 
             manifest_url = str(manifest_asset.get("browser_download_url") or "").strip()
-            if not manifest_url:
-                return ""
+            if not self._is_trusted_github_https_url(manifest_url):
+                return {}
 
             req = urllib_request.Request(
                 manifest_url,
@@ -617,13 +684,69 @@ exit 1
             with urllib_request.urlopen(req, timeout=10) as resp:
                 body = resp.read().decode("utf-8", errors="ignore")
             data = json.loads(body)
+            verification = data.get("verification", {})
+            if not isinstance(verification, dict):
+                return {}
             exe_sha = (
                 data.get("assets", {})
                 .get("exe", {})
                 .get("sha256", "")
             )
             normalized = str(exe_sha or "").strip().lower()
-            return normalized if re.fullmatch(r"[0-9a-f]{64}", normalized) else ""
+            if (
+                verification.get("sha256_required") is not True
+                or verification.get("authenticode_required") is not False
+                or not re.fullmatch(r"[0-9a-f]{64}", normalized)
+            ):
+                return {}
+            return {
+                "sha256": normalized,
+                "sha256_required": True,
+                "authenticode_required": False,
+                "source": str(verification.get("source") or "github_release_manifest"),
+                "manifest_url": manifest_url,
+            }
+        except Exception:
+            return {}
+
+    def _fetch_expected_sha_from_manifest(self, assets: Any) -> str:
+        """이전 호출부 호환용. 실제 정책 검증은 manifest 전체를 사용한다."""
+        return str(self._fetch_verification_policy_from_manifest(assets).get("sha256") or "")
+
+    @staticmethod
+    def _is_trusted_github_https_url(url: str) -> bool:
+        try:
+            parsed = urlparse(str(url or "").strip())
+            host = str(parsed.hostname or "").lower()
+            return bool(
+                parsed.scheme == "https"
+                and (
+                    host == "github.com"
+                    or host.endswith(".github.com")
+                    or host == "githubusercontent.com"
+                    or host.endswith(".githubusercontent.com")
+                )
+            )
+        except Exception:
+            return False
+
+    def _installed_executable_sha(self) -> str:
+        """Return the stable installed EXE SHA for same-version patch checks."""
+        if not (sys.platform.startswith("win") and getattr(sys, "frozen", False)):
+            return ""
+        try:
+            target = self._resolve_install_target_executable()
+            if not target.exists() or target.suffix.lower() != ".exe":
+                return ""
+            stat = target.stat()
+            cache_key = str(target.resolve())
+            fingerprint = (int(stat.st_size), int(stat.st_mtime_ns))
+            cached = self._sha_cache.get(cache_key)
+            if isinstance(cached, tuple) and len(cached) == 2 and cached[0] == fingerprint:
+                return str(cached[1])
+            digest = self._sha256_file(target)
+            self._sha_cache[cache_key] = (fingerprint, digest)
+            return digest
         except Exception:
             return ""
 
@@ -814,35 +937,8 @@ exit 1
             "asset_path": str(asset_path),
             "downloaded": True,
             "sha256": str(transaction.get("sha256") or ""),
+            "verification": dict(transaction.get("verification") or {}),
         }
-
-    @staticmethod
-    def _requires_windows_signature() -> bool:
-        return bool(sys.platform.startswith("win") and getattr(sys, "frozen", False))
-
-    def _verify_windows_signature(self, path: Path) -> bool:
-        if not self._requires_windows_signature():
-            return True
-        quoted = str(path).replace("'", "''")
-        command = (
-            f"$s=Get-AuthenticodeSignature -FilePath '{quoted}'; "
-            "$o=[ordered]@{Status=[string]$s.Status;Subject=[string]$s.SignerCertificate.Subject}; "
-            "$o|ConvertTo-Json -Compress"
-        )
-        try:
-            completed = subprocess.run(
-                ["powershell", "-NoProfile", "-ExecutionPolicy", "AllSigned", "-Command", command],
-                capture_output=True,
-                text=True,
-                timeout=20,
-                check=False,
-            )
-            if completed.returncode != 0:
-                return False
-            payload = json.loads(completed.stdout.strip() or "{}")
-            return str(payload.get("Status") or "").lower() == "valid" and bool(payload.get("Subject"))
-        except Exception:
-            return False
 
     @staticmethod
     def _is_path_under(path: Path, parent: Path) -> bool:
@@ -1049,12 +1145,6 @@ if ([string]::IsNullOrWhiteSpace($expectedSha)) {{
 $actualSha = (Get-FileHash -Algorithm SHA256 -Path $newExe).Hash.ToLowerInvariant()
 if ($actualSha -ne $expectedSha.ToLowerInvariant()) {{
     Set-Phase 'failed' 'staged SHA256 mismatch'
-    exit 1
-}}
-
-$signature = Get-AuthenticodeSignature -FilePath $newExe
-if ($signature.Status -ne 'Valid' -or -not $signature.SignerCertificate) {{
-    Set-Phase 'failed' 'Authenticode signature invalid'
     exit 1
 }}
 

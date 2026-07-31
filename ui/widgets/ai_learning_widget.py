@@ -16,6 +16,7 @@ import customtkinter as ctk
 from customtkinter import CTkFrame, CTkLabel, CTkButton, CTkProgressBar, CTkScrollableFrame, CTkTextbox
 from utils.perf_metrics_logger import log_ui_perf_metric
 from utils.fixed_colors import build_widget_palette
+from utils.asset_context import filter_learning_rows
 
 class AILearningWidget(CTkFrame):
     """AI 학습 전용 위젯 (CustomTkinter)"""
@@ -165,45 +166,7 @@ class AILearningWidget(CTkFrame):
 
     def _filter_data_by_service(self, data: List[Dict], service_context: str) -> List[Dict]:
         """서비스 컨텍스트에 따라 데이터 필터링"""
-        if not isinstance(data, list):
-            return []
-        
-        if service_context == 'stock':
-            # 주식/ETF 데이터만 필터: 증권사명 또는 symbol에 주식 특성 있는지 확인
-            # 주식: 6자리 숫자 코드 (000001 ~ 999999)
-            # 코인: XXXUSDT 형식
-            filtered = []
-            for item in data:
-                try:
-                    symbol = str(item.get('symbol', '')).strip().upper()
-                    # 주식: 숫자만, 코인: USDT/등 문자
-                    if symbol and symbol.isdigit():
-                        filtered.append(item)
-                    # 또는 source/exchange 필드로 확인
-                    elif item.get('source') in ('kiwoom', 'shinhan', 'mirae'):
-                        filtered.append(item)
-                except Exception:
-                    pass
-            return filtered
-        
-        elif service_context == 'blockchain':
-            # 블록체인/코인 데이터만 필터: XXXUSDT 형식 또는 exchange=binance/bybit 등
-            filtered = []
-            for item in data:
-                try:
-                    symbol = str(item.get('symbol', '')).strip().upper()
-                    # 코인: USDT 포함
-                    if 'USDT' in symbol or 'BTC' in symbol or 'ETH' in symbol:
-                        filtered.append(item)
-                    # 또는 exchange 필드로 확인
-                    elif item.get('exchange') in ('binance', 'bybit', 'okx', 'bitget'):
-                        filtered.append(item)
-                except Exception:
-                    pass
-            return filtered
-        
-        # 기본: 필터링 없음
-        return data
+        return filter_learning_rows(data, service_context)
 
     def set_summary_callback(self, callback):
         """상단 요약 바 업데이트 콜백 설정"""

@@ -9,6 +9,8 @@ from typing import Dict, List, Optional, Any
 from decimal import Decimal, ROUND_DOWN
 from urllib import request as urllib_request
 from ..interfaces.futures_exchange import FuturesExchange
+from ..balance_normalizer import normalize_ccxt_total_balances
+from ..execution_history import fetch_ccxt_execution_history
 
 class BitgetFuturesAdapter(FuturesExchange):
     """비트겟 선물 어댑터"""
@@ -163,11 +165,7 @@ class BitgetFuturesAdapter(FuturesExchange):
             return {}
         try:
             balance = self.exchange.fetch_balance()
-            return {
-                'USDT': balance.get('USDT', {}).get('total', 0),
-                'BTC': balance.get('BTC', {}).get('total', 0),
-                'ETH': balance.get('ETH', {}).get('total', 0),
-            }
+            return normalize_ccxt_total_balances(balance, quote_asset='USDT')
         except Exception as e:
             self.last_error = str(e)
             self._handle_auth_error(e, where='get_balance')
@@ -246,6 +244,16 @@ class BitgetFuturesAdapter(FuturesExchange):
                 self.log_event('system', msg, level='WARNING')
                 return {'status': 'error', 'error': msg}
 
+            from trading.exchanges.order_constraints import prepare_ccxt_order_quantity
+            constraint = prepare_ccxt_order_quantity(
+                self.exchange, norm_symbol, quantity, reference_price=price,
+            )
+            if not constraint.get('allowed'):
+                msg = str(constraint.get('reason') or 'order constraints not met')
+                self.log_event('system', f"{symbol} 주문 규격 차단: {msg}", level='WARNING')
+                return {'status': 'error', 'error': msg}
+            quantity = float(constraint['quantity'])
+
             # CCXT는 type: 'limit' 또는 'market', side: 'buy' 또는 'sell'만 허용
             type_literal = 'limit' if str(order_type).upper() == 'LIMIT' else 'market'
             side_literal = 'buy' if str(side).lower() == 'buy' else 'sell'
@@ -305,18 +313,19 @@ class BitgetFuturesAdapter(FuturesExchange):
         if not self.is_connected or not self.exchange:
             return []
         try:
-            trades = self.exchange.fetch_my_trades(self._normalize_symbol(symbol), limit=limit)
-            normalized_trades = []
-            for t in trades:
-                item = dict(t)
-                item['symbol'] = self._display_symbol(item.get('symbol'))
-                normalized_trades.append(item)
-            return normalized_trades
+            normalized = self._normalize_symbol(symbol) if symbol else None
+            rows, capabilities = fetch_ccxt_execution_history(
+                self.exchange,
+                symbol=normalized,
+                limit=limit,
+                symbol_formatter=self._display_symbol,
+            )
+            self._last_execution_capabilities = capabilities
+            if capabilities.get("history_source") in {"fetch_closed_orders", "fetch_orders"}:
+                self.logger.info("Bitget 거래 내역 조회: 주문 내역 폴백 사용")
+            return rows
         except Exception as e:
-            if 'not supported' in str(e).lower() or 'unsupported' in str(e).lower():
-                self.logger.info("Bitget 거래 내역 조회: fetch_my_trades 미지원")
-            else:
-                self.logger.error(f"거래 내역 조회 실패: {e}")
+            self.logger.error(f"거래 내역 조회 실패: {e}")
             return []
     
     def set_leverage(self, symbol: str, leverage: int) -> bool:

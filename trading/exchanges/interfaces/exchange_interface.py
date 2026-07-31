@@ -59,6 +59,25 @@ class ExchangeInterface(ABC):
     def get_trade_history(self, symbol: Optional[str] = None, limit: int = 100) -> List[Dict[str, Any]]:
         """거래 내역 조회"""
         pass
+
+    def get_execution_capabilities(self) -> Dict[str, Any]:
+        """과거 체결 API 미지원과 실제 무거래를 구분하는 기능 계약."""
+        try:
+            from ..execution_history import build_execution_capabilities
+            detected = build_execution_capabilities(getattr(self, "exchange", None))
+            last = getattr(self, "_last_execution_capabilities", None)
+            if isinstance(last, dict):
+                detected.update(last)
+            return detected
+        except Exception:
+            return {
+                "live_order_receipt": True,
+                "historical_trades": False,
+                "closed_orders_fallback": False,
+                "manual_trade_backfill": False,
+                "history_available": False,
+                "history_reason": "capability_detection_failed",
+            }
     
     @abstractmethod
     def get_24h_ticker(self, symbol: str) -> Dict[str, Any]:

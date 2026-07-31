@@ -302,9 +302,23 @@ class ExchangeManager:
         try:
             # 기존 바이낸스 클라이언트가 있는지 확인
             if hasattr(self, 'binance_client') and self.binance_client:
-                # 기존 바이낸스 클라이언트 사용
-                account_info = self.binance_client.get_account_info()
-                balance = self.binance_client.get_balance()
+                # Binance 전용 클라이언트도 계정 API를 두 번 호출하지 않는다.
+                # 신형 클라이언트는 한 응답에서 잔고·계정 요약을 만들고,
+                # 구형 주입 클라이언트만 호환 경로를 사용한다.
+                if hasattr(self.binance_client, 'get_balance_snapshot'):
+                    snapshot = self.binance_client.get_balance_snapshot()
+                    balance = snapshot.get('balance', {}) if isinstance(snapshot, dict) else {}
+                    account_info = snapshot.get('account_info', {}) if isinstance(snapshot, dict) else {}
+                else:
+                    account_info = self.binance_client.get_account_info()
+                    balance = self.binance_client.get_balance()
+
+                if not isinstance(balance, dict) or not isinstance(account_info, dict) or not account_info:
+                    return {
+                        'exchange': 'binance',
+                        'status': 'empty_response',
+                        'error': '바이낸스가 유효한 잔고/계정 정보를 반환하지 않았습니다.',
+                    }
                 
                 result = {
                     'exchange': 'binance',
@@ -371,8 +385,11 @@ class ExchangeManager:
             if hasattr(client, 'last_auth_guidance'):
                 client.last_auth_guidance = ''
 
+            # 어댑터의 get_account_info()가 내부에서 fetch_balance()를 다시
+            # 호출하므로 한 번의 화면 갱신이 인증 잔고 API를 두 번 요청하던
+            # 경로를 제거한다. 잔고 표시·거래 가능성 판정에 필요한 공통
+            # account_info는 같은 응답에서 파생한다.
             balance = client.get_balance()
-            account_info = client.get_account_info()
 
             raw_error = str(getattr(client, 'last_error', '') or '').strip()
             auth_guidance = str(
@@ -393,16 +410,19 @@ class ExchangeManager:
                     'error': raw_error or '잔고 조회 중 거래소 오류가 발생했습니다.',
                 }
 
-            if (
-                not isinstance(balance, dict)
-                or not isinstance(account_info, dict)
-                or not account_info
-            ):
+            if not isinstance(balance, dict) or not balance:
                 return {
                     'exchange': exchange_name,
                     'status': 'empty_response',
                     'error': '거래소가 유효한 잔고/계정 정보를 반환하지 않았습니다.',
                 }
+
+            quote_asset = 'KRW' if exchange_name in {'upbit', 'bithumb'} else 'USDT'
+            account_info = {
+                'balances': dict(balance),
+                'quote_asset': quote_asset,
+                'total_balance': balance.get(quote_asset, 0),
+            }
             
             result = {
                 'exchange': exchange_name,

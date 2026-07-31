@@ -3,8 +3,10 @@ from pathlib import Path
 
 from config.settings_contract import (
     ALPHA_LEGACY_SECRET_KEYS,
+    LEGACY_ARCHIVE_KEY,
     RETIRED_TOP_LEVEL_KEYS,
     SETTINGS_SCHEMA_VERSION,
+    TRADE_SCOPE_CONFIRMATION_KEY,
     audit_settings_contract,
     normalize_settings_contract,
 )
@@ -53,8 +55,8 @@ def test_normalizer_archives_retired_values_and_migrates_alpha_without_loss():
     assert normalized["alpha_arena"]["leverage_min"] == 3
     assert normalized["alpha_arena"]["leverage_max"] == 5
     assert normalized["stock_auto_trading"] == {"enabled": False, "auto_start": False}
-    assert normalized["_legacy_settings_v3904"]["values"]["backend_url"] == "http://legacy.invalid"
-    assert normalized["_legacy_settings_v3904"]["values"]["ai_enabled"] is False
+    assert normalized[LEGACY_ARCHIVE_KEY]["values"]["backend_url"] == "http://legacy.invalid"
+    assert normalized[LEGACY_ARCHIVE_KEY]["values"]["ai_enabled"] is False
     assert report["issues"] == []
 
 
@@ -69,7 +71,7 @@ def test_nonempty_legacy_secret_is_not_archived_or_dropped_before_secure_storage
     normalized, _, _ = normalize_settings_contract(settings)
 
     assert normalized["alphaarena_deepseek_api_key"] == "secret-value"
-    archive_values = normalized.get("_legacy_settings_v3904", {}).get("values", {})
+    archive_values = normalized.get(LEGACY_ARCHIVE_KEY, {}).get("values", {})
     assert "alphaarena_deepseek_api_key" not in archive_values
 
 
@@ -85,8 +87,8 @@ def test_unconfirmed_v3903_live_scope_is_archived_and_reset_to_learning():
 
     assert changed is True
     assert normalized["trade_enabled_exchanges"] == []
-    assert normalized["_trade_scope_user_confirmed_v3904"] is False
-    assert normalized["_legacy_settings_v3904"]["values"][
+    assert normalized[TRADE_SCOPE_CONFIRMATION_KEY] is False
+    assert normalized[LEGACY_ARCHIVE_KEY]["values"][
         "trade_enabled_exchanges_unconfirmed_v3903"
     ] == ["binance", "bybit"]
     assert report["mode"] == "LEARNING"

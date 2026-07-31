@@ -1,6 +1,6 @@
 # NoahAI Client 공식 문서
 
-> 기준: 2026-07-30 · 현재 배포 v3.9.0.2 / 업데이트 대상 v3.9.0.4  
+> 기준: 2026-07-30 · 현재 공개 v3.9.0.5 Fix Patch 1 / 재빌드 대상 Update Patch 1  
 > 이 파일은 문서 진입점입니다. 현재 상태는 아래 정본 문서로 판단하고, `docs/archive/`와 `data/**/reports/`는 제품 설명 정본으로 사용하지 않습니다.
 
 ## 먼저 읽을 문서
@@ -18,8 +18,8 @@
 | 빌드 | `BUILD_GUIDE.md` |
 | 배포 전후 점검 | `DEPLOY_CHECKLIST.md` |
 | 최신 테스트 근거 | `TEST_STATUS.md` |
-| v3.9.0.4 거래·AI·설정 통합 감사 | `INTEGRATED_AUDIT_v3.9.0.4_20260729.md` |
-| v3.9.0.4 설정 정본·실행 모드 | `SETTINGS_REFERENCE_v3.9.0.4.md` |
+| v3.9.0.5 거래·AI·설정 통합 감사 | `INTEGRATED_AUDIT_v3.9.0.5_20260731.md` |
+| v3.9.0.5 설정 정본·실행 모드 | `SETTINGS_REFERENCE_v3.9.0.5.md` |
 | AI 엔진/API 사용자 사용법 | `AI_API_USER_GUIDE.md` |
 | AI Provider 기술 정본 | `AI_API_ARCHITECTURE.md` |
 | v3.9.0.3 AI 엔진 확장 범위 | `AI_ENGINE_EXPANSION_PLAN_v3.9.0.3.md` |
@@ -27,9 +27,18 @@
 | 기술 백서 | `NOAHAI_TECHNICAL_WHITEPAPER.md` |
 | 사업 설명 | `BUSINESS_PROPOSAL_2026.md` |
 
-## v3.9.0.4 업데이트 배포 대상 소스
+## v3.9.0.5 Update Patch 1 업데이트 대상 소스
 
-- 설정 정본·LEARNING/PAPER/LIVE·분석 범위와 실주문 권한·레거시 정리: `SETTINGS_REFERENCE_v3.9.0.4.md`
+- Bybit가 최신 설정 대신 이전 PAPER 상태로 시작하던 런타임 설정 동기화 누락 수정
+- Bithumb의 정상 `closed` 체결 판정과 앱 거래 기록·통계 연결 수정
+- 모든 지원 암호화폐 거래소의 새 주문 실제 체결 원장 기록과 NoahAI 완료 거래 통계 분리. 과거·수동 가져오기는 거래소 기능 상태를 표시
+- 주식/증권·자산 통합 화면 복귀 후 거래소 잔고 UI 갱신 큐 복원
+- 거래소별 전역 읽기 조회 병합, UI 큐 1,024개 상한·최신값 병합
+- 앱 실행 약 15초 뒤 최초 자동업데이트 확인, 이후 설정 주기·수동 확인, 동일 버전 Fix Patch SHA 감지
+- 인증서 없이 GitHub HTTPS + manifest SHA-256 필수 검증. 무서명 Windows 평판 경고 가능성은 별도 안내
+- 현재 공개 Fix Patch 1 EXE와 Update Patch 1 재빌드 대상을 배포 manifest에서 명시적으로 분리
+
+- 설정 정본·LEARNING/PAPER/LIVE·분석 범위와 실주문 권한·레거시 정리: `SETTINGS_REFERENCE_v3.9.0.5.md`
 - AI 제공사: OpenAI·DeepSeek·Anthropic Claude·Google Gemini 정식 선택, Kimi K3 어시스턴트 시험 지원
 - 사용자 설정: API 키 보안 저장, 작업별 `{provider, model}`, 기존 문자열 자동 이전, 동적 모델 목록, 기준일 가격·공식 링크
 - 모델 안전: 권장·계정 확인·미리보기·비권장·종료 구분, 종료/capability 불일치 저장 차단
@@ -37,7 +46,7 @@
 - 실연결 검증: 설정의 `실제 API 기능 검증`과 Windows 후보 빌드의 테스터별 Provider 키 E2E
 - 주문 범위: 화면·분석·학습과 실제 주문 거래소 분리, 명시적 빈 주문 목록은 주문 0개
 - 안정성: 숨은 탭 callback/API 조회 중지, 완료 작업 정리, UI 로그 회전
-- 업데이트 P0: 포지션·주문 사전점검, TP·SL 또는 청산 체결 확인, SHA·코드서명, 영속 저널, health check·자동 복원·거래 재개 잠금
+- 업데이트 P0: 포지션·주문 사전점검, TP·SL 또는 청산 체결 확인, manifest SHA-256, 영속 저널, health check·자동 복원·거래 재개 잠금
 - 비용 제어: 시장분석 15분 상태 캐시·영속 호출예산, 포지션 크기 15분 캐시, 손실패턴 5분 캐시, 실패 120초 쿨다운
 - 자산 후보: 거래소 지원 마켓 fail-closed, KOSPI·KOSDAQ·ETF 거래대금 우선·자산 모드별 균형 후보
 - 검증: 전체 `1,200 passed, 6 skipped`; Windows 서명본·실제 API 키·거래소 실연결·장시간 실행 결과는 소스 회귀와 별도로 확인
@@ -97,7 +106,7 @@ python build_safe.py --platform macos
 python build_safe.py --platform linux
 ```
 
-Windows 공식 배포물은 Windows 빌드 환경에서 생성합니다. v3.9.0.2는 이전 배포본이며 현재 v3.9.0.4 manifest는 `pending_windows_rebuild`입니다. 새 EXE의 크기·SHA·서명·설치·로그인·자동업데이트 E2E를 검증한 뒤 배포합니다.
+Windows 공식 배포물은 Windows 빌드 환경에서 생성합니다. 현재 공개된 v3.9.0.5 Fix Patch 1 EXE는 이전 공개 자산으로 보존하고, 이번 Update Patch 1 manifest는 `pending_windows_rebuild`입니다. 새 EXE의 크기·SHA·서명·설치·로그인·자동업데이트 E2E를 검증한 뒤 Update Patch 1로 배포합니다.
 
 ## 문서 관리 규칙
 

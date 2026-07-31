@@ -1,6 +1,6 @@
 # NoahAI 마스터 문서
 
-> 최신 동기화: 2026-07-29 · v3.9.0.4 후보 소스, 공식 배포 v3.9.0.2  
+> 최신 동기화: 2026-07-30 · 현재 공개 v3.9.0.5 Fix Patch 1, 재빌드 대상 Update Patch 1  
 > 이 파일은 공식 문서의 지도입니다. 기능의 사실 판단은 코드 → 테스트 → 아래 정본 순서로 확인합니다.
 
 ## 공식 정본
@@ -21,12 +21,20 @@
 | 테스트 | `docs/TEST_STATUS.md` | 최신 자동·GUI 검증 근거 |
 | AI 커스텀·어시스턴트 QA | `docs/AI_CUSTOM_ASSISTANT_TEST_RUNBOOK_v3.9.0.2.md` | 순서·계정·기대 결과 |
 | Teayu 테스터 진단 | `docs/TESTER_260728_STABILITY_EXCHANGE_REPORT.md` | 강제종료 후보·주문 범위·재검증 |
-| Teayu_02 장애 조사 | `docs/INCIDENT_260729_TEAYU_02.md` | keyring·Binance 로딩·비정상 종료 증거와 v3.9.0.4 수정 |
+| Teayu_02 장애 조사 | `docs/INCIDENT_260729_TEAYU_02.md` | keyring·Binance 로딩·비정상 종료 증거와 v3.9.0.5 수정 |
 | 기술 백서 | `docs/NOAHAI_TECHNICAL_WHITEPAPER.md` | 기술 철학·구조 공식 설명 |
 | 사업 설명 | `docs/BUSINESS_PROPOSAL_2026.md` | 구현과 로드맵을 구분한 사업 문서 |
 | 문서 정책 | `docs/DOCUMENTATION_POLICY.md` | 중복 방지·정합성 규칙 |
 
-## v3.9.0.2 릴리스 묶음
+## v3.9.0.5 공개 설명 정본
+
+- 클라이언트 제품·실행 계약: `docs/UPDATE_PLAN.md`, `docs/AI_CUSTOM_STRATEGY_ARCHITECTURE.md`, `docs/TRADING_FLOW.md`
+- 설치 사용자 안내: `docs/USER_GUIDE.md`, 앱 사용자 매뉴얼, 앱 AI 어시스턴트
+- 공개 웹 기준: NoahAI Labs `/source/noahai-platform-v3904.md`와 네 언어 릴리스 노트
+- 인증·다운로드 전 요약: daltrading 메인 홈의 실행 모드·AI 커스텀·다중 실행 안내
+- 배포 경계: v3.9.0.5 Fix Patch 1은 공개 사용자 배포본입니다. Bybit 설정 동기화·Bithumb 체결 기록·서비스 복귀 잔고·자동업데이트 보강을 담은 Update Patch 1는 Windows 빌드·서명·설치·업데이트 복원·실연결 E2E 전까지 소스 후보입니다.
+
+## v3.9.0.5 릴리스 묶음
 
 - 버전 단일 소스: `config/app_version.py`
 - 전체 변경 내역: `RELEASE_NOTES.md`, `docs/CHANGELOG.md`
@@ -42,7 +50,7 @@
 - AI 커스텀 구현 기록: `docs/V3900_IMPLEMENTATION_RECORD_20260722.md`
 - 빌드·배포 상태: `docs/BUILD_GUIDE.md`, `docs/DEPLOY_CHECKLIST.md`, `deploy/release-manifest.json`
 
-v3.9.0.2 Windows EXE는 이전 고객 배포본입니다. 오늘 변경을 담는 v3.9.0.4 manifest는 `pending_windows_rebuild`이며 현재 소스로 새 Windows 빌드를 검증하기 전에는 v3.9.0.4 변경이 배포됐다고 보지 않습니다.
+v3.9.0.5 Fix Patch 1 Windows EXE는 현재 공개 자산입니다. 오늘 변경을 담는 Update Patch 1 manifest는 `pending_windows_rebuild`이며 현재 소스로 새 Windows 빌드를 검증하기 전에는 Update Patch 1 변경이 사용자에게 배포됐다고 보지 않습니다.
 
 ## 기능별 상세 문서
 

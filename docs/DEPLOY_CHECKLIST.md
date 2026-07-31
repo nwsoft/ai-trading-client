@@ -1,4 +1,4 @@
-# 배포 체크리스트 (2026-07-29 · v3.9.0.4 후보 기준)
+# 배포 체크리스트 (2026-07-31 · v3.9.0.5 Update Patch 1 기준)
 
 운영 환경 배포 전/후 점검해야 할 항목을 정리했습니다. 이 문서는 `noahai_client/build_safe.py`의 현재 PyInstaller 스펙을 기준으로 작성되었습니다.
 
@@ -22,7 +22,7 @@
   - 증권 어댑터(hidden import): `trading.exchanges.exchange_factory`, `trading.exchanges.adapters.kiwoom_stock_adapter`, `trading.exchanges.adapters.stock_mock_adapter`, `trading.exchanges.adapters.shinhan_stock_adapter`, `trading.exchanges.adapters.mirae_asset_stock_adapter`, `trading.exchanges.adapters.korea_investment_stock_adapter` (실브로커 4개 + mock 1개)
   - 키움 전용(Windows 빌드 시 자동 추가): `pykiwoom`, `pykiwoom.kiwoom`, `PyQt5`, `PyQt5.QtWidgets`, `PyQt5.QtCore`, `PyQt5.QtGui`, `PyQt5.QAxContainer`
   - 유틸: `openai`, `numpy`, `pandas`, `loguru`, `aiohttp`, `ujson`, `dateparser`, `colorama`, `dotenv`, `psutil` 등
-  - AI 자격증명: v3.9.0.4는 필수 `keyring`·Windows 보안 저장소 hidden import 없음
+  - AI 자격증명: v3.9.0.5는 필수 `keyring`·Windows 보안 저장소 hidden import 없음
   - 플랫폼 주의: `win32_setctime`는 Windows 전용. macOS/Linux 빌드 시 제거/무시 필요
 - excludes
   - macOS/Linux: `PyQt5`, `PySide6`, `qt4`, `qt6`, `wx`, `gtk` 등
@@ -46,7 +46,8 @@
 
 ## 1-A) 사용자 동선/매뉴얼 동기화 (배포 게이트)
 - 새 EXE를 캐시의 `AITrading.new.exe`가 아니라 정상 설치 경로에서 실행하고 자동 업데이트 진단의 설치 대상도 같은 정상 EXE인지 확인
-- `release-manifest.json`의 EXE SHA-256이 실제 파일과 일치하고, Windows `Get-AuthenticodeSignature`가 `Valid`이며 서명자 인증서가 존재하지 않으면 업로드하지 않음
+- `release-manifest.json`에 `sha256_required=true`, `authenticode_required=false`가 있고 EXE SHA-256이 실제 파일과 일치하지 않으면 업로드하지 않음
+- EXE와 manifest 다운로드 주소가 GitHub HTTPS인지 확인. 무서명 정책과 Windows SmartScreen/Defender 평판 경고 가능성을 배포 안내에 표시
 - 열린 포지션/주문/주문 제출 중 기본 연기, 유지 모드 TP·SL 전수 확인, 청산 모드 실제 0건 확인을 각각 검증
 - 종료·DB/log flush 실패 시 적용 금지와 `auto_update_transaction.json`의 단계·이전/새 버전·SHA·대상/백업 경로 기록 확인
 - 재시작 후 버전·DB quick_check·API 읽기·포지션 복구 health check, 실패 자동 복원, 성공 알림, 사용자 재개 전 주문 잠금 확인
@@ -63,12 +64,12 @@
 - `trade_enabled_exchanges=[]` 저장 시 모든 실제 주문이 차단되고, 활성 거래소 일괄 선택 후 저장할 때만 선택 거래소 주문이 허용되는지 확인
 - Binance/Bybit/OKX/Bitget/Upbit/Bithumb을 최소 위험으로 각각 주문 제출·체결·취소/청산 E2E 확인
 - AI 커스텀 고급모드에서 EMA 17·63, 15분·1시간 조건과 미지원 기간 501 차단, 런타임 실제 계산값 메타데이터를 확인
-- 대시보드 하단에 `v3.9.0.4 설정 정본·실행 모드·페이퍼 안전성 통합` 요약과 `업데이트·사용법` 버튼이 노출되는지 확인
+- 대시보드 하단에 `v3.9.0.5 최소주문·포지션 갱신 공통 계약` 요약과 `업데이트·사용법` 버튼이 노출되는지 확인
 - 1500×980과 배포 최소 지원 해상도에서 하단 3영역이 한 줄로 유지되고 거래소·분석 탭의 마지막 카드·버튼이 잘리지 않는지 확인
 - macOS와 Windows에서 상단 서비스·매뉴얼·설정·종료 아이콘의 모양·크기·정렬이 동일한지 확인
 - 현재 서비스의 고유 선택 색상·테두리와 비선택 탭의 배경 구분이 명확한지 확인
 - `업데이트·사용법` 클릭 시 사용자 매뉴얼 `업데이트` 탭이 열리고, 여기서 `AI 커스텀`·`금융 인텔리전스` 상세 사용법으로 이동 가능한지 확인
-- 사용자 매뉴얼 `업데이트` 최상단에 v3.9.0.4 변경·제한·배포 상태와 v3.9.0.2 이전 배포본 안내가 노출되는지 확인
+- 사용자 매뉴얼 `업데이트` 최상단에 v3.9.0.5 변경·제한·배포 상태와 v3.9.0.2 이전 배포본 안내가 노출되는지 확인
 - 대시보드 업데이트 카드에 `안정성·멀티 AI API·AI 커스텀 통합`이 표시되는지 확인
 - 거래 통계 기존 4개 KPI 아래 실제 운용 한 줄에 USDT·KRW 체결금액과 평균 보유시간·유효 건수가 표시되는지 확인
 - AI 자동 리포트 오늘·주간·월간·실시간에 같은 통화 분리·청산일·보유시간 기준이 표시되는지 확인
@@ -224,12 +225,12 @@ OS별 권한/경로 팁
 3) 릴리즈 권한 확인
   - 워크플로의 `permissions: contents: write`가 유지되어야 릴리즈 업로드 가능
 4) 태그 기반 배포 실행
-  - 버전 업데이트 커밋 후 `git tag v3.9.0.4` / `git push origin v3.9.0.4`
+  - 버전 업데이트 커밋 후 `git tag v3.9.0.5` / `git push origin v3.9.0.5`
   - 이후 버전도 동일 패턴
-  - Windows 자동화 스크립트 사용 가능: `powershell -ExecutionPolicy Bypass -File scripts/release_tag_push.ps1 -Version 3.9.0.4 -Branch main -PushBranch`
+  - Windows 자동화 스크립트 사용 가능: `powershell -ExecutionPolicy Bypass -File scripts/release_tag_push.ps1 -Version 3.9.0.5 -Branch main -PushBranch`
 
 전환 운영 기준(질문 반영)
-- `v3.9.0.4`:
+- `v3.9.0.5`:
   - 클라이언트 저장소 릴리즈 업로드(필수)
   - 웹사이트 저장소 공지/다운로드 안내 반영(권장)
 - `v3.9.0.1`부터:

@@ -1,6 +1,6 @@
 {
-  "_settings_schema_version": "3.9.0.4",
-  "_trade_scope_user_confirmed_v3904": false,
+  "_settings_schema_version": "3.9.0.5",
+  "_trade_scope_user_confirmed_v3905": false,
   "default_leverage": 10,
   "default_margin_type": "ISOLATED",
   "default_tp": 0.0018,

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""NoahAI v3.9.0.4 설정 정본, 마이그레이션과 비밀값 없는 진단."""
+"""NoahAI v3.9.0.5 설정 정본, 마이그레이션과 비밀값 없는 진단."""
 
 from __future__ import annotations
 
@@ -8,9 +8,12 @@ import copy
 from typing import Any, Dict, Iterable, Tuple
 
 
-SETTINGS_SCHEMA_VERSION = "3.9.0.4"
-LEGACY_ARCHIVE_KEY = "_legacy_settings_v3904"
-TRADE_SCOPE_CONFIRMATION_KEY = "_trade_scope_user_confirmed_v3904"
+SETTINGS_SCHEMA_VERSION = "3.9.0.5"
+LEGACY_ARCHIVE_KEY = "_legacy_settings_v3905"
+TRADE_SCOPE_CONFIRMATION_KEY = "_trade_scope_user_confirmed_v3905"
+LEGACY_TRADE_SCOPE_CONFIRMATION_KEYS = (
+    "_trade_scope_user_confirmed_v3904",
+)
 
 # 실행 코드가 더 이상 소비하지 않는 과거 최상위 설정이다.
 # 기존 사용자 값은 삭제하지 않고 LEGACY_ARCHIVE_KEY 아래로 1회 이동한다.
@@ -81,7 +84,7 @@ def _archive_value(settings: Dict[str, Any], key: str, value: Any, reason: str) 
 
 
 def normalize_settings_contract(settings: Dict[str, Any]) -> Tuple[Dict[str, Any], Dict[str, Any], bool]:
-    """설정을 v3.9.0.4 정본으로 맞추고 비밀값 없는 변경 보고서를 반환한다."""
+    """설정을 v3.9.0.5 정본으로 맞추고 비밀값 없는 변경 보고서를 반환한다."""
     normalized = copy.deepcopy(settings or {})
     changed_keys: list[str] = []
 
@@ -163,13 +166,24 @@ def normalize_settings_contract(settings: Dict[str, Any]) -> Tuple[Dict[str, Any
         changed_keys.append("learning_enabled_exchanges")
 
     configured_trade_enabled = _stable_unique(normalized.get("trade_enabled_exchanges", []))
+
+    # v3.9.0.5로 올리면서 확인 키 이름이 바뀌었기 때문에,
+    # 기존(v3.9.0.4) 확인 키가 있으면 정본 키로 승격해 사용자 의도를 보존한다.
+    if TRADE_SCOPE_CONFIRMATION_KEY not in normalized:
+        for legacy_key in LEGACY_TRADE_SCOPE_CONFIRMATION_KEYS:
+            if legacy_key in normalized:
+                normalized[TRADE_SCOPE_CONFIRMATION_KEY] = bool(normalized.get(legacy_key, False))
+                normalized.pop(legacy_key, None)
+                changed_keys.extend([TRADE_SCOPE_CONFIRMATION_KEY, legacy_key])
+                break
+
     trade_scope_confirmed = bool(normalized.get(TRADE_SCOPE_CONFIRMATION_KEY, False))
     if configured_trade_enabled and not trade_scope_confirmed:
         _archive_value(
             normalized,
             "trade_enabled_exchanges_unconfirmed_v3903",
             configured_trade_enabled,
-            "과도기 자동복사 여부를 확인할 수 없어 v3.9.0.4에서 사용자 재확인 필요",
+            "과도기 자동복사 여부를 확인할 수 없어 v3.9.0.5에서 사용자 재확인 필요",
         )
         configured_trade_enabled = []
         changed_keys.append("trade_enabled_exchanges")
@@ -223,6 +237,11 @@ def audit_settings_contract(settings: Dict[str, Any]) -> Dict[str, Any]:
     enabled = _stable_unique(current.get("enabled_exchanges", []))
     trade_enabled = _stable_unique(current.get("trade_enabled_exchanges", []))
     trade_scope_confirmed = bool(current.get(TRADE_SCOPE_CONFIRMATION_KEY, False))
+    if not trade_scope_confirmed:
+        for legacy_key in LEGACY_TRADE_SCOPE_CONFIRMATION_KEYS:
+            if legacy_key in current:
+                trade_scope_confirmed = bool(current.get(legacy_key, False))
+                break
     invalid_trade = [item for item in trade_enabled if item not in enabled]
     retired = sorted(key for key in RETIRED_TOP_LEVEL_KEYS if key in current)
     alpha_legacy = sorted(

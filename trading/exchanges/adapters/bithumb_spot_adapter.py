@@ -7,6 +7,8 @@
 import logging
 from typing import Dict, List, Optional, Any
 from ..interfaces.spot_exchange import SpotExchange
+from ..balance_normalizer import normalize_ccxt_total_balances
+from ..execution_history import build_execution_capabilities
 
 class BithumbSpotAdapter(SpotExchange):
     """빗썸 현물 어댑터"""
@@ -24,6 +26,25 @@ class BithumbSpotAdapter(SpotExchange):
         # 거래내역 조회 경로 캐시: my_trades | orders_fallback | unsupported
         self._trade_history_mode: Optional[str] = None
         self._trade_history_notice_emitted = set()
+
+    def get_execution_capabilities(self) -> Dict[str, Any]:
+        detected = build_execution_capabilities(self.exchange)
+        if self._trade_history_mode == "unsupported":
+            detected.update(
+                historical_trades=False,
+                closed_orders_fallback=False,
+                manual_trade_backfill=False,
+                history_available=False,
+                history_reason="exchange_history_api_unsupported",
+            )
+        elif self._trade_history_mode == "orders_fallback":
+            detected.update(
+                closed_orders_fallback=True,
+                manual_trade_backfill=True,
+                history_available=True,
+                history_reason="available",
+            )
+        return detected
 
     def _log_trade_history_notice_once(self, key: str, msg: str, level: str = 'INFO') -> None:
         if key in self._trade_history_notice_emitted:
@@ -118,6 +139,28 @@ class BithumbSpotAdapter(SpotExchange):
                 'fee': item.get('fee'),
             })
         return trades
+
+    def _normalize_execution_trade(self, trade: Dict[str, Any], symbol_hint: Optional[str] = None) -> Dict[str, Any]:
+        """CCXT 빗썸 체결을 화면/DB 공통 계약으로 정규화한다."""
+        item = dict(trade or {})
+        amount = float(item.get('amount') or item.get('filled') or item.get('quantity') or 0.0)
+        price = float(item.get('average') or item.get('price') or 0.0)
+        cost = float(item.get('cost') or (amount * price if amount and price else 0.0))
+        return {
+            **item,
+            'id': item.get('id') or item.get('trade_id'),
+            'order': item.get('order') or item.get('order_id'),
+            'symbol': self._display_symbol(item.get('symbol') or symbol_hint),
+            'side': str(item.get('side') or '').lower(),
+            'price': price,
+            'average': item.get('average') or price,
+            'amount': amount,
+            'filled': float(item.get('filled') or amount),
+            'cost': cost,
+            'timestamp': item.get('timestamp') or item.get('time'),
+            'datetime': item.get('datetime'),
+            'fee': item.get('fee'),
+        }
     
     def connect(self) -> bool:
         try:
@@ -152,19 +195,11 @@ class BithumbSpotAdapter(SpotExchange):
             return {}
 
         if not self.api_key or not self.secret_key:
-            return {
-                'KRW': 0.0,
-                'BTC': 0.0,
-                'ETH': 0.0,
-            }
+            return {'KRW': 0.0}
 
         try:
             balance = self.exchange.fetch_balance()
-            return {
-                'KRW': self._extract_total_balance(balance, 'KRW'),
-                'BTC': self._extract_total_balance(balance, 'BTC'),
-                'ETH': self._extract_total_balance(balance, 'ETH'),
-            }
+            return normalize_ccxt_total_balances(balance, quote_asset='KRW')
         except Exception as e:
             self.last_error = str(e)
             self.log_event('system', f"잔고 조회 실패: {e}", level='ERROR')
@@ -193,6 +228,16 @@ class BithumbSpotAdapter(SpotExchange):
             return {}
         try:
             symbol = self._normalize_bithumb_symbol(symbol)
+
+            from trading.exchanges.order_constraints import prepare_ccxt_order_quantity
+            constraint = prepare_ccxt_order_quantity(
+                self.exchange, symbol, quantity, reference_price=price,
+            )
+            if not constraint.get('allowed'):
+                msg = str(constraint.get('reason') or 'order constraints not met')
+                self.log_event('system', f"{symbol} 주문 규격 차단: {msg}", level='WARNING')
+                return {'status': 'error', 'error': msg}
+            quantity = float(constraint['quantity'])
             
             type_literal = 'limit' if order_type.upper() == 'LIMIT' else 'market'
             side_literal = 'buy' if side.lower() == 'buy' else 'sell'
@@ -248,7 +293,11 @@ class BithumbSpotAdapter(SpotExchange):
             if mode == 'my_trades':
                 try:
                     trades = self.exchange.fetch_my_trades(normalized, limit=limit)  # type: ignore
-                    return [dict(t) for t in trades]
+                    return [
+                        self._normalize_execution_trade(dict(t), symbol_hint=normalized)
+                        for t in trades
+                        if isinstance(t, dict)
+                    ]
                 except Exception as fetch_err:
                     fetch_err_text = str(fetch_err).lower()
                     unsupported_tokens = ('not supported', 'unsupported', 'fetchmytrades', 'fetch_my_trades')

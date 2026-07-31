@@ -27,24 +27,24 @@ def test_user_surfaces_share_provider_scope_and_menu_path():
 
 
 def test_release_metadata_and_installed_manual_are_scoped_separately():
-    assert "현재 배포 버전: v3.9.0.2" in _read("README.md")
-    assert "v3.9.0.4 업데이트 배포 대상 소스" in _read("README.md")
-    assert "v3.9.0.4 설정 정본·실행 모드 통합" in _read("RELEASE_NOTES.md")
+    assert "현재 배포 버전: v3.9.0.5" in _read("README.md")
+    assert "v3.9.0.5 Fix Patch" in _read("README.md")
+    assert "v3.9.0.5 설정 정본·실행 모드 통합" in _read("RELEASE_NOTES.md")
     manual = _read("ui/widgets/user_manual_widget.py")
     assert "현재 설치 버전" in manual
-    assert "v3.9.0.4 최신 업데이트" in manual
+    assert "v3.9.0.5 최신 업데이트" in manual
     assert "새 Windows 빌드 전 업데이트 대상" not in manual
-    assert "서명된 Windows" in _read("docs/AI_API_USER_GUIDE.md")
+    assert "SHA-256이 게시된 Windows" in _read("docs/AI_API_USER_GUIDE.md")
     manifest = json.loads(_read("deploy/release-manifest.json"))
-    assert manifest["version"] == "3.9.0.4"
+    assert manifest["version"] == "3.9.0.5"
     assert manifest["build_status"] == "pending_windows_rebuild"
-    assert manifest["previous_published_asset"]["customer_deployed"] is True
-    assert manifest["previous_published_asset"]["purpose"] == "previous_stable_release"
-    assert _read("deploy/version.txt").strip() == "3.9.0.4"
-    assert 'RELEASE_VERSION = "3.9.0.4"' in _read("config/app_version.py")
-    assert "FileVersion', u'3.9.0.4" in _read("config/windows_version_info.txt")
-    assert "ProductVersion', u'3.9.0.4" in _read("config/windows_version_info.txt")
-    assert 'RELEASE_HIGHLIGHT = "설정 정본·실행 모드·페이퍼 안전성 통합"' in _read("config/app_version.py")
+    assert manifest["previous_published_asset"]["version"] == "3.9.0.4"
+    assert manifest["previous_published_asset"]["purpose"] == "previous_fix_patch_1"
+    assert _read("deploy/version.txt").strip() == "3.9.0.5"
+    assert 'RELEASE_VERSION = "3.9.0.5"' in _read("config/app_version.py")
+    assert "FileVersion', u'3.9.0.5" in _read("config/windows_version_info.txt")
+    assert "ProductVersion', u'3.9.0.5" in _read("config/windows_version_info.txt")
+    assert 'RELEASE_HIGHLIGHT = "최소주문·포지션 갱신 공통 계약"' in _read("config/app_version.py")
 
 
 def test_alpha_arena_scope_does_not_claim_deprecated_engine_is_current():

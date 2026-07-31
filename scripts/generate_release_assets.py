@@ -87,6 +87,11 @@ def _build_manifest(version: str, exe_path: Path, notes_path: Path, repo: str) -
         "channel": "stable",
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "notes_file": notes_path.name,
+        "verification": {
+            "sha256_required": True,
+            "authenticode_required": False,
+            "source": "github_release_manifest",
+        },
         "assets": {
             "exe": {
                 "name": exe_name,

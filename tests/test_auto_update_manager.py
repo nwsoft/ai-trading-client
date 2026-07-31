@@ -1,4 +1,5 @@
 import json
+import hashlib
 from pathlib import Path
 
 from utils.auto_update_manager import AutoUpdateManager
@@ -8,6 +9,78 @@ def test_version_normalization_orders_properly():
     a = AutoUpdateManager._normalize_version("v3.8.9.24")
     b = AutoUpdateManager._normalize_version("v3.8.9.25")
     assert b > a
+
+
+def test_same_version_changed_manifest_sha_is_a_fix_patch_update(tmp_path, monkeypatch):
+    cache_dir = tmp_path / "cache"
+    marker_path = tmp_path / "config" / "target.json"
+    installed = tmp_path / "AITrading.exe"
+    installed.write_bytes(b"fix-patch-1")
+    remote_sha = hashlib.sha256(b"fix-patch-2").hexdigest()
+
+    monkeypatch.setattr(AutoUpdateManager, "_resolve_update_cache_dir", lambda self: cache_dir)
+    monkeypatch.setattr(AutoUpdateManager, "_resolve_install_target_marker_path", lambda self: marker_path)
+    monkeypatch.setattr(AutoUpdateManager, "_resolve_install_target_executable", lambda self: installed)
+    monkeypatch.setattr("sys.platform", "win32")
+    monkeypatch.setattr("sys.frozen", True, raising=False)
+
+    mgr = AutoUpdateManager(settings={"ui_settings": {"auto_update_auto_download": False}})
+    monkeypatch.setattr(mgr, "_get_current_version", lambda: "3.9.0.5")
+    monkeypatch.setattr(
+        mgr,
+        "_fetch_latest_release",
+        lambda: {
+            "tag_name": "v3.9.0.5",
+            "html_url": "https://example.test/release",
+            "assets": [{"name": "release-manifest.json"}],
+            "_repo": "example/repo",
+        },
+    )
+    monkeypatch.setattr(
+        mgr,
+        "_fetch_verification_policy_from_manifest",
+        lambda _assets: {"sha256": remote_sha, "sha256_required": True, "authenticode_required": False},
+    )
+
+    result = mgr.check_for_updates()
+    assert result["update_available"] is True
+    assert result["update_reason"] == "same_version_asset_changed"
+    assert result["installed_sha256"] == hashlib.sha256(b"fix-patch-1").hexdigest()
+    assert result["release_sha256"] == remote_sha
+
+
+def test_same_version_matching_manifest_sha_is_not_re_downloaded(tmp_path, monkeypatch):
+    cache_dir = tmp_path / "cache"
+    marker_path = tmp_path / "config" / "target.json"
+    installed = tmp_path / "AITrading.exe"
+    installed.write_bytes(b"fix-patch-2")
+    installed_sha = hashlib.sha256(installed.read_bytes()).hexdigest()
+
+    monkeypatch.setattr(AutoUpdateManager, "_resolve_update_cache_dir", lambda self: cache_dir)
+    monkeypatch.setattr(AutoUpdateManager, "_resolve_install_target_marker_path", lambda self: marker_path)
+    monkeypatch.setattr(AutoUpdateManager, "_resolve_install_target_executable", lambda self: installed)
+    monkeypatch.setattr("sys.platform", "win32")
+    monkeypatch.setattr("sys.frozen", True, raising=False)
+
+    mgr = AutoUpdateManager(settings={"ui_settings": {"auto_update_auto_download": False}})
+    monkeypatch.setattr(mgr, "_get_current_version", lambda: "3.9.0.5")
+    monkeypatch.setattr(
+        mgr,
+        "_fetch_latest_release",
+        lambda: {
+            "tag_name": "v3.9.0.5",
+            "assets": [{"name": "release-manifest.json"}],
+        },
+    )
+    monkeypatch.setattr(
+        mgr,
+        "_fetch_verification_policy_from_manifest",
+        lambda _assets: {"sha256": installed_sha, "sha256_required": True, "authenticode_required": False},
+    )
+
+    result = mgr.check_for_updates()
+    assert result["update_available"] is False
+    assert result["update_reason"] == ""
 
 
 def test_apply_pending_update_returns_false_without_windows_runtime(tmp_path, monkeypatch):
@@ -141,14 +214,23 @@ def test_download_uses_staged_name_in_cache(tmp_path, monkeypatch):
     monkeypatch.setattr(mgr, "_download_file", _fake_download)
     import hashlib
     binary_sha = hashlib.sha256(b"binary").hexdigest()
-    monkeypatch.setattr(mgr, "_fetch_expected_sha_from_manifest", lambda assets: binary_sha)
+    monkeypatch.setattr(
+        mgr,
+        "_fetch_verification_policy_from_manifest",
+        lambda assets: {
+            "sha256": binary_sha,
+            "sha256_required": True,
+            "authenticode_required": False,
+            "source": "github_release_manifest",
+        },
+    )
 
     release = {
         "tag_name": "v3.8.9.30",
         "assets": [
             {
                 "name": "AITrading.exe",
-                "browser_download_url": "https://example.com/AITrading.exe",
+                "browser_download_url": "https://github.com/example/repo/releases/download/v3.8.9.30/AITrading.exe",
             }
         ],
     }
@@ -170,10 +252,10 @@ def test_download_fails_closed_without_release_manifest_sha(tmp_path, monkeypatc
         "_download_file",
         lambda _url, output: (output.parent.mkdir(parents=True, exist_ok=True), output.write_bytes(b"x"), True)[-1],
     )
-    monkeypatch.setattr(mgr, "_fetch_expected_sha_from_manifest", lambda _assets: "")
+    monkeypatch.setattr(mgr, "_fetch_verification_policy_from_manifest", lambda _assets: {})
     result = mgr.download_latest_update({
         "tag_name": "v9.9.9",
-        "assets": [{"name": "AITrading.exe", "browser_download_url": "https://example.test/app.exe"}],
+        "assets": [{"name": "AITrading.exe", "browser_download_url": "https://github.com/example/repo/releases/download/v9.9.9/app.exe"}],
     })
     assert result == {"ok": False, "reason": "release_manifest_or_sha256_missing"}
 
@@ -199,7 +281,7 @@ def test_update_transaction_is_persisted_and_restores_pending(tmp_path, monkeypa
     assert restored.pending_update["latest_version"] == "3.9.1"
 
 
-def test_apply_script_requires_backup_sha_signature_and_postcheck_journal():
+def test_apply_script_requires_backup_sha_and_postcheck_without_certificate():
     script = AutoUpdateManager._build_apply_script(
         target_exe="C:/NoahAI/AITrading.exe",
         new_exe="C:/NoahAI/cache/AITrading.new.exe",
@@ -210,6 +292,19 @@ def test_apply_script_requires_backup_sha_signature_and_postcheck_journal():
         new_version="3.9.0.3",
     )
     assert "Get-FileHash -Algorithm SHA256" in script
-    assert "Get-AuthenticodeSignature" in script
+    assert "Get-AuthenticodeSignature" not in script
     assert "backup failed" in script
     assert "Set-Phase 'postcheck_pending'" in script
+
+
+def test_unsigned_policy_rejects_non_github_download_url(tmp_path, monkeypatch):
+    cache_dir = tmp_path / "cache"
+    marker_path = tmp_path / "config" / "target.json"
+    monkeypatch.setattr(AutoUpdateManager, "_resolve_update_cache_dir", lambda self: cache_dir)
+    monkeypatch.setattr(AutoUpdateManager, "_resolve_install_target_marker_path", lambda self: marker_path)
+    mgr = AutoUpdateManager(settings={})
+    result = mgr.download_latest_update({
+        "tag_name": "v9.9.9",
+        "assets": [{"name": "AITrading.exe", "browser_download_url": "http://example.test/app.exe"}],
+    })
+    assert result == {"ok": False, "reason": "untrusted_release_url"}

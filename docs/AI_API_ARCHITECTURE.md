@@ -280,7 +280,7 @@ except Exception as e:
 - [x] Kimi K3 어시스턴트 시험 등록
 - [x] 동적 모델 목록, capability, 로컬 자격증명 호환, 응답·사용량·오류 정규화
 - [ ] 실제 제공사 키 인증·모델 목록·과금 계정 E2E
-- [ ] 서명된 Windows 설치본 연결·업데이트 E2E
+- [ ] manifest SHA-256이 게시된 Windows 설치본 연결·업데이트 E2E
 
 ### Phase 3: 후속 오픈소스 전환
 - [ ] 로컬 LLM 서버 지원 (Ollama, LM Studio 등)

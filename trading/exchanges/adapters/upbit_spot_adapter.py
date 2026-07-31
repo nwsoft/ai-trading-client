@@ -7,6 +7,8 @@
 import logging
 from typing import Dict, List, Optional, Any
 from ..interfaces.spot_exchange import SpotExchange
+from ..balance_normalizer import normalize_ccxt_total_balances
+from ..execution_history import build_execution_capabilities, fetch_ccxt_execution_history
 
 class UpbitSpotAdapter(SpotExchange):
     """업비트 현물 어댑터"""
@@ -22,6 +24,16 @@ class UpbitSpotAdapter(SpotExchange):
         from log_system.log_adapter import log_event
         self.log_event = lambda category, msg, level='INFO': log_event(category, msg, exchange='upbit', level=level)
         self._trade_history_notice_emitted = False
+        self._last_execution_capabilities: Dict[str, Any] = {}
+
+    def _display_symbol(self, symbol: Optional[str]) -> str:
+        return self._normalize_upbit_symbol(str(symbol or "BTC/KRW"))
+
+    def get_execution_capabilities(self) -> Dict[str, Any]:
+        detected = build_execution_capabilities(self.exchange)
+        if self._last_execution_capabilities:
+            detected.update(self._last_execution_capabilities)
+        return detected
 
     def _extract_total_balance(self, balance: Dict[str, Any], currency: str) -> float:
         """ccxt fetch_balance 결과에서 통화 잔고를 안전하게 추출"""
@@ -94,19 +106,11 @@ class UpbitSpotAdapter(SpotExchange):
         
         # API 키가 없으면 잔고 조회 불가
         if not self.api_key or not self.secret_key:
-            return {
-                'KRW': 0.0,
-                'BTC': 0.0,
-                'ETH': 0.0,
-            }
+            return {'KRW': 0.0}
         
         try:
             balance = self.exchange.fetch_balance()
-            return {
-                'KRW': self._extract_total_balance(balance, 'KRW'),
-                'BTC': self._extract_total_balance(balance, 'BTC'),
-                'ETH': self._extract_total_balance(balance, 'ETH'),
-            }
+            return normalize_ccxt_total_balances(balance, quote_asset='KRW')
         except Exception as e:
             self.last_error = str(e)
             self.log_event('system', f"잔고 조회 실패: {e}", level='ERROR')
@@ -210,6 +214,16 @@ class UpbitSpotAdapter(SpotExchange):
             return {}
         try:
             symbol = self._normalize_upbit_symbol(symbol)
+
+            from trading.exchanges.order_constraints import prepare_ccxt_order_quantity
+            constraint = prepare_ccxt_order_quantity(
+                self.exchange, symbol, quantity, reference_price=price,
+            )
+            if not constraint.get('allowed'):
+                msg = str(constraint.get('reason') or 'order constraints not met')
+                self.log_event('system', f"{symbol} 주문 규격 차단: {msg}", level='WARNING')
+                return {'status': 'error', 'error': msg}
+            quantity = float(constraint['quantity'])
             
             type_literal = 'limit' if order_type.upper() == 'LIMIT' else 'market'
             side_literal = 'buy' if side.lower() == 'buy' else 'sell'
@@ -246,12 +260,22 @@ class UpbitSpotAdapter(SpotExchange):
         if not self.is_connected:
             return []
         try:
-            # 🔥 업비트는 fetchMyTrades를 지원하지 않으므로 빈 리스트 반환
-            # 실제 구현 시에는 업비트 API 직접 호출 필요
-            if not self._trade_history_notice_emitted:
+            normalized = self._normalize_upbit_symbol(symbol) if symbol else None
+            rows, capabilities = fetch_ccxt_execution_history(
+                self.exchange,
+                symbol=normalized,
+                limit=limit,
+                symbol_formatter=self._display_symbol,
+            )
+            self._last_execution_capabilities = capabilities
+            if not rows and not capabilities.get("history_available") and not self._trade_history_notice_emitted:
                 self._trade_history_notice_emitted = True
-                self.log_event('system', "업비트 거래 내역 조회: CCXT 미지원, 거래량 수집은 티커 볼륨으로 대체")
-            return []
+                self.log_event(
+                    'system',
+                    "업비트 과거 체결 API 미지원: NoahAI가 제출한 새 주문은 실제 체결 원장에 기록되지만 수동·과거 주문 자동 가져오기는 지원되지 않습니다.",
+                    level='WARNING',
+                )
+            return rows
         except Exception as e:
             self.logger.error(f"거래 내역 조회 실패: {e}")
             return []

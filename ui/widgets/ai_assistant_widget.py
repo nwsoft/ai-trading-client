@@ -663,11 +663,14 @@ class AIAssistantWidget(CTkFrame):
             title_label.pack(anchor="w", padx=12, pady=(12, 8))
             self.quick_questions_title_label = title_label
 
-            # 질문 버튼들
-            questions_frame = CTkFrame(
+            # 질문 수가 늘어나도 하단 입력·설정·차트 메뉴의 높이를 침범하지 않도록
+            # FAQ 열 자체를 독립 스크롤 영역으로 유지한다.
+            questions_frame = CTkScrollableFrame(
                 buttons_frame,
                 fg_color=self._color("content_bg", "#0b1120"),
                 corner_radius=10,
+                scrollbar_button_color=self._color("secondary"),
+                scrollbar_button_hover_color=self._hover_from(self._color("secondary")),
             )
             questions_frame.pack(fill="both", expand=True, padx=12, pady=(0, 12))
 
@@ -1760,6 +1763,20 @@ class AIAssistantWidget(CTkFrame):
         policy["include_recent_turns"] = max(0, min(int(policy.get("include_recent_turns", 8)), 20))
         return policy
 
+    def _settings_knowledge_for_question(self, message: str) -> str:
+        """설정 정본 문서와 현재 비밀값 없는 설정을 질문별로 검색한다."""
+        try:
+            from config.settings_knowledge import build_settings_knowledge
+
+            dashboard = getattr(self, "parent_dashboard", None)
+            settings = getattr(dashboard, "settings", {}) if dashboard is not None else {}
+            if not isinstance(settings, dict):
+                settings = {}
+            return build_settings_knowledge(message, settings)
+        except Exception as exc:
+            self.logger.debug(f"설정 도움말 컨텍스트 생성 생략: {exc}")
+            return ""
+
     def _recent_conversation_for_prompt(self, policy: Optional[Dict[str, Any]] = None) -> str:
         """문답 모드 예산에 맞춰 최근 대화와 압축 메모를 직렬화한다."""
         policy = policy or self._assistant_response_policy()
@@ -1883,6 +1900,11 @@ class AIAssistantWidget(CTkFrame):
 
             # 현재 거래 상황 데이터 수집
             context = self._get_current_trading_context()
+            settings_knowledge = self._settings_knowledge_for_question(message)
+            if settings_knowledge:
+                # 질문과 직접 관련된 설정 지식을 앞에 두어 긴 거래 컨텍스트가
+                # 잘릴 때도 메뉴얼 근거가 남도록 한다.
+                context = f"{settings_knowledge}\n\n[현재 거래 상황]\n{context}"
             response_policy = self._assistant_response_policy()
             max_context_chars = int(response_policy.get("max_input_chars", 12000))
             if len(context) > max_context_chars:
@@ -2172,6 +2194,13 @@ class AIAssistantWidget(CTkFrame):
         """AI 응답 실패 시 현재 앱에서 확인 가능한 정보로 안전하게 안내"""
         try:
             context = self._get_current_trading_context()
+            settings_knowledge = self._settings_knowledge_for_question(message)
+            if settings_knowledge:
+                return (
+                    "NoahAI 설정 도움말입니다. 외부 AI 호출 없이 설치된 v3.9.0.5 설정 정본과 "
+                    "현재 비밀값 없는 설정을 기준으로 안내합니다.\n\n"
+                    f"{settings_knowledge}"
+                )
             message_lower = (message or "").lower()
 
             tips: List[str] = []

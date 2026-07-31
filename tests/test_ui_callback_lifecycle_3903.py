@@ -28,7 +28,14 @@ def test_exchange_and_broker_sections_refresh_only_while_visible():
     assert "not owner_widget.winfo_viewable()" in source
     assert 'f"exchange_balance:{exchange}"' in source
     assert 'f"exchange_positions:{exchange}"' in source
-    assert 'name=f"dashboard_refresh_{refresh_key}"' in source
+    assert 'f"broker_positions:{broker}"' in source
+    assert 'name=f"dashboard_refresh_{key}"' in source
+    assert "queue.Queue(maxsize=1024)" in source
+    assert "self._global_async_refresh_registry" in source
+    assert 'coalesce_key=f"async_refresh_apply:{key}"' in source
+    timeout_block = source.split("def _timeout():", 1)[1].split("def _worker():", 1)[0]
+    assert 'state["running"] = False' in timeout_block
+    assert 'state["generation"] = generation + 1' in timeout_block
     assert "thread_safe_after(7000, refresh_once)" not in source
     assert "thread_safe_after(5000, refresh_once)" not in source
     assert "thread_safe_after(3000, refresh_once)" not in source
