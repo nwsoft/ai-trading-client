@@ -19,7 +19,7 @@ def test_provider_capability_schema_has_required_v3903_providers():
     schema = provider_capability_schema()
     assert set(schema) == {"openai", "deepseek", "kimi", "anthropic", "gemini"}
     assert schema["deepseek"]["capabilities"]["chat_json"] is True
-    assert schema["kimi"]["status"] == "experimental"
+    assert schema["kimi"]["status"] == "stable"
     assert schema["deepseek"]["capabilities"]["transcribe"] is False
     assert schema["anthropic"]["capabilities"]["structured_output"] is False
     assert schema["gemini"]["capabilities"]["vision"] is True
@@ -81,7 +81,7 @@ def test_router_from_settings_keeps_legacy_openai_compatible():
     assert router.adapter.model == "gpt-4o"
 
 
-def test_kimi_experimental_profile_routes_assistant_only():
+def test_kimi_profile_routes_independently_by_workload():
     settings = {
         "ai_provider": "openai",
         "openai_api_key": "openai-key",
@@ -101,6 +101,22 @@ def test_kimi_experimental_profile_routes_assistant_only():
     assert analyst.spec.provider == "openai"
     assert assistant.spec.provider == "kimi"
     assert assistant.adapter.client.api_key == "kimi-key"
+
+
+def test_kimi_can_route_analyst_json_workload():
+    settings = {
+        "ai_provider": "kimi",
+        "openai_model": "kimi-k2.6",
+        "ai_credentials": {"kimi": {"api_key": "kimi-key"}},
+        "ai_provider_profiles": {
+            "analyst": {"provider": "kimi", "model": "kimi-k2.6"},
+        },
+    }
+    analyst = AIProviderRouter.from_settings(settings, workload="analyst")
+    validation = analyst.validate_model(capability="chat_json")
+    assert analyst.spec.provider == "kimi"
+    assert analyst.adapter.client.api_key == "kimi-key"
+    assert validation["ok"] is True
 
 
 def test_model_listing_accepts_provider_prefixes():

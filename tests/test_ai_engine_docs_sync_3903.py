@@ -27,24 +27,56 @@ def test_user_surfaces_share_provider_scope_and_menu_path():
 
 
 def test_release_metadata_and_installed_manual_are_scoped_separately():
-    assert "현재 배포 버전: v3.9.0.5" in _read("README.md")
-    assert "v3.9.0.5 Fix Patch" in _read("README.md")
+    assert "현재 작업 버전: v3.9.0.8" in _read("README.md")
+    assert "v3.9.0.8 AI Custom Update" in _read("README.md")
     assert "v3.9.0.5 설정 정본·실행 모드 통합" in _read("RELEASE_NOTES.md")
     manual = _read("ui/widgets/user_manual_widget.py")
     assert "현재 설치 버전" in manual
-    assert "v3.9.0.5 최신 업데이트" in manual
+    assert "v3.9.0.8 최신 업데이트" in manual
     assert "새 Windows 빌드 전 업데이트 대상" not in manual
     assert "SHA-256이 게시된 Windows" in _read("docs/AI_API_USER_GUIDE.md")
     manifest = json.loads(_read("deploy/release-manifest.json"))
-    assert manifest["version"] == "3.9.0.5"
+    assert manifest["version"] == "3.9.0.8"
+    assert manifest["release_label"] == "v3.9.0.8 AI Custom Update"
     assert manifest["build_status"] == "pending_windows_rebuild"
-    assert manifest["previous_published_asset"]["version"] == "3.9.0.4"
-    assert manifest["previous_published_asset"]["purpose"] == "previous_fix_patch_1"
-    assert _read("deploy/version.txt").strip() == "3.9.0.5"
-    assert 'RELEASE_VERSION = "3.9.0.5"' in _read("config/app_version.py")
-    assert "FileVersion', u'3.9.0.5" in _read("config/windows_version_info.txt")
-    assert "ProductVersion', u'3.9.0.5" in _read("config/windows_version_info.txt")
-    assert 'RELEASE_HIGHLIGHT = "최소주문·포지션 갱신 공통 계약"' in _read("config/app_version.py")
+    assert manifest["previous_published_asset"]["version"] == "3.9.0.7"
+    assert manifest["previous_published_asset"]["release_label"] == "v3.9.0.7 Fix Patch 3"
+    assert manifest["previous_published_asset"]["purpose"] == "previous_published_windows_build"
+    assert _read("deploy/version.txt").strip() == "3.9.0.8"
+    assert 'RELEASE_VERSION = "3.9.0.8"' in _read("config/app_version.py")
+    assert "FileVersion', u'3.9.0.8" in _read("config/windows_version_info.txt")
+    assert "ProductVersion', u'3.9.0.8" in _read("config/windows_version_info.txt")
+    assert 'RELEASE_HIGHLIGHT = "AI 커스텀 P1~P3 · 전략 IR·검증·설명·공유 고도화"' in _read("config/app_version.py")
+
+
+def test_release_asset_generator_preserves_fix_patch_identity(tmp_path):
+    from scripts.generate_release_assets import _build_manifest
+
+    notes = tmp_path / "release_notes.md"
+    notes.write_text("Fix Patch 3\n", encoding="utf-8")
+    missing_exe = tmp_path / "AITrading.exe"
+    pending = _build_manifest(
+        version="3.9.0.8",
+        release_label="v3.9.0.8 AI Custom Update",
+        exe_path=missing_exe,
+        notes_path=notes,
+        repo="nwsoft/ai-trading-client",
+    )
+    assert pending["release_label"] == "v3.9.0.8 AI Custom Update"
+    assert pending["build_status"] == "pending_windows_rebuild"
+
+    missing_exe.write_bytes(b"windows-build")
+    built = _build_manifest(
+        version="3.9.0.8",
+        release_label="v3.9.0.8 AI Custom Update",
+        exe_path=missing_exe,
+        notes_path=notes,
+        repo="nwsoft/ai-trading-client",
+    )
+    assert built["release_label"] == "v3.9.0.8 AI Custom Update"
+    assert built["build_status"] == "built"
+    assert built["assets"]["exe"]["size"] == len(b"windows-build")
+    assert built["assets"]["exe"]["sha256"]
 
 
 def test_alpha_arena_scope_does_not_claim_deprecated_engine_is_current():

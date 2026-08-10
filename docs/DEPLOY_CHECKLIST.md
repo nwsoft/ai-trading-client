@@ -1,4 +1,4 @@
-# 배포 체크리스트 (2026-07-31 · v3.9.0.5 Update Patch 1 기준)
+# 배포 체크리스트 (2026-08-10 · v3.9.0.8 AI Custom Update 기준)
 
 운영 환경 배포 전/후 점검해야 할 항목을 정리했습니다. 이 문서는 `noahai_client/build_safe.py`의 현재 PyInstaller 스펙을 기준으로 작성되었습니다.
 
@@ -9,12 +9,17 @@
 - GitHub Release 업로드 기준 산출물도 Windows 자산(`AITrading.exe`, `version.txt`, `release_notes.md`, `release-manifest.json`)으로 통일한다.
 
 ## 0) 패키징 스펙 요약(build_safe.py)
-- **실제 배포 스펙**: `build_safe.py`가 런타임에 `aiautotrade_safe.spec`을 동적 생성하여 빌드. `aiautotrade.spec`은 참고용.
+- 소스 게이트: `.venv/bin/python scripts/active_source_audit.py`, `.venv/bin/python verify_build_includes.py`, `.venv/bin/python scripts/doc_consistency_check.py`, 전체 pytest를 먼저 통과
+- 격리 경계: `docs/SOURCE_QUARANTINE_MANIFEST_20260801.md`의 16개 아티팩트와 레거시 `theme_system`은 빌드 입력에 포함 금지
+- 배포 상태: v3.9.0.8은 `pending_windows_rebuild`. 신규 EXE 해시 확정 전에 manifest를 배포 완료로 변경하지 않음
+- 레퍼럴 배포 게이트: daltrading 마이그레이션·관리자 설정의 암호화 Affiliate 조회 키·자동/예외 판정·주기 재검증·공식 HTTPS 링크·클라이언트 승인 전 API 검증/실행 차단을 테스트한 뒤 거래소별로 활성화
+- **단일 스펙 정책**: `build_safe.py`가 참고용 `aiautotrade.spec`과 실제 빌드용 `aiautotrade_safe.spec`을 같은 생성기로 작성한다. 둘 다 직접 수정하지 않는다.
 - UI 정책: CustomTkinter-only. Windows 빌드에서만 PyQt5 포함 허용(키움증권 OpenAPI+ 필수)
+- VC 정책: 빌드 Python과 같은 x86/x64의 공식 VC143 CRT 단일 세트만 EXE 루트에 수집하고 PyQt5·pandas 하위 VC DLL은 0개여야 함
 - datas 포함
   - config: `config/settings_template.json`, `config/token_template.json`, `config/theme_config.json`
-  - 코드/리소스: `trading/`, `trading/ai/`, `trading/exchanges/`, `trading/exchange_manager.py`, `trading/api_signal_manager.py`, `api/`
-  - 루트 파일: `strategy_customizer.py`, `ai_chat_strategy.py`, `web_deployment_analysis.py`, `user_status_manager.py`, `path_utils.py`, `README.md`, `requirements*.txt`, `icon.ico`, `icon.png`
+  - Python 코드: PyInstaller Analysis/hiddenimports로 수집하며 소스 폴더를 `datas`로 이중 번들하지 않음
+  - 루트 리소스: `README.md`, `requirements*.txt`, `icon.ico`, `icon.png`
   - 포함 안 함: data 폴더(런타임에 `path_utils`가 사용자 Documents 하위에 생성)
 - hiddenimports(발췌)
   - GUI: `tkinter`, `tkinter.ttk`, `tkinter.messagebox`, `customtkinter`
@@ -47,6 +52,16 @@
 ## 1-A) 사용자 동선/매뉴얼 동기화 (배포 게이트)
 - 새 EXE를 캐시의 `AITrading.new.exe`가 아니라 정상 설치 경로에서 실행하고 자동 업데이트 진단의 설치 대상도 같은 정상 EXE인지 확인
 - `release-manifest.json`에 `sha256_required=true`, `authenticode_required=false`가 있고 EXE SHA-256이 실제 파일과 일치하지 않으면 업로드하지 않음
+- 릴리스 자산 재생성 뒤에도 `release_label=v3.9.0.8 AI Custom Update`가 유지되고, EXE가 있으면 `build_status=built`, `size>0`, SHA-256 비어 있지 않음을 확인
+- EXE 아카이브에 `PyQt5/Qt5/bin` 또는 `pandas` 하위 `MSVCP140*.dll`/`VCRUNTIME140*.dll`이 없고 루트 단일 세트가 빌드에 사용한 공식 VC143 원본 SHA-256과 일치하는지 확인
+- 키움 로그인/진단과 실제 차트 OCR을 각각 실행해 PyQt5와 ONNX가 모두 보존됐는지 확인
+- 승인된 레퍼럴 계정으로 Binance PAPER를 60분 이상 실행하고 제보 PC에서도 APPCRASH 재발 여부와 새 덤프를 확인
+- Windows에서 로그인 성공 로그에 이메일·세션 ID·토큰·UID·레퍼럴 코드/URL이 남지 않고, 열린 로그가 25MB 회전 중 파일 잠금 오류를 만들지 않는지 확인
+- Windows 이전 실행 PID 진단이 `<built-in function kill>` 오류 없이 초기화되는지 확인
+- 설정창을 연속 10회 열고 닫아도 상단 빈 영역·본문 밀림·하단 버튼 소실·`pyimage` 오류·대시보드 모달 고착이 없는지 확인
+- 서비스·거래소 화면을 100회 왕복한 뒤 설정창을 열어 `No more menus can be allocated`가 없고, 로그의 USER/GDI 수가 전환 횟수에 비례해 계속 증가하지 않는지 확인
+- Bitget-only 레퍼럴 PAPER 프로필에서 Binance REST·WebSocket·K라인·펀딩비·OI 호출이 0건이고 토큰화 주식 심볼이 코인 후보에 포함되지 않는지 확인
+- Upbit·Bithumb LIVE 소액 검증에서 기존 dust가 포지션 슬롯을 점유하지 않고 동일종목 중복 진입이 차단되며 앱 진입 전 수량은 청산하지 않는지 확인
 - EXE와 manifest 다운로드 주소가 GitHub HTTPS인지 확인. 무서명 정책과 Windows SmartScreen/Defender 평판 경고 가능성을 배포 안내에 표시
 - 열린 포지션/주문/주문 제출 중 기본 연기, 유지 모드 TP·SL 전수 확인, 청산 모드 실제 0건 확인을 각각 검증
 - 종료·DB/log flush 실패 시 적용 금지와 `auto_update_transaction.json`의 단계·이전/새 버전·SHA·대상/백업 경로 기록 확인
@@ -64,6 +79,13 @@
 - `trade_enabled_exchanges=[]` 저장 시 모든 실제 주문이 차단되고, 활성 거래소 일괄 선택 후 저장할 때만 선택 거래소 주문이 허용되는지 확인
 - Binance/Bybit/OKX/Bitget/Upbit/Bithumb을 최소 위험으로 각각 주문 제출·체결·취소/청산 E2E 확인
 - AI 커스텀 고급모드에서 EMA 17·63, 15분·1시간 조건과 미지원 기간 501 차단, 런타임 실제 계산값 메타데이터를 확인
+- AI 커스텀의 `AI 멘토 인터뷰`가 8개 프로필 질문 뒤 2~3개 후보를 설명하고, 후보 불러오기가 저장·승인·적용을 자동 실행하지 않는지 확인
+- 같은 전략의 새 버전에서 `변경점 N개`를 열어 이전/변경 값을 확인하고 승인 전 활성 버전이 바뀌지 않는지 확인
+- 고급 규칙의 부분청산·다단계 TP·추적손절·손익분기·재진입 범위 오류가 저장 전에 차단되는지 확인
+- Binance·Bybit·OKX·Bitget PAPER와 최소 실계정에서 부분청산이 reduce-only 체결 확인 뒤 한 번만 기록되고 마지막 잔여 수량은 완전청산 통계로 이어지는지 확인
+- 인증 개인 체결 스트림을 연결한 거래소는 공개 시세 WS와 별개로 건강 상태가 표시되고, 끊김 뒤 마지막 커서 이후 REST 증분 복구가 중복 없이 이어지는지 확인
+- 전략 검증 연구소의 미사용 구간·워크포워드·비용/파라미터 민감도·몬테카를로·과최적화·PAPER 결과를 확인하고 `auto_promoted=false`인지 확인
+- `.noahstrategy` 6단계 구현 시 API 키·계좌·잔고·개인 거래·로컬 절대경로·승인/활성 상태가 포함되면 내보내기/가져오기가 모두 실패 폐쇄되는지 확인
 - 대시보드 하단에 `v3.9.0.5 최소주문·포지션 갱신 공통 계약` 요약과 `업데이트·사용법` 버튼이 노출되는지 확인
 - 1500×980과 배포 최소 지원 해상도에서 하단 3영역이 한 줄로 유지되고 거래소·분석 탭의 마지막 카드·버튼이 잘리지 않는지 확인
 - macOS와 Windows에서 상단 서비스·매뉴얼·설정·종료 아이콘의 모양·크기·정렬이 동일한지 확인
@@ -186,12 +208,17 @@ OS별 권한/경로 팁
 - 가상환경 구성 및 의존성 설치(프로젝트 루트에서 실행)
 
 빌드 실행(Windows EXE 기준)
-1) 안전 스펙 생성 및 빌드
-   - `noahai_client/build_safe.py`를 실행하면 임시 스펙(`aiautotrade_safe.spec`) 생성 후 PyInstaller 빌드 수행
-2) 산출물 확인
+1) 원클릭 빌드 및 릴리스
+   - `powershell -ExecutionPolicy Bypass -File scripts/build_release_windows.ps1`
+   - 로컬 빌드만 필요하면 `-BuildOnly` 추가
+2) 안전 스펙 생성 및 빌드
+   - 스크립트가 `build_safe.py`를 호출해 임시 스펙(`aiautotrade_safe.spec`) 생성 후 PyInstaller 빌드 수행
+3) 산출물 확인
    - dist/AITrading.exe 생성 확인 → deploy/AITrading.exe로 자동 복사됨
-3) 무결성 체크
-   - dist/deploy 폴더 내에 PyQt5/PySide/Qt 관련 파일이 없는지 확인(아래 사후 점검 참고)
+4) 무결성 체크
+   - `tkinter`, `customtkinter`, `_tkinter.pyd`, `_tcl_data/init.tcl`, `_tk_data/tk.tcl` 포함 확인
+   - 공식 VC143 단일 세트, EXE 버전, manifest SHA-256, GitHub 원격 asset digest 일치 확인
+   - PyInstaller 로그에 `tkinter installation is broken` 또는 `missing module named tkinter`가 있으면 빌드 실패 처리
 
 플랫폼별 빌드 (build_safe.py --platform)
 - 운영 배포 기준(고정): Windows `python build_safe.py --platform windows` → dist/AITrading.exe → deploy/AITrading.exe 자동 복사
@@ -227,7 +254,7 @@ OS별 권한/경로 팁
 4) 태그 기반 배포 실행
   - 버전 업데이트 커밋 후 `git tag v3.9.0.5` / `git push origin v3.9.0.5`
   - 이후 버전도 동일 패턴
-  - Windows 자동화 스크립트 사용 가능: `powershell -ExecutionPolicy Bypass -File scripts/release_tag_push.ps1 -Version 3.9.0.5 -Branch main -PushBranch`
+  - Windows 자동화 스크립트 사용 가능: `powershell -ExecutionPolicy Bypass -File scripts/release_tag_push.ps1 -Version 3.9.0.8 -Branch main -PushBranch`
 
 전환 운영 기준(질문 반영)
 - `v3.9.0.5`:

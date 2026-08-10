@@ -17,6 +17,41 @@ import time
 from .openai_client import OpenAIClient
 
 
+def ai_workload_route_status(
+    settings: Optional[Dict[str, Any]],
+    workload: str = "analyst",
+) -> Dict[str, Any]:
+    """레거시 ``openai_api_key``가 아닌 실제 workload route의 준비 상태를 반환한다."""
+    from .provider_router import AIProviderRouter
+
+    router = AIProviderRouter.from_settings(settings or {}, workload=workload)
+    return {
+        "ready": bool(router.adapter.is_ready()),
+        "provider": router.spec.provider,
+        "model": router.adapter.model,
+        "api_key": str(router.adapter.client.api_key or ""),
+        "base_url": router.adapter.client.base_url,
+    }
+
+
+def create_ai_manager_from_settings(
+    settings: Optional[Dict[str, Any]],
+    workload: str = "analyst",
+) -> Optional["AIManager"]:
+    """선택한 Provider에 실제 키가 있을 때만 AIManager를 생성한다."""
+    status = ai_workload_route_status(settings, workload=workload)
+    if not status["ready"]:
+        return None
+    return AIManager(
+        api_key=status["api_key"],
+        model=status["model"],
+        base_url=status["base_url"],
+        settings=settings or {},
+        provider=status["provider"],
+        workload=workload,
+    )
+
+
 class AIManager:
     def __init__(
         self,

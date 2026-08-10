@@ -185,7 +185,7 @@ def test_ai_assistant_injects_settings_reference_and_has_offline_fallback():
     )
     assert "def _settings_knowledge_for_question" in source
     assert 'context = f"{settings_knowledge}\\n\\n[현재 거래 상황]\\n{context}"' in source
-    assert "외부 AI 호출 없이 설치된 v3.9.0.5 설정 정본" in source
+    assert "외부 AI 호출 없이 호환 설정 계약 정본" in source
     assert "('docs', 'docs')" in (ROOT / "aiautotrade.spec").read_text(encoding="utf-8")
 
 

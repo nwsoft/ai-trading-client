@@ -2,6 +2,7 @@ import importlib.util
 import json
 import logging
 from pathlib import Path
+import psutil
 
 from trading.custom_strategy_presets import (
     get_beginner_preset,
@@ -64,6 +65,34 @@ def test_runtime_session_detects_unclean_exit_and_clean_shutdown(tmp_path, monke
         item["event"] == "clean_shutdown" and item["reason"] == "test_shutdown"
         for item in events
     )
+
+
+def test_live_parallel_pid_is_not_reported_as_unclean_shutdown(tmp_path, monkeypatch):
+    marker = tmp_path / "runtime_session.active.json"
+    marker.write_text('{"pid": 98765, "started_at": "2026-08-03T00:00:00Z"}', encoding="utf-8")
+    monkeypatch.setattr(runtime_stability, "_runtime_dir", lambda: tmp_path)
+    monkeypatch.setattr(runtime_stability, "_process_is_running", lambda pid: int(pid) == 98765)
+    runtime_stability._SESSION_MARKER = None
+    runtime_stability._CRASH_LOG = None
+    runtime_stability._FATAL_EXCEPTION_SEEN = False
+
+    result = runtime_stability.begin_runtime_session()
+
+    assert result["previous_unclean"] is False
+    assert result["parallel_session"] is True
+
+
+def test_windows_runtime_pid_probe_avoids_os_kill_system_error(monkeypatch):
+    monkeypatch.setattr(runtime_stability.sys, "platform", "win32")
+    monkeypatch.setattr(psutil, "pid_exists", lambda pid: int(pid) == 777)
+    monkeypatch.setattr(
+        runtime_stability.os,
+        "kill",
+        lambda *_args: (_ for _ in ()).throw(SystemError("windows os.kill failure")),
+    )
+
+    assert runtime_stability._process_is_running(777) is True
+    assert runtime_stability._process_is_running(778) is False
 
 
 def test_beginner_catalog_is_one_auto_plus_four_reviewable_templates():
@@ -201,7 +230,10 @@ def test_feedback_surfaces_expose_trade_scope_and_preset_handoff():
     assert "아래를 비우면 모든 활성 거래소가 학습 전용으로 시작됩니다." in settings_source
     assert "'trade_enabled_exchanges': trade_exchange_values" in settings_source
     assert "초보자 시작: AI 자동 대응 + 검토용 기본 전략 4개" in custom_source
-    assert "고급모드 · 안전한 다중 시간대 규칙 편집" in custom_source
+    guidance_source = (ROOT / "ui" / "ai_custom_guidance.py").read_text(encoding="utf-8")
+    assert "AI_CUSTOM_RULE_EDITOR_TITLE" in custom_source
+    assert 'AI_CUSTOM_RULE_EDITOR_TITLE = "다중 시간봉 규칙 편집 (선택)"' in guidance_source
+    assert "12단계 자세히" in custom_source
     assert "load_beginner_preset" in assistant_source
     assert "begin_runtime_session" in main_source
     assert "학습 전용 실행 - 시세·분석·학습은 수행하고 신규 실주문은 차단합니다." in main_source

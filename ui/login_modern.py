@@ -16,6 +16,7 @@ import requests
 from datetime import datetime
 from PIL import Image
 from api.kpi_client import emit_kpi_event
+from utils.log_safety import membership_log_summary
 
 # 고정 색상 import
 sys.path.append(os.path.dirname(os.path.dirname(__file__)))
@@ -419,7 +420,7 @@ class LoginWindow:
             }
 
             print(f"로그인 API 호출: {self.backend_url}")
-            print(f"전송 데이터: {{'id': '{username}', 'password': '********'}}")  # 표시만 마스킹
+            print("전송 데이터: id_present=True, password=********")
 
             response = requests.post(
                 self.backend_url,
@@ -432,7 +433,7 @@ class LoginWindow:
 
             if response.status_code == 200:
                 response_data = response.json()
-                print(f"로그인 성공 응답: {response_data}")
+                print(f"로그인 성공 요약: {membership_log_summary(response_data)}")
                 emit_kpi_event(
                     event_type="login_success_api",
                     category="auth",
@@ -449,7 +450,7 @@ class LoginWindow:
                 # 400 오류 시 응답 내용도 출력
                 try:
                     error_detail = response.json()
-                    print(f"오류 응답 내용: {error_detail}")
+                    print(f"로그인 실패: HTTP {response.status_code}")
                     emit_kpi_event(
                         event_type="login_failed",
                         category="auth",
@@ -464,7 +465,7 @@ class LoginWindow:
                     )
                     return {'detail': f'API 호출 실패: {response.status_code} - {error_detail}'}
                 except:
-                    print(f"응답 텍스트: {response.text}")
+                    print(f"로그인 실패: HTTP {response.status_code} (비 JSON 응답)")
                     emit_kpi_event(
                         event_type="login_failed",
                         category="auth",

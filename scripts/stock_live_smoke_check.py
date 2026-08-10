@@ -43,6 +43,8 @@ def _should_skip(row: Dict[str, Any]) -> Tuple[bool, str]:
         return True, "invalid api_type/api_version"
     if row.get("execution_mode") != "live_api":
         return True, "not live_api path"
+    if not row.get("maturity_implemented", False):
+        return True, f"unimplemented maturity: {row.get('maturity_status', 'unknown')}"
     if not row.get("credentials_ready"):
         missing = ",".join(row.get("missing_credentials") or [])
         return True, f"missing credentials: {missing}"
@@ -116,7 +118,8 @@ def main() -> int:
             adapter = ExchangeFactory.create_stock_exchange(broker, settings)
             notes = _check_adapter(adapter)
             is_ok = all("error:" not in note and "fail:" not in note for note in notes)
-            print(f"- {broker:<12} {'OK' if is_ok else 'FAIL'} | {' | '.join(notes)}")
+            result_label = "READ_ONLY_OK" if is_ok else "FAIL"
+            print(f"- {broker:<12} {result_label} | {' | '.join(notes)}")
             if not is_ok:
                 failures.append((broker, notes))
         except Exception as exc:
@@ -131,7 +134,7 @@ def main() -> int:
         print(f"- 결과: FAIL ({len(failures)} broker)")
         return 1
 
-    print(f"- 결과: PASS ({executed} broker)")
+    print(f"- 결과: PASS_READ_ONLY ({executed} broker, 실주문 성숙도는 변경되지 않음)")
     return 0
 
 

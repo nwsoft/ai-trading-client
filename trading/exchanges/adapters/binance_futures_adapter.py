@@ -125,13 +125,33 @@ class BinanceFuturesAdapter(FuturesExchange):
             self.log_event('system', f"바이낸스 미체결 주문 조회 실패: {e}", level='ERROR')
             return []
     
-    def get_trade_history(self, symbol: Optional[str] = None, limit: int = 100) -> List[Dict[str, Any]]:
+    def get_trade_history(
+        self,
+        symbol: Optional[str] = None,
+        limit: int = 100,
+        since_ms: Optional[int] = None,
+        from_id: Optional[str] = None,
+    ) -> List[Dict[str, Any]]:
         if not self.is_connected or not self.client:
             return []
         try:
             if symbol:
-                return self.client.get_trade_history(symbol, limit)
-            return self.client.get_recent_trades('', limit)
+                if since_ms is None and from_id is None:
+                    return self.client.get_trade_history(symbol, limit)
+                try:
+                    return self.client.get_trade_history(
+                        symbol, limit, since_ms=since_ms, from_id=from_id
+                    )
+                except TypeError:
+                    return self.client.get_trade_history(symbol, limit)
+            if since_ms is None and from_id is None:
+                return self.client.get_recent_trades('', limit)
+            try:
+                return self.client.get_recent_trades(
+                    '', limit, since_ms=since_ms, from_id=from_id
+                )
+            except TypeError:
+                return self.client.get_recent_trades('', limit)
         except Exception as e:
             self.last_error = str(e)
             self.log_event('system', f"바이낸스 거래내역 조회 실패: {e}", level='ERROR')

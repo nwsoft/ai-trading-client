@@ -151,8 +151,18 @@ Windows 레지스트리에 해당 ProgID(`KHOPENAPI.KHOpenAPICtrl.1`)가 없으�
 4. **allow_live_order 플래그**: 실주문을 위해서는 아래 2개가 모두 true 여야 함
    - 환경설정 > 증권 실주문 활성화 (`enable_stock_live_order`)
    - `data/settings.json` > `stock_broker_configs.kiwoom.allow_live_order: true`
+5. **실행 모드**: `paper_trading=true`이면 위 두 값과 무관하게 PAPER이며 외부 주문이 나가지 않음
+6. **런타임 준비**: 위 권한과 별도로 OpenAPI+ 로그인·OCX·계좌·SendOrder 준비상태가 정상이어야 함
 
 **로그 확인 방법**: KIWOOM 탭 > 전체 로그 체크 → "ERROR" 또는 "키움증권 연결" 메시지 확인
+
+#### 문제: 신한/미래에셋 API 이름은 맞는데 연결되지 않음
+
+- 신한은 `partner_rest/shinhan_openapi_v2`, 미래에셋은 `partner_rest/mirae_partner_profile`을 사용합니다.
+- 두 경로는 임의 공개 URL이 아니라 증권사 제휴 계약에서 받은 `partner_profile`의 운영 URL·토큰 경로·엔드포인트를 사용합니다.
+- 프로필이 빠졌다면 다른 증권사의 URL로 대신 호출하지 않고 `계약 프로필 미완료`로 실패 폐쇄됩니다.
+- `xingapi`는 LS증권 API이며 신한 설정으로 사용하면 안 됩니다.
+- 상세 형식은 `docs/STOCK_BROKER_CONTRACTS_v3.9.0.5.md`를 확인하세요.
 
 ---
 

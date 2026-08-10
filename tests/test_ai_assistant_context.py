@@ -161,7 +161,7 @@ class AIAssistantContextTests(unittest.TestCase):
         self.assertIsNotNone(result)
         self.assertNotIn("proposal", result)
         self.assertIn("현재 이미 ‘평가 계속’", result["message"])
-        self.assertIn("설정 → 고급 자동매매 → 전략 엔진 세부 설정", result["message"])
+        self.assertIn("설정 → 고급 매매 계층 → 전략 엔진 세부 설정", result["message"])
         self.assertIn("가드레일", result["message"])
         self.assertIn("보장", result["message"])
 
@@ -206,14 +206,10 @@ class AIAssistantContextTests(unittest.TestCase):
         )
 
         self.assertIn("현재 AI 커스텀 실자동매매 사용 스위치: OFF", response)
-        self.assertIn("사용자 승인 → 자동검증 → 최종 적용", response)
-        self.assertIn("실행 엔진 적용값", response)
-        self.assertIn("상위 전략 운영 계층", response)
-        self.assertIn("기존 전략을 저장 대상으로 골라 새 버전", response)
-        self.assertIn("기본/재확인 역할은 NoahAI 합의·수익성·공통 안전 경계", response)
-        self.assertIn("독립 역할은 기본 AI 합의·전체 수익성으로 재심사하지 않으며", response)
-        self.assertIn("전략 UniversePolicy", response)
-        self.assertIn("전체 시장(권장)·종목·둘 다·사용 안 함", response)
+        self.assertIn("v3.9.0.8 AI Custom Update", response)
+        self.assertIn("원문의 어느 문장·화면이 어떤 IR 노드", response)
+        self.assertIn("Level 1", response)
+        self.assertIn("미지원은 차단", response)
 
     def test_multi_venue_help_reports_current_policy_and_parallel_meaning(self):
         widget = self._make_widget()

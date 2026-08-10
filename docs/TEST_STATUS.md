@@ -1,4 +1,138 @@
-## v3.9.0.5 소스·출시 준비 검증 (2026-07-31)
+## v3.9.0.8 AI Custom Update 검증 (2026-08-10)
+
+- 기존 P1~P3 신규 기능 집중 회귀: `35 passed`
+- 버전·대시보드 매뉴얼·AI 어시스턴트 지식까지 포함한 집중 회귀: `94 passed`
+- 확인 계약: 초보자/일반/고급/실험실 프로필과 개별 게이트, 종속 기능 fail-closed, 중첩 Expression Graph, 제한형 사용자 지표 AST와 임의 코드 차단, IR 노드/의존성, 총 PnL·MDD·월별/연별 표, 백테스트 단독 자동 승격 차단, `.noahstrategy` 변조/민감정보 차단과 비활성 가져오기, webhook 서명/시간/중복 차단, 품질/재생 diff/감사 계약
+- Python 구문 검사: 변경 Python/UI 모듈 `PASS`; 설정 템플릿 JSON 파싱 `PASS`
+- 전체 회귀: `1,411 passed, 6 skipped`
+- 문서·버전 정합성: `PASS`
+- 빌드 포함 검사: `PASS`
+- 활성 소스 감사: `PASS` — 활성 Python 337개, 구문 실패 0, 금지 활성 소스 0, 격리 아티팩트 16개 정상
+- 외부 미검증: Windows 설치본 화면/설정 저장, 실제 TradingView 재생·webhook, 장시간 PAPER/LIVE, 회원/팀 서버 공유, 인증 B2B API, 결제·정산·법무
+
+## AI 커스텀 Noah Strategy IR v1 검증 (2026-08-09)
+
+- IR·파이프라인·런타임·한국어 RSI 변환 집중 회귀: `34 passed`
+- 확인 계약: canonical rules 무손실 왕복, Level 1·2·3 동일 계약, 모든 실행 노드 근거, capability 판정, `supported / needs_clarification / unsupported`, 규칙·IR 변조 차단, 레거시 저장 버전 승격, 선언형 RSI 진입 평가, 활성 풀 재검증
+- 실제 CustomTkinter 생성 스모크: Level 1 기본 표시, Level 3 안전 DSL 표시, Level 2 복귀, 대표 한국어 RSI 원본의 `supported`·근거 `2/2`·전체 IR 렌더 `PASS`
+- 문서·버전 정합: `PASS`
+- 전체 회귀: `1,397 passed, 6 skipped, 2 failed`. 실패 2건은 이번 변경 경로가 아니라 `deploy/release-manifest.json`의 실제 `build_status=built`와 과거 `pending_windows_rebuild`를 고정 기대하는 릴리스 메타데이터 테스트 불일치
+- 위 알려진 릴리스 기대값 2건을 제외한 전체 회귀: `1,397 passed, 6 skipped, 2 deselected`
+- 미검증: Windows 설치본 실제 화면, Pine·PDF·영상 코퍼스 의미 동등성, 실제 계정 장시간 PAPER/LIVE, 실체결·재시작 복구. 사용자 절차는 `AI_CUSTOM_FEATURE_TEST_AND_FEEDBACK_GUIDE_20260809.md` 참조
+
+## v3.9.0.7 Fix Patch 3 검증 (2026-08-08)
+
+- 소스 집중 회귀: VC 단일 세트 검증·최신 공식 세트 선택·혼합/구형 차단·PyQt 보존·ONNX/PaddleOCR 지연 로드·검증 실패 exit code `7 passed`
+- UI 탭 실제 파괴·콜백 정리·Windows 리소스 probe, 거래소 컨텍스트·Binance 런타임 범위, KRW 현물 dust·관리수량 정책 집중 회귀: `PASS`
+- 클라이언트 전체 회귀: `1,377 passed, 6 skipped`
+- 문서·버전 정합, 빌드 포함 검사, 활성 소스·격리 감사: `PASS`
+- PyQt5는 키움 QAxWidget 지원을 위해 유지하며 `pyi_rth_pyqt5` 제거를 해결책으로 사용하지 않음
+- macOS에서는 Windows PE/VC 파일의 정책과 소스 테스트까지만 가능하며 새 EXE는 `pending_windows_rebuild`
+- Windows 빌드 후 완성 EXE의 하위 VC DLL 0개·공식 원본 SHA-256·Kiwoom·OCR·제보 PC Binance PAPER, 서비스/거래소 100회 전환 USER/GDI 상한, Bitget-only 무-Binance 호출, Bithumb/Upbit 소액 체결을 별도 확인해야 함
+- 공개 Fix Patch 2 EXE는 `previous_published_asset`으로 보존하고 Fix Patch 3 자산과 혼용하지 않음
+
+## v3.9.0.7 Fix Patch 2 검증 (2026-08-08)
+
+- 개인정보 allowlist·Windows PID·활성 로그 비삭제·원문 응답 로그 금지 집중 회귀: `22 passed`
+- 설정창 레이아웃·모달 복구·창별 아이콘 캐시·하단 버튼 축소 집중 회귀: `5 passed`
+- 클라이언트 전체 회귀: `1,354 passed, 6 skipped`
+- 문서·버전 정합, 빌드 포함 검사, 활성 소스·격리 감사: `PASS`
+- Windows EXE·SHA-256·설치 후 로그인 로그·회전·재시작 E2E는 `pending_windows_rebuild`
+- 공개 당시 Fix Patch 1 EXE를 비교 자산으로 보존했으며, 현재는 Fix Patch 2가 Fix Patch 3의 `previous_published_asset`임
+
+## v3.9.0.7 Fix Patch 1 검증 (2026-08-07)
+
+- daltrading 전체 회귀: `52 passed, 3 subtests passed`
+- 클라이언트 전체 회귀: `1,344 passed, 6 skipped`
+- 문서·버전·릴리스 자산·AI 키 없는 시작·일시 상태 장애·명시적 세션 종료 집중 회귀: `16 passed`
+- 운영 daltrading: SHA `dc827ec`, 서비스 active, 로그인 쿠키 전략 허브와 관리자 암호화 Affiliate 키 설정 배포
+- 운영 Affiliate 자동조회 준비: Binance·Bybit·OKX·Bitget 모두 실제 자격증명 미입력으로 `manual_fallback`; 관리자 설정 저장·마스킹·삭제·기존 pending 재검증 경로는 자동 회귀 통과
+- Windows EXE는 `pending_windows_rebuild`; 사용자가 Windows에서 재빌드·SHA·설치 검증하기 전 소스 수정 배포 완료로 보지 않음
+
+## v3.9.0.7 Source Candidate 2 검증 (2026-08-06)
+
+- daltrading 전체 회귀: `45 passed, 3 subtests passed`
+- 클라이언트 레퍼럴 로컬 UID·Secret 비전송·정책 집중 회귀: `11 passed`
+- Python 구문 검사: `referral_account_proof.py`, `membership_policy.py`, `ui/settings_modern.py`, `config/app_version.py` 통과
+- 운영 daltrading: SHA `e534f92`, 웹 서비스 active, 재검증 timer active/job success, 홈·레퍼럴 가입 HTTP 200, 무인증 자동검증 401
+- 운영 Affiliate 환경파일: 권한 600, 실제 Bybit·Bitget·OKX 조회 전용 값 미입력으로 모두 `manual_fallback`
+- 전체 클라이언트 회귀는 임시 테스트 환경의 `numpy/loguru/websocket` 미설치로 수집하지 못했으며 기존 Source Candidate 1 전체 회귀를 이번 변경 완료 근거로 재사용하지 않는다.
+- Windows EXE·실제 Affiliate UID 자동 승인·LEARNING/PAPER는 `pending_windows_rebuild` 및 외부 계정 검증 전이다.
+
+## v3.9.0.7 Source Candidate 1 검증 (2026-08-05)
+
+### 레퍼럴 UID 귀속·공식 클라이언트 권한 집중 검증
+
+- daltrading 전체 자동 회귀: **41 passed, 3 subtests passed, 0 failed**
+- NoahAI 레퍼럴 정책·설정·실행 안전 집중 회귀: **32 passed, 0 failed**
+- 확인 계약: UID 암호화 저장·마스킹 응답, 미승인 allowed_exchanges 제외, verified만 허용, 유료 등급 면제, 설정 API/거래소 선택 제어, 시작 게이트 소스
+- NoahAI 전체 자동 회귀: **1,336 passed, 6 skipped, 0 failed** (`.venv/bin/python -m pytest -q`, 2026-08-05)
+- 문서 정합: **PASS** (`.venv/bin/python scripts/doc_consistency_check.py`)
+- 빌드 포함 검사: **PASS** (`.venv/bin/python verify_build_includes.py`)
+- 활성 소스·격리 감사: **PASS**, 활성 Python 310개·구문 실패 0·격리 아티팩트 16개 정상 (`.venv/bin/python scripts/active_source_audit.py`)
+- daltrading 운영 배포·실제 Affiliate Portal UID 대사·브라우저 E2E·Windows EXE: **`pending_windows_rebuild`**, 외부 검증 전
+
+## v3.9.0.6 Source Candidate 2 검증 (2026-08-04)
+
+### 체결 조회 API 예산·증분 동기화 집중 검증
+
+- AI 커스텀 1~5단계 소스 후보 집중 회귀: **15 passed** — 고급 주문 계획 fail-closed·부분청산 체결 상태, AI 멘토·버전 diff, 검증 연구소·PAPER 기록, 전략 충돌 HOLD·강등 제안, 공통 주문 상태·인증 체결 큐
+- 분석 10초 주기 반복 호출 방지, LIVE 저빈도 증분 커서, LEARNING 개인 체결 API 미호출, 미확정 주문 ID 전용 재조회, 수동 전체 백필 분리, 로컬 realized PnL·커서 보존: **5 passed**
+- CCXT `since` 전달과 기존 체결 기능 계약, 공통 원장·갱신·통화 정합 확대 집중 회귀: **45 passed**
+- 전체 자동 회귀: **1,332 passed, 6 skipped, 0 failed** (`.venv/bin/python -m pytest -q`, 2026-08-04)
+- 문서 정합·빌드 포함·활성 소스/격리 감사: **PASS**
+- Windows EXE·거래소/증권 SDK별 인증 사용자 체결 스트림 바인딩·실계정 부분청산/복구·장시간 실행: `pending_windows_rebuild`, 외부 검증 전
+
+### 사용자 `data/260802_Teayu` 기반 집중 검증
+
+- SQLite `quick_check`: `ok`
+- Source Candidate 1 당시 전체 자동 회귀: **1,308 passed, 6 skipped**
+- 거래소 원본 심볼·무이력 학습 임계값·KRW/USDT 분리·챔피언–챌린저·동시 실행 종료 진단 집중 회귀 포함 PASS
+- 문서/버전 정합 검사, 빌드 포함 검사, 활성 소스·격리 감사: PASS
+- 사용자 DB에는 기존 `reason=binance_import` 행 4,800건이 보존되어 있으며 최근 7일 200건이 원시 fill 성과로 중복 편입돼 있었습니다. 제외 후 challenger는 494건, `USDT -2.4001`, `KRW +112.0228`로 분리되고 금액 우열은 `inconclusive_currency_boundary`입니다.
+- Windows EXE: `pending_windows_rebuild`; 실제 API 주문·재시작·장시간 실행은 미검증
+- 기존 v3.9.0.5 검증 이력은 아래에 보존합니다.
+
+## v3.9.0.5 소스·출시 준비 검증 (2026-08-01)
+
+### 2026-08-01 Fix Patch 5 · 갱신 생존성·체결 원장 연결 검증
+
+- 전체 자동 회귀: **1,298 passed, 6 skipped, 0 failed** (`.venv/bin/python -m pytest -q`, 2026-08-02)
+- Fix Patch 5 집중 회귀: **6 passed** — Map 이벤트 없는 숨김→표시 자동 복구, CCXT LIVE 진입·청산 성과 원장 연결과 멱등성, Binance 네이티브 공통 체결 원장, AI 리포트 실제 체결 조회, 사용자 구형 DB의 미청산 행·거래소 식별자 보존형 시작 마이그레이션, DB 준비 실패 시 거래 초기화 차단
+- 인앱 실거래 필수 안내 집중 회귀: **5 passed** — Fix Patch 설치 식별, 최초 1회 안내 확인 저장, 대시보드·설정 상시 진입점, 매뉴얼 독립 탭, 6개 거래소·4개 증권사·회원등급·LIVE 조건 정본
+- PAPER 대시보드·실행모드·계좌 상태 집중 회귀: **23 passed** — LIVE 저장소 혼입 차단, Binance/통합 PAPER 저장소, 가상 PnL 요약
+- 주문 안전·학습 파이프라인 집중 회귀: **26 passed**
+- 계좌 상태 컨트롤러·대시보드 집중 회귀: **47 passed**
+- 활성 소스 감사: **PASS** (`.venv/bin/python scripts/active_source_audit.py`) — Python 구문, 금지/충돌 소스, `ModernDashboard` 정의 전용 메서드 0개, 외부 격리 16개 SHA-256, 증권 4개 계약, 필수 문서
+- 빌드 포함 검증: **PASS** (`.venv/bin/python verify_build_includes.py`)
+- 문서·버전 정합: **PASS** (`.venv/bin/python scripts/doc_consistency_check.py`)
+- 소스 검증 경계: Windows EXE, 실제 거래소/증권사 계정, 키움 OCX, 실제 주문·취소·체결, 재시작 후 복구, 24~72시간 갱신 지속성은 증명하지 않음
+- 배포 manifest: **`pending_windows_rebuild`**. 공개 Fix Patch 1 EXE와 Fix Patch 5 소스를 구분
+- 직전 사용자 재현 Fix Patch 4 EXE는 `previous_tested_asset`으로 보존하며, Fix Patch 5 배포 자산의 size·SHA는 Windows 재빌드 전까지 비워 둠
+
+### 2026-08-01 Fix Patch 3 · 증권사 공식 계약·LIVE AND 권한
+
+- 증권 공식 계약 집중 회귀: **7 passed** — 설정 자동 이전, 잘못된 XingAPI/KIS 혼선 제거, LIVE AND 권한, KIS 공식 헤더/TR ID/실전·모의 주문, 신한 HMAC 봉투
+- 증권 경계·팩토리·어댑터 확대 회귀: **131 passed, 6 skipped**
+- 4개 증권사 Mock 연결·잔고·계좌·포지션 진단: **28 OK, 0 FAIL** (`scripts/verify_stock_broker_connection.py --all_brokers --no_save`; 실계정 증거 아님)
+- 전체 자동 회귀: **1,277 passed, 6 skipped, 0 failed** (`.venv/bin/python -m pytest -q`, 2026-08-01)
+- Python 구문·설정 템플릿 JSON 검사: **PASS**
+- 미검증: Windows 빌드/키움 OCX, 실제 증권 계약 계정의 연결·잔고·포지션·소액 주문·취소·체결내역, 배포 후 재시작·장시간 안정성
+
+### 2026-08-01 Fix Patch 2 · 확정 체결·통계 복구·Binance 포지션
+
+- 구조 감사 집중 회귀: **79 passed** — 공통 어댑터 단일 정본과 Bithumb 정상 0건 뒤 재조회 포함
+- 관련 거래소·증권·대시보드 확대 회귀: **144 passed, 6 skipped**
+- 미사용·손상 위젯 격리 후 전체 활성 소스 compileall: **PASS**
+- 증권 API 성숙도 계약: **15개 등록 조합 확인**, 미구현 2개 생성 차단, 나머지 실계정 미검증 경로 실주문 실패 폐쇄
+- 빌드 구조 검증: **PASS** — spec 단일 생성기, Python 소스 datas 이중 번들·폐기 테마 제거, Windows hidden import 판정 수정
+- 전체 자동 회귀: **1,269 passed, 6 skipped, 0 failed, 0 warnings** (`.venv/bin/python -m pytest -q`, 2026-08-01)
+- 집중 회귀: **26 passed** — 주문 ID별 체결 복구, 미확정 주문 체결 오인 차단, 거래소·주문 ID 청산 연결, Binance 포지션 시간 재동기화·정본 클라이언트 포함
+- Python 구문 검사: **PASS**
+- 문서·버전 정합성: **PASS**
+- `prekey` 게이트 기능 검사는 통과했으나 현재 폴더에 `.git`이 없어 `SYNC_GUARD` 단계는 **FAIL**
+- manifest: `pending_windows_rebuild`; 새 EXE 크기·SHA 비움, 직전 공개 Fix Patch 1 자산은 `previous_published_asset`에 보존
+- 미검증: Windows EXE, 실계정 6개 거래소 주문 계약, Bithumb 최소 매수·매도·복구, Binance 포지션 장시간 갱신, 24~72시간 안정성
 
 ### 2026-07-31 Update Patch 1 · 거래소 공통 원장·화면 조회·자동업데이트
 
@@ -6,7 +140,7 @@
 - 최소 주문 규격·포지션 갱신 후속: Binance 제출 직전 필터, 5개 CCXT market limit·정밀도, KRW 5,000원 폴백, 위험 분할 후 재검증, 거래소·증권 비동기 포지션 갱신 포함
 - Update Patch 1 집중 회귀: **78 passed** — 5개 CCXT 새 주문·체결/완료주문 폴백 기능 계약과 실행 중 원장 정합화, raw `closed` 성공/취소 실패, Bithumb 원장·통계 분리, 최신 PAPER/LIVE 동기화, 전역 읽기 조회·상한 UI 큐, 15초 최초/설정 주기, 동일 버전 SHA, GitHub 외 URL 차단 포함
 - 수정 파일 Python 구문 검사: **PASS**
-- 공개 v3.9.0.5 Fix Patch 1 EXE는 `362,546,781`바이트, SHA-256 `ec2e7404cf5c94eef6316b708a7df6468d882cfbffd0747687007c07a2045d22`
+- 공개 v3.9.0.5 Fix Patch 1 EXE는 `362,674,458`바이트, SHA-256 `1508310500f27ce91dc0148b49371da58daa51d5b2a783eca921c851ece74f67`
 - 현재 Update Patch 1 manifest: `pending_windows_rebuild`, 새 EXE 크기·SHA는 의도적으로 비어 있고 공개 Fix Patch 1 자산은 `previous_published_asset`으로 분리
 - Windows 새 EXE의 Bybit LIVE 최소단위 주문, Bithumb 매수·매도·통계 동기화, 서비스 왕복 잔고, Fix Patch 1 자동업데이트는 사용자 빌드 후 외부 검증 게이트
 
@@ -41,7 +175,7 @@
 - Claude Sonnet 5·Opus 5·Fable 5, Gemini 3.5 Flash-Lite·3.6 Flash, Kimi K3·K2.6 공식 기준 목록 반영
 - 실제 자격증명 검증 도구: 설정의 `실제 API 기능 검증`, `scripts/ai_provider_preflight.py`
 - 외부 게이트: Windows 서명 후보 빌드에서 약 10명의 사용자 겸 테스터가 각자 보유한 Provider 키로 텍스트·JSON·usage·error·선택적 전사를 검증
-- 실제 Kimi 키 E2E 전이므로 표시는 **Kimi NoahAI 시험 연동** 유지
+- Kimi 공식 Open Platform의 OpenAI 호환·JSON Mode·비전 계약에 맞춰 정식 Provider로 등록. 실제 계정 권한은 앱의 `실제 API 기능 검증`에서 별도 확인
 
 - Teayu 안정성·주문 범위·AI 커스텀 고급모드·탭 callback 수명주기·업데이트 P0·Claude/Gemini·문서 정합 반영 전체 자동 회귀: **1128 passed, 6 skipped, 0 failed, 3 warnings**
 - 업데이트 캐시 타겟 복구·시간대 정규화·성능 로그 회전·명시적 주문 범위 집중 회귀: **10 passed**

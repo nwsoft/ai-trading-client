@@ -46,6 +46,10 @@ from .opportunity_coordinator import (
 from .profitability_validation import ProfitabilityValidator
 from .strategy_engine import StrategyEngine
 from .custom_strategy_runtime import apply_engine_settings_to_trade_config
+from .custom_strategy_order_plan import (
+    confirm_order_plan_action,
+    evaluate_order_plan,
+)
 from .trade_candidate import apply_trade_candidate, evaluate_trade_candidate
 from .selection_policy import (
     SelectionPolicy,
@@ -170,11 +174,10 @@ class UnifiedTrader:
             if not hasattr(self, 'recorder') or not self.recorder:
                 return 0.0
 
-            coin = str(symbol or '').replace('USDT', '')
             trades: List[Dict[str, Any]] = []
             method = getattr(self.recorder, 'get_recent_trades', None)
             if callable(method):
-                rt = method(coin=coin, exchange=exchange_name, days=days)
+                rt = method(symbol=symbol, exchange=exchange_name, days=days)
                 if isinstance(rt, list):
                     trades = [t for t in rt if isinstance(t, dict)]
 
@@ -435,6 +438,9 @@ class UnifiedTrader:
         self.trade_enabled_exchanges = self._compute_trade_enabled_exchanges()
         self.learning_enabled_exchanges = self._compute_learning_enabled_exchanges()
         self._initialized_exchanges = set()
+        self._runtime_execution_sync_state: Dict[str, float] = {}
+        self._runtime_receipt_sync_state: Dict[str, float] = {}
+        self._runtime_execution_sync_failures: Dict[str, int] = {}
         try:
             self._winrate_window = max(1, int(self.settings.get('risk_winrate_window', 10)))
         except Exception:
@@ -818,27 +824,240 @@ class UnifiedTrader:
         except Exception:
             return {}
 
+    def _get_local_trade_samples_unified(
+        self,
+        exchange_name: str,
+        *,
+        limit: int,
+    ) -> List[Dict[str, Any]]:
+        """수익성 판단용 표본을 네트워크 없이 로컬 DB에서 읽는다.
+
+        진입-청산이 연결된 ``trade_log``를 우선하고, 아직 완료 거래가 없으면
+        거래소 확정 체결 원장을 보조 표본으로 사용한다. 전체 체결 목록 API가
+        분석 10초 주기와 결합되지 않게 하는 것이 핵심이다.
+        """
+        recorder = getattr(self, 'recorder', None)
+        completed_getter = getattr(recorder, 'get_recent_trades', None)
+        if callable(completed_getter):
+            try:
+                rows = completed_getter(
+                    coin='', exchange=str(exchange_name or '').lower(), days=30
+                ) or []
+                completed = [dict(row) for row in rows if isinstance(row, dict)]
+                if completed:
+                    return completed[:max(1, int(limit))]
+            except (TypeError, ValueError):
+                pass
+            except Exception as exc:
+                self.logger.warning(
+                    f"{exchange_name} 로컬 완료 거래 조회 실패: {exc}"
+                )
+
+        execution_getter = getattr(recorder, 'get_recent_exchange_executions', None)
+        if callable(execution_getter):
+            try:
+                rows = execution_getter(
+                    str(exchange_name or '').lower(), limit=max(1, int(limit))
+                ) or []
+                return [dict(row) for row in rows if isinstance(row, dict)]
+            except Exception as exc:
+                self.logger.warning(
+                    f"{exchange_name} 로컬 체결 원장 조회 실패: {exc}"
+                )
+        return []
+
     def _get_recent_trade_samples_unified(self, exchange_name: str, limit: int = 100) -> List[Dict[str, Any]]:
+        # 동기화는 자체 저빈도/모드/미확정 주문 정책을 따르며 분석 루프가
+        # 강제로 REST 전체 조회를 일으키지 않는다.
+        result = self.sync_exchange_execution_ledger(
+            exchange_name,
+            limit=limit,
+            force=False,
+        )
+        local_rows = self._get_local_trade_samples_unified(
+            exchange_name,
+            limit=limit,
+        )
+        if local_rows:
+            return local_rows
+        # 구형/테스트 Recorder처럼 로컬 조회 계약이 없을 때만 이번 동기화
+        # 응답을 호환 표본으로 사용한다.
+        return list(result.get('trades') or [])
+
+    def sync_exchange_execution_ledger(
+        self,
+        exchange_name: str,
+        *,
+        limit: int = 200,
+        force: bool = False,
+        full_backfill: bool = False,
+        reason: str = 'runtime',
+    ) -> Dict[str, Any]:
+        """UI와 무관하게 거래소 체결/주문접수를 로컬 원장과 대조한다.
+
+        전체 체결 이력은 시작/수동 복구 또는 기본 5분 저빈도 증분 조회만 허용한다.
+        미확정 NoahAI 주문은 별도 짧은 주기로 주문 ID만 확인한다. LEARNING/PAPER는
+        미확정 실주문이 없는 한 개인 체결 API를 호출하지 않는다.
+        """
+        venue = str(exchange_name or '').strip().lower()
+        result: Dict[str, Any] = {
+            'exchange': venue,
+            'trades': [],
+            'received': 0,
+            'inserted': 0,
+            'recovered': 0,
+            'pending': 0,
+            'failed': 0,
+            'skipped_by_throttle': False,
+            'skipped_by_mode': False,
+            'history_requested': False,
+            'history_incremental': False,
+            'stream_received': 0,
+            'sync_reason': str(reason or 'runtime'),
+        }
+        if not venue:
+            return result
+        now = time.monotonic()
+
+        settings = self.settings if isinstance(getattr(self, 'settings', None), dict) else {}
         try:
-            client = self.get_exchange_client(exchange_name)
-            if client is None or not hasattr(client, 'get_trade_history'):
-                return []
-            rows = client.get_trade_history(limit=limit) or []
-            normalized = [dict(row) for row in rows if isinstance(row, dict)]
-            # 실행 중에도 거래소 원장과 로컬 원장을 주기적으로 대조한다.
-            # INSERT OR IGNORE 기반이라 화면 수동 동기화와 겹쳐도 중복되지 않는다.
-            if normalized:
-                recorder = getattr(self, "recorder", None)
-                saver = getattr(recorder, "save_exchange_execution_history", None)
-                if callable(saver):
-                    saver(
-                        exchange_name,
-                        normalized,
-                        source="runtime_exchange_reconcile",
-                    )
-            return normalized
+            history_interval = max(
+                60,
+                int(settings.get('execution_history_sync_interval_seconds', 300) or 300),
+            )
+        except (TypeError, ValueError):
+            history_interval = 300
+        try:
+            receipt_interval = max(
+                2,
+                int(settings.get('pending_order_poll_interval_seconds', 10) or 10),
+            )
+        except (TypeError, ValueError):
+            receipt_interval = 10
+
+        history_state = getattr(self, '_runtime_execution_sync_state', None)
+        if not isinstance(history_state, dict):
+            history_state = {}
+            self._runtime_execution_sync_state = history_state
+        receipt_state = getattr(self, '_runtime_receipt_sync_state', None)
+        if not isinstance(receipt_state, dict):
+            receipt_state = {}
+            self._runtime_receipt_sync_state = receipt_state
+
+        recorder = getattr(self, 'recorder', None)
+        reference_getter = getattr(recorder, 'get_exchange_order_references', None)
+        references: List[Dict[str, Any]] = []
+        if callable(reference_getter):
+            try:
+                references = list(reference_getter(venue, limit=limit) or [])
+            except Exception as exc:
+                result['failed'] += 1
+                self.logger.warning(f"{venue} 미확정 주문 조회 실패: {exc}")
+
+        # 신규 주문은 계정 전체 체결목록 대신 저장된 주문 ID만 terminal 상태까지 확인한다.
+        last_receipt = float(receipt_state.get(venue, 0.0) or 0.0)
+        receipt_due = bool(references) and (force or now - last_receipt >= receipt_interval)
+        if receipt_due:
+            receipt_state[venue] = now
+            reconciled = self.reconcile_exchange_order_receipts(venue, limit=limit)
+            result['recovered'] = int(reconciled.get('confirmed', 0) or 0)
+            result['pending'] = int(reconciled.get('pending', 0) or 0)
+            result['failed'] += int(reconciled.get('failed', 0) or 0)
+        else:
+            result['pending'] = len(references)
+
+        try:
+            execution_mode = self._execution_mode(venue)
         except Exception:
-            return []
+            # 부분 객체를 사용하는 구형 호출/테스트만 LIVE 호환으로 처리한다.
+            execution_mode = ExecutionMode.LIVE
+        if execution_mode != ExecutionMode.LIVE:
+            result['skipped_by_mode'] = True
+            result['trades'] = self._get_local_trade_samples_unified(
+                venue, limit=limit
+            )
+            return result
+
+        # 어댑터가 인증 사용자 체결 스트림을 제공하면 먼저 비운다. 현재 공개
+        # 시장가 WebSocket과 혼동하지 않으며, 명시적 drain 계약이 있을 때만 사용한다.
+        client = self.get_exchange_client(venue)
+        stream_reader = getattr(client, 'drain_execution_events', None)
+        stream_healthy = False
+        if callable(stream_reader):
+            try:
+                streamed = stream_reader(limit=max(1, int(limit))) or []
+                streamed_rows = [dict(row) for row in streamed if isinstance(row, dict)]
+                stream_health = getattr(client, 'execution_stream_healthy', None)
+                stream_healthy = bool(stream_health()) if callable(stream_health) else False
+                saver = getattr(recorder, 'save_exchange_execution_history', None)
+                if streamed_rows and callable(saver):
+                    saved = saver(
+                        venue, streamed_rows, source='private_execution_stream'
+                    ) or {}
+                    result['inserted'] += int(saved.get('inserted', 0) or 0)
+                    result['stream_received'] = len(streamed_rows)
+            except Exception as exc:
+                result['failed'] += 1
+                self.logger.warning(f"{venue} 사용자 체결 스트림 처리 실패: {exc}")
+
+        last_history = float(history_state.get(venue, 0.0) or 0.0)
+        history_due = force or now - last_history >= history_interval
+        if stream_healthy and not force and not full_backfill:
+            history_due = False
+        if not history_due:
+            result['skipped_by_throttle'] = True
+            result['trades'] = self._get_local_trade_samples_unified(
+                venue, limit=limit
+            )
+            return result
+        # 실패해도 분석 루프마다 재시도하지 않도록 시도 시점을 먼저 기록한다.
+        history_state[venue] = now
+
+        try:
+            if client is not None and hasattr(client, 'get_trade_history'):
+                cursor: Dict[str, Any] = {}
+                cursor_getter = getattr(recorder, 'get_exchange_execution_cursor', None)
+                if not full_backfill and callable(cursor_getter):
+                    cursor = dict(cursor_getter(venue) or {})
+                incremental = bool(cursor.get('since_ms') or cursor.get('trade_id'))
+                try:
+                    rows = client.get_trade_history(
+                        limit=max(1, int(limit)),
+                        since_ms=cursor.get('since_ms'),
+                        from_id=cursor.get('trade_id'),
+                    ) or []
+                except TypeError:
+                    # 아직 증분 인자를 구현하지 않은 외부/레거시 어댑터 호환.
+                    rows = client.get_trade_history(limit=max(1, int(limit))) or []
+                    incremental = False
+                normalized = [dict(row) for row in rows if isinstance(row, dict)]
+                result['trades'] = normalized
+                result['received'] = len(normalized)
+                result['history_requested'] = True
+                result['history_incremental'] = incremental
+                saver = getattr(recorder, 'save_exchange_execution_history', None)
+                if normalized and callable(saver):
+                    saved = saver(
+                        venue,
+                        normalized,
+                        source=(
+                            'runtime_exchange_incremental'
+                            if incremental else 'runtime_exchange_backfill'
+                        ),
+                    ) or {}
+                    result['inserted'] += int(saved.get('inserted', 0) or 0)
+            if result['inserted'] or result['recovered']:
+                self.logger.info(
+                    f"{venue} 런타임 체결 원장 동기화: "
+                    f"신규 {result['inserted']}건 · 주문복구 {result['recovered']}건"
+                )
+        except Exception as exc:
+            result['failed'] += 1
+            self.logger.warning(f"{venue} 런타임 체결 원장 동기화 실패: {exc}")
+        local_rows = self._get_local_trade_samples_unified(venue, limit=limit)
+        if local_rows:
+            result['trades'] = local_rows
+        return result
 
     def _build_strategy_runtime_state_unified(self, exchange_name: str, trades: List[Dict[str, Any]]) -> Dict[str, Any]:
         runtime_state: Dict[str, Any] = {}
@@ -1425,15 +1644,18 @@ class UnifiedTrader:
             selected_store = getattr(self, 'selected_coins', {}) or {}
             if isinstance(selected_store, dict):
                 selected_coins = list(selected_store.get(exchange_name, []) or [])
-            elif isinstance(selected_store, list):
-                selected_coins = list(selected_store)
             else:
                 selected_coins = []
-            # 구버전/최소 구성에서는 선택 목록이 main_app에만 존재할 수 있다.
+            # main_app에서도 거래소별 맵만 허용한다. 과거 단일 selected_coins
+            # 폴백은 화면 전환 타이밍에 Binance 후보를 다른 거래소로 오염시켰다.
             if not selected_coins:
-                legacy_selected = getattr(getattr(self, 'main_app', None), 'selected_coins', []) or []
-                if isinstance(legacy_selected, list):
-                    selected_coins = list(legacy_selected)
+                selected_by_exchange = getattr(
+                    getattr(self, 'main_app', None),
+                    'selected_coins_by_exchange',
+                    {},
+                ) or {}
+                if isinstance(selected_by_exchange, dict):
+                    selected_coins = list(selected_by_exchange.get(exchange_name, []) or [])
             if not selected_coins:
                 self.log_event('system', f"{exchange_name} 선택된 코인 없음 - 코인 선택 필요", exchange=exchange_name, level='WARNING')
                 return
@@ -1938,6 +2160,11 @@ class UnifiedTrader:
 
             # 포지션 수 체크
             active_positions = self._position_store(exchange_name)
+            if symbol in active_positions:
+                return {
+                    'status': 'skipped',
+                    'reason': f'동일 종목 포지션이 이미 관리 중입니다: {symbol}',
+                }
             # max_positions은 AI/동적 파라미터로만 결정 (수동 설정 완전 제거)
             max_positions = self._get_ai_max_positions(exchange_name)
             cold_start = dict(analysis.get('_cold_start_profile', {}) or {})
@@ -1995,6 +2222,88 @@ class UnifiedTrader:
                 current_price_hint = self.exchange_manager.get_current_price(symbol, exchange_name) if hasattr(self, 'exchange_manager') else 0.0
             except Exception:
                 current_price_hint = 0.0
+
+            # LIVE KRW 현물은 실제 계좌 잔고와 앱 원장을 주문 전에 조정한다.
+            # PAPER/LEARNING은 개인 잔고 API를 호출하지 않는다.
+            if (
+                not paper
+                and not learning_only
+                and str(exchange_name or '').lower() in {'upbit', 'bithumb'}
+            ):
+                if signal.upper() != 'LONG':
+                    return {
+                        'status': 'skipped',
+                        'reason': '현물 신규 진입은 보유하지 않은 자산 매도를 허용하지 않습니다',
+                    }
+                from trading.spot_position_policy import (
+                    assess_spot_holding,
+                    spot_base_asset,
+                    summarize_spot_portfolio,
+                )
+                try:
+                    actual_balance = exchange_client.get_balance() if exchange_client else {}
+                except Exception:
+                    actual_balance = {}
+                if not isinstance(actual_balance, dict) or not actual_balance:
+                    return {
+                        'status': 'skipped',
+                        'reason': '현물 실제 잔고 확인 실패 - 신규 주문을 안전 차단했습니다',
+                    }
+                holding = assess_spot_holding(actual_balance, symbol, current_price_hint)
+                if holding.is_material:
+                    return {
+                        'status': 'skipped',
+                        'reason': (
+                            '앱 원장에 없는 기존 보유자산이 최소 주문금액 이상입니다: '
+                            f'{holding.asset} {holding.notional:,.0f} KRW'
+                        ),
+                    }
+                prices_by_asset = {holding.asset: float(current_price_hint or 0.0)}
+                try:
+                    raw_exchange = getattr(exchange_client, 'exchange', None)
+                    tickers = (
+                        raw_exchange.fetch_tickers()
+                        if raw_exchange is not None and hasattr(raw_exchange, 'fetch_tickers')
+                        else {}
+                    ) or {}
+                    for market_symbol, ticker in tickers.items():
+                        market_text = str(market_symbol or '').upper()
+                        if 'KRW' not in market_text:
+                            continue
+                        asset = spot_base_asset(market_text)
+                        if isinstance(ticker, dict):
+                            price = float(ticker.get('last') or ticker.get('close') or 0.0)
+                            if price > 0:
+                                prices_by_asset[asset] = price
+                except Exception as ticker_exc:
+                    self.logger.warning(
+                        f"{exchange_name} 현물 전체 보유자산 가격 분류 일부 생략: {ticker_exc}"
+                    )
+                managed_assets = {
+                    spot_base_asset(position_symbol)
+                    for position_symbol in active_positions.keys()
+                }
+                portfolio = summarize_spot_portfolio(
+                    actual_balance,
+                    prices_by_asset,
+                    managed_assets=managed_assets,
+                )
+                effective_position_count = len(active_positions) + len(portfolio.material_assets)
+                if effective_position_count >= max_positions:
+                    return {
+                        'status': 'skipped',
+                        'reason': (
+                            '앱 포지션과 기존 중요 현물 보유를 합산한 최대 포지션 수 초과: '
+                            f'{effective_position_count} >= {max_positions}'
+                        ),
+                    }
+                if portfolio.unknown_price_assets:
+                    self.logger.warning(
+                        f"{exchange_name} 가격 미확인 현물 보유자산: "
+                        f"{sorted(portfolio.unknown_price_assets)}"
+                    )
+                optimized_params['_spot_baseline_quantity'] = holding.quantity
+                optimized_params['_spot_holding_classification'] = holding.classification
             allocation_result = self.portfolio_allocation_cache.get(exchange_name, {}) if isinstance(self.portfolio_allocation_cache, dict) else {}
             if allocation_result:
                 try:
@@ -2016,8 +2325,14 @@ class UnifiedTrader:
                 if adjust_note:
                     self.logger.info(f"🔧 {exchange_name} {symbol} 최소 노셔널 보정: {adjust_note}")
                 position_size = adjusted_size
-            except Exception:
-                pass
+            except Exception as exc:
+                self.logger.error(
+                    f"❌ {exchange_name} {symbol} 최소 주문 규격 검증 실패: {exc}"
+                )
+                return {
+                    'status': 'skipped',
+                    'reason': f'최소 주문 규격 검증 실패: {exc}',
+                }
 
             # 레버리지 기본값 설정 (try 블록 밖에서 선언)
             leverage = int(self.settings.get('default_leverage', 10)) if isinstance(self.settings, dict) else 10
@@ -2272,7 +2587,27 @@ class UnifiedTrader:
                 self.logger.error(f"주문 실행 오류: {e}")
                 order_result = {'status': 'error', 'error': str(e)}
 
-            if self._is_order_success(order_result):
+            if not paper and isinstance(order_result, dict):
+                order_result = self._confirm_ccxt_order_result(
+                    exchange_client,
+                    order_result,
+                    symbol=order_symbol,
+                )
+                # 주문 접수는 항상 복구 원장에 남기되, 실제 체결 확정 전에는
+                # 내부 포지션/trade_log를 만들지 않는다.
+                self._record_exchange_execution(
+                    exchange_name,
+                    symbol,
+                    side_for_ccxt,
+                    order_result,
+                    source='noahai_entry_order',
+                )
+
+            execution_confirmed = bool(
+                paper
+                or (isinstance(order_result, dict) and order_result.get('_execution_confirmed'))
+            )
+            if self._is_order_success(order_result) and execution_confirmed:
                 get_opportunity_coordinator().record_result(
                     opportunity_auth,
                     status="paper_filled" if paper else "submitted",
@@ -2296,15 +2631,6 @@ class UnifiedTrader:
                     order_result["price"] = executed_price
                 if executed_notional > 0:
                     order_result["cost"] = executed_notional
-
-                if not paper:
-                    self._record_exchange_execution(
-                        exchange_name,
-                        symbol,
-                        side_for_ccxt,
-                        order_result,
-                        source='noahai_entry_order',
-                    )
 
                 # 포지션 기록 (TP/SL 포함)
                 self._record_position_with_tp_sl(
@@ -2553,10 +2879,19 @@ class UnifiedTrader:
                             trade_params = {
                                 'reason': analysis.get('reason', 'AI signal'),
                                 'exchange': exchange_name,
-                                'confidence': analysis.get('confidence', None)
+                                'confidence': analysis.get('confidence', None),
+                                'order_id': (
+                                    order_result.get('order_id')
+                                    or order_result.get('orderId')
+                                    or order_result.get('id')
+                                ),
                             }
                             try:
-                                self.recorder.log_trade_entry(pos, trade_params)
+                                inserted_id = self.recorder.log_trade_entry(pos, trade_params)
+                                if inserted_id is None:
+                                    self.logger.error(
+                                        f"{exchange_name} {symbol} 체결 성공 후 진입 통계 기록 실패"
+                                    )
                             except Exception as rec_e:
                                 self.logger.warning(f"Recorder 진입 로그 실패(계속): {rec_e}")
                 except Exception:
@@ -2901,6 +3236,8 @@ class UnifiedTrader:
     def _monitor_exchange_positions(self, exchange_name: str):
         """거래소별 포지션 모니터링 (바이낸스와 동일한 로직)"""
         try:
+            if self._execution_mode(exchange_name) == ExecutionMode.LIVE:
+                self.sync_exchange_execution_ledger(exchange_name)
             active_positions = self._position_store(exchange_name)
             if not active_positions:
                 return
@@ -2908,8 +3245,10 @@ class UnifiedTrader:
             # TP/SL 누락 시 주기적으로 재발주
             try:
                 self._verify_and_repair_tp_sl(exchange_name)
-            except Exception:
-                pass
+            except Exception as exc:
+                self.logger.warning(
+                    f"TP/SL 누락 검증 실패: {exchange_name}: {exc}"
+                )
 
             self.logger.info(f"📊 {exchange_name} 포지션 모니터링: {len(active_positions)}개")
 
@@ -2932,6 +3271,22 @@ class UnifiedTrader:
                     # PnL 계산 (바이낸스와 동일한 로직)
                     pnl_data = self._calculate_pnl_unified(position, current_price)
 
+                    advanced_decision = self._advanced_order_plan_decision_unified(
+                        position, pnl_data,
+                    )
+                    if advanced_decision.get('action') == 'partial_close':
+                        self._execute_advanced_partial_close_unified(
+                            exchange_name, symbol, position, current_price, advanced_decision,
+                        )
+                        continue
+                    if advanced_decision.get('action') == 'close_all':
+                        self.logger.info(
+                            f"{exchange_name} {symbol} AI 커스텀 고급 청산: "
+                            f"{advanced_decision.get('reason')}"
+                        )
+                        self._close_position_unified(exchange_name, symbol, position, current_price)
+                        continue
+
                     # 청산 조건 확인 (바이낸스와 동일한 로직)
                     if self._should_close_position_unified(exchange_name, position, current_price, pnl_data):
                         self._close_position_unified(exchange_name, symbol, position, current_price)
@@ -2941,6 +3296,105 @@ class UnifiedTrader:
 
         except Exception as e:
             self.logger.error(f"❌ {exchange_name} 포지션 모니터링 실패: {e}")
+
+    @staticmethod
+    def _advanced_order_plan_decision_unified(
+        position: Position, pnl_data: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        rules = dict(getattr(position, 'custom_strategy_rules', {}) or {})
+        plan = dict(rules.get('advanced_order_plan') or {})
+        if not plan:
+            return {'action': 'hold', 'reason': 'advanced_order_plan_not_set'}
+        decision = evaluate_order_plan(
+            plan,
+            getattr(position, 'custom_order_plan_state', {}) or None,
+            pnl_percent=float(pnl_data.get('net_pnl_percent', 0.0) or 0.0),
+            current_quantity=float(getattr(position, 'quantity', 0.0) or 0.0),
+        )
+        # 고점·armed 상태는 주문과 무관한 관찰 상태라 즉시 보존한다. 부분청산 완료
+        # 인덱스는 체결 확인 뒤 confirm_order_plan_action에서만 추가한다.
+        position.custom_order_plan_state = dict(decision.get('next_state') or {})
+        return decision
+
+    def _execute_advanced_partial_close_unified(
+        self,
+        exchange_name: str,
+        symbol: str,
+        position: Position,
+        current_price: float,
+        decision: Dict[str, Any],
+    ) -> bool:
+        quantity = min(
+            float(getattr(position, 'quantity', 0.0) or 0.0),
+            float(decision.get('quantity', 0.0) or 0.0),
+        )
+        if quantity <= 0:
+            return False
+        paper = self._execution_mode(exchange_name) == ExecutionMode.PAPER
+        order_result: Dict[str, Any]
+        if paper:
+            now_ts = int(datetime.now(timezone.utc).timestamp() * 1000)
+            order_result = {
+                'status': 'success', '_execution_confirmed': True,
+                'order_id': f"paper-partial-{exchange_name}-{symbol}-{now_ts}",
+                'symbol': symbol, 'quantity': quantity, 'price': current_price,
+                'simulated': True,
+            }
+        else:
+            client = self.get_exchange_client(exchange_name)
+            if client is None:
+                return False
+            opposite = 'sell' if position.side == PositionSide.LONG else 'buy'
+            try:
+                if hasattr(client, 'exchange') and getattr(client, 'exchange', None) is not None:
+                    normalized = client._normalize_symbol(symbol) if hasattr(client, '_normalize_symbol') else symbol
+                    raw = client.exchange.create_order(
+                        normalized, 'market', opposite, quantity, None, {'reduceOnly': True},
+                    )
+                    order_result = dict(raw or {})
+                    order_result.setdefault('order_id', order_result.get('id'))
+                elif hasattr(client, 'place_futures_order'):
+                    order_result = client.place_futures_order(
+                        symbol=symbol,
+                        side=opposite.upper(),
+                        order_type='MARKET',
+                        quantity=quantity,
+                        reduce_only=True,
+                        close_position=None,
+                    )
+                else:
+                    self.logger.warning(
+                        f"{exchange_name} {symbol} 부분청산 미지원: reduce-only 주문 계약 없음"
+                    )
+                    return False
+                order_result = self._confirm_ccxt_order_result(client, order_result, symbol=symbol)
+                self._record_exchange_execution(
+                    exchange_name, symbol, opposite, order_result,
+                    source='noahai_custom_partial_exit',
+                )
+            except Exception as exc:
+                self.logger.warning(f"{exchange_name} {symbol} 부분청산 제출 실패: {exc}")
+                return False
+        confirmed = bool(
+            paper or (self._is_order_success(order_result) and order_result.get('_execution_confirmed'))
+        )
+        if not confirmed:
+            self.logger.warning(
+                f"{exchange_name} {symbol} 부분청산 체결 미확정, 다음 복구 주기에서 재확인"
+            )
+            return False
+        remaining = max(0.0, float(position.quantity) - quantity)
+        position.quantity = remaining
+        position.custom_order_plan_state = confirm_order_plan_action(
+            decision, remaining_quantity=remaining,
+        )
+        self.logger.info(
+            f"{exchange_name} {symbol} AI 커스텀 부분청산 확인: {quantity:g}, "
+            f"잔여 {remaining:g}, 사유={decision.get('reason')}"
+        )
+        if remaining <= 0:
+            self._position_store(exchange_name).pop(symbol, None)
+        return True
 
     def _verify_and_repair_tp_sl(self, exchange_name: str, interval_sec: int = 20) -> None:
         """진입 후 TP/SL 서버-사이드 주문 누락 시 재발주.
@@ -3087,8 +3541,10 @@ class UnifiedTrader:
                     self.logger.info(f"🛡️ 재발주: {exchange_name} {symbol} TP/SL(TP:{tp_price:.6f}, SL:{sl_price:.6f})")
                 except Exception as e:
                     self.logger.warning(f"TP/SL 재발주 실패: {exchange_name} {symbol}: {e}")
-        except Exception:
-            pass
+        except Exception as exc:
+            self.logger.warning(
+                f"TP/SL 검증·복구 전체 실패: {exchange_name}: {exc}"
+            )
 
     def _extract_tp_sl_from_open_orders(self, exchange_name: str, open_orders: List[Dict[str, Any]]) -> Tuple[Optional[float], Optional[float]]:
         """거래소별 오픈오더에서 TP/SL 가격을 추출"""
@@ -3284,6 +3740,10 @@ class UnifiedTrader:
 
             current_pnl_percent = pnl_data.get('current_pnl_percent', 0.0)
             net_pnl_percent = pnl_data.get('net_pnl_percent', 0.0)
+            advanced_plan = dict(
+                (getattr(position, 'custom_strategy_rules', {}) or {}).get('advanced_order_plan') or {}
+            )
+            partial_plan_active = bool(advanced_plan.get('partial_take_profits'))
 
             # 🔥 1. AI 모니터링 중심 청산 판단 (주력)
             ai_exit_decision = self._get_enhanced_ai_exit_decision_unified(exchange_name, position, current_price, pnl_data)
@@ -3301,7 +3761,7 @@ class UnifiedTrader:
             dynamic_thresholds = self._calculate_dynamic_thresholds_unified(exchange_name, position.symbol)
 
             # 수익 청산 (동적 임계값)
-            if net_pnl_percent >= dynamic_thresholds['profit_threshold']:
+            if not partial_plan_active and net_pnl_percent >= dynamic_thresholds['profit_threshold']:
                 self.logger.info(f"{exchange_name} {position.symbol} 동적 수익 청산: {net_pnl_percent:.4f}% >= {dynamic_thresholds['profit_threshold']:.4f}%")
                 try:
                     self._log_trade_event('exit', f"{exchange_name} {position.symbol} 동적 수익 청산: {net_pnl_percent:.4f}% >= {dynamic_thresholds['profit_threshold']:.4f}%", exchange=exchange_name)
@@ -3328,7 +3788,7 @@ class UnifiedTrader:
                     else:
                         tp_percent = ((entry - float(position.tp_price)) / entry) * 100
                         sl_percent = ((float(position.sl_price) - entry) / entry) * 100
-                    if net_pnl_percent >= tp_percent:
+                    if not partial_plan_active and net_pnl_percent >= tp_percent:
                         self.logger.info(f"{exchange_name} {position.symbol} TP 안전장치 발동: {net_pnl_percent:.4f}% >= {tp_percent:.4f}%")
                         try:
                             self._log_trade_event('exit', f"{exchange_name} {position.symbol} TP 안전장치 발동: {net_pnl_percent:.4f}% >= {tp_percent:.4f}%", exchange=exchange_name)
@@ -3342,8 +3802,10 @@ class UnifiedTrader:
                         except Exception:
                             pass
                         return True
-            except Exception:
-                pass
+            except Exception as exc:
+                self.logger.warning(
+                    f"{exchange_name} {position.symbol} TP/SL 안전장치 계산 실패: {exc}"
+                )
 
             return False
 
@@ -3355,6 +3817,7 @@ class UnifiedTrader:
     def _close_position_unified(self, exchange_name: str, symbol: str, position: Position, current_price: float):
         """포지션 청산 (바이낸스와 동일한 로직)"""
         try:
+            close_quantity = float(position.quantity or 0.0)
             # paper_trading 모드에서는 네트워크 호출 없이 즉시 성공 처리
             paper = self._execution_mode(exchange_name) == ExecutionMode.PAPER
 
@@ -3375,6 +3838,43 @@ class UnifiedTrader:
                 exchange_client = self.get_exchange_client(exchange_name)
                 if not exchange_client:
                     return
+                if str(exchange_name or '').lower() in {'upbit', 'bithumb'}:
+                    from trading.spot_position_policy import (
+                        DEFAULT_KRW_MIN_NOTIONAL,
+                        balance_quantity,
+                        safe_managed_close_quantity,
+                        spot_base_asset,
+                    )
+                    try:
+                        actual_balance = exchange_client.get_balance()
+                    except Exception:
+                        actual_balance = {}
+                    if not isinstance(actual_balance, dict) or not actual_balance:
+                        self.logger.error(
+                            f"{exchange_name} {symbol} 실제 잔고 확인 실패 - 청산 주문 차단"
+                        )
+                        return
+                    asset = spot_base_asset(symbol)
+                    actual_quantity = balance_quantity(actual_balance, asset)
+                    close_quantity = safe_managed_close_quantity(
+                        managed_quantity=position.quantity,
+                        actual_quantity=actual_quantity,
+                        baseline_quantity=getattr(position, 'spot_baseline_quantity', 0.0),
+                    )
+                    if close_quantity <= 0:
+                        self.logger.error(
+                            f"{exchange_name} {symbol} 앱 관리수량과 실제 잔고 불일치 - 청산 주문 차단"
+                        )
+                        return
+                    if close_quantity * float(current_price or 0.0) < DEFAULT_KRW_MIN_NOTIONAL:
+                        # 거래소 최소 주문금액보다 작은 잔여분은 주문 실패를 반복하지
+                        # 않고 dust로 분리한다. 실제 잔고는 그대로 유지된다.
+                        self._position_store(exchange_name).pop(symbol, None)
+                        self.logger.warning(
+                            f"{exchange_name} {symbol} 잔여 관리수량 {close_quantity:g} "
+                            f"({close_quantity * float(current_price or 0.0):,.0f} KRW)을 dust로 분리"
+                        )
+                        return
                 # 반대 방향 주문 실행 (거래소별 안전 분기)
                 opposite_side = 'SELL' if position.side == PositionSide.LONG else 'BUY'
                 try:
@@ -3384,12 +3884,15 @@ class UnifiedTrader:
                             symbol=symbol,
                             side=opposite_side.lower(),
                             order_type='market',
-                            quantity=position.quantity
+                            quantity=close_quantity
                         )
                         # 실패 시 reduceOnly 강제 경로로 1회 재시도
                         try:
                             st = str(order_result.get('status','')).lower()
-                            if st not in ('success', 'closed', 'filled', 'pending', 'new'):
+                            if (
+                                exchange_name in {'bybit', 'okx', 'bitget'}
+                                and st not in ('success', 'closed', 'filled', 'pending', 'new')
+                            ):
                                 ex = getattr(exchange_client, 'exchange', None)
                                 if ex is not None:
                                     try:
@@ -3397,7 +3900,7 @@ class UnifiedTrader:
                                         # 일부 어댑터는 심볼 정규화를 제공
                                         if hasattr(exchange_client, '_normalize_symbol'):
                                             norm_sym = exchange_client._normalize_symbol(symbol)  # type: ignore
-                                        ro = ex.create_order(norm_sym, 'market', opposite_side.lower(), position.quantity, None, {'reduceOnly': True})
+                                        ro = ex.create_order(norm_sym, 'market', opposite_side.lower(), close_quantity, None, {'reduceOnly': True})
                                         order_result = {
                                             'status': 'success',
                                             'order_id': ro.get('id') if isinstance(ro, dict) else None,
@@ -3419,7 +3922,7 @@ class UnifiedTrader:
                                     symbol=symbol,
                                     side=opposite_side,
                                     order_type='MARKET',
-                                    quantity=position.quantity,
+                                    quantity=close_quantity,
                                     reduce_only=True,
                                     close_position=None
                                 )
@@ -3436,20 +3939,31 @@ class UnifiedTrader:
                 except Exception as e:
                     order_result = {'status': 'error', 'error': str(e)}
 
-            if self._is_order_success(order_result):
+            if not paper and isinstance(order_result, dict):
+                order_result = self._confirm_ccxt_order_result(
+                    exchange_client,
+                    order_result,
+                    symbol=symbol,
+                )
+                self._record_exchange_execution(
+                    exchange_name,
+                    symbol,
+                    'sell' if position.side == PositionSide.LONG else 'buy',
+                    order_result,
+                    source='noahai_exit_order',
+                )
+
+            execution_confirmed = bool(
+                paper
+                or (isinstance(order_result, dict) and order_result.get('_execution_confirmed'))
+            )
+            if self._is_order_success(order_result) and execution_confirmed:
+                # 체결·통계·KPI는 실제로 청산 요청한 관리수량을 기준으로 한다.
+                position.quantity = close_quantity
                 # PnL 계산
                 pnl_data = self._calculate_pnl_unified(position, current_price)
                 pnl_percent = pnl_data.get('net_pnl_percent', 0.0)
                 closed_at = utc_now()
-                if not paper:
-                    self._record_exchange_execution(
-                        exchange_name,
-                        symbol,
-                        'sell' if position.side == PositionSide.LONG else 'buy',
-                        order_result,
-                        source='noahai_exit_order',
-                    )
-
                 # 거래 청산 DB 로그 (Recorder) 기록 시도
                 try:
                     if not paper and hasattr(self, 'recorder') and self.recorder:
@@ -3528,7 +4042,22 @@ class UnifiedTrader:
                                         }
                             except Exception:
                                 actual = None
-                            self.recorder.log_trade_exit(position, reason, float(current_price), actual_trade_info=actual)
+                            exit_saved = self.recorder.log_trade_exit(
+                                position,
+                                reason,
+                                float(current_price),
+                                actual_trade_info=actual,
+                                exchange=exchange_name,
+                                exit_order_id=(
+                                    order_result.get('order_id')
+                                    or order_result.get('orderId')
+                                    or order_result.get('id')
+                                ),
+                            )
+                            if not exit_saved:
+                                self.logger.error(
+                                    f"{exchange_name} {symbol} 체결 성공 후 청산 통계 기록 실패"
+                                )
                         except Exception as rec_e:
                             self.logger.warning(f"Recorder 청산 로그 실패(계속): {rec_e}")
                 except Exception:
@@ -4330,15 +4859,15 @@ class UnifiedTrader:
         self.evaluator = evaluator
         self.logger.info("✅ Evaluator 설정 완료")
 
-    def set_selected_coins(self, selected_coins: List[Dict[str, Any]]):
-        """선택된 코인 설정 (바이낸스와 동일한 방식)"""
+    def set_selected_coins(self, exchange_name: str, selected_coins: List[Dict[str, Any]]):
+        """명시한 거래소의 선택 코인만 설정한다."""
         try:
-            # 기본 동작은 binance 전용으로 제한하여 거래소 간 오염을 방지
-            target_exchange = 'binance'
-            if hasattr(self, 'main_app') and self.main_app:
-                selected_ex = str(getattr(self.main_app, 'current_exchange', '') or '').lower()
-                if selected_ex in self.enabled_exchanges:
-                    target_exchange = selected_ex
+            target_exchange = self._normalize_exchange(exchange_name)
+            if not target_exchange or target_exchange not in self.enabled_exchanges:
+                self.logger.warning(
+                    f"활성 대상이 아닌 거래소의 선택 코인 주입을 거부합니다: {target_exchange or 'missing'}"
+                )
+                return
 
             self.selected_coins[target_exchange] = list(selected_coins or [])
 
@@ -4656,12 +5185,11 @@ Response in JSON format:
     def _perform_pre_entry_analysis_unified(self, exchange_name: str, symbol: str, signal_data: Dict) -> Dict:
         """AI 기반 진입 전 분석 (거래소별)"""
         try:
-            coin = symbol.replace('USDT', '')
             # 분석 시작 로그
             self._log_trade_event('analysis', f"{symbol} 분석 시작", exchange=exchange_name, verbose_only=True)
 
             # 1. 최근 거래 이력 분석
-            pattern_analysis = self._analyze_recent_trading_patterns_unified(exchange_name, coin)
+            pattern_analysis = self._analyze_recent_trading_patterns_unified(exchange_name, symbol)
 
             # 2. 현재 시장 조건 평가
             market_conditions = self._evaluate_current_market_conditions_unified(exchange_name, symbol)
@@ -4708,8 +5236,8 @@ Response in JSON format:
 
             reason = ai_validation.get('reasoning', '진입 조건 분석 완료')
             if not proceed:
-                # 거래 이력이 없는 cold-start는 손실률보다 먼저 안내해야 오해를 줄일 수 있다.
-                if pattern_analysis['recent_trades'] < 1:
+                # 거래 이력이 실제 요구 조건보다 부족할 때만 cold-start 차단으로 안내한다.
+                if pattern_analysis['recent_trades'] < dynamic_thresholds['min_trades_history']:
                     reason = f"거래 이력 부족 ({pattern_analysis['recent_trades']}회)"
                 elif pattern_analysis['loss_rate'] >= 50.0:
                     reason = f"높은 손실률 ({pattern_analysis['loss_rate']:.1f}%)"
@@ -4752,7 +5280,7 @@ Response in JSON format:
                 pass
             return {'proceed': False, 'reason': f'분석 오류: {str(e)}'}
 
-    def _analyze_recent_trading_patterns_unified(self, exchange_name: str, coin: str) -> Dict:
+    def _analyze_recent_trading_patterns_unified(self, exchange_name: str, symbol: str) -> Dict:
         """최근 거래 패턴 분석 (거래소별) - 실제 데이터베이스에서 로드"""
         try:
             # 실제 데이터베이스에서 최근 거래 이력 조회
@@ -4762,10 +5290,9 @@ Response in JSON format:
                 try:
                     method = getattr(self.recorder, 'get_recent_trades', None)
                     if callable(method):
-                        rt = method(coin=coin, exchange=exchange_name, days=30)
+                        rt = method(symbol=symbol, exchange=exchange_name, days=30)
                         recent_trades = rt if isinstance(rt, list) else []
                     else:
-                        symbol = f"{coin}USDT"
                         rt = self.recorder.get_trade_history(symbol=symbol, days=30)
                         recent_trades = rt if isinstance(rt, list) else []
                 except Exception:
@@ -4861,7 +5388,7 @@ Response in JSON format:
 
         except Exception as e:
             if hasattr(self, 'logger') and self.logger:
-                self.logger.error(f"❌ {exchange_name} {coin} 패턴 분석 실패: {e}")
+                self.logger.error(f"❌ {exchange_name} {symbol} 패턴 분석 실패: {e}")
             return {'loss_rate': 100.0, 'recent_trades': 0, 'win_rate': 0.0, 'avg_profit': 0.0, 'avg_loss': 0.0}
 
     def _check_and_reselect_coins_unified_optimized(self, exchange_name: str):
@@ -5231,29 +5758,31 @@ Response in JSON format:
             win_rate = pattern_analysis.get('win_rate', 50)
             recent_trades = pattern_analysis.get('recent_trades', 0)
 
-            # 승률 기반 조정
-            if win_rate > 70:
-                confidence += 0.2
-                reasoning_parts.append(f"높은 승률({win_rate:.1f}%)")
-            elif win_rate < 30:
-                confidence -= 0.2
-                reasoning_parts.append(f"낮은 승률({win_rate:.1f}%)")
+            has_completed_history = recent_trades > 0 and not pattern_analysis.get('used_defaults')
+            if has_completed_history:
+                # 실제 청산 표본이 있을 때만 0%/100%를 성과로 해석한다.
+                if win_rate > 70:
+                    confidence += 0.2
+                    reasoning_parts.append(f"높은 승률({win_rate:.1f}%)")
+                elif win_rate < 30:
+                    confidence -= 0.2
+                    reasoning_parts.append(f"낮은 승률({win_rate:.1f}%)")
 
-            # 손실률 기반 조정
-            if loss_rate > 60:
-                confidence -= 0.25
-                reasoning_parts.append(f"높은 손실률({loss_rate:.1f}%)")
-            elif loss_rate < 20:
-                confidence += 0.15
-                reasoning_parts.append(f"낮은 손실률({loss_rate:.1f}%)")
+                if loss_rate > 60:
+                    confidence -= 0.25
+                    reasoning_parts.append(f"높은 손실률({loss_rate:.1f}%)")
+                elif loss_rate < 20:
+                    confidence += 0.15
+                    reasoning_parts.append(f"낮은 손실률({loss_rate:.1f}%)")
 
-            # 거래 이력 기반 신뢰도 조정
-            if recent_trades < 5:
-                confidence -= 0.1
-                reasoning_parts.append("거래 이력 부족")
-            elif recent_trades > 20:
-                confidence += 0.1
-                reasoning_parts.append("충분한 거래 이력")
+                if recent_trades < 5:
+                    confidence -= 0.1
+                    reasoning_parts.append("청산 표본 부족")
+                elif recent_trades > 20:
+                    confidence += 0.1
+                    reasoning_parts.append("충분한 거래 이력")
+            else:
+                reasoning_parts.append("완료 거래 없음·초기 검증")
 
             # 신뢰도 범위 제한 (0.1 ~ 0.95)
             confidence = max(0.1, min(0.95, confidence))
@@ -5655,6 +6184,15 @@ Response in JSON format:
                 custom_strategy_id=optimized_params.get('_selected_custom_strategy_id'),
                 custom_strategy_name=optimized_params.get('_selected_custom_strategy'),
                 custom_strategy_rules=dict(optimized_params.get('_custom_strategy_rules') or {}),
+                spot_baseline_quantity=float(
+                    optimized_params.get('_spot_baseline_quantity', 0.0) or 0.0
+                ),
+            )
+
+            position.entry_order_id = (
+                order_result.get('order_id')
+                or order_result.get('orderId')
+                or order_result.get('id')
             )
 
             self._position_store(exchange_name)[symbol] = position
@@ -5677,6 +6215,26 @@ Response in JSON format:
                 source='noahai_client_unified_position',
                 extra={'leverage': int(lev or 1)},
             )
+            # 실제 체결 원장(exchange_execution_log)은 주문 단위 감사 기록이고,
+            # trade_log는 진입→청산 성과 생명주기다. 기존 공통 거래소 경로는
+            # 전자만 기록해 청산 시 UPDATE 대상이 없었고, 통계/AI 리포트에서
+            # 거래가 영구 누락됐다. LIVE 진입은 두 원장을 함께 시작한다.
+            if str(execution_mode or '').lower() == 'live':
+                recorder = getattr(self, 'recorder', None)
+                entry_logger = getattr(recorder, 'log_trade_entry', None)
+                if callable(entry_logger):
+                    trade_log_id = entry_logger(
+                        position,
+                        {
+                            'exchange': exchange_name,
+                            'order_id': entry_order_id,
+                            'reason': 'AI live entry',
+                        },
+                    )
+                    if trade_log_id is None:
+                        self.logger.error(
+                            f"{exchange_name} {symbol} 포지션 생성 후 거래 생명주기 원장 시작 실패"
+                        )
             self.logger.info(
                 f"✅ {exchange_name} {symbol} 포지션 기록 완료 (entry={entry_price:.6f}, TP={tp_price:.6f}, SL={sl_price:.6f}, lev={lev}x)"
             )
@@ -5695,7 +6253,8 @@ Response in JSON format:
         """실주문 결과를 거래소 체결 원장에 즉시 기록한다."""
         recorder = getattr(self, 'recorder', None)
         saver = getattr(recorder, 'save_exchange_execution_history', None)
-        if not callable(saver) or not isinstance(order_result, dict):
+        receipt_saver = getattr(recorder, 'save_exchange_order_receipt', None)
+        if not isinstance(order_result, dict):
             return
         try:
             raw = order_result.get('raw_result')
@@ -5721,11 +6280,136 @@ Response in JSON format:
                 'timestamp': payload.get('timestamp') or order_result.get('timestamp'),
                 'status': payload.get('status') or order_result.get('status'),
             })
-            saver(exchange_name, [payload], source=source)
+            payload['_execution_confirmed'] = bool(
+                payload.get('_execution_confirmed')
+                or order_result.get('_execution_confirmed')
+            )
+            if callable(receipt_saver):
+                receipt_saver(exchange_name, payload, source=source)
+            if payload['_execution_confirmed'] and callable(saver):
+                saver(exchange_name, [payload], source=source)
+            elif not payload['_execution_confirmed']:
+                self.logger.warning(
+                    f"{exchange_name} {symbol} 주문 접수됨 · 실제 체결 확인 대기"
+                )
         except Exception as exc:
             self.logger.warning(
                 f"{exchange_name} {symbol} 실제 체결 원장 기록 실패(거래 계속): {exc}"
             )
+
+    def _confirm_ccxt_order_result(
+        self,
+        exchange_client: Any,
+        order_result: Dict[str, Any],
+        *,
+        symbol: str,
+    ) -> Dict[str, Any]:
+        """모든 CCXT 거래소 주문을 개별 주문 조회로 확정한 뒤 공통 형식으로 반환한다."""
+        if not isinstance(order_result, dict) or exchange_client is None:
+            return order_result
+        ccxt_exchange = getattr(exchange_client, 'exchange', None)
+        if ccxt_exchange is None:
+            return order_result
+        try:
+            from trading.exchanges.execution_history import confirm_ccxt_order_execution
+
+            raw = order_result.get('raw_result')
+            seed = dict(raw) if isinstance(raw, dict) else dict(order_result)
+            seed.setdefault(
+                'id',
+                order_result.get('order_id') or order_result.get('orderId') or order_result.get('id'),
+            )
+            seed.setdefault('order', seed.get('id'))
+            seed.setdefault('symbol', order_result.get('symbol') or symbol)
+            seed.setdefault('side', order_result.get('side'))
+            seed.setdefault('filled', order_result.get('filled'))
+            seed.setdefault('amount', order_result.get('amount') or order_result.get('quantity'))
+            seed.setdefault('price', order_result.get('price'))
+            seed.setdefault('cost', order_result.get('cost'))
+            seed.setdefault('status', order_result.get('status'))
+            formatter = getattr(exchange_client, '_display_symbol', None)
+            confirmed = confirm_ccxt_order_execution(
+                ccxt_exchange,
+                seed,
+                symbol=symbol,
+                symbol_formatter=formatter if callable(formatter) else None,
+            )
+            merged = dict(order_result)
+            merged.update({
+                'order_id': confirmed.get('order') or confirmed.get('id'),
+                'id': confirmed.get('id') or confirmed.get('order'),
+                'symbol': confirmed.get('symbol') or symbol,
+                'side': confirmed.get('side') or order_result.get('side'),
+                'price': confirmed.get('average') or confirmed.get('price'),
+                'average': confirmed.get('average') or confirmed.get('price'),
+                'filled': confirmed.get('filled'),
+                'quantity': confirmed.get('filled') or confirmed.get('amount'),
+                'amount': confirmed.get('amount') or confirmed.get('filled'),
+                'cost': confirmed.get('cost'),
+                'fee': confirmed.get('fee'),
+                'timestamp': confirmed.get('timestamp'),
+                'datetime': confirmed.get('datetime'),
+                '_execution_confirmed': bool(confirmed.get('_execution_confirmed')),
+                '_execution_confirmation_source': confirmed.get('_execution_confirmation_source'),
+                'raw_result': confirmed,
+            })
+            # 주문 성공 판정에는 원래 접수 상태를 보존하고, 원장의 raw_result에는
+            # 거래소가 확인한 실제 상태를 남긴다.
+            if not merged.get('status'):
+                merged['status'] = confirmed.get('status')
+            return merged
+        except Exception as exc:
+            self.logger.warning(f"{symbol} 개별 주문 체결 확인 실패: {exc}")
+            fallback = dict(order_result)
+            fallback['_execution_confirmed'] = False
+            return fallback
+
+    def reconcile_exchange_order_receipts(self, exchange_name: str, limit: int = 500) -> Dict[str, int]:
+        """전체 체결목록 API가 없어도 로컬 주문 ID로 누락된 확정 체결을 복구한다."""
+        result = {'checked': 0, 'confirmed': 0, 'pending': 0, 'failed': 0}
+        recorder = getattr(self, 'recorder', None)
+        getter = getattr(recorder, 'get_exchange_order_references', None)
+        receipt_saver = getattr(recorder, 'save_exchange_order_receipt', None)
+        execution_saver = getattr(recorder, 'save_exchange_execution_history', None)
+        client = self.get_exchange_client(exchange_name)
+        ccxt_exchange = getattr(client, 'exchange', None) if client is not None else None
+        if not callable(getter) or ccxt_exchange is None:
+            return result
+        for reference in getter(exchange_name, limit=limit) or []:
+            result['checked'] += 1
+            try:
+                confirmed = self._confirm_ccxt_order_result(
+                    client,
+                    {
+                        'id': reference.get('order_id'),
+                        'order_id': reference.get('order_id'),
+                        'symbol': reference.get('symbol'),
+                        'side': reference.get('side'),
+                        'status': reference.get('status'),
+                    },
+                    symbol=str(reference.get('symbol') or ''),
+                )
+                raw = confirmed.get('raw_result')
+                payload = dict(raw) if isinstance(raw, dict) else dict(confirmed)
+                if callable(receipt_saver):
+                    receipt_saver(exchange_name, payload, source='order_id_reconcile')
+                if bool(payload.get('_execution_confirmed')):
+                    if callable(execution_saver):
+                        execution_saver(exchange_name, [payload], source='order_id_reconcile')
+                    result['confirmed'] += 1
+                else:
+                    from .order_state_machine import reduce_order_state
+                    state = reduce_order_state(reference.get('status'), payload)
+                    if state['terminal']:
+                        result['failed'] += 1
+                    else:
+                        result['pending'] += 1
+            except Exception as exc:
+                result['failed'] += 1
+                self.logger.warning(
+                    f"{exchange_name} 주문별 체결 복구 실패({reference.get('order_id')}): {exc}"
+                )
+        return result
 
     def get_exchange_statistics(self, exchange_name: str) -> Dict[str, Any]:
         """거래소별 통계 조회"""
@@ -6175,7 +6859,8 @@ Response in JSON format:
             if volatility > 0.02:  # 높은 변동성 (AI 학습 기준점)
                 return {
                     'max_loss_rate': base_thresholds['max_loss_rate'] * 0.8,  # AI가 학습할 조정 계수
-                    'min_trades_history': max(5, base_thresholds['min_trades_history']),
+                    # 완료 이력이 없는 신규 심볼을 완료 이력 조건으로 영구 차단하지 않는다.
+                    'min_trades_history': base_thresholds['min_trades_history'],
                     'min_ai_confidence': min(0.8, base_thresholds['min_ai_confidence'] * 1.5),
                     '_source': 'market_base',
                     '_base': dict(base_thresholds),
@@ -6183,7 +6868,7 @@ Response in JSON format:
             elif volatility > 0.01:  # 중간 변동성 (AI 학습 기준점)
                 return {
                     'max_loss_rate': base_thresholds['max_loss_rate'] * 0.9,  # AI가 학습할 조정 계수
-                    'min_trades_history': max(3, base_thresholds['min_trades_history']),
+                    'min_trades_history': base_thresholds['min_trades_history'],
                     'min_ai_confidence': min(0.7, base_thresholds['min_ai_confidence'] * 1.25),
                     '_source': 'market_base',
                     '_base': dict(base_thresholds),
@@ -6218,28 +6903,42 @@ Response in JSON format:
 
             win_rates = []
             conf_values = []
+            observed_trade_counts = []
             for item in entries:
                 try:
-                    win_rates.append(float(item.get('recent_win_rate', 0.0) or 0.0))
+                    recent_trade_count = max(0, int(item.get('recent_trade_count', 0) or 0))
                 except Exception:
-                    pass
+                    recent_trade_count = 0
+                observed_trade_counts.append(recent_trade_count)
+                if recent_trade_count > 0:
+                    try:
+                        win_rates.append(float(item.get('recent_win_rate', 0.0) or 0.0))
+                    except Exception:
+                        pass
                 try:
                     conf_values.append(float(item.get('confidence', 0.0) or 0.0))
                 except Exception:
                     pass
 
-            if not win_rates:
-                return None
-
-            avg_win_rate = max(0.0, min(1.0, sum(win_rates) / len(win_rates)))
             avg_conf = max(0.2, min(0.9, (sum(conf_values) / len(conf_values)) if conf_values else 0.5))
-
             min_ai_conf = max(0.25, min(0.75, avg_conf - 0.05))
-            max_loss = max(35.0, min(65.0, 60.0 - (avg_win_rate * 30.0)))
-            min_trades = 3 if len(entries) >= 30 else 5
+
+            if win_rates:
+                avg_win_rate = max(0.0, min(1.0, sum(win_rates) / len(win_rates)))
+                max_loss = max(35.0, min(65.0, 60.0 - (avg_win_rate * 30.0)))
+                target_min_trades = 3 if len(entries) >= 30 else 5
+                min_trades = min(target_min_trades, max(observed_trade_counts or [0]))
+            else:
+                # 학습 신호가 쌓여도 청산 이력이 전혀 없으면 그 이력을 새 진입의
+                # 필수조건으로 만들지 않는다. 시장·신호·AI 신뢰도 가드는 그대로 유지한다.
+                avg_win_rate = 0.0
+                max_loss = 60.0
+                min_trades = 0
 
             self.logger.info(
-                f"[{exchange_name}] [{symbol}] 학습저장소 임계값 반영: n={len(entries)}, avg_win={avg_win_rate*100:.1f}%, avg_conf={avg_conf:.2f}"
+                f"[{exchange_name}] [{symbol}] 학습저장소 임계값 반영: n={len(entries)}, "
+                f"closed_samples={max(observed_trade_counts or [0])}, "
+                f"avg_win={avg_win_rate*100:.1f}%, avg_conf={avg_conf:.2f}"
             )
             return {
                 'max_loss_rate': max_loss,
@@ -6254,10 +6953,9 @@ Response in JSON format:
     def _collect_symbol_performance_snapshot_unified(self, exchange_name: str, symbol: str) -> Dict[str, Any]:
         """학습데이터 저장 시점의 최근 성과 스냅샷을 수집한다."""
         try:
-            coin = str(symbol or '').replace('USDT', '')
             rows = []
             if self.recorder and hasattr(self.recorder, 'get_recent_trades'):
-                rows = self.recorder.get_recent_trades(coin=coin, exchange=exchange_name, days=30) or []
+                rows = self.recorder.get_recent_trades(symbol=symbol, exchange=exchange_name, days=30) or []
             if not isinstance(rows, list) or not rows:
                 return {'recent_win_rate': 0.0, 'recent_loss_rate': 0.0, 'recent_trade_count': 0}
 

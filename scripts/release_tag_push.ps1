@@ -57,6 +57,49 @@ function Test-GhReleaseExists([string]$Tag, [string]$RepoSlug) {
     }
 }
 
+function Assert-GhAuthenticated() {
+    & gh auth status --hostname github.com 1>$null 2>$null
+    if ($LASTEXITCODE -ne 0) {
+        Fail "GitHub CLI authentication is missing or expired. Run: gh auth login --hostname github.com --web"
+    }
+}
+
+function Assert-RemoteAssetMatches(
+    [string]$Tag,
+    [string]$RepoSlug,
+    [string]$LocalPath,
+    [string]$AssetName
+) {
+    $releaseJson = (& gh release view $Tag --repo $RepoSlug --json assets 2>$null)
+    if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($releaseJson)) {
+        Fail "failed to read remote release assets for verification"
+    }
+
+    try {
+        $releasePayload = $releaseJson | ConvertFrom-Json
+    } catch {
+        Fail "failed to parse remote release asset JSON: $($_.Exception.Message)"
+    }
+
+    $remoteAsset = @($releasePayload.assets | Where-Object { $_.name -eq $AssetName }) | Select-Object -First 1
+    if ($null -eq $remoteAsset) {
+        Fail "remote asset missing after upload: $AssetName"
+    }
+
+    $localItem = Get-Item -LiteralPath $LocalPath
+    $localSha = (Get-FileHash -LiteralPath $LocalPath -Algorithm SHA256).Hash.ToLowerInvariant()
+    $expectedDigest = "sha256:$localSha"
+    $remoteDigest = [string]$remoteAsset.digest
+    if ([int64]$remoteAsset.size -ne [int64]$localItem.Length) {
+        Fail "remote asset size mismatch: local=$($localItem.Length), remote=$($remoteAsset.size)"
+    }
+    if ([string]::IsNullOrWhiteSpace($remoteDigest) -or $remoteDigest.ToLowerInvariant() -ne $expectedDigest) {
+        Fail "remote asset SHA-256 mismatch: local=$expectedDigest, remote=$remoteDigest"
+    }
+
+    Write-Host "[RELEASE_TAG] Remote asset verified: $AssetName size=$($localItem.Length) digest=$expectedDigest"
+}
+
 function Get-RepoSlugFromRemote([string]$RemoteUrl) {
     if ($RemoteUrl -match '^https://github\.com/([^/]+)/([^/]+?)(?:\.git)?$') {
         return "$($Matches[1])/$($Matches[2])"
@@ -125,6 +168,14 @@ Write-Host "[RELEASE_TAG] origin=$origin"
 Write-Host "[RELEASE_TAG] tag=$tag"
 $repoSlug = Get-RepoSlugFromRemote $origin
 Write-Host "[RELEASE_TAG] repo=$repoSlug"
+
+if (-not $SkipReleaseUpload) {
+    if (-not (Get-Command gh -ErrorAction SilentlyContinue)) {
+        Fail "gh CLI is required for release asset upload. Install GitHub CLI or use -SkipReleaseUpload"
+    }
+    Assert-GhAuthenticated
+    Write-Host "[RELEASE_TAG] GitHub CLI authentication verified"
+}
 
 if (-not $SkipCommit) {
     $status = (& git status --porcelain)
@@ -201,10 +252,6 @@ if ($PushBranch) {
 }
 
 if (-not $SkipReleaseUpload) {
-    if (-not (Get-Command gh -ErrorAction SilentlyContinue)) {
-        Fail "gh CLI is required for release asset upload. Install GitHub CLI or use -SkipReleaseUpload"
-    }
-
     $exePath = Join-Path (Get-Location) "deploy/AITrading.exe"
     if (-not (Test-Path $exePath)) {
         Fail "release executable missing: deploy/AITrading.exe"
@@ -213,7 +260,7 @@ if (-not $SkipReleaseUpload) {
     if ([string]::IsNullOrWhiteSpace($exeProductVersion) -or $exeProductVersion.Trim() -ne $releaseVersion) {
         Fail "EXE ProductVersion mismatch. exe=$exeProductVersion RELEASE_VERSION=$releaseVersion. Rebuild on Windows before upload."
     }
-    Write-Host "[RELEASE_TAG] v3.9.0.5 policy: no Authenticode requirement; HTTPS GitHub + manifest SHA-256 is mandatory."
+    Write-Host "[RELEASE_TAG] Release policy: HTTPS GitHub + manifest SHA-256 + remote asset digest verification are mandatory."
 
     Write-Host "[RELEASE_TAG] Generating release assets..."
     & $pythonCmd scripts/generate_release_assets.py --out-dir deploy --exe deploy/AITrading.exe --repo $repoSlug
@@ -263,6 +310,9 @@ if (-not $SkipReleaseUpload) {
     if (-not $uploaded) {
         Fail "gh release upload failed"
     }
+
+    Assert-RemoteAssetMatches -Tag $tag -RepoSlug $repoSlug -LocalPath $exePath -AssetName "AITrading.exe"
+    Assert-RemoteAssetMatches -Tag $tag -RepoSlug $repoSlug -LocalPath "deploy/release-manifest.json" -AssetName "release-manifest.json"
 }
 
 Write-Host "[RELEASE_TAG] Done. Tag push and GitHub release asset upload completed."

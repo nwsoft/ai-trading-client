@@ -73,7 +73,7 @@ class KiwoomStockAdapter(StockExchange):
         self.password = password
         self.cert_password = cert_password
         self.account_no = account_no
-        self.api_type = kwargs.get('api_type', 'openapi')
+        self.api_type = kwargs.get('api_type', 'openapi_plus')
         self.api_version = kwargs.get('api_version', 'pykiwoom')
         self.kiwoom: Any = kwargs.get('backend_client')
         self.request_timeout = int(kwargs.get('request_timeout', 10) or 10)
@@ -172,7 +172,7 @@ class KiwoomStockAdapter(StockExchange):
     def _ensure_backend(self) -> bool:
         if self.kiwoom is not None:
             return True
-        if self.api_version not in ('pykiwoom', 'kiwoom_api'):
+        if self.api_version != 'pykiwoom':
             return False
         if threading.current_thread() is not threading.main_thread():
             self.log_event(
@@ -184,6 +184,7 @@ class KiwoomStockAdapter(StockExchange):
             )
             self._last_connect_failure_reason = 'non_main_thread_init'
             return False
+
         if platform.system() != 'Windows':
             self.log_event(
                 'system',
@@ -275,6 +276,20 @@ class KiwoomStockAdapter(StockExchange):
                 self.log_event('system', f'pykiwoom 초기화 실패: {exc}', level='ERROR')
                 self._last_connect_failure_reason = f'backend_init_failed:{err_msg}'
             return False
+
+    def get_live_readiness(self) -> tuple[bool, str]:
+        """OpenAPI+ 실주문 직전 런타임/계좌 준비상태."""
+        if platform.system() != 'Windows':
+            return False, '키움 OpenAPI+는 Windows에서만 실행할 수 있습니다.'
+        if self.api_version != 'pykiwoom':
+            return False, '키움 OpenAPI+ 드라이버는 pykiwoom으로 설정해야 합니다.'
+        if not self.account_no:
+            return False, '키움 계좌번호가 확인되지 않았습니다.'
+        if not self.is_connected or not self.kiwoom:
+            return False, '키움 OpenAPI+ 로그인/OCX 연결이 완료되지 않았습니다.'
+        if not hasattr(self.kiwoom, 'SendOrder'):
+            return False, '키움 주문 함수(SendOrder)를 사용할 수 없습니다.'
+        return True, ''
 
     def _is_fatal_connect_failure_reason(self) -> bool:
         """환경/런타임 문제로 즉시 재시도해도 성공 가능성이 낮은 실패인지 판별한다."""
@@ -1041,6 +1056,12 @@ class KiwoomStockAdapter(StockExchange):
             symbol = self._normalize_symbol(symbol)
             order_type_upper = str(order_type or 'MARKET').upper()
             side_upper = str(side or '').upper()
+            if side_upper not in {'BUY', 'SELL'}:
+                return {
+                    'status': 'error', 'success': False, 'error': 'BUY 또는 SELL만 주문할 수 있습니다.',
+                    'broker': 'kiwoom', 'api_type': self.api_type, 'api_version': self.api_version,
+                    'execution_mode': 'live_api',
+                }
             qty = int(quantity)
             if qty <= 0:
                 return {

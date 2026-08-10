@@ -30,6 +30,18 @@ from utils.fixed_colors import FIXED_COLORS as _FIXED_COLORS, build_widget_palet
 # corner_radius 강제 적용 커스텀 위젯
 from ui.custom_widgets import RoundedButton, RoundedFrame, create_rounded_button
 from ui.visual_system import get_ui_icon, style_tabview
+from ui.refresh_lifecycle import schedule_visible_refresh
+from ui.widget_lifecycle import delete_ctk_tab, log_windows_gui_resources
+from ui.controllers.account_state_controller import (
+    AccountPanelResult,
+    account_panel_error,
+    account_panel_unavailable,
+    build_account_panel_result,
+    get_exchange_account_contract,
+    normalize_spot_holdings,
+    select_paper_position_store,
+    summarize_paper_positions,
+)
 
 try:
     from PIL import Image, ImageDraw
@@ -80,9 +92,16 @@ print = _print_to_logger  # type: ignore
 # 기존 모듈 imports
 from trading.ai_report_manager import AIReportManager
 from trading.unified_trading_manager import UnifiedTradingManager
-from trading.recorder import TradeLog
 from trading.exchanges.exchange_factory import ExchangeFactory
-from config.app_version import DASHBOARD_TITLE, RELEASE_HIGHLIGHT, RELEASE_VERSION
+from config.app_version import (
+    DASHBOARD_TITLE,
+    RELEASE_BUILD_LABEL,
+    RELEASE_HIGHLIGHT,
+    RELEASE_NOTICE_ID,
+    RELEASE_PATCH,
+    RELEASE_VERSION,
+)
+from ui.live_trading_guidance import build_live_trading_summary
 
 """
 대시보드에서 사용하는 실제 위젯 모듈 임포트 (디버그 필터 제거)
@@ -411,8 +430,6 @@ class ModernDashboard(ctk.CTk):
     def _hover_from(self, color_hex: str, factor: float = 0.85) -> str:
         return self._shade_color(color_hex, factor)
 
-    def _hover(self, key: str, factor: float = 0.85) -> str:
-        return self._hover_from(self._color(key), factor)
 
     def _measure_button_width(self, text: str, pad: int = 42, minw: int = 150, maxw: int = 280) -> int:
         """Compute a consistent width for CTkButtons that adapts to font metrics."""
@@ -426,45 +443,6 @@ class ModernDashboard(ctk.CTk):
             width = max(len(text) * 10, minw)
         return max(minw, min(maxw, int(width + pad)))
 
-    def _create_fixed_button(
-        self,
-        parent,
-        text: str,
-        command=None,
-        width: Optional[int] = None,
-        height: int = 48,
-        corner_radius: int = 12,  # 기본값 변경 (18 → 12)
-        variant: str = 'secondary'
-    ) -> ctk.CTkButton:
-        """Create a CTkButton styled from fixed-skin colors.
-        variant: 'primary' | 'secondary'
-        """
-        try:
-            if variant == 'primary':
-                fg = self._color('button_primary', '#1f6feb')
-                hover = self._color('button_primary_hover', '#1a5fd1')
-            else:
-                fg = self._color('button_secondary', '#3a5a7f')
-                hover = self._color('button_secondary_hover', '#4a6a8f')
-
-            btn = ctk.CTkButton(
-                parent,
-                text=text,
-                command=command,
-                width=width if width is not None else self._measure_button_width(text),
-                height=height,
-                corner_radius=corner_radius,
-                fg_color=fg,
-                hover_color=hover,
-                text_color=self._color('text_primary', '#f9fafb'),
-                border_width=1,
-                border_color=self._color('border', '#334155')
-            )
-
-            return btn
-        except Exception as e:
-            print(f"_create_fixed_button 예외 발생: {e}")
-            return ctk.CTkButton(parent, text=text, command=command, corner_radius=corner_radius)
 
     def _get_icon(self, name: str, size: Tuple[int, int] = (22, 22)) -> Optional[ctk.CTkImage]:
         """Build or retrieve a simple themed icon for buttons."""
@@ -617,7 +595,7 @@ class ModernDashboard(ctk.CTk):
                     any_broker_live = True
                     break
 
-        if global_live or any_broker_live:
+        if global_live and any_broker_live:
             level = 'high'
             reasons.append('실주문 허용 플래그가 활성화되어 실제 주문 경로가 열려 있습니다.')
 
@@ -871,27 +849,6 @@ class ModernDashboard(ctk.CTk):
         except Exception:
             pass
 
-    def _refresh_settings_button_appearance(self) -> None:
-        """Apply theme colors and icon to the settings button."""
-        try:
-            if not getattr(self, 'settings_btn', None):
-                return
-            # 버튼 텍스트/색상 계산 (return 아래로 들어가던 들여쓰기 버그 수정)
-            text = "설정"
-            fg_color = self._color('button_secondary', '#3a5a7f')
-            hover_color = self._hover_from(fg_color, 0.92)
-            self.settings_btn.configure(
-                text=text,
-                width=self._measure_button_width(text) + 24,
-                image=self._get_icon("settings", (17, 17)),
-                compound="left",
-                fg_color=fg_color,
-                hover_color=hover_color,
-                text_color=self._color('text_primary', '#f3f6fb'),
-                corner_radius=10  # 로그인과 동일
-            )
-        except Exception:
-            pass
 
     def _refresh_quick_action_buttons(self) -> None:
         """Update quick action buttons with current theme icons and colors."""
@@ -920,48 +877,8 @@ class ModernDashboard(ctk.CTk):
 
     # _validate_theme_palette 제거 - 고정 색상 사용
 
-    def _log_current_tab_order(self) -> None:
-        """현재 CTkTabview의 탭 순서를 로그로 출력 (디버그/검증용)."""
-        try:
-            if not hasattr(self, 'tab_widget') or self.tab_widget is None:
-                print("tab_widget 없음 - 탭 순서 확인 불가")
-                return
-            tv = cast(ctk.CTkTabview, self.tab_widget)
-            tab_names = []
-            try:
-                # CTkTabview는 내부적으로 _tab_dict(Ordered) 를 사용
-                if hasattr(tv, '_tab_dict') and isinstance(tv._tab_dict, dict):  # type: ignore[attr-defined]
-                    tab_names = list(tv._tab_dict.keys())  # type: ignore[attr-defined]
-            except Exception:
-                pass
-            if not tab_names:
-                # 폴백 시도: 알려진 탭 이름들 중 존재하는 것만 모음
-                candidates = [
-                    "실시간 거래 로그", "코인 정보", "거래 통계", "시장 트렌드",
-                    "AI 학습", "AI 어시스턴트"
-                ]
-                tab_names = [name for name in candidates if self._tab_exists(name)]
-            msg = "현재 탭 순서: " + " | ".join(tab_names)
-            try:
-                self.logger.info(msg)
-            except Exception:
-                print(msg)
-        except Exception as e:
-            try:
-                self.logger.warning(f"탭 순서 로깅 중 오류: {e}")
-            except Exception:
-                print(f"탭 순서 로깅 중 오류: {e}")
 
     # 호환용: main.py에서 호출할 수 있는 안전한 잔고 갱신 래퍼
-    def refresh_balance_info(self):
-        try:
-            if hasattr(self, 'update_balance_display') and callable(getattr(self, 'update_balance_display')):
-                self.update_balance_display()
-        except Exception as e:
-            try:
-                self.logger.warning(f"refresh_balance_info 실행 중 오류: {e}")
-            except Exception:
-                logging.getLogger(__name__).warning(f"refresh_balance_info 실행 중 오류: {e}")
 
     def set_components(self, binance_client=None, analyzer=None, evaluator=None, trader=None, recorder=None):
         """컴포넌트 설정 (main.py 호환성)"""
@@ -1240,47 +1157,6 @@ class ModernDashboard(ctk.CTk):
             return f"{n:.6f}".rstrip('0').rstrip('.')
         return f"{n:.8f}".rstrip('0').rstrip('.')
 
-    def _format_exchange_balance_summary(self, exchange: str, balance: Any) -> str:
-        """거래소 잔고를 읽기 쉬운 카드형 요약으로 변환"""
-        ex = str(exchange or '').upper()
-        if isinstance(balance, (int, float, str)):
-            return f"{ex} 자산 요약\n• 핵심 자산: {self._format_balance_number(balance)}"
-
-        if not isinstance(balance, dict) or not balance:
-            return f"{ex} 자산 요약\n• 데이터 없음"
-
-        usdt = balance.get('USDT')
-        if usdt is None:
-            usdt = balance.get('total')
-        if usdt is None:
-            usdt = balance.get('Total')
-        krw = balance.get('KRW')
-
-        core_text = None
-        if usdt is not None:
-            core_text = f"USDT {self._format_balance_number(usdt, 'USDT')}"
-        elif krw is not None:
-            core_text = f"KRW {self._format_balance_number(krw, 'KRW')}"
-
-        extras: List[str] = []
-        for k, v in balance.items():
-            k_up = str(k).upper()
-            if k_up in {'USDT', 'TOTAL', 'TOTAL_USDT', 'KRW'}:
-                continue
-            try:
-                extras.append(f"{k_up} {self._format_balance_number(v, k_up)}")
-            except Exception:
-                continue
-            if len(extras) >= 2:
-                break
-
-        if core_text and extras:
-            return f"{ex} 자산 요약\n• 핵심 자산: {core_text}\n• 기타 자산: {', '.join(extras)}"
-        if core_text:
-            return f"{ex} 자산 요약\n• 핵심 자산: {core_text}"
-        if extras:
-            return f"{ex} 자산 요약\n• 기타 자산: {', '.join(extras)}"
-        return f"{ex} 자산 요약\n• 데이터 없음"
 
     def _balance_metric_items(self, exchange: str, balance: Any) -> List[tuple[str, str]]:
         """서로 다른 거래소 잔고 응답을 최대 3개의 짧은 지표로 정규화한다."""
@@ -1418,6 +1294,7 @@ class ModernDashboard(ctk.CTk):
         empty_text: str = "활성 포지션 없음",
         quote: str = "USDT",
         stock_mode: bool = False,
+        mode_label: str = "",
     ) -> None:
         """포지션을 3개가 동시에 읽히는 고정밀 카드 목록으로 그린다."""
         try:
@@ -1437,9 +1314,13 @@ class ModernDashboard(ctk.CTk):
             rows = []
 
         rows = sorted(rows, key=lambda item: str(item[0]))
+        count_text = f"{len(rows)}개 보유" if stock_mode else f"{len(rows)}개 활성"
+        normalized_mode = str(mode_label or "").strip().upper()
+        if normalized_mode:
+            count_text = f"{normalized_mode} · {count_text}"
         count_label.configure(
-            text=f"{len(rows)}개 보유" if stock_mode else f"{len(rows)}개 활성",
-            text_color="#60a5fa",
+            text=count_text,
+            text_color="#a78bfa" if normalized_mode == "PAPER" else "#60a5fa",
         )
         if not rows:
             ctk.CTkLabel(
@@ -1755,81 +1636,6 @@ class ModernDashboard(ctk.CTk):
             except Exception:
                 logging.getLogger(__name__).error(f"사용자 상태 모니터링 시작 실패: {e}")
 
-    def _init_ai_manager(self, api_key: Optional[str] = None):
-        """AI Manager 초기화 헬퍼 함수 (빌드 환경 대응)"""
-        try:
-            # 빌드 환경 대응: path_utils를 통해 직접 설정 파일 로드
-            if not api_key:
-                try:
-                    # path_utils를 사용하여 올바른 경로에서 설정 로드
-                    from config.settings import load_settings
-                    from path_utils import get_config_dir, is_frozen
-                    
-                    # 경로 정보 로깅 (빌드 환경 문제 진단용)
-                    config_dir = get_config_dir()
-                    config_path = os.path.join(config_dir, 'settings.json')
-                    self.logger.debug(f"설정 파일 경로: {config_path} (빌드 환경: {is_frozen()})")
-                    
-                    current_settings = load_settings()
-                    api_key = current_settings.get('openai_api_key', '')
-                    
-                    # 디버그 로그
-                    if not api_key:
-                        self.logger.warning(f"설정 파일에서 OpenAI API 키를 찾을 수 없습니다. 경로: {config_path}")
-                        # 빌드 환경에서도 확인 가능하도록
-                        if os.getenv('NOAHAI_DEBUG_AI') == '1':
-                            print(f"[WARNING] OpenAI API 키 없음. 설정 파일 경로: {config_path}")
-                    else:
-                        self.logger.info(
-                            f"설정 파일에서 OpenAI API 키 로드 성공 (길이: {len(api_key)})"
-                        )
-                except Exception as load_err:
-                    import traceback
-                    error_detail = traceback.format_exc()
-                    self.logger.error(f"설정 파일 로드 실패: {load_err}")
-                    self.logger.debug(f"상세 오류 정보:\n{error_detail}")
-                    # 빌드 환경에서도 확인 가능하도록
-                    if os.getenv('NOAHAI_DEBUG_AI') == '1':
-                        print(f"[ERROR] 설정 파일 로드 실패: {load_err}")
-                        print(f"[ERROR] 상세 정보:\n{error_detail}")
-                    # fallback: self.settings 사용
-                    if hasattr(self, 'settings') and self.settings:
-                        api_key = self.settings.get('openai_api_key', '')
-
-            if api_key:
-                from trading.ai.ai_manager import AIManager
-                # 모델 파라미터도 전달 (빌드 환경 대응)
-                try:
-                    from config.settings import load_settings
-                    current_settings = load_settings()
-                    openai_model = current_settings.get('openai_model', 'gpt-4o-mini')
-                    openai_base_url = current_settings.get('openai_base_url')
-                except Exception:
-                    # fallback
-                    openai_model = self.settings.get('openai_model', 'gpt-4o-mini') if hasattr(self, 'settings') and self.settings else 'gpt-4o-mini'
-                    openai_base_url = self.settings.get('openai_base_url') if hasattr(self, 'settings') and self.settings else None
-                
-                ai_manager = AIManager(
-                    api_key=api_key,
-                    model=openai_model,
-                    base_url=openai_base_url,
-                    settings=current_settings if 'current_settings' in locals() else self.settings,
-                    workload="analyst",
-                )
-                # AI Manager 자체에서 로그를 출력하므로 중복 제거
-                self.logger.info(f"AI Manager 초기화 완료 (모델: {openai_model})")
-                return ai_manager
-            else:
-                self.logger.warning("OpenAI API 키가 설정되지 않아 AI Manager를 초기화할 수 없습니다.")
-                return None
-        except ImportError as e:
-            self.logger.warning(f"AI Manager를 초기화할 수 없습니다: {e}")
-            return None
-        except Exception as e:
-            import traceback
-            self.logger.error(f"AI Manager 초기화 오류: {e}")
-            self.logger.error(traceback.format_exc())
-            return None
 
     def _color(self, key: str, fallback: Optional[str] = None) -> str:
         """Return color from the fixed-skin palette only.
@@ -1860,14 +1666,6 @@ class ModernDashboard(ctk.CTk):
         except Exception:
             return None
 
-    def _status_badge_colors(self, ready: bool) -> Tuple[str, str]:
-        """Return (dark, light) gradient colors for AI status badges."""
-        base_key = 'success' if ready else 'danger'
-        fallback = '#22c55e' if ready else '#ef4444'
-        base = self._color(base_key, fallback)
-        darker = self._shade_color(base, 0.85)
-        lighter = self._shade_color(base, 1.1)
-        return (darker, lighter)
 
     # --- 안전한 탭 보장/상태 배지 업데이트 (스텁) -----------------------------
     # 아래 메서드들은 정적 분석 경고 제거 및 런타임 안정성용 no-op 기본 구현입니다.
@@ -1896,7 +1694,7 @@ class ModernDashboard(ctk.CTk):
             container.pack(fill="both", expand=True, padx=10, pady=(10, 0))
 
             # 상단 바: 좌측 요약(오늘/주간/신호) + 우측 AI READY 배지 (같은 줄)
-            ready = bool(getattr(self, 'ai_manager', None)) or bool(self.settings.get('openai_api_key'))
+            ready = self._ai_ready()
             header_bar = ctk.CTkFrame(
                 container,
                 fg_color=self._color("card", "#111827"),
@@ -2071,7 +1869,7 @@ class ModernDashboard(ctk.CTk):
             container.pack(fill="both", expand=True, padx=10, pady=10)
 
             # 상단 AI READY 배지
-            ready = bool(getattr(self, 'ai_manager', None)) or bool(self.settings.get('openai_api_key'))
+            ready = self._ai_ready()
             badge_text = "AI READY" if ready else "AI OFF"
             badge_color = ("#1d6f42", "#0f4d2d") if ready else ("#6f1d1d", "#4d0f0f")
             badge = ctk.CTkLabel(container, text=badge_text, fg_color=badge_color, text_color="white", corner_radius=6, padx=8, pady=4)
@@ -2637,7 +2435,7 @@ class ModernDashboard(ctk.CTk):
             kpi_frame.pack(fill="x", pady=(0, 8))
             self.trading_stats_kpi_labels = {}
             kpi_specs = [
-                ("trades", "총 거래", "0건", "#3b82f6"),
+                ("trades", "저장된 실제 체결", "0건", "#3b82f6"),
                 ("win_rate", "승률", "0.0%", "#10b981"),
                 ("pnl", "누적 PnL", "0.00", "#8b5cf6"),
                 ("fees", "누적 Fee", "0.00", "#f59e0b"),
@@ -3160,11 +2958,6 @@ class ModernDashboard(ctk.CTk):
         profile = (self.settings or {}).get('life_finance_profile', {}) or {}
         return profile if isinstance(profile, dict) else {}
 
-    def _save_life_finance_profile(self, profile: Dict[str, Any]) -> bool:
-        saved = self._persist_runtime_setting('life_finance_profile', profile)
-        if saved:
-            self.settings['life_finance_profile'] = profile
-        return saved
 
     def _calculate_asset_concentration(self, asset_breakdown: Dict[str, float], total_assets: float) -> Tuple[float, str]:
         """자산군 집중도(HHI 기반 0~100)와 상태 라벨을 반환합니다."""
@@ -3224,6 +3017,7 @@ class ModernDashboard(ctk.CTk):
                            SUM(COALESCE(pnl, 0)) AS pnl_sum
                     FROM trade_log
                     WHERE LOWER(COALESCE(asset_type, '')) IN ('crypto', 'stock')
+                      AND LOWER(COALESCE(reason, '')) != 'binance_import'
                     GROUP BY DATE(COALESCE(exit_time, entry_time)), LOWER(COALESCE(asset_type, ''))
                     ORDER BY d
                     """
@@ -4384,11 +4178,33 @@ class ModernDashboard(ctk.CTk):
         if not is_live_route:
             return True, ''
 
+        configured_api_version = str(
+            broker_config.get('api_version')
+            or getattr(adapter, 'api_version', '')
+            or ''
+        ).strip().lower()
         global_live_flag = bool(settings_obj.get('enable_stock_live_order', False))
         broker_live_flag = bool(broker_config.get('allow_live_order', False))
-        if global_live_flag or broker_live_flag:
-            return True, ''
-        return False, '실주문 차단: 설정에서 enable_stock_live_order 또는 해당 증권사 allow_live_order를 활성화하세요.'
+        try:
+            from trading.exchanges.exchange_factory import ExchangeFactory
+
+            adapter_ready = None
+            adapter_ready_reason = ''
+            readiness = getattr(adapter, 'get_live_readiness', None)
+            if callable(readiness):
+                adapter_ready, adapter_ready_reason = readiness()
+
+            return ExchangeFactory.evaluate_stock_live_order_permission(
+                broker=broker,
+                api_type=configured_api_type,
+                api_version=configured_api_version,
+                global_live_flag=global_live_flag,
+                broker_live_flag=broker_live_flag,
+                adapter_ready=adapter_ready,
+                adapter_ready_reason=adapter_ready_reason,
+            )
+        except Exception as exc:
+            return False, f'실주문 차단: 증권 API 성숙도 확인 실패 ({exc})'
 
     def _resolve_stock_auto_symbols(
         self,
@@ -4620,28 +4436,6 @@ class ModernDashboard(ctk.CTk):
             if getattr(self, '_stock_auto_loop_running', False):
                 self.thread_safe_after(interval_ms, self._run_stock_auto_trade_cycle_once)
 
-    def _get_today_stock_order_count(self, broker: str) -> int:
-        try:
-            recorder = getattr(self, 'recorder', None)
-            db_path = getattr(recorder, 'db_path', None)
-            if not db_path or not os.path.exists(db_path):
-                return 0
-
-            with sqlite3.connect(db_path) as conn:
-                cur = conn.cursor()
-                cur.execute(
-                    """
-                    SELECT COUNT(*)
-                    FROM trade_log
-                    WHERE DATE(entry_time) = DATE('now', 'localtime')
-                      AND LOWER(COALESCE(exchange, '')) = ?
-                    """,
-                    (str(broker or '').lower(),),
-                )
-                row = cur.fetchone()
-                return int((row or [0])[0] or 0)
-        except Exception:
-            return 0
 
     def _refresh_stock_trading_stats(self):
         """주식 거래 통계 새로고침"""
@@ -5204,6 +4998,17 @@ class ModernDashboard(ctk.CTk):
                     )
                     return
 
+                # 계정 전체 체결목록 API가 없는 Bithumb/Upbit도 NoahAI가 보존한
+                # 주문 ID는 fetch_order로 개별 재조회해 누락 체결을 먼저 복구한다.
+                reconcile_result = {'checked': 0, 'confirmed': 0, 'pending': 0, 'failed': 0}
+                main_app = getattr(self, 'main_app', None)
+                unified_trader = getattr(main_app, 'unified_trader', None) if main_app else None
+                if unified_trader is None:
+                    unified_trader = getattr(self, 'unified_trader', None)
+                reconciler = getattr(unified_trader, 'reconcile_exchange_order_receipts', None)
+                if callable(reconciler):
+                    reconcile_result = dict(reconciler(target_exchange.lower(), limit=500) or {})
+
                 trades = adapter.get_trade_history(limit=500) or []
                 sync_result = saver(
                     target_exchange.lower(),
@@ -5213,7 +5018,16 @@ class ModernDashboard(ctk.CTk):
                 received = int(sync_result.get('received', 0) or 0)
                 inserted = int(sync_result.get('inserted', 0) or 0)
                 self._update_trading_statistics()
-                if received <= 0:
+                recovered = int(reconcile_result.get('confirmed', 0) or 0)
+                pending = int(reconcile_result.get('pending', 0) or 0)
+                failed = int(reconcile_result.get('failed', 0) or 0)
+                if recovered > 0:
+                    self._set_trading_stats_status(
+                        f"{target_exchange} 주문 ID로 확정 체결 {recovered}건을 복구했습니다. "
+                        f"확인 대기 {pending}건 · 실패 {failed}건",
+                        level='success',
+                    )
+                elif received <= 0:
                     capabilities = {}
                     try:
                         getter = getattr(adapter, "get_execution_capabilities", None)
@@ -5223,7 +5037,7 @@ class ModernDashboard(ctk.CTk):
                     if capabilities.get("history_available") is False:
                         self._set_trading_stats_status(
                             f"{target_exchange}는 현재 과거·수동 체결 자동 가져오기를 지원하지 않습니다. "
-                            "NoahAI가 제출한 새 실주문은 실제 체결 원장에 즉시 기록됩니다.",
+                            f"NoahAI 주문 ID 재확인: 대기 {pending}건 · 실패 {failed}건",
                             level='warning',
                         )
                     else:
@@ -5270,70 +5084,23 @@ class ModernDashboard(ctk.CTk):
                 self._set_trading_stats_status("Recorder 인스턴스를 찾을 수 없어 저장할 수 없습니다.", level='error')
                 return
 
-            inserted = 0
-            leverage_default = 1
-            try:
-                if isinstance(self.settings, dict):
-                    leverage_default = int(self.settings.get('default_leverage', leverage_default))
-            except Exception:
-                leverage_default = 1
+            execution_sync = {'received': len(trades), 'inserted': 0, 'skipped': 0}
+            execution_saver = getattr(recorder, 'save_exchange_execution_history', None)
+            if callable(execution_saver):
+                execution_sync = execution_saver(
+                    'binance',
+                    [dict(item) for item in trades if isinstance(item, dict)],
+                    source='dashboard_exchange_sync',
+                ) or execution_sync
 
-            for trade in trades:
-                try:
-                    symbol = str(trade.get('symbol', '')).upper()
-                    price = float(trade.get('price', 0.0))
-                    quantity = abs(float(trade.get('quantity', 0.0)))
-                    realized_pnl = float(trade.get('realized_pnl', 0.0))
-                    commission = float(trade.get('commission', 0.0))
-                    timestamp_ms = trade.get('time')
-
-                    if not symbol or price <= 0 or quantity <= 0 or not timestamp_ms:
-                        self.logger.debug(f"[거래통계] 유효하지 않은 거래 데이터 스킵: {trade}")
-                        continue
-
-                    trade_time = datetime.fromtimestamp(timestamp_ms / 1000)
-                    if self._trade_log_record_exists(recorder, target_exchange, symbol, trade_time, quantity, realized_pnl):
-                        self.logger.debug(f"[거래통계] 중복 거래 스킵 - {symbol} @ {trade_time}, qty={quantity}, pnl={realized_pnl}")
-                        continue
-
-                    notional = price * quantity
-                    pnl_percent = (realized_pnl / notional * 100.0) if notional > 0 else None
-                    side_raw = str(trade.get('side', '')).upper()
-                    side = 'LONG' if side_raw == 'BUY' else 'SHORT'
-
-                    trade_log = TradeLog(
-                        id=None,
-                        symbol=symbol,
-                        entry_price=price,
-                        exit_price=price,
-                        quantity=quantity,
-                        leverage=leverage_default,
-                        pnl=realized_pnl,
-                        pnl_percent=pnl_percent,
-                        entry_time=trade_time,
-                        exit_time=trade_time,
-                        reason='binance_import',
-                        side=side,
-                        tp_price=None,
-                        sl_price=None,
-                        fees=commission,
-                        slippage=0.0,
-                        exchange=target_exchange.lower()
-                    )
-
-                    recorder.insert_trade_log(trade_log)
-                    inserted += 1
-                    self.logger.info(f"[거래통계] 거래 로그 저장 완료 - {symbol}, qty={quantity}, pnl={realized_pnl}")
-                except Exception as trade_err:
-                    self.logger.warning(f"거래 내역 변환 중 오류: {trade_err}")
-                    continue
-
-            if inserted == 0:
-                self.logger.info("[거래통계] 신규로 저장된 거래 없음")
-                self._set_trading_stats_status("새로 저장된 거래가 없습니다.", level='info')
-            else:
-                self.logger.info(f"[거래통계] 총 {inserted}건 저장 완료")
-                self._set_trading_stats_status(f"{target_exchange} 거래소에서 {inserted}건의 거래를 가져왔습니다.", level='success')
+            execution_inserted = int(execution_sync.get('inserted', 0) or 0)
+            self._set_trading_stats_status(
+                f"{target_exchange} API 최근 {len(trades)}건 조회 · "
+                f"체결원장 신규 {execution_inserted}건 · 청산 성과 신규 0건입니다. "
+                "개별 체결은 실제 체결 원장에만 저장하며 NoahAI 진입-청산 성과로 만들지 않습니다. "
+                "200건은 조회 상한이며 중복 저장 건수가 아닙니다.",
+                level='success' if execution_inserted > 0 else 'info',
+            )
             self._update_trading_statistics()
 
         except Exception as e:
@@ -5381,30 +5148,6 @@ class ModernDashboard(ctk.CTk):
             self.trading_stats_status_label.configure(text=message, text_color=color)
         except Exception:
             self.trading_stats_status_label.configure(text=message)
-
-    def _trade_log_record_exists(self, recorder, exchange: str, symbol: str,
-                                 entry_time: datetime, quantity: float, pnl: float) -> bool:
-        try:
-            db_path = getattr(recorder, 'db_path', None)
-            if not db_path or not os.path.exists(db_path):
-                return False
-
-            with sqlite3.connect(db_path) as conn:
-                cursor = conn.cursor()
-                timestamp_seconds = int(entry_time.timestamp())
-                cursor.execute("""
-                    SELECT id FROM trade_log
-                    WHERE LOWER(COALESCE(exchange, 'unknown')) = ?
-                      AND symbol = ?
-                      AND ABS(strftime('%s', entry_time) - ?) <= 1
-                      AND ABS(quantity - ?) < 1e-8
-                      AND ABS(COALESCE(pnl, 0) - ?) < 1e-8
-                    LIMIT 1
-                """, (exchange.lower(), symbol, timestamp_seconds, quantity, pnl))
-                return cursor.fetchone() is not None
-        except Exception:
-            return False
-
 
     def _update_coin_info(self):
         """코인 정보 업데이트 (stub - 실제 구현 필요)"""
@@ -5513,6 +5256,10 @@ class ModernDashboard(ctk.CTk):
             try:
                 with sqlite3.connect(db_path) as conn:
                     cur = conn.cursor()
+                    execution_summary = self._get_exchange_execution_summary(
+                        conn,
+                        normalized_filter,
+                    )
 
                     # 레거시 DB 호환: fees 컬럼이 없으면 0으로 처리
                     has_fees_column = False
@@ -5561,6 +5308,7 @@ class ModernDashboard(ctk.CTk):
                             ) as valid_hold_count
                         FROM trade_log
                         WHERE exit_time IS NOT NULL
+                          AND LOWER(COALESCE(reason, '')) != 'binance_import'
                     """
                     params: List[Any] = []
                     if normalized_filter:
@@ -5580,13 +5328,19 @@ class ModernDashboard(ctk.CTk):
                         if normalized_filter:
                             msg = f"{exchange_filter_value} 거래소에 청산된 거래가 없습니다."
                         ctk.CTkLabel(self.trading_stats_scroll, text=msg).pack(pady=10)
-                        self._set_trading_stats_kpis(0, 0, 0.0, 0.0)
-                        self._set_trading_stats_operating_metrics({}, None, 0, 0)
-                        execution_count = self._render_exchange_execution_history(
+                        execution_count = int(execution_summary.get('count', 0) or 0)
+                        self._set_trading_stats_kpis(execution_count, 0, 0.0, 0.0)
+                        self._set_trading_stats_operating_metrics(
+                            dict(execution_summary.get('notional_by_currency') or {}),
+                            None,
+                            0,
+                            0,
+                        )
+                        rendered_count = self._render_exchange_execution_history(
                             conn,
                             normalized_filter,
                         )
-                        if execution_count > 0:
+                        if rendered_count > 0:
                             self._set_trading_stats_status(
                                 f"{exchange_filter_value} 실제 체결 {execution_count}건 · "
                                 "NoahAI 청산 성과 기록 0건",
@@ -5640,12 +5394,14 @@ class ModernDashboard(ctk.CTk):
                     exchange_names = {str(row[0] or '').upper() for row in rows}
                     has_krw = bool(exchange_names & {"UPBIT", "BITHUMB"})
                     has_non_krw = bool(exchange_names - {"UPBIT", "BITHUMB"})
+                    execution_count = int(execution_summary.get('count', 0) or 0)
                     self._set_trading_stats_kpis(
-                        grand_total, grand_wins, grand_pnl, grand_fees,
+                        execution_count or grand_total, grand_wins, grand_pnl, grand_fees,
                         mixed_currency=(normalized_filter is None and has_krw and has_non_krw),
+                        win_rate_denominator=actual_closed_total,
                     )
                     self._set_trading_stats_operating_metrics(
-                        grand_notional_by_currency,
+                        dict(execution_summary.get('notional_by_currency') or grand_notional_by_currency),
                         grand_avg_hold_minutes,
                         grand_valid_hold_count,
                         actual_closed_total,
@@ -5787,6 +5543,52 @@ class ModernDashboard(ctk.CTk):
         except Exception as e:
             print(f"거래 통계 업데이트 오류: {e}")
 
+    def _get_exchange_execution_summary(
+        self,
+        conn,
+        normalized_exchange: Optional[str],
+    ) -> Dict[str, Any]:
+        """확정 체결 원장을 기준으로 건수와 통화별 체결금액을 집계한다."""
+        summary: Dict[str, Any] = {'count': 0, 'notional_by_currency': {}}
+        try:
+            cur = conn.cursor()
+            cur.execute(
+                "SELECT name FROM sqlite_master WHERE type='table' AND name='exchange_execution_log'"
+            )
+            if cur.fetchone() is None:
+                return summary
+            columns = {
+                str(row[1])
+                for row in cur.execute("PRAGMA table_info(exchange_execution_log)").fetchall()
+            }
+            conditions = [
+                "confirmation_status = 'confirmed'"
+                if 'confirmation_status' in columns
+                else "1 = 1"
+            ]
+            params: List[Any] = []
+            if normalized_exchange:
+                conditions.append("LOWER(exchange) = ?")
+                params.append(str(normalized_exchange).lower())
+            cur.execute(
+                f"""
+                SELECT exchange, COUNT(*), SUM(COALESCE(cost, 0))
+                FROM exchange_execution_log
+                WHERE {' AND '.join(conditions)}
+                GROUP BY exchange
+                """,
+                tuple(params),
+            )
+            notional: Dict[str, float] = {}
+            for exchange, count, cost in cur.fetchall():
+                summary['count'] += int(count or 0)
+                currency = 'KRW' if str(exchange).lower() in {'upbit', 'bithumb'} else 'USDT'
+                notional[currency] = notional.get(currency, 0.0) + float(cost or 0.0)
+            summary['notional_by_currency'] = notional
+        except Exception as exc:
+            self.logger.warning(f"확정 체결 원장 집계 실패: {exc}")
+        return summary
+
     def _render_exchange_execution_history(
         self,
         conn,
@@ -5803,11 +5605,18 @@ class ModernDashboard(ctk.CTk):
             if cur.fetchone() is None:
                 return 0
 
+            columns = {
+                str(row[1])
+                for row in cur.execute("PRAGMA table_info(exchange_execution_log)").fetchall()
+            }
             params: List[Any] = []
-            where = ""
+            conditions: List[str] = []
+            if 'confirmation_status' in columns:
+                conditions.append("confirmation_status = 'confirmed'")
             if normalized_exchange:
-                where = "WHERE LOWER(exchange) = ?"
+                conditions.append("LOWER(exchange) = ?")
                 params.append(str(normalized_exchange).lower())
+            where = f"WHERE {' AND '.join(conditions)}" if conditions else ""
             cur.execute(
                 f"""
                 SELECT exchange, symbol, side, price, quantity, cost, fee,
@@ -5888,12 +5697,20 @@ class ModernDashboard(ctk.CTk):
             return 0
 
     def _set_trading_stats_kpis(
-        self, total: int, wins: int, pnl: float, fees: float, *, mixed_currency: bool = False
+        self,
+        total: int,
+        wins: int,
+        pnl: float,
+        fees: float,
+        *,
+        mixed_currency: bool = False,
+        win_rate_denominator: Optional[int] = None,
     ) -> None:
         """거래 통계 요약 카드를 갱신한다."""
         try:
             labels = getattr(self, 'trading_stats_kpi_labels', {}) or {}
-            win_rate = (float(wins) / float(total) * 100.0) if total else 0.0
+            denominator = total if win_rate_denominator is None else int(win_rate_denominator)
+            win_rate = (float(wins) / float(denominator) * 100.0) if denominator else 0.0
             try:
                 override_win_rate = self._get_broadcast_display_overrides().get('win_rate_percent')
                 if override_win_rate is not None:
@@ -6262,37 +6079,19 @@ class ModernDashboard(ctk.CTk):
         return result
 
     # ===== 빠른 이동 메서드들 =====
-    def _jump_to_ai_learning(self) -> None:
-        """AI 학습 탭으로 빠른 이동"""
-        try:
-            self._ensure_ai_learning_tab()
-            if hasattr(self, 'tab_widget') and self.tab_widget is not None:
-                tv = cast(ctk.CTkTabview, self.tab_widget)
-                tv.set("AI 학습")
-        except Exception as e:
-            try:
-                self.logger.error(f"AI 학습 탭 이동 실패: {e}")
-            except Exception:
-                pass
 
-    def _jump_to_ai_report(self) -> None:
-        """AI 리포트 탭으로 빠른 이동"""
-        try:
-            self._ensure_ai_report_tab()
-            if hasattr(self, 'tab_widget') and self.tab_widget is not None:
-                tv = cast(ctk.CTkTabview, self.tab_widget)
-                tv.set("AI 리포트")
-        except Exception as e:
-            try:
-                self.logger.error(f"AI 리포트 탭 이동 실패: {e}")
-            except Exception:
-                pass
 
     # ===== AI 상태 관리 =====
     def _ai_ready(self) -> bool:
         """AI 매니저 준비 상태 확인"""
         try:
-            return bool(getattr(self, 'ai_manager', None)) or bool(self.settings.get('openai_api_key'))
+            manager = getattr(self, 'ai_manager', None)
+            if manager is not None and bool(manager.enabled()):
+                return True
+            from trading.ai.ai_manager import ai_workload_route_status
+            return bool(
+                ai_workload_route_status(self.settings, workload="analyst")["ready"]
+            )
         except Exception:
             return False
 
@@ -6363,6 +6162,47 @@ class ModernDashboard(ctk.CTk):
                 if self._is_exchange_live_order_enabled(exchange)
                 else "learning_running"
             )
+
+    def _exchange_execution_mode_value(self, exchange: str) -> str:
+        """거래소별 현재 실행 모드를 UI용 문자열로 반환한다."""
+        try:
+            from trading.execution_mode import resolve_crypto_execution_mode
+
+            return resolve_crypto_execution_mode(
+                self.settings if isinstance(self.settings, dict) else {},
+                str(exchange or "").strip().lower(),
+            ).value
+        except Exception:
+            return "live" if self._is_exchange_live_order_enabled(exchange) else "learning"
+
+    def _paper_position_snapshot(self, exchange: str) -> Optional[Dict[str, Any]]:
+        """PAPER일 때만 엔진의 가상 포지션 저장소를 읽는다.
+
+        `None`은 PAPER가 아닌 모드, 빈 dict는 PAPER이지만 활성
+        가상 포지션이 없음을 뜻한다. 실계정 저장소와는 섞지 않는다.
+        """
+        ex = str(exchange or "").strip().lower()
+        main_app = getattr(self, "main_app", None)
+        trader = getattr(main_app, "trader", None) if main_app is not None else None
+        if trader is None:
+            trader = getattr(self, "trader", None)
+        unified_trader = getattr(self, "unified_trader", None)
+        if unified_trader is None and main_app is not None:
+            unified_trader = getattr(main_app, "unified_trader", None)
+        return select_paper_position_store(
+            execution_mode=self._exchange_execution_mode_value(ex),
+            exchange=ex,
+            binance_store=(
+                getattr(trader, "paper_active_positions", {})
+                if trader is not None
+                else {}
+            ),
+            unified_stores=(
+                getattr(unified_trader, "paper_positions", {})
+                if unified_trader is not None
+                else {}
+            ),
+        )
 
     def sync_exchange_runtime_state(
         self,
@@ -6572,10 +6412,6 @@ class ModernDashboard(ctk.CTk):
 
         # 최종 확인: 로그인 창과 동일한 방식으로 스타일 적용
 
-    def _force_topbar_styles_debug(self):
-        """상단 버튼 스타일을 재강제 + 진단 로그 출력 (런타임 확인용)"""
-        # 색상을 덮어씌우는 것을 방지하기 위해 비활성화
-        pass
 
     def create_status_bar(self):
         """상단 상태 바 생성 - 기존 카드형 구조"""
@@ -6954,446 +6790,14 @@ class ModernDashboard(ctk.CTk):
             except Exception:
                 pass
 
-    def show_service_modal(self, service_name):
-        """서비스 준비 중 모달을 테마 팔레트에 맞춰 표시."""
-        try:
-            # 고정 폰트 사용
-            title_font = ctk.CTkFont(size=24, weight="bold")
-            subtitle_font = ctk.CTkFont(size=18, weight="bold")
-            body_font = ctk.CTkFont(size=14)
-            button_font = ctk.CTkFont(size=16, weight="bold")
 
-            service_catalog = {
-                "stock": {
-                    "title": "주식 · ETF 의사결정 보조",
-                    "icon": "",
-                    "description": "주식·ETF의 판단 근거, 리스크, 기록을 구조적으로 제공하는 서비스입니다.",
-                    "features": [
-                        "실시간 시장 지표 기반 종목·ETF 스캔",
-                        "판단 근거 및 리스크 경고 구조화",
-                        "의사결정 전후 로그·환류 기록",
-                        "AI 기반 종목/ETF 비교 리포트",
-                        "설명 가능한 판단 이력 조회",
-                        "검증 가능한 지표 기반 성과 분석"
-                    ],
-                    "release_date": "현재 제공 중",
-                    "color_key": "success"
-                },
-                "ai_analyst": {
-                    "title": "AI 애널리스트 리포트",
-                    "icon": "",
-                    "description": "자연어 요약, 시장 해석, 시나리오 분석을 제공하는 리포트 서비스입니다.",
-                    "features": [
-                        "경제 일정과 뉴스 이벤트 요약",
-                        "포지션별 리스크·보상 시나리오",
-                        "다중 타임프레임 차트 해석",
-                        "기계학습 기반 확률 시뮬레이션",
-                        "세션별 주요 전략 리마인더",
-                        "Slack/Discord 연동 알림"
-                    ],
-                    "release_date": "부분 제공 (빌드/설정에 따라 다름)",
-                    "color_key": "info"
-                },
-                "other_investment": {
-                    "title": "생활금융 허브",
-                    "icon": "",
-                    "description": "생활금융 실행형 서비스입니다. 수입/지출 관리, 목표 추적, AI 자연어·음성 입력을 제공합니다.",
-                    "features": [
-                        "월별 수입·지출 자동 분류 및 기록",
-                        "카테고리 비중/지출 추세 차트 시각화",
-                        "저축 가능 금액 및 월간 재무 리포트",
-                        "목표 기반 재무 시뮬레이션과 진행 추적",
-                        "예산/목표 마감 임박 알림",
-                        "AI 생활금융 질의응답 + 음성 입력(STT)"
-                    ],
-                    "release_date": "현재 제공 중",
-                    "color_key": "warning"
-                },
-                "real_estate": {
-                    "title": "자산 통합 인사이트",
-                    "icon": "",
-                    "description": "암호화폐/주식 거래 데이터를 통합해 자산 비중, 집중도, 상관관계, 리스크 브리핑을 제공합니다.",
-                    "features": [
-                        "통합 자산 현황(총자산/손익) 실데이터 표시",
-                        "자산군 집중도(HHI) 및 상관관계 기반 진단",
-                        "리스크 브리핑 + 재균형 액션 제안",
-                        "스냅샷 저장/불러오기",
-                        "자산 배분 진단 상세 탭",
-                        "서비스 전용 가이드 탭"
-                    ],
-                    "release_date": "현재 제공 중",
-                    "color_key": "info"
-                }
-            }
 
-            info = service_catalog.get(service_name, service_catalog["stock"])
-            accent_key = info.get("color_key", "accent")
-            accent_color = self._color(accent_key, '#3b82f6')
-            accent_color_dark = self._shade_color(accent_color, 0.82)
-            text_primary = self._color('text_primary', '#f9fafb')
-            text_secondary = self._color('text_secondary', '#9ca3af')
-            surface_color = self._color('surface', '#1f2937')
-            border_color = self._color('border', '#374151')
 
-            modal = ctk.CTkToplevel(self)
-            modal.title(info["title"])
-            modal.geometry("620x720")
-            modal.resizable(False, False)
-            try:
-                modal.configure(fg_color=self._color('background', '#0f172a'))
-            except Exception:
-                pass
-
-            modal.transient(self)
-            modal.grab_set()
-
-            main_frame = ctk.CTkFrame(modal, fg_color="#0b1120")
-            main_frame.pack(fill="both", expand=True, padx=24, pady=24)
-
-            header_frame = ctk.CTkFrame(
-                main_frame,
-                fg_color=(accent_color, accent_color_dark),
-                corner_radius=18
-            )
-            header_frame.pack(fill="x")
-            header_frame.pack_configure(pady=(0, 24))
-
-            icon_label = ctk.CTkLabel(
-                header_frame,
-                text=info["icon"],
-                font=ctk.CTkFont(size=52)
-            )
-            icon_label.pack(pady=(20, 4))
-
-            title_label = ctk.CTkLabel(
-                header_frame,
-                text=info["title"],
-                font=title_font,
-                text_color=text_primary
-            )
-            title_label.pack(pady=(0, 6))
-
-            desc_label = ctk.CTkLabel(
-                header_frame,
-                text=info["description"],
-                font=body_font,
-                text_color=text_primary,
-                wraplength=520,
-                justify="center"
-            )
-            desc_label.pack(pady=(0, 20))
-
-            coming_soon_frame = self._create_card_frame(main_frame, corner_radius=14)
-            coming_soon_frame.pack(fill="x", pady=(0, 18))
-
-            coming_soon_label = ctk.CTkLabel(
-                coming_soon_frame,
-                text=f"출시 예정 — {info['release_date']} 공개",
-                font=subtitle_font,
-                text_color=accent_color
-            )
-            coming_soon_label.pack(pady=18)
-
-            features_frame = self._create_card_frame(main_frame, corner_radius=14)
-            features_frame.pack(fill="both", expand=True)
-            features_frame.pack_configure(pady=(0, 18))
-
-            features_title = ctk.CTkLabel(
-                features_frame,
-                text="주요 기능",
-                font=subtitle_font,
-                text_color=text_primary
-            )
-            features_title.pack(pady=(24, 12))
-
-            for feature in info["features"]:
-                feature_label = ctk.CTkLabel(
-                    features_frame,
-                    text=f"• {feature}",
-                    font=body_font,
-                    text_color=text_secondary,
-                    anchor="w",
-                    wraplength=520,
-                    justify="left"
-                )
-                feature_label.pack(fill="x", padx=24, pady=4)
-
-            footer_frame = ctk.CTkFrame(main_frame, fg_color="#0b1120")
-            footer_frame.pack(fill="x", pady=(12, 0))
-
-            notify_button = ctk.CTkButton(
-                footer_frame,
-                text="출시 소식 받기",
-                command=lambda: self.show_notification_signup(service_name),
-                font=body_font,
-                fg_color=surface_color,
-                border_color=border_color,
-                border_width=1,
-                hover_color=self._hover_from(surface_color, 0.92),
-                text_color=text_primary,
-                height=40,
-                width=180
-            )
-            notify_button.pack(side="left")
-
-            ok_button = ctk.CTkButton(
-                footer_frame,
-                text="확인",
-                command=modal.destroy,
-                font=button_font,
-                fg_color=(accent_color, accent_color_dark),
-                hover_color=self._shade_color(accent_color, 0.75),
-                text_color=text_primary,
-                height=40,
-                width=140
-            )
-            ok_button.pack(side="right")
-
-            modal.focus_force()
-        except Exception as e:
-            self.logger.error(f"서비스 모달 표시 오류: {e}")
-
-    def show_notification_signup(self, service_name):
-        """출시 알림 신청 모달"""
-        try:
-            # 고정 폰트 사용
-            title_font = ctk.CTkFont(size=20, weight="bold")
-            body_font = ctk.CTkFont(size=14)
-            button_font = ctk.CTkFont(size=14, weight="bold")
-
-            text_primary = self._color('text_primary', '#f9fafb')
-            text_secondary = self._color('text_secondary', '#9ca3af')
-            surface_color = self._color('surface', '#1f2937')
-            border_color = self._color('border', '#374151')
-            success_color = self._color('success', '#22c55e')
-            success_gradient = self._shade_color(success_color, 0.82)
-
-            service_titles = {
-                "stock": "주식 · ETF 의사결정 보조",
-                "ai_analyst": "AI 애널리스트 리포트",
-                "other_investment": "생활금융 허브",
-                "real_estate": "자산 통합 인사이트"
-            }
-            service_title = service_titles.get(service_name, "신규 서비스")
-
-            notify_modal = ctk.CTkToplevel(self)
-            notify_modal.title(f"{service_title} 출시 알림")
-            notify_modal.geometry("420x320")
-            notify_modal.resizable(False, False)
-            try:
-                notify_modal.configure(fg_color=self._color('background', '#0f172a'))
-            except Exception:
-                pass
-
-            notify_modal.transient(self)
-            notify_modal.grab_set()
-
-            container = ctk.CTkFrame(notify_modal, fg_color="#0b1120")
-            container.pack(fill="both", expand=True, padx=20, pady=20)
-
-            card = self._create_card_frame(container, corner_radius=14)
-            card.pack(fill="both", expand=True)
-
-            title_label = ctk.CTkLabel(
-                card,
-                text=f"{service_title} 출시 알림 신청",
-                font=title_font,
-                text_color=text_primary
-            )
-            title_label.pack(pady=(18, 8))
-
-            desc_label = ctk.CTkLabel(
-                card,
-                text="새로운 기능이 공개되면 등록하신 이메일로 가장 먼저 알려드립니다.",
-                font=body_font,
-                text_color=text_secondary,
-                wraplength=320,
-                justify="center"
-            )
-            desc_label.pack(pady=(0, 16))
-
-            email_entry = ctk.CTkEntry(
-                card,
-                placeholder_text="email@example.com",
-                font=body_font,
-                fg_color=surface_color,
-                border_color=border_color,
-                border_width=1,
-                text_color=text_primary,
-                placeholder_text_color=text_secondary
-            )
-            email_entry.pack(fill="x", padx=18, pady=(0, 20))
-
-            button_frame = ctk.CTkFrame(card, fg_color="#0b1120")
-            button_frame.pack(fill="x", padx=18, pady=(0, 10))
-
-            cancel_button = ctk.CTkButton(
-                button_frame,
-                text="취소",
-                command=notify_modal.destroy,
-                font=body_font,
-                fg_color=surface_color,
-                border_color=border_color,
-                border_width=1,
-                hover_color=self._shade_color(surface_color, 0.85),
-                text_color=text_primary,
-                height=34,
-                width=120
-            )
-            cancel_button.pack(side="right")
-
-            submit_button = ctk.CTkButton(
-                button_frame,
-                text="신청하기",
-                command=lambda: self.submit_notification_signup(service_name, email_entry.get(), notify_modal),
-                font=button_font,
-                fg_color=(success_color, success_gradient),
-                hover_color=self._shade_color(success_color, 0.68),
-                text_color=text_primary,
-                height=34,
-                width=130
-            )
-            submit_button.pack(side="right", padx=(0, 10))
-
-            notify_modal.focus_force()
-        except Exception as e:
-            try:
-                self.logger.error(f"출시 알림 모달 표시 오류: {e}")
-            except Exception:
-                logging.getLogger(__name__).error(f"출시 알림 모달 표시 오류: {e}")
-
-    def submit_notification_signup(self, service_name, email, modal):
-        """출시 알림 신청 처리"""
-        try:
-            if not email or "@" not in email:
-                try:
-                    self.logger.warning("올바른 이메일 주소를 입력해주세요.")
-                except Exception:
-                    logging.getLogger(__name__).warning("올바른 이메일 주소를 입력해주세요.")
-                return
-
-            service_titles = {
-                "stock": "주식 · ETF 의사결정 보조",
-                "ai_analyst": "AI 애널리스트 리포트",
-                "other_investment": "생활금융 허브",
-                "real_estate": "자산 통합 인사이트"
-            }
-            service_title = service_titles.get(service_name, "신규 서비스")
-
-            try:
-                self.logger.info(f"{service_name} 출시 알림 신청: {email}")
-            except Exception:
-                logging.getLogger(__name__).info(f"{service_name} 출시 알림 신청: {email}")
-            modal.destroy()
-
-            # 고정 폰트 사용
-            title_font = ctk.CTkFont(size=18, weight="bold")
-            body_font = ctk.CTkFont(size=14)
-            button_font = ctk.CTkFont(size=14, weight="bold")
-
-            text_primary = self._color('text_primary', '#f9fafb')
-            text_secondary = self._color('text_secondary', '#9ca3af')
-            surface_color = self._color('surface', '#1f2937')
-            border_color = self._color('border', '#374151')
-            accent_color = self._color('accent', '#3b82f6')
-            accent_gradient = self._shade_color(accent_color, 0.8)
-            success_color = self._color('success', '#22c55e')
-
-            success_modal = ctk.CTkToplevel(self)
-            success_modal.title("알림 신청 완료")
-            success_modal.geometry("360x200")
-            success_modal.resizable(False, False)
-            try:
-                success_modal.configure(fg_color=self._color('background', '#0f172a'))
-            except Exception:
-                pass
-
-            success_modal.transient(self)
-            success_modal.grab_set()
-
-            container = ctk.CTkFrame(success_modal, fg_color="#0b1120")
-            container.pack(fill="both", expand=True, padx=20, pady=20)
-
-            card = self._create_card_frame(container, corner_radius=14)
-            card.pack(fill="both", expand=True)
-
-            title_label = ctk.CTkLabel(
-                card,
-                text="신청이 완료되었습니다!",
-                font=title_font,
-                text_color=success_color
-            )
-            title_label.pack(pady=(18, 6))
-
-            message_label = ctk.CTkLabel(
-                card,
-                text=f"{service_title} 소식은 등록하신 이메일로 가장 먼저 전해드립니다.",
-                font=body_font,
-                text_color=text_secondary,
-                wraplength=280,
-                justify="center"
-            )
-            message_label.pack(pady=(0, 18))
-
-            ok_button = ctk.CTkButton(
-                card,
-                text="확인",
-                command=success_modal.destroy,
-                font=button_font,
-                fg_color=(accent_color, accent_gradient),
-                hover_color=self._shade_color(accent_color, 0.65),
-                text_color=text_primary,
-                height=36,
-                width=120
-            )
-            ok_button.pack()
-        except Exception as e:
-            try:
-                self.logger.error(f"출시 알림 신청 처리 오류: {e}")
-            except Exception:
-                logging.getLogger(__name__).error(f"출시 알림 신청 처리 오류: {e}")
-
-    def _safe_cleanup_scrollable_tab(self, tab_name):
-        """CTkScrollableFrame이 포함된 탭 안전 정리"""
-        try:
-            if tab_name == 'coin_info' and hasattr(self, 'evaluator_scroll'):
-                # evaluator_scroll 안전 정리
-                if self.evaluator_scroll and self.evaluator_scroll.winfo_exists():
-                    # 내부 위젯들 먼저 정리
-                    for child in self.evaluator_scroll.winfo_children():
-                        try:
-                            if hasattr(child, 'destroy'):
-                                child.destroy()
-                        except:
-                            pass
-                    # 스크롤 프레임 정리
-                    try:
-                        self.evaluator_scroll.destroy()
-                    finally:
-                        self.evaluator_scroll = None
-
-            elif tab_name == 'trading_stats' and hasattr(self, 'trading_stats_scroll'):
-                # trading_stats_scroll 안전 정리
-                if self.trading_stats_scroll and self.trading_stats_scroll.winfo_exists():
-                    # 내부 위젯들 먼저 정리
-                    for child in self.trading_stats_scroll.winfo_children():
-                        try:
-                            if hasattr(child, 'destroy'):
-                                child.destroy()
-                        except:
-                            pass
-                    # 스크롤 프레임 정리
-                    try:
-                        self.trading_stats_scroll.destroy()
-                    finally:
-                        self.trading_stats_scroll = None
-
-        except Exception as e:
-            print(f"{tab_name} 스크롤 프레임 정리 오류: {e}")
 
     def switch_service(self, service_name):
         """서비스 탭 전환"""
         try:
+            log_windows_gui_resources(self.logger, f"service-switch-before:{service_name}")
             try:
                 from log_system.log_adapter import log_event
                 log_event('system', f'Service 전환 시도: {service_name}')
@@ -7507,6 +6911,7 @@ class ModernDashboard(ctk.CTk):
             except Exception:
                 print(f"서비스 전환 완료: {service_name}")  # 디버깅용
             self.logger.info(f"서비스 전환: {service_name}")
+            log_windows_gui_resources(self.logger, f"service-switch-after:{service_name}")
 
         except Exception as e:
             try:
@@ -7773,7 +7178,7 @@ class ModernDashboard(ctk.CTk):
             existing = list(self.service_sub_tabs[service_name].keys())
             for label in existing:
                 try:
-                    self.tab_widget.delete(label)
+                    delete_ctk_tab(self.tab_widget, label)
                 except Exception:
                     pass
                 # 내부 레퍼런스 제거
@@ -7785,17 +7190,6 @@ class ModernDashboard(ctk.CTk):
                 import logging
                 logging.getLogger(__name__).warning(f"하위 탭 제거 오류: {e}")
 
-    def clear_all_service_sub_tabs(self) -> None:
-        """모든 서비스의 하위 탭을 제거 (서비스 전환 시 호출)"""
-        try:
-            for svc in list(self.service_sub_tabs.keys()):
-                self.clear_service_sub_tabs(svc)
-        except Exception as e:
-            try:
-                self.logger.warning(f"전체 하위 탭 제거 오류: {e}")
-            except Exception:
-                import logging
-                logging.getLogger(__name__).warning(f"전체 하위 탭 제거 오류: {e}")
 
     def _get_service_protected_tabs(self, service_name: str | None = None) -> set[str]:
         """현재 서비스 기준으로 유지할 기본 탭 집합을 반환합니다."""
@@ -7871,44 +7265,6 @@ class ModernDashboard(ctk.CTk):
             except Exception:
                 pass
 
-    def _ensure_service_guide_tab(self, tab_name: str, title: str, lines: list[str]) -> None:
-        """서비스 전용 가이드 탭을 생성/갱신합니다."""
-        try:
-            if not hasattr(self, 'tab_widget') or self.tab_widget is None:
-                return
-            tab = self._get_or_add_tab(tab_name)
-            self._clear_tab_children(tab)
-
-            wrapper = ctk.CTkScrollableFrame(tab, fg_color="#0b1120")
-            wrapper.pack(fill="both", expand=True, padx=12, pady=12)
-
-            title_label = ctk.CTkLabel(
-                wrapper,
-                text=title,
-                font=self._get_safe_font("title"),
-                text_color=self._color('text_primary', '#f9fafb'),
-            )
-            title_label.pack(anchor="w", pady=(0, 12))
-
-            body_frame = ctk.CTkFrame(wrapper, fg_color="#111827", corner_radius=12, border_width=1, border_color="#1f2937")
-            body_frame.pack(fill="x", padx=0, pady=0)
-
-            for line in lines:
-                label = ctk.CTkLabel(
-                    body_frame,
-                    text=line,
-                    justify="left",
-                    anchor="w",
-                    wraplength=940,
-                    font=self._get_safe_font("body"),
-                    text_color=self._color('text_secondary', '#cbd5e1'),
-                )
-                label.pack(fill="x", anchor="w", padx=16, pady=6)
-        except Exception as e:
-            try:
-                self.logger.warning(f"서비스 가이드 탭 생성 실패 ({tab_name}): {e}")
-            except Exception:
-                pass
 
     def _collect_asset_insight_metrics(self) -> Dict[str, Any]:
         """자산통합 상세탭에서 공통으로 사용하는 실데이터 지표를 수집합니다."""
@@ -7934,6 +7290,7 @@ class ModernDashboard(ctk.CTk):
                                SUM(COALESCE(pnl, 0))
                         FROM trade_log
                         WHERE exit_time IS NOT NULL
+                          AND LOWER(COALESCE(reason, '')) != 'binance_import'
                         GROUP BY LOWER(COALESCE(asset_type, ''))
                         """
                     )
@@ -7991,6 +7348,7 @@ class ModernDashboard(ctk.CTk):
                            SUM(COALESCE(pnl, 0)) AS pnl_sum
                     FROM trade_log
                     WHERE LOWER(COALESCE(asset_type, '')) IN ('crypto', 'stock')
+                      AND LOWER(COALESCE(reason, '')) != 'binance_import'
                     GROUP BY DATE(COALESCE(exit_time, entry_time)), LOWER(COALESCE(asset_type, ''))
                     ORDER BY d
                     """
@@ -8045,52 +7403,6 @@ class ModernDashboard(ctk.CTk):
         except Exception:
             return {'summary': '상관관계 서비스 계산 실패', 'top_pair': None}
 
-    def _build_asset_allocation_diagnosis_lines(self) -> List[str]:
-        metrics = self._collect_asset_insight_metrics()
-        total_assets = float(metrics.get('total_assets', 0.0) or 0.0)
-        total_pnl = float(metrics.get('total_pnl', 0.0) or 0.0)
-        asset_breakdown = dict(metrics.get('asset_breakdown', {}) or {})
-        concentration = float(metrics.get('concentration', 0.0) or 0.0)
-        concentration_level = str(metrics.get('concentration_level', '데이터 부족') or '데이터 부족')
-        corr_value = metrics.get('corr_value')
-        corr_label = str(metrics.get('corr_label', '데이터 없음') or '데이터 없음')
-        actions = list(metrics.get('actions', []) or [])
-        snapshot = dict(metrics.get('snapshot', {}) or {})
-
-        if total_assets <= 0:
-            return [
-                '거래 데이터가 아직 부족합니다. 블록체인/주식 거래 로그를 누적하면 진단 지표가 표시됩니다.',
-                f"집중도: {concentration:.1f}/100 ({concentration_level}), 상관관계: {corr_label}",
-                '자산통합 메인 탭에서 현재 상태 저장 후 다시 확인해 주세요.',
-            ]
-
-        crypto = float(asset_breakdown.get('암호화폐', 0.0) or 0.0)
-        stock = float(asset_breakdown.get('주식', 0.0) or 0.0)
-        etc_value = float(asset_breakdown.get('기타', 0.0) or 0.0)
-
-        if corr_value is None:
-            corr_text = f"상관계수: 계산 불가 ({corr_label})"
-        else:
-            corr_text = f"상관계수: {float(corr_value):+.2f} ({corr_label})"
-
-        snapshot_saved_at = str(snapshot.get('saved_at', '') or '').strip()
-        snapshot_text = (
-            f"마지막 저장 스냅샷: {snapshot_saved_at}" if snapshot_saved_at else '마지막 저장 스냅샷: 없음'
-        )
-
-        lines = [
-            f"총자산 {total_assets:,.0f}원, 누적 손익 {total_pnl:+,.0f}원",
-            f"자산군 비중: 암호화폐 {crypto:,.0f}원 / 주식 {stock:,.0f}원 / 기타 {etc_value:,.0f}원",
-            f"집중도(HHI): {concentration:.1f}/100 ({concentration_level}), {corr_text}",
-            snapshot_text,
-        ]
-
-        corr_service_summary = self._build_asset_correlation_service_summary(asset_breakdown, total_assets)
-        lines.append(f"상관관계 서비스 요약: {corr_service_summary.get('summary', 'N/A')}")
-
-        if actions:
-            lines.append(f"즉시 액션: {actions[0]}")
-        return lines
 
     def _build_risk_briefing_lines(self) -> List[str]:
         metrics = self._collect_asset_insight_metrics()
@@ -8325,6 +7637,7 @@ class ModernDashboard(ctk.CTk):
                            MIN(COALESCE(pnl, 0))
                     FROM trade_log
                     WHERE exit_time IS NOT NULL
+                      AND LOWER(COALESCE(reason, '')) != 'binance_import'
                     """
                 )
                 row = cur.fetchone() or (0, 0, 0.0, 0.0, 0.0, 0.0)
@@ -8730,7 +8043,10 @@ class ModernDashboard(ctk.CTk):
             try:
                 with sqlite3.connect(db_path) as conn:
                     cur = conn.cursor()
-                    where_clause = "WHERE exit_time IS NOT NULL"
+                    where_clause = (
+                        "WHERE exit_time IS NOT NULL "
+                        "AND LOWER(COALESCE(reason, '')) != 'binance_import'"
+                    )
                     params = []
                     if asset_type_filter:
                         where_clause += " AND LOWER(COALESCE(asset_type, '')) = ?"
@@ -8902,6 +8218,7 @@ class ModernDashboard(ctk.CTk):
                                COALESCE(symbol, ''), COALESCE(asset_type, '')
                         FROM trade_log
                         WHERE exit_time IS NOT NULL
+                          AND LOWER(COALESCE(reason, '')) != 'binance_import'
                         ORDER BY COALESCE(exit_time, entry_time) DESC
                         LIMIT 100
                     """)
@@ -9337,14 +8654,14 @@ class ModernDashboard(ctk.CTk):
                 if is_service_detail_tab:
                     if tab_name not in self.service_sub_tabs.get(service, {}):
                         try:
-                            tv.delete(tab_name)
+                            delete_ctk_tab(tv, tab_name)
                         except Exception:
                             pass
                     continue
 
                 if tab_name not in protected_tabs:
                     try:
-                        tv.delete(tab_name)
+                        delete_ctk_tab(tv, tab_name)
                     except Exception:
                         pass
 
@@ -9398,7 +8715,7 @@ class ModernDashboard(ctk.CTk):
             # 탭 제거 실행
             for tab_name in tabs_to_remove:
                 try:
-                    tv.delete(tab_name)
+                    delete_ctk_tab(tv, tab_name)
                 except Exception:
                     pass
 
@@ -9432,7 +8749,7 @@ class ModernDashboard(ctk.CTk):
             # 서비스 탭들 제거
             for tab_name in tabs_to_remove:
                 try:
-                    tv.delete(tab_name)
+                    delete_ctk_tab(tv, tab_name)
                 except Exception:
                     pass
 
@@ -9693,10 +9010,11 @@ class ModernDashboard(ctk.CTk):
         try:
             header = ctk.CTkFrame(parent, fg_color="transparent")
             header.pack(fill="x", padx=10, pady=(7, 3))
-            ctk.CTkLabel(
+            balance_title_label = ctk.CTkLabel(
                 header, text="잔고", font=self._get_safe_font("title"),
                 text_color=self._color('text_primary', '#f9fafb'),
-            ).pack(side="left")
+            )
+            balance_title_label.pack(side="left")
             status_label = ctk.CTkLabel(
                 header, text="7초 자동 갱신", font=self._get_safe_font("small"),
                 text_color=self._color('text_secondary', '#94a3b8'),
@@ -9737,6 +9055,12 @@ class ModernDashboard(ctk.CTk):
             # 즉시 1회 업데이트
             def refresh_once():
                 def _load_balance():
+                    paper_positions = self._paper_position_snapshot(exchange)
+                    if paper_positions is not None:
+                        return {
+                            'status': 'paper',
+                            'positions': paper_positions,
+                        }
                     # 모든 거래소에서 실제 거래 루프와 같은 ExchangeManager를
                     # 우선 사용한다. 화면이 별도 Unified adapter를 만들어 다른
                     # 연결/캐시를 보던 경로를 제거한다.
@@ -9756,14 +9080,36 @@ class ModernDashboard(ctk.CTk):
 
                 def _apply_balance(res):
                     result = res if isinstance(res, dict) else {}
-                    if result.get('status') == 'success':
+                    if result.get('status') == 'paper':
+                        paper_summary = summarize_paper_positions(result.get('positions', {}))
+                        quote = 'KRW' if str(exchange).lower() in {'upbit', 'bithumb'} else 'USDT'
+                        paper_items = [
+                            ("PAPER 모드", "실잔고 미사용"),
+                            ("가상 포지션", f"{int(paper_summary['position_count'])}개"),
+                            (
+                                "가상 미실현 PnL",
+                                f"{self._format_position_number(paper_summary['unrealized_pnl'], signed=True)} {quote}",
+                            ),
+                        ]
+                        for index, pair in enumerate(widgets.get('balance_values', [])):
+                            title_widget, value_widget = pair
+                            title_widget.configure(text=paper_items[index][0])
+                            value_widget.configure(text=paper_items[index][1])
+                        balance_title_label.configure(text="가상 계좌")
+                        status_label.configure(
+                            text="PAPER · 실주문·실잔고 미사용",
+                            text_color="#a78bfa",
+                        )
+                    elif result.get('status') == 'success':
                         bal = result.get('balance', {})
                         self._update_balance_metric_widgets(widgets, exchange, bal)
+                        balance_title_label.configure(text="잔고")
                         status_label.configure(
                             text=f"{exchange.upper()} · 7초 갱신 · 최대 3개 표시",
                             text_color="#94a3b8",
                         )
                     else:
+                        balance_title_label.configure(text="잔고")
                         message = self._balance_status_message(result)
                         self._set_balance_metric_state(widgets, message)
                         detail = str(
@@ -9986,14 +9332,16 @@ class ModernDashboard(ctk.CTk):
         return {"left_width": left_width}
 
     def create_exchange_positions_section(self, parent, exchange: str):
-        """거래소별 포지션을 압축 카드 목록으로 표시한다."""
+        """선물 포지션 또는 현물 보유자산을 상태와 함께 표시한다."""
         try:
+            account_contract = get_exchange_account_contract(exchange)
             header = ctk.CTkFrame(parent, fg_color="transparent")
             header.pack(fill="x", padx=10, pady=(7, 3))
-            ctk.CTkLabel(
-                header, text="포지션", font=self._get_safe_font("title"),
+            position_title_label = ctk.CTkLabel(
+                header, text=account_contract.title, font=self._get_safe_font("title"),
                 text_color=self._color('text_primary', '#f9fafb'),
-            ).pack(side="left")
+            )
+            position_title_label.pack(side="left")
             count_label = ctk.CTkLabel(
                 header, text="조회 중", font=self._get_safe_font("small"),
                 text_color="#60a5fa",
@@ -10010,7 +9358,14 @@ class ModernDashboard(ctk.CTk):
             widgets = self.exchange_section_widgets.setdefault(exchange, {})
             widgets['positions_body'] = body
             widgets['positions_count'] = count_label
-            self._render_position_cards(body, count_label, {}, empty_text="포지션 조회 중")
+            self._render_position_cards(
+                body,
+                count_label,
+                {},
+                empty_text=account_contract.loading_text,
+                quote=account_contract.quote_asset,
+                stock_mode=account_contract.holding_mode,
+            )
 
             def refresh_once():
                 try:
@@ -10028,8 +9383,13 @@ class ModernDashboard(ctk.CTk):
                                 advance_timeline=bool(self.is_auto_trading),
                             )
 
-                            quote = 'KRW' if exchange in {'upbit', 'bithumb'} else 'USDT'
-                            self._render_position_cards(body, count_label, replay_positions, quote=quote)
+                            self._render_position_cards(
+                                body,
+                                count_label,
+                                replay_positions,
+                                quote=account_contract.quote_asset,
+                                stock_mode=account_contract.holding_mode,
+                            )
                             try:
                                 self._schedule_visible_refresh(parent, 7000, refresh_once)
                             except Exception:
@@ -10041,40 +9401,103 @@ class ModernDashboard(ctk.CTk):
                     def _load_positions():
                         positions = {}
 
+                        # PAPER에서는 실거래소 API를 조회하지 않고 엔진의
+                        # 분리된 가상 포지션 저장소를 UI 정본으로 사용한다.
+                        paper_positions = self._paper_position_snapshot(exchange)
+                        if paper_positions is not None:
+                            return build_account_panel_result(
+                                paper_positions,
+                                empty_message="PAPER 가상 포지션 없음",
+                                execution_mode="paper",
+                            )
+
+                        # 업비트·빗썸 현물은 선물 포지션 API가 아니라 잔고 정본의
+                        # 양수 보유자산을 사용한다. 잔고 패널과 같은 ExchangeManager
+                        # 캐시를 재사용해 인증 API를 중복 호출하지 않는다.
+                        if account_contract.source == 'balance':
+                            manager = getattr(self, 'exchange_manager', None)
+                            if manager is None:
+                                main_app = getattr(self, 'main_app', None)
+                                manager = getattr(main_app, 'exchange_manager', None) if main_app else None
+                            if manager is None:
+                                return account_panel_unavailable('거래소 계좌 연결 미준비')
+                            balance_result = manager.get_exchange_balance(
+                                exchange_name=exchange,
+                                force_refresh=False,
+                            )
+                            if not isinstance(balance_result, dict):
+                                return account_panel_error('잔고 응답 형식 오류', 'invalid_balance_response')
+                            status = str(balance_result.get('status') or '').strip().lower()
+                            if status != 'success':
+                                detail = str(
+                                    balance_result.get('message')
+                                    or balance_result.get('error')
+                                    or self._balance_status_message(balance_result)
+                                )
+                                return account_panel_error(detail, status or 'balance_read_failed')
+                            holdings = normalize_spot_holdings(
+                                balance_result.get('balance', {}),
+                                quote_asset=account_contract.quote_asset,
+                            )
+                            return build_account_panel_result(
+                                holdings,
+                                empty_message=account_contract.empty_text,
+                            )
+
                         # 바이낸스는 거래소 API에서 직접 포지션 조회 (실제 상태 반영)
                         if exchange == 'binance':
                             main_app = getattr(self, 'main_app', None)
                             trader = getattr(main_app, 'trader', None) if main_app is not None else None
-                            if trader:
-                                try:
-                                    real_positions = trader.binance_client.client.futures_position_information()
-                                    for pos in real_positions:
-                                        amt = float(pos.get('positionAmt', 0))
-                                        if abs(amt) > 0:
-                                            symbol = pos.get('symbol')
-                                            positions[symbol] = {
-                                                'side': 'LONG' if amt > 0 else 'SHORT',
-                                                'quantity': abs(amt),
-                                                'entry_price': float(pos.get('entryPrice', 0)),
-                                                'unrealized_pnl': float(pos.get('unRealizedProfit', 0)),
-                                                'leverage': pos.get('leverage'),
-                                            }
-                                except Exception:
-                                    fallback = getattr(trader, 'active_positions', {})
-                                    positions = dict(fallback) if isinstance(fallback, dict) else {}
-                                    if (
-                                        exchange in positions
-                                        and isinstance(positions[exchange], dict)
-                                    ):
-                                        positions = dict(positions[exchange])
-                            return positions
+                            binance_client = getattr(main_app, 'binance_client', None) if main_app else None
+                            if binance_client is None:
+                                manager = getattr(self, 'exchange_manager', None)
+                                binance_client = getattr(manager, 'binance_client', None) if manager else None
+                            if binance_client is None and trader is not None:
+                                binance_client = getattr(trader, 'binance_client', None)
+                            if binance_client is None:
+                                raise RuntimeError('Binance 클라이언트 미연결')
+
+                            result_getter = getattr(binance_client, 'get_positions_result', None)
+                            if callable(result_getter):
+                                result = dict(result_getter() or {})
+                                status = str(result.get('status') or '').lower()
+                                if status != 'success':
+                                    raise RuntimeError(result.get('error') or f'포지션 조회 {status}')
+                                real_positions = result.get('positions') or []
+                            else:
+                                real_positions = binance_client.get_positions() or []
+
+                            for pos in real_positions:
+                                symbol = self._position_value(pos, 'symbol', default='')
+                                quantity = float(self._position_value(pos, 'size', 'quantity', default=0) or 0)
+                                if symbol and abs(quantity) > 0:
+                                    positions[str(symbol)] = {
+                                        'side': str(self._position_value(pos, 'side', default='LONG')).upper(),
+                                        'quantity': abs(quantity),
+                                        'entry_price': float(self._position_value(pos, 'entry_price', 'entryPrice', default=0) or 0),
+                                        'unrealized_pnl': float(self._position_value(pos, 'unrealized_pnl', 'unrealizedPnl', default=0) or 0),
+                                        'leverage': self._position_value(pos, 'leverage', default=None),
+                                    }
+                            return build_account_panel_result(
+                                positions,
+                                empty_message=account_contract.empty_text,
+                            )
 
                         # CCXT 거래소도 실제 거래소 API에서 조회하되 UI 스레드를 막지 않는다.
                         unified_trader = getattr(self, 'unified_trader', None)
-                        if not unified_trader:
-                            return positions
+                        main_app = getattr(self, 'main_app', None)
+                        if unified_trader is None and main_app is not None:
+                            unified_trader = getattr(main_app, 'unified_trader', None)
                         try:
-                            unified_manager = getattr(unified_trader, 'unified_manager', None)
+                            unified_manager = (
+                                getattr(unified_trader, 'unified_manager', None)
+                                if unified_trader is not None
+                                else None
+                            )
+                            if unified_manager is None:
+                                unified_manager = getattr(self, 'unified_manager', None)
+                            if unified_manager is None and main_app is not None:
+                                unified_manager = getattr(main_app, 'unified_manager', None)
                             if unified_manager:
                                 trading_type = (
                                     'futures'
@@ -10097,22 +9520,87 @@ class ModernDashboard(ctk.CTk):
                                             'unrealized_pnl': float(pos.get('unrealizedPnl', pos.get('unrealized_pnl', 0)) or 0),
                                             'leverage': pos.get('leverage'),
                                         }
-                        except Exception:
-                            fallback = getattr(unified_trader, 'active_positions', {})
-                            if isinstance(fallback, dict):
-                                positions = dict(fallback.get(exchange, {}) or {})
-                        return positions
+                            else:
+                                return account_panel_unavailable('공통 거래 어댑터 미연결')
+                        except Exception as adapter_error:
+                            fallback = getattr(unified_trader, 'active_positions', {}) if unified_trader is not None else {}
+                            cached_positions = (
+                                dict(fallback.get(exchange, {}) or {})
+                                if isinstance(fallback, dict)
+                                else {}
+                            )
+                            if cached_positions:
+                                return build_account_panel_result(
+                                    cached_positions,
+                                    empty_message=account_contract.empty_text,
+                                    stale=True,
+                                    message=f'실시간 조회 실패 · 로컬 캐시 ({str(adapter_error)[:36]})',
+                                )
+                            return account_panel_error(
+                                f'실시간 조회 실패: {str(adapter_error)[:48]}',
+                                'position_read_failed',
+                            )
+                        return build_account_panel_result(
+                            positions,
+                            empty_message=account_contract.empty_text,
+                        )
 
-                    def _apply_positions(positions):
-                        quote = 'KRW' if exchange in {'upbit', 'bithumb'} else 'USDT'
-                        self._render_position_cards(body, count_label, positions, quote=quote)
+                    def _apply_positions(result):
+                        snapshot = result if isinstance(result, AccountPanelResult) else build_account_panel_result(
+                            result,
+                            empty_message=account_contract.empty_text,
+                        )
+                        empty_text = snapshot.message or account_contract.empty_text
+                        paper_mode = snapshot.execution_mode == 'paper'
+                        mode_badge = (
+                            "PAPER"
+                            if paper_mode
+                            else self._exchange_execution_mode_value(exchange).upper()
+                        )
+                        position_title_label.configure(
+                            text="PAPER 가상 포지션" if paper_mode else account_contract.title,
+                            text_color="#c4b5fd" if paper_mode else self._color('text_primary', '#f9fafb'),
+                        )
+                        self._render_position_cards(
+                            body,
+                            count_label,
+                            snapshot.rows,
+                            empty_text=empty_text,
+                            quote=account_contract.quote_asset,
+                            stock_mode=account_contract.holding_mode and not paper_mode,
+                            mode_label=mode_badge,
+                        )
+                        if snapshot.state == 'stale':
+                            count_label.configure(
+                                text=f"캐시 표시 · {datetime.now().strftime('%H:%M:%S')}",
+                                text_color='#f59e0b',
+                            )
+                        elif snapshot.is_error:
+                            count_label.configure(
+                                text=f"조회 오류 · {datetime.now().strftime('%H:%M:%S')}",
+                                text_color='#ef4444',
+                            )
+                        else:
+                            try:
+                                current_count = str(count_label.cget('text') or '')
+                            except Exception:
+                                current_count = f"{len(snapshot.rows)}개"
+                            count_label.configure(
+                                text=f"{current_count} · {datetime.now().strftime('%H:%M:%S')}"
+                            )
 
                     def _apply_positions_error(ie):
+                        position_title_label.configure(
+                            text=account_contract.title,
+                            text_color=self._color('text_primary', '#f9fafb'),
+                        )
                         self._render_position_cards(
                             body,
                             count_label,
                             {},
-                            empty_text=f"포지션 조회 오류: {str(ie)[:28]}",
+                            empty_text=f"{account_contract.title} 조회 오류: {str(ie)[:28]}",
+                            quote=account_contract.quote_asset,
+                            stock_mode=account_contract.holding_mode,
                         )
                         count_label.configure(text="조회 오류", text_color="#ef4444")
 
@@ -10124,7 +9612,14 @@ class ModernDashboard(ctk.CTk):
                         _apply_positions_error,
                     )
                 except Exception as ie:
-                    self._render_position_cards(body, count_label, {}, empty_text=f"포지션 조회 오류: {str(ie)[:28]}")
+                    self._render_position_cards(
+                        body,
+                        count_label,
+                        {},
+                        empty_text=f"{account_contract.title} 조회 오류: {str(ie)[:28]}",
+                        quote=account_contract.quote_asset,
+                        stock_mode=account_contract.holding_mode,
+                    )
                     count_label.configure(text="조회 오류", text_color="#ef4444")
                 # 주기 갱신
                 try:
@@ -10133,7 +9628,7 @@ class ModernDashboard(ctk.CTk):
                     pass
             self._schedule_visible_refresh(parent, 150, refresh_once)
         except Exception as e:
-            print(f"포지션 섹션 생성 실패: {exchange} - {e}")
+            print(f"계좌 상태 섹션 생성 실패: {exchange} - {e}")
 
     def create_exchange_stats_section(self, parent, exchange: str):
         """거래소별 핵심 통계를 항상 읽을 수 있는 한 줄 4열 KPI 카드로 표시한다."""
@@ -10157,7 +9652,7 @@ class ModernDashboard(ctk.CTk):
 
             value_labels = {}
             specs = (
-                ("total", "총 거래", "0건", "#60a5fa"),
+                ("total", "실제 체결", "0건", "#60a5fa"),
                 ("win_rate", "승률", "0.0%", "#22c55e"),
                 ("pnl", "순손익", "0.00", "#f59e0b"),
                 ("fees", "수수료", "0.00", "#c084fc"),
@@ -10214,6 +9709,7 @@ class ModernDashboard(ctk.CTk):
                                 SUM({fee_expr}) as total_fees
                             FROM trade_log
                             WHERE exit_time IS NOT NULL AND LOWER(COALESCE(exchange, 'unknown')) = ?
+                              AND LOWER(COALESCE(reason, '')) != 'binance_import'
                         """, (effective_exchange,))
                         row = cur.fetchone()
                         # 레거시 데이터 보정: binance가 0건이면 exchange=NULL 이력을 포함
@@ -10226,6 +9722,7 @@ class ModernDashboard(ctk.CTk):
                                     SUM({fee_expr}) as total_fees
                                 FROM trade_log
                                 WHERE exit_time IS NOT NULL
+                                  AND LOWER(COALESCE(reason, '')) != 'binance_import'
                                   AND (LOWER(COALESCE(exchange, 'unknown')) = 'binance' OR exchange IS NULL)
                             """)
                             row = cur.fetchone()
@@ -10234,10 +9731,30 @@ class ModernDashboard(ctk.CTk):
                             prefix = ""
 
                         if row:
-                            total_trades = row[0] or 0
+                            closed_trades = int(row[0] or 0)
                             winning_trades = row[1] or 0
                             total_pnl = row[2] or 0.0
-                            total_fees = row[3] or 0.0
+                            closed_fees = row[3] or 0.0
+                            execution_count = 0
+                            execution_fees = 0.0
+                            try:
+                                cur.execute(
+                                    """
+                                    SELECT COUNT(*), SUM(COALESCE(fee, 0))
+                                    FROM exchange_execution_log
+                                    WHERE LOWER(exchange) = ?
+                                      AND confirmation_status = 'confirmed'
+                                    """,
+                                    (effective_exchange,),
+                                )
+                                execution_row = cur.fetchone() or (0, 0.0)
+                                execution_count = int(execution_row[0] or 0)
+                                execution_fees = float(execution_row[1] or 0.0)
+                            except Exception:
+                                execution_count = 0
+                                execution_fees = 0.0
+                            total_trades = execution_count or closed_trades
+                            total_fees = execution_fees if execution_count else closed_fees
 
                             # 방송 리플레이 표시 오버레이를 거래소 탭 KPI에도 동일 적용
                             try:
@@ -10257,9 +9774,9 @@ class ModernDashboard(ctk.CTk):
                                 if override_win_rate is not None:
                                     win_rate = float(override_win_rate)
                                 else:
-                                    win_rate = (winning_trades / total_trades * 100) if total_trades > 0 else 0.0
+                                    win_rate = (winning_trades / closed_trades * 100) if closed_trades > 0 else 0.0
                             except Exception:
-                                win_rate = (winning_trades / total_trades * 100) if total_trades > 0 else 0.0
+                                win_rate = (winning_trades / closed_trades * 100) if closed_trades > 0 else 0.0
 
                             value_labels['total'].configure(text=f"{total_trades:,}건")
                             value_labels['win_rate'].configure(text=f"{win_rate:.1f}%")
@@ -10269,7 +9786,10 @@ class ModernDashboard(ctk.CTk):
                             )
                             value_labels['fees'].configure(text=f"{total_fees:,.2f}")
                             status_label.configure(
-                                text=f"{prefix}{exchange.upper()} · 종료 거래 기준",
+                                text=(
+                                    f"{prefix}{exchange.upper()} · 실제체결 {execution_count}건 · "
+                                    f"청산성과 {closed_trades}건"
+                                ),
                                 text_color=self._color('text_secondary', '#9ca3af'),
                             )
                         else:
@@ -10971,7 +10491,7 @@ class ModernDashboard(ctk.CTk):
                             cursor = conn.cursor()
                             # 블록체인 포지션 통계
                             try:
-                                cursor.execute("SELECT SUM(entry_amount) as total, SUM(pnl) as loss FROM trade_log WHERE asset_type='crypto' AND exit_time IS NOT NULL")
+                                cursor.execute("SELECT SUM(entry_amount) as total, SUM(pnl) as loss FROM trade_log WHERE asset_type='crypto' AND exit_time IS NOT NULL AND LOWER(COALESCE(reason, '')) != 'binance_import'")
                                 row = cursor.fetchone()
                                 if row and row[0]:
                                     asset_breakdown["암호화폐"] = float(row[0])
@@ -10982,7 +10502,7 @@ class ModernDashboard(ctk.CTk):
 
                             # 주식 포지션 통계
                             try:
-                                cursor.execute("SELECT SUM(entry_amount) as total, SUM(pnl) as loss FROM trade_log WHERE asset_type='stock' AND exit_time IS NOT NULL")
+                                cursor.execute("SELECT SUM(entry_amount) as total, SUM(pnl) as loss FROM trade_log WHERE asset_type='stock' AND exit_time IS NOT NULL AND LOWER(COALESCE(reason, '')) != 'binance_import'")
                                 row = cursor.fetchone()
                                 if row and row[0]:
                                     asset_breakdown["주식"] = float(row[0])
@@ -11478,6 +10998,7 @@ class ModernDashboard(ctk.CTk):
                                SUM(COALESCE(pnl, 0))
                         FROM trade_log
                         WHERE exit_time IS NOT NULL
+                          AND LOWER(COALESCE(reason, '')) != 'binance_import'
                         """
                     )
                     row = cur.fetchone() or (0, 0, 0.0)
@@ -11593,7 +11114,7 @@ class ModernDashboard(ctk.CTk):
                     result_box.insert("end",
                         f"AI 어시스턴트가 연결되지 않았습니다.\n\n"
                         f"분석 요청: {prompt}\n\n"
-                        "설정 > OpenAI API 탭에서 API 키를 먼저 설정해주세요.")
+                        "설정 > AI 엔진/API 탭에서 API 키를 먼저 설정해주세요.")
                     result_box.configure(state="disabled")
         except Exception as e:
             self.logger.error(f"AI 애널리스트 분석 요청 오류: {e}")
@@ -11902,78 +11423,14 @@ class ModernDashboard(ctk.CTk):
             return None
 
     def _schedule_visible_refresh(self, owner_widget, delay_ms, callback):
-        """화면에 보이는 섹션만 반복 갱신하고 재진입 시 즉시 재개한다."""
-        if owner_widget is None or callback is None:
-            return None
-        try:
-            registry = getattr(owner_widget, "_noah_visible_refresh_registry", None)
-            if not isinstance(registry, dict):
-                registry = {}
-                setattr(owner_widget, "_noah_visible_refresh_registry", registry)
+        """화면에 보이는 섹션만 반복 갱신하고 재진입 시 즉시 재개한다.
 
-            key = id(callback)
-            state = registry.get(key)
-            if state is None:
-                state = {"job": None, "disposed": False}
-                registry[key] = state
-
-                def _run():
-                    state["job"] = None
-                    try:
-                        if (
-                            state["disposed"]
-                            or getattr(self, "_is_destroying", False)
-                            or not self.winfo_exists()
-                            or not owner_widget.winfo_exists()
-                            or not owner_widget.winfo_viewable()
-                        ):
-                            return
-                    except Exception:
-                        return
-                    callback()
-
-                def _queue(delay=0):
-                    if state["disposed"] or state["job"] is not None:
-                        return
-                    state["job"] = self.safe_after(max(0, int(delay)), _run)
-
-                def _on_map(event=None):
-                    if event is not None and getattr(event, "widget", None) is not owner_widget:
-                        return
-                    _queue(0)
-
-                def _on_unmap(event=None):
-                    if event is not None and getattr(event, "widget", None) is not owner_widget:
-                        return
-                    job_id = state.get("job")
-                    if job_id is not None:
-                        try:
-                            self.after_cancel(job_id)
-                        except Exception:
-                            pass
-                        try:
-                            self.after_jobs.remove(job_id)
-                        except (ValueError, AttributeError):
-                            pass
-                    state["job"] = None
-
-                def _on_destroy(event=None):
-                    if event is not None and getattr(event, "widget", None) is not owner_widget:
-                        return
-                    state["disposed"] = True
-                    _on_unmap()
-
-                state["queue"] = _queue
-                owner_widget.bind("<Map>", _on_map, add="+")
-                owner_widget.bind("<Unmap>", _on_unmap, add="+")
-                owner_widget.bind("<Destroy>", _on_destroy, add="+")
-
-            queue_refresh = state.get("queue")
-            if callable(queue_refresh):
-                queue_refresh(delay_ms)
-            return state.get("job")
-        except Exception:
-            return None
+        CTk 탭 전환 중에는 실제 선택 탭의 자식도 짧게 ``viewable=False``를
+        반환할 수 있다. 그 순간 예약을 완전히 버리면 Map 이벤트가 다시 오지
+        않는 환경에서 갱신 루프가 영구 정지한다. 숨김 상태에서는 API 호출은
+        하지 않되, 저빈도 생존 확인을 계속 예약해 스스로 복구한다.
+        """
+        return schedule_visible_refresh(self, owner_widget, delay_ms, callback)
 
     def _kick_visible_refreshes_for_tab(self, tab_name: str) -> None:
         """선택된 탭 아래에서 잠든 가시성 갱신을 즉시 다시 예약한다.
@@ -12414,7 +11871,16 @@ class ModernDashboard(ctk.CTk):
                 normalized_grade = 'premium'
 
             if normalized_grade == 'referral':
-                grade_badge = "레퍼럴"
+                policy = getattr(getattr(self, 'main_app', None), 'current_membership_policy', {}) or {}
+                summary = policy.get('referral_summary', {}) if isinstance(policy, dict) else {}
+                usable_count = int(summary.get('usable_count', 0) or 0) if isinstance(summary, dict) else 0
+                pending_count = int(summary.get('pending_count', 0) or 0) if isinstance(summary, dict) else 0
+                if usable_count > 0:
+                    grade_badge = f"레퍼럴 정상 승인 {usable_count}개"
+                elif pending_count > 0:
+                    grade_badge = "레퍼럴 UID 확인 대기"
+                else:
+                    grade_badge = "레퍼럴 가입·승인 필요"
             elif normalized_grade == 'premium':
                 grade_badge = "프리미엄"
             elif normalized_grade in {'pro_coin', 'pro_stock'}:
@@ -12738,27 +12204,6 @@ class ModernDashboard(ctk.CTk):
             except Exception:
                 logging.getLogger(__name__).error(f"전체 제어 버튼 처리 오류: {e}")
 
-    def _show_ai_execute_help_dialog(self):
-        """AI 실행 버튼의 역할/사용법을 짧게 안내한다."""
-        try:
-            messagebox.showinfo(
-                "AI 실행 버튼 도움말",
-                (
-                    "AI 실행은 '진단/안내' 버튼입니다.\n\n"
-                    "1) 무엇을 하나요?\n"
-                    "- 현재 활성 거래소/실행 상태/리스크를 진단해 보여줍니다.\n"
-                    "- 상태 변경은 수행하지 않으며, 필요한 조치를 안내합니다.\n\n"
-                    "2) 거래소별 시작 버튼과 차이\n"
-                    "- 거래소별 시작 버튼: 해당 거래소를 실제 시작/정지\n"
-                    "- AI 실행 버튼: 실행 전 준비도 점검/가이드\n\n"
-                    "3) 권장 사용 순서\n"
-                    "- 설정 > 거래소 API/거래소 선택 완료\n"
-                    "- AI 실행으로 준비도 진단\n"
-                    "- 필요 시 거래소별 버튼으로 미세 조정"
-                ),
-            )
-        except Exception:
-            pass
 
     def _update_global_status_ui(self):
         """전역 Tri-State 상태 라벨 & 버튼 텍스트 갱신"""
@@ -12876,6 +12321,7 @@ class ModernDashboard(ctk.CTk):
                                     SUM(pnl) as total_pnl
                                 FROM trade_log
                                 WHERE exit_time IS NOT NULL
+                                  AND LOWER(COALESCE(reason, '')) != 'binance_import'
                             """)
                             row = cursor.fetchone()
                             if row:
@@ -12915,7 +12361,12 @@ class ModernDashboard(ctk.CTk):
                 main_app = getattr(self, 'main_app', None)
                 trader = getattr(main_app, 'trader', None) if main_app is not None else None
                 if trader:
-                    binance_positions = getattr(trader, 'active_positions', {})
+                    position_getter = getattr(trader, 'get_active_positions', None)
+                    binance_positions = (
+                        position_getter()
+                        if callable(position_getter)
+                        else getattr(trader, 'active_positions', {})
+                    )
                     active_positions += len(binance_positions)
             except Exception:
                 pass
@@ -13514,65 +12965,6 @@ class ModernDashboard(ctk.CTk):
             self.logger.debug(f"UI 검증 시작 탭 선택 생략: {verify_tab_error}")
 
 
-    def _open_chart_screenshot_analyzer(self) -> None:
-        """Launch the chart screenshot analyzer modal."""
-        try:
-            if ChartScreenshotWidget is None:
-                messagebox.showinfo("차트 이미지 분석", "차트 분석 위젯이 현재 사용할 수 없습니다.")
-                return
-            if self._chart_widget_modal and self._chart_widget_modal.winfo_exists():
-                try:
-                    self._chart_widget_modal.focus()
-                except Exception:
-                    pass
-                return
-
-            modal = ctk.CTkToplevel(self)
-            modal.title("차트 이미지 분석기")
-            modal.geometry("980x720")
-            try:
-                modal.transient(self)
-                modal.grab_set()
-            except Exception:
-                pass
-
-            api_key = None
-            try:
-                if isinstance(self.settings, dict):
-                    api_key = self.settings.get('openai_api_key')
-            except Exception:
-                api_key = None
-
-            chart_widget = ChartScreenshotWidget(
-                modal,
-                ai_client=getattr(getattr(self, 'ai_assistant_widget', None), 'ai_client', None),
-                api_key=api_key
-            )
-            chart_widget.pack(fill="both", expand=True, padx=12, pady=12)
-
-            self._chart_widget_modal = modal
-            self._chart_widget = chart_widget
-
-            def _close_chart_modal() -> None:
-                try:
-                    if chart_widget and chart_widget.winfo_exists():
-                        chart_widget.destroy()
-                except Exception:
-                    pass
-                self._chart_widget = None
-                self._chart_widget_modal = None
-                try:
-                    modal.destroy()
-                except Exception:
-                    pass
-
-            modal.protocol("WM_DELETE_WINDOW", _close_chart_modal)
-            try:
-                modal.focus()
-            except Exception:
-                pass
-        except Exception as exc:
-            messagebox.showerror("차트 이미지 분석", f"창을 열 수 없습니다.\n{exc}")
 
     def _open_manual_modal(self, initial_tab: Optional[str] = None) -> None:
         """Show the integrated user manual."""
@@ -13582,6 +12974,124 @@ class ModernDashboard(ctk.CTk):
             self._manual_widget.show_manual(initial_tab=initial_tab)
         except Exception as exc:
             messagebox.showerror("사용자 매뉴얼", f"매뉴얼을 열 수 없습니다.\n{exc}")
+
+    def _acknowledge_live_readiness_notice(self) -> None:
+        """현재 패치의 실거래 필수 안내 확인 상태를 사용자 설정에 저장한다."""
+        try:
+            settings_obj = self.settings if isinstance(self.settings, dict) else {}
+            raw_notices = settings_obj.get("acknowledged_client_notices", [])
+            notices = list(raw_notices) if isinstance(raw_notices, list) else []
+            if RELEASE_NOTICE_ID not in notices:
+                notices.append(RELEASE_NOTICE_ID)
+            settings_obj["acknowledged_client_notices"] = notices[-20:]
+            self.settings = settings_obj
+            from config.settings import save_settings
+
+            save_settings(settings_obj)
+        except Exception as exc:
+            try:
+                self.logger.warning(f"실거래 필수 안내 확인 저장 실패: {exc}")
+            except Exception:
+                pass
+
+    def _show_live_readiness_notice_if_needed(self, force: bool = False) -> None:
+        """업데이트 후 최초 한 번, 실거래 조건과 검증 경계를 직접 알린다."""
+        try:
+            existing = getattr(self, "_live_readiness_notice_window", None)
+            if existing is not None and hasattr(existing, "winfo_exists") and existing.winfo_exists():
+                existing.focus_force()
+                return
+
+            settings_obj = self.settings if isinstance(self.settings, dict) else {}
+            raw_notices = settings_obj.get("acknowledged_client_notices", [])
+            notices = raw_notices if isinstance(raw_notices, list) else []
+            if not force and RELEASE_NOTICE_ID in notices:
+                return
+
+            dialog = ctk.CTkToplevel(self)
+            self._live_readiness_notice_window = dialog
+            dialog.title(f"{RELEASE_BUILD_LABEL} 실거래 시작 전 필수 안내")
+            dialog.geometry("780x640")
+            dialog.minsize(700, 560)
+            dialog.transient(self)
+            dialog.grab_set()
+
+            frame = ctk.CTkFrame(
+                dialog,
+                fg_color="#0b1120",
+                border_width=1,
+                border_color="#f59e0b",
+                corner_radius=14,
+            )
+            frame.pack(fill="both", expand=True, padx=12, pady=12)
+            ctk.CTkLabel(
+                frame,
+                text="실거래 시작 전 필수 확인",
+                font=self._get_safe_font("heading", ctk.CTkFont(size=20, weight="bold")),
+                text_color="#fbbf24",
+            ).pack(anchor="w", padx=16, pady=(14, 4))
+            ctk.CTkLabel(
+                frame,
+                text="이 안내는 업데이트 후 처음 한 번 표시되며, 메뉴얼 → 실거래 준비에서 언제든 다시 볼 수 있습니다.",
+                font=self._get_safe_font("caption", ctk.CTkFont(size=11)),
+                text_color="#cbd5e1",
+                wraplength=720,
+                justify="left",
+            ).pack(anchor="w", padx=16, pady=(0, 10))
+
+            text_box = ctk.CTkTextbox(
+                frame,
+                wrap="word",
+                fg_color="#101826",
+                text_color="#e5edf6",
+                border_width=1,
+                border_color="#334155",
+                corner_radius=10,
+                font=self._get_safe_font("body", ctk.CTkFont(size=12)),
+            )
+            text_box.pack(fill="both", expand=True, padx=16, pady=(0, 12))
+            text_box.insert("1.0", build_live_trading_summary(RELEASE_BUILD_LABEL))
+            text_box.configure(state="disabled")
+
+            actions = ctk.CTkFrame(frame, fg_color="transparent")
+            actions.pack(fill="x", padx=16, pady=(0, 14))
+
+            def close_and_acknowledge(open_detail: bool = False) -> None:
+                self._acknowledge_live_readiness_notice()
+                try:
+                    dialog.grab_release()
+                except Exception:
+                    pass
+                try:
+                    dialog.destroy()
+                except Exception:
+                    pass
+                self._live_readiness_notice_window = None
+                if open_detail:
+                    self.after(80, lambda: self._open_manual_modal("실거래 준비"))
+
+            ctk.CTkButton(
+                actions,
+                text="자세한 실거래 준비 보기",
+                height=36,
+                fg_color="#2563eb",
+                hover_color="#1d4ed8",
+                command=lambda: close_and_acknowledge(True),
+            ).pack(side="left")
+            ctk.CTkButton(
+                actions,
+                text="내용을 확인했습니다",
+                height=36,
+                fg_color="#0f766e",
+                hover_color="#115e59",
+                command=lambda: close_and_acknowledge(False),
+            ).pack(side="right")
+            dialog.protocol("WM_DELETE_WINDOW", dialog.destroy)
+        except Exception as exc:
+            try:
+                self.logger.warning(f"실거래 필수 안내 표시 실패: {exc}")
+            except Exception:
+                pass
 
     def _open_ai_optimization_center(self) -> None:
         """Quick Actions의 AI 최적화 '진단' 워크플로우를 실행한다.
@@ -13662,15 +13172,6 @@ class ModernDashboard(ctk.CTk):
         except Exception as exc:
             messagebox.showerror("AI 최적화 적용", f"AI 최적화 적용 창을 열 수 없습니다.\n{exc}")
 
-    def _open_url(self, url: str) -> None:
-        """웹 브라우저로 URL 열기"""
-        try:
-            webbrowser.open(url)
-        except Exception:
-            try:
-                self.logger.warning(f"URL 열기 실패: {url}")
-            except Exception:
-                pass
 
 
     def create_bottom_status(self):
@@ -13720,7 +13221,7 @@ class ModernDashboard(ctk.CTk):
             update_card.grid(row=0, column=1, sticky="ew", padx=5)
             ctk.CTkLabel(
                 update_card,
-                text=f"v{RELEASE_VERSION}  {RELEASE_HIGHLIGHT}",
+                text=f"{RELEASE_BUILD_LABEL}  {RELEASE_HIGHLIGHT}",
                 image=self._get_icon("update", (15, 15)),
                 compound="left",
                 font=self._get_safe_font('caption', ctk.CTkFont(size=10, weight='bold')),
@@ -13730,13 +13231,13 @@ class ModernDashboard(ctk.CTk):
             ).pack(side="left", fill="x", expand=True, padx=(8, 4), pady=5)
             ctk.CTkButton(
                 update_card,
-                text="업데이트·사용법",
-                width=104,
+                text="실거래 필수 · 업데이트·사용법",
+                width=176,
                 height=27,
                 font=self._get_safe_font('caption', ctk.CTkFont(size=10, weight='bold')),
                 fg_color="#2563eb",
                 hover_color="#1d4ed8",
-                command=lambda: self._open_manual_modal("업데이트"),
+                command=lambda: self._open_manual_modal("실거래 준비"),
             ).pack(side="right", padx=5, pady=4)
 
             summary_card = ctk.CTkFrame(
@@ -13772,6 +13273,17 @@ class ModernDashboard(ctk.CTk):
             )
             history_btn.pack(side='right', padx=5, pady=4)
             self._refresh_ai_execute_summary_card()
+
+            # 테스트 렌더링에서는 모달을 띄우지 않는다. 실제 사용자는 패치별 최초 한 번 확인한다.
+            if not getattr(self, "_live_readiness_notice_scheduled", False):
+                self._live_readiness_notice_scheduled = True
+                verify_mode = bool(
+                    os.environ.get("NOAHAI_UI_VERIFY_TAB")
+                    or os.environ.get("NOAHAI_UI_VERIFY")
+                    or os.environ.get("PYTEST_CURRENT_TEST")
+                )
+                if not verify_mode:
+                    self.after(1600, self._show_live_readiness_notice_if_needed)
         except Exception as e:
             print(f"create_bottom_status 생성 오류: {e}")
 
@@ -13784,6 +13296,7 @@ class ModernDashboard(ctk.CTk):
 
     def show_settings_dialog(self):
         try:
+            log_windows_gui_resources(self.logger, "settings-open-before")
             # 로그인 상태 확인 (개발환경 대응)
             try:
                 from path_utils import get_current_user_account
@@ -13890,11 +13403,14 @@ class ModernDashboard(ctk.CTk):
                     on_save_callback=_on_saved,
                     ai_diagnosis_result=ai_diagnosis
                 )
+                log_windows_gui_resources(self.logger, "settings-open-after")
                 # 열린 창 레퍼런스 저장 (재포커스 용)
                 try:
                     self._settings_window = getattr(win, 'root', win)
+                    self._settings_controller = win
                 except Exception:
                     self._settings_window = None
+                    self._settings_controller = None
                 # 포커스 이동
                 try:
                     if hasattr(win, 'root') and hasattr(win.root, 'focus'):

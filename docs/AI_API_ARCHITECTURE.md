@@ -18,7 +18,7 @@ AIManager (trading/ai/ai_manager.py)
   │   │   ├─ OpenAI
   │   │   ├─ DeepSeek V4 Flash/Pro
   │   │   ├─ Google Gemini
-  │   │   └─ Kimi K3/K2.6 (어시스턴트용 NoahAI 시험 연동)
+  │   │   └─ Kimi K3/K2.6 (텍스트·JSON·비전 정식 연동)
   │   ├─ AnthropicClient (네이티브 Messages API)
   │   ├─ ProviderCapabilities
   │   └─ ProviderResponse / NormalizedProviderError
@@ -277,7 +277,7 @@ except Exception as e:
 
 ### Phase 2: v3.9.0.3 업데이트 배포 대상
 - [x] OpenAI·DeepSeek·Claude·Gemini 정식 Router 등록
-- [x] Kimi K3 어시스턴트 시험 등록
+- [x] Kimi K3/K2.6 작업별 텍스트·JSON·비전 정식 등록
 - [x] 동적 모델 목록, capability, 로컬 자격증명 호환, 응답·사용량·오류 정규화
 - [ ] 실제 제공사 키 인증·모델 목록·과금 계정 E2E
 - [ ] manifest SHA-256이 게시된 Windows 설치본 연결·업데이트 E2E

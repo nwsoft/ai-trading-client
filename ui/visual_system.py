@@ -14,7 +14,11 @@ except Exception:
     ImageDraw = None  # type: ignore
 
 
-_ICON_CACHE: Dict[Tuple[str, int, int, str], ctk.CTkImage] = {}
+# CTkImage는 내부 PhotoImage를 최초 사용한 Tcl interpreter에 묶어 캐시한다.
+# 여러 CTk root가 순차 생성되는 로그인/설정 흐름에서 같은 CTkImage를 재사용하면
+# Windows에서 ``image "pyimage..." does not exist``가 발생할 수 있으므로,
+# interpreter와 무관한 PIL 원본만 캐시한다.
+_ICON_CACHE: Dict[Tuple[str, int, int, str], object] = {}
 
 
 def _shade_hex(color: str, factor: float) -> str:
@@ -44,10 +48,12 @@ def get_ui_icon(
     모양·색상·크기가 동일하다.
     """
     key = (str(name), int(size[0]), int(size[1]), str(color))
-    if key in _ICON_CACHE:
-        return _ICON_CACHE[key]
     if Image is None or ImageDraw is None:
         return None
+
+    cached_image = _ICON_CACHE.get(key)
+    if cached_image is not None:
+        return ctk.CTkImage(light_image=cached_image, dark_image=cached_image, size=size)
 
     w, h = size
     image = Image.new("RGBA", size, (0, 0, 0, 0))
@@ -123,9 +129,8 @@ def get_ui_icon(
     else:
         draw.rounded_rectangle([left, top, right, bottom], radius=radius, outline=color, width=stroke)
 
-    icon = ctk.CTkImage(light_image=image, dark_image=image, size=size)
-    _ICON_CACHE[key] = icon
-    return icon
+    _ICON_CACHE[key] = image
+    return ctk.CTkImage(light_image=image, dark_image=image, size=size)
 
 
 def style_tabview(

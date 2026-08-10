@@ -14,6 +14,7 @@ from enum import Enum
 from uuid import uuid4
 
 from trading.custom_strategy_pipeline import CustomStrategyPipeline
+from trading.noah_strategy_ir import NoahStrategyIR
 from trading.custom_strategy_runtime import (
     derive_strategy_risk_settings,
     limited_live_engine_settings,
@@ -201,6 +202,10 @@ class StrategyCustomizer:
                 custom_strategy["xai"] = version["xai"]
                 custom_strategy["guidance"] = version.get("guidance", {})
                 custom_strategy["missing_conditions"] = version["missing_conditions"]
+                custom_strategy["strategy_ir"] = dict(version.get("strategy_ir", {}) or {})
+                custom_strategy["ir_validation"] = dict(version.get("ir_validation", {}) or {})
+                custom_strategy["ir_hash"] = str(version.get("ir_hash", "") or "")
+                custom_strategy["correlation_id"] = str(version.get("correlation_id", "") or "")
                 self._prune_unpersisted_strategy_records(version["strategy_key"])
             
             # 전략 저장
@@ -221,6 +226,14 @@ class StrategyCustomizer:
                 if not version_id:
                     continue
                 rules = dict(version.get("rules", {}) or {})
+                strategy_ir = dict(version.get("strategy_ir", {}) or {})
+                if not strategy_ir:
+                    strategy_ir = NoahStrategyIR.compile(
+                        rules,
+                        source_kind=str(version.get("source_kind") or "text"),
+                        source_reference=str(version.get("source_reference") or ""),
+                        missing_conditions=list(version.get("missing_conditions") or []),
+                    )
                 engine_settings = dict(rules.get("engine_settings", {}) or {})
                 strategy_id = f"persisted_{version_id}"
                 self.user_strategies[strategy_id] = {
@@ -253,6 +266,15 @@ class StrategyCustomizer:
                     "guidance": dict(version.get("guidance", {}) or {}),
                     "improvement_advice": dict(version.get("improvement_advice", {}) or {}),
                     "missing_conditions": list(version.get("missing_conditions", []) or []),
+                    "strategy_ir": strategy_ir,
+                    "ir_validation": NoahStrategyIR.validate(strategy_ir),
+                    "ir_hash": str(
+                        version.get("ir_hash")
+                        or strategy_ir.get("integrity_sha256")
+                        or ""
+                    ),
+                    "correlation_id": str(version.get("correlation_id", "") or ""),
+                    "version_diff": dict(version.get("version_diff", {}) or {}),
                     "paper_validation": version.get("paper_validation"),
                     "execution_validation": version.get("execution_validation"),
                     "backtesting_results": None,
@@ -286,6 +308,12 @@ class StrategyCustomizer:
             strategy["guidance"] = dict(version.get("guidance", strategy.get("guidance", {})) or {})
             strategy["improvement_advice"] = dict(
                 version.get("improvement_advice", strategy.get("improvement_advice", {})) or {}
+            )
+            for field in ("strategy_ir", "ir_validation", "version_diff"):
+                strategy[field] = dict(version.get(field, strategy.get(field, {})) or {})
+            strategy["ir_hash"] = str(version.get("ir_hash", strategy.get("ir_hash", "")) or "")
+            strategy["correlation_id"] = str(
+                version.get("correlation_id", strategy.get("correlation_id", "")) or ""
             )
             if strategy["status"] == "active":
                 self.active_strategy_id = strategy_id
@@ -418,6 +446,8 @@ class StrategyCustomizer:
         _, strategy = self._strategy_for_version(strategy_key, version_id)
         strategy["status"] = version["status"]
         strategy["paper_validation"] = version["paper_validation"]
+        strategy["validation_lab"] = dict(version.get("validation_lab") or {})
+        strategy["promotion_history"] = list(version.get("promotion_history", []) or [])
         self._sync_pipeline_statuses(strategy_key)
         return version
 
@@ -549,13 +579,29 @@ class StrategyCustomizer:
             "quality_gate": "decisions>=minimum AND net_pnl>0 AND max_drawdown<=10%",
             "quality_passed": quality_pass,
         })
-        return self.record_execution_validation(
+        self.record_execution_validation(
             strategy_key,
             version_id,
             decisions=int(metrics.get("decisions", 0) or 0),
             guardrail_violations=0 if quality_pass else 1,
             metrics=metrics,
             mode="historical_replay",
+        )
+        from trading.strategy_validation_lab import run_validation_lab
+        lab_trades = [
+            {
+                "return_percent": float(item.get("net_pnl_percent", 0.0) or 0.0),
+                "fee": 0.0,
+                "slippage": 0.0,
+                "entry_time": item.get("entry_time"),
+                "exit_time": item.get("exit_time"),
+            }
+            for item in list(metrics.get("trades", []) or [])
+            if isinstance(item, dict)
+        ]
+        lab_report = run_validation_lab(lab_trades)
+        return self.custom_pipeline.record_validation_lab(
+            strategy_key, version_id, lab_report,
         )
 
     def _guardrail_allows(self, version: Dict[str, Any]) -> bool:
@@ -1115,6 +1161,12 @@ class StrategyCustomizer:
                     "signal_mode": str(strategy.get("signal_mode", "confirm") or "confirm"),
                     "entry_signal": str(strategy.get("entry_signal", "") or ""),
                     "operation_mode": str(strategy.get("operation_mode", "standard") or "standard"),
+                    "strategy_ir": dict(strategy.get("strategy_ir", {}) or {}),
+                    "ir_validation": dict(strategy.get("ir_validation", {}) or {}),
+                    "ir_hash": str(strategy.get("ir_hash", "") or ""),
+                    "ir_version": str((strategy.get("strategy_ir") or {}).get("ir_version", "") or ""),
+                    "correlation_id": str(strategy.get("correlation_id", "") or ""),
+                    "version_diff": dict(strategy.get("version_diff", {}) or {}),
                     "performance": strategy.get("live_performance", {})
                 }
                 for strategy_id, strategy in self.user_strategies.items()
@@ -1130,6 +1182,20 @@ class StrategyCustomizer:
         for strategy_id, strategy in self.user_strategies.items():
             if strategy.get("status") != "active":
                 continue
+            strategy_ir = dict(strategy.get("strategy_ir", {}) or {})
+            if not strategy.get("trusted_system", False):
+                ir_validation = NoahStrategyIR.validate(strategy_ir)
+                if (
+                    not ir_validation.get("valid")
+                    or ir_validation.get("status") != "supported"
+                    or NoahStrategyIR.to_rules(strategy_ir) != dict(strategy.get("rules", {}) or {})
+                ):
+                    self.logger.error(
+                        "활성 사용자 전략 IR 검증 실패로 실행 풀에서 제외: %s (%s)",
+                        strategy_id,
+                        ir_validation.get("errors", []),
+                    )
+                    continue
             operation_mode = str(strategy.get("operation_mode", "standard") or "standard").lower()
             engine_settings = (
                 limited_live_engine_settings(strategy.get("base_params", {}))
@@ -1154,6 +1220,9 @@ class StrategyCustomizer:
                 "operation_mode": operation_mode,
                 "strategy_key": strategy.get("pipeline_strategy_key"),
                 "version_id": strategy.get("pipeline_version_id"),
+                "ir_version": str(strategy_ir.get("ir_version", "") or ""),
+                "ir_hash": str(strategy.get("ir_hash", "") or ""),
+                "correlation_id": str(strategy.get("correlation_id", "") or ""),
             })
         return sorted(pool, key=lambda item: int(item.get("priority", 5)), reverse=True)[:10]
 

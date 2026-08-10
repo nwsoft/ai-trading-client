@@ -12,7 +12,7 @@ PRICE_SNAPSHOT_AS_OF = "2026-07-28"
 OFFICIAL_PRICING_URLS = {
     "openai": "https://developers.openai.com/api/docs/models",
     "deepseek": "https://api-docs.deepseek.com/quick_start/pricing/",
-    "kimi": "https://platform.moonshot.ai/docs",
+    "kimi": "https://platform.kimi.ai/docs/pricing/chat",
     "anthropic": "https://platform.claude.com/docs/en/about-claude/pricing",
     "gemini": "https://ai.google.dev/gemini-api/docs/pricing",
 }
@@ -28,8 +28,8 @@ PROVIDER_PRICE_CATALOG: Dict[str, List[Dict[str, Any]]] = {
         {"model": "deepseek-v4-pro", "input": 0.435, "output": 0.87, "use": "정밀형", "note": "캐시 미적중 입력"},
     ],
     "kimi": [
-        {"model": "kimi-k2.6", "input": 0.95, "output": 4.00, "use": "어시스턴트 절약형 시험", "note": "캐시 미적중 입력"},
-        {"model": "kimi-k3", "input": None, "output": None, "use": "어시스턴트 정밀형 시험", "note": "공식 가격 페이지에서 확인"},
+        {"model": "kimi-k2.6", "input": 0.95, "output": 4.00, "use": "절약형·텍스트/JSON/비전", "note": "캐시 미적중 입력"},
+        {"model": "kimi-k3", "input": None, "output": None, "use": "정밀형·장문 추론/비전", "note": "공식 가격 페이지에서 확인"},
     ],
     "anthropic": [
         {"model": "claude-haiku-4-5", "input": 1.00, "output": 5.00, "use": "절약형"},

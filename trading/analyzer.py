@@ -135,7 +135,11 @@ class Analyzer:
 
         # 시장 심리 분석기 초기화
         from .market_sentiment_analyzer import MarketSentimentAnalyzer
-        self.sentiment_analyzer = MarketSentimentAnalyzer(binance_client, self.logger)
+        self.sentiment_analyzer = MarketSentimentAnalyzer(
+            binance_client,
+            self.logger,
+            exchange_manager=exchange_manager,
+        )
 
         # 데이터 캐시
         self.data_cache = {}

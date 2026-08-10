@@ -27,6 +27,10 @@ from .opportunity_coordinator import (
 from .profitability_validation import ProfitabilityValidator
 from .strategy_engine import StrategyEngine
 from .custom_strategy_runtime import apply_engine_settings_to_trade_config
+from .custom_strategy_order_plan import (
+    confirm_order_plan_action,
+    evaluate_order_plan,
+)
 from .trade_candidate import apply_trade_candidate, evaluate_trade_candidate
 from .exit_policy import (
     build_exit_policy,
@@ -66,6 +70,10 @@ class Position:
     custom_strategy_name: Optional[str] = None
     custom_strategy_rules: Dict[str, Any] = field(default_factory=dict)
     exit_policy: Dict[str, Any] = field(default_factory=dict)
+    custom_order_plan_state: Dict[str, Any] = field(default_factory=dict)
+    # 현물 자동매매가 시작되기 전부터 있던 잔고. 청산 시 이 수량은 절대
+    # 매도하지 않고 앱이 체결한 증가분만 관리한다.
+    spot_baseline_quantity: float = 0.0
 
 
 @dataclass
@@ -1213,6 +1221,96 @@ class Trader:
 
         except Exception as e:
             self.log_event('trade', f"[{symbol}] 거래 로그 저장 실패: {e}", level='ERROR')
+
+    def _record_binance_execution(
+        self,
+        symbol: str,
+        side: str,
+        order_result: Optional[Dict[str, Any]],
+        *,
+        source: str,
+        fallback_quantity: float = 0.0,
+        fallback_price: float = 0.0,
+        fee: float = 0.0,
+        fee_asset: Optional[str] = None,
+    ) -> bool:
+        """Binance 네이티브 체결도 공통 실제 체결 원장에 기록한다.
+
+        CCXT 거래소와 달리 기존 Binance 경로는 ``trade_log``만 갱신하고
+        ``exchange_execution_log``를 전혀 생산하지 않아 거래소 대시보드의
+        실제 체결 목록과 공통 동기화 진단에서 누락됐다.
+        """
+        if not isinstance(order_result, dict):
+            return False
+        recorder = getattr(self, 'recorder', None)
+        receipt_saver = getattr(recorder, 'save_exchange_order_receipt', None)
+        execution_saver = getattr(recorder, 'save_exchange_execution_history', None)
+        if not callable(receipt_saver) and not callable(execution_saver):
+            return False
+        try:
+            raw = order_result.get('order')
+            payload = dict(raw) if isinstance(raw, dict) else {}
+            order_id = (
+                payload.get('orderId') or payload.get('id')
+                or order_result.get('order_id') or order_result.get('orderId')
+                or order_result.get('id')
+            )
+            status = str(
+                payload.get('status') or order_result.get('status') or ''
+            ).upper()
+            quantity = float(
+                payload.get('executedQty') or order_result.get('executed_qty')
+                or order_result.get('filled') or fallback_quantity or 0.0
+            )
+            price = float(
+                payload.get('avgPrice') or order_result.get('avg_price')
+                or order_result.get('average') or order_result.get('price')
+                or fallback_price or 0.0
+            )
+            cost = float(
+                payload.get('cumQuote') or order_result.get('cum_quote')
+                or order_result.get('cost') or 0.0
+            )
+            if cost <= 0 and price > 0 and quantity > 0:
+                cost = price * quantity
+            confirmed = quantity > 0 and status in {
+                'FILLED', 'PARTIALLY_FILLED', 'SUCCESS', 'CLOSED'
+            }
+            payload.update({
+                'id': str(order_id or ''),
+                'order': str(order_id or ''),
+                'symbol': str(symbol or '').upper(),
+                'side': str(side or '').lower(),
+                'average': price,
+                'price': price,
+                'amount': quantity,
+                'filled': quantity,
+                'cost': cost,
+                'timestamp': payload.get('updateTime') or payload.get('time') or int(time.time() * 1000),
+                'status': status,
+                'fee': {'cost': max(0.0, float(fee or 0.0)), 'currency': fee_asset or 'USDT'},
+                '_execution_confirmed': confirmed,
+            })
+            if callable(receipt_saver):
+                receipt_saver('binance', payload, source=source)
+            if confirmed and callable(execution_saver):
+                result = execution_saver('binance', [payload], source=source)
+                return int((result or {}).get('inserted', 0) or 0) > 0 or int(
+                    (result or {}).get('skipped', 0) or 0
+                ) > 0
+            self.log_event(
+                'trade',
+                f"[{symbol}] Binance 주문 접수 원장 저장 · 실제 체결 확인 대기 ({status or 'UNKNOWN'})",
+                level='WARNING',
+            )
+            return False
+        except Exception as exc:
+            self.log_event(
+                'trade',
+                f"[{symbol}] Binance 공통 체결 원장 기록 실패: {exc}",
+                level='ERROR',
+            )
+            return False
 
     def _get_order_commission(
         self,
@@ -4158,6 +4256,16 @@ class Trader:
                             entry_fee, entry_fee_asset, entry_fee_source = self._get_order_commission(
                                 symbol, entry_order_id
                             )
+                            self._record_binance_execution(
+                                symbol,
+                                side,
+                                order_result,
+                                source='noahai_entry_order',
+                                fallback_quantity=position.quantity,
+                                fallback_price=actual_entry_price,
+                                fee=entry_fee,
+                                fee_asset=entry_fee_asset,
+                            )
                             self._log_trade_entry(
                                 symbol,
                                 side,
@@ -4678,13 +4786,17 @@ class Trader:
             # 🔥 2. 동적 임계값 기반 실시간 모니터링 청산
             current_pnl_percent = position.unrealized_pnl_percent
             net_pnl_percent = self._net_pnl_percent(current_pnl_percent, position.leverage)
+            advanced_plan = dict(
+                (getattr(position, 'custom_strategy_rules', {}) or {}).get('advanced_order_plan') or {}
+            )
+            partial_plan_active = bool(advanced_plan.get('partial_take_profits'))
 
             # 동적 임계값 계산 (시장 변동성 기반)
             dynamic_thresholds = self._calculate_dynamic_thresholds(position.symbol)
 
             # 수익 청산 (동적 임계값) - 소수 단위로 통일
             profit_threshold_percent = dynamic_thresholds['profit_threshold'] * 100  # 소수를 퍼센트로 변환
-            if net_pnl_percent >= profit_threshold_percent:
+            if not partial_plan_active and net_pnl_percent >= profit_threshold_percent:
                 self.logger.info(f"{position.symbol} 동적 수익 청산: {net_pnl_percent:.4f}% >= {profit_threshold_percent:.4f}%")
                 try:
                     self._log_trade_event('exit', f"{position.symbol} 동적 수익 청산: {net_pnl_percent:.4f}% >= {profit_threshold_percent:.4f}%")
@@ -4703,7 +4815,7 @@ class Trader:
                 return True
 
             # 🔥 3. TP/SL 안전장치 (최후의 보호막)
-            if position.tp_price:
+            if position.tp_price and not partial_plan_active:
                 if position.side == PositionSide.LONG:
                     if position.current_price >= position.tp_price:
                         self.logger.info(f"{position.symbol} TP 안전장치 발동: {position.current_price} >= {position.tp_price}")
@@ -4743,6 +4855,86 @@ class Trader:
 
         except Exception as e:
             self.logger.error(f"포지션 청산 판단 중 오류: {e}")
+            return False
+
+    def _advanced_order_plan_decision(self, position: Position) -> Dict[str, Any]:
+        rules = dict(getattr(position, 'custom_strategy_rules', {}) or {})
+        plan = dict(rules.get('advanced_order_plan') or {})
+        if not plan:
+            return {'action': 'hold', 'reason': 'advanced_order_plan_not_set'}
+        decision = evaluate_order_plan(
+            plan,
+            getattr(position, 'custom_order_plan_state', {}) or None,
+            pnl_percent=self._net_pnl_percent(
+                float(position.unrealized_pnl_percent or 0.0), int(position.leverage or 1),
+            ),
+            current_quantity=float(position.quantity or 0.0),
+        )
+        position.custom_order_plan_state = dict(decision.get('next_state') or {})
+        return decision
+
+    def _execute_advanced_partial_close_binance(
+        self, position: Position, decision: Dict[str, Any],
+    ) -> bool:
+        quantity = min(
+            float(position.quantity or 0.0), float(decision.get('quantity', 0.0) or 0.0),
+        )
+        if quantity <= 0:
+            return False
+        side = 'SELL' if position.side == PositionSide.LONG else 'BUY'
+        try:
+            result = self.binance_client.place_futures_order(
+                symbol=position.symbol, side=side, order_type='MARKET',
+                quantity=quantity, reduce_only=True,
+            ) or {}
+            status = str(result.get('status') or '').upper()
+            order_id = result.get('order_id') or result.get('orderId') or result.get('id')
+            executed = float(result.get('executed_qty', result.get('executedQty', 0.0)) or 0.0)
+            if status in {'NEW', 'PENDING', 'PARTIALLY_FILLED'} and order_id:
+                try:
+                    receipt = self.binance_client.client.futures_get_order(
+                        symbol=position.symbol, orderId=order_id,
+                    ) or {}
+                    status = str(receipt.get('status') or status).upper()
+                    executed = float(receipt.get('executedQty', executed) or executed)
+                    result.update(receipt)
+                except Exception as exc:
+                    self.log_event(
+                        'trade', f"[{position.symbol}] 부분청산 주문 확인 보류: {exc}",
+                        level='WARNING',
+                    )
+            confirmed = status == 'FILLED' or (
+                status == 'PARTIALLY_FILLED' and executed > 0
+            )
+            if not confirmed:
+                self.log_event(
+                    'trade', f"[{position.symbol}] 부분청산 체결 미확정: {status}",
+                    level='WARNING',
+                )
+                return False
+            closed_quantity = min(quantity, executed if executed > 0 else quantity)
+            self._record_binance_execution(
+                position.symbol, side, result,
+                source='noahai_custom_partial_exit',
+                fallback_quantity=closed_quantity,
+                fallback_price=float(position.current_price or 0.0),
+            )
+            remaining = max(0.0, float(position.quantity) - closed_quantity)
+            position.quantity = remaining
+            position.custom_order_plan_state = confirm_order_plan_action(
+                decision, remaining_quantity=remaining,
+            )
+            self.log_event(
+                'trade',
+                f"[{position.symbol}] AI 커스텀 부분청산 확인: {closed_quantity:g}, "
+                f"잔여 {remaining:g}, 사유={decision.get('reason')}",
+            )
+            return True
+        except Exception as exc:
+            self.log_event(
+                'trade', f"[{position.symbol}] AI 커스텀 부분청산 실패: {exc}",
+                level='WARNING',
+            )
             return False
 
     def _calculate_dynamic_profit_threshold(self, position: Position) -> float:
@@ -5746,6 +5938,14 @@ class Trader:
                     position.current_price = current_price
                     self.calculate_pnl(position)
 
+                    advanced_decision = self._advanced_order_plan_decision(position)
+                    if advanced_decision.get('action') == 'partial_close':
+                        self._execute_advanced_partial_close_binance(position, advanced_decision)
+                        continue
+                    if advanced_decision.get('action') == 'close_all':
+                        self.close_position(position, str(advanced_decision.get('reason') or 'AI 커스텀 고급 청산'))
+                        break
+
                     # 10개마다 상태 체크 (요약 출력 + 스로틀링/임계값 적용)
                     if data_count % 10 == 0:
                         holding_time = _elapsed_minutes(position.entry_time)
@@ -6074,6 +6274,16 @@ class Trader:
                 exit_order_id = order_result.get('order_id') if isinstance(order_result, dict) else None
                 exit_fee, exit_fee_asset, exit_fee_source = self._get_order_commission(
                     symbol, exit_order_id
+                )
+                self._record_binance_execution(
+                    symbol,
+                    'SELL' if position.side == PositionSide.LONG else 'BUY',
+                    order_result,
+                    source='noahai_exit_order',
+                    fallback_quantity=position.quantity,
+                    fallback_price=float(current_price or 0.0),
+                    fee=exit_fee,
+                    fee_asset=exit_fee_asset,
                 )
                 # PnL 계산
                 pnl_percent = self._calc_pnl_percent(position, current_price)

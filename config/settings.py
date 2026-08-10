@@ -205,6 +205,74 @@ def normalize_profitability_validation_policy(settings: Dict[str, Any]) -> Dict[
     return settings
 
 
+def migrate_stock_broker_api_contracts(settings: Dict[str, Any]) -> tuple[Dict[str, Any], bool]:
+    """v3.9.0.5 증권 API 이름을 공식 계약 기준으로 안전 이전한다.
+
+    API 키/계좌 값은 그대로 보존한다. 다만 신한에 잘못 연결돼 있던 XingAPI는
+    LS증권 계약이므로 신한으로 자동 전송하지 않도록 해당 증권사만 비활성화한다.
+    """
+    if not isinstance(settings, dict):
+        return settings, False
+
+    configs = settings.get('stock_broker_configs')
+    if not isinstance(configs, dict):
+        configs = {}
+        settings['stock_broker_configs'] = configs
+
+    canonical = {
+        'kiwoom': ('openapi_plus', 'pykiwoom'),
+        'shinhan': ('partner_rest', 'shinhan_openapi_v2'),
+        'miraeAsset': ('partner_rest', 'mirae_partner_profile'),
+        'koreaInvestment': ('rest', 'kis_openapi_v1'),
+    }
+    changed = False
+    archive = settings.get('_legacy_stock_api_migrations')
+    if not isinstance(archive, list):
+        archive = []
+
+    for broker, (target_type, target_version) in canonical.items():
+        cfg = configs.get(broker)
+        if not isinstance(cfg, dict):
+            continue
+        old_type = str(cfg.get('api_type') or '').strip().lower()
+        old_version = str(cfg.get('api_version') or '').strip().lower()
+        if old_type == 'mock':
+            if old_version != 'mock':
+                cfg['api_version'] = 'mock'
+                changed = True
+            continue
+        if (old_type, old_version) == (target_type, target_version):
+            continue
+
+        archive.append({
+            'broker': broker,
+            'api_type': old_type,
+            'api_version': old_version,
+            'reason': (
+                'xingapi_is_ls_securities_not_shinhan'
+                if broker == 'shinhan' and old_version == 'xingapi'
+                else 'v3905_official_contract_normalization'
+            ),
+        })
+        cfg['api_type'] = target_type
+        cfg['api_version'] = target_version
+        if broker == 'shinhan' and old_version == 'xingapi':
+            cfg['enabled'] = False
+            cfg['allow_live_order'] = False
+            cfg['migration_notice'] = (
+                '기존 xingapi는 LS증권 API이므로 신한증권에서 분리했습니다. '
+                '신한 제휴 API 프로필을 확인한 뒤 다시 활성화하세요.'
+            )
+        changed = True
+
+    if archive:
+        settings['_legacy_stock_api_migrations'] = archive[-50:]
+    if settings.get('stock_api_contract_version') != 2:
+        settings['stock_api_contract_version'] = 2
+        changed = True
+    return settings, changed
+
+
 def deep_merge_settings(existing: Dict[str, Any], template: Dict[str, Any], parent_key: str = '') -> Dict[str, Any]:
     """깊은 병합으로 설정을 안전하게 업데이트 (사용자 설정 보존)"""
     result = existing.copy()
@@ -610,6 +678,11 @@ def load_settings(*, persist_migrations: bool = True) -> Dict[str, Any]:
                 )
                 needs_save = True
 
+            settings, stock_contract_changed = migrate_stock_broker_api_contracts(settings)
+            if stock_contract_changed:
+                print("📈 증권 API 계약명/레거시 선택지 v3.9.0.5 이전 완료")
+                needs_save = True
+
             # 변경이 있을 때만 저장 (로그인/초기화 시 불필요한 디스크 I/O 방지)
             if needs_save and persist_migrations:
                 save_settings(settings)
@@ -635,6 +708,7 @@ def load_settings(*, persist_migrations: bool = True) -> Dict[str, Any]:
         # adminjung 계정 최초 1회 방송 리플레이 기본값 자동 초기화
         settings, _ = _apply_adminjung_broadcast_replay_defaults(settings)
         settings, _, _ = normalize_settings_contract(settings)
+        settings, _ = migrate_stock_broker_api_contracts(settings)
 
         # 사용자 설정 파일 생성
         if persist_migrations:
@@ -872,6 +946,8 @@ def get_default_settings() -> Dict[str, Any]:
             'max_loss_for_exit': -0.001
         },
         'auto_trade_interval': 10,
+        'execution_history_sync_interval_seconds': 300,
+        'pending_order_poll_interval_seconds': 10,
         'paper_trading': False,
         'enable_stock_live_order': False,
         'asset_stop_position_policy': 'keep_with_tp_sl',
@@ -967,7 +1043,7 @@ def get_default_settings() -> Dict[str, Any]:
         'stock_broker_configs': {
             'kiwoom': {
                 'enabled': False,
-                'api_type': 'openapi',
+                'api_type': 'openapi_plus',
                 'api_version': 'pykiwoom',
                 'allow_live_order': False,
                 'account_no': '',
@@ -978,9 +1054,10 @@ def get_default_settings() -> Dict[str, Any]:
             },
             'shinhan': {
                 'enabled': False,
-                'api_type': 'openapi',
-                'api_version': 'solapi',
+                'api_type': 'partner_rest',
+                'api_version': 'shinhan_openapi_v2',
                 'allow_live_order': False,
+                'partner_profile': {},
                 'app_key': '',
                 'app_secret': '',
                 'account_no': '',
@@ -991,9 +1068,10 @@ def get_default_settings() -> Dict[str, Any]:
             },
             'miraeAsset': {
                 'enabled': False,
-                'api_type': 'openapi',
-                'api_version': 'miraemts',
+                'api_type': 'partner_rest',
+                'api_version': 'mirae_partner_profile',
                 'allow_live_order': False,
+                'partner_profile': {},
                 'app_key': '',
                 'app_secret': '',
                 'account_no': '',
@@ -1005,8 +1083,9 @@ def get_default_settings() -> Dict[str, Any]:
             'koreaInvestment': {
                 'enabled': False,
                 'api_type': 'rest',
-                'api_version': 'kis',
+                'api_version': 'kis_openapi_v1',
                 'allow_live_order': False,
+                'sandbox': False,
                 'app_key': '',
                 'app_secret': '',
                 'account_no': '',
@@ -1078,6 +1157,10 @@ def get_default_settings() -> Dict[str, Any]:
             'allow_limited_live': False,
             'limited_max_leverage': 1,
             'limited_max_position_size': 0.01,
+        },
+        'ai_custom_features': {
+            'profile': 'standard',
+            'overrides': {},
         },
         '_ai_custom_runtime_safe_default_v3900_applied': True,
         'assistant_apply_mode': 'user_confirm',

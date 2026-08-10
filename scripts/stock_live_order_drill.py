@@ -28,7 +28,7 @@ from trading.exchanges.exchange_factory import ExchangeFactory
 
 def _parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="증권 실주문 직전 drill")
-    parser.add_argument("--broker", required=True, help="대상 브로커 (kiwoom/shinhan/miraeAsset)")
+    parser.add_argument("--broker", required=True, help="대상 브로커 (kiwoom/shinhan/miraeAsset/koreaInvestment)")
     parser.add_argument("--symbol", default="005930", help="종목코드")
     parser.add_argument("--side", default="BUY", choices=["BUY", "SELL"], help="주문 방향")
     parser.add_argument("--quantity", type=float, default=1.0, help="주문 수량")
@@ -44,6 +44,8 @@ def _normalize_broker_name(name: str) -> str:
     lowered = str(name or "").strip().lower()
     if lowered in ("miraeasset", "mirae_asset"):
         return "miraeAsset"
+    if lowered in ("koreainvestment", "korea_investment", "kis"):
+        return "koreaInvestment"
     return lowered
 
 
@@ -62,11 +64,15 @@ def _skip_reason(row: Optional[Dict[str, Any]], execute: bool) -> str:
         return "invalid api_type/api_version"
     if row.get("execution_mode") != "live_api":
         return "not live_api path"
+    if not row.get("maturity_implemented", False):
+        return f"unimplemented maturity: {row.get('maturity_status', 'unknown')}"
     if not row.get("credentials_ready"):
         missing = ",".join(row.get("missing_credentials") or [])
         return f"missing credentials: {missing}"
     if row.get("os_blocked"):
         return "os blocked"
+    if execute and not row.get("maturity_live_order_allowed", False):
+        return f"live order blocked by maturity: {row.get('maturity_status', 'unverified')}"
     if execute and not row.get("live_order_enabled"):
         return "live order flags disabled"
     return ""
@@ -102,6 +108,24 @@ def main() -> int:
         print("- 결과: FAIL | connect failed")
         return 1
 
+    adapter_ready = None
+    adapter_ready_reason = ""
+    readiness = getattr(adapter, "get_live_readiness", None)
+    if callable(readiness):
+        adapter_ready, adapter_ready_reason = readiness()
+    live_allowed, live_reason = ExchangeFactory.evaluate_stock_live_order_permission(
+        broker=str(row.get("broker")),
+        api_type=str(row.get("api_type") or ""),
+        api_version=str(row.get("api_version") or ""),
+        global_live_flag=bool(row.get("global_live_flag", False)),
+        broker_live_flag=bool(row.get("allow_live_order", False)),
+        adapter_ready=adapter_ready,
+        adapter_ready_reason=adapter_ready_reason,
+    )
+    if args.execute and not live_allowed:
+        print(f"- 결과: {'FAIL' if args.strict else 'SKIP'} | {live_reason}")
+        return 1 if args.strict else 0
+
     quote = adapter.get_realtime_price(args.symbol)
     current_price = float(quote.get("current_price") or 0.0)
     resolved_price = _resolve_price(adapter, args.symbol, args.price, args.order_type)
@@ -111,7 +135,10 @@ def main() -> int:
     print(f"- resolved_price: {resolved_price}")
 
     if not args.execute:
-        print("- 결과: READY (dry-run, no order sent)")
+        if not live_allowed:
+            print(f"- 결과: DIAGNOSTIC_ONLY (dry-run, {live_reason})")
+        else:
+            print("- 결과: READY (dry-run, no order sent)")
         return 0
 
     order_result = adapter.place_order(

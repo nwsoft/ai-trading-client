@@ -124,7 +124,7 @@ def _check_live_credentials(broker: str, api_type: str, cfg: Dict[str, Any]) -> 
     api_version = str(cfg.get("api_version", "") or "").strip().lower()
 
     if broker_lower == "kiwoom":
-        if api_type_norm == "openapi":
+        if api_type_norm == "openapi_plus":
             if not _is_non_empty(cfg.get("id")):
                 missing.append("id")
             if not _is_non_empty(cfg.get("password")):
@@ -142,6 +142,8 @@ def _check_live_credentials(broker: str, api_type: str, cfg: Dict[str, Any]) -> 
             missing.append("app_key/app_secret(or id/password)")
         if not _is_non_empty(cfg.get("account_no")):
             missing.append("account_no")
+        if not isinstance(cfg.get("partner_profile"), dict) or not cfg.get("partner_profile"):
+            missing.append("partner_profile")
 
     elif broker_lower in ("miraeasset", "mirae_asset"):
         # rest/openapi: app_key/app_secret 우선, 없으면 id/password 폴백 허용
@@ -151,6 +153,8 @@ def _check_live_credentials(broker: str, api_type: str, cfg: Dict[str, Any]) -> 
             missing.append("app_key/app_secret(or id/password)")
         if not _is_non_empty(cfg.get("account_no")):
             missing.append("account_no")
+        if not isinstance(cfg.get("partner_profile"), dict) or not cfg.get("partner_profile"):
+            missing.append("partner_profile")
 
     elif broker_lower in ("koreainvestment", "korea_investment", "kis"):
         has_app = _is_non_empty(cfg.get("app_key")) and _is_non_empty(cfg.get("app_secret"))
@@ -333,7 +337,7 @@ def _build_rows(settings: Dict[str, Any]) -> List[Dict[str, Any]]:
     rows = []
     for broker in enabled_brokers:
         cfg = _resolve_broker_config(settings, broker)
-        api_type = str(cfg.get("api_type", "openapi") or "openapi").strip().lower()
+        api_type = str(cfg.get("api_type", "openapi_plus") or "openapi_plus").strip().lower()
         api_version = str(cfg.get("api_version", "") or "").strip().lower()
         allow_live_order = _bool(cfg.get("allow_live_order", False))
 
@@ -342,7 +346,15 @@ def _build_rows(settings: Dict[str, Any]) -> List[Dict[str, Any]]:
         valid_combo = bool(supported_for_type) and bool(api_version) and api_version in supported_for_type
 
         execution_mode = "mock" if api_type == "mock" else "live_api"
-        live_order_enabled = execution_mode == "live_api" and global_live_flag and allow_live_order
+        maturity = ExchangeFactory.get_stock_broker_api_maturity(
+            broker, api_type, api_version
+        )
+        live_order_enabled = (
+            execution_mode == "live_api"
+            and global_live_flag
+            and allow_live_order
+            and bool(maturity.get("live_order_allowed", False))
+        )
         credentials_ready, missing_credentials = _check_live_credentials(broker, api_type, cfg)
 
         os_blocked = False
@@ -355,12 +367,17 @@ def _build_rows(settings: Dict[str, Any]) -> List[Dict[str, Any]]:
                 "api_type": api_type,
                 "api_version": api_version,
                 "allow_live_order": allow_live_order,
+                "global_live_flag": global_live_flag,
                 "execution_mode": execution_mode,
                 "live_order_enabled": live_order_enabled,
                 "valid_combo": valid_combo,
                 "credentials_ready": credentials_ready,
                 "missing_credentials": missing_credentials,
                 "os_blocked": os_blocked,
+                "maturity_status": maturity.get("status", "unregistered"),
+                "maturity_implemented": bool(maturity.get("implemented", False)),
+                "maturity_live_order_allowed": bool(maturity.get("live_order_allowed", False)),
+                "maturity_message": maturity.get("message", ""),
             }
         )
 
@@ -370,14 +387,15 @@ def _build_rows(settings: Dict[str, Any]) -> List[Dict[str, Any]]:
 def _print_table(rows: List[Dict[str, Any]], global_live_flag: bool) -> None:
     print("\n[증권 브로커 실행 경로]")
     print(f"global enable_stock_live_order = {global_live_flag}")
-    print("-" * 150)
-    print(f"{'broker':<12} {'api_type':<10} {'api_version':<14} {'combo':<8} {'cred':<8} {'os':<6} {'mode':<10} {'broker_live':<12} {'effective_live':<14}")
-    print("-" * 150)
+    print("-" * 190)
+    print(f"{'broker':<12} {'api_type':<10} {'api_version':<14} {'combo':<8} {'cred':<8} {'os':<6} {'mode':<10} {'maturity':<36} {'broker_live':<12} {'effective_live':<14}")
+    print("-" * 190)
     for r in rows:
         print(
             f"{str(r.get('broker', '')):<12} {str(r.get('api_type', '')):<10} {str(r.get('api_version', '')):<14} {str(r.get('valid_combo')):<8} "
             f"{str(r.get('credentials_ready')):<8} {('BLOCK' if r.get('os_blocked') else 'OK'):<6} "
-            f"{str(r.get('execution_mode', '')):<10} {str(r.get('allow_live_order')):<12} {str(r.get('live_order_enabled')):<14}"
+            f"{str(r.get('execution_mode', '')):<10} {str(r.get('maturity_status', '')):<36} "
+            f"{str(r.get('allow_live_order')):<12} {str(r.get('live_order_enabled')):<14}"
         )
         if r["missing_credentials"]:
             print(f"  - missing_credentials: {', '.join(r['missing_credentials'])}")
@@ -413,6 +431,28 @@ def main() -> int:
         names = ", ".join(f"{r['broker']}({r['api_type']}/{r['api_version'] or 'missing'})" for r in invalid_combos)
         blocking.append(f"api_type/api_version 조합이 유효하지 않은 브로커: {names}")
 
+    unimplemented = [
+        r for r in rows
+        if r.get("execution_mode") == "live_api" and not r.get("maturity_implemented")
+    ]
+    if unimplemented:
+        names = ", ".join(
+            f"{r['broker']}({r['api_type']}/{r['api_version']})" for r in unimplemented
+        )
+        blocking.append(f"등록은 되었지만 구현되지 않은 증권 API 경로: {names}")
+
+    unverified_live = [
+        r for r in rows
+        if r.get("execution_mode") == "live_api"
+        and r.get("maturity_implemented")
+        and not r.get("maturity_live_order_allowed")
+    ]
+    if unverified_live:
+        names = ", ".join(
+            f"{r['broker']}[{r.get('maturity_status')}]" for r in unverified_live
+        )
+        blocking.append(f"코드 계약에서 LIVE가 허용되지 않은 경로: {names}")
+
     live_path_rows = [r for r in rows if r["execution_mode"] == "live_api"]
     invalid_credentials = [r for r in live_path_rows if not r.get("credentials_ready")]
     if invalid_credentials:
@@ -436,9 +476,12 @@ def main() -> int:
     live_candidates = [r for r in rows if r["execution_mode"] == "live_api"]
     effective_live = [r for r in rows if r["live_order_enabled"]]
 
-    if live_candidates and not effective_live:
+    maturity_ready_candidates = [
+        r for r in live_candidates if r.get("maturity_live_order_allowed")
+    ]
+    if maturity_ready_candidates and not effective_live:
         warning.append(
-            "live_api 후보 브로커는 있으나 실주문 플래그가 모두 OFF입니다. "
+            "구현된 live_api 후보의 실주문 플래그가 모두 OFF입니다. "
             "enable_stock_live_order + broker.allow_live_order를 확인하세요."
         )
 
@@ -450,7 +493,7 @@ def main() -> int:
 
     print("\n[판정]")
     if blocking:
-        print("- 결과: BLOCKED")
+        print("- 결과: BLOCKED_FOR_LIVE_ORDER")
         for msg in blocking:
             print(f"  * {msg}")
     else:

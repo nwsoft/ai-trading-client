@@ -1,5 +1,7 @@
 from utils.trade_operating_metrics import (
+    calculate_currency_financial_metrics,
     calculate_trade_operating_metrics,
+    format_currency_amount,
     format_hold_duration,
     infer_quote_currency,
 )
@@ -59,6 +61,34 @@ def test_quote_currency_supports_domestic_and_future_overseas_brokers():
     assert infer_quote_currency("binance", "BTCUSDT") == "USDT"
     assert infer_quote_currency("interactive_brokers", "AAPL") == "USD"
     assert infer_quote_currency(None, "BTCUSDT") == "USDT"
+    assert infer_quote_currency("binance", "BTC/KRW") == "KRW"
+
+
+def test_financial_metrics_never_add_krw_and_usdt_pnl():
+    metrics = calculate_currency_financial_metrics(
+        [
+            {
+                "exchange": "binance",
+                "symbol": "ETHUSDT",
+                "pnl": 12.306272,
+                "fees": 2.0,
+                "fee_asset": "USDT",
+            },
+            {
+                "exchange": "bithumb",
+                "symbol": "H/KRW",
+                "pnl": 112.0228,
+                "fees": 3.12105376,
+            },
+        ]
+    )
+
+    assert metrics["mixed_currency"] is True
+    assert metrics["by_currency"]["USDT"]["pnl"] == 12.306272
+    assert metrics["by_currency"]["KRW"]["pnl"] == 112.0228
+    assert metrics["fees_by_currency"] == {"USDT": 2.0, "KRW": 3.12105376}
+    assert "total_pnl" not in metrics
+    assert format_currency_amount("KRW", 112.0228) == "112.02 KRW"
 
 
 def test_hold_duration_is_readable_and_does_not_fabricate_missing_data():
@@ -66,4 +96,3 @@ def test_hold_duration_is_readable_and_does_not_fabricate_missing_data():
     assert format_hold_duration(45) == "45.0분"
     assert format_hold_duration(90) == "1시간 30분"
     assert format_hold_duration(1500) == "1일 1시간"
-

@@ -163,6 +163,8 @@ def _required_history(rules: Dict[str, Any]) -> int:
                             pass
                     else:
                         fields.add(str(reference or ""))
+    for reference in collect_advanced_indicator_references(rules):
+        periods.append(int(reference.get("period") or 0))
     if fields & {"ma200", "sma200", "ema200"}:
         periods.append(200)
     if fields & {"ma50", "sma50", "ema50"}:
@@ -199,19 +201,34 @@ def collect_advanced_indicator_references(rules_or_pool: Any) -> List[Dict[str, 
         rules_list.append(rules_or_pool)
 
     output: Dict[str, Dict[str, Any]] = {}
+
+    def collect_value(value: Any) -> None:
+        if isinstance(value, dict):
+            if "indicator" in value or (
+                "name" in value and "period" in value and "timeframe" in value
+            ):
+                valid, _reason = DeclarativeStrategyEngine.validate_indicator_reference(value)
+                if valid:
+                    output[DeclarativeStrategyEngine.indicator_field_key(value)] = dict(value)
+            for nested in value.values():
+                collect_value(nested)
+        elif isinstance(value, list):
+            for nested in value:
+                collect_value(nested)
+
     for rules in rules_list:
         for section in ("executable_entry", "executable_exit"):
-            spec = dict(rules.get(section, {}) or {})
-            for group in ("all", "any"):
-                for condition in spec.get(group) or []:
-                    if not isinstance(condition, dict):
-                        continue
-                    for reference in (condition.get("field"), condition.get("value_field")):
-                        if not isinstance(reference, dict):
-                            continue
-                        valid, _reason = DeclarativeStrategyEngine.validate_indicator_reference(reference)
-                        if valid:
-                            output[DeclarativeStrategyEngine.indicator_field_key(reference)] = dict(reference)
+            collect_value(dict(rules.get(section, {}) or {}))
+        try:
+            from .user_indicator_language import UserIndicatorLanguage
+            validation = UserIndicatorLanguage.validate_definitions(rules.get("user_indicators"))
+            for detail in (validation.get("dependencies") or {}).values():
+                for reference in detail.get("indicator_references") or []:
+                    valid, _reason = DeclarativeStrategyEngine.validate_indicator_reference(reference)
+                    if valid:
+                        output[DeclarativeStrategyEngine.indicator_field_key(reference)] = dict(reference)
+        except (TypeError, ValueError):
+            pass
     return list(output.values())
 
 
@@ -427,7 +444,7 @@ def run_historical_replay(
         raise ValueError("미지원 선언형 조건: " + ", ".join(validation["errors"]))
     if len(rows) < 80:
         raise ValueError("과거 재생에는 최소 80개 캔들이 필요합니다.")
-    if not (spec.get("all") or spec.get("any")):
+    if not (spec.get("all") or spec.get("any") or spec.get("expression")):
         raise ValueError("실행 가능한 진입 조건이 없어 과거 재생할 수 없습니다.")
     warmup = _required_history(rules)
     if len(rows) <= warmup + max(1, horizon):

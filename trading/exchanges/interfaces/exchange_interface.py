@@ -21,6 +21,8 @@ class ExchangeInterface(ABC):
         self.trading_type = trading_type
         self.is_connected = False
         self.logger = None
+        from trading.authenticated_execution_stream import AuthenticatedExecutionStream
+        self._execution_stream = AuthenticatedExecutionStream(exchange_name)
     
     @abstractmethod
     def connect(self) -> bool:
@@ -56,7 +58,13 @@ class ExchangeInterface(ABC):
         pass
 
     @abstractmethod
-    def get_trade_history(self, symbol: Optional[str] = None, limit: int = 100) -> List[Dict[str, Any]]:
+    def get_trade_history(
+        self,
+        symbol: Optional[str] = None,
+        limit: int = 100,
+        since_ms: Optional[int] = None,
+        from_id: Optional[str] = None,
+    ) -> List[Dict[str, Any]]:
         """거래 내역 조회"""
         pass
 
@@ -78,6 +86,31 @@ class ExchangeInterface(ABC):
                 "history_available": False,
                 "history_reason": "capability_detection_failed",
             }
+
+    def ingest_authenticated_execution_event(self, event: Dict[str, Any]) -> bool:
+        """거래소 SDK의 인증 주문/체결 콜백을 공통 원장 큐에 넣는다."""
+        return bool(self._execution_stream.push(event))
+
+    def mark_execution_stream_connected(self) -> None:
+        self._execution_stream.mark_connected()
+
+    def mark_execution_stream_disconnected(self, reason: str) -> None:
+        self._execution_stream.mark_disconnected(reason)
+
+    def drain_execution_events(self, limit: int = 200) -> List[Dict[str, Any]]:
+        return self._execution_stream.drain_execution_events(limit=limit)
+
+    def execution_stream_healthy(self) -> bool:
+        return self._execution_stream.execution_stream_healthy()
+
+    def get_execution_stream_capabilities(self) -> Dict[str, Any]:
+        """공개 시세 WS와 인증 체결 스트림을 혼동하지 않는 명시 계약."""
+        return {
+            "authenticated_private_stream": True,
+            "adapter_callback_bound": bool(self._execution_stream.status().get("connected")),
+            "rest_incremental_recovery": True,
+            "market_data_stream_is_not_execution_stream": True,
+        }
     
     @abstractmethod
     def get_24h_ticker(self, symbol: str) -> Dict[str, Any]:

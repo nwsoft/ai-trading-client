@@ -12,7 +12,7 @@
 이 문서는 이미 배포된 v3.9.0.2 이후, v3.9.0.3 Windows 업데이트에 다음 목표를 안전하게 포함하기 위한 기술/제품 실행 기준이다.
 
 - 기존 사용자 입력 방식(API 키 입력 중심)을 유지한다.
-- OpenAI 무중단 호환을 유지하면서 DeepSeek·Anthropic Claude·Google Gemini를 정식 선택지로 제공하고 Kimi K3를 어시스턴트 시험 지원한다.
+- OpenAI 무중단 호환을 유지하면서 DeepSeek·Anthropic Claude·Google Gemini·Kimi를 정식 작업별 선택지로 제공한다.
 - 사용자 입장에서 엔진 교체가 설정 손실 없이 작동하도록 한다.
 - AI 질문답변, 문답 절약형(비용/토큰 절감) 동작을 엔진 중립적으로 재정의한다.
 - AlphaArena 멀티 엔진·실거래 연결은 후속 업데이트로 분리한다.
@@ -87,7 +87,7 @@
 - DeepSeek V4 Flash/Pro
 - Anthropic Claude(Haiku/Sonnet/Opus, 네이티브 Messages API)
 - Google Gemini(공식 OpenAI 호환 API)
-- Kimi K3/K2.6(어시스턴트용 NoahAI 시험 연동)
+- Kimi K3/K2.6(텍스트·JSON·비전 정식 연동)
 
 ### 4-2. 비목표(이번 버전에서 하지 않음)
 
@@ -238,7 +238,7 @@ AI API 확장과 함께 다음 항목을 같은 Windows 후보 빌드에서 검�
 ### 8-3. 사용자 보호 문구
 
 - ChatGPT 유료와 API 과금 분리 안내 유지
-- Kimi K3는 시험 지원임을 표시
+- Kimi 일반 서비스와 개발자 API의 키·잔액·사용량 과금이 별개임을 표시
 - 비전/음성 전사는 제공사 capability가 없으면 호출 전에 차단
 - AI 커스텀 음성 전사는 분석 Provider와 분리한 OpenAI 전용 프로필로 실행
 - `gpt-4o-mini-transcribe`, `gpt-4o-transcribe`, 다중 화자용 `gpt-4o-transcribe-diarize`를 구분
@@ -334,7 +334,7 @@ AI API 확장과 함께 다음 항목을 같은 Windows 후보 빌드에서 검�
 - 기존 문자열 설정은 기존 Provider를 보존해 자동 마이그레이션
 - AIManager가 빈번/표준/정밀 작업마다 해당 Provider Router를 사용
 - AI 커스텀 분석은 premium 작업 프로필, 무자막 전사는 OpenAI transcription 프로필 사용
-- Kimi는 실제 키 검증 전까지 어시스턴트 역할만 허용
+- Kimi는 계정 모델 검증 후 분석·어시스턴트·작업별 텍스트/JSON/비전에 사용
 
 ### Phase E. 모델 수명주기와 저장 검증 (구현 완료)
 
@@ -360,7 +360,7 @@ AI API 확장과 함께 다음 항목을 같은 Windows 후보 빌드에서 검�
 - OpenAI/DeepSeek 모델 목록·인증 연결 성공
 - Anthropic Claude 네이티브 텍스트·JSON·사용량·오류 연결 성공
 - Google Gemini 공식 호환 텍스트·JSON·사용량·오류 연결 성공
-- Kimi K3/K2.6는 무자격증명 계약 회귀 통과, 실제 Kimi 키 E2E 후 시험 표시 유지/해제 결정
+- Kimi K3/K2.6는 무자격증명 계약 회귀와 공식 OpenAI 호환·JSON Mode·비전 계약을 반영하고, 실제 계정 모델 권한은 사전점검으로 확인
 - 작업별 서로 다른 Provider가 실제 해당 키와 모델로 라우팅
 - 분석 Provider가 Claude/DeepSeek/Gemini여도 전사는 OpenAI 프로필로 실행
 - 전사 기본 2종과 다중 화자 모델의 capability·계정 권한 검증
@@ -414,14 +414,14 @@ AI API 확장과 함께 다음 항목을 같은 Windows 후보 빌드에서 검�
 - 기존 OpenAI 사용자 무중단
 - OpenAI/DeepSeek 정식 연결 계약 검증 완료
 - Anthropic Claude·Google Gemini 정식 연결 계약 검증 완료
-- Kimi K3/K2.6 어시스턴트 시험 계약 검증 완료
+- Kimi K3/K2.6 작업별 텍스트·JSON·비전 계약 검증 완료
 - 질문답변/문답 절약형 정책이 엔진 중립 스펙으로 구현
 - AlphaArena 종료 모델 이전 완료, 멀티 엔진 실거래는 후속 계획으로 분리
 - 사용자 문서/개발 문서/업데이트 플랜 정합성 일치
 - Windows 10/11 새 설치본에서 한글 글꼴·비정상 종료 진단·거래소 주문 범위·AI 커스텀 입력 전달 실화면 확인
 
 현재 소스 자동 회귀와 문서 정합성은 통과했지만 실제 OpenAI·DeepSeek·Anthropic·Gemini 자격증명 응답,
-Kimi 시험 계정, Windows 재빌드·설치·자동복원·장시간 실행은 약 10명의 테스터가 배포 후보
+Kimi 실제 계정, Windows 재빌드·설치·자동복원·장시간 실행은 약 10명의 테스터가 배포 후보
 Windows 빌드에서 확인하는 외부 게이트다. 이 항목을 통과하기 전에는 완료 배포로 표시하지 않는다.
 
 ---

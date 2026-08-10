@@ -68,14 +68,6 @@ def infer_quote_currency(
     if explicit in {"KRW", "USDT", "USD", "USDC"}:
         return explicit
 
-    normalized_exchange = str(exchange or "").strip().lower()
-    if normalized_exchange in KRW_EXCHANGES:
-        return "KRW"
-    if normalized_exchange in USDT_EXCHANGES:
-        return "USDT"
-    if "interactive" in normalized_exchange or normalized_exchange in {"ib", "ibkr"}:
-        return "USD"
-
     normalized_symbol = (
         str(symbol or "")
         .strip()
@@ -88,8 +80,83 @@ def infer_quote_currency(
         if normalized_symbol.endswith(currency):
             return currency
 
+    # 같은 거래소에서도 결제통화가 다른 시장을 지원할 수 있으므로 종목 표기를
+    # 거래소 기본 통화보다 먼저 신뢰한다. 종목만으로 판단할 수 없을 때만
+    # 거래소 기본값을 사용한다.
+    normalized_exchange = str(exchange or "").strip().lower()
+    if normalized_exchange in KRW_EXCHANGES:
+        return "KRW"
+    if normalized_exchange in USDT_EXCHANGES:
+        return "USDT"
+    if "interactive" in normalized_exchange or normalized_exchange in {"ib", "ibkr"}:
+        return "USD"
+
     # exchange가 비어 있는 기존 trade_log는 과거 Binance 기록이다.
     return "USDT"
+
+
+def calculate_currency_financial_metrics(
+    trades: Iterable[Mapping[str, Any]],
+) -> Dict[str, Any]:
+    """손익과 수수료를 결제통화별로 분리한다.
+
+    서로 환산되지 않은 KRW·USDT·USD 등을 하나의 숫자로 합치지 않는다.
+    수수료 자산이 명시된 경우에는 해당 자산을 별도 버킷으로 보존한다.
+    """
+    by_currency: Dict[str, Dict[str, float]] = {}
+    fees_by_currency: Dict[str, float] = {}
+
+    for trade in trades:
+        currency = infer_quote_currency(
+            trade.get("exchange") or trade.get("broker"),
+            trade.get("symbol"),
+            trade.get("pnl_currency")
+            or trade.get("quote_currency")
+            or trade.get("settlement_currency"),
+        )
+        bucket = by_currency.setdefault(
+            currency,
+            {"trades": 0.0, "wins": 0.0, "pnl": 0.0},
+        )
+        pnl = _number(trade.get("pnl"))
+        bucket["trades"] += 1.0
+        bucket["wins"] += 1.0 if pnl > 0.0 else 0.0
+        bucket["pnl"] += pnl
+
+        fee = _number(trade.get("fees") or trade.get("fee"))
+        if fee:
+            explicit_fee_currency = str(
+                trade.get("fee_asset") or trade.get("fee_currency") or ""
+            ).strip().upper()
+            fee_currency = explicit_fee_currency or currency
+            fees_by_currency[fee_currency] = (
+                fees_by_currency.get(fee_currency, 0.0) + fee
+            )
+
+    normalized: Dict[str, Dict[str, Any]] = {}
+    for currency, bucket in by_currency.items():
+        trades_count = int(bucket["trades"])
+        pnl = float(bucket["pnl"])
+        normalized[currency] = {
+            "trades": trades_count,
+            "wins": int(bucket["wins"]),
+            "pnl": pnl,
+            "avg_pnl": pnl / trades_count if trades_count else 0.0,
+        }
+
+    return {
+        "by_currency": normalized,
+        "fees_by_currency": fees_by_currency,
+        "currencies": sorted(normalized),
+        "mixed_currency": len(normalized) > 1,
+    }
+
+
+def format_currency_amount(currency: str, amount: Any, *, signed: bool = False) -> str:
+    """손익·수수료용 통화 금액을 동일한 규칙으로 표시한다."""
+    value = _number(amount)
+    sign = "+" if signed and value > 0 else ""
+    return f"{sign}{value:,.2f} {str(currency or 'UNKNOWN').upper()}"
 
 
 def calculate_trade_operating_metrics(
@@ -175,4 +242,3 @@ def format_notional(currency: str, amount: Any) -> str:
     if str(currency).upper() == "KRW":
         return f"{value:,.0f} KRW"
     return f"{value:,.2f} {str(currency).upper()}"
-

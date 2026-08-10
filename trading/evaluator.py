@@ -20,6 +20,7 @@ import os
 import json
 import shutil
 import concurrent.futures
+import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from .symbol_validator import symbol_validator
 
@@ -132,6 +133,58 @@ class Evaluator:
         self.logger.info("Evaluator 초기화 완료")
         # 🔇 Invalid symbol 중복 경고 억제(최초 1회만 warning, 이후 debug)
         self._invalid_symbol_warned = set()
+        # 거래소별 워커가 동시에 선택을 실행해도 시장 데이터 출처가 섞이지
+        # 않도록 명시적 컨텍스트를 스레드 로컬에 보존한다.
+        self._selection_context_local = threading.local()
+
+    def _set_selection_context(self, exchange: Optional[str], exchange_client=None) -> str:
+        exchange_key = str(exchange or "binance").strip().lower()
+        self._selection_context_local.exchange = exchange_key
+        self._selection_context_local.exchange_client = exchange_client
+        return exchange_key
+
+    def _selection_exchange(self) -> str:
+        return str(getattr(self._selection_context_local, "exchange", "binance") or "binance")
+
+    def _context_symbol(self, symbol: str) -> str:
+        if self._selection_exchange() == "binance":
+            return self._append_usdt_if_missing(symbol)
+        return str(symbol or "").strip()
+
+    def _get_context_klines(self, symbol: str, interval: str, limit: int):
+        exchange = self._selection_exchange()
+        if exchange == "binance":
+            if not self.binance_client:
+                return []
+            return self.binance_client.get_klines(
+                self._append_usdt_if_missing(symbol), interval, limit
+            )
+
+        manager = getattr(self.analyzer, "exchange_manager", None)
+        if manager is not None and hasattr(manager, "get_klines"):
+            # 명시된 비바이낸스 요청은 실패하더라도 Binance로 폴백하지 않는다.
+            return manager.get_klines(symbol, interval, limit, exchange) or []
+
+        adapter = getattr(self._selection_context_local, "exchange_client", None)
+        raw_exchange = getattr(adapter, "exchange", None)
+        if raw_exchange is not None and hasattr(raw_exchange, "fetch_ohlcv"):
+            normalized = symbol
+            normalizer = getattr(adapter, "_normalize_symbol", None)
+            if callable(normalizer):
+                normalized = normalizer(symbol)
+            return raw_exchange.fetch_ohlcv(normalized, timeframe=interval, limit=limit) or []
+        return []
+
+    def _get_context_ticker(self, symbol: str):
+        exchange = self._selection_exchange()
+        if exchange == "binance":
+            if not self.binance_client:
+                return {}
+            return self.binance_client.get_ticker(self._append_usdt_if_missing(symbol)) or {}
+        manager = getattr(self.analyzer, "exchange_manager", None)
+        if manager is not None and hasattr(manager, "get_24h_ticker"):
+            return manager.get_24h_ticker(symbol, exchange) or {}
+        return {}
 
     def switch_exchange_learning(self, exchange: str):
         """거래소별 학습 매니저 전환"""
@@ -201,6 +254,7 @@ class Evaluator:
 
     def select_trading_coins(self, num_alt=15, num_major=5, regime: Optional[str] = None, exchange: Optional[str] = None, exchange_client=None):
         """🔥 통합된 트레이딩 코인 선정 시스템"""
+        self._set_selection_context(exchange, exchange_client)
         self.logger.info(f"🔍 코인 선정 시작 - 알트: {num_alt}개, 메이저: {num_major}개")
         _t_total_start = time.perf_counter()
         _t_stage = {}
@@ -293,7 +347,12 @@ class Evaluator:
                     selected_symbols = [coin['symbol'] for coin in scored_coins]
 
                     # AI 평가 실행
-                    ai_evaluated_coins = self._evaluate_coins_with_ai(valid_coins, selected_symbols)
+                    ai_evaluated_coins = self._evaluate_coins_with_ai(
+                        valid_coins,
+                        selected_symbols,
+                        exchange=exchange,
+                        exchange_client=exchange_client,
+                    )
 
                     if ai_evaluated_coins:
                         self.logger.info(f"✅ AI 평가 완료: {len(ai_evaluated_coins)}개 코인 평가됨")
@@ -417,6 +476,8 @@ class Evaluator:
 
     def _analyze_market_activity(self):
         """시장 활동 분석 (원래 autotrade.py 기반)"""
+        if self._selection_exchange() != 'binance':
+            return {'level': 'NORMAL', 'score': 50.0, 'source': 'neutral_non_binance'}
         try:
             self.logger.info("🔍 시장 활동 분석 시작...")
 
@@ -979,31 +1040,23 @@ class Evaluator:
                 self.logger.warning("마켓 정보를 가져올 수 없음")
                 return []
 
-            # USDT 선물/스왑만. 일부 거래소의 토큰증권/원자재
-            # 선물은 암호화폐 코인 선정 목적에서 제외한다.
-            tokenized_non_crypto_bases = {
-                'AAPL', 'AMZN', 'BABA', 'BILL', 'CL', 'COIN', 'EWY', 'GOOG', 'GOOGL',
-                'IBM', 'INTC', 'LAB', 'META', 'MSFT', 'MSTR', 'NVDA', 'SAMSUNG',
-                'SNDK', 'SKHY', 'TSLA', 'TSEM',
-            }
+            # 심볼 denylist뿐 아니라 거래소가 제공하는 상품 metadata까지 검사한다.
+            # 토큰화 주식/지수/원자재가 신규 상장되어도 코인 후보로 들어오지 않는다.
+            from trading.market_asset_classifier import is_crypto_derivative_candidate
+
             configured_exclusions = {
                 str(x or '').upper().strip()
                 for x in (fs_cfg.get('excluded_bases', []) if isinstance(fs_cfg, dict) else [])
                 if str(x or '').strip()
             }
-            excluded_bases = tokenized_non_crypto_bases | configured_exclusions
 
             candidates = []
             for sym, m in markets.items():
                 try:
-                    if not m.get('active', False):
-                        continue
-                    if not (m.get('swap') or m.get('future') or m.get('contract')):
-                        continue
-                    if str(m.get('quote') or '').upper() != 'USDT':
-                        continue
-                    base = str(m.get('base') or '').upper().strip()
-                    if not base or base in excluded_bases:
+                    if not is_crypto_derivative_candidate(
+                        m,
+                        configured_exclusions=configured_exclusions,
+                    ):
                         continue
                     candidates.append((sym, m))
                 except Exception:
@@ -1185,6 +1238,10 @@ class Evaluator:
 
     def _get_funding_rate(self, symbol: str) -> Optional[float]:
         """Binance Futures 펀딩비 조회. 반환: 현재 펀딩비율 (예: 0.0001 = 0.01%)"""
+        if self._selection_exchange() != 'binance':
+            # 거래소별 파생지표 어댑터가 도입되기 전까지는 중립(None) 처리한다.
+            # 다른 거래소 심볼을 Binance API에 보내는 것은 데이터 오염이다.
+            return None
         try:
             # binance_client 존재 시 우선 사용
             if hasattr(self, 'binance_client') and self.binance_client:
@@ -1205,6 +1262,8 @@ class Evaluator:
 
     def _get_open_interest(self, symbol: str) -> Optional[dict]:
         """Binance Futures 미결제약정 조회. 반환: {'open_interest': float, 'oi_change_pct': float}"""
+        if self._selection_exchange() != 'binance':
+            return None
         try:
             import urllib.request, json
             url = f"https://fapi.binance.com/fapi/v1/openInterest?symbol={symbol}"
@@ -1819,7 +1878,11 @@ class Evaluator:
                 is_major = coin.get('is_major', False)
 
                 # 🔥 매우 간단한 로그 형식 (핵심 정보만)
-                self.log_event('system', f"{symbol} ({'메이저' if is_major else '알트'}) | 점수: {overall_score:.2f}", exchange='binance')
+                self.log_event(
+                    'system',
+                    f"{symbol} ({'메이저' if is_major else '알트'}) | 점수: {overall_score:.2f}",
+                    exchange=self._selection_exchange(),
+                )
 
             # 🔥 점수가 포함된 딕셔너리 리스트 반환 (대시보드에서 점수 표시용)
             # 🔥 K-line 데이터는 포함하되 로그에는 출력하지 않음
@@ -1909,9 +1972,8 @@ class Evaluator:
     def calculate_technical_indicators(self, symbol):
         """기술적 지표 계산 (실제 구현)"""
         try:
-            # 바이낸스에서 K라인 데이터 가져오기
-            klines_15m = self.binance_client.get_klines(symbol, "15m", 100)
-            klines_1h = self.binance_client.get_klines(symbol, "1h", 100)
+            klines_15m = self._get_context_klines(symbol, "15m", 100)
+            klines_1h = self._get_context_klines(symbol, "1h", 100)
 
             if not klines_15m or not klines_1h:
                 return None
@@ -2024,9 +2086,17 @@ class Evaluator:
             ) * 100
         }
 
-    def _evaluate_coins_with_ai(self, valid_coins, selected_coins):
+    def _evaluate_coins_with_ai(
+        self,
+        valid_coins,
+        selected_coins,
+        *,
+        exchange: Optional[str] = None,
+        exchange_client=None,
+    ):
         """AI 평가 단계 - 상세 스코어 계산 및 DB 저장"""
         try:
+            exchange_key = self._set_selection_context(exchange, exchange_client)
             self.logger.info("🤖 AI 평가 단계 시작...")
 
             # 데이터 일관성 검증 추가
@@ -2034,8 +2104,8 @@ class Evaluator:
             for coin_data in valid_coins:
                 # 🔥 얕은 가드 사용 - 중복 부착 방지만
                 symbol = coin_data['symbol']
-                symbol_with_usdt = self._append_usdt_if_missing(symbol)
-                initial_data[symbol_with_usdt] = coin_data
+                context_symbol = self._context_symbol(symbol)
+                initial_data[context_symbol] = coin_data
 
             self._verify_data_consistency(selected_coins, initial_data)
 
@@ -2044,14 +2114,13 @@ class Evaluator:
             for coin in valid_coins:
                 if coin['symbol'] in selected_coins:
                     symbol = coin['symbol']
-                    symbol_with_usdt = self._append_usdt_if_missing(symbol)
-                    selected_symbols_with_usdt.append(symbol_with_usdt)
+                    selected_symbols_with_usdt.append(self._context_symbol(symbol))
 
             self.logger.info(f"🚀 일괄 K라인 데이터 조회 시작: {len(selected_symbols_with_usdt)}개 코인")
 
             # 🔥 캐시된 K라인 데이터 확인 (10분 이내)
-            klines_cache_file_15m = "data/nwsoft/cache/klines_15m.json"
-            klines_cache_file_1h = "data/nwsoft/cache/klines_1h.json"
+            klines_cache_file_15m = f"data/nwsoft/cache/{exchange_key}_klines_15m.json"
+            klines_cache_file_1h = f"data/nwsoft/cache/{exchange_key}_klines_1h.json"
 
             all_klines_15m = {}
             all_klines_1h = {}
@@ -2065,10 +2134,10 @@ class Evaluator:
                         all_klines_15m = json.load(f)
                 else:
                     self.logger.info("15분 K라인 캐시 만료 - 새로 조회")
-                    all_klines_15m = self.binance_client.get_multiple_klines(selected_symbols_with_usdt, "15m", 100)
+                    all_klines_15m = self._get_multiple_context_klines(selected_symbols_with_usdt, "15m", 100)
             else:
                 self.logger.info("15분 K라인 캐시 없음 - 새로 조회")
-                all_klines_15m = self.binance_client.get_multiple_klines(selected_symbols_with_usdt, "15m", 100)
+                all_klines_15m = self._get_multiple_context_klines(selected_symbols_with_usdt, "15m", 100)
 
             # 1시간 데이터 캐시 확인
             if os.path.exists(klines_cache_file_1h):
@@ -2079,10 +2148,10 @@ class Evaluator:
                         all_klines_1h = json.load(f)
                 else:
                     self.logger.info("1시간 K라인 캐시 만료 - 새로 조회")
-                    all_klines_1h = self.binance_client.get_multiple_klines(selected_symbols_with_usdt, "1h", 100)
+                    all_klines_1h = self._get_multiple_context_klines(selected_symbols_with_usdt, "1h", 100)
             else:
                 self.logger.info("1시간 K라인 캐시 없음 - 새로 조회")
-                all_klines_1h = self.binance_client.get_multiple_klines(selected_symbols_with_usdt, "1h", 100)
+                all_klines_1h = self._get_multiple_context_klines(selected_symbols_with_usdt, "1h", 100)
 
             # 🔥 캐시 저장
             if all_klines_15m:
@@ -2105,7 +2174,7 @@ class Evaluator:
                     continue
 
                 # 🔥 일괄 조회된 데이터 사용
-                symbol_with_usdt = self._append_usdt_if_missing(coin_data['symbol'])
+                symbol_with_usdt = self._context_symbol(coin_data['symbol'])
 
                 # 일괄 조회된 K라인 데이터 확인
                 if symbol_with_usdt not in all_klines_15m or symbol_with_usdt not in all_klines_1h:
@@ -2231,11 +2300,28 @@ class Evaluator:
                 """)
 
             self.logger.info("✅ AI 평가 완료")
+            return coin_scores
 
         except Exception as e:
             self.logger.error(f"AI 평가 오류: {e}")
             import traceback
             self.logger.error(f"상세 오류: {traceback.format_exc()}")
+            return []
+
+    def _get_multiple_context_klines(self, symbols, interval: str, limit: int):
+        """Fetch a per-exchange batch without any cross-exchange fallback."""
+        if self._selection_exchange() == 'binance':
+            if not self.binance_client:
+                return {}
+            bulk = getattr(self.binance_client, 'get_multiple_klines', None)
+            if callable(bulk):
+                return bulk(list(symbols), interval, limit) or {}
+        result = {}
+        for symbol in symbols:
+            klines = self._get_context_klines(symbol, interval, limit)
+            if klines:
+                result[symbol] = klines
+        return result
 
     def _save_coin_evaluation_to_db(self, coin_scores):
         """코인 평가 결과를 데이터베이스에 저장"""
@@ -2372,7 +2458,7 @@ class Evaluator:
 
             for coin in selected_coins:
                 # 🔥 얕은 가드 사용 - 중복 부착 방지만
-                symbol_with_usdt = self._append_usdt_if_missing(coin)
+                symbol_with_usdt = self._context_symbol(coin)
 
                 initial_coin_data = initial_data.get(symbol_with_usdt, {})
 
@@ -2405,12 +2491,12 @@ class Evaluator:
         try:
             # 🔥 얕은 가드 사용 - 중복 부착 방지만
             if isinstance(coin, str):
-                symbol_with_usdt = self._append_usdt_if_missing(coin)
+                symbol_with_usdt = self._context_symbol(coin)
             else:
-                symbol_with_usdt = self._append_usdt_if_missing(str(coin))
+                symbol_with_usdt = self._context_symbol(str(coin))
 
             # 티커 데이터 가져오기
-            ticker = self.binance_client.get_ticker(symbol_with_usdt)
+            ticker = self._get_context_ticker(symbol_with_usdt)
             if not ticker:
                 return None
 

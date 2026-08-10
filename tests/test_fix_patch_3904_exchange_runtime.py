@@ -44,6 +44,39 @@ def test_bithumb_execution_normalizer_preserves_dynamic_symbol_and_fill():
     assert normalized["cost"] == 10146.0
 
 
+def test_bithumb_empty_history_does_not_permanently_disable_future_sync():
+    class _Exchange:
+        has = {"fetchMyTrades": False, "fetchClosedOrders": True}
+
+        def __init__(self):
+            self.calls = 0
+
+        def fetch_closed_orders(self, symbol, limit=100):
+            self.calls += 1
+            if self.calls == 1:
+                return []
+            return [{
+                "id": "later-fill-1",
+                "symbol": symbol or "RLC/KRW",
+                "side": "buy",
+                "status": "closed",
+                "filled": 2,
+                "average": 400,
+                "cost": 800,
+            }]
+
+    adapter = BithumbSpotAdapter("key", "secret")
+    adapter.exchange = _Exchange()
+    adapter.is_connected = True
+
+    assert adapter.get_trade_history(symbol="RLC/KRW") == []
+    assert adapter._trade_history_mode == "orders_fallback"
+
+    rows = adapter.get_trade_history(symbol="RLC/KRW")
+    assert [row["id"] for row in rows] == ["later-fill-1"]
+    assert adapter.get_execution_capabilities()["history_available"] is True
+
+
 def test_exchange_execution_history_is_separate_and_deduplicated(tmp_path):
     db_path = tmp_path / "trading.db"
     log_path = tmp_path / "trading.log"
@@ -80,6 +113,86 @@ def test_exchange_execution_history_is_separate_and_deduplicated(tmp_path):
         ("bithumb", "XRP/KRW", "buy", 845.5, 12.0, 10146.0, 2.54, "KRW")
     ]
     assert recorder.execute_query("SELECT COUNT(*) FROM trade_log") == [(0,)]
+
+
+def test_order_receipt_can_be_reconciled_by_order_id_without_history_api(tmp_path):
+    recorder = Recorder(
+        db_path=str(tmp_path / "trading.db"),
+        log_path=str(tmp_path / "trading.log"),
+        exchange="bithumb",
+    )
+    assert recorder.save_exchange_order_receipt(
+        "bithumb",
+        {
+            "id": "order-restore-1",
+            "order": "order-restore-1",
+            "symbol": "RLC/KRW",
+            "side": "buy",
+            "status": "open",
+            "amount": 2,
+            "_execution_confirmed": False,
+        },
+        source="noahai_entry_order",
+    )
+
+    class _Exchange:
+        def fetch_order(self, order_id, symbol=None):
+            return {
+                "id": order_id,
+                "symbol": symbol,
+                "side": "buy",
+                "status": "closed",
+                "filled": 2,
+                "average": 400,
+                "cost": 800,
+                "timestamp": 1785502800000,
+            }
+
+    class _Adapter:
+        exchange = _Exchange()
+
+        @staticmethod
+        def _display_symbol(value):
+            return value
+
+    trader = UnifiedTrader.__new__(UnifiedTrader)
+    trader.recorder = recorder
+    trader.logger = type("_Logger", (), {"warning": lambda *args, **kwargs: None})()
+    trader.get_exchange_client = lambda exchange: _Adapter()
+
+    result = trader.reconcile_exchange_order_receipts("bithumb")
+    assert result == {"checked": 1, "confirmed": 1, "pending": 0, "failed": 0}
+    assert recorder.execute_query(
+        "SELECT exchange, order_id, cost, confirmation_status FROM exchange_execution_log"
+    ) == [("bithumb", "order-restore-1", 800.0, "confirmed")]
+
+
+def test_trade_exit_matches_exchange_and_order_id(tmp_path):
+    from datetime import datetime, timezone
+    from trading.recorder import TradeLog
+
+    recorder = Recorder(
+        db_path=str(tmp_path / "trading.db"),
+        log_path=str(tmp_path / "trading.log"),
+    )
+    now = datetime.now(timezone.utc)
+    for exchange, order_id in (("upbit", "u-1"), ("bithumb", "b-1")):
+        recorder.insert_trade_log(TradeLog(
+            id=None, symbol="RLC/KRW", entry_price=400, exit_price=None,
+            quantity=2, leverage=1, pnl=None, pnl_percent=None,
+            entry_time=now, exit_time=None, reason="entry", side="LONG",
+            tp_price=None, sl_price=None, fees=0, slippage=0,
+            exchange=exchange, order_id=order_id,
+        ))
+
+    assert recorder.update_trade_on_exit(
+        "RLC/KRW", now, exit_price=410, pnl=20, pnl_percent=2.5,
+        fees=1, slippage=0, reason="exit", side="LONG",
+        exchange="bithumb", entry_order_id="b-1", exit_order_id="b-2",
+    )
+    assert recorder.execute_query(
+        "SELECT exchange, exit_time IS NOT NULL, exit_order_id FROM trade_log ORDER BY exchange"
+    ) == [("bithumb", 1, "b-2"), ("upbit", 0, None)]
 
 
 def test_settings_save_synchronizes_existing_unified_trader():
@@ -127,5 +240,5 @@ def test_runtime_trade_samples_reconcile_exchange_history_into_ledger():
 
     assert rows == [{"id": "fill-1", "symbol": "SOL/USDT", "amount": 1}]
     assert trader.recorder.calls == [
-        ("okx", rows, "runtime_exchange_reconcile")
+        ("okx", rows, "runtime_exchange_backfill")
     ]

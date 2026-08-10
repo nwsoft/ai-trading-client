@@ -14,7 +14,9 @@ from typing import Any, Callable, Dict, List, Optional
 from uuid import uuid4
 
 from .custom_strategy_advisor import build_improvement_advice, build_strategy_guidance
+from .custom_strategy_mentor import build_version_diff
 from .declarative_strategy_engine import DeclarativeStrategyEngine
+from .noah_strategy_ir import NoahStrategyIR
 
 
 class CustomStrategyPipeline:
@@ -101,7 +103,7 @@ class CustomStrategyPipeline:
         self.storage_path.parent.mkdir(parents=True, exist_ok=True)
         temp_path = self.storage_path.with_suffix(self.storage_path.suffix + ".tmp")
         payload = {
-            "schema_version": 1,
+            "schema_version": 2,
             "strategies": self.strategies,
             "active_versions": self.active_versions,
             "updated_at": self._now(),
@@ -130,6 +132,54 @@ class CustomStrategyPipeline:
     def _previous(self, strategy_key: str) -> Optional[Dict[str, Any]]:
         versions = self.strategies.get(strategy_key, [])
         return versions[-1] if versions else None
+
+    @staticmethod
+    def _compile_ir(
+        rules: Dict[str, Any],
+        *,
+        source_kind: str,
+        source_reference: str,
+        missing_conditions: List[Any],
+    ) -> Dict[str, Any]:
+        return NoahStrategyIR.compile(
+            rules,
+            source_kind=source_kind,
+            source_reference=source_reference,
+            missing_conditions=missing_conditions,
+        )
+
+    def _ensure_ir(self, version: Dict[str, Any]) -> Dict[str, Any]:
+        """기존 저장 버전도 승인/적용 전에 IR v1 계약으로 승격한다."""
+        ir = version.get("strategy_ir")
+        if not isinstance(ir, dict):
+            ir = self._compile_ir(
+                dict(version.get("rules") or {}),
+                source_kind=str(version.get("source_kind") or "text"),
+                source_reference=str(version.get("source_reference") or ""),
+                missing_conditions=list(version.get("missing_conditions") or []),
+            )
+            version["strategy_ir"] = ir
+            version["ir_validation"] = NoahStrategyIR.validate(ir)
+            version["ir_hash"] = ir.get("integrity_sha256")
+        return dict(ir or {})
+
+    def _assert_ir_ready(self, version: Dict[str, Any], *, allow_clarification: bool = False) -> None:
+        ir = self._ensure_ir(version)
+        validation = NoahStrategyIR.validate(ir)
+        if not validation.get("valid"):
+            raise ValueError(
+                "Noah Strategy IR 무결성 검증에 실패했습니다: "
+                + ", ".join(validation.get("errors") or [])
+            )
+        support_status = str((ir.get("support") or {}).get("status") or "unsupported")
+        if support_status == "unsupported":
+            reasons = list((ir.get("support") or {}).get("unsupported_reasons") or [])
+            raise ValueError(
+                "현재 실행 엔진이 지원하지 않는 전략 노드가 있습니다: "
+                + ", ".join(reasons)
+            )
+        if support_status == "needs_clarification" and not allow_clarification:
+            raise ValueError("사용자 확인이 필요한 전략 조건을 먼저 완성해야 합니다.")
 
     @staticmethod
     def _impact_summary(previous: Optional[Dict[str, Any]], rules: Dict[str, Any]) -> Dict[str, Any]:
@@ -166,8 +216,15 @@ class CustomStrategyPipeline:
             guidance["missing_conditions"] = list(missing)
             guidance["complete"] = False
             guidance["unsupported_conditions"] = list(executable_validation["errors"])
+        missing = list(dict.fromkeys(missing))
         previous = self._previous(key)
         status = "needs_clarification" if missing else "analyzed"
+        ir = self._compile_ir(
+            rules,
+            source_kind=str(source_kind or "text").strip().lower(),
+            source_reference=str(source_reference or "").strip(),
+            missing_conditions=missing,
+        )
         version = {
             "strategy_key": key,
             "version_id": f"{key}_v{self._version_number(key)}_{uuid4().hex[:6]}",
@@ -176,6 +233,10 @@ class CustomStrategyPipeline:
             "source_kind": str(source_kind or "text").strip().lower(),
             "source_reference": str(source_reference or "").strip(),
             "rules": deepcopy(rules),
+            "strategy_ir": ir,
+            "ir_validation": NoahStrategyIR.validate(ir),
+            "ir_hash": ir.get("integrity_sha256"),
+            "correlation_id": f"strategy_event_{uuid4().hex}",
             "status": status,
             "missing_conditions": missing,
             "guidance": guidance,
@@ -192,9 +253,14 @@ class CustomStrategyPipeline:
                 ],
                 "guardrails": list(self.IMMUTABLE_GUARDRAILS),
             },
+            "version_diff": build_version_diff(
+                (previous or {}).get("rules", {}), rules,
+            ),
             "approval": None,
             "paper_validation": None,
             "execution_validation": None,
+            "validation_lab": None,
+            "promotion_history": [],
             "created_at": self._now(),
             "updated_at": self._now(),
         }
@@ -216,8 +282,18 @@ class CustomStrategyPipeline:
             guidance["missing_conditions"] = list(missing)
             guidance["complete"] = False
             guidance["unsupported_conditions"] = list(executable_validation["errors"])
+        missing = list(dict.fromkeys(missing))
         version["missing_conditions"] = missing
         version["guidance"] = guidance
+        ir = self._compile_ir(
+            dict(version.get("rules") or {}),
+            source_kind=str(version.get("source_kind") or "text"),
+            source_reference=str(version.get("source_reference") or ""),
+            missing_conditions=missing,
+        )
+        version["strategy_ir"] = ir
+        version["ir_validation"] = NoahStrategyIR.validate(ir)
+        version["ir_hash"] = ir.get("integrity_sha256")
         version.setdefault("xai", {})["summary"] = (
             f"AI가 아직 누락 조건 {len(missing)}개를 확인했습니다."
             if missing else
@@ -230,6 +306,7 @@ class CustomStrategyPipeline:
 
     def approve(self, strategy_key: str, version_id: str, *, approved_by: str) -> Dict[str, Any]:
         version = self._find(strategy_key, version_id)
+        self._assert_ir_ready(version)
         if version.get("status") != "analyzed":
             raise ValueError("누락 조건 확인과 XAI 분석 완료 후에만 승인할 수 있습니다.")
         if not str(approved_by or "").strip():
@@ -250,17 +327,58 @@ class CustomStrategyPipeline:
         metrics: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
         version = self._find(strategy_key, version_id)
-        if version.get("status") not in {"approved", "paper_rejected", "paper_validated"}:
+        self._assert_ir_ready(version)
+        if version.get("status") not in {
+            "approved", "paper_rejected", "paper_validated",
+            "execution_rejected", "execution_validated",
+        }:
             raise ValueError("사용자 승인 후에만 모의거래 검증을 기록할 수 있습니다.")
         passed = int(trades) >= self.min_paper_trades and int(guardrail_violations) == 0
+        recorded_at = self._now()
         version["paper_validation"] = {
             "passed": passed,
             "trades": int(trades),
             "guardrail_violations": int(guardrail_violations),
             "metrics": deepcopy(metrics or {}),
-            "recorded_at": self._now(),
+            "recorded_at": recorded_at,
             "note": "백테스트는 보조 검증이며 모의거래 통과를 대체하지 않음",
         }
+        lab = dict(version.get("validation_lab") or {})
+        if lab:
+            raw_metrics = dict(metrics or {})
+            paper_net_pnl = raw_metrics.get("net_pnl", raw_metrics.get("realized_pnl", 0.0))
+            try:
+                paper_net_pnl = float(paper_net_pnl or 0.0)
+            except (TypeError, ValueError):
+                paper_net_pnl = 0.0
+            lab["paper_forward"] = {
+                "trades": int(trades),
+                "net_pnl": paper_net_pnl,
+                "passed": passed,
+                "guardrail_violations": int(guardrail_violations),
+                "recorded_at": recorded_at,
+            }
+            sample = dict(lab.get("sample") or {})
+            walkforward = dict(lab.get("walkforward") or {})
+            overfit = dict(lab.get("overfit_risk") or {})
+            minimum_gate = dict(lab.get("minimum_quality_gate") or {})
+            lab["promotion_ready"] = bool(
+                passed
+                and int(sample.get("out_of_sample", 0) or 0) >= 3
+                and float(walkforward.get("pass_rate", 0.0) or 0.0) >= 0.5
+                and not bool(overfit.get("flagged", False))
+                and bool(minimum_gate.get("passed", True))
+            )
+            lab["auto_promoted"] = False
+            version["validation_lab"] = lab
+        version.setdefault("promotion_history", []).append({
+            "event": "paper_validation_recorded",
+            "passed": passed,
+            "trades": int(trades),
+            "promotion_ready": bool(lab.get("promotion_ready", False)) if lab else False,
+            "at": recorded_at,
+            "auto_promoted": False,
+        })
         version["status"] = "paper_validated" if passed else "paper_rejected"
         version["updated_at"] = self._now()
         self._save()
@@ -278,6 +396,7 @@ class CustomStrategyPipeline:
     ) -> Dict[str, Any]:
         """관찰학습/과거재생/제한운용의 실제 결과를 승인 버전에 연결한다."""
         version = self._find(strategy_key, version_id)
+        self._assert_ir_ready(version)
         if version.get("status") not in {"approved", "execution_rejected", "execution_validated"}:
             raise ValueError("사용자 승인 후에만 실행 검증을 기록할 수 있습니다.")
         allowed_modes = {"historical_replay", "live_observation", "limited_live"}
@@ -300,6 +419,30 @@ class CustomStrategyPipeline:
         self._save()
         return deepcopy(version)
 
+    def record_validation_lab(
+        self,
+        strategy_key: str,
+        version_id: str,
+        report: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        version = self._find(strategy_key, version_id)
+        self._assert_ir_ready(version)
+        if version.get("status") not in {
+            "approved", "paper_validated", "paper_rejected",
+            "execution_validated", "execution_rejected",
+        }:
+            raise ValueError("사용자 승인 후에만 검증 연구소 결과를 기록할 수 있습니다.")
+        version["validation_lab"] = deepcopy(report or {})
+        version.setdefault("promotion_history", []).append({
+            "event": "validation_lab_recorded",
+            "promotion_ready": bool((report or {}).get("promotion_ready", False)),
+            "at": self._now(),
+            "auto_promoted": False,
+        })
+        version["updated_at"] = self._now()
+        self._save()
+        return deepcopy(version)
+
     def activate(
         self,
         strategy_key: str,
@@ -310,6 +453,7 @@ class CustomStrategyPipeline:
         guardrail_check: Optional[Callable[[Dict[str, Any]], Any]] = None,
     ) -> Dict[str, Any]:
         version = self._find(strategy_key, version_id)
+        self._assert_ir_ready(version)
         mode = str(operation_mode or "standard").strip().lower()
         if mode not in {"standard", "limited_live"}:
             raise ValueError(f"지원하지 않는 전략 운용 방식입니다: {mode}")
@@ -317,6 +461,16 @@ class CustomStrategyPipeline:
         if mode == "standard":
             if previous_status not in {"paper_validated", "execution_validated"}:
                 raise ValueError("일반 운용은 실행 검증 통과 후에만 적용할 수 있습니다.")
+            paper_passed = bool((version.get("paper_validation") or {}).get("passed", False))
+            execution = dict(version.get("execution_validation") or {})
+            forward_execution_passed = bool(
+                execution.get("passed", False)
+                and str(execution.get("mode") or "") in {"live_observation", "limited_live"}
+            )
+            if not paper_passed and not forward_execution_passed:
+                raise ValueError(
+                    "과거 재생만으로 일반 운용에 적용할 수 없습니다. PAPER 전진검증을 먼저 통과하세요."
+                )
         else:
             if previous_status not in {"execution_rejected", "execution_validated"}:
                 raise ValueError("제한 운용은 자동 실행검증을 먼저 완료한 뒤 선택할 수 있습니다.")
@@ -343,6 +497,12 @@ class CustomStrategyPipeline:
         version["operation_mode"] = mode
         version["pre_activation_status"] = previous_status
         version["activated_at"] = self._now()
+        version.setdefault("promotion_history", []).append({
+            "event": "user_activated",
+            "operation_mode": mode,
+            "at": self._now(),
+            "approved_by_user": True,
+        })
         version["updated_at"] = self._now()
         self.active_versions[strategy_key] = version_id
         self._save()
@@ -350,9 +510,14 @@ class CustomStrategyPipeline:
 
     def rollback(self, strategy_key: str, target_version_id: str, *, approved_by: str) -> Dict[str, Any]:
         target = self._find(strategy_key, target_version_id)
+        self._assert_ir_ready(target)
         paper_validation = target.get("paper_validation") or {}
         execution_validation = target.get("execution_validation") or {}
-        if not paper_validation.get("passed", False) and not execution_validation.get("passed", False):
+        forward_execution_passed = bool(
+            execution_validation.get("passed", False)
+            and str(execution_validation.get("mode") or "") in {"live_observation", "limited_live"}
+        )
+        if not paper_validation.get("passed", False) and not forward_execution_passed:
             raise ValueError("실행 검증 통과 이력이 있는 버전으로만 롤백할 수 있습니다.")
         current_id = self.active_versions.get(strategy_key)
         if current_id:

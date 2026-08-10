@@ -8,7 +8,7 @@
 사용법:
     python3 scripts/verify_stock_broker_connection.py \
         --broker kiwoom \
-        --api_type openapi \
+        --api_type openapi_plus \
         --api_version pykiwoom \
         --id YOUR_USER_ID \
         --password YOUR_PASSWORD \
@@ -19,17 +19,18 @@
     python3 scripts/verify_stock_broker_connection.py --broker kiwoom --mock
 
 지원 증권사:
-    - kiwoom   (openapi/pykiwoom, openapi/kiwoom_api, mock)
-    - shinhan  (rest/solapi_rest, openapi/solapi, mock)
-    - miraeAsset (rest/kis, openapi/miraemts, mock)
-    - koreaInvestment (rest/kis, openapi/kis, mock)
+    - kiwoom         (openapi_plus/pykiwoom, mock)
+    - shinhan        (partner_rest/shinhan_openapi_v2, mock)
+    - miraeAsset     (partner_rest/mirae_partner_profile, mock)
+    - koreaInvestment (rest/kis_openapi_v1, mock)
 
 검증 단계:
     1. API 조합 검증  (ExchangeFactory.validate_stock_broker_api_combo)
-    2. 어댑터 생성    (ExchangeFactory.create_stock_exchange)
-    3. 연결           (adapter.connect())
-    4. 계좌 잔고 조회 (adapter.get_balance())
-    5. 포지션 조회    (adapter.get_positions() / get_account_info())
+    2. 구현 성숙도 확인(문자열 등록과 실제 구현/검증 상태 분리)
+    3. 어댑터 생성    (ExchangeFactory.create_stock_exchange)
+    4. 연결           (adapter.connect())
+    5. 계좌 잔고 조회 (adapter.get_balance())
+    6. 포지션 조회    (adapter.get_positions() / get_account_info())
 
 결과 저장:
     data/reports/stock_broker_verify_<broker>_<timestamp>.json
@@ -133,6 +134,8 @@ def run_verification(
     account_no: str = "",
     app_key: str = "",
     app_secret: str = "",
+    sandbox: bool = False,
+    partner_profile: Optional[Dict[str, Any]] = None,
     mock_mode: bool = False,
     runtime_only: bool = False,
 ) -> VerifyResult:
@@ -148,7 +151,7 @@ def run_verification(
     logger.info(f"{'='*60}")
 
     # ── Step 0: 키움 OpenAPI 런타임 진단 (Windows/OCX/이벤트) ───────────────
-    if broker == "kiwoom" and api_type == "openapi":
+    if broker == "kiwoom" and api_type == "openapi_plus":
         try:
             os_name = platform.system()
             py_bits = 64 if (8 * __import__('struct').calcsize('P')) == 64 else 32
@@ -232,6 +235,20 @@ def run_verification(
         result.finalize()
         return result
 
+    # 문자열 조합 등록만으로 실제 구현/실주문 가능 상태라고 판단하지 않는다.
+    maturity = ExchangeFactory.get_stock_broker_api_maturity(broker, api_type, api_version)
+    if not maturity.get("implemented", False):
+        result.add_step("API 구현 성숙도", "FAIL", maturity.get("message", "미구현 경로"), data=maturity)
+        result.finalize()
+        return result
+    maturity_status = "OK" if api_type == "mock" else "SKIP"
+    result.add_step(
+        "API 구현 성숙도",
+        maturity_status,
+        maturity.get("message", maturity.get("status", "상태 미상")),
+        data=maturity,
+    )
+
     # ── Step 2: 어댑터 생성 ──────────────────────────────────────────────────
     adapter = None
     try:
@@ -246,6 +263,8 @@ def run_verification(
                     "account_no": account_no,
                     "app_key": app_key or user_id,
                     "app_secret": app_secret or password,
+                    "sandbox": bool(sandbox),
+                    "partner_profile": dict(partner_profile or {}),
                 }
             }
         }
@@ -326,7 +345,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--api_type", default="mock",
                    help="API 타입 (openapi/rest/mock, 기본: mock)")
     p.add_argument("--api_version", default="mock",
-                   help="API 버전 (pykiwoom/solapi_rest/kis/mock 등)")
+                   help="API 버전 (pykiwoom/shinhan_openapi_v2/mirae_partner_profile/kis_openapi_v1/mock)")
     p.add_argument("--mock", action="store_true",
                    help="Mock 모드로 실행 (API 없이 동작 검증)")
     p.add_argument("--id", dest="user_id",
@@ -347,6 +366,10 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--app_secret",
                    default=os.environ.get("BROKER_APP_SECRET", ""),
                    help="앱시크릿 (REST 기반 증권사, 또는 env BROKER_APP_SECRET)")
+    p.add_argument("--sandbox", action="store_true",
+                   help="증권사가 제공하는 모의투자 서버 사용 (지원 경로만 적용)")
+    p.add_argument("--partner_profile_file", default="",
+                   help="신한/미래에셋 제휴 계약 partner_profile JSON 파일")
     p.add_argument("--output_dir", default="data/reports",
                    help="결과 JSON 저장 디렉토리 (기본: data/reports)")
     p.add_argument("--no_save", action="store_true",
@@ -363,6 +386,16 @@ def main():
     args = parser.parse_args()
 
     results: List[VerifyResult] = []
+    partner_profile: Dict[str, Any] = {}
+    if args.partner_profile_file:
+        try:
+            with open(args.partner_profile_file, "r", encoding="utf-8") as profile_file:
+                loaded_profile = json.load(profile_file)
+            if not isinstance(loaded_profile, dict):
+                parser.error("--partner_profile_file의 최상위 값은 JSON 객체여야 합니다.")
+            partner_profile = loaded_profile
+        except (OSError, json.JSONDecodeError) as exc:
+            parser.error(f"partner_profile JSON을 읽을 수 없습니다: {exc}")
 
     if args.all_brokers:
         # 지원 모든 증권사 × Mock 모드 순차 검증
@@ -386,6 +419,8 @@ def main():
             account_no=args.account_no,
             app_key=args.app_key,
             app_secret=args.app_secret,
+            sandbox=args.sandbox,
+            partner_profile=partner_profile,
             mock_mode=args.mock,
             runtime_only=args.runtime_only,
         )

@@ -1,4 +1,18 @@
-# 주식/ETF 서비스 개발 현황 및 다음 단계 계획 (최초: 2026-01-18 / 최신 기준: 2026-04-28)
+# 주식/ETF 서비스 개발 현황 및 다음 단계 계획 (최초: 2026-01-18 / 최신 기준: 2026-08-01)
+
+## 📌 최신 정합 갱신 (정본) — 2026-08-01 v3.9.0.5 Fix Patch 3
+
+이 절이 증권사 연동의 최신 상태다. 아래 2026-04~05 섹션과 장기 계획은 당시
+이력이며, `KiwoomStockAdapter` 플레이스홀더·실 API 미구현 등의 문구는 현재
+상태에 적용하지 않는다.
+
+- 공식 계약 경로: 키움 `openapi_plus/pykiwoom`, 신한 `partner_rest/shinhan_openapi_v2`, 미래에셋 `partner_rest/mirae_partner_profile`, 한국투자 `rest/kis_openapi_v1`
+- 구 API 선택지 제거와 인증값·계좌값 보존 자동 이전 완료
+- 키움 OpenAPI+ 조회·주문·취소와 Windows 런타임 준비 확인, 한국투자 KIS 공식 REST 계약 구현 완료
+- 신한·미래에셋은 추정 URL 대신 증권사 발급 제휴 `partner_profile` 기반으로 연결·조회·주문·취소·체결내역 호출
+- 실행 모드: `PAPER 우선`, 그 외에는 전역 LIVE·증권사 LIVE·어댑터 준비·가드레일이 모두 참일 때만 `LIVE`, 나머지는 `LEARNING`
+- 소스 회귀: 1,277 passed, 6 skipped. Windows EXE·키움 OCX·실계정 주문은 배포 후 검증 대상
+- 세부 정본: `docs/STOCK_BROKER_CONTRACTS_v3.9.0.5.md`
 
 ## 📌 최신 정합 갱신 (정본) — 2026-05-01 증권 AI 자동매매 고도화 반영
 
@@ -159,7 +173,7 @@
 - [x] 서비스별 탭 분리 정책 반영(자산통합/생활금융/AI애널리스트 전용 탭)
 - [x] 주문 결과에 `mock/live_api` 실행 경로와 `api_type` 노출
 - [x] StockAnalysisService 분석 결과에 `analysis_type`, `score_model`, `reasoning` 추가로 주식/ETF 판단 근거 분리
-- [x] 실주문 1차 feature flag 분기 연결(`enable_stock_live_order` 또는 증권사별 `allow_live_order` 미활성 시 주문 차단)
+- [x] 실주문 권한 AND 정본 연결(`NOT PAPER` + `enable_stock_live_order` + 증권사별 `allow_live_order` + 어댑터 준비상태 + 가드레일)
 - [x] 증권 자동매매 루프 1차 연결(분석 신호→자동주문 사이클, 서비스 계층 + 대시보드 주기 실행)
 - [x] 증권 자동매매의 심볼별 XAI 결정 로그 + 사이클 요약 XAI + 성공 주문 즉시 `trade_log` 기록 보강
 - [x] 종목 검색 고도화 1차 반영(최근검색/즐겨찾기/원클릭 재검색 + 설정 저장)
@@ -167,7 +181,8 @@
 - [x] 자산 통합 확장 1차 반영(crypto/stock 상관계수 + 집중도 기반 리밸런싱 액션)
 
 남은 핵심 우선순위
-- [ ] 증권사 실연동 고도화(연결/잔고/포지션/주문 실API 검증)
+- [x] 증권사 계약 코드 정본화(키움 OpenAPI+, 한국투자 KIS, 신한/미래에셋 제휴 프로필)
+- [ ] Windows 빌드 배포 후 실제 계정 연결/잔고/포지션/소액 주문/취소/체결내역 운영 검증
 - [ ] 생활금융 확장(지출 자동 분류/목표 관리/시뮬레이션)
 
 현실적 마감 기준

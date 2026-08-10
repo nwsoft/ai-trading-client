@@ -70,27 +70,29 @@ MODEL_REGISTRY: Dict[str, List[Dict[str, Any]]] = {
     "kimi": [
         _entry(
             "kimi-k3",
-            "experimental",
+            "recommended",
             capabilities=("chat_text", "chat_json", "vision"),
-            note="공식 모델, NoahAI 실제 키 검증은 테스터 단계",
+            note="OpenAI 호환 정식 API · 계정별 모델 권한 확인",
         ),
         _entry(
             "kimi-k2.6",
-            "experimental",
+            "available",
             capabilities=("chat_text", "chat_json", "vision"),
-            note="공식 모델, NoahAI 실제 키 검증은 테스터 단계",
+            note="텍스트·JSON·비전 지원 · 비용 절약 선택지",
         ),
         _entry("kimi-latest", "retired", replacement="kimi-k3"),
         _entry("kimi-k2", "retired", replacement="kimi-k2.6"),
     ],
     "anthropic": [
-        _entry("claude-haiku-4-5", "recommended", capabilities=("chat_text", "chat_json", "vision")),
-        _entry("claude-sonnet-5", "recommended", capabilities=("chat_text", "chat_json", "vision")),
-        _entry("claude-opus-5", "recommended", capabilities=("chat_text", "chat_json", "vision")),
-        _entry("claude-fable-5", "available", capabilities=("chat_text", "chat_json", "vision")),
-        _entry("claude-sonnet-4-6", "available", capabilities=("chat_text", "chat_json", "vision")),
-        _entry("claude-opus-4-8", "available", capabilities=("chat_text", "chat_json", "vision")),
-        _entry("claude-opus-4-7", "available", capabilities=("chat_text", "chat_json", "vision")),
+        # 현재 NoahAI Anthropic 어댑터는 텍스트/JSON만 구현한다. 모델 자체의
+        # 외부 기능과 앱에서 실제 호출 가능한 capability를 섞어 표시하지 않는다.
+        _entry("claude-haiku-4-5", "recommended", capabilities=("chat_text", "chat_json")),
+        _entry("claude-sonnet-5", "recommended", capabilities=("chat_text", "chat_json")),
+        _entry("claude-opus-5", "recommended", capabilities=("chat_text", "chat_json")),
+        _entry("claude-fable-5", "available", capabilities=("chat_text", "chat_json")),
+        _entry("claude-sonnet-4-6", "available", capabilities=("chat_text", "chat_json")),
+        _entry("claude-opus-4-8", "available", capabilities=("chat_text", "chat_json")),
+        _entry("claude-opus-4-7", "available", capabilities=("chat_text", "chat_json")),
     ],
     "gemini": [
         _entry("gemini-3.5-flash-lite", "recommended", capabilities=("chat_text", "chat_json", "vision")),
@@ -212,4 +214,3 @@ def validate_model_route(
         "warnings": warnings,
         "replacement": str(record.get("replacement") or ""),
     }
-

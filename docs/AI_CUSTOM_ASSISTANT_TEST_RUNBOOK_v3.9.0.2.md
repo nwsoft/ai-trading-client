@@ -333,3 +333,18 @@ BTC를 지금 시장가로 매수해줘.
 | Windows EXE | PASS / PENDING |
 | 발견 결함 | |
 | 재검증 결과 | |
+
+## 10. 2026-08-09 고도화 후속 테스트 게이트
+
+이 절은 v3.9.0.2 당시 회귀를 바꾸지 않고 `AI_CUSTOME_UPDATE_PLAN.md`의 Noah Strategy IR·Progressive Strategy UI 구현 상태를 추적한다. 실제 사용자 시험 절차와 피드백 양식은 `AI_CUSTOM_FEATURE_TEST_AND_FEEDBACK_GUIDE_20260809.md`를 따른다.
+
+- [x] Level 1·2·3이 같은 분석 IR·무결성 해시·지원 판정을 표시하고 저장 버전은 같은 `strategy_id`·`version_id` 계약 사용
+- [x] 현재 선언형 DSL → Noah Strategy IR → 선언형 DSL 왕복 시 canonical 규칙과 정규화 해시 보존
+- [ ] 원문 문자 단위 span offset → IR node → 실행 조건 추적 ID 누락 0건. 현재 evidence excerpt·node ID/path 기본 연결은 완료
+- [x] `needs_clarification`은 보완용 버전 저장만 허용하고 승인·검증·적용을 차단하며, `unsupported`와 IR 변조는 실행 전 실패 폐쇄
+- [x] Level 2 값 변경과 자연어 단일 수정은 새 버전 diff를 만들고 기존 활성 버전을 자동 변경하지 않음
+- [ ] Pine·자연어·PDF 대표 코퍼스에서 방향·시간봉·임계값·교차·TP/SL·국면의 의미 동등성 검증
+- [ ] TradingView/원본 재생과 NoahAI 재생의 캔들·체결시점·수수료·슬리피지 차이를 누락 없이 표시
+- [x] capability profile에 필요한 데이터·지표·상태·주문 능력이 없으면 승인·PAPER/LIVE 시작 차단
+- [x] 기존 자동 회귀에서 LEARNING/PAPER 실제 주문 API 호출 0건과 LIVE 회원·기관·계좌·주문 가드레일 계약 확인. 실제 계정 장시간 E2E는 별도
+- [ ] 판단→HOLD/차단→주문→체결→결과가 하나의 상관 ID와 전략 버전으로 연결

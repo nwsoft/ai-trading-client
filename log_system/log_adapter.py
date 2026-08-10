@@ -17,6 +17,7 @@ import threading
 import time
 from typing import Optional
 import re
+from utils.log_safety import LOG_RETENTION, LOG_ROTATION_SIZE
 
 # LogStream 모듈 단일화: 어느 경로로 import하더라도 동일한 싱글톤을 사용하도록 강제
 import os
@@ -101,8 +102,8 @@ try:
             log_path,
             format="{time:YYYY-MM-DD HH:mm:ss} | {level: <8} - {message}",
             level=log_level,  # 🔥 설정 파일의 로그 레벨 사용
-            rotation="200 MB",
-            retention="30 days",
+            rotation=LOG_ROTATION_SIZE,
+            retention=LOG_RETENTION,
             encoding="utf-8",
             enqueue=True,
         )

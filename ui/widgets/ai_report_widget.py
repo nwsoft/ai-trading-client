@@ -20,10 +20,14 @@ from api.kpi_client import emit_kpi_event
 from ui.visual_system import style_tabview
 from utils.fixed_colors import build_widget_palette
 from utils.trade_operating_metrics import (
+    calculate_currency_financial_metrics,
     calculate_trade_operating_metrics,
+    format_currency_amount,
     format_hold_duration,
     format_notional,
+    infer_quote_currency,
 )
+from utils.report_formatting import format_champion_challenger_section
 
 class AIReportWidget(CTkFrame):
     """실제 AI 리포트 위젯 (CustomTkinter) - 실제 데이터 기반"""
@@ -309,17 +313,24 @@ class AIReportWidget(CTkFrame):
         realtime_btn.grid(row=0, column=4, padx=5)
 
     def _load_exchange_options(self) -> List[str]:
-        """DB에서 거래소 옵션 로드"""
+        """성과 원장과 실제 체결 원장을 합쳐 거래소 옵션을 로드한다."""
         if not os.path.exists(self.db_path):
             return ["전체"]
         try:
             conn = sqlite3.connect(self.db_path)
             cursor = conn.cursor()
             cursor.execute("SELECT DISTINCT exchange FROM trade_log WHERE exchange IS NOT NULL")
-            rows = cursor.fetchall()
+            rows = list(cursor.fetchall())
+            cursor.execute(
+                "SELECT name FROM sqlite_master WHERE type='table' AND name='exchange_execution_log'"
+            )
+            if cursor.fetchone() is not None:
+                cursor.execute(
+                    "SELECT DISTINCT exchange FROM exchange_execution_log WHERE exchange IS NOT NULL"
+                )
+                rows.extend(cursor.fetchall())
             conn.close()
-            exchanges = [r[0] for r in rows if r and r[0]]
-            exchanges.sort()
+            exchanges = sorted({r[0] for r in rows if r and r[0]})
             return ["전체"] + exchanges if exchanges else ["전체"]
         except Exception:
             return ["전체"]
@@ -768,15 +779,16 @@ class AIReportWidget(CTkFrame):
 총 거래 수: {analysis_result['total_trades']}건
 수익 거래: {analysis_result['profitable_trades']}건
 승률: {analysis_result['win_rate']:.1f}%
-총 수익: {analysis_result['total_pnl']:.2f} USDT
+통화별 총 손익:
+{analysis_result['pnl_text']}
 
 {operating_metrics_text}
 
-비용 영향:
-- 누적 Fee: {analysis_result['total_fees']:.2f} USDT
-- 평균 Fee: {analysis_result['avg_fee']:.4f} USDT
-- Fee 대비 PnL 영향도: {analysis_result['fee_impact_percent']:.2f}%
-- 총 수익은 현재 trade_log의 pnl 합계 기준이며, 수수료는 별도 비용 지표로 병행 표시됩니다.
+통화별 누적 Fee:
+{analysis_result['fee_text']}
+동일통화 Fee 대비 PnL 영향도:
+{analysis_result['fee_impact_text']}
+- 환율 정보 없이 KRW·USDT 등 서로 다른 통화는 합산하지 않습니다.
 
 AI 실시간 분석:
 {analysis_result['ai_summary']}
@@ -802,11 +814,13 @@ AI 실시간 분석:
 분석 요약:
 - 최근 1시간 거래 수: {analysis_result['total_trades']}건
 - 승률: {analysis_result['win_rate']:.1f}%
-- 총 수익: {analysis_result['total_pnl']:.2f} USDT
+- 통화별 총 손익:
+{analysis_result['pnl_text']}
 {operating_metrics_text}
-- 누적 Fee: {analysis_result['total_fees']:.2f} USDT
-- 평균 Fee: {analysis_result['avg_fee']:.4f} USDT
-- Fee 대비 PnL 영향도: {analysis_result['fee_impact_percent']:.2f}%
+- 통화별 누적 Fee:
+{analysis_result['fee_text']}
+- 동일통화 Fee 대비 PnL 영향도:
+{analysis_result['fee_impact_text']}
 
 주요 장점:
 {analysis_result['strengths']}
@@ -843,6 +857,7 @@ AI 실시간 분석:
                 SELECT * FROM trade_log 
                 WHERE exit_time >= datetime('now', '-{} hours')
                 AND exit_time IS NOT NULL
+                AND LOWER(COALESCE(reason, '')) != 'binance_import'
             """.format(hours)
             params: List[Any] = []
             selected = (self.exchange_filter_var.get() if hasattr(self, 'exchange_filter_var') else '전체')
@@ -888,12 +903,13 @@ AI 실시간 분석:
         total_trades = len(trades)
         profitable_trades = len([t for t in trades if t['pnl'] > 0])
         win_rate = (profitable_trades / total_trades * 100) if total_trades > 0 else 0
-        total_pnl = sum(t['pnl'] for t in trades)
-        avg_pnl = total_pnl / total_trades if total_trades > 0 else 0
-        fee_values = [float(t.get('fees') or 0.0) for t in trades]
-        total_fees = sum(fee_values)
-        avg_fee = (total_fees / total_trades) if total_trades > 0 else 0.0
-        fee_impact_percent = (total_fees / abs(total_pnl) * 100.0) if abs(total_pnl) > 0 else 0.0
+        financials = self._format_currency_financials(trades)
+        # 기존 분석 함수는 단일 통화일 때만 금액 스칼라를 받는다.
+        total_pnl = (
+            next(iter(financials['by_currency'].values()))['pnl']
+            if not financials['mixed_currency'] and financials['by_currency']
+            else 0.0
+        )
         
         # 거래 시간 분석
         trade_durations = []
@@ -915,15 +931,23 @@ AI 실시간 분석:
         weaknesses = self._identify_weaknesses(trades, win_rate, total_pnl)
         warnings = self._generate_warnings(trades, win_rate, total_pnl)
         improvements = self._suggest_improvements(trades, win_rate, total_pnl)
+        if financials['mixed_currency']:
+            ai_summary = (
+                "KRW·USDT 등 결제통화가 함께 있어 금액 합산 평가는 보류합니다. "
+                "승률과 통화별 손익을 각각 확인하세요."
+            )
+            warnings = (warnings + "\n• 서로 다른 통화의 금액은 환율 없이 비교할 수 없습니다.").strip()
         
         return {
             'total_trades': total_trades,
             'profitable_trades': profitable_trades,
             'win_rate': win_rate,
             'total_pnl': total_pnl,
-            'total_fees': total_fees,
-            'avg_fee': avg_fee,
-            'fee_impact_percent': fee_impact_percent,
+            'pnl_by_currency': financials['by_currency'],
+            'pnl_text': financials['pnl_text'],
+            'fee_text': financials['fee_text'],
+            'fee_impact_text': financials['fee_impact_text'],
+            'mixed_currency': financials['mixed_currency'],
             'avg_trade_duration': avg_trade_duration,
             'ai_summary': ai_summary,
             'strengths': strengths,
@@ -1092,8 +1116,9 @@ AI 실시간 분석:
             # 최근 N일 거래 데이터 조회
             base_sql = """
                 SELECT * FROM trade_log 
-                WHERE date(exit_time) >= date('now', '-{} days')
+                WHERE date(exit_time) >= date('now', 'localtime', '-{} days')
                 AND exit_time IS NOT NULL
+                AND LOWER(COALESCE(reason, '')) != 'binance_import'
             """.format(days)
             params: List[Any] = []
             selected = (self.exchange_filter_var.get() if hasattr(self, 'exchange_filter_var') else '전체')
@@ -1116,6 +1141,30 @@ AI 실시간 분석:
         except Exception as e:
             print(f"거래 데이터 조회 오류: {e}")
             return []
+
+    def _get_execution_data(self, days: int = 1) -> List[Dict[str, Any]]:
+        """최근 실제 체결을 손익 성과와 분리해 조회한다."""
+        try:
+            from trading.execution_views import load_execution_data
+
+            selected = (
+                self.exchange_filter_var.get()
+                if hasattr(self, 'exchange_filter_var') else '전체'
+            )
+            return load_execution_data(
+                self.db_path,
+                days=days,
+                exchange=selected,
+            )
+        except Exception as exc:
+            print(f"실제 체결 데이터 조회 오류: {exc}")
+            return []
+
+    @staticmethod
+    def _format_execution_detail(executions: List[Dict[str, Any]], limit: int = 30) -> str:
+        from trading.execution_views import format_execution_detail
+
+        return format_execution_detail(executions, limit=limit)
 
     def _format_operating_metrics(self, trades: List[Dict]) -> str:
         """리포트에 공통으로 표시할 통화별 체결금액·보유시간 문구."""
@@ -1145,19 +1194,74 @@ AI 실시간 분석:
             + f"\n평균 보유시간: {hold_text} ({coverage_text})\n"
             + "- 체결금액은 기록된 체결가×체결수량 기준이며 통화별로 분리됩니다."
         )
+
+    @staticmethod
+    def _format_currency_financials(
+        trades: List[Dict], *, period_divisor: Optional[float] = None
+    ) -> Dict[str, Any]:
+        """환산되지 않은 통화를 더하지 않고 화면용 손익·비용 문구를 만든다."""
+        metrics = calculate_currency_financial_metrics(trades)
+        pnl_lines = []
+        avg_lines = []
+        for currency in metrics["currencies"]:
+            bucket = metrics["by_currency"][currency]
+            divisor = period_divisor if period_divisor else max(bucket["trades"], 1)
+            pnl_lines.append(
+                f"- {format_currency_amount(currency, bucket['pnl'], signed=True)}"
+            )
+            avg_lines.append(
+                f"- {format_currency_amount(currency, bucket['pnl'] / divisor, signed=True)}"
+            )
+
+        fee_lines = [
+            f"- {format_currency_amount(currency, amount)}"
+            for currency, amount in sorted(metrics["fees_by_currency"].items())
+        ]
+        impact_lines = []
+        for currency, fee in sorted(metrics["fees_by_currency"].items()):
+            pnl = float(metrics["by_currency"].get(currency, {}).get("pnl", 0.0) or 0.0)
+            if abs(pnl) > 0:
+                impact_lines.append(f"- {currency}: {fee / abs(pnl) * 100.0:.2f}%")
+
+        pnl_values = [
+            float(metrics["by_currency"][currency]["pnl"])
+            for currency in metrics["currencies"]
+        ]
+        if pnl_values and all(value >= 0 for value in pnl_values) and any(value > 0 for value in pnl_values):
+            pnl_state = "positive"
+        elif pnl_values and all(value <= 0 for value in pnl_values) and any(value < 0 for value in pnl_values):
+            pnl_state = "negative"
+        elif pnl_values:
+            pnl_state = "mixed"
+        else:
+            pnl_state = "empty"
+
+        return {
+            **metrics,
+            "pnl_text": "\n".join(pnl_lines) if pnl_lines else "- 데이터 없음",
+            "average_text": "\n".join(avg_lines) if avg_lines else "- 데이터 없음",
+            "fee_text": "\n".join(fee_lines) if fee_lines else "- 기록된 Fee 없음",
+            "fee_impact_text": "\n".join(impact_lines) if impact_lines else "- 계산 가능한 동일통화 PnL 없음",
+            "pnl_state": pnl_state,
+        }
     
     def _generate_today_report(self):
         """오늘 리포트 생성"""
         try:
             # 오늘 거래 데이터 조회
             today_data = self._get_trading_data(1)
+            execution_data = self._get_execution_data(1)
+            execution_count = len(execution_data)
+            execution_detail = self._format_execution_detail(execution_data)
             
             if not today_data:
                 # 데이터가 없으면 기본 메시지
                 operating_metrics_text = self._format_operating_metrics([])
                 summary_text = (
                     "오늘 거래 요약\n\n"
-                    "오늘 거래 데이터가 없습니다.\n\n"
+                    f"실제 체결: {execution_count}건\n"
+                    "청산 완료 성과: 0건\n\n"
+                    "실제 체결은 확인되지만 청산 완료 거래가 없어 승률·PnL은 아직 계산하지 않습니다.\n\n"
                     f"{operating_metrics_text}\n\n"
                     "비용 영향:\n"
                     "- 거래 데이터가 없어 비용 지표를 계산할 수 없습니다.\n\n"
@@ -1165,18 +1269,13 @@ AI 실시간 분석:
                     "- 거래가 없어 분석할 데이터가 부족합니다.\n"
                     "- 시장 상황을 모니터링하고 거래 기회를 기다려주세요."
                 )
-                detail_text = "상세 거래 내역\n\n거래 내역이 없습니다."
+                detail_text = execution_detail
             else:
                 # 실제 데이터 기반 분석
                 total_trades = len(today_data)
                 profitable_trades = len([t for t in today_data if t['pnl'] > 0])
                 win_rate = (profitable_trades / total_trades * 100) if total_trades > 0 else 0
-                total_pnl = sum(t['pnl'] for t in today_data)
-                avg_pnl = total_pnl / total_trades if total_trades > 0 else 0
-                fee_values = [float(t.get('fees') or 0.0) for t in today_data]
-                total_fees = sum(fee_values)
-                avg_fee = (total_fees / total_trades) if total_trades > 0 else 0.0
-                fee_impact_percent = (total_fees / abs(total_pnl) * 100.0) if abs(total_pnl) > 0 else 0.0
+                financials = self._format_currency_financials(today_data)
                 operating_metrics_text = self._format_operating_metrics(today_data)
                 
                 # AI 분석
@@ -1184,19 +1283,22 @@ AI 실시간 분석:
                 
                 summary_text = f"""오늘 거래 요약 ({datetime.now().strftime('%Y-%m-%d')})
 
-총 거래 수: {total_trades}건
+실제 체결: {execution_count}건
+청산 완료 성과: {total_trades}건
 수익 거래: {profitable_trades}건
 승률: {win_rate:.1f}%
-총 수익: {total_pnl:.2f} USDT
-평균 수익: {avg_pnl:.2f} USDT
+통화별 총 손익:
+{financials['pnl_text']}
+통화별 거래당 평균 손익:
+{financials['average_text']}
 
 {operating_metrics_text}
 
-비용 영향:
-- 누적 Fee: {total_fees:.2f} USDT
-- 평균 Fee: {avg_fee:.4f} USDT
-- Fee 대비 PnL 영향도: {fee_impact_percent:.2f}%
-- 총 수익은 현재 trade_log의 pnl 합계 기준이며, 수수료는 별도 비용 지표로 병행 표시됩니다.
+통화별 누적 Fee:
+{financials['fee_text']}
+동일통화 Fee 대비 PnL 영향도:
+{financials['fee_impact_text']}
+- 환율 정보 없이 KRW·USDT 등 서로 다른 통화는 합산하지 않습니다.
 
 AI 분석:
 {ai_analysis['summary']}
@@ -1213,10 +1315,14 @@ AI 분석:
                     side = trade['side']
                     pnl = trade['pnl']
                     pnl_percent = trade['pnl_percent']
-                    detail_text += f"{i+1:2d}. {entry_time} | {symbol:8s} | {side:4s} | {pnl:8.2f} USDT ({pnl_percent:6.2f}%)\n"
+                    currency = infer_quote_currency(
+                        trade.get('exchange'), symbol, trade.get('pnl_currency')
+                    )
+                    detail_text += f"{i+1:2d}. {entry_time} | {symbol:16s} | {side:4s} | {pnl:8.2f} {currency} ({pnl_percent:6.2f}%)\n"
                 
                 if len(today_data) > 20:
                     detail_text += f"\n... 및 {len(today_data) - 20}건 더"
+                detail_text += f"\n\n{execution_detail}"
             
             # UI 업데이트
             self._safe_set_text(self.today_summary, summary_text)
@@ -1255,8 +1361,10 @@ AI 분석:
 총 거래 수: {weekly_analysis['total_trades']}건
 수익 거래: {weekly_analysis['profitable_trades']}건
 평균 승률: {weekly_analysis['avg_win_rate']:.1f}%
-총 수익: {weekly_analysis['total_pnl']:.2f} USDT
-일평균 수익: {weekly_analysis['daily_avg_pnl']:.2f} USDT
+통화별 총 손익:
+{weekly_analysis['pnl_text']}
+통화별 일평균 손익:
+{weekly_analysis['average_text']}
 
 {weekly_operating_metrics}
 
@@ -1315,30 +1423,7 @@ AI 주간 분석:
             with open(latest_file, 'r', encoding='utf-8') as f:
                 data = json.load(f)
 
-            comp = data.get('comparison', {}) if isinstance(data, dict) else {}
-            champion = data.get('champion', {}) if isinstance(data, dict) else {}
-            challenger = data.get('challenger', {}) if isinstance(data, dict) else {}
-
-            verdict = str(comp.get('verdict', 'unknown'))
-            summary = str(comp.get('summary', '요약 없음'))
-            win_delta = float(comp.get('win_rate_delta', 0.0) or 0.0)
-            pnl_delta = float(comp.get('total_pnl_delta', 0.0) or 0.0)
-            trade_delta = int(comp.get('trades_delta', 0) or 0)
-
-            champion_wr = float(champion.get('win_rate', 0.0) or 0.0)
-            challenger_wr = float(challenger.get('win_rate', 0.0) or 0.0)
-            champion_pnl = float(champion.get('total_pnl', 0.0) or 0.0)
-            challenger_pnl = float(challenger.get('total_pnl', 0.0) or 0.0)
-
-            section = (
-                "7일 챔피언-챌린저\n\n"
-                f"- 판정: {verdict}\n"
-                f"- 요약: {summary}\n"
-                f"- 승률 변화: {win_delta:+.2f}%p (챔피언 {champion_wr:.2f}% → 챌린저 {challenger_wr:.2f}%)\n"
-                f"- 총손익 변화: {pnl_delta:+.4f} USDT (챔피언 {champion_pnl:.4f} → 챌린저 {challenger_pnl:.4f})\n"
-                f"- 거래 수 변화: {trade_delta:+d}건\n"
-            )
-            return section
+            return format_champion_challenger_section(data)
         except Exception as e:
             return f"7일 챔피언-챌린저\n- 로드 오류: {e}"
     
@@ -1367,8 +1452,10 @@ AI 주간 분석:
 총 거래 수: {monthly_analysis['total_trades']}건
 수익 거래: {monthly_analysis['profitable_trades']}건
 평균 승률: {monthly_analysis['avg_win_rate']:.1f}%
-총 수익: {monthly_analysis['total_pnl']:.2f} USDT
-주평균 수익: {monthly_analysis['weekly_avg_pnl']:.2f} USDT
+통화별 총 손익:
+{monthly_analysis['pnl_text']}
+통화별 주평균 손익:
+{monthly_analysis['average_text']}
 
 {monthly_operating_metrics}
 
@@ -1412,7 +1499,7 @@ AI 월간 분석:
         total_trades = len(trades)
         profitable_trades = len([t for t in trades if t['pnl'] > 0])
         win_rate = (profitable_trades / total_trades * 100) if total_trades > 0 else 0
-        total_pnl = sum(t['pnl'] for t in trades)
+        financials = self._format_currency_financials(trades)
         
         # AI 분석 로직
         if win_rate >= 70:
@@ -1436,8 +1523,10 @@ AI 월간 분석:
         else:
             recommendations.append("현재 전략을 유지하면서 세부 조정을 고려하세요.")
         
-        if total_pnl < 0:
+        if financials['pnl_state'] == 'negative':
             recommendations.append("손실을 최소화하는 방향으로 전략을 수정하세요.")
+        elif financials['pnl_state'] == 'mixed':
+            recommendations.append("결제통화별 손익을 분리해 전략을 검토하세요.")
         
         return {
             'summary': summary,
@@ -1456,21 +1545,20 @@ AI 월간 분석:
             total_trades = len(trades)
             profitable_trades = len([t for t in trades if t.get('pnl', 0) > 0])
             win_rate = (profitable_trades / total_trades * 100) if total_trades else 0.0
-            total_pnl = sum(t.get('pnl', 0.0) for t in trades)
-            daily_avg_pnl = (total_pnl / 7.0)
+            financials = self._format_currency_financials(trades, period_divisor=7.0)
 
             # 일별 브레이크다운
-            by_day: Dict[str, Dict[str, float]] = {}
+            by_day: Dict[str, Dict[str, Any]] = {}
             for t in trades:
                 try:
                     day_key = t.get('entry_time', '')[:10]
                     if not day_key:
                         continue
-                    d = by_day.setdefault(day_key, {'trades': 0, 'wins': 0, 'pnl': 0.0})
+                    d = by_day.setdefault(day_key, {'trades': 0, 'wins': 0, 'trades_data': []})
                     d['trades'] += 1
                     if t.get('pnl', 0) > 0:
                         d['wins'] += 1
-                    d['pnl'] += float(t.get('pnl', 0.0))
+                    d['trades_data'].append(t)
                 except Exception:
                     pass
 
@@ -1480,24 +1568,42 @@ AI 월간 분석:
             for day in sorted_days:
                 d = by_day[day]
                 wr = (d['wins'] / d['trades'] * 100) if d['trades'] else 0.0
-                daily_lines.append(f"- {day}: {d['trades']}건, 승률 {wr:.1f}%, PnL {d['pnl']:.2f} USDT")
+                day_financials = self._format_currency_financials(d['trades_data'])
+                compact_pnl = ", ".join(
+                    format_currency_amount(currency, bucket['pnl'], signed=True)
+                    for currency, bucket in day_financials['by_currency'].items()
+                ) or "데이터 없음"
+                daily_lines.append(f"- {day}: {d['trades']}건, 승률 {wr:.1f}%, PnL {compact_pnl}")
             daily_breakdown = "\n".join(daily_lines) if daily_lines else "최근 7일 거래 데이터가 없습니다."
 
             # 코인별 성과 (Top 5)
-            by_symbol: Dict[str, float] = {}
+            by_symbol: Dict[tuple, float] = {}
             for t in trades:
                 sym = t.get('symbol', 'N/A')
-                by_symbol[sym] = by_symbol.get(sym, 0.0) + float(t.get('pnl', 0.0))
-            top_symbols = sorted(by_symbol.items(), key=lambda x: x[1], reverse=True)[:5]
-            top_performers = "\n".join([f"- {sym}: {pnl:.2f} USDT" for sym, pnl in top_symbols]) if top_symbols else "데이터 없음"
+                currency = infer_quote_currency(t.get('exchange'), sym, t.get('pnl_currency'))
+                key = (currency, sym)
+                by_symbol[key] = by_symbol.get(key, 0.0) + float(t.get('pnl', 0.0))
+            top_lines = []
+            for currency in sorted({key[0] for key in by_symbol}):
+                candidates = [
+                    (symbol, pnl) for (item_currency, symbol), pnl in by_symbol.items()
+                    if item_currency == currency
+                ]
+                for symbol, pnl in sorted(candidates, key=lambda item: item[1], reverse=True)[:5]:
+                    top_lines.append(f"- [{currency}] {symbol}: {pnl:+.2f} {currency}")
+            top_performers = "\n".join(top_lines) if top_lines else "데이터 없음"
 
             # 간단 AI 요약/권고/경고
-            if win_rate >= 65 and total_pnl > 0:
+            pnl_state = financials['pnl_state']
+            if win_rate >= 65 and pnl_state == 'positive':
                 ai_summary = "안정적인 우상향 흐름입니다. 현재 전략을 유지하세요."
                 recommendations = "- 동일 전략 유지\n- 관측된 강세 코인에 비중 확대 검토"
-            elif total_pnl > 0:
+            elif pnl_state == 'positive':
                 ai_summary = "수익이 발생했지만 변동성이 있습니다. 리스크 관리에 유의하세요."
                 recommendations = "- 손절/익절 규칙 재점검\n- 승률 낮은 코인 비중 축소"
+            elif pnl_state == 'mixed':
+                ai_summary = "결제통화별 손익 방향이 다릅니다. 환산 없이 통화별로 분리해 평가합니다."
+                recommendations = "- KRW·USDT 전략을 각각 복기\n- 환율 기준을 정하기 전 통합 손익 판단 금지"
             else:
                 ai_summary = "손실 구간입니다. 신호 품질과 거래 빈도를 조정하세요."
                 recommendations = "- 거래 필터 강화(추세·거래량)\n- 포지션 크기 축소 및 복기"
@@ -1505,8 +1611,8 @@ AI 월간 분석:
             warnings = []
             if win_rate < 40:
                 warnings.append("낮은 승률 - 전략 재검토 필요")
-            if total_pnl < -50:
-                warnings.append("손실 누적 - 리스크 관리 강화 필요")
+            if pnl_state == 'negative':
+                warnings.append("통화별 손실 누적 - 리스크 관리 강화 필요")
             warnings_text = "\n".join(f"- {w}" for w in warnings) if warnings else "특별한 주의사항이 없습니다."
 
             return {
@@ -1515,8 +1621,10 @@ AI 월간 분석:
                 'total_trades': total_trades,
                 'profitable_trades': profitable_trades,
                 'avg_win_rate': win_rate,
-                'total_pnl': total_pnl,
-                'daily_avg_pnl': daily_avg_pnl,
+                'pnl_by_currency': financials['by_currency'],
+                'pnl_text': financials['pnl_text'],
+                'average_text': financials['average_text'],
+                'mixed_currency': financials['mixed_currency'],
                 'ai_summary': ai_summary,
                 'recommendations': recommendations,
                 'daily_breakdown': daily_breakdown,
@@ -1531,8 +1639,10 @@ AI 월간 분석:
                 'total_trades': 0,
                 'profitable_trades': 0,
                 'avg_win_rate': 0.0,
-                'total_pnl': 0.0,
-                'daily_avg_pnl': 0.0,
+                'pnl_by_currency': {},
+                'pnl_text': "- 데이터 없음",
+                'average_text': "- 데이터 없음",
+                'mixed_currency': False,
                 'ai_summary': "주간 분석 중 오류가 발생했습니다.",
                 'recommendations': "시스템 로그를 확인해주세요.",
                 'daily_breakdown': "데이터를 불러올 수 없습니다.",
@@ -1551,10 +1661,14 @@ AI 월간 분석:
             total_trades = len(trades)
             profitable_trades = len([t for t in trades if t.get('pnl', 0) > 0])
             win_rate = (profitable_trades / total_trades * 100) if total_trades else 0.0
-            total_pnl = sum(t.get('pnl', 0.0) for t in trades)
+            financials = self._format_currency_financials(
+                trades, period_divisor=max(1.0, len({
+                    (t.get('entry_time') or '')[:7] for t in trades if t.get('entry_time')
+                }))
+            )
 
             # 주별 브레이크다운 (ISO 주차)
-            by_week: Dict[str, Dict[str, float]] = {}
+            by_week: Dict[str, Dict[str, Any]] = {}
             for t in trades:
                 try:
                     et = t.get('entry_time')
@@ -1562,11 +1676,11 @@ AI 월간 분석:
                         continue
                     dt = datetime.fromisoformat(et.replace('Z', '+00:00'))
                     week_key = f"{dt.isocalendar().year}-W{dt.isocalendar().week:02d}"
-                    w = by_week.setdefault(week_key, {'trades': 0, 'wins': 0, 'pnl': 0.0})
+                    w = by_week.setdefault(week_key, {'trades': 0, 'wins': 0, 'trades_data': []})
                     w['trades'] += 1
                     if t.get('pnl', 0) > 0:
                         w['wins'] += 1
-                    w['pnl'] += float(t.get('pnl', 0.0))
+                    w['trades_data'].append(t)
                 except Exception:
                     pass
 
@@ -1575,27 +1689,39 @@ AI 월간 분석:
             for wk in sorted_weeks:
                 w = by_week[wk]
                 wr = (w['wins'] / w['trades'] * 100) if w['trades'] else 0.0
-                weekly_lines.append(f"- {wk}: {w['trades']}건, 승률 {wr:.1f}%, PnL {w['pnl']:.2f} USDT")
+                week_financials = self._format_currency_financials(w['trades_data'])
+                compact_pnl = ", ".join(
+                    format_currency_amount(currency, bucket['pnl'], signed=True)
+                    for currency, bucket in week_financials['by_currency'].items()
+                ) or "데이터 없음"
+                weekly_lines.append(f"- {wk}: {w['trades']}건, 승률 {wr:.1f}%, PnL {compact_pnl}")
             weekly_breakdown = "\n".join(weekly_lines) if weekly_lines else "최근 4주 거래 데이터가 없습니다."
 
             # 성과 분석/전망
-            if total_pnl > 0 and win_rate >= 60:
+            pnl_state = financials['pnl_state']
+            if pnl_state == 'positive' and win_rate >= 60:
                 performance_analysis = "전반적으로 안정적인 수익 구간입니다. 손실 주는 주의 포지션을 축소하세요."
                 future_outlook = "시장 변동성에 주의하면서 현재 전략을 유지하는 것이 유리합니다."
-            elif total_pnl > 0:
+            elif pnl_state == 'positive':
                 performance_analysis = "수익은 있으나 변동성이 큽니다. 리스크 관리가 핵심입니다."
                 future_outlook = "보수적 접근과 신호 품질 필터 강화가 권장됩니다."
+            elif pnl_state == 'mixed':
+                performance_analysis = "결제통화별 손익 방향이 달라 환산 없는 합산 평가는 보류합니다."
+                future_outlook = "KRW·USDT 등 결제통화별 전략과 위험 한도를 각각 검토하세요."
             else:
                 performance_analysis = "손실 구간입니다. 진입 기준과 손절 규칙을 재정의하세요."
                 future_outlook = "거래 빈도를 낮추고 확실한 추세에서만 참여하세요."
 
             # 요약/권고
-            if win_rate >= 65 and total_pnl > 0:
+            if win_rate >= 65 and pnl_state == 'positive':
                 ai_summary = "월간 기준으로 견조한 성과입니다. 규율 있는 운영을 지속하세요."
                 recommendations = "- 우세 신호 위주로 집중\n- 과도한 레버리지 금지\n- 손익비 1:2 이상 유지"
-            elif total_pnl > 0:
+            elif pnl_state == 'positive':
                 ai_summary = "긍정적인 성과지만 하방 리스크가 존재합니다."
                 recommendations = "- 손절폭 축소\n- 포지션 크기 단계적 조절\n- 연속 손실 시 쿨다운 적용"
+            elif pnl_state == 'mixed':
+                ai_summary = "통화별 성과가 엇갈립니다. 통화별 분리 결과만 제공합니다."
+                recommendations = "- 결제통화별 성과 검토\n- 환율 기준 없는 합산 금지\n- 거래소별 위험 한도 분리"
             else:
                 ai_summary = "월간 손실입니다. 전략 복기와 개선이 필요합니다."
                 recommendations = "- 거래 필터 재구성\n- 승률 낮은 패턴 제외\n- 연습 모드(페이퍼)로 재검증"
@@ -1606,8 +1732,12 @@ AI 월간 분석:
                 'total_trades': total_trades,
                 'profitable_trades': profitable_trades,
                 'avg_win_rate': win_rate,
-                'total_pnl': total_pnl,
-                'weekly_avg_pnl': (total_pnl / max(len(sorted_weeks), 1)) if sorted_weeks else 0.0,
+                'pnl_by_currency': financials['by_currency'],
+                'pnl_text': financials['pnl_text'],
+                'average_text': self._format_currency_financials(
+                    trades, period_divisor=max(len(sorted_weeks), 1)
+                )['average_text'],
+                'mixed_currency': financials['mixed_currency'],
                 'ai_summary': ai_summary,
                 'recommendations': recommendations,
                 'weekly_breakdown': weekly_breakdown,
@@ -1622,8 +1752,10 @@ AI 월간 분석:
                 'total_trades': 0,
                 'profitable_trades': 0,
                 'avg_win_rate': 0.0,
-                'total_pnl': 0.0,
-                'weekly_avg_pnl': 0.0,
+                'pnl_by_currency': {},
+                'pnl_text': "- 데이터 없음",
+                'average_text': "- 데이터 없음",
+                'mixed_currency': False,
                 'ai_summary': "월간 분석 중 오류가 발생했습니다.",
                 'recommendations': "시스템 로그를 확인해주세요.",
                 'weekly_breakdown': "데이터를 불러올 수 없습니다.",

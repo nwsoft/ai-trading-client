@@ -1,0 +1,103 @@
+{
+  "schema_version": 1,
+  "created_at": "2026-08-01",
+  "quarantine_root": "../noahai_client_source_quarantine_20260801",
+  "artifacts": [
+    {
+      "path": "config/app_version_jeonghaeseong-ui-MacBookPro.local_Jun-30-140438-2026_Conflict.py",
+      "sha256": "48c8ae931dd7424511e7604cd495625c8f43cdaf5c30ddbf6d15b4f3b93bfe95",
+      "reason": "Synology conflict copy of version source",
+      "user_surface": false
+    },
+    {
+      "path": "ui/dashboard_fix.py",
+      "sha256": "13bd41dd540138b1efba99cb5c8099f62726e01469596c218eb8e5f2c0a9454f",
+      "reason": "obsolete standalone dashboard patch fragment",
+      "user_surface": false
+    },
+    {
+      "path": "ui/dashboard_modern_dead_methods_20260801.py.disabled",
+      "sha256": "97d9029ea45b9a6b3b07c016605f3a0395a17b970803a485ed6bd3621ce93d20",
+      "reason": "23 definition-only ModernDashboard methods removed after static and full-text audit",
+      "user_surface": false
+    },
+    {
+      "path": "ui/widgets/ai_learning_widget_fixed.py",
+      "sha256": "797d90de7bbfddec645749364c7952f7cbda36c241f622543abdf863dfda2e8e",
+      "reason": "superseded AI learning widget variant",
+      "user_surface": false
+    },
+    {
+      "path": "ui/widgets/ai_learning_widget_safe.py",
+      "sha256": "9d6530d6c562f1aac9003057e5d3bfab2d8f8d12e8053b400dba1aae7613c475",
+      "reason": "superseded AI learning widget variant",
+      "user_surface": false
+    },
+    {
+      "path": "ui/widgets/ai_report_widget_real.py",
+      "sha256": "c2852af447a97608c4b47c8d7955fbe7174d13afc5f9759c28206342db1f58a3",
+      "reason": "superseded AI report widget variant",
+      "user_surface": false
+    },
+    {
+      "path": "ui/widgets/chart_screenshot_widget.py.broken",
+      "sha256": "2707680444ee5f80f84da53fccdd1bcc36928a2f2b459585ee1f075a0a349108",
+      "reason": "syntactically damaged chart widget source",
+      "user_surface": false
+    },
+    {
+      "path": "ui/widgets/chart_screenshot_widget_fixed.py",
+      "sha256": "a203f7003c3a09d5d7c025e33a1021536db8cd34b4ceb058dd3d0cd07b30996b",
+      "reason": "superseded chart widget variant",
+      "user_surface": false
+    },
+    {
+      "path": "ui/widgets/demo_mode_widget.py",
+      "sha256": "70ab41eef2e30e7a8ed8ae7058f009921836d9fa7f5c4cc65865fa8872b8893f",
+      "reason": "unused standalone demo widget",
+      "user_surface": false
+    },
+    {
+      "path": "ui/widgets/legacy/manual_update_manager.py",
+      "sha256": "e4ae6565bc772d71b7f3e9fe9afba77607fa25a7ead688ff82d70f9e19a40740",
+      "reason": "superseded manual updater implementation",
+      "user_surface": false
+    },
+    {
+      "path": "theme_system/__init__.py",
+      "sha256": "8e54a39e6702c0ceb25a21514185705daea3107ec413533816f38a01a13a9692",
+      "reason": "unused legacy theme package entrypoint with stale imports",
+      "user_surface": false
+    },
+    {
+      "path": "theme_system/color_palettes.py",
+      "sha256": "586b01d5cc22a671a6c38872afe5c9ee8e6e95d0387d2e3fb8160c0fb611259e",
+      "reason": "superseded by utils.fixed_colors",
+      "user_surface": false
+    },
+    {
+      "path": "theme_system/font_system.py",
+      "sha256": "fed681f2f06106d90a1401060c2cc126dc2beac46808c76331681355c9fa7323",
+      "reason": "unused legacy theme font helper",
+      "user_surface": false
+    },
+    {
+      "path": "theme_system/theme_manager.py.disabled",
+      "sha256": "5d8bbdbafc531b44b56788d413fefda65ee17d619f101165e7cd6f0991faf701",
+      "reason": "disabled legacy theme manager",
+      "user_surface": false
+    },
+    {
+      "path": "theme_system/ui_components.py",
+      "sha256": "155a42d7ba036a1ea58b4c29cf1ff64026df0a77b240c3c2f5f3be15b7d29748",
+      "reason": "broken compatibility stub superseded by direct CustomTkinter components",
+      "user_surface": false
+    },
+    {
+      "path": "theme_system/windows_font_system.py",
+      "sha256": "a5d9fb8fa445a18fdb8c2684b733aef947a98ef8a099bd84535e30494c2158d4",
+      "reason": "unused legacy theme font helper",
+      "user_surface": false
+    }
+  ]
+}

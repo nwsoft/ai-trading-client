@@ -58,10 +58,14 @@ def _check_source_invariants() -> List[str]:
     ut_path = ROOT / "trading" / "unified_trader.py"
     db_path = ROOT / "ui" / "dashboard_modern.py"
     ev_path = ROOT / "trading" / "evaluator.py"
+    main_path = ROOT / "main.py"
+    ai_settings_path = ROOT / "ui" / "settings_modern.py"
 
     ut = _read_text(ut_path)
     db = _read_text(db_path)
     ev = _read_text(ev_path)
+    main_source = _read_text(main_path)
+    ai_settings = _read_text(ai_settings_path)
 
     if "selected_coins = list(selected_store.get(exchange_name, []) or [])" not in ut:
         issues.append("unified_trader: 거래소별 selected_coins 우선 사용 코드 누락")
@@ -72,12 +76,12 @@ def _check_source_invariants() -> List[str]:
     if "elm = self._learning_managers.get(exchange_name)" not in ut:
         issues.append("unified_trader: 거래소별 학습 매니저 캐시 사용 코드 누락")
 
-    legacy_fallback_pattern = re.compile(
-        r"if not selected_coins and hasattr\(self, 'main_app'\) and self.main_app:\s*\n\s*selected_coins = list\(getattr\(self.main_app, 'selected_coins'",
-        re.MULTILINE,
-    )
-    if legacy_fallback_pattern.search(ut):
+    if "legacy_selected = getattr(getattr(self, 'main_app', None), 'selected_coins'" in ut:
         issues.append("unified_trader: 전역 main_app.selected_coins 폴백 경로 잔존")
+    if "elif isinstance(selected_store, list):" in ut:
+        issues.append("unified_trader: 전역 list형 selected_coins 호환 경로 잔존")
+    if "def set_selected_coins(self, selected_coins" in ut:
+        issues.append("unified_trader: 거래소 인자 없는 선택 코인 주입 API 잔존")
 
     if "started = bool(self.main_app.on_start_exchange(e))" not in db:
         issues.append("dashboard_modern: 개별 토글 시작 bool 판정 코드 누락")
@@ -97,6 +101,15 @@ def _check_source_invariants() -> List[str]:
 
     if "major_bases = {'BTC', 'ETH', 'BNB', 'SOL', 'ADA', 'XRP', 'DOT', 'LINK', 'AVAX', 'MATIC'}" not in ev:
         issues.append("evaluator: 포맷 독립 메이저 코인 분류 코드 누락")
+
+    if "is_crypto_derivative_candidate(" not in ev:
+        issues.append("evaluator: 토큰화 비암호화 상품 metadata 필터 누락")
+
+    if "create_ai_manager_from_settings(" not in main_source:
+        issues.append("main: 선택 Provider 기준 AIManager 초기화 경계 누락")
+
+    if 'provider == "kimi" and scope != "assistant"' in ai_settings:
+        issues.append("settings_modern: Kimi 작업별 라우팅 구버전 차단 잔존")
 
     return issues
 
@@ -129,6 +142,9 @@ def main() -> int:
                 "trading/unified_trader.py",
                 "ui/dashboard_modern.py",
                 "trading/evaluator.py",
+                "trading/market_asset_classifier.py",
+                "trading/ai/ai_manager.py",
+                "trading/ai/provider_router.py",
                 "main.py",
             ],
         )

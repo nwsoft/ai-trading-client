@@ -23,6 +23,12 @@ def _read_release_version() -> str:
     return str(RELEASE_VERSION).strip()
 
 
+def _read_release_label() -> str:
+    from config.app_version import RELEASE_BUILD_LABEL
+
+    return str(RELEASE_BUILD_LABEL).strip()
+
+
 def _extract_latest_changelog_section(changelog_path: Path) -> str:
     if not changelog_path.exists():
         return "최신 변경 내역 문서를 찾을 수 없습니다."
@@ -78,14 +84,25 @@ def _latest_runtime_source() -> Path:
     return max(existing_sources, key=lambda path: path.stat().st_mtime)
 
 
-def _build_manifest(version: str, exe_path: Path, notes_path: Path, repo: str) -> dict:
+def _build_manifest(
+    version: str,
+    release_label: str,
+    exe_path: Path,
+    notes_path: Path,
+    repo: str,
+    previous_exe_path: Path | None = None,
+    previous_version: str = "",
+    previous_release_label: str = "",
+) -> dict:
     has_exe = exe_path.exists()
     exe_name = exe_path.name
 
     manifest = {
         "version": version,
+        "release_label": release_label,
         "channel": "stable",
         "generated_at": datetime.now(timezone.utc).isoformat(),
+        "build_status": "built" if has_exe else "pending_windows_rebuild",
         "notes_file": notes_path.name,
         "verification": {
             "sha256_required": True,
@@ -105,6 +122,20 @@ def _build_manifest(version: str, exe_path: Path, notes_path: Path, repo: str) -
             },
         },
     }
+    if previous_exe_path is not None and previous_exe_path.is_file():
+        try:
+            relative_path = previous_exe_path.resolve().relative_to(PROJECT_ROOT.resolve())
+            stored_path = relative_path.as_posix()
+        except ValueError:
+            stored_path = str(previous_exe_path)
+        manifest["previous_published_asset"] = {
+            "version": previous_version or version,
+            "release_label": previous_release_label,
+            "purpose": "previous_published_windows_build",
+            "path": stored_path,
+            "size": previous_exe_path.stat().st_size,
+            "sha256": _sha256_of(previous_exe_path),
+        }
     return manifest
 
 
@@ -114,6 +145,21 @@ def main() -> int:
     parser.add_argument("--exe", default="deploy/AITrading.exe", help="Path to AITrading.exe")
     parser.add_argument("--changelog", default="docs/CHANGELOG.md", help="Path to changelog")
     parser.add_argument("--repo", default="nwsoft/ai-trading-client", help="GitHub repository owner/name")
+    parser.add_argument(
+        "--previous-exe",
+        default="deploy/previous/AITrading-v3.9.0.7-Fix-Patch-3.exe",
+        help="직전 공개 Windows EXE 보존 경로",
+    )
+    parser.add_argument(
+        "--previous-release-label",
+        default="v3.9.0.7 Fix Patch 3",
+        help="직전 공개 Windows EXE 릴리스 표기",
+    )
+    parser.add_argument(
+        "--previous-version",
+        default="3.9.0.7",
+        help="직전 공개 Windows EXE 버전",
+    )
     args = parser.parse_args()
 
     out_dir = Path(args.out_dir)
@@ -123,12 +169,26 @@ def main() -> int:
     out_dir.mkdir(parents=True, exist_ok=True)
 
     version = _read_release_version()
+    release_label = _read_release_label()
     latest_runtime_source = _latest_runtime_source()
     if exe_path.exists() and exe_path.stat().st_mtime < latest_runtime_source.stat().st_mtime:
         print(
             "error: AITrading.exe가 최신 런타임 소스보다 오래된 빌드입니다. "
             f"최신 파일: {latest_runtime_source.relative_to(PROJECT_ROOT)}. "
             "Windows에서 현재 소스를 다시 빌드한 뒤 릴리스 자산을 생성하세요."
+        )
+        return 2
+    previous_exe_path = Path(args.previous_exe)
+    if (
+        exe_path.exists()
+        and previous_exe_path.is_file()
+        and _sha256_of(exe_path) == _sha256_of(previous_exe_path)
+        and release_label.strip() != args.previous_release_label.strip()
+    ):
+        print(
+            "error: AITrading.exe SHA-256이 previous_published_asset과 같습니다. "
+            f"current={release_label}, previous={args.previous_release_label}. "
+            "Fix Patch 릴리스에는 새 Windows 빌드 산출물이 필요합니다."
         )
         return 2
     notes_text = _extract_latest_changelog_section(changelog_path)
@@ -140,10 +200,20 @@ def main() -> int:
     version_path.write_text(f"{version}\n", encoding="utf-8")
     notes_path.write_text(notes_text + "\n", encoding="utf-8")
 
-    manifest = _build_manifest(version=version, exe_path=exe_path, notes_path=notes_path, repo=args.repo)
+    manifest = _build_manifest(
+        version=version,
+        release_label=release_label,
+        exe_path=exe_path,
+        notes_path=notes_path,
+        repo=args.repo,
+        previous_exe_path=previous_exe_path,
+        previous_version=args.previous_version,
+        previous_release_label=args.previous_release_label,
+    )
     manifest_path.write_text(json.dumps(manifest, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 
     print(f"version: {version}")
+    print(f"release_label: {release_label}")
     print(f"written: {version_path}")
     print(f"written: {notes_path}")
     print(f"written: {manifest_path}")

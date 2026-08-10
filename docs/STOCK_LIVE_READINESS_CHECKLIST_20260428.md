@@ -1,4 +1,4 @@
-# 증권 실연동 준비 체크리스트 (2026-04-28)
+# 증권 실연동 준비 체크리스트 (2026-04-28, v3.9.0.5 갱신 2026-08-01)
 
 ## 목적
 
@@ -16,7 +16,7 @@
 
 ## 브로커별 필수값
 
-### 키움 (kiwoom, openapi/pykiwoom)
+### 키움 (kiwoom, openapi_plus/pykiwoom)
 
 #### 사전 환경 요건 (Windows 전용)
 - `pip install pykiwoom>=0.1.9 PyQt5>=5.15.0` (Windows 빌드 PC에서 1회 실행)
@@ -33,24 +33,38 @@
 
 - macOS/Linux 에서는 실주문 검증 제한 (Windows + pykiwoom 필요)
 
-### 신한 (shinhan, rest/openapi)
+### 신한 (shinhan, partner_rest/shinhan_openapi_v2)
 
 - app_key
 - app_secret
 - account_no
+- 증권사 제휴 계약에서 발급된 partner_profile(URL·채널·엔드포인트)
 
-### 미래에셋 (miraeAsset, rest/openapi)
+### 미래에셋 (miraeAsset, partner_rest/mirae_partner_profile)
 
 - app_key
 - app_secret
 - account_no
+- 증권사 제휴 계약에서 발급된 partner_profile(URL·인증·엔드포인트)
+
+### 한국투자 (koreaInvestment, rest/kis_openapi_v1)
+
+- app_key
+- app_secret
+- 8+2자리 account_no
+- 모의투자는 sandbox=true, 실전은 sandbox=false
 
 ## 실주문 활성 조건
 
-아래 2개가 모두 true여야 실제 live 주문 경로가 열린다.
+아래 조건이 모두 충족되어야 실제 LIVE 주문 경로가 열린다.
 
+- PAPER가 꺼져 있음
 - 전역 플래그: enable_stock_live_order=true
 - 브로커 플래그: stock_broker_configs.[broker].allow_live_order=true
+- 어댑터 연결·계좌·OCX 또는 계약 프로필 준비상태 정상
+- 주문 가드레일 통과
+
+하나라도 충족되지 않으면 외부 주문 없이 LEARNING으로 동작한다.
 
 ## 권장 절차
 
@@ -89,7 +103,7 @@
 
 - 기본은 dry-run이며 절대 주문하지 않음
 - `--execute`가 있어야 실제 주문 호출
-- `--execute`에서도 live order flag가 꺼져 있으면 skip 또는 strict fail
+- `--execute`에서도 전역/증권사 권한 또는 어댑터 런타임 준비상태가 부족하면 skip 또는 strict fail
 
 ## 전체 실행기
 

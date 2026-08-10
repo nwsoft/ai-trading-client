@@ -37,12 +37,15 @@ TARGETS: Dict[str, Path] = {
     "test_status": DOCS / "TEST_STATUS.md",
     "readme": ROOT / "README.md",
     "docs_readme": DOCS / "README.md",
-    "settings_reference": DOCS / "SETTINGS_REFERENCE_v3.9.0.5.md",
+    "settings_reference": DOCS / "SETTINGS_REFERENCE_v3.9.0.8.md",
     "ai_custom_architecture": DOCS / "AI_CUSTOM_STRATEGY_ARCHITECTURE.md",
     "assistant_guide": DOCS / "AI_ASSISTANT_GUIDE.md",
     "trading_flow": DOCS / "TRADING_FLOW.md",
     "deploy_checklist": DOCS / "DEPLOY_CHECKLIST.md",
     "master_documentation": DOCS / "MASTER_DOCUMENTATION.md",
+    "build_guide": DOCS / "BUILD_GUIDE.md",
+    "architecture_audit": DOCS / "ARCHITECTURE_AUDIT_2026-08-01.md",
+    "source_quarantine": DOCS / "SOURCE_QUARANTINE_MANIFEST_20260801.md",
 }
 
 
@@ -75,7 +78,7 @@ def check_release_version_markers(text_map: Dict[str, str]) -> List[str]:
         errors.append("[MANUAL] 인앱 메뉴얼 제목이 USER_MANUAL_TITLE 상수를 사용하지 않습니다.")
 
     app_version = text_map.get("app_version", "")
-    if 'RELEASE_HIGHLIGHT = "최소주문·포지션 갱신 공통 계약"' not in app_version:
+    if 'RELEASE_HIGHLIGHT = "AI 커스텀 P1~P3 · 전략 IR·검증·설명·공유 고도화"' not in app_version:
         errors.append("[APP_VERSION] 대시보드 사용자용 최신 업데이트 요약이 현행 변경과 다릅니다.")
 
     expected_release_line = f"현재 설치 기준 버전: **v{RELEASE_VERSION}**"
@@ -126,63 +129,163 @@ def check_for_higher_version_mentions(text_map: Dict[str, str]) -> List[str]:
 
 def check_release_surface_alignment(text_map: Dict[str, str]) -> List[str]:
     """동일 버전의 핵심 변경이 사용자 노출·기술·검증 문서에 함께 있는지 확인한다."""
+    if RELEASE_VERSION == "3.9.0.8":
+        required = {
+            "manual_widget": ("v3.9.0.8 최신 업데이트", "Noah Strategy IR", "초보자·일반·고급·실험실", "PAPER"),
+            "user_guide": ("현재 설치 기준 버전: **v3.9.0.8**", "AI Custom Update", "pending_windows_rebuild"),
+            "release_notes": ("v3.9.0.8 AI Custom Update", "Noah Strategy IR", ".noahstrategy", "pending_windows_rebuild"),
+            "deploy_release_notes": ("v3.9.0.8 AI Custom Update", "Expression Graph", "pending_windows_rebuild"),
+            "update_plan": ("v3.9.0.8 AI Custom Update", "AI 어시스턴트", "pending_windows_rebuild"),
+            "test_status": ("v3.9.0.8 AI Custom Update", "Windows", "PAPER"),
+            "readme": ("v3.9.0.8 AI Custom Update", "Noah Strategy IR", "pending_windows_rebuild"),
+            "docs_readme": ("v3.9.0.8 AI Custom Update", "Expression Graph", "pending_windows_rebuild"),
+            "deploy_checklist": ("v3.9.0.8 AI Custom Update", "pending_windows_rebuild"),
+            "master_documentation": ("v3.9.0.8 AI Custom Update", "어시스턴트 지식", "Windows 재빌드 전"),
+            "build_guide": ("v3.9.0.8 AI Custom Update", "v3.9.0.7 Fix Patch 3", "pending_windows_rebuild"),
+            "ai_custom_architecture": ("v3.9.0.8 AI Custom Update", "Noah Strategy IR", "pending_windows_rebuild"),
+            "assistant_guide": ("v3.9.0.8 AI Custom Update", "백테스트/PAPER", ".noahstrategy"),
+        }
+        errors: List[str] = []
+        for surface, markers in required.items():
+            text = text_map.get(surface, "")
+            for marker in markers:
+                if marker not in text:
+                    errors.append(f"[RELEASE_SURFACE] {surface}: '{marker}' 누락")
+        return errors
+
+    if RELEASE_VERSION == "3.9.0.7":
+        required = {
+            "manual_widget": ("v3.9.0.7 최신 업데이트", "Fix Patch 3", "VC 런타임", "LEARNING/PAPER/LIVE"),
+            "user_guide": ("현재 설치 기준 버전: **v3.9.0.7**", "Fix Patch 3", "사용자별 verified"),
+            "release_notes": ("v3.9.0.7 Fix Patch 3", "VC 런타임", "동적 탭", "Bitget", "dust", "pending_windows_rebuild"),
+            "deploy_release_notes": ("v3.9.0.7 Fix Patch 3", "VC 런타임", "pending_windows_rebuild"),
+            "architecture": ("v3.9.0.7", "사용자별 암호화 UID", "전역 활성 ∩ 사용자별 verified"),
+            "update_plan": ("v3.9.0.7 Fix Patch 3", "VC 런타임", "pending_windows_rebuild"),
+            "test_status": ("v3.9.0.7 Fix Patch 3", "pending_windows_rebuild"),
+            "readme": ("v3.9.0.7 Fix Patch 3", "사용자별 verified", "pending_windows_rebuild"),
+            "docs_readme": ("v3.9.0.7 Fix Patch 3", "pending_windows_rebuild"),
+            "deploy_checklist": ("v3.9.0.7 Fix Patch 3", "pending_windows_rebuild"),
+            "master_documentation": ("v3.9.0.7", "사용자별 verified UID", "pending_windows_rebuild"),
+            "build_guide": ("v3.9.0.7 Fix Patch 3", "VC143", "pending_windows_rebuild"),
+        }
+        errors: List[str] = []
+        for surface, markers in required.items():
+            text = text_map.get(surface, "")
+            for marker in markers:
+                if marker not in text:
+                    errors.append(f"[RELEASE_SURFACE] {surface}: '{marker}' 누락")
+        return errors
+
+    if RELEASE_VERSION == "3.9.0.6":
+        required = {
+            "manual_widget": ("v3.9.0.6 최신 업데이트", "통화별 리포트", "200건"),
+            "user_guide": ("현재 설치 기준 버전: **v3.9.0.6**", "Source Candidate 2", "200건"),
+            "release_notes": ("v3.9.0.6 Source Candidate 2", "inconclusive_currency_boundary", "pending_windows_rebuild"),
+            "deploy_release_notes": ("v3.9.0.6 Source Candidate 2", "KRW/USDT", "pending_windows_rebuild"),
+            "update_plan": ("v3.9.0.6 Source Candidate 2", "data/260802_Teayu", "Windows 재빌드 필요"),
+            "test_status": ("v3.9.0.6 Source Candidate 2", "data/260802_Teayu", "pending_windows_rebuild"),
+            "readme": ("v3.9.0.6 Source Candidate 2", "INCIDENT_260802_TEAYU_V3906.md", "pending_windows_rebuild"),
+            "docs_readme": ("v3.9.0.6 Source Candidate 2", "pending_windows_rebuild"),
+            "deploy_checklist": ("v3.9.0.6 Source Candidate 2", "pending_windows_rebuild"),
+            "master_documentation": ("v3.9.0.6", "INCIDENT_260802_TEAYU_V3906.md"),
+            "build_guide": ("v3.9.0.6 Source Candidate 2", "pending_windows_rebuild"),
+        }
+        errors: List[str] = []
+        for surface, markers in required.items():
+            text = text_map.get(surface, "")
+            for marker in markers:
+                if marker not in text:
+                    errors.append(f"[RELEASE_SURFACE] {surface}: '{marker}' 누락")
+        return errors
+
     if RELEASE_VERSION == "3.9.0.5":
         required = {
             "manual_widget": (
                 "v3.9.0.5 최신 업데이트",
-                "Update Patch 1",
-                "LEARNING",
-                "PAPER > LIVE > LEARNING",
-                "기존 값은 호환 보관",
+                "Fix Patch 5",
+                "보유자산",
+                "Fix Patch 3",
+                "전역 LIVE·해당 증권사 LIVE",
+                "실잔고 미사용",
             ),
             "user_guide": (
                 "현재 설치 기준 버전: **v3.9.0.5**",
                 "v3.9.0.5 Fix Patch 식별",
-                "처음 설정과 실행 모드",
-                "실제 주문 실행 거래소",
-                "SETTINGS_REFERENCE_v3.9.0.5.md",
+                "Fix Patch 5",
+                "거래소 계좌 화면 보는 법",
+                "SOURCE_QUARANTINE_MANIFEST_20260801.md",
+                "실잔고 미사용",
             ),
             "release_notes": (
-                "v3.9.0.5 Update Patch 1",
-                "Bithumb",
+                "v3.9.0.5 Fix Patch 5",
+                "1,298 passed",
                 "pending_windows_rebuild",
+                "SOURCE_QUARANTINE",
             ),
             "deploy_release_notes": (
-                "v3.9.0.5 Update Patch 1",
+                "v3.9.0.5 Fix Patch 5",
+                "1,298 passed",
                 "pending_windows_rebuild",
             ),
             "changelog": (
-                "v3.9.0.5 Update Patch 1",
-                "Bithumb",
+                "v3.9.0.5 Fix Patch 5",
+                "1,298 passed",
+                "SOURCE_QUARANTINE_MANIFEST_20260801.md",
             ),
             "update_plan": (
-                "Update Patch 1 · Bybit 실행 모드",
-                "1,254 passed, 6 skipped",
+                "Fix Patch 5 최종 개발·정합 마감",
+                "active_source_audit.py",
+                "pending_windows_rebuild",
             ),
             "test_status": (
                 "v3.9.0.5 소스·출시 준비 검증",
-                "1,254 passed, 6 skipped",
+                "1,298 passed, 6 skipped",
+                "active_source_audit.py",
                 "pending_windows_rebuild",
             ),
             "readme": (
-                "현재 배포 버전: v3.9.0.5 Fix Patch 1",
-                "v3.9.0.5 Update Patch 1 업데이트 대상 소스",
+                "현재 배포 버전: v3.9.0.5 · 공개 Fix Patch 1 / 현재 작업 소스 Fix Patch 5",
+                "1,298 passed",
                 "pending_windows_rebuild",
             ),
             "docs_readme": (
-                "현재 공개 v3.9.0.5 Fix Patch 1 / 재빌드 대상 Update Patch 1",
-                "SETTINGS_REFERENCE_v3.9.0.5.md",
+                "현재 공개 v3.9.0.5 Fix Patch 1 / 재빌드 대상 소스 Fix Patch 5",
+                "SOURCE_QUARANTINE_MANIFEST_20260801.md",
             ),
             "deploy_checklist": (
                 "v3.9.0.5",
-                "v3.9.0.2 이전 배포본",
-                "authenticode_required=false",
+                "active_source_audit.py",
+                "pending_windows_rebuild",
             ),
             "settings_reference": (
                 "설정 철학",
                 "LEARNING·PAPER·LIVE",
                 "더미 설정 정리",
                 "거래소·증권사 공통성과 차이",
+            ),
+            "architecture": (
+                "Fix Patch 5",
+                "account_state_controller",
+                "source_quarantine_manifest.json",
+            ),
+            "architecture_audit": (
+                "Fix Patch 5",
+                "1,298 passed",
+                "16개 아티팩트",
+            ),
+            "source_quarantine": (
+                "16",
+                "SHA-256",
+                "theme_system",
+            ),
+            "master_documentation": (
+                "Fix Patch 5",
+                "SOURCE_QUARANTINE_MANIFEST_20260801.md",
+            ),
+            "build_guide": (
+                "Fix Patch 5",
+                "active_source_audit.py",
+                "theme_system",
             ),
         }
         errors: List[str] = []

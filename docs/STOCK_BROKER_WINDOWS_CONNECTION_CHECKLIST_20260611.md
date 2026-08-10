@@ -74,13 +74,13 @@
 
 ## 4.1 핵심 포인트
 
-- 미래에셋은 REST/OpenAPI 설정 조합을 사용하며, app_key/app_secret 반영 여부가 중요합니다.
+- 미래에셋은 증권사 제휴 계약 프로필을 사용하며, API 키와 운영 URL·인증·엔드포인트 프로필이 중요합니다.
 
 ## 4.2 설정 권장값
 
-1. API 연결 방식: openapi 또는 rest
-2. API 버전: miraemts 또는 운영 정책상 허용 버전
-3. 미래에셋 ID/비밀번호/계좌번호 입력
+1. API 연결 방식: partner_rest
+2. API 버전: mirae_partner_profile
+3. 미래에셋 제휴 API 키/시크릿/계좌번호와 partner_profile 적용
 4. 저장 후 앱 재시작
 
 ## 5. 한국투자증권 점검
@@ -93,7 +93,7 @@
 ## 5.2 설정 권장값
 
 1. API 연결 방식: rest
-2. API 버전: kis
+2. API 버전: kis_openapi_v1
 3. KIS 앱 키/시크릿 또는 대응 ID/비밀번호/계좌번호 입력
 4. 저장 후 앱 재시작
 
@@ -101,14 +101,14 @@
 
 ## 4.1 핵심 포인트
 
-- 신한 어댑터는 토큰 발급에 app_key/app_secret을 사용합니다.
-- v3.8.9.22에서 설정 저장 시 id/password를 app_key/app_secret에 동기화 저장하도록 보강했습니다.
+- 신한 어댑터는 제휴 client id/secret, 채널, HMAC hsKey, 운영 엔드포인트 프로필을 사용합니다.
+- XingAPI는 LS증권 API이므로 신한 설정으로 사용하지 않습니다.
 
 ## 4.2 설정 권장값
 
-1. API 연결 방식: openapi 또는 rest
-2. API 버전: solapi (또는 운영 정책상 허용 버전)
-3. 신한 ID/비밀번호/계좌번호 입력
+1. API 연결 방식: partner_rest
+2. API 버전: shinhan_openapi_v2
+3. 신한 제휴 client id/secret/계좌번호와 partner_profile 적용
 4. 저장 후 앱 재시작
 
 ## 4.3 저장값 실제 확인

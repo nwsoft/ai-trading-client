@@ -250,8 +250,11 @@ def test_settings_have_visible_section_save_bars_and_noahai_close_branding():
 
     custom_source = (ROOT / "ui" / "widgets" / "custom_strategy_widget.py").read_text(encoding="utf-8")
     assert "검토 및 전략 버전 저장" in custom_source
-    assert "기본 AI 후보 재확인 (권장)" in custom_source
-    assert "사용자 전략 원형 독립 실행 (고급)" in custom_source
+    guidance_source = (ROOT / "ui" / "ai_custom_guidance.py").read_text(encoding="utf-8")
+    assert "AI_CUSTOM_CONFIRM_ROLE_LABEL" in custom_source
+    assert "AI_CUSTOM_INDEPENDENT_ROLE_LABEL" in custom_source
+    assert 'AI_CUSTOM_CONFIRM_ROLE_LABEL = "기본 AI 후보 확인 (권장)"' in guidance_source
+    assert 'AI_CUSTOM_INDEPENDENT_ROLE_LABEL = "사용자 전략 독립 신호 (숙련자)"' in guidance_source
     assert 'runtime_cfg.get("enabled", False)' in custom_source
 
     config_source = (ROOT / "config" / "settings.py").read_text(encoding="utf-8")
@@ -351,24 +354,24 @@ def test_custom_strategy_source_limits_and_visible_ai_model_are_explicit():
     assert "audio_transcript_available" in ingestor
 
 
-def test_windows_executable_metadata_is_aligned_to_3904():
+def test_windows_executable_metadata_is_aligned_to_3908():
     version_info = (ROOT / "config" / "windows_version_info.txt").read_text(encoding="utf-8")
     spec = (ROOT / "aiautotrade.spec").read_text(encoding="utf-8")
     safe_builder = (ROOT / "build_safe.py").read_text(encoding="utf-8")
-    assert "filevers=(3, 9, 0, 5)" in version_info
-    assert "ProductVersion', u'3.9.0.5'" in version_info
+    assert "filevers=(3, 9, 0, 8)" in version_info
+    assert "ProductVersion', u'3.9.0.8'" in version_info
     assert "version='config/windows_version_info.txt'" in spec
     assert "version='config/windows_version_info.txt'" in safe_builder
-    assert 'RELEASE_VERSION = "3.9.0.5"' in (ROOT / "config" / "app_version.py").read_text(encoding="utf-8")
-    assert (ROOT / "deploy" / "version.txt").read_text(encoding="utf-8").strip() == "3.9.0.5"
+    assert 'RELEASE_VERSION = "3.9.0.8"' in (ROOT / "config" / "app_version.py").read_text(encoding="utf-8")
+    assert (ROOT / "deploy" / "version.txt").read_text(encoding="utf-8").strip() == "3.9.0.8"
     manifest = json.loads((ROOT / "deploy" / "release-manifest.json").read_text(encoding="utf-8"))
-    assert manifest["version"] == "3.9.0.5"
+    assert manifest["version"] == "3.9.0.8"
     exe_asset = manifest["assets"]["exe"]
     assert manifest.get("build_status") == "pending_windows_rebuild"
     assert exe_asset["size"] == 0
     assert exe_asset["sha256"] == ""
     previous_asset = manifest["previous_published_asset"]
-    exe_path = ROOT / "deploy" / previous_asset["name"]
+    exe_path = ROOT / previous_asset["path"]
     assert exe_path.exists()
     assert previous_asset["size"] == exe_path.stat().st_size
     digest = hashlib.sha256()
@@ -376,7 +379,10 @@ def test_windows_executable_metadata_is_aligned_to_3904():
         for chunk in iter(lambda: exe_file.read(1024 * 1024), b""):
             digest.update(chunk)
     assert previous_asset["sha256"] == digest.hexdigest()
-    assert "/v3.9.0.5/AITrading.exe" in manifest["assets"]["exe"]["download_url"]
+    assert previous_asset["version"] == "3.9.0.7"
+    assert previous_asset["release_label"] == "v3.9.0.7 Fix Patch 3"
+    assert previous_asset["purpose"] == "previous_published_windows_build"
+    assert "/v3.9.0.8/AITrading.exe" in manifest["assets"]["exe"]["download_url"]
     release_builder = (ROOT / "scripts" / "generate_release_assets.py").read_text(encoding="utf-8")
     assert "AITrading.exe가 최신 런타임 소스보다 오래된 빌드" in release_builder
     assert "_latest_runtime_source" in release_builder

@@ -1,31 +1,41 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-신한증권 주식/ETF 어댑터
-신한금융투자 SOL Trading Open API (REST) 연동
+신한증권 주식/ETF 제휴 Open API 어댑터.
 
-인증 방식:
-  - app_key + app_secret → POST /oauth/token → access_token
-  - 이후 모든 요청 헤더에 Authorization: Bearer {access_token}
-
-api_type 값:
-  'rest'    : SOL Trading REST API (권장, 웹/macOS/Windows 공용)
-  'openapi' : 내부 통일 표기, 실제로는 rest 동일 처리
-
-주요 공식 문서:
-  https://open.shinhangroup.com/sol-trading-api
+운영 URL·토큰 경로·거래별 엔드포인트·채널은 추정하지 않고 증권사와 체결한
+계약의 partner_profile에서 받는다. 요청은 dataHeader/dataBody 봉투와
+HMAC-SHA256 Base64 hsKey 계약을 사용한다.
 """
 
+import base64
+import hashlib
+import hmac
 import importlib
+import json
 import logging
 import time
 from datetime import datetime
 from typing import Dict, List, Optional, Any
 from ..interfaces.stock_exchange import StockExchange
 
-# 신한 REST API 기본 URL (실제 엔드포인트는 공식 문서 기준으로 추후 확정)
-_SHINHAN_BASE_URL = 'https://openapi.shinhan.com'
-_SHINHAN_SANDBOX_URL = 'https://sandbox-openapi.shinhan.com'
+# 이전 내부 호출 경로를 계약 프로필의 operation 이름으로 변환한다.
+_OPERATION_BY_LEGACY_PATH = {
+    '/v1/account/domestic/list': 'accounts',
+    '/v1/account/domestic/balance': 'balance',
+    '/v1/account/domestic/holdings': 'positions',
+    '/v1/market/domestic/stock-list': 'stock_list',
+    '/v1/market/domestic/etf-list': 'etf_list',
+    '/v1/market/domestic/stock-info': 'stock_info',
+    '/v1/market/domestic/price': 'price',
+    '/v1/market/domestic/etf-info': 'etf_info',
+    '/v1/order/domestic/buy': 'buy',
+    '/v1/order/domestic/sell': 'sell',
+    '/v1/order/domestic/cancel': 'cancel',
+    '/v1/order/domestic/open-orders': 'open_orders',
+    '/v1/order/domestic/trades': 'trade_history',
+    '/v1/order/domestic/history': 'trade_history',
+}
 
 
 class ShinhanStockAdapter(StockExchange):
@@ -37,8 +47,8 @@ class ShinhanStockAdapter(StockExchange):
         self.password = password
         self.cert_password = cert_password
         self.account_no = account_no
-        self.api_type = kwargs.get('api_type', 'rest')
-        self.api_version = kwargs.get('api_version', 'solapi')
+        self.api_type = kwargs.get('api_type', 'partner_rest')
+        self.api_version = kwargs.get('api_version', 'shinhan_openapi_v2')
         self.app_key: str = kwargs.get('app_key', '') or ''
         self.app_secret: str = kwargs.get('app_secret', '') or ''
         # 테스트/확장용 backend 주입 지원
@@ -47,6 +57,7 @@ class ShinhanStockAdapter(StockExchange):
         self._token_expires_at: float = 0.0
         self.request_timeout: int = int(kwargs.get('request_timeout', 10) or 10)
         self.sandbox: bool = bool(kwargs.get('sandbox', False))
+        self.partner_profile: Dict[str, Any] = dict(kwargs.get('partner_profile', {}) or {})
         self.logger = logging.getLogger(__name__)
         from log_system.log_adapter import log_event
         self.log_event = lambda category, msg, level='INFO': log_event(category, msg, exchange='shinhan', level=level)
@@ -69,7 +80,54 @@ class ShinhanStockAdapter(StockExchange):
     # ------------------------------------------------------------------
 
     def _base_url(self) -> str:
-        return _SHINHAN_SANDBOX_URL if self.sandbox else _SHINHAN_BASE_URL
+        key = 'sandbox_url' if self.sandbox else 'base_url'
+        return str(self.partner_profile.get(key) or '').rstrip('/')
+
+    def _resolve_path(self, path: str) -> str:
+        operation = _OPERATION_BY_LEGACY_PATH.get(path, path)
+        endpoints = self.partner_profile.get('endpoints', {})
+        return str(endpoints.get(operation) or '').strip() if isinstance(endpoints, dict) else ''
+
+    def get_live_readiness(self) -> tuple[bool, str]:
+        endpoints = self.partner_profile.get('endpoints', {})
+        required = {'balance', 'positions', 'price', 'buy', 'sell', 'cancel', 'open_orders', 'trade_history'}
+        if not self._base_url():
+            return False, '신한 제휴 계약의 base_url이 필요합니다.'
+        if not isinstance(endpoints, dict) or not required.issubset(endpoints):
+            return False, '신한 제휴 계약 엔드포인트 프로필이 완전하지 않습니다.'
+        if not self.app_key or not self.app_secret:
+            return False, '신한 제휴 client id/client secret이 필요합니다.'
+        if not self.account_no:
+            return False, '신한 계좌번호가 필요합니다.'
+        if not self.is_connected:
+            return False, '신한 Open API 연결이 완료되지 않았습니다.'
+        return True, ''
+
+    def _shinhan_headers(self, payload: Dict[str, Any]) -> Dict[str, str]:
+        serialized = json.dumps(payload, ensure_ascii=False, separators=(',', ':'))
+        digest = hmac.new(self.app_secret.encode('utf-8'), serialized.encode('utf-8'), hashlib.sha256).digest()
+        return {
+            'Content-Type': 'application/json; charset=UTF-8',
+            'Accept': 'application/json; charset=UTF-8',
+            'Authorization': f'Bearer {self._access_token}',
+            'apikey': self.app_key,
+            'hsKey': base64.b64encode(digest).decode('ascii'),
+        }
+
+    def _envelope(self, data: Dict[str, Any]) -> Dict[str, Any]:
+        header = dict(self.partner_profile.get('data_header', {}) or {})
+        if self.partner_profile.get('sub_channel'):
+            header.setdefault('subChannel', self.partner_profile['sub_channel'])
+        return {'dataHeader': header, 'dataBody': data}
+
+    @staticmethod
+    def _unwrap_response(data: Any) -> Dict[str, Any]:
+        if not isinstance(data, dict):
+            return {}
+        body = data.get('dataBody')
+        if isinstance(body, dict):
+            return {**data, **body}
+        return data
 
     def _normalize_symbol(self, symbol: Any) -> str:
         return str(symbol or '').strip().zfill(6)
@@ -120,7 +178,7 @@ class ShinhanStockAdapter(StockExchange):
             return False
         try:
             resp = http.post(
-                f'{self._base_url()}/oauth/token',
+                f"{self._base_url()}{str(self.partner_profile.get('token_path') or '/oauth/token')}",
                 json={
                     'grant_type': 'client_credentials',
                     'appkey': self.app_key,
@@ -128,7 +186,7 @@ class ShinhanStockAdapter(StockExchange):
                 },
                 timeout=self.request_timeout,
             )
-            data = resp.json() if hasattr(resp, 'json') else (resp if isinstance(resp, dict) else {})
+            data = self._unwrap_response(resp.json() if hasattr(resp, 'json') else (resp if isinstance(resp, dict) else {}))
             token = data.get('access_token') or data.get('token')
             expires_in = int(data.get('expires_in', 86400) or 86400)
             if token:
@@ -148,12 +206,16 @@ class ShinhanStockAdapter(StockExchange):
         http = self._get_http()
         if not http:
             return {}
-        # 요청 전 토큰 유효성 확인
-        self._ensure_token()
+        resolved = self._resolve_path(path)
+        if not resolved or not self._ensure_token():
+            self.log_event('system', f'신한 계약 프로필 엔드포인트 누락: {path}', level='ERROR')
+            return {}
         try:
-            resp = http.get(
-                f'{self._base_url()}{path}',
-                params=params or {},
+            payload = self._envelope(params or {})
+            resp = http.post(
+                f'{self._base_url()}{resolved}',
+                json=payload,
+                headers=self._shinhan_headers(payload),
                 timeout=self.request_timeout,
             )
             # 401 Unauthorized → 토큰 갱신 후 1회 재시도
@@ -161,12 +223,13 @@ class ShinhanStockAdapter(StockExchange):
             if status == 401:
                 self.log_event('system', f'신한 GET {path} 401 → 토큰 갱신 후 재시도', level='WARNING')
                 if self._refresh_token():
-                    resp = http.get(
-                        f'{self._base_url()}{path}',
-                        params=params or {},
+                    resp = http.post(
+                        f'{self._base_url()}{resolved}',
+                        json=payload,
+                        headers=self._shinhan_headers(payload),
                         timeout=self.request_timeout,
                     )
-            return resp.json() if hasattr(resp, 'json') else (resp if isinstance(resp, dict) else {})
+            return self._unwrap_response(resp.json() if hasattr(resp, 'json') else (resp if isinstance(resp, dict) else {}))
         except Exception as exc:
             self.log_event('system', f'신한 GET {path} 오류: {exc}', level='ERROR')
             return {}
@@ -176,13 +239,16 @@ class ShinhanStockAdapter(StockExchange):
         http = self._get_http()
         if not http:
             return {}
-        # 요청 전 토큰 유효성 확인 (토큰 갱신 경로 자신은 제외)
-        if path != '/oauth/token':
-            self._ensure_token()
+        resolved = self._resolve_path(path)
+        if not resolved or not self._ensure_token():
+            self.log_event('system', f'신한 계약 프로필 엔드포인트 누락: {path}', level='ERROR')
+            return {}
         try:
+            payload = self._envelope(body or {})
             resp = http.post(
-                f'{self._base_url()}{path}',
-                json=body or {},
+                f'{self._base_url()}{resolved}',
+                json=payload,
+                headers=self._shinhan_headers(payload),
                 timeout=self.request_timeout,
             )
             status = getattr(resp, 'status_code', None)
@@ -190,11 +256,12 @@ class ShinhanStockAdapter(StockExchange):
                 self.log_event('system', f'신한 POST {path} 401 → 토큰 갱신 후 재시도', level='WARNING')
                 if self._refresh_token():
                     resp = http.post(
-                        f'{self._base_url()}{path}',
-                        json=body or {},
+                        f'{self._base_url()}{resolved}',
+                        json=payload,
+                        headers=self._shinhan_headers(payload),
                         timeout=self.request_timeout,
                     )
-            return resp.json() if hasattr(resp, 'json') else (resp if isinstance(resp, dict) else {})
+            return self._unwrap_response(resp.json() if hasattr(resp, 'json') else (resp if isinstance(resp, dict) else {}))
         except Exception as exc:
             self.log_event('system', f'신한 POST {path} 오류: {exc}', level='ERROR')
             return {}
@@ -249,6 +316,10 @@ class ShinhanStockAdapter(StockExchange):
         """신한 SOL Trading API 토큰 발급 및 계좌 확인."""
         try:
             self.log_event('system', f'신한증권 연결 시도 중... (type={self.api_type}, version={self.api_version})')
+
+            if not self._base_url() or not isinstance(self.partner_profile.get('endpoints'), dict):
+                self.log_event('system', '신한 제휴 API 계약 프로필(base_url/endpoints)이 없습니다.', level='ERROR')
+                return False
 
             # app_key/secret 우선, 없으면 user_id/password fallback
             if not (self.app_key and self.app_secret) and not (self.user_id and self.password):
@@ -560,8 +631,8 @@ class ShinhanStockAdapter(StockExchange):
             }
             resp = self._post(order_path, body)
             order_id = str(resp.get('ordNo') or resp.get('order_id') or '').strip()
-            rt_cd = str(resp.get('rt_cd') or resp.get('resultCode') or '0')
-            success = rt_cd in ('0', '00', '') or bool(order_id)
+            rt_cd = str(resp.get('rt_cd') or resp.get('resultCode') or '').strip()
+            success = bool(order_id) and rt_cd in ('0', '00')
             return {
                 'status': 'success' if success else 'error',
                 'order_id': order_id,
@@ -610,8 +681,8 @@ class ShinhanStockAdapter(StockExchange):
                 'orgOrdNo': str(order_id),
                 'isuSrtCd': self._normalize_symbol(symbol),
             })
-            rt_cd = str(resp.get('rt_cd') or resp.get('resultCode') or '0')
-            return rt_cd in ('0', '00', '')
+            rt_cd = str(resp.get('rt_cd') or resp.get('resultCode') or '').strip()
+            return rt_cd in ('0', '00')
         except Exception as e:
             self.log_event('system', f'신한 주문 취소 실패: {order_id} - {e}', level='ERROR')
             return False

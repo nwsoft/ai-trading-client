@@ -1558,40 +1558,60 @@ class BinanceClient:
             return {}
 
     def get_positions(self) -> List[Position]:
-        """포지션 조회"""
-        # 키가 없으면 조용히 빈 리스트 반환
+        """포지션 조회. 상태가 필요한 UI는 ``get_positions_result``를 사용한다."""
+        result = self.get_positions_result()
+        return list(result.get('positions') or []) if result.get('status') == 'success' else []
+
+    def get_positions_result(self) -> Dict[str, Any]:
+        """빈 포지션과 조회 실패를 구분하는 Binance 포지션 스냅샷."""
         if not self._has_api_keys():
             self.logger.debug("포지션 조회 건너뜀: API 키 없음")
-            return []
-        try:
-            # 🔥 동기화된 타임스탬프 + recvWindow 적용 (-1021 예방)
-            ts = self.get_synced_timestamp()
-            rw = self.config.recv_window
-            positions = self.client.futures_position_information(timestamp=ts, recvWindow=rw)
-            position_list = []
-
-            for pos in positions:
-                if float(pos['positionAmt']) != 0:  # 포지션이 있는 경우만
-                    position = Position(
+            return {'status': 'no_api_keys', 'positions': [], 'error': 'API 키 없음'}
+        last_error: Optional[Exception] = None
+        for attempt in range(2):
+            try:
+                ts = self.get_synced_timestamp()
+                rw = self.config.recv_window
+                rows = self.client.futures_position_information(timestamp=ts, recvWindow=rw)
+                position_list: List[Position] = []
+                for pos in rows or []:
+                    amount = float(pos.get('positionAmt', 0) or 0)
+                    if amount == 0:
+                        continue
+                    position_list.append(Position(
                         symbol=pos['symbol'],
-                        side="LONG" if float(pos['positionAmt']) > 0 else "SHORT",
-                        size=abs(float(pos['positionAmt'])),
-                        entry_price=float(pos['entryPrice']),
-                        mark_price=float(pos['markPrice']),
-                        unrealized_pnl=float(pos['unRealizedProfit']),
-                        liquidation_price=float(pos['liquidationPrice']),
-                        leverage=int(pos['leverage']),
-                        margin_type=pos['marginType']
-                    )
-                    position_list.append(position)
+                        side="LONG" if amount > 0 else "SHORT",
+                        size=abs(amount),
+                        entry_price=float(pos.get('entryPrice', 0) or 0),
+                        mark_price=float(pos.get('markPrice', 0) or 0),
+                        unrealized_pnl=float(pos.get('unRealizedProfit', 0) or 0),
+                        liquidation_price=float(pos.get('liquidationPrice', 0) or 0),
+                        leverage=int(pos.get('leverage', 1) or 1),
+                        margin_type=str(pos.get('marginType') or 'unknown'),
+                    ))
+                return {
+                    'status': 'success',
+                    'positions': position_list,
+                    'fetched_at': time.time(),
+                }
+            except Exception as exc:
+                last_error = exc
+                text = str(exc).lower()
+                if attempt == 0 and ('1021' in text or 'timestamp' in text):
+                    self._sync_server_time()
+                    continue
+                break
+        message = str(last_error or 'unknown position query error')
+        self.logger.error(f"포지션 조회 오류: {message}")
+        return {'status': 'error', 'positions': [], 'error': message}
 
-            return position_list
-
-        except Exception as e:
-            self.logger.error(f"포지션 조회 오류: {e}")
-            return []
-
-    def get_recent_trades(self, symbol: str, limit: int = 100) -> List[Dict]:
+    def get_recent_trades(
+        self,
+        symbol: str,
+        limit: int = 100,
+        since_ms: Optional[int] = None,
+        from_id: Optional[str] = None,
+    ) -> List[Dict]:
         """최근 거래 내역 조회 (실현 PnL 포함)"""
         # 키가 없으면 조용히 빈 리스트 반환
         if not self._has_api_keys():
@@ -1602,21 +1622,21 @@ class BinanceClient:
             ts = self.get_synced_timestamp()
             rw = self.config.recv_window
 
+            query: Dict[str, Any] = {
+                'limit': limit,
+                'timestamp': ts,
+                'recvWindow': rw,
+            }
+            if since_ms is not None:
+                query['startTime'] = int(since_ms)
+            elif str(from_id or '').isdigit():
+                query['fromId'] = int(str(from_id)) + 1
             if symbol:
                 # 특정 심볼의 거래 내역
-                trades = self.client.futures_account_trades(
-                    symbol=symbol,
-                    limit=limit,
-                    timestamp=ts,
-                    recvWindow=rw
-                )
+                trades = self.client.futures_account_trades(symbol=symbol, **query)
             else:
                 # 전체 거래 내역
-                trades = self.client.futures_account_trades(
-                    limit=limit,
-                    timestamp=ts,
-                    recvWindow=rw
-                )
+                trades = self.client.futures_account_trades(**query)
 
             # 실현 PnL 정보 포함하여 반환
             trade_list = []
@@ -2760,14 +2780,25 @@ class BinanceClient:
             self.logger.error(f"주문 상태 조회 오류: {e}")
             return {}
 
-    def get_trade_history(self, symbol: str, limit: int = 100) -> List[Dict]:
+    def get_trade_history(
+        self,
+        symbol: str,
+        limit: int = 100,
+        since_ms: Optional[int] = None,
+        from_id: Optional[str] = None,
+    ) -> List[Dict]:
         """거래 내역 조회"""
         # 키가 없으면 조용히 빈 리스트 반환
         if not self._has_api_keys():
             self.logger.debug(f"거래 내역 조회 건너뜀: API 키 없음 ({symbol})")
             return []
         try:
-            trades = self.client.futures_account_trades(symbol=symbol)
+            query: Dict[str, Any] = {'symbol': symbol, 'limit': limit}
+            if since_ms is not None:
+                query['startTime'] = int(since_ms)
+            elif str(from_id or '').isdigit():
+                query['fromId'] = int(str(from_id)) + 1
+            trades = self.client.futures_account_trades(**query)
 
             trade_history = []
             for trade in trades[-limit:]:  # 최근 거래만

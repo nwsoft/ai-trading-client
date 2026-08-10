@@ -63,15 +63,6 @@ def run_ai_provider_preflight(
         if workload not in requested:
             continue
         capability = ROLE_CAPABILITIES[workload]
-        if route["provider"] == "kimi" and workload != "assistant":
-            results[workload] = {
-                "ok": False,
-                "status": "blocked",
-                "provider": route["provider"],
-                "model": route["model"],
-                "error": "Kimi는 NoahAI 실제 키 검증 전까지 어시스턴트 역할만 허용됩니다.",
-            }
-            continue
         try:
             router = AIProviderRouter.from_settings(runtime, workload=workload)
             validation = router.validate_model(
@@ -169,4 +160,3 @@ def run_ai_provider_preflight(
         "ok": bool(required) and all(bool(item.get("ok")) for item in required),
         "results": results,
     }
-

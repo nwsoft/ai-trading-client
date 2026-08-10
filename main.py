@@ -90,6 +90,15 @@ from membership_policy import (
     REFERRAL_SAFE_EXCHANGES as MEMBERSHIP_REFERRAL_SAFE_EXCHANGES,
     is_exchange_allowed,
     normalize_user_grade,
+    referral_exchange_entitlement,
+)
+from utils.log_safety import (
+    LOG_BACKUP_COUNT,
+    LOG_MAX_BYTES,
+    LOG_RETENTION,
+    LOG_ROTATION_SIZE,
+    log_file_label,
+    membership_log_summary,
 )
 
 # 프로젝트 로깅 모듈 (log_system으로 변경되어 충돌 없음)
@@ -215,8 +224,7 @@ try:
         # 2단계: 사용자 계정 설정 (반드시 성공해야 함)
         set_current_user_account(user_id)
         logger = _get_loguru_logger()
-        logger.info(f'기존 계정 정보 발견: {user_id}')
-        logger.info(f'토큰 파일 경로: {token_path}')
+        logger.info('기존 로그인 상태 파일 확인 완료')
 
         # 3단계: 경로 정보 확인 (디버깅)
         logger.info('경로 정보 확인 시작')
@@ -373,8 +381,8 @@ class NoahAIClient:
                         log_path,
                         format="{time:YYYY-MM-DD HH:mm:ss} | {level: <8} - {message}",
                         level=lvl_str,
-                        rotation="200 MB",
-                        retention="30 days",
+                        rotation=LOG_ROTATION_SIZE,
+                        retention=LOG_RETENTION,
                         encoding="utf-8",
                         enqueue=True,
                     )
@@ -401,8 +409,8 @@ class NoahAIClient:
                 try:
                     file_handler = RotatingFileHandler(
                         log_path,
-                        maxBytes=200 * 1024 * 1024,
-                        backupCount=30,
+                        maxBytes=LOG_MAX_BYTES,
+                        backupCount=LOG_BACKUP_COUNT,
                         encoding='utf-8'
                     )
                     file_handler.setFormatter(logging.Formatter("[%(asctime)s] | %(levelname)s | %(message)s"))
@@ -430,7 +438,10 @@ class NoahAIClient:
             try:
                 logger = self._get_main_logger()
                 if logger:
-                    logger.info(f"로그 초기화 완료 — level={lvl_str}, file={log_path}")
+                    logger.info(
+                        f"로그 초기화 완료 — level={lvl_str}, "
+                        f"file={log_file_label(log_path)}"
+                    )
             except Exception:
                 pass
 
@@ -475,36 +486,33 @@ class NoahAIClient:
             # 로그 파일 경로 가져오기
             log_file_path = get_log_file_path()
 
-            # 🔥 로그 파일 크기 확인 후 조건부 초기화
+            # 실행 중인 로그는 Windows에서 잠길 수 있으므로 직접
+            # 잘라내거나 삭제하지 않는다. 크기 제한과 보관은 로거의
+            # RotatingFileHandler/loguru rotation에 단일하게 위임한다.
             if os.path.exists(log_file_path):
                 file_size = os.path.getsize(log_file_path)
-                max_size = 50 * 1024 * 1024  # 50MB
+                logger = self._get_main_logger(); logger.info(
+                    f'로그 파일 확인 (크기: {file_size/1024/1024:.1f}MB): '
+                    f'{log_file_label(log_file_path)}'
+                )
 
-                if file_size > max_size:
-                    with open(log_file_path, 'w', encoding='utf-8') as f:
-                        f.write('')
-                    logger = self._get_main_logger(); logger.info(f'로그 파일 초기화 (크기 초과: {file_size/1024/1024:.1f}MB): {os.path.basename(log_file_path)}')
-                else:
-                    logger = self._get_main_logger(); logger.info(f'로그 파일 유지 (크기: {file_size/1024/1024:.1f}MB): {os.path.basename(log_file_path)}')
-
-            # 🔥 로그 디렉토리의 오래된 로그 파일들 조건부 삭제
+            # 거래소별 활성 로그도 읽기 전용으로 크기만 진단한다.
             logs_dir = os.path.join(get_app_data_dir(), 'logs')
             if os.path.exists(logs_dir):
                 for filename in os.listdir(logs_dir):
                     if filename.endswith('.log') and filename != 'trading.log':
                         old_file = os.path.join(logs_dir, filename)
                         try:
-                            # 파일 크기 확인
                             file_size = os.path.getsize(old_file)
-                            max_size = 10 * 1024 * 1024  # 10MB
-
-                            if file_size > max_size:
-                                os.remove(old_file)
-                                logger = self._get_main_logger(); logger.info(f'오래된 로그 파일 삭제 (크기 초과: {file_size/1024/1024:.1f}MB): {filename}')
-                            else:
-                                logger = self._get_main_logger(); logger.info(f'로그 파일 유지 (크기: {file_size/1024/1024:.1f}MB): {filename}')
+                            logger = self._get_main_logger(); logger.info(
+                                f'로그 파일 확인 (크기: {file_size/1024/1024:.1f}MB): '
+                                f'{log_file_label(filename)}'
+                            )
                         except Exception as e:
-                            logger = self._get_main_logger(); logger.warning(f'로그 파일 처리 실패 {filename}: {e}')
+                            logger = self._get_main_logger(); logger.warning(
+                                f'로그 파일 크기 확인 실패 {log_file_label(filename)}: '
+                                f'{type(e).__name__}'
+                            )
 
         except Exception as e:
             logger = self._get_main_logger(); logger.warning(f'로그 초기화 실패: {e}')
@@ -519,12 +527,9 @@ class NoahAIClient:
         try:
             from path_utils import set_current_user_account, get_app_data_dir, get_config_dir, get_log_dir
 
-            # 디버깅: user_info 내용 확인 (민감정보 마스킹)
-            safe_info = dict(user_info)
-            if 'access_token' in safe_info and isinstance(safe_info['access_token'], str):
-                t = safe_info['access_token']
-                safe_info['access_token'] = f"{t[:4]}...{t[-4:]}" if len(t) > 8 else "***"
-            logger = self._get_main_logger(); logger.debug(f'user_info 내용: {safe_info}')
+            # 로그에는 이메일·세션·토큰·UID·레퍼럴 코드를 남기지 않는다.
+            safe_info = membership_log_summary(user_info)
+            logger = self._get_main_logger(); logger.debug(f'로그인 정책 요약: {safe_info}')
 
             # 사용자 계정 설정 (여러 가능한 키 확인)
             username = (user_info.get('username') or
@@ -544,7 +549,7 @@ class NoahAIClient:
             )
 
             set_current_user_account(username)
-            logger = self._get_main_logger(); logger.info(f'사용자 계정 설정: {username}')
+            logger = self._get_main_logger(); logger.info('사용자 계정 로컬 프로필 설정 완료')
 
             # adminjung 계정 최초 진입 시 소스 계정 설정/API 자동 복사
             self._bootstrap_adminjung_profile_from_source(username)
@@ -563,7 +568,7 @@ class NoahAIClient:
 
             # 계정별 폴더 생성
             account_dir = get_app_data_dir()
-            logger = self._get_main_logger(); logger.info(f'계정별 데이터 폴더: {account_dir}')
+            logger = self._get_main_logger(); logger.info('계정별 데이터 폴더 준비 완료')
 
             # token.json과 credentials.json을 사용자 폴더에 직접 생성
             # access_token은 user_info에 없으므로 별도로 전달
@@ -571,7 +576,7 @@ class NoahAIClient:
             if not access_token:
                 # user_info에 access_token이 없으면 로그인 응답에서 가져오기
                 # 이 부분은 로그인 성공 후 호출되므로 access_token이 있어야 함
-                logger = self._get_main_logger(); logger.warning(f'access_token이 user_info에 없습니다: {user_info}')
+                logger = self._get_main_logger(); logger.warning('access_token이 user_info에 없습니다.')
             self.create_user_files_in_account_folder(username, user_info, access_token)
 
             # 실제 사용되는 모든 파일들 생성
@@ -770,13 +775,14 @@ class NoahAIClient:
                 changed = True
 
         if grade == 'referral':
-            policy_allowed = self.current_membership_policy.get('allowed_exchanges', [])
-            if not isinstance(policy_allowed, list):
-                policy_allowed = []
             allowed_exchanges = {
-                str(exchange or '').strip().lower()
-                for exchange in policy_allowed
-                if str(exchange or '').strip().lower() in self.REFERRAL_SAFE_EXCHANGES
+                exchange
+                for exchange in self.REFERRAL_SAFE_EXCHANGES
+                if referral_exchange_entitlement(
+                    grade,
+                    exchange,
+                    self.current_membership_policy,
+                ).get("allowed")
             }
             # 서버 정책이 없거나 비정상이면 공식 레퍼럴 거래소 전체 허용이 아니라 fail-closed 한다.
             for key in ('enabled_exchanges', 'trade_enabled_exchanges', 'learning_enabled_exchanges'):
@@ -871,6 +877,9 @@ class NoahAIClient:
             dashboard = getattr(self, "dashboard", None)
             if dashboard and hasattr(dashboard, "thread_safe_after"):
                 dashboard.thread_safe_after(0, dashboard.update_status_info)
+                settings_controller = getattr(dashboard, "_settings_controller", None)
+                if settings_controller and hasattr(settings_controller, "refresh_referral_entitlements"):
+                    dashboard.thread_safe_after(0, settings_controller.refresh_referral_entitlements)
         except Exception:
             pass
 
@@ -915,7 +924,7 @@ class NoahAIClient:
             token_path = os.path.join(account_dir, 'token.json')
             with open(token_path, 'w', encoding='utf-8') as f:
                 json.dump(token_data, f, ensure_ascii=False, indent=2)
-            logger = self._get_main_logger(); logger.info(f'token.json 생성 완료: {token_path}')
+            logger = self._get_main_logger(); logger.info('token.json 생성 완료')
 
             # 2. 기본 경로의 파일들 정리 (있다면 삭제) - data/ 폴더의 파일만 정리
             # path_utils 사용하여 기본 디렉토리 생성
@@ -1009,8 +1018,8 @@ class NoahAIClient:
                         log_path,
                         format="{time:YYYY-MM-DD HH:mm:ss} | {level: <8} - {message}",
                         level=log_level,
-                        rotation="200 MB",
-                        retention="30 days",
+                        rotation=LOG_ROTATION_SIZE,
+                        retention=LOG_RETENTION,
                         encoding="utf-8",
                         enqueue=True,
                         filter=(lambda record, ex=exchange_name: f"(ex={ex})" in str(record.get("message", "")))
@@ -1024,8 +1033,8 @@ class NoahAIClient:
                     log_path = get_exchange_log_file_path(exchange_name)
                     file_handler = RotatingFileHandler(
                         log_path,
-                        maxBytes=200 * 1024 * 1024,
-                        backupCount=30,
+                        maxBytes=LOG_MAX_BYTES,
+                        backupCount=LOG_BACKUP_COUNT,
                         encoding='utf-8'
                     )
                     file_handler.setFormatter(logging.Formatter("[%(asctime)s] | %(levelname)s | %(message)s"))
@@ -1303,10 +1312,9 @@ class NoahAIClient:
                     logger.info("로그인 성공, 백엔드 승인 완료")
                     logger.info("on_login_success: 초기화 시작")
 
-            # user_info에 access_token 추가 (마스킹된 로그)
+            # user_info에 access_token 추가. 토큰은 일부라도 로그에 남기지 않는다.
             user_info['access_token'] = token
-            masked_token = f"{token[:4]}...{token[-4:]}" if len(token) > 8 else "***"
-            logger = self._get_main_logger(); logger.debug(f'user_info에 access_token 추가: {masked_token}')
+            logger = self._get_main_logger(); logger.debug('로그인 토큰 메모리 반영 완료 (값 미기록)')
 
             # 백엔드 승인 후 사용자 계정 설정 및 계정별 폴더 생성
             self.setup_user_account(user_info)
@@ -1376,20 +1384,23 @@ class NoahAIClient:
             # 🔥 사용자별 DB 경로 설정 (Recorder 초기화 전에 반드시 설정)
             from path_utils import set_current_user_account
             set_current_user_account(user_id)
-            logger = self._get_main_logger(); logger.info(f'사용자 계정 설정 완료: {user_id}')
+            logger = self._get_main_logger(); logger.info('사용자 계정 설정 완료')
 
             self.backend_api.set_user_info(user_id, user_grade, user_email)
-            logger = self._get_main_logger(); logger.info(f'사용자 정보 설정: {user_id} ({user_grade}) - {user_email}')
+            logger = self._get_main_logger(); logger.info(f'사용자 정책 설정 완료: grade={user_grade}')
 
-            # API 키 필수 검증 (OpenAI은 필수, 거래소 키는 선택: 있으면 사용)
-            selected_exchange = self.settings.get('selected_exchange', 'binance')
-            openai_api_key = self.settings.get('openai_api_key', '').strip()
+            # 선택한 AI workload의 Provider 키를 확인한다. 과거처럼 OpenAI 키만
+            # 검사하면 DeepSeek/Claude/Gemini/Kimi 단독 사용자가 AI OFF가 된다.
+            from trading.ai.ai_manager import ai_workload_route_status
+            ai_route = ai_workload_route_status(self.settings, workload="analyst")
 
-            # OpenAI API 키 검증 (필수: 없으면 설정 창으로 유도)
+            # AI 키가 없어도 로그인과 대시보드 진입은 허용한다.
+            # AI 기능은 각 화면에서 키 설정 전까지 비활성 안내를 표시한다.
             try:
-                _len = len(openai_api_key) if openai_api_key else 0
                 logger = self._get_main_logger(); logger.info(
-                    f"OpenAI API Key 상태: 설정={'예' if _len else '아니오'}, 길이={_len}"
+                    "AI Provider 상태: "
+                    f"provider={ai_route['provider']}, model={ai_route['model']}, "
+                    f"설정={'예' if ai_route['ready'] else '아니오'}"
                 )
             except Exception as _e:
                 try:
@@ -1398,13 +1409,10 @@ class NoahAIClient:
                     _lg.error(_tb.format_exc())
                 except Exception:
                     pass
-            if not openai_api_key:
+            if not ai_route['ready']:
                 logger = self._get_main_logger()
                 if logger:
-                    if logger is not None:
-                        logger.info("OpenAI API 키가 설정되지 않음 - 설정 화면 표시")
-                self.show_api_setup_dialog()
-                return
+                    logger.info("선택한 AI Provider 키가 없습니다. AI 기능만 비활성화하고 대시보드로 계속 진행합니다.")
 
             # 하나 이상의 거래소 API 키가 있는지 비차단 확인 (없어도 진행)
             def _has_any_exchange_keys(s):
@@ -1431,11 +1439,11 @@ class NoahAIClient:
                 except Exception:
                     pass
 
-            # 🔥 자격 검증 완료(필수: OpenAI) - 초기화 진입
+            # 로그인 자격 검증 완료 - 선택 API 키 상태와 무관하게 초기화 진입
             logger = self._get_main_logger()
             if logger:
                 if logger is not None:
-                    logger.info("자격 검증 완료(OpenAI), 초기화 시작")
+                    logger.info("로그인 자격 검증 완료, 초기화 시작")
 
             self.initialize_after_api_setup()
 
@@ -1473,7 +1481,7 @@ class NoahAIClient:
         """API 키 설정 다이얼로그 표시 (CustomTkinter 설정 창 사용)"""
         try:
             logger = self._get_main_logger(); logger.info('API 키 설정 창을 표시합니다...')
-            logger = self._get_main_logger(); logger.warning('API 키를 입력하지 않으면 프로그램이 종료됩니다.')
+            logger = self._get_main_logger(); logger.info('API 키는 필요한 기능을 사용할 때 설정할 수 있습니다.')
 
             # CustomTkinter 설정 창 사용
             from ui.settings_modern import ModernSettingsWindow
@@ -1481,7 +1489,9 @@ class NoahAIClient:
 
             settings_window = ModernSettingsWindow(
                 current_settings=self.settings,
-                on_save_callback=self.on_settings_saved
+                on_save_callback=self.on_settings_saved,
+                membership_user_grade=self.current_user_grade,
+                membership_policy=self.current_membership_policy,
             )
             logger = self._get_main_logger(); logger.debug('ModernSettingsWindow 인스턴스 생성 완료')
 
@@ -1504,20 +1514,17 @@ class NoahAIClient:
                 pass
 
     def verify_api_keys_after_setup(self):
-        """설정 후 API 키 재검증 (OpenAI 필수, 거래소 키는 선택)"""
+        """설정 후 API 키 상태를 갱신하되, 선택 키가 없어도 앱은 유지한다."""
         try:
             # 설정 다시 로드
             from config.settings import load_settings
             self.settings = load_settings()
 
-            # OpenAI 키만 필수 검증
-            openai_api_key = self.settings.get('openai_api_key', '').strip()
-            if not openai_api_key:
-                logger = self._get_main_logger(); logger.error('OpenAI API 키가 설정되지 않음 - 프로그램을 종료합니다.')
-                logger = self._get_main_logger(); logger.info('환경설정에서 OpenAI 키를 입력한 후 다시 실행해주세요.')
-                import sys
-                sys.exit()
-                return
+            # 선택 Provider 키는 AI 기능에서만 필요하며 앱 진입 조건이 아니다.
+            from trading.ai.ai_manager import ai_workload_route_status
+            ai_route = ai_workload_route_status(self.settings, workload="analyst")
+            if not ai_route['ready']:
+                logger = self._get_main_logger(); logger.info('선택한 AI Provider 키가 없습니다. AI 기능만 비활성 상태로 유지합니다.')
 
             # 거래소 키는 비차단: 있으면 사용, 없으면 경고만 로그
             def _has_any_exchange_keys(s):
@@ -1537,7 +1544,7 @@ class NoahAIClient:
             if not _has_any_exchange_keys(self.settings):
                 logger = self._get_main_logger(); logger.warning('거래소 API 키가 없어도 계속 진행합니다. 대시보드 설정에서 언제든 추가할 수 있습니다.')
 
-            logger = self._get_main_logger(); logger.info('필수 키 확인 완료(OpenAI)). 초기화 진행')
+            logger = self._get_main_logger(); logger.info('API 키 상태 갱신 완료. 초기화를 계속 진행합니다.')
             self.initialize_after_api_setup()
 
         except Exception:
@@ -1641,15 +1648,13 @@ class NoahAIClient:
                     logger = self._get_main_logger()
                     if logger:
                         logger.info("🔄 AI 설정 변경 감지 - AIManager 재초기화")
-                    from trading.ai.ai_manager import AIManager as _AIManager
-                    api_key = str(self.settings.get('openai_api_key', '') or '')
-                    model = str(self.settings.get('openai_model', '') or '')
-                    self.ai_manager = _AIManager(
-                        api_key=api_key,
-                        model=model,
-                        settings=self.settings,
+                    from trading.ai.ai_manager import create_ai_manager_from_settings
+                    self.ai_manager = create_ai_manager_from_settings(
+                        self.settings,
                         workload="analyst",
                     )
+                    if hasattr(self, 'optimizer') and self.optimizer is not None:
+                        self.optimizer.ai_manager = self.ai_manager
             except Exception as e:
                 logger = self._get_main_logger()
                 if logger:
@@ -1710,6 +1715,17 @@ class NoahAIClient:
                 self.exchange_manager = ExchangeManager(self.settings, self.binance_client, unified_manager=self.unified_manager)
 
             # UnifiedTrader가 매니저 참조를 가진 경우 갱신
+            # Binance 전용 Trader도 설정 저장 뒤 현재 정본 클라이언트를 사용한다.
+            # 이 참조가 이전 클라이언트에 남으면 잔고는 새 클라이언트, 포지션은
+            # 오래된 클라이언트를 읽어 실계정 포지션이 0개로 보일 수 있다.
+            if hasattr(self, 'trader') and self.trader:
+                try:
+                    self.trader.binance_client = self.binance_client
+                except Exception as e:
+                    logger = self._get_main_logger()
+                    if logger:
+                        logger.warning(f"Binance Trader 클라이언트 참조 갱신 실패: {e}")
+
             if hasattr(self, 'unified_trader') and self.unified_trader:
                 try:
                     self.unified_trader.exchange_manager = self.exchange_manager
@@ -1786,7 +1802,11 @@ class NoahAIClient:
                 # 잔고 즉시 새로고침 시도 (캐시 무시)
                 try:
                     if hasattr(self, 'exchange_manager') and self.exchange_manager:
-                        self.exchange_manager.get_exchange_balance('binance', force_refresh=True)
+                        for exchange_name in list(self.settings.get('enabled_exchanges', []) or []):
+                            self.exchange_manager.get_exchange_balance(
+                                str(exchange_name).strip().lower(),
+                                force_refresh=True,
+                            )
                 except Exception:
                     pass
 
@@ -1813,23 +1833,31 @@ class NoahAIClient:
             binance_api_key = self.settings.get('binance_api_key', '')
             binance_secret_key = self.settings.get('binance_secret_key', '')
 
-            # 바이낸스 클라이언트 초기화 (하위 호환성 유지)
-            try:
-                binance_config = BinanceConfig(
-                    api_key=binance_api_key,
-                    secret_key=binance_secret_key,
-                    testnet=False # 실제 거래소 사용
-                )
-                self.binance_client = BinanceClient(binance_config)
-                logger = self._get_main_logger()
-                if logger:
-                    logger.info("✅ BinanceClient 초기화 완료")
-            except Exception as e:
-                logger = self._get_main_logger()
-                if logger:
-                    logger.error(f"❌ BinanceClient 초기화 실패: {e}")
-                # BinanceClient 초기화 실패해도 계속 진행 (WebSocket 없이도 작동 가능)
+            # Binance가 현재 프로필 범위에 있을 때만 전용 REST/WebSocket
+            # 런타임을 만든다. Bitget-only 같은 프로필에서 legacy Binance
+            # 런타임을 띄우면 데이터 출처와 로그가 교차 오염된다.
+            from trading.runtime_scope import requires_binance_runtime
+            if requires_binance_runtime(self.settings):
+                try:
+                    binance_config = BinanceConfig(
+                        api_key=binance_api_key,
+                        secret_key=binance_secret_key,
+                        testnet=False # 실제 거래소 사용
+                    )
+                    self.binance_client = BinanceClient(binance_config)
+                    logger = self._get_main_logger()
+                    if logger:
+                        logger.info("✅ BinanceClient 초기화 완료")
+                except Exception as e:
+                    logger = self._get_main_logger()
+                    if logger:
+                        logger.error(f"❌ BinanceClient 초기화 실패: {e}")
+                    self.binance_client = None
+            else:
                 self.binance_client = None
+                logger = self._get_main_logger()
+                if logger:
+                    logger.info("Binance가 활성 범위에 없어 전용 REST/WebSocket 런타임을 생성하지 않습니다")
 
             # 🔥 거래소 관리자 초기화 (새로운 모듈화 시스템)
             try:
@@ -1929,8 +1957,13 @@ class NoahAIClient:
             except Exception as e:
                 logger = self._get_main_logger()
                 if logger:
-                    if logger is not None:
-                        logger.warning(f"데이터베이스 마이그레이션 실패 (계속 진행): {e}")
+                    logger.error(f"데이터베이스 마이그레이션 실패 - 거래 초기화 차단: {e}")
+                # 거래 기록 DB가 준비되지 않은 상태에서 실주문 엔진을 시작하면
+                # 체결은 발생하지만 통계·AI 리포트·청산 연결이 유실될 수 있다.
+                # 로그인 화면으로 복귀할 수 있도록 초기화를 명시적으로 실패시킨다.
+                raise RuntimeError(
+                    "거래 기록 데이터베이스를 안전하게 준비하지 못해 거래 초기화를 중단했습니다."
+                ) from e
 
             # Analyzer 초기화 (ExchangeManager 주입으로 점진적 다중 거래소 데이터 지원)
             self.analyzer = Analyzer(self.binance_client, exchange_manager=self.exchange_manager)
@@ -1996,12 +2029,15 @@ class NoahAIClient:
             # Evaluator 초기화 (settings 객체 전달)
             self.evaluator = Evaluator(self.analyzer, self.recorder, self.settings)
 
-            # AI 매니저 초기화
-            openai_api_key = self.settings.get('openai_api_key', '')
-            openai_model = self.settings.get('openai_model', 'gpt-4o-mini')
+            # AI 매니저 초기화: analyst workload에 지정한 Provider를 정본으로 사용한다.
+            from trading.ai.ai_manager import (
+                ai_workload_route_status,
+                create_ai_manager_from_settings,
+            )
+            ai_route = ai_workload_route_status(self.settings, workload="analyst")
 
-            # 🔥 빌드 환경 대응: API 키가 없으면 설정 파일에서 다시 시도
-            if not openai_api_key:
+            # 빌드 환경 대응: 선택 Provider 키가 없으면 설정 파일에서 다시 시도
+            if not ai_route['ready']:
                 try:
                     from config.settings import load_settings
                     from path_utils import get_current_user_account, get_config_dir
@@ -2011,17 +2047,18 @@ class NoahAIClient:
                             logger.info(f"⚠️ self.settings에 API 키 없음, 설정 파일에서 재시도 (사용자: {current_user})")
                         reloaded_settings = load_settings()
                         if reloaded_settings:
-                            openai_api_key = reloaded_settings.get('openai_api_key', '')
-                            if openai_api_key:
-                                openai_model = reloaded_settings.get('openai_model', openai_model)
-                                # 재로드한 설정으로 업데이트
-                                self.settings.update(reloaded_settings)
+                            self.settings.update(reloaded_settings)
+                            ai_route = ai_workload_route_status(self.settings, workload="analyst")
+                            if ai_route['ready']:
                                 if logger:
-                                    logger.info(f"✅ 설정 파일에서 API 키 로드 성공 (키 길이: {len(openai_api_key)})")
+                                    logger.info(
+                                        "✅ 설정 파일에서 AI Provider 키 로드 성공 "
+                                        f"({ai_route['provider']} / {ai_route['model']})"
+                                    )
                             else:
                                 config_path = os.path.join(get_config_dir(), 'settings.json')
                                 if logger:
-                                    logger.warning(f"⚠️ 설정 파일에도 API 키 없음: {config_path}")
+                                    logger.warning(f"⚠️ 설정 파일에도 선택 Provider 키 없음: {config_path}")
                         else:
                             if logger:
                                 logger.warning("⚠️ 설정 파일 재로드 실패")
@@ -2032,14 +2069,11 @@ class NoahAIClient:
                     if logger:
                         logger.debug(traceback.format_exc())
 
-            if openai_api_key:
-                # 🔥 설정 파일에서 모델을 우선적으로 사용
-                self.ai_manager = AIManager(
-                    openai_api_key,
-                    openai_model,
-                    settings=self.settings,
-                    workload="analyst",
-                )
+            self.ai_manager = create_ai_manager_from_settings(
+                self.settings,
+                workload="analyst",
+            )
+            if self.ai_manager:
                 # AI 매니저 초기화 로그는 AIManager 클래스에서 자동 출력됨
 
                 # 🔥 Optimizer에 AI 매니저 전달
@@ -2053,7 +2087,7 @@ class NoahAIClient:
                 logger = self._get_main_logger()
                 if logger:
                     if logger is not None:
-                        logger.warning("OpenAI API 키가 설정되지 않아 AI 기능이 비활성화됩니다")
+                        logger.warning("선택한 AI Provider 키가 설정되지 않아 AI 기능이 비활성화됩니다")
                         # 빌드 환경 디버깅 정보
                         try:
                             from path_utils import get_config_dir, get_current_user_account
@@ -2094,19 +2128,6 @@ class NoahAIClient:
                     if logger:
                         logger.info("✅ UnifiedTrader에 Evaluator 설정 완료")
 
-                # selected_coins 설정 (바이낸스와 동일한 방식) - 타입 정규화
-                if hasattr(self, 'selected_coins') and self.selected_coins:
-                    normalized_for_trader: List[Dict[str, Any]] = []
-                    for c in self.selected_coins:
-                        if isinstance(c, str):
-                            normalized_for_trader.append({'symbol': c, 'is_major': False})  # 🔥 is_major 기본값 추가
-                        elif isinstance(c, dict):
-                            normalized_for_trader.append(c)  # 🔥 dict인 경우 모든 정보(including is_major) 유지
-                    self.unified_trader.set_selected_coins(normalized_for_trader)
-                    logger = self._get_main_logger()
-                    if logger:
-                        logger.info("✅ UnifiedTrader에 선택된 코인 설정 완료")
-
                 logger = self._get_main_logger()
                 if logger:
                     logger.info("✅ UnifiedTrader 초기화 완료 - 다중 거래소 지원")
@@ -2117,22 +2138,24 @@ class NoahAIClient:
                     logger.warning("UnifiedTradingManager가 없어 UnifiedTrader 초기화 실패")
 
             # 기존 Trader 초기화 (하위 호환성)
-            self.trader = Trader(
-                binance_client=self.binance_client,
-                analyzer=self.analyzer,
-                optimizer=self.optimizer,
-                recorder=self.recorder,
-                ai_manager=self.ai_manager,
-                logger=self.logger,  # 🔥 main.py의 logger 전달
-                settings=self.settings,  # 🔥 settings 전달
-                main_app=self,
-            )
+            self.trader = None
+            if self.binance_client is not None:
+                self.trader = Trader(
+                    binance_client=self.binance_client,
+                    analyzer=self.analyzer,
+                    optimizer=self.optimizer,
+                    recorder=self.recorder,
+                    ai_manager=self.ai_manager,
+                    logger=self.logger,
+                    settings=self.settings,
+                    main_app=self,
+                )
 
             # 전략 커스터마이저/AI 챗봇을 실제 거래 루프에 연결
             self._initialize_strategy_runtime_bridges()
 
             # 🔥 Trader 초기화 후 설정값 동기화 확인
-            if hasattr(self.trader, 'settings') and self.trader.settings:
+            if self.trader is not None and hasattr(self.trader, 'settings') and self.trader.settings:
                 trader_min_trade = self.trader.settings.get('min_trade_amount', 'N/A')
                 logger = self._get_main_logger()
                 if logger:
@@ -2150,7 +2173,7 @@ class NoahAIClient:
                     logger = self._get_main_logger()
                     if logger:
                         logger.error(f"❌ 설정값 불일치: main={main_min_trade}, trader={trader_min_trade}, optimizer={optimizer_min_trade}")
-            else:
+            elif self.binance_client is not None:
                 logger = self._get_main_logger()
                 if logger:
                     logger.error("❌ Trader에 settings가 설정되지 않음")
@@ -2158,7 +2181,11 @@ class NoahAIClient:
             # Dynamic Coin Replacer 기능은 RiskManager와 Evaluator 상호작용으로 대체됨
 
             # Market State Analyzer 초기화
-            self.market_state_analyzer = MarketStateAnalyzer(self.binance_client)
+            self.market_state_analyzer = (
+                MarketStateAnalyzer(self.binance_client)
+                if self.binance_client is not None
+                else None
+            )
 
             # Analyzer에 AI 매니저 전달
             if hasattr(self.analyzer, 'ai_manager'):
@@ -2530,13 +2557,13 @@ class NoahAIClient:
                 if user_id:
                     set_current_user_account(user_id)
                     if logger:
-                        logger.info(f"대시보드 생성 전 사용자 계정 설정: {user_id}")
+                        logger.info("대시보드 생성 전 사용자 계정 설정 완료")
                 else:
                     if logger:
                         logger.warning("사용자 계정 정보를 찾을 수 없습니다")
             else:
                 if logger:
-                    logger.debug(f"대시보드 생성 - 현재 사용자: {current_user}")
+                    logger.debug("대시보드 생성 - 현재 사용자 프로필 확인 완료")
 
             # 대시보드 생성 (UnifiedTrader 전달)
             if logger:
@@ -2591,12 +2618,10 @@ class NoahAIClient:
             # 컴포넌트 설정
             # 🔥 컴포넌트 None 체크 및 방어적 처리
 
-            if not all([self.binance_client, self.analyzer, self.evaluator, self.trader, self.recorder]):
+            if not all([self.analyzer, self.evaluator, self.recorder]):
                 missing = []
-                if not self.binance_client: missing.append("binance_client")
                 if not self.analyzer: missing.append("analyzer")
                 if not self.evaluator: missing.append("evaluator")
-                if not self.trader: missing.append("trader")
                 if not self.recorder: missing.append("recorder")
                 raise Exception(f"필수 컴포넌트 누락: {', '.join(missing)}")
 
@@ -3201,6 +3226,14 @@ class NoahAIClient:
 
     def _is_exchange_allowed_by_membership(self, exchange: str) -> bool:
         """서버에서 받은 등급 정책을 공식 클라이언트 실행 직전에 다시 강제한다."""
+        if self._normalize_user_grade(self.current_user_grade) == "referral":
+            return bool(
+                referral_exchange_entitlement(
+                    self.current_user_grade,
+                    exchange,
+                    self.current_membership_policy,
+                ).get("allowed")
+            )
         return is_exchange_allowed(
             self.current_user_grade,
             exchange,
@@ -3969,19 +4002,6 @@ class NoahAIClient:
             except Exception as e_db:
                 if logger:
                     logger.warning(f"대시보드 업데이트 경고: {e_db}")
-
-            try:
-                unified_trader = getattr(self, 'unified_trader', None)
-                if unified_trader and hasattr(unified_trader, 'set_selected_coins'):
-                    unified_trader.set_selected_coins(self.selected_coins)
-                    if logger:
-                        logger.info("✅ UnifiedTrader 코인 정보 업데이트 완료")
-                else:
-                    if logger:
-                        logger.warning("⚠️ UnifiedTrader가 초기화되지 않음")
-            except Exception as e_ut:
-                if logger:
-                    logger.warning(f"UnifiedTrader 업데이트 경고: {e_ut}")
 
             # 6) API 기반 분석 (WebSocket 구독 제거)
             # 🔥 코인 분석은 API로 수행, WebSocket은 포지션 모니터링에만 사용

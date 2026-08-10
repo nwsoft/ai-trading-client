@@ -87,7 +87,7 @@ PROVIDER_SPECS: Dict[str, ProviderSpec] = {
     ),
     "kimi": ProviderSpec(
         provider="kimi",
-        label="Kimi K3 (시험)",
+        label="Kimi (Moonshot AI)",
         base_url="https://api.moonshot.ai/v1",
         default_model="kimi-k3",
         model_prefixes=("kimi-", "moonshot-"),
@@ -96,7 +96,7 @@ PROVIDER_SPECS: Dict[str, ProviderSpec] = {
             vision=True,
             structured_output=True,
         ),
-        status="experimental",
+        status="stable",
     ),
     "anthropic": ProviderSpec(
         provider="anthropic",
@@ -335,6 +335,10 @@ class AIProviderRouter:
         *,
         workload: str = "analyst",
     ) -> "AIProviderRouter":
+        original_credentials = settings.get("ai_credentials")
+        has_structured_credentials = bool(
+            isinstance(original_credentials, dict) and original_credentials
+        )
         runtime = hydrate_ai_credentials(settings)
         profiles = runtime.get("ai_provider_profiles", {})
         profile = profiles.get(workload, {}) if isinstance(profiles, dict) else {}
@@ -376,11 +380,15 @@ class AIProviderRouter:
         if not model:
             legacy_key = "assistant_ai_model" if workload == "assistant" else "openai_model"
             model = str(runtime.get(legacy_key) or spec.default_model)
-        api_key = str(
-            credential_cfg.get("api_key")
-            or (runtime.get("openai_api_key") if provider == str(runtime.get("ai_provider") or "openai") else "")
-            or ""
-        )
+        active_provider = str(runtime.get("ai_provider") or "openai").lower()
+        legacy_route_key = ""
+        if provider == "openai":
+            legacy_route_key = str(runtime.get("openai_api_key") or "")
+        elif provider == active_provider and not has_structured_credentials:
+            # 구버전은 선택 Provider 키도 openai_api_key 한 칸에 저장했다.
+            # 새 ai_credentials가 존재하면 다른 Provider 키를 빌려 쓰지 않는다.
+            legacy_route_key = str(runtime.get("openai_api_key") or "")
+        api_key = str(credential_cfg.get("api_key") or legacy_route_key or "")
         base_url = credential_cfg.get("base_url")
         if base_url is None:
             base_url = spec.base_url if provider != "openai" else runtime.get("openai_base_url")

@@ -16,6 +16,7 @@ from unittest.mock import MagicMock, patch, PropertyMock
 import pytest
 
 from trading.exchanges.adapters.stock_mock_adapter import StockMockAdapter
+from trading.exchanges.exchange_factory import ExchangeFactory
 from trading.stock_analysis_service import StockAnalysisService, normalize_asset_mode
 
 
@@ -243,58 +244,58 @@ class TestTradeDataStructureConsistency:
 
 class TestEnableStockLiveOrderSetting:
 
-    def _make_dashboard_allow_checker(self, enable_stock_live_order: bool, broker_allow: bool):
-        """dashboard_modern.py _is_stock_live_order_allowed 로직을 단위 테스트."""
-        settings = {'enable_stock_live_order': enable_stock_live_order}
-        broker_config = {'allow_live_order': broker_allow, 'api_type': 'openapi'}
-
-        adapter = MagicMock()
-        adapter.api_type = 'openapi'
-
-        configured_api_type = str(
-            broker_config.get('api_type')
-            or getattr(adapter, 'api_type', '')
-            or 'openapi'
-        ).strip().lower()
-        is_live_route = configured_api_type not in ('mock',)
-        if not is_live_route:
-            return True, ''
-
-        global_live_flag = bool(settings.get('enable_stock_live_order', False))
-        broker_live_flag = bool(broker_config.get('allow_live_order', False))
-        if global_live_flag or broker_live_flag:
-            return True, ''
-        return False, 'blocked'
+    def _make_dashboard_allow_checker(
+        self,
+        enable_stock_live_order: bool,
+        broker_allow: bool,
+        api_type: str = 'openapi_plus',
+        api_version: str = 'pykiwoom',
+    ):
+        """대시보드가 호출하는 공통 순수 함수로 이중 게이트를 검증."""
+        return ExchangeFactory.evaluate_stock_live_order_permission(
+            broker='kiwoom',
+            api_type=api_type,
+            api_version=api_version,
+            global_live_flag=enable_stock_live_order,
+            broker_live_flag=broker_allow,
+        )
 
     def test_both_false_blocks_live_order(self):
         allowed, reason = self._make_dashboard_allow_checker(False, False)
         assert not allowed
         assert reason
 
-    def test_global_flag_true_allows_live_order(self):
+    def test_global_flag_cannot_bypass_broker_permission(self):
         allowed, reason = self._make_dashboard_allow_checker(True, False)
-        assert allowed
+        assert not allowed
+        assert 'allow_live_order' in reason
 
-    def test_broker_flag_true_allows_live_order(self):
+    def test_broker_flag_cannot_bypass_global_permission(self):
         allowed, reason = self._make_dashboard_allow_checker(False, True)
-        assert allowed
+        assert not allowed
+        assert 'enable_stock_live_order' in reason
 
-    def test_both_true_allows_live_order(self):
+    def test_both_flags_allow_implemented_route(self):
         allowed, reason = self._make_dashboard_allow_checker(True, True)
         assert allowed
+        assert reason == ''
+
+    def test_runtime_readiness_is_required_after_both_flags(self):
+        allowed, reason = ExchangeFactory.evaluate_stock_live_order_permission(
+            broker='kiwoom', api_type='openapi_plus', api_version='pykiwoom',
+            global_live_flag=True, broker_live_flag=True,
+            adapter_ready=False, adapter_ready_reason='OCX 연결 필요',
+        )
+        assert not allowed
+        assert 'OCX 연결 필요' in reason
 
     def test_mock_api_type_bypasses_flag_check(self):
         """Mock 어댑터는 live_order 플래그 무관 통과."""
-        settings = {'enable_stock_live_order': False}
-        broker_config = {'allow_live_order': False, 'api_type': 'mock'}
-        adapter = MagicMock()
-        adapter.api_type = 'mock'
-
-        configured_api_type = str(
-            broker_config.get('api_type') or getattr(adapter, 'api_type', '') or 'openapi'
-        ).strip().lower()
-        is_live_route = configured_api_type not in ('mock',)
-        assert not is_live_route  # Mock → live_route=False → 차단 없음
+        allowed, reason = self._make_dashboard_allow_checker(
+            False, False, api_type='mock', api_version='mock'
+        )
+        assert allowed
+        assert reason == ''
 
     def test_settings_template_default_is_false(self):
         import json
@@ -311,12 +312,10 @@ class TestEnableStockLiveOrderSetting:
         import json
         with open('config/settings_template.json') as f:
             tmpl = json.load(f)
-        stock_auto = tmpl.get('stock_auto_trading', {})
-        for broker_key in ('kiwoom', 'shinhan', 'mirae_asset'):
-            broker_cfg = stock_auto.get(broker_key, {})
-            if broker_cfg:
-                assert not bool(broker_cfg.get('allow_live_order', False)), \
-                    f"{broker_key}.allow_live_order should be False by default"
+        configs = tmpl.get('stock_broker_configs', {})
+        for broker_key in ('kiwoom', 'shinhan', 'miraeAsset', 'koreaInvestment'):
+            assert not bool(configs[broker_key].get('allow_live_order', False)), \
+                f"{broker_key}.allow_live_order should be False by default"
 
 
 # ────────────────────────────────────────────────────────────────────────────

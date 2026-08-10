@@ -343,11 +343,11 @@ class TestStockBrokerApiComboValidation(unittest.TestCase):
     """ExchangeFactory.validate_stock_broker_api_combo 단위 검증"""
 
     def test_valid_kiwoom_openapi_pykiwoom(self):
-        ok, err = ExchangeFactory.validate_stock_broker_api_combo("kiwoom", "openapi", "pykiwoom")
+        ok, err = ExchangeFactory.validate_stock_broker_api_combo("kiwoom", "openapi_plus", "pykiwoom")
         self.assertTrue(ok, err)
 
-    def test_valid_shinhan_rest_solapi_rest(self):
-        ok, err = ExchangeFactory.validate_stock_broker_api_combo("shinhan", "rest", "solapi_rest")
+    def test_valid_shinhan_partner_rest(self):
+        ok, err = ExchangeFactory.validate_stock_broker_api_combo("shinhan", "partner_rest", "shinhan_openapi_v2")
         self.assertTrue(ok, err)
 
     def test_valid_mirae_asset_mock(self):
@@ -360,12 +360,12 @@ class TestStockBrokerApiComboValidation(unittest.TestCase):
         self.assertIn("미지원", err)
 
     def test_invalid_api_version(self):
-        ok, err = ExchangeFactory.validate_stock_broker_api_combo("kiwoom", "openapi", "no_such_version")
+        ok, err = ExchangeFactory.validate_stock_broker_api_combo("kiwoom", "openapi_plus", "no_such_version")
         self.assertFalse(ok)
         self.assertIn("미지원", err)
 
     def test_missing_api_version(self):
-        ok, err = ExchangeFactory.validate_stock_broker_api_combo("shinhan", "openapi", "")
+        ok, err = ExchangeFactory.validate_stock_broker_api_combo("shinhan", "partner_rest", "")
         self.assertFalse(ok)
         self.assertIn("누락", err)
 
@@ -377,6 +377,50 @@ class TestStockBrokerApiComboValidation(unittest.TestCase):
         ok, err = ExchangeFactory.validate_stock_broker_api_combo("miraeasset", "mock", "")
         self.assertTrue(ok, f"miraeasset 별칭 처리 실패: {err}")
 
+    def test_mock_maturity_is_test_only(self):
+        maturity = ExchangeFactory.get_stock_broker_api_maturity("kiwoom", "mock", "mock")
+        self.assertEqual(maturity["status"], "test_only")
+        self.assertTrue(maturity["implemented"])
+        self.assertFalse(maturity["live_order_allowed"])
+
+    def test_kis_official_route_is_implemented(self):
+        maturity = ExchangeFactory.get_stock_broker_api_maturity(
+            "koreaInvestment", "rest", "kis_openapi_v1"
+        )
+        self.assertTrue(maturity["implemented"])
+        self.assertFalse(maturity["live_verified"])
+        self.assertTrue(maturity["live_order_allowed"])
+
+    def test_xingapi_is_not_a_shinhan_choice(self):
+        ok, err = ExchangeFactory.validate_stock_broker_api_combo(
+            "shinhan", "openapi", "xingapi"
+        )
+        maturity = ExchangeFactory.get_stock_broker_api_maturity(
+            "shinhan", "openapi", "xingapi"
+        )
+        self.assertFalse(ok)
+        self.assertFalse(maturity["implemented"])
+        with self.assertRaisesRegex(ValueError, "미지원"):
+            ExchangeFactory.create_stock_exchange(
+                "shinhan",
+                {
+                    "stock_broker_configs": {
+                        "shinhan": {
+                            "api_type": "openapi",
+                            "api_version": "xingapi",
+                        }
+                    }
+                },
+            )
+
+    def test_unknown_maturity_fails_closed(self):
+        maturity = ExchangeFactory.get_stock_broker_api_maturity(
+            "unknown_broker", "openapi", "v1"
+        )
+        self.assertEqual(maturity["status"], "unregistered")
+        self.assertFalse(maturity["implemented"])
+        self.assertFalse(maturity["live_order_allowed"])
+
 
 class TestStockCredentialFallback(unittest.TestCase):
     """REST 브로커 인증값 폴백(id/password -> app_key/app_secret) 검증"""
@@ -386,8 +430,8 @@ class TestStockCredentialFallback(unittest.TestCase):
             "stock_broker_configs": {
                 "shinhan": {
                     "enabled": True,
-                    "api_type": "openapi",
-                    "api_version": "solapi",
+                    "api_type": "partner_rest",
+                    "api_version": "shinhan_openapi_v2",
                     "id": "shinhan_app_key_like",
                     "password": "shinhan_secret_like",
                     "account_no": "123-45-67890",
@@ -404,8 +448,8 @@ class TestStockCredentialFallback(unittest.TestCase):
             "stock_broker_configs": {
                 "miraeAsset": {
                     "enabled": True,
-                    "api_type": "openapi",
-                    "api_version": "miraemts",
+                    "api_type": "partner_rest",
+                    "api_version": "mirae_partner_profile",
                     "id": "mirae_app_key_like",
                     "password": "mirae_secret_like",
                     "account_no": "123-45-67890",
@@ -428,15 +472,20 @@ class TestSettingsToAdapterFlow(unittest.TestCase):
     def _make_settings(self, broker: str, **overrides) -> Dict[str, Any]:
         default_versions = {
             "kiwoom": "pykiwoom",
-            "shinhan": "solapi",
-            "miraeAsset": "miraemts",
+            "shinhan": "shinhan_openapi_v2",
+            "miraeAsset": "mirae_partner_profile",
+        }
+        default_types = {
+            "kiwoom": "openapi_plus",
+            "shinhan": "partner_rest",
+            "miraeAsset": "partner_rest",
         }
         base = {
             "id": "user_from_settings",
             "password": "pw_from_settings",
             "cert_password": "cert_from_settings",
             "account_no": "acct_from_settings",
-            "api_type": "openapi",
+            "api_type": default_types.get(broker, "partner_rest"),
             "api_version": default_versions.get(broker, ""),
             "enabled": True,
             "asset_types": ["stock", "etf"],
@@ -470,7 +519,7 @@ class TestSettingsToAdapterFlow(unittest.TestCase):
 
     def test_invalid_api_version_raises_error(self):
         """api_type/api_version 조합이 잘못되면 생성을 차단해야 함"""
-        settings = self._make_settings("kiwoom", api_type="openapi", api_version="invalid_version")
+        settings = self._make_settings("kiwoom", api_type="openapi_plus", api_version="invalid_version")
         with self.assertRaises(ValueError):
             ExchangeFactory.create_stock_exchange("kiwoom", settings)
 
@@ -521,7 +570,7 @@ class TestDashboardAdapterFlow(unittest.TestCase):
                     "cert_password": "test_cert",
                     "account_no": "1234567890",
                     "enabled": True,
-                    "api_type": "openapi",
+                    "api_type": "openapi_plus",
                     "api_version": "pykiwoom",
                 }
             }
@@ -648,20 +697,20 @@ class TestAPIVersionSelection(unittest.TestCase):
         config = settings["stock_broker_configs"]["kiwoom"]
         self.assertEqual(config["api_type"], "mock")
 
-    def test_api_type_openapi_recognized(self):
-        """api_type = openapi 설정 인식 검증"""
+    def test_api_type_openapi_plus_recognized(self):
+        """api_type = openapi_plus 설정 인식 검증"""
         settings = {
             "stock_broker_configs": {
                 "kiwoom": {
                     "id": "u", "password": "p",
-                    "api_type": "openapi",
+                    "api_type": "openapi_plus",
                     "api_version": "pykiwoom",
                     "enabled": True,
                 }
             }
         }
         config = settings["stock_broker_configs"]["kiwoom"]
-        self.assertEqual(config["api_type"], "openapi")
+        self.assertEqual(config["api_type"], "openapi_plus")
         self.assertEqual(config["api_version"], "pykiwoom")
 
     def test_factory_mock_type_returns_mock_adapter(self):

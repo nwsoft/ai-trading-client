@@ -193,6 +193,7 @@ class Recorder:
                     AVG({fee_expr}) as avg_fee
                 FROM trade_log
                 WHERE exit_time IS NOT NULL
+                  AND LOWER(COALESCE(reason, '')) != 'binance_import'
                 GROUP BY LOWER(COALESCE(exchange, 'binance'))
                 """
             )
@@ -228,6 +229,7 @@ class Recorder:
                     COALESCE(SUM({fee_expr}), 0.0)
                 FROM trade_log
                 WHERE exit_time IS NOT NULL
+                  AND LOWER(COALESCE(reason, '')) != 'binance_import'
                 """
             )
             trade_total_pnl, trade_total_fees = cursor.fetchone() or (0.0, 0.0)
@@ -491,13 +493,49 @@ class Recorder:
                         quantity REAL DEFAULT 0.0,
                         cost REAL DEFAULT 0.0,
                         fee REAL DEFAULT 0.0,
+                        realized_pnl REAL DEFAULT 0.0,
                         fee_currency TEXT,
                         executed_at DATETIME,
                         raw_status TEXT,
+                        confirmation_status TEXT NOT NULL DEFAULT 'legacy_unverified',
                         source TEXT DEFAULT 'exchange_api',
                         created_at DATETIME DEFAULT CURRENT_TIMESTAMP
                     )
                 """)
+                cursor.execute("""
+                    CREATE TABLE IF NOT EXISTS exchange_order_receipt (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        exchange TEXT NOT NULL,
+                        order_id TEXT NOT NULL,
+                        symbol TEXT NOT NULL,
+                        side TEXT,
+                        requested_quantity REAL DEFAULT 0.0,
+                        status TEXT,
+                        confirmed INTEGER NOT NULL DEFAULT 0,
+                        submitted_at DATETIME,
+                        last_checked_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                        source TEXT,
+                        raw_json TEXT,
+                        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                        UNIQUE(exchange, order_id)
+                    )
+                """)
+                try:
+                    cursor.execute(
+                        "ALTER TABLE exchange_execution_log ADD COLUMN "
+                        "confirmation_status TEXT NOT NULL DEFAULT 'legacy_unverified'"
+                    )
+                except sqlite3.OperationalError as exc:
+                    if "duplicate column" not in str(exc).lower():
+                        raise
+                try:
+                    cursor.execute(
+                        "ALTER TABLE exchange_execution_log ADD COLUMN "
+                        "realized_pnl REAL DEFAULT 0.0"
+                    )
+                except sqlite3.OperationalError as exc:
+                    if "duplicate column" not in str(exc).lower():
+                        raise
 
                 # 주식/ETF 브로커·자산유형별 거래 통계 테이블
                 cursor.execute("""
@@ -620,9 +658,27 @@ class Recorder:
         except Exception as e:
             log_event('trade', f"데이터베이스 초기화 오류: {e}", exchange=self.exchange, level='ERROR')
 
-    def log_trade_entry(self, position, trade_params: Dict):
-        """거래 진입 로그"""
+    def log_trade_entry(self, position, trade_params: Dict) -> Optional[int]:
+        """거래 진입 로그를 멱등하게 보존한다.
+
+        공통(CCXT) 거래 경로는 실제 체결 원장과 별개로 이 행이 있어야 청산
+        시 손익 UPDATE, 거래통계, AI 리포트가 같은 거래를 이어서 볼 수 있다.
+        """
         try:
+            exchange = str(trade_params.get('exchange') or '').strip().lower() or None
+            order_id = str(trade_params.get('order_id') or '').strip() or None
+            if exchange and order_id:
+                existing = self.execute_query(
+                    """
+                    SELECT id FROM trade_log
+                    WHERE LOWER(COALESCE(exchange, '')) = ? AND order_id = ?
+                    ORDER BY id DESC LIMIT 1
+                    """,
+                    (exchange, order_id),
+                )
+                if existing:
+                    return int(existing[0][0])
+
             trade_log = TradeLog(
                 id=None,
                 symbol=position.symbol,
@@ -640,16 +696,31 @@ class Recorder:
                 sl_price=position.sl_price,
                 fees=0.0,
                 slippage=0.0,
-                exchange=trade_params.get('exchange')
+                exchange=exchange,
+                order_id=order_id,
             )
 
-            self.insert_trade_log(trade_log)
+            inserted_id = self.insert_trade_log(trade_log)
+            if inserted_id is None:
+                log_event('trade', f"거래 진입 로그 저장 실패: {position.symbol}", exchange=self.exchange, level='ERROR')
+                return None
             log_event('trade', f"거래 진입 로그 기록: {position.symbol}", exchange=self.exchange, level='INFO')
+            return inserted_id
 
         except Exception as e:
             log_event('trade', f"거래 진입 로그 기록 오류: {e}", exchange=self.exchange, level='ERROR')
+            return None
 
-    def log_trade_exit(self, position, reason: str, exit_price: float, actual_trade_info: Optional[Dict[str, Any]] = None):
+    def log_trade_exit(
+        self,
+        position,
+        reason: str,
+        exit_price: float,
+        actual_trade_info: Optional[Dict[str, Any]] = None,
+        *,
+        exchange: Optional[str] = None,
+        exit_order_id: Optional[str] = None,
+    ) -> bool:
         """거래 청산 로그 - 실제 체결 정보(있으면) 기반 정확한 계산
         - actual_trade_info가 제공되면 그 값을 우선 사용
         - 미제공 시 Binance 전용 get_actual_trade_info() → 폴백 추정 순으로 처리
@@ -685,7 +756,11 @@ class Recorder:
             # ③ 수수료/슬리피지 '화폐단위'로 정리 후 차감
             #   - 추정만 쓸 때도 화폐단위로 계산(퍼센트 혼합 금지)
             fees_ccy = actual_fees if actual_trade_info else notional * 0.0004   # 왕복 0.04% 가정
-            slip_ccy = notional * 0.0002                                        # 0.02% 가정
+            slip_ccy = (
+                max(0.0, float(actual_slippage or 0.0))
+                if actual_trade_info
+                else notional * 0.0002
+            )  # 실제값이 없을 때만 0.02% 가정
 
             net_pnl_ccy = gross_pnl_ccy - fees_ccy - slip_ccy
 
@@ -725,16 +800,21 @@ class Recorder:
                 pnl_percent=net_pnl_percent,
                 fees=actual_fees,
                 slippage=actual_slippage,
-                reason=reason
+                reason=reason,
+                exchange=exchange,
+                entry_order_id=getattr(position, 'entry_order_id', None),
+                exit_order_id=exit_order_id,
             )
 
             if success:
                 log_event('trade', f"거래 청산 로그 업데이트 완료: {position.symbol} - 순수익률: {net_pnl_percent:.2f}% (수수료/슬리피지 포함)", exchange=self.exchange, level='INFO')
             else:
                 log_event('trade', f"거래 청산 로그 업데이트 실패: {position.symbol}", exchange=self.exchange, level='ERROR')
+            return bool(success)
 
         except Exception as e:
             log_event('trade', f"거래 청산 로그 기록 오류: {e}", exchange=self.exchange, level='ERROR')
+            return False
 
     def get_actual_trade_info(self, symbol: str, entry_time: datetime, side: str):
         """바이낸스 API에서 실제 거래 정보 가져오기"""
@@ -1315,6 +1395,10 @@ class Recorder:
                     side = str(trade.get('side') or '').strip().lower()
                     trade_id = str(trade.get('id') or trade.get('trade_id') or '').strip()
                     order_id = str(trade.get('order') or trade.get('order_id') or '').strip()
+                    # create_order 응답은 id가 체결 ID가 아니라 주문 ID다. 두 값이
+                    # 같으면 개별 체결 ID로 취급하지 않아 주문별 상세 복구 시 기존
+                    # 불완전 행을 갱신할 수 있게 한다.
+                    distinct_trade_id = trade_id if trade_id and trade_id != order_id else ''
                     executed_at = self._execution_time_text(
                         trade.get('timestamp')
                         or trade.get('datetime')
@@ -1327,11 +1411,17 @@ class Recorder:
                     price = self._execution_number(
                         trade.get('average') or trade.get('price') or trade.get('filled_price')
                     )
-                    cost = self._execution_number(trade.get('cost'))
+                    cost = self._execution_number(
+                        trade.get('cost') or trade.get('quote_qty') or trade.get('quoteQty')
+                    )
                     if cost <= 0 and price > 0 and quantity > 0:
                         cost = price * quantity
 
                     fee_value = 0.0
+                    realized_pnl = self._execution_number(
+                        trade.get('realized_pnl') or trade.get('realizedPnl')
+                        or trade.get('pnl') or trade.get('profit')
+                    )
                     fee_currency = ''
                     fee_obj = trade.get('fee')
                     if isinstance(fee_obj, dict):
@@ -1339,31 +1429,77 @@ class Recorder:
                         fee_currency = str(fee_obj.get('currency') or '').strip().upper()
                     else:
                         fee_value = self._execution_number(
-                            trade.get('fee_cost') or trade.get('feeCost') or fee_obj
+                            trade.get('fee_cost') or trade.get('feeCost')
+                            or trade.get('commission') or fee_obj
                         )
+                        fee_currency = str(
+                            trade.get('commission_asset') or trade.get('commissionAsset') or ''
+                        ).strip().upper()
 
                     if not symbol or quantity <= 0 or (not trade_id and not order_id and not executed_at):
                         result['skipped'] += 1
                         continue
 
                     identity = '|'.join([
-                        venue, trade_id, order_id, symbol, side, executed_at,
+                        venue, distinct_trade_id, order_id, symbol, side, executed_at,
                         f'{quantity:.12f}', f'{price:.12f}',
                     ])
                     execution_key = hashlib.sha256(identity.encode('utf-8')).hexdigest()
+                    # 주문 접수 응답을 실제 체결로 오인하지 않는다. API 동기화의
+                    # 과거 데이터는 filled/closed 계약을 이미 통과하며, 새 주문은
+                    # UnifiedTrader가 _execution_confirmed를 명시한다.
+                    confirmed_marker = trade.get('_execution_confirmed')
+                    status_text = str(trade.get('status') or '').strip().lower()
+                    if confirmed_marker is False or status_text in {'new', 'pending', 'open'}:
+                        result['skipped'] += 1
+                        continue
+
+                    # 같은 주문의 불완전한 접수 기록이 이미 있으면 체결 상세로 보강한다.
+                    existing_id = None
+                    if order_id and not distinct_trade_id:
+                        cursor.execute(
+                            """
+                            SELECT id FROM exchange_execution_log
+                            WHERE exchange = ? AND order_id = ? AND symbol = ?
+                            ORDER BY id DESC LIMIT 1
+                            """,
+                            (venue, order_id, symbol),
+                        )
+                        found = cursor.fetchone()
+                        existing_id = int(found[0]) if found else None
+                    if existing_id is not None:
+                        cursor.execute(
+                            """
+                            UPDATE exchange_execution_log
+                            SET side = ?, price = ?, quantity = ?, cost = ?, fee = ?, realized_pnl = ?,
+                                fee_currency = ?, executed_at = COALESCE(?, executed_at),
+                                raw_status = ?, confirmation_status = 'confirmed', source = ?
+                            WHERE id = ?
+                            """,
+                            (
+                                side, price, quantity, cost, fee_value, realized_pnl,
+                                fee_currency or None, executed_at or None,
+                                str(trade.get('status') or '').strip() or None,
+                                str(source or 'exchange_api'), existing_id,
+                            ),
+                        )
+                        result['inserted'] += 1
+                        continue
+
                     cursor.execute(
                         """
                         INSERT OR IGNORE INTO exchange_execution_log (
                             execution_key, exchange, trade_id, order_id, symbol, side,
-                            price, quantity, cost, fee, fee_currency, executed_at,
-                            raw_status, source
-                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                            price, quantity, cost, fee, realized_pnl, fee_currency, executed_at,
+                            raw_status, confirmation_status, source
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                         """,
                         (
-                            execution_key, venue, trade_id or None, order_id or None,
-                            symbol, side, price, quantity, cost, fee_value,
+                            execution_key, venue, distinct_trade_id or None, order_id or None,
+                            symbol, side, price, quantity, cost, fee_value, realized_pnl,
                             fee_currency or None, executed_at or None,
                             str(trade.get('status') or '').strip() or None,
+                            'confirmed',
                             str(source or 'exchange_api'),
                         ),
                     )
@@ -1381,6 +1517,207 @@ class Recorder:
             )
         return result
 
+    def get_recent_exchange_executions(
+        self,
+        exchange: str,
+        *,
+        limit: int = 200,
+    ) -> List[Dict[str, Any]]:
+        """거래소 API를 호출하지 않고 로컬 확정 체결 원장을 반환한다."""
+        venue = str(exchange or '').strip().lower()
+        if not venue:
+            return []
+        try:
+            with sqlite3.connect(self.db_path, timeout=20.0) as conn:
+                conn.row_factory = sqlite3.Row
+                rows = conn.execute(
+                    """
+                    SELECT trade_id, order_id, symbol, side, price, quantity, cost,
+                           fee, realized_pnl, fee_currency, executed_at, raw_status,
+                           confirmation_status, source
+                    FROM exchange_execution_log
+                    WHERE exchange = ? AND confirmation_status = 'confirmed'
+                    ORDER BY COALESCE(executed_at, created_at) DESC, id DESC
+                    LIMIT ?
+                    """,
+                    (venue, max(1, int(limit))),
+                ).fetchall()
+            return [
+                {
+                    'id': row['trade_id'],
+                    'trade_id': row['trade_id'],
+                    'order': row['order_id'],
+                    'order_id': row['order_id'],
+                    'symbol': row['symbol'],
+                    'side': row['side'],
+                    'price': float(row['price'] or 0.0),
+                    'amount': float(row['quantity'] or 0.0),
+                    'quantity': float(row['quantity'] or 0.0),
+                    'cost': float(row['cost'] or 0.0),
+                    'fee': {
+                        'cost': float(row['fee'] or 0.0),
+                        'currency': row['fee_currency'] or '',
+                    },
+                    'realized_pnl': float(row['realized_pnl'] or 0.0),
+                    'timestamp': row['executed_at'],
+                    'executed_at': row['executed_at'],
+                    'status': row['raw_status'],
+                    'confirmation_status': row['confirmation_status'],
+                    'source': row['source'],
+                }
+                for row in rows
+            ]
+        except Exception as exc:
+            log_event(
+                'trade',
+                f"로컬 체결 원장 조회 오류({venue}): {exc}",
+                exchange=venue,
+                level='ERROR',
+            )
+            return []
+
+    def get_exchange_execution_cursor(self, exchange: str) -> Dict[str, Any]:
+        """증분 거래소 조회에 사용할 마지막 체결 시각·ID를 반환한다."""
+        venue = str(exchange or '').strip().lower()
+        if not venue:
+            return {}
+        try:
+            with sqlite3.connect(self.db_path, timeout=20.0) as conn:
+                row = conn.execute(
+                    """
+                    SELECT trade_id, executed_at
+                    FROM exchange_execution_log
+                    WHERE exchange = ? AND confirmation_status = 'confirmed'
+                    ORDER BY COALESCE(executed_at, created_at) DESC, id DESC
+                    LIMIT 1
+                    """,
+                    (venue,),
+                ).fetchone()
+            if not row:
+                return {}
+            trade_id = str(row[0] or '').strip()
+            executed_at = str(row[1] or '').strip()
+            since_ms = None
+            if executed_at:
+                try:
+                    parsed = datetime.fromisoformat(executed_at.replace('Z', '+00:00'))
+                    since_ms = int(parsed.timestamp() * 1000)
+                except Exception:
+                    since_ms = None
+            return {
+                'trade_id': trade_id or None,
+                'since_ms': since_ms,
+                'executed_at': executed_at or None,
+            }
+        except Exception as exc:
+            log_event(
+                'trade',
+                f"체결 증분 커서 조회 오류({venue}): {exc}",
+                exchange=venue,
+                level='ERROR',
+            )
+            return {}
+
+    def save_exchange_order_receipt(
+        self,
+        exchange: str,
+        order: Dict[str, Any],
+        *,
+        source: str,
+    ) -> bool:
+        """주문 접수와 확정 체결을 분리해 주문 ID별 복구 기준을 보존한다."""
+        venue = str(exchange or '').strip().lower()
+        order_id = str(
+            order.get('order') or order.get('order_id') or order.get('orderId')
+            or order.get('id') or ''
+        ).strip()
+        symbol = str(order.get('symbol') or '').strip().upper()
+        if not venue or not order_id or not symbol:
+            return False
+        try:
+            raw_json = json.dumps(order, ensure_ascii=False, default=str)
+            with sqlite3.connect(self.db_path, timeout=20.0) as conn:
+                conn.execute(
+                    """
+                    INSERT INTO exchange_order_receipt (
+                        exchange, order_id, symbol, side, requested_quantity,
+                        status, confirmed, submitted_at, last_checked_at, source, raw_json
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, ?, ?)
+                    ON CONFLICT(exchange, order_id) DO UPDATE SET
+                        symbol = excluded.symbol,
+                        side = COALESCE(excluded.side, exchange_order_receipt.side),
+                        requested_quantity = CASE
+                            WHEN excluded.requested_quantity > 0 THEN excluded.requested_quantity
+                            ELSE exchange_order_receipt.requested_quantity END,
+                        status = COALESCE(excluded.status, exchange_order_receipt.status),
+                        confirmed = MAX(exchange_order_receipt.confirmed, excluded.confirmed),
+                        submitted_at = COALESCE(exchange_order_receipt.submitted_at, excluded.submitted_at),
+                        last_checked_at = CURRENT_TIMESTAMP,
+                        source = excluded.source,
+                        raw_json = excluded.raw_json
+                    """,
+                    (
+                        venue, order_id, symbol,
+                        str(order.get('side') or '').strip().lower() or None,
+                        self._execution_number(
+                            order.get('amount') or order.get('filled') or order.get('quantity')
+                        ),
+                        str(order.get('status') or '').strip() or None,
+                        1 if bool(order.get('_execution_confirmed')) else 0,
+                        self._execution_time_text(
+                            order.get('timestamp') or order.get('datetime') or order.get('time')
+                        ) or None,
+                        str(source or 'order_receipt'), raw_json,
+                    ),
+                )
+                conn.commit()
+            return True
+        except Exception as exc:
+            log_event('trade', f"주문 접수 원장 저장 오류({venue}): {exc}", exchange=venue, level='ERROR')
+            return False
+
+    def get_exchange_order_references(self, exchange: str, limit: int = 500) -> List[Dict[str, Any]]:
+        """미확정 접수와 상세가 빈 레거시 원장의 주문 ID를 복구 대상으로 반환한다."""
+        venue = str(exchange or '').strip().lower()
+        if not venue:
+            return []
+        try:
+            with sqlite3.connect(self.db_path, timeout=20.0) as conn:
+                cur = conn.cursor()
+                cur.execute(
+                    """
+                    SELECT order_id, symbol, side, status, confirmed
+                    FROM exchange_order_receipt
+                    WHERE exchange = ? AND confirmed = 0
+                      AND LOWER(COALESCE(status, '')) NOT IN (
+                          'canceled', 'cancelled', 'rejected', 'expired',
+                          'failed', 'error'
+                      )
+                    UNION
+                    SELECT order_id, symbol, side, raw_status, 0
+                    FROM exchange_execution_log
+                    WHERE exchange = ? AND order_id IS NOT NULL
+                      AND (confirmation_status != 'confirmed' OR executed_at IS NULL)
+                      AND LOWER(COALESCE(raw_status, '')) NOT IN (
+                          'canceled', 'cancelled', 'rejected', 'expired',
+                          'failed', 'error'
+                      )
+                    LIMIT ?
+                    """,
+                    (venue, venue, max(1, int(limit))),
+                )
+                return [
+                    {
+                        'order_id': row[0], 'symbol': row[1], 'side': row[2],
+                        'status': row[3], 'confirmed': bool(row[4]),
+                    }
+                    for row in cur.fetchall()
+                    if row and row[0]
+                ]
+        except Exception as exc:
+            log_event('trade', f"주문 복구 대상 조회 오류({venue}): {exc}", exchange=venue, level='ERROR')
+            return []
+
     def get_trade_history(self, symbol: Optional[str] = None, days: int = 30, since_ts: Optional[float] = None) -> List[Dict]:
         """거래 히스토리 조회"""
         try:
@@ -1391,6 +1728,7 @@ class Recorder:
                     query = """
                         SELECT * FROM trade_log
                         WHERE symbol = ? AND exit_time > ?
+                          AND LOWER(COALESCE(reason, '')) != 'binance_import'
                         ORDER BY exit_time DESC
                     """
                     params = (symbol, since_datetime)
@@ -1398,6 +1736,7 @@ class Recorder:
                     query = """
                         SELECT * FROM trade_log
                         WHERE exit_time > ?
+                          AND LOWER(COALESCE(reason, '')) != 'binance_import'
                         ORDER BY exit_time DESC
                     """
                     params = (since_datetime,)
@@ -1407,6 +1746,7 @@ class Recorder:
                     query = """
                         SELECT * FROM trade_log
                         WHERE symbol = ? AND exit_time > datetime('now', '-{} days')
+                          AND LOWER(COALESCE(reason, '')) != 'binance_import'
                         ORDER BY exit_time DESC
                     """.format(days)
                     params = (symbol,)
@@ -1414,6 +1754,7 @@ class Recorder:
                     query = """
                         SELECT * FROM trade_log
                         WHERE exit_time > datetime('now', '-{} days')
+                          AND LOWER(COALESCE(reason, '')) != 'binance_import'
                         ORDER BY exit_time DESC
                     """.format(days)
                     params = ()
@@ -1462,7 +1803,11 @@ class Recorder:
         과거 스키마에서 exchange가 비어 있던 행은 기존 Binance 거래로 본다.
         진입만 기록되고 종료되지 않은 행은 학습 단계 계산에서 제외한다.
         """
-        clauses = ["exit_time IS NOT NULL", "exit_price IS NOT NULL"]
+        clauses = [
+            "exit_time IS NOT NULL",
+            "exit_price IS NOT NULL",
+            "LOWER(COALESCE(reason, '')) != 'binance_import'",
+        ]
         params: List[Any] = []
         if exchange:
             clauses.append("COALESCE(NULLIF(LOWER(exchange), ''), 'binance') = ?")
@@ -1493,6 +1838,7 @@ class Recorder:
                     MIN(pnl) as max_drawdown
                 FROM trade_log
                 WHERE exit_time > datetime('now', '-{} days')
+                  AND LOWER(COALESCE(reason, '')) != 'binance_import'
             """.format(days)
 
             results = self.execute_query(query)
@@ -1535,6 +1881,7 @@ class Recorder:
             query = """
                 SELECT * FROM trade_log
                 WHERE exit_time >= ? AND exit_time < ?
+                  AND LOWER(COALESCE(reason, '')) != 'binance_import'
                 ORDER BY exit_time DESC
             """
             params = (start_date.isoformat(), end_date.isoformat())
@@ -1581,6 +1928,7 @@ class Recorder:
                     MIN(pnl_percent) as worst_trade
                 FROM trade_log
                 WHERE symbol = ? AND exit_time > datetime('now', '-{} days')
+                  AND LOWER(COALESCE(reason, '')) != 'binance_import'
             """.format(days)
 
             results = self.execute_query(query, (symbol,))
@@ -1625,6 +1973,7 @@ class Recorder:
                     AVG(CASE WHEN pnl_percent > 0 THEN pnl_percent END) as avg_profit_rate
                 FROM trade_log
                 WHERE symbol = ? AND exit_time > datetime('now', ?)
+                  AND LOWER(COALESCE(reason, '')) != 'binance_import'
             """
             params = (symbol, f'-{hours} hours')
             results = self.execute_query(query, params)
@@ -1650,6 +1999,7 @@ class Recorder:
                 f"""
                 SELECT reason FROM trade_log
                 WHERE symbol = ? AND pnl_percent < 0 AND exit_time > datetime('now', ?)
+                  AND LOWER(COALESCE(reason, '')) != 'binance_import'
                 """,
                 (symbol, f'-{hours} hours')
             )
@@ -2330,7 +2680,7 @@ class Recorder:
                     selection_reason, adjustment_factor)
                     VALUES (?, ?, ?, ?, ?, ?, ?)
                 """, (
-                    datetime.now(),
+                    self._to_db_datetime(datetime.now()),
                     market_regime,
                     len(selected_coins),
                     num_major,
@@ -2375,79 +2725,76 @@ class Recorder:
             return -1
 
     def migrate_database_schema(self):
-        """데이터베이스 스키마 마이그레이션 (NOT NULL 제약 해결)"""
+        """기존 거래를 보존하면서 ``trade_log`` 스키마를 증분 보강한다.
+
+        이 메서드는 앱 시작 때마다 호출된다. 따라서 테이블을 삭제·재생성하거나
+        청산된 행만 복원하면 미청산 거래와 거래소/주문 식별자가 유실된다.
+        필요한 컬럼과 인덱스만 멱등적으로 추가하고, 행 수가 바뀌지 않았는지
+        검증한다.
+        """
         try:
             with sqlite3.connect(self.db_path) as conn:
                 cursor = conn.cursor()
 
-                # 기존 테이블이 있는지 확인
                 cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='trade_log'")
                 if not cursor.fetchone():
                     log_event('trade', "trade_log 테이블이 없습니다. 새로 생성합니다.", exchange=self.exchange, level='INFO')
+                    self.init_database()
                     return
 
-                # 1. 기존 테이블 백업 (실제 청산된 거래만)
-                cursor.execute("""
-                    CREATE TABLE IF NOT EXISTS trade_log_backup AS
-                    SELECT * FROM trade_log WHERE exit_time IS NOT NULL
-                """)
+                cursor.execute("SELECT COUNT(*) FROM trade_log")
+                rows_before = int((cursor.fetchone() or [0])[0] or 0)
 
-                # 2. 기존 테이블 삭제
-                cursor.execute("DROP TABLE IF EXISTS trade_log")
+                required_columns = {
+                    'exchange': 'TEXT',
+                    'order_id': 'TEXT',
+                    'exit_order_id': 'TEXT',
+                    'model_version': 'TEXT',
+                    'strategy_variant': 'TEXT',
+                    'fee_asset': 'TEXT',
+                    'fee_source': 'TEXT',
+                }
+                existing_columns = set(self._get_table_columns(cursor, 'trade_log'))
+                added_columns = []
+                for column, column_type in required_columns.items():
+                    if column not in existing_columns:
+                        cursor.execute(
+                            f"ALTER TABLE trade_log ADD COLUMN {column} {column_type}"
+                        )
+                        added_columns.append(column)
 
-                # 3. 새로운 스키마로 테이블 생성 (NULL 허용)
-                cursor.execute("""
-                    CREATE TABLE IF NOT EXISTS trade_log (
-                        id INTEGER PRIMARY KEY AUTOINCREMENT,
-                        symbol TEXT NOT NULL,
-                        side TEXT NOT NULL,
-                        entry_price REAL NOT NULL,
-                        exit_price REAL,
-                        quantity REAL NOT NULL,
-                        leverage INTEGER NOT NULL,
-                        pnl REAL,
-                        pnl_percent REAL,
-                        reason TEXT,
-                        entry_time DATETIME NOT NULL,
-                        exit_time DATETIME,
-                        tp_price REAL,
-                        sl_price REAL,
-                        fees REAL DEFAULT 0,
-                        slippage REAL DEFAULT 0,
-                        exchange TEXT,
-                        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-                    )
-                """)
-
-                # 4. 백업 데이터 복원 (실제 청산된 거래만)
-                # 백업 데이터 복원 시 exchange 컬럼이 없을 수 있으므로, COALESCE로 None 처리
-                cursor.execute("""
-                    INSERT INTO trade_log (
-                        symbol, side, entry_price, exit_price, quantity, leverage,
-                        pnl, pnl_percent, reason, entry_time, exit_time, tp_price, sl_price,
-                        fees, slippage, exchange, created_at
-                    )
-                    SELECT
-                        symbol, side, entry_price, exit_price, quantity, leverage,
-                        pnl, pnl_percent, reason, entry_time, exit_time, tp_price, sl_price,
-                        fees, slippage, NULL as exchange, created_at
-                    FROM trade_log_backup
-                """)
-
-                # 5. 인덱스 생성
                 cursor.execute("""
                     CREATE INDEX IF NOT EXISTS idx_trade_symbol_entry
                     ON trade_log(symbol, entry_time)
                 """)
-
-                # 6. 백업 테이블 삭제
-                cursor.execute("DROP TABLE IF EXISTS trade_log_backup")
+                cursor.execute("""
+                    CREATE INDEX IF NOT EXISTS idx_trade_exchange_exit_time
+                    ON trade_log(exchange, exit_time)
+                """)
 
                 # exchange_trade_stats fee 컬럼/백필/검증
                 self._run_exchange_trade_stats_fee_migration(conn, cursor)
 
                 conn.commit()
-                log_event('trade', "✅ 데이터베이스 스키마 마이그레이션 완료", exchange=self.exchange, level='INFO')
+                cursor.execute("SELECT COUNT(*) FROM trade_log")
+                rows_after = int((cursor.fetchone() or [0])[0] or 0)
+                final_columns = set(self._get_table_columns(cursor, 'trade_log'))
+                missing_columns = sorted(set(required_columns) - final_columns)
+                if rows_after != rows_before:
+                    raise RuntimeError(
+                        f"trade_log 행 수 변경 감지: before={rows_before}, after={rows_after}"
+                    )
+                if missing_columns:
+                    raise RuntimeError(
+                        f"trade_log 필수 컬럼 보강 실패: {', '.join(missing_columns)}"
+                    )
+                log_event(
+                    'trade',
+                    "✅ 데이터베이스 증분 마이그레이션 완료 "
+                    f"(rows={rows_after}, added={added_columns or ['none']})",
+                    exchange=self.exchange,
+                    level='INFO',
+                )
 
         except Exception as e:
             log_event('trade', f"데이터베이스 스키마 마이그레이션 오류: {e}", exchange=self.exchange, level='ERROR')
@@ -2455,21 +2802,59 @@ class Recorder:
 
     def update_trade_on_exit(self, symbol: str, entry_time: datetime, *,
                            exit_price: float, pnl: float, pnl_percent: float,
-                           fees: float, slippage: float, reason: str, side: Optional[str] = None):
+                           fees: float, slippage: float, reason: str,
+                           side: Optional[str] = None,
+                           exchange: Optional[str] = None,
+                           entry_order_id: Optional[str] = None,
+                           exit_order_id: Optional[str] = None):
         try:
             log_event('trade', f"🔍 [DEBUG] update_trade_log 호출: symbol={symbol}, exit_price={exit_price}, entry_time={entry_time}, pnl_percent={pnl_percent}, pnl={pnl}, reason={reason}", exchange=self.exchange, level='INFO')
 
             with sqlite3.connect(self.db_path) as conn:
                 cursor = conn.cursor()
 
-                # 해당 심볼의 가장 최근 미종료 거래 찾기
-                cursor.execute("""
+                # 거래소·주문 ID·방향까지 사용해 동일 심볼의 다른 거래소/재진입을
+                # 잘못 청산하지 않는다. 패치 전 레거시 행은 주문 ID가 없을 수 있어
+                # 동일 거래소+심볼+방향으로 한 번만 폴백한다.
+                params: List[Any] = [symbol]
+                where = ["symbol = ?", "exit_time IS NULL"]
+                if exchange:
+                    where.append("LOWER(COALESCE(exchange, '')) = ?")
+                    params.append(str(exchange).lower())
+                if side:
+                    where.append("UPPER(COALESCE(side, '')) = ?")
+                    params.append(str(side).upper())
+                if entry_order_id:
+                    where.append("order_id = ?")
+                    params.append(str(entry_order_id))
+                cursor.execute(
+                    f"""
                     SELECT id, entry_price, quantity, side FROM trade_log
-                    WHERE symbol = ? AND exit_time IS NULL
+                    WHERE {' AND '.join(where)}
                     ORDER BY entry_time DESC LIMIT 1
-                """, (symbol,))
+                    """,
+                    tuple(params),
+                )
 
                 trade_data = cursor.fetchone()
+                if trade_data is None and entry_order_id:
+                    fallback_params: List[Any] = [symbol]
+                    fallback_where = ["symbol = ?", "exit_time IS NULL"]
+                    if exchange:
+                        fallback_where.append("LOWER(COALESCE(exchange, '')) = ?")
+                        fallback_params.append(str(exchange).lower())
+                    if side:
+                        fallback_where.append("UPPER(COALESCE(side, '')) = ?")
+                        fallback_params.append(str(side).upper())
+                    cursor.execute(
+                        f"""
+                        SELECT id, entry_price, quantity, side FROM trade_log
+                        WHERE {' AND '.join(fallback_where)}
+                        ORDER BY entry_time DESC LIMIT 1
+                        """,
+                        tuple(fallback_params),
+                    )
+                    trade_data = cursor.fetchone()
                 if trade_data:
                     trade_id, entry_price, quantity, side = trade_data
                     log_event('trade', f"🔍 [DEBUG] 찾은 거래: id={trade_id}, entry_price={entry_price}, quantity={quantity}, side={side}", exchange=self.exchange, level='INFO')
@@ -2477,9 +2862,14 @@ class Recorder:
                     # 종료 정보 업데이트
                     cursor.execute("""
                         UPDATE trade_log
-                        SET exit_price = ?, exit_time = ?, pnl = ?, pnl_percent = ?, reason = ?
+                        SET exit_price = ?, exit_time = ?, pnl = ?, pnl_percent = ?, reason = ?,
+                            fees = ?, slippage = ?, exit_order_id = ?
                         WHERE id = ?
-                    """, (exit_price, datetime.now(), pnl, pnl_percent, reason, trade_id))
+                    """, (
+                        exit_price, self._to_db_datetime(datetime.now()), pnl, pnl_percent, reason,
+                        fees, slippage, str(exit_order_id) if exit_order_id else None,
+                        trade_id,
+                    ))
 
                     conn.commit()
 
@@ -2513,7 +2903,16 @@ class Recorder:
                         SET exit_price=?, exit_time=?, pnl=?, pnl_percent=?, fees=?, slippage=?, reason=?
                         WHERE id=?
                         """,
-                        (exit_price, datetime.now(), pnl, pnl_percent, fees, slippage, reason, trade_id)
+                        (
+                            exit_price,
+                            self._to_db_datetime(datetime.now()),
+                            pnl,
+                            pnl_percent,
+                            fees,
+                            slippage,
+                            reason,
+                            trade_id,
+                        )
                     )
                     if cursor.rowcount > 0:
                         conn.commit()
@@ -2541,18 +2940,43 @@ class Recorder:
             log_event('trade', f"거래 청산 업데이트 오류: {e}", exchange=self.exchange, level='ERROR')
             return False
 
-    def get_recent_trades(self, coin: str, exchange: Optional[str] = None, days: int = 30) -> List[Dict[str, Any]]:
-        """최근 거래 이력 조회"""
+    def get_recent_trades(
+        self,
+        coin: str = "",
+        exchange: Optional[str] = None,
+        days: int = 30,
+        *,
+        symbol: Optional[str] = None,
+    ) -> List[Dict[str, Any]]:
+        """최근 청산 거래를 조회한다.
+
+        ``symbol``이 전달되면 ``H/KRW``·``AVAX/USDT:USDT`` 같은 거래소 원본
+        심볼을 정확히 조회한다. ``coin``은 기존 USDT 호출과의 호환용이며,
+        둘 다 비어 있으면 해당 거래소의 모든 결제통화 거래를 반환한다.
+        """
         try:
-            symbol_like = f"{coin}%USDT%"
+            try:
+                safe_days = max(1, min(int(days), 3650))
+            except (TypeError, ValueError):
+                safe_days = 30
+
             query = (
                 "SELECT symbol, COALESCE(exchange, ''), pnl, pnl_percent, entry_time, exit_time "
                 "FROM trade_log "
-                f"WHERE symbol LIKE ? AND exit_time > datetime('now', '-{days} days') "
+                f"WHERE exit_time > datetime('now', '-{safe_days} days') "
+                "AND LOWER(COALESCE(reason, '')) != 'binance_import' "
             )
-            params: List[Any] = [symbol_like]
+            params: List[Any] = []
+            normalized_symbol = str(symbol or "").strip()
+            normalized_coin = str(coin or "").strip()
+            if normalized_symbol:
+                query += "AND UPPER(symbol) = UPPER(?) "
+                params.append(normalized_symbol)
+            elif normalized_coin:
+                query += "AND UPPER(symbol) LIKE UPPER(?) "
+                params.append(f"{normalized_coin}%USDT%")
             if exchange:
-                query += "AND exchange = ? "
+                query += "AND LOWER(COALESCE(exchange, '')) = LOWER(?) "
                 params.append(exchange)
             query += "ORDER BY exit_time DESC"
 

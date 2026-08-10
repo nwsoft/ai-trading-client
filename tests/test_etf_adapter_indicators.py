@@ -115,12 +115,14 @@ def _make_shinhan_backend(etf_items: List[Dict[str, Any]]):
         _mock_token = "test_token"
         headers: Dict = {}
 
-        def get(self, url, params=None, timeout=None):
+        def get(self, url, params=None, headers=None, timeout=None):
             if "etf-list" in url:
                 return FakeRespShinhan({"etfs": items_ref})
             return FakeRespShinhan({})
 
-        def post(self, url, json=None, timeout=None):
+        def post(self, url, json=None, headers=None, timeout=None):
+            if "etf-list" in url:
+                return FakeRespShinhan({"etfs": items_ref})
             return FakeRespShinhan({"access_token": "test_token", "expires_in": 86400})
 
     return FakeHttp()
@@ -131,6 +133,10 @@ class TestShinhanAdapterETF:
         adapter = ShinhanStockAdapter(
             user_id="u", password="p", account_no="1234",
             app_key="k", app_secret="s",
+            partner_profile={
+                'base_url': 'https://partner.test', 'token_path': '/oauth/token',
+                'endpoints': {'etf_list': '/v1/market/domestic/etf-list'},
+            },
         )
         adapter._http = _make_shinhan_backend(etf_items)
         adapter.connect()
@@ -205,13 +211,21 @@ class TestShinhanAdapterETF:
             _mock_token = "t"
             headers: Dict = {}
 
-            def get(self, url, params=None, timeout=None):
+            def get(self, url, params=None, headers=None, timeout=None):
                 return FakeRespShinhan({})
 
-            def post(self, url, json=None, timeout=None):
+            def post(self, url, json=None, headers=None, timeout=None):
+                if "etf-list" in url:
+                    return FakeRespShinhan({})
                 return FakeRespShinhan({"access_token": "t", "expires_in": 86400})
 
-        adapter = ShinhanStockAdapter(user_id="u", password="p", app_key="k", app_secret="s")
+        adapter = ShinhanStockAdapter(
+            user_id="u", password="p", app_key="k", app_secret="s",
+            partner_profile={
+                'base_url': 'https://partner.test', 'token_path': '/oauth/token',
+                'endpoints': {'etf_list': '/v1/market/domestic/etf-list'},
+            },
+        )
         adapter._http = EmptyHttp()
         adapter.connect()
         assert adapter.get_etf_list() == []
@@ -236,12 +250,12 @@ def _make_mirae_backend(etf_items: List[Dict[str, Any]]):
         _mock_token = "test_token"
         headers: Dict = {}
 
-        def get(self, url, params=None, timeout=None):
+        def get(self, url, params=None, headers=None, timeout=None):
             if "inquire-etf-daily" in url:
                 return FakeRespMirae({"output": items_ref})
             return FakeRespMirae({})
 
-        def post(self, url, json=None, timeout=None):
+        def post(self, url, json=None, headers=None, timeout=None):
             return FakeRespMirae({"access_token": "test_token", "expires_in": 86400})
 
     return FakeHttp()
@@ -252,6 +266,10 @@ class TestMiraeAssetAdapterETF:
         adapter = MiraeAssetStockAdapter(
             user_id="u", password="p", account_no="1234",
             app_key="k", app_secret="s",
+            partner_profile={
+                'base_url': 'https://partner.test', 'token_path': '/oauth2/token',
+                'endpoints': {'etf_info': '/uapi/domestic-stock/v1/quotations/inquire-etf-daily'},
+            },
         )
         adapter._http = _make_mirae_backend(etf_items)
         adapter.connect()
@@ -313,15 +331,21 @@ class TestMiraeAssetAdapterETF:
             _mock_token = "t"
             headers: Dict = {}
 
-            def get(self, url, params=None, timeout=None):
+            def get(self, url, params=None, headers=None, timeout=None):
                 single = {"stck_shrt_cd": "069500", "prdt_name": "K200",
                           "stck_prpr": "35000", "nav": "34950"}
                 return FakeRespMirae({"output": single})
 
-            def post(self, url, json=None, timeout=None):
+            def post(self, url, json=None, headers=None, timeout=None):
                 return FakeRespMirae({"access_token": "t", "expires_in": 86400})
 
-        adapter = MiraeAssetStockAdapter(user_id="u", password="p", app_key="k", app_secret="s")
+        adapter = MiraeAssetStockAdapter(
+            user_id="u", password="p", app_key="k", app_secret="s",
+            partner_profile={
+                'base_url': 'https://partner.test', 'token_path': '/oauth2/token',
+                'endpoints': {'etf_info': '/uapi/domestic-stock/v1/quotations/inquire-etf-daily'},
+            },
+        )
         adapter._http = DictHttp()
         adapter.connect()
         result = adapter.get_etf_list()

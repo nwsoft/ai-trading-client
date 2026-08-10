@@ -1,25 +1,42 @@
-# NoahAI 시스템 아키텍처 (v3.9.0.2)
+# NoahAI 시스템 아키텍처 (v3.9.0.5)
 
 ## 🚀 최신 버전 정보
 
 **본 문서 마지막 대규모 갱신 기준**: v3.8.9.11 (2026-01-25)  
-**운영 기준 최신 패치 동기화**: v3.9.0.2 (2026-07-26)  
+**운영 기준 최신 패치 동기화**: v3.9.0.5 Fix Patch 5 (2026-08-01)  
+
+**v3.9.0.5 계좌 상태·소스 정합**:
+
+- `ui.controllers.account_state_controller`가 현물 보유자산과 선물 포지션, PAPER 가상 포지션, 정상 빈 상태와 조회 실패를 서로 다른 계약으로 정규화한다.
+- PAPER 표시는 Binance `paper_active_positions`과 통합 거래소 `paper_positions`만 사용하며 실계정 저장소·실잔고를 혼합하지 않는다.
+- 대시보드는 Upbit·Bithumb에서 계좌 잔고 캐시를 사용해 양수 보유자산을 표시하고, 선물 거래소에서만 포지션 API를 사용한다.
+- 활성 소스 구문·금지 변형·대시보드 정의 전용 메서드·격리 해시·증권 계약·필수 문서는 `scripts/active_source_audit.py`로 검증한다.
+- 미사용/손상/레거시 소스는 활성 패키지 밖에 보존하고 `config/source_quarantine_manifest.json`을 복원 정본으로 사용한다.
+
+**v3.9.0.5 증권 실행 정본**:
+
+- 키움 `openapi_plus/pykiwoom`, 신한 `partner_rest/shinhan_openapi_v2`, 미래에셋 `partner_rest/mirae_partner_profile`, 한국투자 `rest/kis_openapi_v1`
+- 구 API 선택지는 설정 로드 시 정본으로 이전하며, 신한에 잘못 연결된 LS XingAPI 계정은 신한 활성/LIVE만 안전하게 해제한다.
+- 실행 모드는 `PAPER 우선 → (NOT PAPER AND 전역 LIVE AND 증권사 LIVE AND 어댑터 준비 AND 주문 가드레일)일 때만 LIVE → 그 외 LEARNING`이다.
+- 소스 계약과 회귀는 완료됐지만 Windows EXE·키움 OCX·증권사 실계정 주문은 배포 후 검증 대상이다.
+- 세부 계약은 `docs/STOCK_BROKER_CONTRACTS_v3.9.0.5.md`를 정본으로 사용한다.
 
 **v3.9.0.2 신규 구조**: AI 커스텀 시장국면 추천과 NoahAI 어시스턴트 안전 작업 경계
 
-**v3.9.0.2 IP 라이선스·레퍼럴 회원권한 후속 구조 (2026-07-27)**:
+**v3.9.0.7 IP 라이선스·레퍼럴 UID 귀속 권한 구조 (2026-08-05)**:
 
 ```text
 daltrading 관리자 설정
   ├─ 회원등급: referral / pro_coin / pro_stock / premium
   ├─ 레퍼럴 거래소: Binance / Bybit / OKX / Bitget
-  └─ 거래소별 활성 여부·가입 URL·레퍼럴 코드
+  ├─ 거래소별 활성 여부·공식 HTTPS 가입 URL·레퍼럴 코드
+  └─ 사용자별 암호화 UID + pending / verified / rejected / expired
               ↓ 로그인 + 1분 상태 확인
-membership_policy (policy_version, allowed_exchanges, allowed_brokers)
+membership_policy (allowed_exchanges = 전역 활성 ∩ 사용자별 verified)
               ↓
 NoahAI Client
   ├─ token.json은 캐시이며 서버 응답이 원본
-  ├─ 국내 거래소·증권사 설정 제거
+  ├─ 미승인 API 입력·연결 확인·분석/실주문 선택 비활성화
   ├─ 거래소 시작 직전 실행 게이트 재확인
   ├─ 정책 축소 시 신규 주문 루프 정지, 열린 포지션 유지
   └─ 인증된 exchange_runtime_snapshot 전송
@@ -34,7 +51,7 @@ daltrading KPI
 - 레퍼럴 정책이 누락·변조되면 거래소 실행은 fail-closed 한다.
 - UI 비활성화는 안내 계층이고 실제 강제 지점은 설정 정리와 거래소 시작 직전 실행 게이트다.
 - 주문은 사용자 PC에서 거래소 API로 직접 전달된다. 공식 클라이언트의 일반적인 로컬 설정 조작은 막지만 재작성된 바이너리까지 서버가 절대 차단한다고 표현하지 않는다. 완전한 서버 최종 차단은 주문 프록시·원격 증명·서명된 단기 실행권한 중 별도 아키텍처가 필요하다.
-- 연결한 거래소 계정의 실제 레퍼럴 귀속 증명은 아직 자동화되지 않았다. 거래소 Affiliate/Broker API 또는 관리자 UID 대사가 후속 P0 운영 게이트다.
+- 사용자가 제출한 UID는 서버에서 암호화되고 운영자가 Affiliate Portal과 대사해 `verified`로 승인한다. Affiliate 공식 API 자동 대사와 UID-API Key 소유 계정의 기계적 일치 검증은 후속 보강 대상이다.
 
 **v3.9.0.2 UI 후속 구조 (2026-07-27)**:
 
@@ -198,7 +215,7 @@ AI 커스텀 선언형 엔진은 SMA/EMA 20·50·200, ADX, ATR, MACD 세부값, 
 
 - 대시보드 전수 버튼/탭 E2E 테스트 신규 추가: `tests/test_dashboard_full_button_e2e.py` 44 passed
 - 핵심 묶음 회귀 재검증: 102 passed (`test_dashboard_full_button_e2e` + `test_menu_regression` + `test_service_tab_policy_snapshot` + `test_settings_backup`)
-- 증권 브로커 연결 검증 도구 추가: `scripts/verify_stock_broker_connection.py` (`--all_brokers` 기준 kiwoom/shinhan/miraeAsset 18/18 OK)
+- 증권 브로커 연결 검증 도구 추가: `scripts/verify_stock_broker_connection.py` (당시 `--all_brokers` Mock 기준 kiwoom/shinhan/miraeAsset 18/18 OK; 실계정 증거가 아님)
 - 설정 자동 백업/복구 흐름 고도화: 저장 전 백업(retention 3), 백업 목록 복구 UI 연동
 - 최신 전체 회귀 기준: 864 passed, 6 skipped
 

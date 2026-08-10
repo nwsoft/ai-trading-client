@@ -20,6 +20,12 @@ from typing import Dict, List, Any, Optional
 import customtkinter as ctk
 from customtkinter import CTkFrame, CTkLabel, CTkButton, CTkTextbox, CTkEntry, CTkCheckBox, CTkScrollableFrame, CTkTabview
 from tkinter import messagebox
+from ui.ai_custom_guidance import (
+    AI_CUSTOM_CONFIRM_ROLE_LABEL,
+    AI_CUSTOM_INDEPENDENT_ROLE_LABEL,
+    build_ai_custom_provider_guide,
+    build_ai_custom_safe_flow,
+)
 from utils.fixed_colors import build_widget_palette
 
 try:
@@ -118,7 +124,7 @@ class AIAssistantWidget(CTkFrame):
 
         # 모델명 정규화: 잘못된 모델명 자동 수정 (gpt4-4o → gpt-4o)
         # 최후의 fallback으로만 기본값 사용
-        self.assistant_model_name = self._normalize_model_name(raw_model_name or 'gpt-4o-mini')
+        self.assistant_model_name = self._normalize_model_name(raw_model_name or 'gpt-5.6-luna')
 
         # AI Manager가 없으면 위젯 비활성화
         if not self.ai_manager:
@@ -710,6 +716,8 @@ class AIAssistantWidget(CTkFrame):
                     ("증권 연결 점검", "현재 증권사 연결/설정 상태를 점검하고 문제 가능성을 알려주세요"),
                     ("다중 증권사 실행", "같은 주식 신호가 여러 증권사에 오면 내 현재 설정에서 어떻게 실행되고 위험은 어떻게 합산되는지 알려줘"),
                     ("AI 커스텀 종목선정", "AI 커스텀 일반과 고급에서 주식·ETF 후보를 어떻게 고르는지 현재 설정 기준으로 알려줘"),
+                    ("AI 커스텀 프로필", "AI 커스텀 초보자·일반·고급·실험실 프로필과 현재 켜진 기능을 알려줘"),
+                    ("백테스트·PAPER", "AI 커스텀 백테스트의 PnL·MDD와 PAPER 결과를 어떻게 구분해 봐야 하는지 알려줘"),
                     ("ETF vs 주식", "지금 상황에서 ETF와 개별 주식 중 어떤 접근이 적절한지 비교해 주세요"),
                     ("섹터 리스크", "현재 시장에서 주의해야 할 섹터 리스크를 정리해 주세요"),
                     ("변동성 대응", "변동성이 큰 장에서 손실을 줄이는 대응 전략을 제안해 주세요"),
@@ -782,6 +790,8 @@ class AIAssistantWidget(CTkFrame):
                 "quick_questions": [
                     ("High vol 설정", "high vol 차단이 지금 켜져 있는지와 설정 위치, 남아 있는 가드레일을 알려줘"),
                     ("AI 커스텀 사용법", "AI 커스텀에서 외부 전략을 분석한 뒤 실제 적용하기까지 순서와 확인 항목을 알려줘"),
+                    ("AI 커스텀 프로필", "AI 커스텀 초보자·일반·고급·실험실 프로필과 현재 켜진 기능을 알려줘"),
+                    ("백테스트·PAPER", "AI 커스텀 백테스트의 PnL·MDD와 PAPER 결과를 어떻게 구분해 봐야 하는지 알려줘"),
                     ("다중 거래소 실행", "같은 BTC 신호가 여러 거래소에 오면 내 현재 설정에서 어떻게 실행되고 위험은 어떻게 합산되는지 알려줘"),
                     ("일반·고급 종목선정", "AI 커스텀 일반과 고급의 코인 선정 및 국면 기준 차이를 현재 설정 기준으로 알려줘"),
                     ("게이트 원인 점검", "수익성 검증 차단 원인을 최근 로그와 설정 기준(min_trades, min_win_rate, min_sharpe, min_walkforward_pass_rate)으로 요약해줘"),
@@ -939,32 +949,32 @@ class AIAssistantWidget(CTkFrame):
 
         preset_map: Dict[str, Dict[str, Any]] = {
             'save': {
-                'openai_model': 'gpt-4o-mini',
-                'assistant_ai_model': 'gpt-4o-mini',
+                'openai_model': 'gpt-5.6-luna',
+                'assistant_ai_model': 'gpt-5.6-luna',
                 'ai_model_roles': {
-                    'frequent_cheap': 'gpt-4o-mini',
-                    'standard': 'gpt-4o-mini',
-                    'premium': 'gpt-4o',
+                    'frequent_cheap': 'gpt-5.6-luna',
+                    'standard': 'gpt-5.6-luna',
+                    'premium': 'gpt-5.6-luna',
                 },
                 'cost_level': '낮음',
             },
             'balanced': {
-                'openai_model': 'gpt-4o-mini',
-                'assistant_ai_model': 'gpt-4o',
+                'openai_model': 'gpt-5.6-luna',
+                'assistant_ai_model': 'gpt-5.6-terra',
                 'ai_model_roles': {
-                    'frequent_cheap': 'gpt-4o-mini',
-                    'standard': 'gpt-4o',
-                    'premium': 'gpt-4o',
+                    'frequent_cheap': 'gpt-5.6-luna',
+                    'standard': 'gpt-5.6-luna',
+                    'premium': 'gpt-5.6-terra',
                 },
                 'cost_level': '중간',
             },
             'quality': {
-                'openai_model': 'gpt-4o',
-                'assistant_ai_model': 'gpt-4o',
+                'openai_model': 'gpt-5.6-terra',
+                'assistant_ai_model': 'gpt-5.6-sol',
                 'ai_model_roles': {
-                    'frequent_cheap': 'gpt-4o-mini',
-                    'standard': 'gpt-4o',
-                    'premium': 'gpt-5',
+                    'frequent_cheap': 'gpt-5.6-luna',
+                    'standard': 'gpt-5.6-terra',
+                    'premium': 'gpt-5.6-sol',
                 },
                 'cost_level': '높음',
             },
@@ -1109,7 +1119,7 @@ class AIAssistantWidget(CTkFrame):
     def set_assistant_model(self, model_name: str, announce: bool = True):
         """런타임에 어시스턴트 모델을 재설정하고 캡션을 갱신합니다."""
         try:
-            model_name = (model_name or '').strip() or 'gpt-4o-mini'
+            model_name = (model_name or '').strip() or 'gpt-5.6-luna'
             # 모델명 정규화 적용
             normalized_model = self._normalize_model_name(model_name)
             prev = getattr(self, 'assistant_model_name', None)
@@ -1340,12 +1350,12 @@ class AIAssistantWidget(CTkFrame):
             f"합의 임계값 {consensus:.2f} / 심볼 쿨다운 {cooldown}초"
         )
         route = (
-            "설정 위치: 대시보드 상단 설정 → 고급 자동매매 → 전략 엔진 세부 설정 → 고변동장 처리"
+            "설정 위치: 대시보드 상단 설정 → 고급 매매 계층 → 전략 엔진 세부 설정 → 고변동장 처리"
         )
         safety = (
             "‘평가 계속’은 고변동장 주문을 무조건 허용하는 기능이 아닙니다. "
-            "기본 AI와 '기본 AI 후보 재확인'에는 신호 합의 임계값·수익성 검증이 적용됩니다. "
-            "'사용자 전략 원형 독립 실행'에는 이를 다시 적용하지 않고 시장국면·포지션·손실 한도와 주문 안전만 적용합니다. "
+            "기본 AI와 '기본 AI 후보 확인(권장)'에는 신호 합의 임계값·수익성 검증이 적용됩니다. "
+            "'사용자 전략 독립 신호(숙련자)'에는 이를 다시 적용하지 않고 시장국면·포지션·손실 한도와 주문 안전만 적용합니다. "
             "OpenAI 최신 모델은 분석 품질을 보조하지만 이 가드레일을 대신 검증하거나 우회하지 않으며 거래 기회를 보장하지 않습니다."
         )
 
@@ -1398,6 +1408,7 @@ class AIAssistantWidget(CTkFrame):
             for token in (
                 "ai 커스텀", "ai커스텀", "xai", "외부 전략", "유튜브 전략",
                 "youtube 전략", "tradingview 전략", "pine 전략",
+                "웹훅", "webhook", "ai 멘토", "ai멘토", "처음 사용법",
             )
         )
         if not is_topic:
@@ -1416,35 +1427,33 @@ class AIAssistantWidget(CTkFrame):
         runtime = settings.get("ai_custom_runtime", {})
         runtime_enabled = bool(runtime.get("enabled", False)) if isinstance(runtime, dict) else False
 
-        return (
-            "NoahAI입니다. NoahAI는 TradingView를 없애는 제품이 아니라, TradingView·영상·문서·Pine 전략을 "
-            "AI가 이해하고 검증하여 시장국면에 맞게 안전하게 운용하는 상위 전략 운영 계층입니다. "
-            "사용자가 익숙한 전략에서 초기 가치를 확인하고 NoahAI 학습은 이후 국면 선택·감독·기록 품질을 높입니다.\n"
-            f"현재 AI 커스텀 실자동매매 사용 스위치: {'ON' if runtime_enabled else 'OFF'}\n"
-            "사용 순서: AI 커스텀 → 텍스트/Pine/PDF/차트/영상/YouTube/TradingView 입력 → "
-            "AI 분석 및 전략 초안 → XAI의 출처 근거·진입/청산·손절/익절·위험예산·누락 조건 확인 → "
-            "적용 범위·시장상황·전략 역할 선택 → 버전 저장 → 사용자 승인 → 자동검증 → 최종 적용 → 거래소/증권 시작.\n"
-            "‘기본 AI 후보 재확인’은 NoahAI 후보를 사용자 조건으로 확인합니다. ‘사용자 전략 원형 독립 실행’은 "
-            "사용자 전략이 방향·지표·시간봉·임계값·TP/SL·청산을 결정하고 NoahAI는 시장국면·계좌·주문 안전만 감독합니다.\n"
-            "일반 종목선정은 사용자 고정 + NoahAI 자동 선정 → 종목 분석 → 기본 AI 후보 → 커스텀 확인 순서입니다. "
-            "고급 종목선정은 사용자 고정 + 전략 UniversePolicy → 거래 가능·유동성·스프레드·변동성 로컬 필터 "
-            "→ 전략 지표 → 독립 평가 순서이며 후보선정 때문에 LLM을 추가 호출하지 않습니다.\n"
-            "국면 기준은 전략마다 전체 시장(권장)·종목·둘 다·사용 안 함 중 명시합니다. 선택한 기준의 데이터가 "
-            "없으면 다른 기준으로 몰래 대체하지 않고 HOLD 사유를 기록합니다.\n"
-            "원본 전략이 바뀌면 자료를 다시 입력하고 기존 전략을 저장 대상으로 골라 새 버전을 만들면 됩니다. "
-            "한 번의 자동검증 결과를 본 뒤 일반 운용 또는 허용된 1배·최대 1% 안전 시험은 사용자가 결정합니다.\n"
-            "XAI의 ‘규칙’은 원문에서 구조화한 조건이고, ‘실행 엔진 적용값’은 주문 판단에 전달할 TP/SL·포지션·임계값입니다. "
-            "현재 선언형 실행은 RSI·MACD·볼린저·SMA/EMA 20·50·200·ADX·ATR·거래량·시간 조건과 "
-            "코인과 주식/ETF의 명시 청산 조건을 지원하며, 미지원 필드는 승인 전에 차단합니다. 자동검증은 진입·청산 양쪽 수수료, "
-            "슬리피지와 스프레드를 분리해 총비용 반영 PnL·Profit Factor·기대값·국면별 결과를 보여줍니다.\n"
-            "자막·화면·Pine 근거가 없거나 조건이 빠지면 추정하지 않고 승인·실행을 차단합니다.\n"
-            "사용자가 원하는 장에는 모든 시장상황/상승/하락/횡보/고변동/저변동 중 선택해 적용할 수 있고 "
-            "거래소·증권사별 범위도 고를 수 있습니다. 여러 실제 주문 대상의 기본값은 각 대상 실행이며, "
-            "같은 기회를 하나의 ID로 연결해 통합 예상손실과 결과를 관리합니다. 사용자가 고른 경우에만 "
-            "총위험 분할 또는 우선순위 한 곳을 적용합니다. 다만 지원하지 않는 지표·보호된 스크립트·불완전한 영상은 "
-            "원문 보강이 필요합니다. 기본/재확인 역할은 NoahAI 합의·수익성·공통 안전 경계를 통과하고, "
-            "독립 역할은 기본 AI 합의·전체 수익성으로 재심사하지 않으며 공통 시장국면·계좌·주문 안전 경계를 통과합니다."
+        from config.ai_custom_knowledge import build_ai_custom_knowledge
+
+        answer = build_ai_custom_knowledge(
+            message,
+            settings,
+            safe_flow=build_ai_custom_safe_flow(),
+            provider_guide=build_ai_custom_provider_guide(),
         )
+        return (
+            f"{answer}\n현재 AI 커스텀 실자동매매 사용 스위치: "
+            f"{'ON' if runtime_enabled else 'OFF'}"
+        )
+
+    def _build_product_settings_support(self, message: str) -> Optional[str]:
+        """고급 계층·AlphaArena·AI 엔진의 제품 설명을 API 없이 즉시 제공한다."""
+        normalized = str(message or "").lower().replace(" ", "")
+        topics = (
+            "고급매매계층", "수익성검증", "포트폴리오오케스트레이션",
+            "실행최적화", "운영자동화", "safe프리셋", "aggressive",
+            "alphaarena", "알파아레나", "ai엔진/api", "ai엔진설정",
+        )
+        if not any(topic in normalized for topic in topics):
+            return None
+        if self._is_settings_change_request(message):
+            return None
+        knowledge = self._settings_knowledge_for_question(message)
+        return knowledge or None
 
     def _build_multi_venue_support(self, message: str) -> Optional[str]:
         """다중 거래소·증권사 실행 계약과 현재 설정을 API 없이 설명한다."""
@@ -1674,21 +1683,22 @@ class AIAssistantWidget(CTkFrame):
             return (
                 "NoahAI입니다. 레퍼럴 코드와 가입 URL은 클라이언트 파일에 넣지 않고 "
                 "daltrading 관리자 포털의 ‘설정 → 레퍼럴 거래소 설정’에서 관리합니다. "
-                "관리자가 활성화한 Binance·Bybit·OKX·Bitget만 서버 정책에 포함되며, "
+                "사용자는 daltrading 대시보드에서 거래소 UID를 제출하고 운영자가 Affiliate Portal과 대사해 승인합니다. "
+                "전역 활성과 사용자별 verified를 모두 만족한 Binance·Bybit·OKX·Bitget만 서버 정책에 포함되며, "
                 "사용자는 자신의 클라이언트에서 이 허용 목록을 임의로 늘릴 수 없습니다."
             )
         if any(token in lower for token in (
             "업비트", "빗썸", "국내거래소", "증권", "주식", "사용가능", "뭘쓸",
         )):
             return (
-                "NoahAI입니다. 레퍼럴 등급은 관리자가 활성화한 해외 제휴 거래소 "
-                "Binance·Bybit·OKX·Bitget만 사용할 수 있습니다. Upbit·Bithumb 같은 국내 거래소와 "
+                "NoahAI입니다. 레퍼럴 등급은 관리자가 활성화하고 사용자 UID 귀속이 verified인 해외 제휴 거래소 "
+                "Binance·Bybit·OKX·Bitget만 사용할 수 있습니다. 미승인은 API 입력과 거래소 선택도 차단됩니다. Upbit·Bithumb 같은 국내 거래소와 "
                 "국내·해외 증권 기능은 사용할 수 없습니다. 등급이나 허용 목록이 줄어들면 새 주문 루프는 "
                 "중지되지만, 안전을 위해 보유 포지션을 임의로 강제 청산하지는 않으므로 계좌 상태를 직접 확인하세요."
             )
         return (
             "NoahAI입니다. 레퍼럴 등급은 CD-Key 없이 가입하는 무료 회원등급이며, "
-            "daltrading 서버 관리자가 활성화한 해외 제휴 거래소만 사용할 수 있습니다. "
+            "daltrading 서버 관리자가 활성화하고 사용자 UID 귀속을 verified로 승인한 해외 제휴 거래소만 사용할 수 있습니다. "
             "현재 공식 범위는 Binance·Bybit·OKX·Bitget이고 국내 거래소와 증권 기능은 제외됩니다. "
             "등급과 허용 목록은 로그인 및 주기적 상태 확인으로 동기화됩니다."
         )
@@ -1882,6 +1892,11 @@ class AIAssistantWidget(CTkFrame):
                 self.add_ai_message(ai_custom_support)
                 return
 
+            product_settings_support = self._build_product_settings_support(message)
+            if product_settings_support:
+                self.add_ai_message("NoahAI 설정 도움말입니다.\n\n" + product_settings_support)
+                return
+
             identity_support = self._build_identity_support(message)
             if identity_support:
                 self.add_ai_message(identity_support)
@@ -2014,7 +2029,12 @@ class AIAssistantWidget(CTkFrame):
    한 번에 답하기 쉬운 짧은 재질문을 하세요.
 
 	8. **제품 지식**:
-	   - AI 커스텀은 소스 입력 → XAI 구조화 → 사용자 승인 → 자동검증 → 최종 적용 → 거래 시작 순서입니다.
+	   - v3.9.0.8 AI 커스텀은 원본 근거 → Noah Strategy IR → 지원/확인 필요/미지원 판정 → Level 1·2·3 → 사용자 승인 → 자동검증 → 최종 적용 → 거래 시작 순서입니다.
+	   - 초보자/일반/고급/실험실은 화면 노출 프로필이며 개별 기능을 켜고 끌 수 있지만 승인·검증·국면·계좌·주문 안전을 우회하지 않습니다.
+	   - 백테스트는 총 PnL·MDD·월/연도 표를 포함한 최소 품질 필터이며 미래 수익 보장이 아닙니다. 과거 재생만으로 자동 승격하지 않고 PAPER 전진검증을 우선합니다.
+	   - Expression Graph와 사용자 지표 언어는 제한형 안전 표현만 허용하며 임의 Pine/Python, import, 파일·네트워크 호출은 실행하지 않습니다.
+	   - .noahstrategy 가져오기는 해시를 확인하고 비활성 검토 상태로 열며 API 키·계좌·개인 거래·승인/활성 상태를 포함하지 않습니다.
+	   - 서명 webhook 신호도 주문 후보일 뿐이며 전략 승인·실행 권한·공통 가드레일을 다시 통과해야 합니다.
 	   - 일반 역할은 사용자 고정 + NoahAI 자동 선정 → 기본 AI 후보 → 커스텀 확인 순서입니다.
 	   - 고급 역할은 사용자 고정 + StrategyUniversePolicy → 로컬 사전필터 → 전략 지표 → 사용자 전략 독립 평가 순서이며 기본 AI 동의를 요구하지 않습니다.
 	   - 국면 기준은 전략별로 전체 시장·종목·둘 다·사용 안 함 중 명시하며, 데이터가 없을 때 다른 범위로 몰래 대체하지 않습니다.
@@ -2024,8 +2044,8 @@ class AIAssistantWidget(CTkFrame):
 	   - 코인 정보는 내 계좌·선택 코인의 운용 상태이고, 코인 탐색은 여러 코인을 조건으로 비교하는 시장 검색입니다.
 	   - 금융 인텔리전스의 시장·탐색·지표·검증 결과만으로 주문하거나 설정을 바꾸지 않습니다.
 	   - 뉴스·공시·기관 데이터의 '운영 데이터 연결 필요'는 사용자 입력 오류가 아니며 임의 값을 만들지 않는 상태입니다.
-	   - 고변동장 설정은 설정 → 고급 자동매매 → 전략 엔진 세부 설정 → 고변동장 처리입니다.
-   - "평가 계속"에서 기본 AI/후보 재확인은 수익성·합의·리스크·주문 경계를, 사용자 전략 원형 독립 실행은 사용자가 정한 국면 범위·계좌·주문 안전 경계를 통과합니다.
+	   - 고변동장 설정은 설정 → 고급 매매 계층 → 전략 엔진 세부 설정 → 고변동장 처리입니다.
+	   - "평가 계속"에서 기본 AI/후보 확인은 수익성·합의·리스크·주문 경계를, 사용자 전략 독립 신호는 사용자가 정한 국면 범위·계좌·주문 안전 경계를 통과합니다.
    - OpenAI 최신 모델이 자동으로 전략 수익성이나 high vol 진입을 보장한다고 설명하지 마세요.
 
 【증권사 연결 FAQ — 기술 지원 지식】
@@ -2040,15 +2060,22 @@ class AIAssistantWidget(CTkFrame):
 
 ■ 증권사별 지원 OS
   - 키움증권: Windows 전용 (OpenAPI+ COM 기반)
-  - 신한증권(SOL), 미래에셋증권: Windows / macOS / Linux 모두 가능 (REST API)
+  - 신한증권, 미래에셋증권: Windows / macOS / Linux (제휴 REST 계약 프로필 필요)
+  - 한국투자증권: Windows / macOS / Linux (KIS Developers REST)
 
 ■ 키움 mock 모드 전환 방법
     설정 → 거래소 API 탭 → 키움증권 → API 연결 방식: "mock" 으로 변경 → 저장
   mock 모드에서는 실제 주문 없이 연결 테스트 가능
 
 ■ 실주문 허용 설정 위치
-    설정 → 거래소 선택 탭 → "증권 자동매매 제어" 섹션 → "실주문 허용 (enable_stock_live_order)" 체크박스
-  OFF(기본값): 실제 주문 없음 / ON: 실제 매매 실행
+    설정 → 거래소 선택 탭 → 전역 "실주문 허용" + 해당 증권사 "LIVE 허용"
+  PAPER가 OFF이고 두 권한과 API 준비상태·가드레일이 모두 정상일 때만 실제 주문 실행
+
+■ API 이름 구분
+  - 키움: openapi_plus / pykiwoom
+  - 신한: partner_rest / shinhan_openapi_v2 (XingAPI는 LS증권이므로 제외)
+  - 미래에셋: partner_rest / mirae_partner_profile
+  - 한국투자: rest / kis_openapi_v1
 
 ■ pykiwoom / PyQt5 라이브러리 누락 시
   pip install pykiwoom PyQt5 (Windows 환경에서만 의미 있음)
@@ -2073,7 +2100,7 @@ class AIAssistantWidget(CTkFrame):
 사용자 요청이 현재 상황에 맞지 않는다면 명확하게 교정해주세요."""
 
             # AI 어시스턴트용 모델 사용 (설정에서 전달된 모델 우선)
-            assistant_model = getattr(self, 'assistant_model_name', None) or 'gpt-4o-mini'
+            assistant_model = getattr(self, 'assistant_model_name', None) or 'gpt-5.6-luna'
             # 모델명 정규화 적용
             assistant_model = self._normalize_model_name(assistant_model)
 
@@ -2197,7 +2224,7 @@ class AIAssistantWidget(CTkFrame):
             settings_knowledge = self._settings_knowledge_for_question(message)
             if settings_knowledge:
                 return (
-                    "NoahAI 설정 도움말입니다. 외부 AI 호출 없이 설치된 v3.9.0.5 설정 정본과 "
+                    "NoahAI 설정 도움말입니다. 외부 AI 호출 없이 호환 설정 계약 정본과 "
                     "현재 비밀값 없는 설정을 기준으로 안내합니다.\n\n"
                     f"{settings_knowledge}"
                 )
@@ -2854,34 +2881,34 @@ AI 상태: {ai_status}"""
         """어시스턴트 설정관리 모달에서 모델 프리셋을 즉시 적용한다."""
         presets: Dict[str, Dict[str, Any]] = {
             'cost_save': {
-                'openai_model': 'gpt-4o-mini',
-                'assistant_ai_model': 'gpt-4o-mini',
+                'openai_model': 'gpt-5.6-luna',
+                'assistant_ai_model': 'gpt-5.6-luna',
                 'ai_model_roles': {
-                    'frequent_cheap': 'gpt-4o-mini',
-                    'standard': 'gpt-4o-mini',
-                    'premium': 'gpt-4o',
+                    'frequent_cheap': 'gpt-5.6-luna',
+                    'standard': 'gpt-5.6-luna',
+                    'premium': 'gpt-5.6-luna',
                 },
                 'label': '절약형',
                 'cost_level': '낮음',
             },
             'balanced': {
-                'openai_model': 'gpt-4o-mini',
-                'assistant_ai_model': 'gpt-4o',
+                'openai_model': 'gpt-5.6-luna',
+                'assistant_ai_model': 'gpt-5.6-terra',
                 'ai_model_roles': {
-                    'frequent_cheap': 'gpt-4o-mini',
-                    'standard': 'gpt-4o',
-                    'premium': 'gpt-4o',
+                    'frequent_cheap': 'gpt-5.6-luna',
+                    'standard': 'gpt-5.6-luna',
+                    'premium': 'gpt-5.6-terra',
                 },
                 'label': '균형형',
                 'cost_level': '중간',
             },
             'quality': {
-                'openai_model': 'gpt-4o',
-                'assistant_ai_model': 'gpt-4o',
+                'openai_model': 'gpt-5.6-terra',
+                'assistant_ai_model': 'gpt-5.6-sol',
                 'ai_model_roles': {
-                    'frequent_cheap': 'gpt-4o-mini',
-                    'standard': 'gpt-4o',
-                    'premium': 'gpt-5',
+                    'frequent_cheap': 'gpt-5.6-luna',
+                    'standard': 'gpt-5.6-terra',
+                    'premium': 'gpt-5.6-sol',
                 },
                 'label': '정밀형',
                 'cost_level': '높음',

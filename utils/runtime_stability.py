@@ -49,6 +49,25 @@ def _append_event(payload: Dict[str, Any]) -> None:
             file.write(json.dumps(safe_payload, ensure_ascii=False) + "\n")
 
 
+def _process_is_running(pid: Any) -> bool:
+    try:
+        numeric_pid = int(pid)
+        if numeric_pid <= 0:
+            return False
+        if sys.platform.startswith("win"):
+            # Windows os.kill(pid, 0)는 특정 런타임에서 SystemError를
+            # 발생시켜 전체 안정성 진단 초기화를 끊을 수 있다.
+            import psutil
+
+            return bool(psutil.pid_exists(numeric_pid))
+        os.kill(numeric_pid, 0)
+        return True
+    except PermissionError:
+        return True
+    except (OSError, TypeError, ValueError, SystemError):
+        return False
+
+
 def record_exception(
     exc_type,
     exc_value,
@@ -110,13 +129,23 @@ def begin_runtime_session() -> Dict[str, Any]:
     _FATAL_EXCEPTION_SEEN = False
 
     previous: Dict[str, Any] = {}
+    parallel_session = False
     if _SESSION_MARKER.exists():
         try:
             previous = json.loads(_SESSION_MARKER.read_text(encoding="utf-8"))
         except Exception:
             previous = {"unreadable": True}
+        previous_pid = previous.get("pid") if isinstance(previous, dict) else None
+        parallel_session = (
+            previous_pid not in (None, os.getpid())
+            and _process_is_running(previous_pid)
+        )
         _append_event({
-            "event": "previous_unclean_shutdown_detected",
+            "event": (
+                "parallel_runtime_session_detected"
+                if parallel_session
+                else "previous_unclean_shutdown_detected"
+            ),
             "previous_session": previous,
             "pid": os.getpid(),
         })
@@ -152,7 +181,8 @@ def begin_runtime_session() -> Dict[str, Any]:
         _FAULT_HANDLER_OWNED = False
     install_exception_hooks()
     return {
-        "previous_unclean": bool(previous),
+        "previous_unclean": bool(previous) and not parallel_session,
+        "parallel_session": parallel_session,
         "previous_session": previous,
         "marker": str(_SESSION_MARKER),
     }
@@ -167,11 +197,20 @@ def mark_clean_shutdown(reason: str = "normal_shutdown") -> bool:
     if marker is None:
         return False
     try:
-        marker.unlink(missing_ok=True)
+        marker_owner = None
+        if marker.exists():
+            try:
+                marker_owner = json.loads(marker.read_text(encoding="utf-8")).get("pid")
+            except Exception:
+                marker_owner = None
+        marker_preserved = marker_owner not in (None, os.getpid())
+        if not marker_preserved:
+            marker.unlink(missing_ok=True)
         _append_event({
             "event": "clean_shutdown",
             "reason": str(reason or "normal_shutdown"),
             "pid": os.getpid(),
+            "marker_preserved_for_pid": marker_owner if marker_preserved else None,
         })
         if _FAULT_HANDLER_OWNED:
             try:

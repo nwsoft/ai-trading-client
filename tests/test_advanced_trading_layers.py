@@ -326,7 +326,10 @@ def test_unified_trader_cycle_blocks_on_profitability_gate():
     trader.logger = MagicMock()
     trader.exchange_manager = MagicMock()
     trader.unified_manager = MagicMock()
-    trader.main_app = SimpleNamespace(selected_coins=[{"symbol": "BTCUSDT"}])
+    trader.selected_coins = {"bybit": [{"symbol": "BTCUSDT"}]}
+    trader.main_app = SimpleNamespace(
+        selected_coins_by_exchange={"bybit": [{"symbol": "BTCUSDT"}]}
+    )
     trader.monitoring_flags = {"bybit": True}
     trader.portfolio_allocation_cache = {}
     trader.cycle_execution_metrics = {}
@@ -380,7 +383,10 @@ def test_unified_trader_cycle_records_allocation_and_ops_metrics():
         ),
         _normalize_symbol=lambda symbol: symbol,
     )
-    trader.main_app = SimpleNamespace(selected_coins=[{"symbol": "BTCUSDT"}])
+    trader.selected_coins = {"bybit": [{"symbol": "BTCUSDT"}]}
+    trader.main_app = SimpleNamespace(
+        selected_coins_by_exchange={"bybit": [{"symbol": "BTCUSDT"}]}
+    )
     trader.monitoring_flags = {"bybit": True}
     trader.portfolio_allocation_cache = {}
     trader.cycle_execution_metrics = {}
@@ -452,6 +458,13 @@ def test_unified_trader_execute_signal_trade_uses_quality_control_and_allocation
     trader._clamp_leverage = MagicMock(side_effect=lambda exchange, leverage: leverage)
     trader._record_position_with_tp_sl = MagicMock()
     trader._is_order_success = MagicMock(return_value=True)
+    trader._confirm_ccxt_order_result = MagicMock(
+        side_effect=lambda client, result, symbol: {
+            **result,
+            "_execution_confirmed": True,
+        }
+    )
+    trader._record_exchange_execution = MagicMock()
     trader._log_trade_event = MagicMock()
 
     result = trader._execute_signal_trade("bybit", "BTCUSDT", {"signal": "LONG", "confidence": 0.91, "market_volatility": 1.2})

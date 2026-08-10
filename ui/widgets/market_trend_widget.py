@@ -1417,7 +1417,12 @@ class MarketTrendWidget(ctk.CTkFrame):
                 if self.dashboard_ref and hasattr(self.dashboard_ref, 'main_app'):
                     main_app = getattr(self.dashboard_ref, 'main_app', None)
                     if main_app and hasattr(main_app, 'trader') and main_app.trader:
-                        binance_positions = getattr(main_app.trader, 'active_positions', {})
+                        position_getter = getattr(main_app.trader, 'get_active_positions', None)
+                        binance_positions = (
+                            position_getter()
+                            if callable(position_getter)
+                            else getattr(main_app.trader, 'active_positions', {})
+                        )
                         active_positions += len(binance_positions)
 
                 # CCXT 거래소 포지션

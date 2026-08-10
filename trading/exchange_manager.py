@@ -162,6 +162,28 @@ class ExchangeManager:
                 self.exchange_clients['binance'] = self.binance_client  # 캐시에 고정
                 return self.binance_client
 
+            # 비바이낸스 실거래 어댑터는 UnifiedTradingManager를 단일 정본으로
+            # 사용한다. 과거에는 ExchangeManager가 같은 거래소 어댑터를 별도로
+            # 생성해 잔고 화면과 포지션/주문 엔진이 서로 다른 연결 상태와 캐시를
+            # 보유할 수 있었다.
+            if normalized_name != 'binance' and self._has_valid_api_keys(normalized_name):
+                manager = getattr(self, 'unified_manager', None)
+                getter = getattr(manager, 'get_exchange', None)
+                if callable(getter):
+                    trading_type = (
+                        'futures'
+                        if normalized_name in ['bybit', 'okx', 'bitget']
+                        else 'spot'
+                    )
+                    shared_client = getter(normalized_name, trading_type)
+                    if shared_client is not None:
+                        self.exchange_clients[normalized_name] = shared_client
+                        self.logger.info(
+                            f"{exchange_name} 공통 거래 어댑터 재사용 "
+                            f"(UnifiedTradingManager 단일 정본)"
+                        )
+                        return shared_client
+
             # API 키 없으면 기본적으로 생성 생략.
             # 단, 업비트/빗썸은 공개모드 시세/분석이 가능하므로 생성 허용.
             if not self._has_valid_api_keys(normalized_name):

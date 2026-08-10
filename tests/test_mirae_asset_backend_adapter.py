@@ -22,11 +22,11 @@ class FakeMiraeAssetBackend:
         self.headers = {'Authorization': f'Bearer {self._mock_token}'}
         self._last_request: dict = {}
 
-    def get(self, url: str, params=None, timeout=10):
+    def get(self, url: str, params=None, headers=None, timeout=10):
         self._last_request = {'method': 'GET', 'url': url, 'params': params or {}}
         return self._dispatch_get(url, params or {})
 
-    def post(self, url: str, json=None, timeout=10):
+    def post(self, url: str, json=None, headers=None, timeout=10):
         self._last_request = {'method': 'POST', 'url': url, 'json': json or {}}
         return self._dispatch_post(url, json or {})
 
@@ -128,6 +128,20 @@ def adapter():
         account_no='12345678901',
         app_key='test-app-key', app_secret='test-app-secret',
         backend_client=fake,
+        partner_profile={
+            'base_url': 'https://partner.test', 'token_path': '/oauth2/token',
+            'endpoints': {
+                'accounts': '/uapi/domestic-stock/v1/trading/inquire-account-balance',
+                'positions': '/uapi/domestic-stock/v1/trading/inquire-balance',
+                'stock_list': '/uapi/domestic-stock/v1/quotations/inquire-daily-itemchartprice',
+                'etf_info': '/uapi/domestic-stock/v1/quotations/inquire-etf-daily',
+                'price': '/uapi/domestic-stock/v1/quotations/inquire-price',
+                'order': '/uapi/domestic-stock/v1/trading/order-cash',
+                'cancel': '/uapi/domestic-stock/v1/trading/order-rvsecncl',
+                'open_orders': '/uapi/domestic-stock/v1/trading/inquire-psbl-rvsecncl',
+                'trade_history': '/uapi/domestic-stock/v1/trading/inquire-daily-ccld',
+            },
+        },
     )
     return adp
 

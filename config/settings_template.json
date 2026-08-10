@@ -50,6 +50,8 @@
     "max_loss_for_exit": -0.001
   },
   "auto_trade_interval": 10,
+  "execution_history_sync_interval_seconds": 300,
+  "pending_order_poll_interval_seconds": 10,
   "paper_trading": false,
   "enable_stock_live_order": false,
   "demo_mode": false,
@@ -304,7 +306,7 @@
   "stock_broker_configs": {
     "kiwoom": {
       "enabled": false,
-      "api_type": "openapi",
+      "api_type": "openapi_plus",
       "api_version": "pykiwoom",
       "allow_live_order": false,
       "account_no": "",
@@ -315,9 +317,10 @@
     },
     "shinhan": {
       "enabled": false,
-      "api_type": "openapi",
-      "api_version": "solapi",
+      "api_type": "partner_rest",
+      "api_version": "shinhan_openapi_v2",
       "allow_live_order": false,
+      "partner_profile": {},
       "app_key": "",
       "app_secret": "",
       "account_no": "",
@@ -328,9 +331,24 @@
     },
     "miraeAsset": {
       "enabled": false,
-      "api_type": "openapi",
-      "api_version": "miraemts",
+      "api_type": "partner_rest",
+      "api_version": "mirae_partner_profile",
       "allow_live_order": false,
+      "partner_profile": {},
+      "app_key": "",
+      "app_secret": "",
+      "account_no": "",
+      "password": "",
+      "asset_types": ["stock", "etf"],
+      "cert_password": "",
+      "id": ""
+    },
+    "koreaInvestment": {
+      "enabled": false,
+      "api_type": "rest",
+      "api_version": "kis_openapi_v1",
+      "allow_live_order": false,
+      "sandbox": false,
       "app_key": "",
       "app_secret": "",
       "account_no": "",
@@ -372,6 +390,11 @@
     "allow_limited_live": false,
     "limited_max_leverage": 1,
     "limited_max_position_size": 0.01
+  },
+  "ai_custom_features": {
+    "_comment": "초보자/일반/고급/실험실 화면 기본값과 개별 기능 재정의. 결제·법무 게이트는 여기서 열리지 않음",
+    "profile": "standard",
+    "overrides": {}
   },
   "_ai_custom_runtime_safe_default_v3900_applied": true,
   "assistant_voice": {

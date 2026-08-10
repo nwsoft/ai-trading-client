@@ -1,9 +1,22 @@
 # 개발자 가이드 (회귀 방지 규칙)
 
-> 기준: 2026-07-26 · v3.9.0.2  
+> 기준: 2026-08-01 · v3.9.0.5 Fix Patch 5  
 > 금융 인텔리전스의 메뉴·데이터·상태 모델은 `FINANCIAL_INTELLIGENCE_EXPANSION_PLAN_20260723.md`, 검증은 `FINANCIAL_INTELLIGENCE_TEST_CHECKLIST_20260723.md`를 따릅니다. 빌드 절차는 이 문서에 복제하지 않고 `BUILD_GUIDE.md`만 사용합니다.
 
 본 문서는 개발 단계에서의 회귀를 막고, Pylance/런타임 안정성을 유지하기 위한 규칙 모음입니다. PR 전 체크리스트로 활용하세요.
+
+Fix Patch 5 필수 자동 게이트:
+
+```bash
+.venv/bin/python scripts/active_source_audit.py
+.venv/bin/python verify_build_includes.py
+.venv/bin/python scripts/doc_consistency_check.py
+.venv/bin/python -m pytest -q
+```
+
+- API 조회 실패를 정상 `0건`으로 변환하지 않습니다. 성공 빈 상태, 캐시, 실패 상태를 계약으로 분리합니다.
+- 최소 주문·수량·가격 규격 검증 예외은 fail-closed합니다. 검증 전 수량으로 주문을 계속하지 않습니다.
+- 미사용 소스는 즉시 완전 삭제하지 않고 `SOURCE_QUARANTINE_MANIFEST_20260801.md`의 해시·사유·복원 규칙을 따릅니다.
 
 ## 1) 공통 코딩 규칙
 - Optional 접근은 지역 변수로 추출해 가드 후 사용합니다.

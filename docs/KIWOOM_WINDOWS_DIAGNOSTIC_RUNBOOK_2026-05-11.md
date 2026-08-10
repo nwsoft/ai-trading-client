@@ -1,4 +1,4 @@
-# 키움 OpenAPI+ Windows 진단 런북 (2026-05-11)
+# 키움 OpenAPI+ Windows 진단 런북 (2026-05-11, v3.9.0.5 갱신 2026-08-01)
 
 ## 목적
 이 문서는 Windows PC에서 키움 OpenAPI+ 연결 실패 원인을 빠르게 분리하기 위한 실행 절차입니다.
@@ -29,7 +29,7 @@ Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
 
 ### 방법 A: 명령행 인자 직접 입력
 ```powershell
-python .\scripts\verify_stock_broker_connection.py --broker kiwoom --api_type openapi --api_version pykiwoom --id 사용자ID --password 비밀번호 --cert_password 인증서비밀번호 --account_no 계좌번호
+python .\scripts\verify_stock_broker_connection.py --broker kiwoom --api_type openapi_plus --api_version pykiwoom --id 사용자ID --password 비밀번호 --cert_password 인증서비밀번호 --account_no 계좌번호
 ```
 
 ### 방법 B: 환경변수 사용 (권장)
@@ -38,7 +38,7 @@ $env:BROKER_USER_ID="사용자ID"
 $env:BROKER_PASSWORD="비밀번호"
 $env:BROKER_CERT_PASSWORD="인증서비밀번호"
 $env:BROKER_ACCOUNT_NO="계좌번호"
-python .\scripts\verify_stock_broker_connection.py --broker kiwoom --api_type openapi --api_version pykiwoom
+python .\scripts\verify_stock_broker_connection.py --broker kiwoom --api_type openapi_plus --api_version pykiwoom
 ```
 
 ## 4) 결과 파일 확인

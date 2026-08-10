@@ -17,6 +17,7 @@ import shutil
 import logging
 from datetime import datetime
 from typing import Optional, Dict, Any
+from utils.log_safety import status_response_log_summary
 
 logger = logging.getLogger(__name__)
 
@@ -32,6 +33,7 @@ class UserStatusManager:
         self.is_running = False
         self.check_interval = 60
         self.initial_delay = 5
+        self._last_status_failure_terminal = False
         
         # 🔧 환경 설정 (PyInstaller 배포 환경 대응)
         if getattr(sys, 'frozen', False):
@@ -56,7 +58,7 @@ class UserStatusManager:
         self.server_url = "https://daltrading.net"  # 백엔드 서버 URL
         
         logger.info("UserStatusManager 초기화 완료")
-        logger.info(f"🔍 토큰 파일 경로 설정: {self.env_file}")
+        logger.info("🔍 토큰 파일 경로 설정 완료")
         logger.info(f"🔧 실행 환경: {'배포 (PyInstaller)' if getattr(sys, 'frozen', False) else '개발'}")
         logger.info(f"🌐 백엔드 서버: {self.server_url}")
         
@@ -85,12 +87,14 @@ class UserStatusManager:
                     logger.info("사용자 상태 체크 시작...")
                     check_result = self.check_user_status()
                     
-                    if not check_result:
-                        logger.warning("상태 체크 실패. 프로그램을 종료합니다.")
+                    if not check_result and self._last_status_failure_terminal:
+                        logger.warning("서버가 계정 비활성 또는 세션 종료를 명시했습니다. 프로그램을 종료합니다.")
                         self.cleanup_and_exit()
                         break
-                        
-                    logger.info("상태 체크 완료. 정상 작동 중...")
+                    if not check_result:
+                        logger.warning("일시적인 상태 확인 실패입니다. 앱을 유지하고 다음 주기에 재시도합니다.")
+                    else:
+                        logger.info("상태 체크 완료. 정상 작동 중...")
                     logger.info(f"다음 체크까지 {self.check_interval}초 대기 중...")
                     
                     # 종료 신호 체크하면서 대기
@@ -101,8 +105,7 @@ class UserStatusManager:
                         
                 except Exception as e:
                     logger.error(f"상태 체크 중 오류 발생: {e}")
-                    self.cleanup_and_exit()
-                    break
+                    logger.warning("앱을 종료하지 않고 다음 상태 확인 주기에 재시도합니다.")
             
             logger.info("상태 체크 스레드가 종료되었습니다.")
         
@@ -154,16 +157,17 @@ class UserStatusManager:
     
     def check_user_status(self) -> bool:
         """서버에서 사용자 상태 체크"""
+        self._last_status_failure_terminal = False
         try:
             logger.info("사용자 상태 체크 시작...")
-            logger.info(f"🔍 토큰 파일 경로: {self.env_file}")
+            logger.info("🔍 토큰 파일 확인 시작")
             
             # 토큰 파일에서 사용자 정보 읽기
             if not os.path.exists(self.env_file):
-                logger.error(f"❌ 토큰 파일을 찾을 수 없습니다: {self.env_file}")
+                logger.error("❌ 토큰 파일을 찾을 수 없습니다.")
                 return False
             
-            logger.info(f"✅ 토큰 파일 발견: {self.env_file}")
+            logger.info("✅ 토큰 파일 확인 완료")
             
             import json
             with open(self.env_file, 'r', encoding='utf-8') as f:
@@ -179,7 +183,7 @@ class UserStatusManager:
                 logger.error("사용자 정보가 불완전합니다.")
                 return False
             
-            logger.info(f"사용자 정보 확인: ID={user_id}, SESSION_ID={session_id[:8]}...")
+            logger.info("사용자 세션 정보 확인 완료 (값 미기록)")
             
             # 서버에 상태 체크 요청
             logger.info("서버에 상태 체크 요청 중...")
@@ -194,11 +198,12 @@ class UserStatusManager:
             
             if response.status_code == 200:
                 data = response.json()
-                logger.info(f"서버 응답 데이터: {data}")
+                logger.info(f"서버 상태 요약: {status_response_log_summary(data)}")
                 
                 if not data.get("is_active", False) or data.get("force_quit", False):
+                    self._last_status_failure_terminal = True
                     logger.warning("사용자 계정이 비활성화되었거나 다른 곳에서 로그인되었습니다.")
-                    logger.warning(f"메시지: {data.get('message', '프로그램을 종료합니다.')}")
+                    logger.warning("서버가 종료 대상 세션으로 판정했습니다.")
                     return False
 
                 server_grade = str(data.get("user_grade") or user_info.get("user_grade") or "").strip()
@@ -219,6 +224,8 @@ class UserStatusManager:
                 return True
             else:
                 logger.error(f"서버 응답 오류: {response.status_code}")
+                if response.status_code in (401, 403):
+                    self._last_status_failure_terminal = True
                 return False
                 
         except Exception as e:

@@ -65,7 +65,13 @@ class BaseExchange(ABC):
         pass
         
     @abstractmethod
-    def get_trade_history(self, symbol: Optional[str] = None, limit: int = 100) -> List[Dict[str, Any]]:
+    def get_trade_history(
+        self,
+        symbol: Optional[str] = None,
+        limit: int = 100,
+        since_ms: Optional[int] = None,
+        from_id: Optional[str] = None,
+    ) -> List[Dict[str, Any]]:
         """거래 내역 조회"""
         pass
         

@@ -20,24 +20,43 @@ import os
 import re
 import json
 
-# 선택적 의존성 (미설치여도 동작)
-try:
-    import cv2  # type: ignore
-except Exception:  # pragma: no cover - 선택 의존성
-    cv2 = None  # type: ignore
-
-try:
-    from paddleocr import PaddleOCR  # type: ignore
-except Exception:  # pragma: no cover - 선택 의존성
-    PaddleOCR = None  # type: ignore
-
-# RapidOCR(onnxruntime) - 크로스플랫폼 번들링에 유리
-try:
-    from rapidocr_onnxruntime import RapidOCR  # type: ignore
-except Exception:
-    RapidOCR = None  # type: ignore
-
 from .openai_client import OpenAIClient
+
+
+# ONNX Runtime은 Windows에서 네이티브 VC 런타임을 로드한다. 대시보드 import만으로
+# ONNX가 올라오지 않도록 실제 차트 OCR 요청 시점까지 import를 지연한다.
+_RAPID_OCR_CLASS: Optional[Any] = None
+_RAPID_OCR_IMPORT_ATTEMPTED = False
+_PADDLE_OCR_CLASS: Optional[Any] = None
+_PADDLE_OCR_IMPORT_ATTEMPTED = False
+
+
+def _load_rapid_ocr_class() -> Optional[Any]:
+    global _RAPID_OCR_CLASS, _RAPID_OCR_IMPORT_ATTEMPTED
+    if _RAPID_OCR_IMPORT_ATTEMPTED:
+        return _RAPID_OCR_CLASS
+    _RAPID_OCR_IMPORT_ATTEMPTED = True
+    try:
+        from rapidocr_onnxruntime import RapidOCR  # type: ignore
+
+        _RAPID_OCR_CLASS = RapidOCR
+    except Exception:
+        _RAPID_OCR_CLASS = None
+    return _RAPID_OCR_CLASS
+
+
+def _load_paddle_ocr_class() -> Optional[Any]:
+    global _PADDLE_OCR_CLASS, _PADDLE_OCR_IMPORT_ATTEMPTED
+    if _PADDLE_OCR_IMPORT_ATTEMPTED:
+        return _PADDLE_OCR_CLASS
+    _PADDLE_OCR_IMPORT_ATTEMPTED = True
+    try:
+        from paddleocr import PaddleOCR  # type: ignore
+
+        _PADDLE_OCR_CLASS = PaddleOCR
+    except Exception:
+        _PADDLE_OCR_CLASS = None
+    return _PADDLE_OCR_CLASS
 
 
 class ChartScreenshotAnalyzer:
@@ -53,8 +72,11 @@ class ChartScreenshotAnalyzer:
 
         self._ocr: Optional[Any] = None
         self._rapid_ocr: Optional[Any] = None
-        # 환경변수 또는 인자 기반 OCR 비활성화 플래그
-        env_disable = str(os.getenv('NOAHAI_DISABLE_PADDLEOCR', '0')).strip() in ('1', 'true', 'yes')
+        # 환경변수 또는 인자 기반 OCR 비활성화 플래그. 기존 변수명도 호환한다.
+        env_disable = any(
+            str(os.getenv(name, '0')).strip().lower() in ('1', 'true', 'yes')
+            for name in ('NOAHAI_DISABLE_OCR', 'NOAHAI_DISABLE_PADDLEOCR')
+        )
         self.disable_ocr = bool(disable_ocr) if disable_ocr is not None else env_disable
 
     # --- Public API ---
@@ -95,12 +117,13 @@ class ChartScreenshotAnalyzer:
     def _get_ocr(self):
         if self._ocr is not None:
             return self._ocr
-        if PaddleOCR is None:
+        paddle_ocr_class = _load_paddle_ocr_class()
+        if paddle_ocr_class is None:
             return None
         # Lazy init (첫 사용 시 생성)
         try:
             # 다중 언어 지원: 한글 + 영문
-            self._ocr = PaddleOCR(use_angle_cls=True, lang='korean')
+            self._ocr = paddle_ocr_class(use_angle_cls=True, lang='korean')
         except Exception:
             self._ocr = None
         return self._ocr
@@ -146,12 +169,15 @@ class ChartScreenshotAnalyzer:
             return "", info
 
     def _get_rapid_ocr(self):
+        if self.disable_ocr:
+            return None
         if self._rapid_ocr is not None:
             return self._rapid_ocr
-        if RapidOCR is None:
+        rapid_ocr_class = _load_rapid_ocr_class()
+        if rapid_ocr_class is None:
             return None
         try:
-            self._rapid_ocr = RapidOCR()
+            self._rapid_ocr = rapid_ocr_class()
         except Exception:
             self._rapid_ocr = None
         return self._rapid_ocr

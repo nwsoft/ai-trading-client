@@ -5,6 +5,7 @@
 검증 범위:
 - ExchangeFactory에 등록된 stock 브로커별 지원 api_type/api_version 조합
 - 각 조합이 validate_stock_broker_api_combo에서 유효 판정되는지 확인
+- 문자열 등록과 별개인 구현/실계정 검증 성숙도 계약 확인
 - OS 제약(키움 openapi + non-Windows)은 경고로 표시
 """
 
@@ -51,9 +52,21 @@ def main() -> int:
                     print(f"- {broker:<10} {api_type:<8} {api_version:<14} FAIL | {err}")
                     continue
 
-                note = "OK"
+                maturity = ExchangeFactory.get_stock_broker_api_maturity(
+                    broker, str(api_type), str(api_version)
+                )
+                status = maturity.get("status", "unregistered")
+                note = f"OK ({status})"
+                if not maturity.get("implemented", False):
+                    warnings.append(
+                        f"{broker}:{api_type}/{api_version} -> 미구현 등록 경로"
+                    )
+                elif not maturity.get("live_order_allowed", False) and str(api_type).lower() != "mock":
+                    warnings.append(
+                        f"{broker}:{api_type}/{api_version} -> 실주문 검증 전/차단"
+                    )
                 if str(broker).lower() == "kiwoom" and str(api_type).lower() == "openapi" and os_name != "Windows":
-                    note = "OK (live_env_blocked_on_non_windows)"
+                    note += " (live_env_blocked_on_non_windows)"
                     warnings.append(f"{broker}:{api_type}/{api_version} -> Windows 환경 필요")
 
                 print(f"- {broker:<10} {api_type:<8} {api_version:<14} {note}")
@@ -69,7 +82,7 @@ def main() -> int:
         for msg in warnings:
             print(f"  * {msg}")
 
-    print("- 결과: PASS (지원 모드 조합 유효)")
+    print("- 결과: PASS (등록 조합·성숙도 계약 유효, 경고 경로는 실주문 차단)")
     return 0
 
 

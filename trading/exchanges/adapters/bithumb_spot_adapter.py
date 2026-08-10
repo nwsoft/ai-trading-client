@@ -275,7 +275,13 @@ class BithumbSpotAdapter(SpotExchange):
             self.log_event('system', f"오픈 주문 조회 실패: {e}", level='ERROR')
             return []
     
-    def get_trade_history(self, symbol: Optional[str] = None, limit: int = 100) -> List[Dict[str, Any]]:
+    def get_trade_history(
+        self,
+        symbol: Optional[str] = None,
+        limit: int = 100,
+        since_ms: Optional[int] = None,
+        from_id: Optional[str] = None,
+    ) -> List[Dict[str, Any]]:
         if not self.is_connected:
             return []
         try:
@@ -292,7 +298,15 @@ class BithumbSpotAdapter(SpotExchange):
 
             if mode == 'my_trades':
                 try:
-                    trades = self.exchange.fetch_my_trades(normalized, limit=limit)  # type: ignore
+                    if since_ms is not None:
+                        try:
+                            trades = self.exchange.fetch_my_trades(  # type: ignore
+                                normalized, since=since_ms, limit=limit
+                            )
+                        except TypeError:
+                            trades = self.exchange.fetch_my_trades(normalized, limit=limit)  # type: ignore
+                    else:
+                        trades = self.exchange.fetch_my_trades(normalized, limit=limit)  # type: ignore
                     return [
                         self._normalize_execution_trade(dict(t), symbol_hint=normalized)
                         for t in trades
@@ -312,16 +326,36 @@ class BithumbSpotAdapter(SpotExchange):
                     )
 
             if mode == 'orders_fallback':
+                fallback_available = False
+                successful_empty = False
+                transient_errors: List[str] = []
                 for method_name in ('fetch_closed_orders', 'fetch_orders'):
                     fetcher = getattr(self.exchange, method_name, None)
                     if not callable(fetcher):
                         continue
+                    fallback_available = True
                     try:
                         try:
-                            orders = fetcher(normalized, limit=limit)  # type: ignore[misc]
+                            if since_ms is not None:
+                                try:
+                                    orders = fetcher(  # type: ignore[misc]
+                                        normalized, since=since_ms, limit=limit
+                                    )
+                                except TypeError:
+                                    orders = fetcher(normalized, limit=limit)  # type: ignore[misc]
+                            else:
+                                orders = fetcher(normalized, limit=limit)  # type: ignore[misc]
                         except TypeError:
                             orders = fetcher(normalized)  # type: ignore[misc]
-                    except Exception:
+                    except Exception as fallback_err:
+                        fallback_text = str(fallback_err).lower()
+                        unsupported_tokens = (
+                            'not supported', 'unsupported',
+                            'fetchclosedorders', 'fetch_closed_orders',
+                            'fetchorders', 'fetch_orders',
+                        )
+                        if not any(token in fallback_text for token in unsupported_tokens):
+                            transient_errors.append(str(fallback_err))
                         continue
 
                     trades = self._orders_to_trade_history(list(orders or []), symbol_hint=normalized)
@@ -332,12 +366,35 @@ class BithumbSpotAdapter(SpotExchange):
                         )
                         return trades[:limit]
 
-                # 폴백 경로에서도 결과를 얻지 못하면 unsupported로 고정해 과도한 재시도 차단
-                self._trade_history_mode = 'unsupported'
-                self._log_trade_history_notice_once(
-                    'trade_history_effectively_unsupported',
-                    '빗썸 거래 내역 조회: 현재 환경에서 거래 내역 API 경로를 사용할 수 없음'
-                )
+                    # 정상적인 빈 응답은 "현재 체결 0건"이지 API 미지원이 아니다.
+                    # orders_fallback 상태를 유지해야 이후 거래가 발생했을 때 다시
+                    # 조회할 수 있다.
+                    successful_empty = True
+
+                if successful_empty:
+                    self._log_trade_history_notice_once(
+                        'orders_fallback_empty',
+                        '빗썸 거래 내역 조회: 주문 내역 API 정상 응답 · 현재 조회된 체결 0건'
+                    )
+                    return []
+
+                if transient_errors:
+                    # 네트워크/인증 등 일시 오류는 다음 새로고침에서 재시도한다.
+                    self._log_trade_history_notice_once(
+                        'orders_fallback_transient_error',
+                        f'빗썸 거래 내역 조회 일시 실패 · 다음 새로고침에서 재시도: {transient_errors[0]}',
+                        level='WARNING',
+                    )
+                    return []
+
+                # 실제로 호출 가능한 폴백 메서드가 없거나 모두 명시적 미지원인
+                # 경우에만 세션 동안 unsupported로 고정한다.
+                if not fallback_available or not transient_errors:
+                    self._trade_history_mode = 'unsupported'
+                    self._log_trade_history_notice_once(
+                        'trade_history_effectively_unsupported',
+                        '빗썸 거래 내역 조회: 현재 환경에서 거래 내역 API 경로를 사용할 수 없음'
+                    )
                 return []
 
             if mode == 'unsupported':

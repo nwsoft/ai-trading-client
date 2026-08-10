@@ -52,6 +52,29 @@ def _make_token_response(token: str = "tok_abc", expires_in: int = 86400) -> Mag
     return _make_mock_response({'access_token': token, 'expires_in': expires_in})
 
 
+SHINHAN_PROFILE = {
+    'base_url': 'https://partner.test',
+    'token_path': '/oauth/token',
+    'sub_channel': 'NOAHAI_TEST',
+    'endpoints': {
+        'balance': '/balance', 'positions': '/positions', 'price': '/price',
+        'buy': '/buy', 'sell': '/sell', 'cancel': '/cancel',
+        'open_orders': '/open-orders', 'trade_history': '/trades',
+        '/some/path': '/some', '/v1/some': '/some-v1', '/fail': '/fail',
+    },
+}
+
+MIRAE_PROFILE = {
+    'base_url': 'https://partner.test',
+    'token_path': '/oauth2/token',
+    'endpoints': {
+        'positions': '/positions', 'price': '/price', 'order': '/order',
+        'cancel': '/cancel', 'open_orders': '/open-orders', 'trade_history': '/trades',
+        '/some/path': '/some', '/uapi/test': '/test',
+    },
+}
+
+
 # ──────────────────────────────────────────────────────────────────────────────
 # ShinhanStockAdapter — 토큰 자동 갱신
 # ──────────────────────────────────────────────────────────────────────────────
@@ -64,6 +87,7 @@ class TestShinhanAdapterTokenRefresh:
             user_id='u', password='p',
             app_key='key', app_secret='sec',
             backend_client=mock_http,
+            partner_profile=SHINHAN_PROFILE,
         )
         # 미리 유효 토큰 설정
         adapter._access_token = 'old_token'
@@ -76,7 +100,7 @@ class TestShinhanAdapterTokenRefresh:
         """_get() 호출 시 _ensure_token()이 먼저 실행되는지."""
         http = MagicMock()
         http.headers = {}
-        http.get.return_value = _make_mock_response({'result': 'ok'})
+        http.post.return_value = _make_mock_response({'result': 'ok'})
         adapter = self._make_adapter(http)
         with patch.object(adapter, '_ensure_token', return_value=True) as mock_et:
             adapter._get('/some/path')
@@ -97,7 +121,7 @@ class TestShinhanAdapterTokenRefresh:
         http = MagicMock()
         http.headers = {}
         # 첫 요청: 401, 재시도: 200
-        http.get.side_effect = [
+        http.post.side_effect = [
             _make_mock_response({}, 401),
             _make_mock_response({'data': 'ok'}, 200),
         ]
@@ -106,7 +130,7 @@ class TestShinhanAdapterTokenRefresh:
             result = adapter._get('/v1/some')
             mock_rt.assert_called_once()
         # 두 번 GET 호출됐어야 함 (첫 시도 + 재시도)
-        assert http.get.call_count == 2
+        assert http.post.call_count == 2
 
     def test_post_retries_on_401(self):
         """POST 401 응답 시 토큰 갱신 후 재시도한다."""
@@ -122,23 +146,20 @@ class TestShinhanAdapterTokenRefresh:
             mock_rt.assert_called_once()
         assert http.post.call_count == 2
 
-    def test_token_refresh_path_not_retried(self):
-        """토큰 발급 경로(/oauth/token)는 401 재시도 제외."""
+    def test_unknown_operation_fails_closed(self):
+        """계약 프로필에 없는 작업은 외부로 전송하지 않는다."""
         http = MagicMock()
         http.headers = {}
         http.post.return_value = _make_mock_response({}, 401)
         adapter = self._make_adapter(http)
-        with patch.object(adapter, '_refresh_token') as mock_rt:
-            adapter._post('/oauth/token', {})
-            mock_rt.assert_not_called()
-        # 재시도 없이 1회만 호출
-        assert http.post.call_count == 1
+        assert adapter._post('/not-in-contract', {}) == {}
+        assert http.post.call_count == 0
 
     def test_get_returns_empty_on_exception(self):
         """GET 예외 시 빈 dict 반환."""
         http = MagicMock()
         http.headers = {}
-        http.get.side_effect = ConnectionError("timeout")
+        http.post.side_effect = ConnectionError("timeout")
         adapter = self._make_adapter(http)
         result = adapter._get('/fail')
         assert result == {}
@@ -153,11 +174,12 @@ class TestShinhanHealthCheck:
         """토큰 유효 + API 응답 정상 → ok=True."""
         http = MagicMock()
         http.headers = {}
-        http.get.return_value = _make_mock_response({'balance': 1000000})
+        http.post.return_value = _make_mock_response({'balance': 1000000})
         adapter = ShinhanStockAdapter(
             user_id='u', password='p',
             app_key='key', app_secret='sec',
             backend_client=http,
+            partner_profile=SHINHAN_PROFILE,
         )
         adapter._access_token = 'tok'
         adapter._token_expires_at = time.time() + 3600
@@ -175,6 +197,7 @@ class TestShinhanHealthCheck:
             user_id='u', password='p',
             app_key='key', app_secret='sec',
             backend_client=http,
+            partner_profile=SHINHAN_PROFILE,
         )
         # 만료된 토큰
         adapter._access_token = ''
@@ -187,11 +210,12 @@ class TestShinhanHealthCheck:
         """API가 빈 dict 반환 → ok=False."""
         http = MagicMock()
         http.headers = {}
-        http.get.return_value = _make_mock_response({})
+        http.post.return_value = _make_mock_response({})
         adapter = ShinhanStockAdapter(
             user_id='u', password='p',
             app_key='key', app_secret='sec',
             backend_client=http,
+            partner_profile=SHINHAN_PROFILE,
         )
         adapter._access_token = 'tok'
         adapter._token_expires_at = time.time() + 3600
@@ -202,11 +226,12 @@ class TestShinhanHealthCheck:
         """health_check 결과에는 항상 latency_ms가 있어야 한다."""
         http = MagicMock()
         http.headers = {}
-        http.get.return_value = _make_mock_response({'data': 1})
+        http.post.return_value = _make_mock_response({'data': 1})
         adapter = ShinhanStockAdapter(
             user_id='u', password='p',
             app_key='key', app_secret='sec',
             backend_client=http,
+            partner_profile=SHINHAN_PROFILE,
         )
         adapter._access_token = 'tok'
         adapter._token_expires_at = time.time() + 3600
@@ -224,6 +249,7 @@ class TestMiraeAssetAdapterTokenRefresh:
             user_id='u', password='p',
             app_key='key', app_secret='sec',
             backend_client=mock_http,
+            partner_profile=MIRAE_PROFILE,
         )
         adapter._access_token = 'old_token'
         adapter._token_expires_at = time.time() + 3600
@@ -266,16 +292,14 @@ class TestMiraeAssetAdapterTokenRefresh:
             mock_rt.assert_called_once()
         assert http.post.call_count == 2
 
-    def test_oauth_token_path_not_retried(self):
-        """미래에셋 토큰 발급 경로는 401 재시도 제외."""
+    def test_unknown_operation_fails_closed(self):
+        """계약 프로필에 없는 작업은 외부로 전송하지 않는다."""
         http = MagicMock()
         http.headers = {}
         http.post.return_value = _make_mock_response({}, 401)
         adapter = self._make_adapter(http)
-        with patch.object(adapter, '_refresh_token') as mock_rt:
-            adapter._post('/oauth2/token', {})
-            mock_rt.assert_not_called()
-        assert http.post.call_count == 1
+        assert adapter._post('/not-in-contract', {}) == {}
+        assert http.post.call_count == 0
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -291,6 +315,7 @@ class TestMiraeAssetHealthCheck:
             user_id='u', password='p',
             app_key='key', app_secret='sec',
             backend_client=http,
+            partner_profile=MIRAE_PROFILE,
         )
         adapter._access_token = 'tok'
         adapter._token_expires_at = time.time() + 3600
@@ -306,6 +331,7 @@ class TestMiraeAssetHealthCheck:
             user_id='u', password='p',
             app_key='key', app_secret='sec',
             backend_client=http,
+            partner_profile=MIRAE_PROFILE,
         )
         adapter._access_token = ''
         adapter._token_expires_at = 0.0
@@ -320,6 +346,7 @@ class TestMiraeAssetHealthCheck:
             user_id='u', password='p',
             app_key='key', app_secret='sec',
             backend_client=http,
+            partner_profile=MIRAE_PROFILE,
         )
         adapter._access_token = 'tok'
         adapter._token_expires_at = time.time() + 3600
@@ -346,8 +373,8 @@ class TestRunAutoTradeCycleApiComboValidation:
         return svc
 
     def test_valid_combo_does_not_block(self):
-        """유효 조합(shinhan/rest/solapi_rest)은 실행 차단하지 않는다."""
-        svc = self._make_service(api_type='rest', api_version='solapi_rest', exchange_name='shinhan')
+        """유효 조합(shinhan/partner_rest)은 실행 차단하지 않는다."""
+        svc = self._make_service(api_type='partner_rest', api_version='shinhan_openapi_v2', exchange_name='shinhan')
         result = svc.run_auto_trade_cycle(
             symbols=['005930'],
             quantity=1,

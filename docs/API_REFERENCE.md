@@ -1,4 +1,4 @@
-# API 참조 문서 - v3.9.0.2
+# API 참조 문서 - v3.9.0.7
 
 ## 🌐 백엔드 서버 API
 
@@ -30,10 +30,21 @@ Content-Type: application/json
   "session_id": "string",
   "user_grade": "referral|pro_coin|pro_stock|premium",
   "membership_policy": {
-    "policy_version": "2026-07-27.1",
+    "policy_version": "2026-08-05.1",
     "display_name": "레퍼럴",
-    "allowed_exchanges": ["binance", "bybit", "okx", "bitget"],
+    "allowed_exchanges": ["bybit"],
     "allowed_brokers": [],
+    "referral_programs": [
+      {
+        "exchange": "bybit",
+        "enabled": true,
+        "attribution_status": "verified",
+        "uid_masked": "****1234",
+        "can_configure_api": true,
+        "can_select_exchange": true,
+        "can_start_trading": true
+      }
+    ],
     "server_authoritative": true
   }
 }

@@ -118,11 +118,10 @@ pip install pyinstaller
 #### 2. 빌드 실행
 ```bash
 # Windows
-python build_safe.py
-
-# 또는 직접 빌드
-pyinstaller aiautotrade.spec
+python build_safe.py --platform windows --gate-profile release
 ```
+
+`aiautotrade.spec`과 임시 `aiautotrade_safe.spec`은 모두 `build_safe.py`가 같은 정책으로 생성합니다. 직접 PyInstaller를 호출하지 마세요.
 
 #### 3. 실행 파일 생성
 - **Windows**: `dist/AITrading.exe`

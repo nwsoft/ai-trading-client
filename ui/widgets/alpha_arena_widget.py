@@ -287,17 +287,20 @@ class AlphaArenaWidget(CTkFrame):
             
             # 안내 문구
             info_text = """
-Alpha Arena 모드는 일반 자동매매와 다릅니다.
+AlphaArena는 기본 OFF인 숙련자용 Binance USDT 선물 독립 실험 모드입니다.
 
-1. LLM이 말로 거래를 지시하고
-2. 그 지시만 그대로 바이낸스에 나가며
-3. NoahAI의 기존 TP/SL 보험과 워치독은 동작하지 않습니다.
+시장 데이터와 직전 결과 → DeepSeek V4 Flash 판단 → 구조화 파서 →
+AlphaArena 자체 주문 게이트 → Binance 선물 주문 순서로 동작합니다.
 
-설정에서 엔진 선택 및 API 키 입력만 해주세요.
-틱 주기, 레버리지 범위 등은 Alpha Arena 벤치마크와 동일하게
-내부 가드레일로 자동 적용됩니다.
+기본 가드레일:
+• 60초 판단 주기(최소 30초), BTC/ETH/SOL/XRP/DOGE/BNB
+• 레버리지 10~20배 제한, 진입마다 TP와 SL 필수
+• 심볼 쿨다운 30초, 최대 동시 포지션 6개
+• 틱당 모델 제시 위험 합계 상한 1,500 USDT
 
-모르면 대시보드 사용자메뉴얼에서 AlphaArena 가서 설명을 읽어주세요.
+표준 자동매매의 수익성·포트폴리오·전략 합의 계층과 기존 TP/SL 보험·
+워치독을 공유하지 않습니다. 처음 사용자는 표준 LEARNING/PAPER와
+AI 커스텀부터 검증하고, 자세한 내용은 사용자 메뉴얼 → AlphaArena에서 확인하세요.
             """
             
             info_label = CTkLabel(

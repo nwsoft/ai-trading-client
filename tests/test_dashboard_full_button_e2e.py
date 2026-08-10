@@ -91,9 +91,9 @@ def _make_exchange_factory_stub():
         @staticmethod
         def validate_stock_broker_api_combo(broker, api_type, api_version):
             good = {
-                ("kiwoom",      "openapi", "pykiwoom"),
-                ("shinhan",     "rest",    "solapi_rest"),
-                ("miraeAsset",  "rest",    "mirae_rest"),
+                ("kiwoom",      "openapi_plus", "pykiwoom"),
+                ("shinhan",     "partner_rest", "shinhan_openapi_v2"),
+                ("miraeAsset",  "partner_rest", "mirae_partner_profile"),
             }
             if (broker, api_type, api_version) in good:
                 return True, None

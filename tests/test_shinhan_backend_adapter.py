@@ -22,12 +22,14 @@ class FakeShinhanBackend:
         self.headers = {'Authorization': f'Bearer {self._mock_token}'}
         self._last_request: dict = {}
 
-    def get(self, url: str, params=None, timeout=10):
+    def get(self, url: str, params=None, headers=None, timeout=10):
         self._last_request = {'method': 'GET', 'url': url, 'params': params or {}}
         return self._dispatch_get(url, params or {})
 
-    def post(self, url: str, json=None, timeout=10):
+    def post(self, url: str, json=None, headers=None, timeout=10):
         self._last_request = {'method': 'POST', 'url': url, 'json': json or {}}
+        if not any(name in url for name in ('oauth/token', 'order/domestic/buy', 'order/domestic/sell', 'order/domestic/cancel')):
+            return self._dispatch_get(url, (json or {}).get('dataBody', {}))
         return self._dispatch_post(url, json or {})
 
     def _dispatch_get(self, url: str, params: dict):
@@ -137,6 +139,24 @@ def adapter():
         account_no='12345678901',
         app_key='test-app-key', app_secret='test-app-secret',
         backend_client=fake,
+        partner_profile={
+            'base_url': 'https://partner.test', 'token_path': '/oauth/token',
+            'sub_channel': 'TEST',
+            'endpoints': {
+                'accounts': '/v1/account/domestic/list',
+                'balance': '/v1/account/domestic/balance',
+                'positions': '/v1/account/domestic/holdings',
+                'stock_list': '/v1/market/domestic/stock-list',
+                'etf_list': '/v1/market/domestic/etf-list',
+                'stock_info': '/v1/market/domestic/stock-info',
+                'price': '/v1/market/domestic/price',
+                'etf_info': '/v1/market/domestic/etf-info',
+                'buy': '/v1/order/domestic/buy', 'sell': '/v1/order/domestic/sell',
+                'cancel': '/v1/order/domestic/cancel',
+                'open_orders': '/v1/order/domestic/open-orders',
+                'trade_history': '/v1/order/domestic/history',
+            },
+        },
     )
     return adp
 

@@ -1,5 +1,181 @@
 # NoahAI 기술 확장 계획
-## AI 자산 의사결정 인프라 로드맵 (v3.9.0.5 업데이트+)
+
+## AI 자산 의사결정 인프라 로드맵 (v3.9.0.8 업데이트+)
+
+### 2026-08-10 v3.9.0.8 AI Custom Update
+
+- AI 커스텀 P1~P3 클라이언트 기능을 v3.9.0.8 릴리스 범위로 승격
+- 앱 버전 SSOT·Windows 버전·manifest·체인지로그·릴리스 노트·대시보드 업데이트 메뉴 동기화
+- AI 커스텀 매뉴얼에 프로필·기능별 ON/OFF·백테스트/PAPER·Expression Graph·사용자 지표·전략 패키지·webhook 경계 반영
+- AI 어시스턴트가 같은 정본과 현재 프로필을 사용해 질문별 가이드 제공
+- Windows 새 EXE·SHA-256·설치본·실환경 E2E 전까지 `pending_windows_rebuild`
+
+### 2026-08-10 AI 커스텀 P1~P3 클라이언트 소스 고도화 (배포 버전 변경 없음)
+
+0. `[제품 원칙]` TradingView/Pine 사용자의 익숙한 용어·흐름·성과표를 호환 기반으로 유지하고 NoahAI의 근거·PAPER·국면·위험·주문·체결 감사를 더한다. `상위 호환`은 내부 목표이며 비교 KPI 검증 전 외부 우위로 단정하지 않음
+1. `[완료]` 초보자/일반/고급/실험실 프로필과 과거 재생·월/연도 표·Expression Graph·사용자 지표 언어·전략 패키지·공유 메타데이터·품질/감사 기능 개별 ON/OFF
+2. `[완료]` 총 PnL·총 수익률·MDD·승률·Profit Factor·월별/연별 표, 최소 통과조건과 백테스트 단독 자동 승격 차단
+3. `[완료]` 깊이/노드 제한 중첩 AND/OR Expression Graph와 임의 코드·속성 접근·파일/네트워크 호출을 차단하는 제한형 지표 수식/의존성 그래프
+4. `[완료]` HMAC 서명·시간창·nonce·delivery ID 중복 방지 webhook 검증 게이트. 서버 endpoint·영속 저장·외부 E2E는 배포 외부 게이트
+5. `[완료]` `.noahstrategy` SHA-256/선택형 서명, 민감정보 제외, 비활성 검토 가져오기, private/team/unlisted 권한 메타데이터, 품질 리포트·B2B 감사 번들
+6. `[부분 완료]` 참조/TradingView 대비 캔들·체결시점·가격·비용 diff 생성 계약. 실제 Pine/PDF/TradingView 코퍼스와 퍼널 KPI는 사용자·운영 데이터 필요
+7. `[회귀]` 신규·AI 커스텀 집중 35건 통과, 전체 `1,408 passed, 6 skipped`; 기존 릴리스 manifest `built`와 테스트 기대 `pending_windows_rebuild` 불일치 2건은 별도 정합 필요
+8. `[외부 게이트]` Windows 설치본 UI, 장시간 PAPER, 실제 TradingView webhook, 회원/팀 서버 공유, 인증 B2B API, 결제·정산·법무는 완료로 표시하지 않음
+
+### 2026-08-09 AI 커스텀 핵심 고도화 P0 소스 구현 (배포 버전 변경 없음)
+
+1. `[문서 완료]` 대화형 메모였던 `docs/AI_CUSTOME_UPDATE_PLAN.md`를 시장 검증·제품 명제·Noah Strategy IR·Progressive Strategy UI·P0~P3·KPI·Go/No-Go가 있는 실행 계획으로 재작성
+2. `[시장 검증 완료]` TradingView·TrendSpider·Capitalise.ai·QuantConnect 공식 자료를 기준으로 자연어·노코드·AI 생성 자체는 차별점이 아님을 확인
+3. `[제품 결정]` 대외 쐐기를 `보유 전략 원본 → 근거 기반 안전 IR → 모호함·미지원 차단 → 국면·계좌·주문 검증 → 버전·체결 감사`로 확정
+4. `[정합 완료]` 제품 로드맵·기술 아키텍처·대화형 프리셋·대외 비즈니스 플랜·문서 인덱스·변경 이력의 용어와 우선순위를 동기화
+5. `[구현·회귀 완료]` Noah Strategy IR v1, capability registry, canonical DSL 무손실 왕복, 원문 evidence→IR node/path→실행 조건, 무결성·지원 상태 fail-closed 게이트
+6. `[소스 수직 슬라이스 완료·사용자 E2E 대기]` 대표 한국어 RSI 전략의 가져오기→Level 1/2/3→버전 diff→선언형 재생→PAPER 상태 경로와 기존 `confirm/independent`·국면·위험·주문 상태 회귀
+7. `[P1 후속]` Pine·자연어·PDF 대표 코퍼스 의미 동등성, 미지원 차단, TradingView/NoahAI 캔들·체결시점·비용 차이 리포트
+8. `[2026-08-10 클라이언트 소스 구현]` 중첩 Expression Graph, 제한 사용자 지표 수식, 명시 상태머신, 서명 webhook 검증 게이트. 서버 운영 E2E는 외부 게이트
+9. `[공개 경계]` `Universal`·`모든 Pine`·`수익 전략 자동 생성`·`시장 최강` 표현 금지. 변환 신뢰성·PAPER 유지율·실체결 조정·Windows E2E가 기준을 충족한 뒤 대표 고객 획득 무기로 확대
+
+> 이 항목은 배포 버전을 올리지 않는 소스 고도화다. Windows EXE·실계정·장시간 PAPER/LIVE 검증 전에는 설치본 완료로 표현하지 않는다. 실제 구현 범위는 `docs/AI_CUSTOM_STRATEGY_ARCHITECTURE.md`, 상세 우선순위와 시장 근거는 `docs/AI_CUSTOME_UPDATE_PLAN.md`, 사용자 시험은 `docs/AI_CUSTOM_FEATURE_TEST_AND_FEEDBACK_GUIDE_20260809.md`를 따른다.
+
+### 2026-08-08 v3.9.0.7 Fix Patch 3
+
+1. `[완료]` 세 Windows 덤프의 `MSVCP140.dll+0x12ea0`/ONNX 동일 충돌 근거 확인
+2. `[완료]` PyQt5·Kiwoom 유지, PyQt5·pandas·루트 중복 VC 런타임 제거 정책
+3. `[완료]` 공식 VC143 x64 CRT 단일 세트의 ONNX 링커 하한·필수 DLL·동일 릴리스 검증
+4. `[완료]` 완성 EXE 하위 VC DLL 0개와 공식 원본 SHA-256 사후 게이트
+5. `[완료]` RapidOCR/ONNX 실제 OCR 요청 시점 지연 로드
+6. `[완료]` 동적 탭 callback 정리+실제 destroy, Windows USER/GDI 진단
+7. `[완료]` 거래소별 분석 컨텍스트 강제, 비바이낸스 Binance 폴백·비활성 Binance 런타임 제거
+8. `[완료]` Bitget 토큰화 주식 후보 제외, Upbit·Bithumb 동일종목·기존보유·dust·관리수량 청산 정책
+9. `[완료]` 전체 자동 회귀 `1,377 passed, 6 skipped`
+10. `[Windows 재빌드 필요]` Fix Patch 3 EXE·SHA-256·Kiwoom·OCR·제보 PC·UI 100회 전환·Bitget-only·KRW 현물 소액 E2E (`pending_windows_rebuild`)
+
+### 2026-08-08 v3.9.0.7 Fix Patch 2
+
+1. `[완료]` 로그인·상태 응답 로그 개인정보·민감정보 원문 제거
+2. `[완료]` 회원등급·정책 버전·허용/귀속 건수 allowlist 로그 요약 도입
+3. `[완료]` Windows 활성 로그 직접 삭제 제거, 25MB/7개/14일 회전 통일
+4. `[완료]` Windows PID 진단 `psutil.pid_exists()` 전환
+5. `[완료]` UID 미신청 referral fail-closed 권한 회귀
+6. `[완료]` 설정창 800px 레이아웃·하단 버튼 예약/축소·진단 기본 접힘
+7. `[완료]` 설정창 생성 완료 후 모달 잠금·실패 창 정리·Tk 아이콘 interpreter 격리
+8. `[이월]` Fix Patch 3 Windows EXE에서 로그 마스킹·회전·설정창 반복 진입 E2E
+
+### 2026-08-07 v3.9.0.7 Fix Patch 1
+
+1. `[완료]` AI 공급자 키 없는 로그인·대시보드·거래소 API 설정 진입 허용
+2. `[완료]` 설정창 종료 시 `sys.exit()` 제거와 일시 상태 서버 장애 재시도
+3. `[완료]` 목적별 전략 허브 로그인 인식·내 대시보드 동선 운영 배포
+4. `[완료]` UID 변경 시 `pending` 초기화와 자동 재검증·불일치 차단 계약 확인
+5. `[완료]` daltrading 관리자 설정의 Affiliate 조회 키 암호화 저장·교체·삭제·마스킹 UI와 기존 `pending` UID 재검증
+6. `[Windows 재빌드 필요]` Fix Patch 1 EXE·SHA·설치·OKX 테스트 회원 첫 실행 E2E
+
+### 2026-08-06 v3.9.0.7 Source Candidate 2
+
+1. `[완료]` Bybit·Bitget·OKX 사용자 PC UID·추천 관계 로컬 조회와 Secret 비전송 제출
+2. `[완료]` daltrading 운영 Affiliate API 교차검증 어댑터·자동 상태·암호화 UID 저장
+3. `[완료]` 승인 전 API 검증 허용, 거래소 선택·LEARNING/PAPER/LIVE fail-closed 분리
+4. `[완료]` 시간별 재검증 timer, 거래소 장애 승인 유지·귀속 해제 차단
+5. `[완료]` 운영 DB 백업·마이그레이션·서비스·timer 배포와 HTTP 경계 확인
+6. `[운영자 입력 필요]` daltrading 관리자 `설정 → Affiliate 자동확인용 운영자 키`에 Bybit·Bitget·OKX 조회 전용 값 입력·연결 확인 (`.affiliate.env`는 호환 fallback)
+7. `[Partner 계약 확인 필요]` Binance Partner/API-Agent 조회 권한과 공식 endpoint 확정
+8. `[Windows 재빌드 필요]` EXE·SHA·설치·실제 UID 자동 승인·불일치·재검증·LEARNING/PAPER E2E
+
+### 2026-08-05 v3.9.0.7 Source Candidate 1
+
+완료:
+
+1. daltrading 사용자·거래소별 UID 암호화 제출과 `pending/verified/rejected/expired` 상태 원본
+2. 관리자 Affiliate Portal 수동 대사·상태 판정 화면
+3. `전역 활성 ∩ 사용자별 verified` 레퍼럴 허용 거래소 정책
+4. NoahAI 설정의 거래소별 상태 배너, 가입/승인 동선, 미승인 API·분석/실주문 선택 차단
+5. 로그인·약 60초 정책 갱신·거래소 시작 직전 fail-closed 재검사
+6. 유료 등급 레퍼럴 귀속 게이트 면제와 기존 로컬 API 자격증명 보존
+7. daltrading 전체 41건·3 subtests, NoahAI 전체 1,336건·6 skipped, 클라이언트 집중 32건 회귀 통과
+
+외부 게이트:
+
+1. daltrading 운영 DB 백업·마이그레이션·배포
+2. OKX·Bitget·Bybit 공식 Affiliate 링크 입력과 실제 테스트 UID 대사
+3. 사용자/관리자 브라우저 E2E와 60초 정책 축소 확인
+4. Windows 재빌드·SHA 게시·설치·설정 클릭·PAPER/LIVE 소액 검증 (`pending_windows_rebuild`)
+
+### 2026-08-04 v3.9.0.6 Source Candidate 2
+
+#### AI 커스텀을 대표 제품인 AI 전략 운영체제로 정본화
+
+- [x] 한 줄 정의를 `누구나 자신의 투자 지식을 AI와 함께 전략으로 만들고, 시장국면에 맞춰 검증·실행·개선하는 AI 전략 운영체제`로 통일
+- [x] 사용자 흐름을 `배우기 → 만들기 → 검증하기 → 실행하기 → 개선하기 → 공유하기`로 통합
+- [x] 기존 주문 표현력 8개 항목을 전체 제품의 하위 작업으로 재배치하고 AI 멘토·멀티모달 제작소·안전 DSL·검증 연구소·국면 오케스트레이터·실행 OS·전략 여권/마켓·신뢰/법무의 8개 계층으로 확장
+- [x] 클라이언트 매뉴얼·AI 커스텀 화면·NoahAI 소개에서 현재 제공/고도화 중/향후 생태계를 구분
+- [x] 제품 정본 `docs/AI_CUSTOM_STRATEGY_OS_PRODUCT_ROADMAP.md` 작성
+- [x] NoahAI·AI 커스텀·전략 허브 공식 설명과 무료 베타→현재 라이선스→후속 제작자 생태계→B2B 사업 계층을 `docs/NOAHAI_EXTERNAL_POSITIONING_AND_BUSINESS_PLAN_20260804.md`로 정본화
+- [x] AI 멘토 8문항 인터뷰·2~3개 교육형 후보와 전략 버전 변경점 UI 구현. 초안 불러오기는 저장·승인·적용과 분리
+- [x] 원문→규칙 근거 추적, 고급 주문 계획, 워크포워드·비용/파라미터 민감도·몬테카를로·PAPER 전진검증 기록, 전략 충돌 HOLD·성과 강등 제안 구현
+- [x] Binance·통합 선물의 부분청산 체결 확인·중복 방지, 추적손절·손익분기 상태, 재진입 신호 요구 계약과 공통 주문 상태 복구 구현
+- [x] 모든 거래소·증권 어댑터가 공개 시세와 분리된 인증 체결 이벤트 큐·건강·REST 증분 복구 계약을 상속하도록 구현
+- [x] daltrading 전략 여권·검증 스냅샷·공개 게이트와 9개 목적별 무료 탐색 화면/API 기반 구현
+- [x] 전략 허브 기본 30일 무료 테스트, 관리자 기간·가격·준비 설정, 미준비 유료 전환 fail-closed 정책 구현
+- [x] 클라이언트 `.noahstrategy` 로컬 exporter/importer·변조/민감정보 차단·비활성 가져오기·권한 메타데이터
+- [ ] 서버 오브젝트 저장소·회원 초대/철회·다운로드·실제 비공개/팀 공유 E2E
+- [ ] 유료 마켓은 권리·결제·구매권한·정산·환불·분쟁·모더레이션·법무와 E2E 완료 후 7단계로 별도 개방. 현재 코드 게이트 차단
+- [x] `.noahstrategy` 전용 패키지, 민감정보 제외, 비활성 가져오기, 전략 여권, 6A/6B 공유와 7단계 마켓 분리 정본 작성
+
+- [x] 분석 10초 주기 `force=True` 체결 전체 조회 제거 및 기본 5분 LIVE 증분 동기화
+- [x] 수익성 검증의 로컬 완료 거래·확정 체결 원장 우선 사용
+- [x] 마지막 체결 시각/ID 커서와 CCXT/Binance 증분 조회 계약
+- [x] 신규 주문 ID별 확인과 전체 체결 백필 분리
+- [x] PAPER·LEARNING의 불필요한 개인 체결 API 호출 차단
+- [x] 인증 사용자 체결 스트림 우선 훅과 REST 저빈도 폴백 계약
+- [x] AI 리포트 통화별 문장 조립의 f-string 구문 오류를 수정하고 `main.py` 로그인·대시보드·AI 리포트 위젯 시작 경로 재검증
+- [x] 전체 자동 회귀 `1,332 passed, 6 skipped`, 문서·빌드 포함·활성 소스/격리 검사 PASS
+- [ ] 거래소별 인증 사용자 체결 WebSocket 실연결·재연결·누락 복구 E2E
+- [x] 서명 TradingView webhook 검증 게이트·제한된 사용자 정의 지표 식 그래프 클라이언트 소스
+- [ ] webhook 서버 endpoint·영속 중복 저장소·TradingView 실제 재전송 E2E
+
+> AI 커스텀 1~4단계와 5단계 공통 실행 계약은 Source Candidate 2에 구현했습니다. 5단계의 거래소·증권사별 인증 스트림 바인딩과 Windows 실계정 장시간 E2E는 배포 후 외부 게이트이며, 이를 통과하기 전 설치 배포본 전체가 완료됐다고 표현하지 않습니다. 실제 단계별 상태는 `docs/AI_CUSTOM_STRATEGY_OS_PRODUCT_ROADMAP.md`, 대외 설명과 사업 구조는 `docs/NOAHAI_EXTERNAL_POSITIONING_AND_BUSINESS_PLAN_20260804.md`를 정본으로 사용합니다.
+
+### 2026-08-03 v3.9.0.6 Source Candidate 1
+
+1. `[완료]` `data/260802_Teayu`의 6개 거래소 DB·로그·학습 저장소 비교
+2. `[완료]` KRW 현물·CCXT 파생상품 원본 심볼 기준 최근 거래 조회
+3. `[완료]` 학습 축적 후 완료 거래 최소값이 첫 거래를 막는 순환 조건 제거
+4. `[완료]` AI 리포트·챔피언–챌린저 통화별 손익/Fee 분리
+5. `[완료]` Binance 최근 200건 조회와 신규 저장 건수 UX 분리, 개별 fill의 청산 성과 이중 편입 중단
+6. `[완료]` 동시 PID를 비정상 종료로 오인하는 안정성 마커 보강
+7. `[완료]` 전체 자동 회귀 `1,308 passed, 6 skipped`·문서 정합·빌드 포함·활성 소스/격리 검사 PASS
+8. `[Windows 재빌드 필요]` 설치·API 읽기·최소 주문·재시작·장시간 E2E
+
+### 2026-08-01 Fix Patch 5 최종 개발·정합 마감
+
+- `[완료]` 사용자가 외부 문서를 찾지 않아도 되도록 업데이트 후 최초 1회 실거래 안내, 대시보드·설정 상시 진입점, 인앱 `실거래 준비` 탭을 추가
+- `[완료]` 창 제목·매뉴얼·하단 카드에 `v3.9.0.5 Fix Patch 5`를 표시하고 6개 거래소·4개 증권사·회원등급·PAPER/LIVE·API/계약·실계정 검증 순서를 단일 인앱 정본으로 통합
+- `[검증 완료]` 인앱 안내 집중 5 passed, 전체 자동 회귀 `1,298 passed, 6 skipped`, 문서 정합·활성 소스 감사·빌드 포함 검증 PASS
+- `[완료]` 탭 숨김 순간 반복 예약 소실을 독립 갱신 생명주기와 2초 생존 확인으로 수정하고 포지션 마지막 적용 시각 표시
+- `[완료]` Binance 네이티브 공통 체결 원장, CCXT LIVE 진입 `trade_log` 멱등 생성, 체결 확정 전 NEW/PENDING 포지션 승격 차단
+- `[완료]` 거래 엔진 30초 자동 원장 대조와 AI 오늘 실제 체결 목록 연결
+- `[검증 완료]` Fix Patch 5 갱신·체결 원장·사용자 DB 보존·초기화 실패 차단 집중 회귀 `6 passed`
+
+- 완료: 현물 보유자산·선물 포지션 계약 분리와 실시간·캐시·오류 상태 표시
+- 완료: PAPER 엔진 저장소를 대시보드 포지션·가상 계좌 카드에 연결하고 LIVE/LEARNING/PAPER, 가상 미실현 PnL, 실잔고 미사용을 명시
+- 완료: Binance 포지션, Bithumb 주문 ID 복구, 5개 CCXT 확정 체결 원장 공통 계약 재검증
+- 완료: 증권 4개 공식 계약·설정 이전·어댑터·PAPER/LEARNING/LIVE AND 권한 재검증
+- 완료: `ModernDashboard` 정의 전용 메서드 23개와 레거시 테마 소스 6개 외부 격리, 16개 아티팩트 해시 관리
+- 완료: 최소 주문 규격 예외 fail-closed, TP/SL 관련 무음 예외 핵심 경로 경고화
+- 완료: `scripts/active_source_audit.py`, `verify_build_includes.py`, `scripts/doc_consistency_check.py`, 전체 pytest 게이트
+- 배포 후 외부 게이트: Windows EXE 생성·SHA·설치·업데이트 복원, 거래소·증권사 실계정 소액 주문/취소/체결, 24~72시간 갱신 지속성
+- 정본: `docs/ARCHITECTURE_AUDIT_2026-08-01.md`, `docs/SOURCE_QUARANTINE_MANIFEST_20260801.md`, `docs/TEST_STATUS.md`
+
+### 2026-08-01 증권사 공식 계약·실행 권한 정본화
+
+- 완료: 키움 OpenAPI+·신한 Open API v2 제휴·미래에셋 제휴·한국투자 KIS 계약명을 설정/팩토리/UI에 동일 적용
+- 완료: `kiwoom_api`, 신한 `xingapi`, 미래에셋 `kis` 등 잘못된 선택지 제거와 인증값 보존 자동 이전
+- 완료: 한국투자 KIS 토큰·헤더·TR ID·실전/모의·주문 성공 판정 구현, 키움 주문 입력/런타임 준비상태 보강
+- 완료: 신한 HMAC `hsKey` 요청 봉투와 신한·미래에셋 계약 프로필 기반 URL/엔드포인트 호출 구현
+- 완료: `PAPER 우선 → 전역 LIVE AND 증권사 LIVE AND 어댑터 준비 AND 가드레일` 권한식으로 대시보드 실행 경로 통일
+- 완료: 증권사별 LIVE 토글을 설정 UI에 노출하고 저장/재로드 연결
+- 완료: 인앱 매뉴얼·AI 어시스턴트·사용자 가이드·기술 백서·판매 문서·장애 문서 정합화
+- 배포 후 검증: Windows 키움 OCX와 실제 증권 계약 계정의 연결·조회·소액 주문·취소·체결내역·재시작·장시간 갱신
+- 정본: `docs/STOCK_BROKER_CONTRACTS_v3.9.0.5.md`
 
 ### 2026-07-30 AI 커스텀 제품 계약·거래 파이프라인 정합화
 
@@ -21,7 +197,7 @@ AI 커스텀에는 서로 다른 세 축이 있으며 화면·설정·로그에�
 
 | 축 | 값 | 의미 |
 |---|---|---|
-| 전략 역할 | 기본 AI 후보 재확인 `confirm` | NoahAI LONG/SHORT 후보를 사용자 전략 조건으로 허용·차단 |
+| 전략 역할 | 기본 AI 후보 확인(권장) `confirm` | NoahAI LONG/SHORT 후보를 사용자 전략 조건으로 허용·차단 |
 | 전략 역할 | 사용자 전략 독립 후보 `independent` | 기본 AI가 HOLD여도 사용자 원형 전략이 LONG/SHORT 후보 생성 |
 | 실행 안전등급 | 검증 통과 운용 `standard` | 실행검증을 통과한 전략의 일반 운용 |
 | 실행 안전등급 | 1배·1% 제한시험 `limited_live` | 검증 결과를 이해한 사용자가 명시적으로 선택한 최소단위 시험 |
@@ -237,6 +413,21 @@ LEARNING도 1~9의 판단 파이프라인을 실행하고 10번의 주문 제출
 12. `[회귀 검증 중]` 공통 CCXT 체결 계약·UI 큐·무서명 SHA 자동업데이트 테스트를 추가했으며 최종 전체 수치는 `TEST_STATUS.md`에 기록
 13. `[Windows 재빌드 필요]` 공개 v3.9.0.5 Fix Patch 1 EXE와 현재 Update Patch 1 소스를 구분. 사용자가 새 EXE를 빌드한 뒤 5개 거래소 읽기 조회, Bybit LIVE, Bithumb 최소 매수·매도·동기화, 서비스 왕복 잔고, 3.9.0.5→Update Patch 1 적용을 검증
 
+#### 2026-08-01 Fix Patch 2 · 확정 체결·통계 복구·Binance 포지션 정본
+
+1. `[구현 완료]` Binance 거래소 탭의 raw 구클라이언트 직접 호출을 제거하고 현재 정본 `get_positions_result`로 통합
+2. `[구현 완료]` Binance 시간 오차 재동기화 1회 재시도와 조회 실패/실제 0개 상태 분리
+3. `[구현 완료]` 설정 저장 시 Binance Trader도 새 정본 클라이언트 참조로 갱신
+4. `[구현 완료]` 5개 CCXT 거래소의 NEW/PENDING/OPEN 주문 접수와 확정 체결 분리
+5. `[구현 완료]` 로컬 주문 접수 원장과 주문 ID별 `fetch_order` 재확인 추가
+6. `[구현 완료]` Bithumb 전체 이력 API 미지원 환경에서도 NoahAI 주문 ID로 누락 확정 체결 복구
+7. `[구현 완료]` 레거시 미확정 실행 원장을 같은 주문 ID의 확정 상세로 보강하고 중복 방지
+8. `[구현 완료]` 진입·청산 통계를 거래소·방향·주문 ID로 연결하고 저장 실패 반환
+9. `[구현 완료]` 실제 체결 건수·금액은 확정 체결 원장, 승률·PnL은 청산 완료 원장으로 UI 분리
+10. `[검증 완료]` 집중 회귀 `26 passed`, 전체 자동 회귀 `1,261 passed, 6 skipped`
+11. `[Windows 재빌드 필요]` manifest `pending_windows_rebuild`; 공개 Fix Patch 1 EXE는 이전 자산으로만 보존
+12. `[외부 검증 필요]` 실제 6개 거래소 읽기, Bithumb 최소 매수·매도·주문 ID 복구, Binance 포지션 진입·청산·재시작, 24~72시간 안정성
+
 ### 2026-07-29 실행 모드·페이퍼 안전성·고급 매매 계층 정합화
 
 순서와 완료 기준:
@@ -263,7 +454,7 @@ LEARNING도 1~9의 판단 파이프라인을 실행하고 10번의 주문 제출
 - `[구현 완료]` 기존 OpenAI 무중단 fallback과 OpenAI/DeepSeek 동적 모델 조회·인증 검증 경로
 - `[v3.9.0.5 철회]` AI 키만 운영체제 보안 저장소로 자동 이전하던 정책을 제거하고 기존 사용자별 로컬 설정 정책으로 통일
 - `[구현 완료]` DeepSeek 종료 모델(`deepseek-3.1`, `deepseek-chat`, `deepseek-reasoner`)을 V4 Flash/Pro로 전환
-- `[구현 완료]` Kimi K3 어시스턴트 시험 지원
+- `[구현 완료]` Kimi K3/K2.6 정식 작업별 텍스트·JSON·비전 지원
 - `[구현 완료]` Anthropic Claude 네이티브 Messages API와 Google Gemini 공식 호환 API, 동적 모델 목록·공통 사용량/오류 정규화
 - `[구현 완료]` 애널리스트·어시스턴트·빈번/표준/정밀 작업별 `{provider, model}` 저장·실행 라우팅과 기존 문자열 자동 마이그레이션
 - `[구현 완료]` AI 커스텀 구조화 분석 Provider와 OpenAI 음성 전사 Provider 완전 분리, 다중 화자 전사 모델 선택
@@ -296,7 +487,7 @@ LEARNING도 1~9의 판단 파이프라인을 실행하고 10번의 주문 제출
 - `[구현 완료]` 초안 전달 뒤 자동 분석·저장·승인·거래를 수행하지 않는 사용자 확인 경계
 - `[구현 완료]` 국면·다중 시간대·유동성·손익비·성과 충돌 시 공통 HOLD 우선
 - `[고급모드 1차 완료]` EMA·SMA·RSI·ATR·거래량 평균의 사용자 기간 2~500, 조건별 시간봉, AND/OR, 진입·전체 청산 규칙 편집과 실시간 계산값 비교
-- `[후속]` 부분익절·추적손절·재진입 편집, TradingView webhook+국면 필터, 사용자 정의 지표 샌드박스
+- `[소스 구현·외부 E2E 후속]` 부분익절·추적손절·재진입 편집, 서명 TradingView webhook 검증 게이트+국면 필터, 제한형 사용자 지표 언어. webhook 운영 endpoint는 외부 E2E 대상
 - `[문서]` 상세 기준: `docs/AI_CUSTOM_CONVERSATIONAL_PRESETS_PLAN_v3.9.0.3.md`
 - `[진단]` Teayu 테스터 근거·수정·재검증: `docs/TESTER_260728_STABILITY_EXCHANGE_REPORT.md`
 - `[배포 게이트]` Windows 10/11 글꼴 실화면, 비정상 종료 재현 로그, 각 실제 거래소 최소 주문·장시간 안정성은 새 EXE에서 별도 검증
@@ -709,7 +900,7 @@ v3.9.0.1 반영 기록:
 | 공통 리스크 가드레일 | 현재 제공 | 전략 소스와 무관하게 최종 진입 전 우선 적용 |
 | PDF/문서/영상/YouTube 전략 추출 | 현재 제공 | 텍스트·OCR·자막·대표 프레임 추출 -> 누락 재확인 -> 승인/실행검증 |
 | TradingView/Pine Script 전략 추출 | 현재 제공 | 공개 링크 또는 사용자 제공 Pine을 규칙/엔진 설정으로 변환 |
-| 전략 공유/랭킹 | 업데이트 예정 | 재현성/신뢰도 통과 전략만 승격 |
+| 전략 공유/랭킹 | 부분 구현 | daltrading 전략 여권·검증 게이트·9개 목적별 탐색 기반 적용. 클라이언트 패키지 공유·다운로드는 후속이며 재현성/신뢰도 통과 전략만 승격 |
 | 뉴스/유튜브 신뢰도 판별 | 업데이트 예정 | 판단 보조 전용(자동 매매 신호 직접 사용 금지) |
 
 #### YouTube 전체 맥락 분석·브라우저 연결 고도화 계획 (v3.9.0+)

@@ -1,19 +1,10 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-미래에셋증권 주식/ETF 어댑터
-미래에셋증권 Open Trading API (REST) 연동
+미래에셋증권 주식/ETF 제휴 API 어댑터.
 
-인증 방식:
-  - app_key + app_secret → POST /oauth2/token → access_token
-  - 이후 모든 요청 헤더에 Authorization: Bearer {access_token}
-
-api_type 값:
-  'rest'    : Open Trading REST API (권장)
-  'openapi' : 내부 통일 표기, 실제로는 rest 동일 처리
-
-주요 공식 문서:
-  https://tradingopen.miraeasset.com (API 등록 후 제공)
+한국투자 KIS 경로를 재사용하지 않는다. 운영 URL·토큰 경로·인증 헤더·거래별
+엔드포인트·성공 코드는 증권사와 체결한 계약의 partner_profile에서 받는다.
 """
 
 import importlib
@@ -23,8 +14,17 @@ from datetime import datetime
 from typing import Dict, List, Optional, Any
 from ..interfaces.stock_exchange import StockExchange
 
-_MIRAEASSET_BASE_URL = 'https://openapi.miraeasset.com'
-_MIRAEASSET_SANDBOX_URL = 'https://sandbox-openapi.miraeasset.com'
+_OPERATION_BY_LEGACY_PATH = {
+    '/uapi/domestic-stock/v1/trading/inquire-account-balance': 'accounts',
+    '/uapi/domestic-stock/v1/trading/inquire-balance': 'positions',
+    '/uapi/domestic-stock/v1/quotations/inquire-daily-itemchartprice': 'stock_list',
+    '/uapi/domestic-stock/v1/quotations/inquire-etf-daily': 'etf_info',
+    '/uapi/domestic-stock/v1/quotations/inquire-price': 'price',
+    '/uapi/domestic-stock/v1/trading/order-cash': 'order',
+    '/uapi/domestic-stock/v1/trading/order-rvsecncl': 'cancel',
+    '/uapi/domestic-stock/v1/trading/inquire-psbl-rvsecncl': 'open_orders',
+    '/uapi/domestic-stock/v1/trading/inquire-daily-ccld': 'trade_history',
+}
 
 
 class MiraeAssetStockAdapter(StockExchange):
@@ -36,8 +36,8 @@ class MiraeAssetStockAdapter(StockExchange):
         self.password = password
         self.cert_password = cert_password
         self.account_no = account_no
-        self.api_type = kwargs.get('api_type', 'rest')
-        self.api_version = kwargs.get('api_version', 'openapi_v1')
+        self.api_type = kwargs.get('api_type', 'partner_rest')
+        self.api_version = kwargs.get('api_version', 'mirae_partner_profile')
         self.app_key: str = kwargs.get('app_key', '') or ''
         self.app_secret: str = kwargs.get('app_secret', '') or ''
         self._http: Any = kwargs.get('backend_client')
@@ -45,6 +45,7 @@ class MiraeAssetStockAdapter(StockExchange):
         self._token_expires_at: float = 0.0
         self.request_timeout: int = int(kwargs.get('request_timeout', 10) or 10)
         self.sandbox: bool = bool(kwargs.get('sandbox', False))
+        self.partner_profile: Dict[str, Any] = dict(kwargs.get('partner_profile', {}) or {})
         self.logger = logging.getLogger(__name__)
         from log_system.log_adapter import log_event
         self.log_event = lambda category, msg, level='INFO': log_event(category, msg, exchange='miraeAsset', level=level)
@@ -107,7 +108,39 @@ class MiraeAssetStockAdapter(StockExchange):
     # ------------------------------------------------------------------
 
     def _base_url(self) -> str:
-        return _MIRAEASSET_SANDBOX_URL if self.sandbox else _MIRAEASSET_BASE_URL
+        key = 'sandbox_url' if self.sandbox else 'base_url'
+        return str(self.partner_profile.get(key) or '').rstrip('/')
+
+    def _resolve_path(self, path: str) -> str:
+        operation = _OPERATION_BY_LEGACY_PATH.get(path, path)
+        endpoints = self.partner_profile.get('endpoints', {})
+        return str(endpoints.get(operation) or '').strip() if isinstance(endpoints, dict) else ''
+
+    def get_live_readiness(self) -> tuple[bool, str]:
+        endpoints = self.partner_profile.get('endpoints', {})
+        required = {'positions', 'price', 'order', 'cancel', 'open_orders', 'trade_history'}
+        if not self._base_url():
+            return False, '미래에셋 제휴 계약의 base_url이 필요합니다.'
+        if not isinstance(endpoints, dict) or not required.issubset(endpoints):
+            return False, '미래에셋 제휴 계약 엔드포인트 프로필이 완전하지 않습니다.'
+        if not self.app_key or not self.app_secret:
+            return False, '미래에셋 제휴 API 키/시크릿이 필요합니다.'
+        if not self.account_no:
+            return False, '미래에셋 계좌번호가 필요합니다.'
+        if not self.is_connected:
+            return False, '미래에셋 제휴 API 연결이 완료되지 않았습니다.'
+        return True, ''
+
+    def _partner_headers(self) -> Dict[str, str]:
+        headers = dict(self.partner_profile.get('headers', {}) or {})
+        key_header = str(self.partner_profile.get('api_key_header') or 'appkey')
+        secret_header = str(self.partner_profile.get('api_secret_header') or 'appsecret')
+        headers.setdefault(key_header, self.app_key)
+        headers.setdefault(secret_header, self.app_secret)
+        headers.setdefault('Authorization', f'Bearer {self._access_token}')
+        headers.setdefault('Content-Type', 'application/json; charset=UTF-8')
+        headers.setdefault('Accept', 'application/json')
+        return {str(key): str(value) for key, value in headers.items() if value not in (None, '')}
 
     def _normalize_symbol(self, symbol: Any) -> str:
         return str(symbol or '').strip().zfill(6)
@@ -154,7 +187,10 @@ class MiraeAssetStockAdapter(StockExchange):
         if not http:
             return False
         try:
-            token_url = f'{self._base_url()}/oauth2/token'
+            token_path = str(self.partner_profile.get('token_path') or '').strip()
+            if not self._base_url() or not token_path:
+                return False
+            token_url = f'{self._base_url()}{token_path}'
             payloads = [
                 {
                     'grant_type': 'client_credentials',
@@ -210,12 +246,15 @@ class MiraeAssetStockAdapter(StockExchange):
         http = self._get_http()
         if not http:
             return {}
-        # 요청 전 토큰 유효성 확인
-        self._ensure_token()
+        resolved = self._resolve_path(path)
+        if not resolved or not self._ensure_token():
+            self.log_event('system', f'미래에셋 계약 프로필 엔드포인트 누락: {path}', level='ERROR')
+            return {}
         try:
             resp = http.get(
-                f'{self._base_url()}{path}',
+                f'{self._base_url()}{resolved}',
                 params=params or {},
+                headers=self._partner_headers(),
                 timeout=self.request_timeout,
             )
             # 401 Unauthorized → 토큰 갱신 후 1회 재시도
@@ -224,8 +263,9 @@ class MiraeAssetStockAdapter(StockExchange):
                 self.log_event('system', f'{self._broker_label()} GET {path} 401 → 토큰 갱신 후 재시도', level='WARNING')
                 if self._refresh_token():
                     resp = http.get(
-                        f'{self._base_url()}{path}',
+                        f'{self._base_url()}{resolved}',
                         params=params or {},
+                        headers=self._partner_headers(),
                         timeout=self.request_timeout,
                     )
             return self._response_to_dict(resp, method='GET', path=path)
@@ -238,13 +278,15 @@ class MiraeAssetStockAdapter(StockExchange):
         http = self._get_http()
         if not http:
             return {}
-        # 요청 전 토큰 유효성 확인 (토큰 갱신 경로 자신은 제외)
-        if path not in ('/oauth2/token', '/oauth/token'):
-            self._ensure_token()
+        resolved = self._resolve_path(path)
+        if not resolved or not self._ensure_token():
+            self.log_event('system', f'미래에셋 계약 프로필 엔드포인트 누락: {path}', level='ERROR')
+            return {}
         try:
             resp = http.post(
-                f'{self._base_url()}{path}',
+                f'{self._base_url()}{resolved}',
                 json=body or {},
+                headers=self._partner_headers(),
                 timeout=self.request_timeout,
             )
             status = getattr(resp, 'status_code', None)
@@ -252,8 +294,9 @@ class MiraeAssetStockAdapter(StockExchange):
                 self.log_event('system', f'{self._broker_label()} POST {path} 401 → 토큰 갱신 후 재시도', level='WARNING')
                 if self._refresh_token():
                     resp = http.post(
-                        f'{self._base_url()}{path}',
+                        f'{self._base_url()}{resolved}',
                         json=body or {},
+                        headers=self._partner_headers(),
                         timeout=self.request_timeout,
                     )
             return self._response_to_dict(resp, method='POST', path=path)
@@ -312,6 +355,10 @@ class MiraeAssetStockAdapter(StockExchange):
         """미래에셋 Open Trading API 토큰 발급 및 연결."""
         try:
             self.log_event('system', f'{self._broker_label()} 연결 시도 중... (type={self.api_type}, version={self.api_version})')
+
+            if not self._base_url() or not isinstance(self.partner_profile.get('endpoints'), dict):
+                self.log_event('system', '미래에셋 제휴 API 계약 프로필(base_url/endpoints)이 없습니다.', level='ERROR')
+                return False
 
             if not (self.app_key and self.app_secret) and not (self.user_id and self.password):
                 self.log_event('system', f'{self._broker_label()} 인증 정보가 설정되지 않음 — 연결 건너뜀')
@@ -669,8 +716,9 @@ class MiraeAssetStockAdapter(StockExchange):
             })
             output = resp.get('output') or resp
             order_id = str(output.get('odno') or output.get('order_id') or '').strip()
-            rt_cd = str(resp.get('rt_cd') or '0')
-            success = rt_cd in ('0', '00', '') or bool(order_id)
+            result_code = str(resp.get('rt_cd') or resp.get('resultCode') or '').strip()
+            success_codes = {str(value) for value in self.partner_profile.get('success_codes', ['0', '00'])}
+            success = bool(order_id) and result_code in success_codes
             return {
                 'status': 'success' if success else 'error',
                 'order_id': order_id,
@@ -725,8 +773,9 @@ class MiraeAssetStockAdapter(StockExchange):
                 'ORD_UNPR': '0',
                 'QTY_ALL_ORD_YN': 'Y',
             })
-            rt_cd = str(resp.get('rt_cd') or '0')
-            return rt_cd in ('0', '00', '')
+            result_code = str(resp.get('rt_cd') or resp.get('resultCode') or '').strip()
+            success_codes = {str(value) for value in self.partner_profile.get('success_codes', ['0', '00'])}
+            return result_code in success_codes
         except Exception as e:
             self.log_event('system', f'{self._broker_label()} 주문 취소 실패: {order_id} - {e}', level='ERROR')
             return False

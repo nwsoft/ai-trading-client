@@ -6,10 +6,59 @@
 
 NoahAI의 핵심은 자동매매가 아니라 **판단·설명·기록·검증·환류 구조를 갖춘 AI 금융 의사결정 인프라**입니다.
 
-## 현재 배포 버전: v3.9.0.5 Fix Patch 1
+## 현재 작업 버전: v3.9.0.8 AI Custom Update · Windows 재빌드 전
+
+2026-08-10 v3.9.0.8은 Noah Strategy IR, 원본 근거 추적, Level 1·2·3, 사용자 난이도 프로필, PnL·MDD·월/연도 검증표, Expression Graph·제한형 사용자 지표, 전략 패키지와 AI 어시스턴트 지식을 하나의 AI 커스텀 업데이트로 묶습니다. 새 Windows EXE는 `pending_windows_rebuild`입니다.
+
+- PyQt5는 Windows 키움 OpenAPI+의 `QAxWidget`/COM 연결에 필요하므로 제거하지 않습니다.
+- PyQt5·pandas·루트에서 수집된 VC DLL을 모두 제거한 뒤, 빌드 아키텍처와 같은 공식 VC143 재배포 폴더의 검증된 단일 세트만 EXE 루트에 넣습니다.
+- ONNX Runtime 바이너리의 PE 링커 버전보다 오래된 VC 런타임, 필수 DLL 누락, 서로 다른 릴리스 세트 혼합이면 빌드를 즉시 중단합니다.
+- 빌드 완료 후 EXE 아카이브를 열어 하위 폴더 VC DLL 0개와 공식 원본 SHA-256 일치를 다시 검사합니다.
+- 대시보드 import만으로 RapidOCR/ONNX 네이티브 모듈을 로드하지 않습니다. 실제 OCR 기능을 호출할 때만 초기화합니다.
+- 동적 서비스·거래소 탭은 콜백 정리 후 실제 프레임까지 파괴해 CustomTkinter 메뉴·위젯 리소스가 전환 횟수만큼 남지 않게 합니다. Windows에서는 설정창/서비스 전환 전후 USER·GDI 수를 진단 로그로 남깁니다.
+- Bitget·Bybit·OKX·Upbit·Bithumb 분석은 선택 거래소의 티커·캔들만 사용하며 Binance 펀딩비·OI·K라인으로 폴백하지 않습니다. Binance가 활성 범위에 없는 프로필은 Binance REST/WebSocket 런타임 자체를 만들지 않습니다.
+- Upbit·Bithumb LIVE는 주문 전에 실제 보유량과 앱 원장을 조정합니다. 동일 종목 중복 진입과 원장 밖 최소주문금액 이상 보유자산 재진입을 차단하고, 최소주문금액 미만은 dust로 분리하며 앱 진입 전 잔고는 청산하지 않습니다.
+- Fix Patch 2의 로그 개인정보·파일 회전·설정창 복구 수정과 레퍼럴 `관리자 전역 활성 ∩ 사용자별 verified` 실행 게이트를 모두 유지합니다.
+- 같은 `3.9.0.8`이어도 공개 manifest의 EXE SHA-256이 다르면 자동업데이트가 새 빌드를 감지합니다.
+
+### Fix Patch 1에서 유지되는 레퍼럴 권한
+
+- Bybit·Bitget·OKX는 API 키 검증 직후 사용자 PC에서 UID를 읽고 서버 Affiliate API로 자동 교차검증합니다. 사용자 Secret·Passphrase는 전송하지 않습니다.
+- 레퍼럴 등급의 허용 거래소는 `관리자 전역 활성 ∩ 사용자별 verified`입니다.
+- 승인 전 API 입력·검증은 허용하지만 거래소 선택과 LEARNING/PAPER/LIVE 시작은 fail-closed로 차단합니다.
+- AI 공급자 키가 없어도 앱·대시보드·거래소 설정은 유지하며, 일시적인 상태 서버 장애 한 번으로 앱을 강제 종료하지 않습니다.
+- 운영자 Affiliate 조회 키는 daltrading `관리자 → 설정 → Affiliate 자동확인용 운영자 키`에서 암호화 저장합니다. 일반 사용자는 이 키를 입력하지 않으며 SSH·`.env` 편집도 필요하지 않습니다.
+- 유료 `pro_coin`·`premium` 등급은 레퍼럴 귀속 없이 기존 라이선스 범위에서 사용할 수 있습니다.
+- 전체 운영 순서·보안·등급별 답변은 [레퍼럴·거래소 제휴 통합 운영 정본](../daltrading/REFERRAL_MEMBERSHIP_OPERATIONS_20260727.md)에서 한 곳으로 관리합니다.
+
+## 이전 작업 버전: v3.9.0.6 Source Candidate 2
+
+2026-08-03부터 사용자 `data/260802_Teayu` 장애 재현을 기준으로 v3.9.0.6 변경 이력을 시작합니다. 현재 소스는 Windows 재빌드 대기 상태이며, 직전 v3.9.0.5 Fix Patch 5 설치본에는 아래 수정이 포함되지 않습니다.
+
+- KRW 현물과 CCXT 파생상품의 거래 이력을 거래소 원본 심볼로 조회합니다.
+- 학습량이 늘수록 완료 거래가 없는 심볼이 더 강하게 차단되던 순환 조건을 제거했습니다.
+- AI 리포트와 챔피언–챌린저는 KRW·USDT를 환율 없이 더하지 않습니다.
+- Binance `200건`은 API 조회 상한과 신규 저장 건수를 분리해 안내합니다.
+- Binance 개별 fill은 실제 체결 원장에만 저장하며 NoahAI 진입-청산 성과로 중복 편입하지 않습니다. 기존 `binance_import` 행은 삭제하지 않고 성과 집계에서 제외합니다.
+- 동시 실행과 실제 비정상 종료를 안정성 로그에서 구분합니다.
+- 분석 10초 주기와 거래소 전체 체결 API 호출을 분리했습니다. 수익성 검증은 로컬 완료 거래·확정 체결 원장을 우선 사용하고, LIVE 체결 이력은 기본 5분 간격의 마지막 체결 시각/ID 이후 증분 조회만 수행합니다.
+- PAPER·LEARNING은 미확정 실주문이 없으면 개인 체결 API를 호출하지 않으며, 신규 주문은 저장된 주문 ID만 별도 10초 주기로 최종 상태까지 확인합니다.
+- 전체 자동 회귀 `1,332 passed, 6 skipped`와 문서·빌드 포함·활성 소스/격리 검사가 통과했습니다. 상세 수치는 [테스트 상태](docs/TEST_STATUS.md)를 정본으로 사용하며 Windows 실주문·장시간 검증 전에는 6개 거래소 정상 작동 완료로 판단하지 않습니다.
+
+- Upbit·Bithumb는 현물 `보유자산`, Binance·Bybit·OKX·Bitget은 선물 `포지션`으로 계좌 화면 의미를 분리했습니다.
+- PAPER에서는 실계정 API 대신 엔진의 분리된 가상 포지션을 표시하고, 가상 포지션 수·미실현 PnL·실잔고 미사용을 명시합니다.
+- Binance 포지션 조회 실패를 0건으로 숨기지 않고, 실시간·캐시·오류 상태를 구분합니다.
+- Bithumb 포함 CCXT 거래소는 주문 접수와 양수 체결을 분리하고, NoahAI가 보존한 주문 ID를 개별 재조회해 실제 체결 원장을 복구합니다.
+- 탭 전환 중 순간 숨김 판정이 발생해도 갱신 예약을 유지하고, 포지션 건수 옆 마지막 적용 시각으로 정지 여부를 확인할 수 있습니다.
+- Binance 네이티브와 5개 CCXT 거래소 체결을 공통 원장에 기록하며, CCXT LIVE 진입-청산 성과 원장 누락과 AI 오늘 거래 조회를 연결했습니다.
+- 키움·신한·미래에셋·한국투자를 공식 계약명과 전용 어댑터로 정본화하고, `PAPER/LEARNING/LIVE`와 전역·증권사·런타임 권한을 AND 계약으로 통일했습니다.
+- 미사용·손상 소스와 대시보드 정의 전용 메서드를 활성 패키지 밖 격리 보존하고, 현재 소스·빌드 범위를 자동 감사합니다.
+- 최소 주문 규격 검증 예외는 미검증 수량으로 계속하지 않고 주문을 차단합니다.
+- 전체 자동 회귀는 `1,298 passed, 6 skipped`로 최종 재검증했습니다. 최종 실행 수치는 `docs/TEST_STATUS.md`를 정본으로 사용합니다.
 
 - `레퍼럴` 무료회원과 서버 관리형 Binance·Bybit·OKX·Bitget 허용 정책, 사용자별 동시 실행 거래소 KPI를 추가했습니다.
 - AI 커스텀은 영상·문서·Pine·텍스트를 설명 가능한 실행 규칙으로 만들고 사용자 승인·비용 반영 자동검증 뒤 운용합니다.
+- **NoahAI AI 커스텀은 누구나 자신의 투자 지식을 AI와 함께 전략으로 만들고, 시장국면에 맞춰 검증·실행·개선하는 AI 전략 운영체제입니다.** `배우기 → 만들기 → 검증하기 → 실행하기 → 개선하기 → 공유하기`를 하나의 제품 흐름으로 연결하며, 현재 제공 기능과 고도화·마켓 로드맵은 구분해 공개합니다.
 - SMA/EMA 20·50·200, ADX, ATR, 실제 `crossover/crossunder`, 코인 명시 청산을 지원하며 미지원 조건은 승인 전에 차단합니다.
 - NoahAI 어시스턴트는 허용 설정만 최종확인 후 저장하고, 저장 재검증·사용자별 감사로그·되돌리기를 제공합니다.
 - 시장 트렌드·AI 학습·AI 어시스턴트와 금융 인텔리전스·생활금융의 공통 UI를 정리하고 금융 인텔리전스에 초보자 절차·AI 사용법 질문을 추가했습니다.
@@ -17,10 +66,25 @@ NoahAI의 핵심은 자동매매가 아니라 **판단·설명·기록·검증·
 - 관리자 KPI는 1일·7일·30일·90일별 0개~6개 동시 실행 사용자 분포와 KRW 실제 체결·금액 확인·실패 건수를 구분합니다.
 - 주문·거래 시작/중지·API 키·출금 요청은 보호 작업으로 분류해 채팅에서 실행하지 않고 미실행 상태를 명확히 알립니다.
 - v3.9.0.5 Fix Patch 1 Windows EXE가 공개되어 있습니다. 현재 작업 트리의 Bybit 실행 모드·Bithumb 실제 체결 기록·서비스 복귀 잔고·자동 업데이트 보강은 같은 버전의 Update Patch 1이며 manifest 상태는 `pending_windows_rebuild`입니다. Windows 재빌드 전까지 공개 EXE에 포함됐다고 보지 않습니다.
-- 검증: 전체 자동 회귀 `1,079 passed, 6 skipped`, daltrading `20 passed`, 문서 정합성 PASS.
+- Fix Patch 5 소스 검증: 전체 자동 회귀 최종 수치는 `docs/TEST_STATUS.md`, 사용자 DB 보존·초기화 실패 차단을 포함한 갱신·체결 원장 집중 회귀 `6 passed`, 주문 안전 집중 회귀 `26 passed`.
 - 전체 변경과 남은 외부 검증은 [릴리스 노트](RELEASE_NOTES.md)와 [업데이트 계획](docs/UPDATE_PLAN.md)을 확인하세요.
 
-## v3.9.0.5 Update Patch 1 업데이트 대상 소스 (2026-07-30, Windows 재빌드 전)
+## v3.9.0.6 Source Candidate 2 업데이트 대상 소스 (2026-08-04, Windows 재빌드 전)
+
+- 상세 원인·거래소별 관찰·검증 경계는 [Teayu v3.9.0.6 장애 분석](docs/INCIDENT_260802_TEAYU_V3906.md)을 확인하세요.
+- 앱 설정 스키마는 데이터 파괴가 없는 기존 `3.9.0.5` 계약을 유지합니다. 제품 버전 상승을 이유로 사용자 설정을 다시 마이그레이션하지 않습니다.
+
+## v3.9.0.5 Fix Patch 5 업데이트 대상 소스 (2026-08-01)
+
+- Binance 포지션 카드는 오래된 Trader 내부 raw 클라이언트를 직접 호출하지 않고 현재 정본 `BinanceClient.get_positions_result()`를 사용합니다. 시간 오차는 서버시간 재동기화 후 한 번 재시도하며 조회 실패를 0개 포지션으로 숨기지 않습니다.
+- 설정 저장 뒤 Binance Trader·ExchangeManager·UnifiedTrader가 같은 현재 클라이언트 참조를 사용합니다.
+- Upbit·Bithumb·Bybit·OKX·Bitget 주문은 `NEW/PENDING` 접수를 실제 체결로 기록하지 않습니다. 주문 ID별 `fetch_order`로 양수 `filled`를 확인한 체결만 공통 실제 체결 원장에 저장합니다.
+- Bithumb처럼 전체 체결목록 API가 없어도 NoahAI가 보존한 주문 ID를 개별 재조회해 체결가·수량·금액·수수료·시각을 복구합니다. 거래소 밖 수동 주문처럼 NoahAI가 주문 ID를 모르는 거래는 자동 복구 대상이 아닙니다.
+- 청산 통계는 심볼만으로 최근 행을 찾지 않고 거래소·방향·진입 주문 ID를 함께 사용합니다. 체결 성공 뒤 DB 기록 실패는 성공처럼 묵살하지 않고 오류로 기록합니다.
+- 거래 통계의 `실제 체결` 건수와 체결금액은 확정 체결 원장에서, 승률·PnL은 NoahAI 청산 완료 원장에서 계산합니다.
+- 새 Windows EXE는 아직 만들지 않았습니다. manifest는 `pending_windows_rebuild`이고, 사용자가 재현한 직전 Fix Patch 4 EXE는 비교·감사 용도의 `previous_tested_asset`으로 보존합니다.
+
+## v3.9.0.5 Update Patch 1 업데이트 대상 소스 (2026-07-30)
 
 - 설정 저장 즉시 기존 UnifiedTrader에 최신 PAPER/LIVE·실주문 범위를 전달합니다.
 - Bithumb CCXT의 성공 상태 `closed`를 공통 주문 성공으로 판정해 실제 청산 뒤 DB·통계 누락을 방지합니다.
@@ -28,7 +92,7 @@ NoahAI의 핵심은 자동매매가 아니라 **판단·설명·기록·검증·
 - 서비스 전환 시 대시보드 전체 UI 전달 큐를 종료하지 않아 거래소 탭 복귀 뒤 잔고가 다시 갱신됩니다.
 - 자동 업데이트는 초기 화면·거래소 연결과 겹치지 않게 실행 15초 뒤 한 번 확인하고, 이후에는 설정한 1~72시간 주기(기본 6시간) 또는 수동 확인을 사용합니다. 버전 문자열이 같은 Fix Patch도 공개 manifest의 EXE SHA가 현재 설치 파일과 다르면 업데이트로 감지합니다.
 - v3.9.0.5 Update Patch 1는 인증서·Authenticode를 요구하지 않습니다. GitHub HTTPS 릴리즈와 `release-manifest.json` SHA-256 일치가 필수이며, 불일치·누락·외부 URL이면 적용하지 않습니다. 무서명 EXE는 Windows SmartScreen/Defender 평판 경고가 나타날 수 있습니다.
-- Upbit·Bithumb·Bybit·OKX·Bitget은 새 NoahAI 실주문 접수 결과를 공통 실제 체결 원장에 즉시 기록합니다. 과거·수동 체결 가져오기는 `fetch_my_trades → 완료 주문` 순으로 가능한 API만 사용하며, 미지원 상태를 `거래 0건`으로 표시하지 않습니다.
+- Upbit·Bithumb·Bybit·OKX·Bitget은 NoahAI 주문 ID를 접수 원장에 먼저 보존하고 실제 filled 확인 뒤 체결 원장에 기록합니다. 과거·수동 체결 가져오기는 가능한 API만 사용하며, 미지원 상태를 `거래 0건`으로 표시하지 않습니다.
 - 화면 전환 중 동일 거래소의 읽기 전용 잔고·포지션 호출은 전역 조회 ID로 하나만 실행합니다. UI 전달 큐는 1,024개 상한과 최신값 병합을 사용해 파괴된 화면의 오래된 콜백이 누적되지 않습니다.
 
 - 설정을 운용 모드 → 운용 범위·주문 권한 → 연결 → AI → 고급 정책 → 실험 → 진단 순으로 재배치하고, `설정 → 일반`에 현재 정본·LEARNING/PAPER/LIVE·호환 보관·모순 상태를 표시합니다.
@@ -52,7 +116,7 @@ NoahAI의 핵심은 자동매매가 아니라 **판단·설명·기록·검증·
 - `설정 → 거래소 선택`에서 화면·분석·학습 거래소와 `실제 주문 실행 거래소`를 별도로 선택합니다. 실제 주문 목록이 비어 있어도 학습 루프는 시작되며 신규 진입 주문만 차단됩니다. 기존 포지션 조회·보호 관리는 계속됩니다.
 - 숨은 AI 학습·금융 인텔리전스·거래소·증권사 탭은 불필요한 callback/API 조회를 중지하고 다시 열 때 즉시 갱신합니다.
 - 업데이트는 열린 포지션·주문·주문 제출 상태를 기본 연기합니다. 유지 시 TP·SL, 청산 시 실제 0건 상태, 종료 flush, manifest SHA-256, 재시작 health check를 모두 통과해야 합니다.
-- Update Patch 1 포함 전체 자동 회귀는 `1,254 passed, 6 skipped`입니다. 이 수치는 소스 검증 결과이며 새 Windows EXE의 설치·SHA 자동업데이트·복원, 실제 제공사 키와 거래소별 실연결, 24~72시간 실행 검증과는 분리합니다.
+- Fix Patch 2 포함 전체 자동 회귀는 `1,261 passed, 6 skipped`입니다. 이 수치는 소스 검증 결과이며 새 Windows EXE의 설치·SHA 자동업데이트·복원, 실제 제공사 키와 거래소별 실연결, 24~72시간 실행 검증과는 분리합니다.
 - 상세 원인과 사용자 조치는 [Teayu_02 장애 조사](docs/INCIDENT_260729_TEAYU_02.md)를 확인하세요.
 - 현재 기능별 통과·차단·미검증 범위는 [v3.9.0.5 통합 감사](docs/INTEGRATED_AUDIT_v3.9.0.5_20260731.md)를 기준으로 판단하세요. Teayu_02의 암호화폐 6개 거래소와 AI Provider는 아직 운영 준비 완료가 아닙니다.
 - 사용 순서: [설정 정본 안내](docs/SETTINGS_REFERENCE_v3.9.0.5.md) → [AI 엔진/API 사용자 안내](docs/AI_API_USER_GUIDE.md) → [사용자 가이드](docs/USER_GUIDE.md) → 앱 `사용자 매뉴얼 → 업데이트`.
@@ -111,7 +175,11 @@ NoahAI의 핵심은 자동매매가 아니라 **판단·설명·기록·검증·
 - **[AI 엔진/API 사용자 안내](docs/AI_API_USER_GUIDE.md)**: 제공사 선택, API 키, 모델·가격·문답 정책 사용법
 - **[설정 정본 안내 v3.9.0.5](docs/SETTINGS_REFERENCE_v3.9.0.5.md)**: 운용 모드, 분석 범위와 주문 권한, 페이퍼, 고급 정책, 레거시 정리
 - **[AI 커스텀 전략 가이드](docs/AI_CUSTOM_STRATEGY_ARCHITECTURE.md)**: 영상·문서·Pine·텍스트를 설명 가능한 전략으로 검토·적용하기
+- **[AI 커스텀 핵심 고도화 계획](docs/AI_CUSTOME_UPDATE_PLAN.md)**: 시장 검증, Noah Strategy IR, Progressive Strategy UI, P0~P3와 사업 KPI
+- **[AI 전략 운영체제 제품 로드맵](docs/AI_CUSTOM_STRATEGY_OS_PRODUCT_ROADMAP.md)**: AI 멘토·전략 제작·검증·국면 오케스트레이션·실행 OS·전략 여권·마켓·신뢰 계층의 현재와 로드맵
+- **[NoahAI 대외 설명·비즈니스 플랜](docs/NOAHAI_EXTERNAL_POSITIONING_AND_BUSINESS_PLAN_20260804.md)**: NoahAI·AI 커스텀 공식 설명, TradingView·고정 봇 비교, 무료 전략 허브·현재 라이선스·향후 제작자 생태계·B2B 사업 구조
 - **[AI 커스텀·어시스턴트 테스트 런북](docs/AI_CUSTOM_ASSISTANT_TEST_RUNBOOK_v3.9.0.2.md)**: QA 계정 정책, 안전 조건, 테스트 순서와 결과 기록
+- **[AI 커스텀 기능 시험·피드백 가이드](docs/AI_CUSTOM_FEATURE_TEST_AND_FEEDBACK_GUIDE_20260809.md)**: Noah Strategy IR v1, Level 1·2·3, 차단·버전·PAPER 사용자 시험과 피드백 양식
 
 ### 🔧 개발자 문서
 - **[시스템 아키텍처](docs/ARCHITECTURE.md)**: 판단 인프라의 기술 구조

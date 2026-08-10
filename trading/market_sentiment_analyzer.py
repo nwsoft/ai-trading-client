@@ -79,10 +79,15 @@ class MarketSentimentData:
 
 
 class MarketSentimentAnalyzer:
-    """시장 심리·거래량 지표 분석기 (python-binance 기반)"""
+    """시장 심리·거래량 지표 분석기.
+
+    Binance 전용 파생지표는 Binance 컨텍스트에서만 사용하고, 공통 거래량
+    데이터는 선택된 거래소의 ExchangeManager를 통해 조회한다.
+    """
     
-    def __init__(self, binance_client, logger: Optional[logging.Logger] = None):
+    def __init__(self, binance_client, logger: Optional[logging.Logger] = None, exchange_manager=None):
         self.binance_client = binance_client  # python-binance Client 객체
+        self.exchange_manager = exchange_manager
         self.logger = logger or logging.getLogger(__name__)
         self.sentiment_cache = {}
         self.cache_duration = 300  # 5분 캐시
@@ -139,8 +144,34 @@ class MarketSentimentAnalyzer:
             return self._get_default_sentiment_data(symbol)
     
     def analyze_volume_patterns(self, symbol: str, exchange_name: str = 'binance') -> VolumeAnalysis:
-        """거래량 패턴 분석 (python-binance 기반)"""
+        """거래량 패턴 분석 (선택 거래소 컨텍스트 유지)."""
         try:
+            exchange_key = str(exchange_name or 'binance').strip().lower()
+            if exchange_key != 'binance':
+                if self.exchange_manager is None:
+                    raise ValueError(f"{exchange_key} 시장 데이터 관리자 없음")
+                ticker = self.exchange_manager.get_24h_ticker(symbol, exchange_key) or {}
+                current_volume = float(ticker.get('volume') or ticker.get('baseVolume') or 0)
+                klines = self.exchange_manager.get_klines(symbol, '1d', 7, exchange_key) or []
+                volumes = [float(kline[5]) for kline in klines[:-1] if len(kline) > 5]
+                avg_volume_24h = float(np.mean(volumes)) if volumes else current_volume
+                volume_ratio = current_volume / avg_volume_24h if avg_volume_24h > 0 else 1.0
+                volume_trend = "안정"
+                volume_spike = False
+                if volume_ratio > 3.0:
+                    volume_trend, volume_spike = "급증", True
+                elif volume_ratio > 1.5:
+                    volume_trend = "증가"
+                elif volume_ratio < 0.5:
+                    volume_trend = "감소"
+                return VolumeAnalysis(
+                    current_volume,
+                    avg_volume_24h,
+                    volume_ratio,
+                    volume_trend,
+                    volume_spike,
+                )
+
             if not self.binance_client:
                 raise ValueError("바이낸스 클라이언트가 초기화되지 않음")
             
@@ -181,6 +212,8 @@ class MarketSentimentAnalyzer:
     
     def get_funding_rate_analysis(self, symbol: str, exchange_name: str = 'binance') -> FundingRateData:
         """펀딩비 분석 (python-binance 기반)"""
+        if str(exchange_name or 'binance').strip().lower() != 'binance':
+            return FundingRateData(symbol, 0.0, 0.0, datetime.now(), "안정")
         try:
             if not self.binance_client:
                 return FundingRateData(symbol, 0.0, 0.0, datetime.now(), "안정")
@@ -231,6 +264,8 @@ class MarketSentimentAnalyzer:
     
     def get_open_interest_analysis(self, symbol: str, exchange_name: str = 'binance') -> Optional[OpenInterestData]:
         """미체결약정 분석 (바이낸스 REST API 직접 호출)"""
+        if str(exchange_name or 'binance').strip().lower() != 'binance':
+            return None
         try:
             if not self.binance_client:
                 return None
@@ -244,6 +279,8 @@ class MarketSentimentAnalyzer:
     
     def get_long_short_ratio(self, symbol: str, exchange_name: str = 'binance') -> Optional[LongShortRatio]:
         """롱/숏 비율 분석 (바이낸스 REST API 직접 호출)"""
+        if str(exchange_name or 'binance').strip().lower() != 'binance':
+            return None
         try:
             if not self.binance_client:
                 return None

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""AI 어시스턴트가 v3.9.0.5 설정을 비밀값 없이 설명하기 위한 정본 검색."""
+"""AI 어시스턴트가 v3.9.0.8 설정을 비밀값 없이 설명하기 위한 정본 검색."""
 
 from pathlib import Path
 import re
@@ -22,16 +22,16 @@ SETTINGS_TABS: Dict[str, Dict[str, Any]] = {
         "summary": "실잔고·비공개 포지션·실주문 연결을 설정합니다. 키가 입력돼도 조회/주문 권한과 허용 IP가 맞아야 합니다.",
     },
     "AI 엔진/API": {
-        "aliases": ("ai 엔진", "provider", "모델", "openai", "deepseek", "claude", "gemini", "전사", "캐시", "비용", "호출예산"),
-        "summary": "분석·어시스턴트·빈번/표준/정밀 역할별 Provider와 모델, 비용 정책, AI 커스텀 런타임 사용 여부를 정합니다.",
+        "aliases": ("ai 엔진", "provider", "모델", "openai", "deepseek", "claude", "gemini", "전사", "캐시", "비용", "호출예산", "ai 커스텀", "ai커스텀", "사용 난이도", "웹훅", "webhook"),
+        "summary": "분석·대화·빈번/표준/정밀 역할별 Provider와 모델을 정합니다. AI 커스텀 사용 난이도는 전략 엔진이 아니라 화면 복잡도·기능 노출 프로필이며 처음에는 일반(권장)을 사용합니다.",
     },
     "고급 매매 계층": {
         "aliases": ("고급 매매", "전략 엔진", "합의 임계값", "쿨다운", "고변동", "수익성 검증"),
-        "summary": "후행 가드레일의 합의·쿨다운·고변동장·수익성·포트폴리오 정책입니다. 근거가 없으면 safe 기본값을 유지합니다.",
+        "summary": "표준 자동매매의 후보 뒤에서 수익성·포트폴리오·국면/합의·슬리피지·운영 상태를 검사하는 5개 후행 계층입니다. 처음에는 safe와 PAPER 7~14일 관찰을 권장합니다.",
     },
     "AlphaArena": {
         "aliases": ("alphaarena", "alpha arena", "알파아레나"),
-        "summary": "일반 자동매매와 분리된 LLM 실험 실행 체계입니다. 일반 LEARNING/PAPER/LIVE와 동일한 보험·워치독이라고 가정하면 안 됩니다.",
+        "summary": "기본 OFF인 숙련자용 Binance USDT 선물 LLM 실험 실행 체계입니다. 표준 고급 계층·보험·워치독과 분리되며 현재 선택 가능한 실행 엔진은 DeepSeek V4 Flash입니다.",
     },
     "AI 시스템 상태": {
         "aliases": ("ai 시스템 상태", "자동 최적화", "시장 국면 자동", "기본값 되돌리기"),
@@ -58,10 +58,15 @@ def _query_tokens(query: str) -> List[str]:
 
 
 def _reference_sections() -> List[Tuple[str, str]]:
-    path = _project_root() / "docs" / "SETTINGS_REFERENCE_v3.9.0.5.md"
-    try:
-        text = path.read_text(encoding="utf-8")
-    except Exception:
+    text = ""
+    for filename in ("SETTINGS_REFERENCE_v3.9.0.8.md", "SETTINGS_REFERENCE_v3.9.0.5.md"):
+        path = _project_root() / "docs" / filename
+        try:
+            text = path.read_text(encoding="utf-8")
+            break
+        except Exception:
+            continue
+    if not text:
         return []
     sections: List[Tuple[str, str]] = []
     title = "설정 정본"
@@ -86,8 +91,10 @@ def _safe_current_summary(settings: Dict[str, Any]) -> str:
     live = list(settings.get("trade_enabled_exchanges", []) or [])
     multi = dict(settings.get("multi_venue_execution", {}) or {})
     ai_runtime = dict(settings.get("ai_custom_runtime", {}) or {})
+    ai_features = dict(settings.get("ai_custom_features", {}) or {})
     advanced = dict(settings.get("advanced_trading_layers", {}) or {})
     strategy = dict(advanced.get("strategy_engine", {}) or {})
+    alpha_arena = dict(settings.get("alpha_arena", {}) or {})
     stock = dict(settings.get("stock_auto_trading", {}) or {})
     ui_settings = dict(settings.get("ui_settings", {}) or {})
     lines = [
@@ -98,7 +105,13 @@ def _safe_current_summary(settings: Dict[str, Any]) -> str:
         f"- 최대 동시 포지션: {settings.get('max_positions', 3)}",
         f"- 대시보드 최상단: {'ON' if ui_settings.get('always_on_top') else 'OFF'}",
         f"- AI 커스텀 런타임: {'ON' if ai_runtime.get('enabled') else 'OFF'}",
+        f"- AI 커스텀 사용 난이도: {ai_features.get('profile', 'standard')}",
         f"- 고변동장 처리/합의/쿨다운: {strategy.get('high_vol_action', 'evaluate')} / {strategy.get('consensus_threshold', 0.60)} / {strategy.get('cooldown_sec', 60)}초",
+        f"- 고급 매매 5계층: " + ", ".join(
+            f"{key}={'ON' if dict(advanced.get(key, {}) or {}).get('enabled') else 'OFF'}"
+            for key in ("profitability_validation", "portfolio_orchestration", "strategy_engine", "execution_optimizer", "ops_automation")
+        ),
+        f"- AlphaArena: {'ON' if alpha_arena.get('enabled') else 'OFF'} / {alpha_arena.get('exchange', 'binance-futures')} / {alpha_arena.get('engine', 'deepseek-v4-flash')}",
         f"- 증권 자동 시작/실주문: {'ON' if stock.get('auto_start') else 'OFF'} / {'ON' if settings.get('enable_stock_live_order') else 'OFF'}",
     ]
     return "\n".join(lines)
@@ -154,7 +167,7 @@ def build_settings_knowledge(query: str, settings: Dict[str, Any]) -> str:
         _safe_current_summary(settings if isinstance(settings, dict) else {}),
     ]
     if excerpts:
-        parts.extend(["[v3.9.0.5 설정 정본 관련 내용]", "\n\n".join(excerpts)])
+        parts.extend(["[v3.9.0.8 설정 정본 관련 내용]", "\n\n".join(excerpts)])
     parts.append(
         "설명과 설정 변경은 다릅니다. AI는 설명할 수 있지만 값 변경은 허용 키 검증과 사용자 최종 확인 후에만 저장합니다."
     )

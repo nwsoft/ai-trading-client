@@ -8,9 +8,11 @@
 
 > UI 정책: 본 프로젝트의 GUI는 CustomTkinter만 지원합니다. PyQt5/PySide6는 Windows 빌드에서 키움증권 OpenAPI+ 지원 목적으로만 포함됩니다 (레거시 UI 파일은 ImportError 스텁으로 남아 있습니다).
 
-배포 대상 릴리스: `https://github.com/nwsoft/ai-trading-client/releases/tag/v3.9.0.5`
+배포 대상 릴리스: `https://github.com/nwsoft/ai-trading-client/releases/tag/v3.9.0.8`
 
-> 현재 공개된 v3.9.0.5 Fix Patch 1 Windows EXE는 `362,546,781`바이트, SHA-256 `ec2e7404cf5c94eef6316b708a7df6468d882cfbffd0747687007c07a2045d22`입니다. 오늘 Bybit 설정 동기화·Bithumb 체결 기록·서비스 복귀 잔고·자동업데이트 변경을 담은 Update Patch 1 manifest는 `pending_windows_rebuild`이며 Windows에서 현재 소스를 새로 빌드한 뒤 크기·SHA·서명·설치·로그인·전수 클릭·자동업데이트를 다시 검증해야 합니다.
+> v3.9.0.8 AI Custom Update manifest는 `pending_windows_rebuild`입니다. Windows에서 새로 빌드한 뒤 AI 커스텀 프로필·Level 전환·성과표·패키지·어시스턴트 지식과 기존 VC 런타임·Kiwoom·OCR·거래소 안전 회귀를 함께 검증해야 합니다. 공개 v3.9.0.7 Fix Patch 3 자산은 비교·복구용 `previous_published_asset`으로만 보존합니다.
+
+> 빌드 전 `.venv/bin/python scripts/active_source_audit.py`와 `.venv/bin/python verify_build_includes.py`를 모두 통과해야 합니다. 격리된 레거시 `theme_system`과 위젯/대시보드 보관본은 활성 소스·PyInstaller 입력에 포함하지 않습니다.
 
 > 생활금융 기본 비교 데이터는 `data/finance_products`만 안전 빌드에 포함합니다. 계정·거래·사용자 설정 등 나머지 `data`는 계속 제외됩니다. 패키지 내 기본 데이터가 누락되거나 손상되면 앱 내장 예비 데이터로 폴백합니다.
 
@@ -20,8 +22,9 @@
 
 ### 필수 요구사항
 - **Python**: 3.11 이상 권장
-- **PyInstaller**: 5.0 이상
+- **PyInstaller**: 6.21.0 (`requirements_windows.txt` 고정)
 - **Git**: 최신 버전
+- **Windows VC143 CRT**: Visual Studio 2022 Build Tools의 최신 재배포 세트, 빌드 Python과 같은 x86/x64 아키텍처
 
 참고
 - 키움 OpenAPI+ 실연동 테스트는 Windows Python 3.11.x 32bit 권장(OCX/COM bitness 일치 필요)
@@ -45,6 +48,27 @@ pip install pykiwoom PyQt5
 # 음성 인식(pyaudio)이 실패할 경우
 pip install pipwin && pipwin install pyaudio
 ```
+
+### Fix Patch 3 VC 런타임 수집 정책
+
+PyQt5는 키움 OpenAPI+의 `QAxContainer/QAxWidget` 때문에 필요합니다. PyQt5, Qt DLL, `pyi_rth_pyqt5`를 제거하지 않습니다. 대신 PyInstaller가 PyQt5·pandas·Python 경로에서 발견한 모든 `MSVCP140*.dll`/`VCRUNTIME140*.dll`을 수집 결과에서 제거하고, 공식 `Microsoft.VC143.CRT` 한 세트만 EXE 루트에 넣습니다.
+
+빌더는 Visual Studio 2022 Build Tools의 최신 CRT를 자동 탐색합니다. 자동 탐색이 안 될 때만 다음처럼 공식 폴더를 지정합니다. DLL 파일을 임의 사이트에서 내려받아 지정하면 안 됩니다.
+
+```powershell
+$env:NOAHAI_VC_RUNTIME_DIR = "C:\Program Files\Microsoft Visual Studio\2022\BuildTools\VC\Redist\MSVC\<최신버전>\x64\Microsoft.VC143.CRT"
+python build_safe.py --platform windows --gate-profile release
+```
+
+32비트 Python으로 빌드할 때는 같은 버전의 `x86\Microsoft.VC143.CRT`를 지정합니다. 다음 조건 중 하나라도 해당하면 빌드를 중단합니다.
+
+1. `msvcp140.dll`, `msvcp140_1.dll`, `vcruntime140.dll`, `vcruntime140_1.dll` 누락
+2. ONNX Runtime PE 링커(현재 고정본은 최소 14.40)보다 오래된 런타임
+3. 같은 세트 안에서 버전 계열 혼합
+4. 완성 EXE의 PyQt5·pandas 하위에 VC DLL 잔존
+5. EXE 루트 런타임 SHA-256이 빌드에 선택한 공식 원본과 불일치
+
+시스템 VC 재배포 패키지 설치만으로는 앱의 `_MEI` 하위 DLL이 먼저 선택되는 문제를 보장해서 막을 수 없습니다. 그래서 Fix Patch 3는 앱 로컬 패키징 자체를 단일 세트로 고정합니다.
 
 ### requirements 파일 구분
 | 파일 | 용도 |
@@ -84,6 +108,38 @@ Windows 빌드 후 깨끗한 사용자 계정에서 다음을 반드시 확인�
 - `build_safe.py`의 기본 게이트 프로필은 `prekey`입니다 (`--gate-profile` 미지정 시).
 - 즉, 기본 빌드에서도 `DOC_CONSISTENCY`/`SYNC_GUARD`가 실행되어 문서/버전 불일치가 있으면 빌드가 중단됩니다.
 
+### Windows 원클릭 빌드 + 릴리스 (기본 운영 경로)
+
+프로젝트 루트에서 아래 명령 하나만 실행합니다.
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/build_release_windows.ps1
+```
+
+스크립트는 Tcl/Tk·VC143·GitHub 인증 사전점검, `prekey` 게이트, Windows EXE 빌드,
+EXE 내부 Tkinter·VC 런타임·버전 검증, manifest 생성, GitHub 업로드, 원격 크기와
+SHA-256 재검증을 순서대로 수행합니다. 어느 단계든 실패하면 성공으로 종료하지 않습니다.
+검증이 끝나기 전에는 기존 `deploy/AITrading.exe`를 교체하지 않으며 GitHub 업로드도 시작하지 않습니다.
+
+새 버전 태그가 아직 없고 작업 트리에 변경이 있으면, 빌드와 로컬 검증이 모두 성공한 뒤에만
+`release: v<버전>` 커밋을 자동 생성합니다. 빌드 실패 시에는 커밋과 태그가 생성되지 않습니다.
+이미 존재하는 태그는 자동으로 이동하지 않습니다.
+
+빌드와 로컬 검증만 실행할 때:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/build_release_windows.ps1 -BuildOnly
+```
+
+같은 태그의 긴급 바이너리 교체처럼 작업 트리 변경을 의도적으로 허용할 때만 다음 옵션을 사용합니다.
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/build_release_windows.ps1 -AllowDirtyWorkingTree
+```
+
+`-AllowDirtyWorkingTree`는 일반 릴리스에 사용하지 않습니다. 새 버전에서는 검증된 소스를 자동 커밋하지만
+`main`을 강제 push하지 않습니다. 실행 로그는 `deploy/build-release-YYYYMMDD-HHMMSS.log`에 기록됩니다.
+
 Windows에서 `.git`이 없는 복사본 워크스페이스를 자주 빌드한다면 아래 래퍼를 권장합니다.
 
 ```powershell
@@ -105,13 +161,14 @@ powershell -ExecutionPolicy Bypass -File scripts/build_windows_safe.ps1 -GatePro
 중요
 - `scripts/build_windows_safe.ps1`는 빌드 게이트 + Windows EXE 빌드 자동화 스크립트이며, Git 태그 생성/푸시는 수행하지 않습니다.
 - 기본 동작은 `SYNC_GUARD_CHANGED_FILES`를 주입하는 안정 모드이며, 로컬 Git 이력(`HEAD~1`)에 따른 변동으로 게이트가 흔들리는 문제를 줄입니다.
+- 일반 운영자는 `build_windows_safe.ps1`와 `release_tag_push.ps1`를 따로 호출하지 않고 `build_release_windows.ps1`를 사용합니다.
 
 ### 태그 푸시 자동화 스크립트 (Windows)
 
 태그 기반 GitHub 릴리즈를 한 번에 처리하려면 아래 스크립트를 사용합니다.
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File scripts/release_tag_push.ps1 -Version 3.9.0.5 -Branch main -PushBranch
+powershell -ExecutionPolicy Bypass -File scripts/release_tag_push.ps1 -Version 3.9.0.8 -Branch main -PushBranch
 ```
 
 옵션
@@ -134,7 +191,7 @@ powershell -ExecutionPolicy Bypass -File scripts/release_tag_push.ps1 -Version 3
 1) **가장 안전한 기본 배포(권장)**
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File scripts/release_tag_push.ps1 -Version 3.9.0.5
+powershell -ExecutionPolicy Bypass -File scripts/release_tag_push.ps1 -Version 3.9.0.8
 ```
 
 - 태그 push + GitHub 릴리즈 에셋 업로드까지 수행
@@ -143,7 +200,7 @@ powershell -ExecutionPolicy Bypass -File scripts/release_tag_push.ps1 -Version 3
 2) **브랜치도 같이 push (실패해도 릴리즈는 계속 진행)**
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File scripts/release_tag_push.ps1 -Version 3.9.0.5 -Branch main -PushBranch
+powershell -ExecutionPolicy Bypass -File scripts/release_tag_push.ps1 -Version 3.9.0.8 -Branch main -PushBranch
 ```
 
 - `main` push가 거절돼도 태그/릴리즈 업로드는 계속 진행
@@ -151,7 +208,7 @@ powershell -ExecutionPolicy Bypass -File scripts/release_tag_push.ps1 -Version 3
 3) **브랜치 push 실패 시 즉시 중단(엄격 모드)**
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File scripts/release_tag_push.ps1 -Version 3.9.0.5 -Branch main -PushBranch -StrictBranchPush
+powershell -ExecutionPolicy Bypass -File scripts/release_tag_push.ps1 -Version 3.9.0.8 -Branch main -PushBranch -StrictBranchPush
 ```
 
 - 팀 정책상 브랜치 push 성공이 필수일 때 사용
@@ -159,7 +216,7 @@ powershell -ExecutionPolicy Bypass -File scripts/release_tag_push.ps1 -Version 3
 4) **이미 커밋한 상태에서 태그/릴리즈만 수행**
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File scripts/release_tag_push.ps1 -Version 3.9.0.5 -SkipCommit
+powershell -ExecutionPolicy Bypass -File scripts/release_tag_push.ps1 -Version 3.9.0.8 -SkipCommit
 ```
 
 - 로컬 변경 자동 커밋 없이 현재 HEAD 기준으로 태그/릴리즈 처리
@@ -168,10 +225,11 @@ powershell -ExecutionPolicy Bypass -File scripts/release_tag_push.ps1 -Version 3
 
 ```powershell
 python scripts/generate_release_assets.py --out-dir deploy --exe deploy/AITrading.exe --repo nwsoft/ai-trading-client
-gh release upload v3.9.0.5 deploy/AITrading.exe deploy/version.txt deploy/release_notes.md deploy/release-manifest.json --repo nwsoft/ai-trading-client --clobber
+gh release upload v3.9.0.8 deploy/AITrading.exe deploy/version.txt deploy/release_notes.md deploy/release-manifest.json --repo nwsoft/ai-trading-client --clobber
 ```
 
 - 태그를 새로 만들지 않고 릴리즈 에셋만 교체
+- v3.9.0.8에서는 생성 후 manifest의 `release_label=v3.9.0.8 AI Custom Update`, `build_status=built`, EXE `size>0`, 실제 SHA-256 일치를 확인한 뒤 업로드한다.
 
 6) **원격 main 선행 커밋 때문에 `-PushBranch`가 막힐 때**
 
@@ -184,7 +242,7 @@ git push origin main
 재정렬 후 릴리즈를 다시 실행합니다.
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File scripts/release_tag_push.ps1 -Version 3.9.0.5 -Branch main -PushBranch
+powershell -ExecutionPolicy Bypass -File scripts/release_tag_push.ps1 -Version 3.9.0.8 -Branch main -PushBranch
 ```
 
 주의
@@ -193,30 +251,15 @@ powershell -ExecutionPolicy Bypass -File scripts/release_tag_push.ps1 -Version 3
 - 스크립트 실행 시 `scripts/doc_consistency_check.py`를 자동 실행하며, 문서/버전 불일치 시 태그를 생성하지 않습니다.
 - 충돌 백업 파일(`*_Conflict.*`, `*.orig`)이나 미해결 merge 상태가 있으면 릴리즈 커밋 전에 즉시 실패합니다.
 
-### 수동 빌드
+### 표준 빌드
 
-#### 1. PyInstaller 설정 파일 사용
+#### 1. 단일 빌드 스크립트 사용
 ```bash
-# spec 파일로 빌드
-pyinstaller aiautotrade.spec
+# Windows 빌드 머신에서 실행
+python build_safe.py --platform windows --gate-profile release
 ```
 
-#### 2. 직접 명령어 사용
-```bash
-# 기본 빌드
-pyinstaller --onefile --windowed main.py
-
-# 고급 옵션 (모던 UI 전용)
-pyinstaller \
-  --onefile \
-  --windowed \
-  --name AITrading \
-  --icon icon.ico \
-  --add-data "config;config" \
-  --add-data "trading;trading" \
-  --hidden-import ccxt \
-  main.py
-```
+직접 `pyinstaller`를 호출하면 release gate, 민감정보 제외, 플랫폼별 hidden import 정책을 건너뛰므로 지원하지 않습니다.
 
 ## 📁 빌드 설정
 
@@ -296,7 +339,9 @@ exe = EXE(
 ```
 
 참고
-- 스크립트는 실행 시 `aiautotrade_safe.spec`를 동적으로 생성하여 사용합니다. 수동으로 spec를 조정해야 하는 경우에만 `aiautotrade.spec`를 사용하세요.
+- `aiautotrade.spec`은 `build_safe.py`로 생성한 Windows 참고본이며 직접 수정하지 않습니다.
+- 실제 빌드 시에도 같은 생성기가 임시 `aiautotrade_safe.spec`을 생성합니다.
+- Python 패키지는 Analysis/hiddenimports로 수집하고 `datas`로 전체 소스 폴더를 중복 포함하지 않습니다.
 - macOS에서 `win32_setctime`는 포함하지 않습니다. Windows 전용입니다.
 - 동적 스펙에는 증권 어댑터 4종(키움/신한/미래에셋/한국투자증권) hidden import가 포함됩니다.
 

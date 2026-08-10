@@ -1,12 +1,11 @@
 # 위젯 변형(Variants) 비교 가이드
 
-본 문서는 `ui/widgets/` 폴더 내 주요 위젯들의 변형 버전(Modern/Safe/Real 등)을 비교하여, 기능 차이와 권장 기본값을 한눈에 정리합니다. 대시보드 연결 지점과 교체 방법도 함께 안내합니다.
+본 문서는 `ui/widgets/`의 현재 단일 활성 위젯과 통합 이력을 정리합니다. 2026-08-01 구조 감사에서 미사용 Safe/Fixed/Real 변형과 `.broken` 손상본은 활성 소스 밖으로 격리했습니다.
 
 ---
 
 ## AI 학습 위젯 (Learning)
 - 활성 사용: `ai_learning_widget.py` (클래스: `AILearningWidget`)
-- 기타 변형: `ai_learning_widget_fixed.py` (`AILearningWidgetFixed`), `ai_learning_widget_safe.py` (`AILearningWidgetSafe`)
 
 기능 비교 요약
 - 공통: 학습 데이터 목록 표시, 통계(총 분석, 신호별, 평균 신뢰도, 마지막 업데이트)
@@ -16,15 +15,9 @@
   - mtime 캐시로 변경 없을 때 렌더 스킵
   - 데이터 로드/새로고침/상태 업데이트에서 “현재 상태” 라벨과 통계 즉시 갱신
   - 성능과 가시성 균형을 맞춘 기본값으로 대시보드 연결됨
-- Fixed 변형(AILearningWidgetFixed)
-  - 고급 편의 기능: 경로 복사/폴더 열기, 자동 새로고침(주기 선택), 더 강한 UI 안전장치(safe_after 등)
-  - 데모/준운영 환경에서 편의성 높음, 코드가 더 큼
-- Safe 변형(AILearningWidgetSafe)
-  - 단순/안전 우선. 최근 100개 표시 등 최소 기능 구성
-
 권장 기본값
 - 대시보드 기본: `ai_learning_widget.py` (성능/기능 균형)
-- 추가 편의 필요 시: Fixed에서 경로 복사/열기, 자동 새로고침 UI만 선택 이식 권장
+- 추가 편의 기능도 별도 변형을 복원하지 않고 기본 위젯에 테스트와 함께 통합
 
 ---
 
@@ -51,7 +44,6 @@
 
 ## AI 리포트 위젯 (Report)
 - **기본(통합)**: `ai_report_widget.py` (클래스: `AIReportWidget`) ✅ **현재 활성**
-- 리얼(아카이브): `ai_report_widget_real.py` (클래스: `AIReportWidgetReal`) 🔄 **기본에 통합됨**
 - 세이프(참고): `ai_report_widget_safe.py` (클래스: `AIReportWidgetSafe`)
 
 **통합 상태 (2025-10-30):**
@@ -66,9 +58,6 @@
   - 실시간 분석 탭(⚡ 실시간), 거래소 필터, 안전한 after 스케줄링(safe_after)
   - AI 분석 엔진: 승률/PnL 기반 강점/약점/주의사항/개선제안 자동 생성
   - **운영 환경 완전 대응 버전**
-- AIReportWidgetReal (리얼 - 아카이브)
-  - 모든 기능이 기본 위젯으로 통합됨
-  - 파일은 유지되나 더 이상 사용되지 않음
 - AIReportWidgetSafe (세이프)
   - 안정성/간결성 우선 버전
   - 오류 발생 시 더미 리포트 표시
@@ -83,7 +72,7 @@
 ---
 
 ## 권장 매핑(요약) - 2025-10-30 통합 완료 ✅
-- 학습: `ai_learning_widget.py` (필요 시 Fixed의 편의 기능 부분 이식)
+- 학습: `ai_learning_widget.py`
 - 어시스턴트: `ai_assistant_widget.py` (**Modern 통합 완료** - 모든 기능 포함)
 - 리포트: `ai_report_widget.py` (**Real 통합 완료** - DB/실시간 분석 포함)
 
@@ -100,7 +89,7 @@
   - 어시스턴트: `from ui.widgets.ai_assistant_widget import AIAssistantWidget`
   - 리포트: `from ui.widgets.ai_report_widget import AIReportWidget`
 - 더 이상 변형 선택이나 별칭 필요 없음 (기본 위젯이 모든 기능 통합)
-- Safe/Fixed 버전은 참고용으로만 유지
+- 과거 변형은 활성 소스에 유지하지 않음
 
 ## 통합 프로젝트 요약 (2025-10-30)
 
@@ -168,14 +157,7 @@ report = AIReportWidget(...)        # 통합 기능 포함
 ```
 
 ### 롤백 방법 (필요 시)
-모든 레거시 파일은 `ui/widgets/legacy/` 폴더에 보존되어 있습니다:
-```bash
-# 어시스턴트 롤백
-copy ui\widgets\legacy\ai_assistant_widget.py.backup ui\widgets\ai_assistant_widget.py
-
-# 리포트 롤백  
-copy ui\widgets\legacy\ai_report_widget.py.backup ui\widgets\ai_report_widget.py
-```
+과거 변형을 복원해야 할 때는 구조 감사에 기록된 격리본을 검토하되, 현재 기본 위젯과 회귀 테스트를 기준으로 필요한 기능만 선택 이식합니다.
 
 ### 상세 문서
 통합 프로젝트의 전체 내용은 다음 문서를 참고하세요:

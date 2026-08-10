@@ -8,7 +8,10 @@ customtkinter>=5.2.0
 # pykiwoom은 PyQt5의 QAxWidget을 상속하므로 PyQt5가 반드시 필요
 # PyPI 최신 배포 버전: 0.1.6 (0.1.9는 존재하지 않음)
 pykiwoom>=0.1.6
-PyQt5>=5.15.0
+PyQt5==5.15.11
+# Windows용 PyQt5-Qt5 wheel은 5.15.2를 사용하며 구형 VC DLL을 포함한다.
+# 빌드 스펙이 해당 DLL을 제거하고 공식 VC143 단일 세트로 교체한다.
+PyQt5-Qt5==5.15.2
 
 # HTTP 요청 및 웹소켓
 requests==2.31.0
@@ -37,6 +40,7 @@ yt-dlp>=2026.7.0
 
 # 테스트/배포 게이트
 pytest>=8.0.0
+PyInstaller==6.21.0
 
 # Windows 호환성을 위한 추가 패키지
 # pywin32는 PyInstaller가 자동으로 포함하므로 제외
@@ -56,6 +60,7 @@ pipwin>=0.5.2
 # 이미지 처리 및 OCR (차트 분석 기능)
 Pillow>=10.0.0
 opencv-python-headless>=4.10.0
-rapidocr-onnxruntime
+rapidocr-onnxruntime==1.2.3
+onnxruntime==1.23.1
 paddlepaddle
 paddleocr>=2.7.0

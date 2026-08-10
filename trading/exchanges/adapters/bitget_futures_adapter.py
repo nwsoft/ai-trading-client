@@ -309,7 +309,13 @@ class BitgetFuturesAdapter(FuturesExchange):
             self.logger.error(f"오픈 주문 조회 실패: {e}")
             return []
     
-    def get_trade_history(self, symbol: Optional[str] = None, limit: int = 100) -> Any:
+    def get_trade_history(
+        self,
+        symbol: Optional[str] = None,
+        limit: int = 100,
+        since_ms: Optional[int] = None,
+        from_id: Optional[str] = None,
+    ) -> Any:
         if not self.is_connected or not self.exchange:
             return []
         try:
@@ -318,6 +324,7 @@ class BitgetFuturesAdapter(FuturesExchange):
                 self.exchange,
                 symbol=normalized,
                 limit=limit,
+                since_ms=since_ms,
                 symbol_formatter=self._display_symbol,
             )
             self._last_execution_capabilities = capabilities

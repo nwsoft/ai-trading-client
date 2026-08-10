@@ -33,6 +33,7 @@ class ExitPlan:
     allow_noah_dynamic_adjustment: bool = True
     insurance_order_policy: str = "dynamic_backup"
     executable_exit: Dict[str, Any] = field(default_factory=dict)
+    advanced_order_plan: Dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -106,6 +107,7 @@ def _build_exit_plan(
         allow_noah_dynamic_adjustment=False,
         insurance_order_policy="strategy_exact",
         executable_exit=dict(rules.get("executable_exit") or {}),
+        advanced_order_plan=dict(rules.get("advanced_order_plan") or {}),
     )
 
 

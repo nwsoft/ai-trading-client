@@ -99,7 +99,7 @@ class BackendAPI:
         self.user_id = user_id if user_id is not None else "Unknown"
         self.user_grade = user_grade if user_grade is not None else "pro_coin"
         self.user_email = user_email if user_email is not None else ""
-        self.logger.info(f"사용자 정보 설정 완료: {self.user_id} ({self.user_grade})")
+        self.logger.info(f"사용자 정책 설정 완료: grade={self.user_grade}")
         
     def check_connection(self) -> bool:
         """연결 상태 확인"""

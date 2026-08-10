@@ -38,8 +38,9 @@ class FakeAdapter:
 def _live_row(**overrides):
     row = {
         "broker": "shinhan",
-        "api_type": "rest",
-        "api_version": "v1",
+        "api_type": "partner_rest",
+        "api_version": "shinhan_openapi_v2",
+        "global_live_flag": True,
         "allow_live_order": True,
         "valid_combo": True,
         "execution_mode": "live_api",
@@ -47,6 +48,10 @@ def _live_row(**overrides):
         "missing_credentials": [],
         "os_blocked": False,
         "live_order_enabled": True,
+        "maturity_status": "live_verified",
+        "maturity_implemented": True,
+        "maturity_live_order_allowed": True,
+        "maturity_message": "test fixture",
     }
     row.update(overrides)
     return row
@@ -202,6 +207,47 @@ def test_order_drill_execute_and_cancel_path():
          patch.object(drill, "_build_rows", return_value=[_live_row()]), \
          patch.object(drill.ExchangeFactory, "create_stock_exchange", return_value=FakeAdapter()):
         assert drill.main() == 0
+
+
+def test_order_drill_execute_is_blocked_by_unverified_maturity():
+    from scripts import stock_live_order_drill as drill
+
+    args = SimpleNamespace(
+        broker="shinhan",
+        symbol="005930",
+        side="BUY",
+        quantity=1.0,
+        order_type="LIMIT",
+        price=70000.0,
+        execute=True,
+        cancel_after=False,
+        strict=True,
+    )
+    row = _live_row(
+        maturity_status="prototype_unverified",
+        maturity_live_order_allowed=False,
+    )
+    with patch.object(drill, "_parse_args", return_value=args), \
+         patch.object(drill, "_load_settings", return_value=({}, Path("settings.json"))), \
+         patch.object(drill, "_build_rows", return_value=[row]), \
+         patch.object(drill.ExchangeFactory, "create_stock_exchange") as factory:
+        assert drill.main() == 1
+        factory.assert_not_called()
+
+
+def test_smoke_skips_registered_but_unimplemented_route():
+    from scripts import stock_live_smoke_check as smoke
+
+    row = _live_row(
+        maturity_status="unimplemented_compatibility_alias",
+        maturity_implemented=False,
+    )
+    with patch.object(smoke, "_parse_args", return_value=SimpleNamespace(strict=True)), \
+         patch.object(smoke, "_load_settings", return_value=({}, Path("settings.json"))), \
+         patch.object(smoke, "_build_rows", return_value=[row]), \
+         patch.object(smoke.ExchangeFactory, "create_stock_exchange") as factory:
+        assert smoke.main() == 1
+        factory.assert_not_called()
 
 
 def test_readiness_runner_respects_non_strict_failures():

@@ -63,6 +63,7 @@ def build_exit_policy(
     )
     strategy_owned = bool(intent.get("strategy_owned", False))
     source = str(intent.get("source") or "noah_dynamic")
+    advanced_order_plan = dict(intent.get("advanced_order_plan") or {})
 
     return {
         "schema_version": 1,
@@ -82,6 +83,7 @@ def build_exit_policy(
             "source": source if strategy_owned else "noah_dynamic",
             "reason": str(effective_reason or source),
         },
+        "advanced_order_plan": advanced_order_plan,
         "insurance": {
             "requested_tp_price": requested_tp,
             "requested_sl_price": requested_sl,

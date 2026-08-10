@@ -937,7 +937,7 @@ execute_single_trade()
 - AI 동작
   - AI 사용 시: 기술 시그널 위에 시장심리/추세 가중·학습 인사이트를 반영해 신호 강화 및 TP/SL/레버리지/사이징을 동적으로 조정. 파일: noahai_client/trading/analyzer.py:348, 1386, 2210
   - 학습 데이터 저장: 거래소별 학습 파일 `ai_learning_data_{exchange}.json`에 기록. 파일: noahai_client/trading/unified_trader.py:1699, noahai_client/trading/exchange_learning_manager.py:72
-  - 대시보드 표시: 학습 탭에서 거래소 드롭다운으로 해당 파일을 직접 로드해 표시. 파일: noahai_client/ui/dashboard_modern.py:3093, noahai_client/ui/widgets/ai_learning_widget_fixed.py:186
+  - 대시보드 표시: 학습 탭에서 거래소 드롭다운으로 해당 파일을 직접 로드해 표시. 활성 위젯: `ui/widgets/ai_learning_widget.py`
 
 - 현재 차이점/주의(사실)
   - OHLCV 조회 시 어댑터 심볼 정규화 우선 사용으로 Bybit/OKX/Bitget의 `BTC/USDT:USDT` 같은 선물 심볼을 정확히 처리(폴백은 단순 변환). 파일: noahai_client/trading/exchange_manager.py: 변경된 `get_klines()`

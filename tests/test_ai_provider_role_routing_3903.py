@@ -87,6 +87,29 @@ def test_model_registry_distinguishes_lifecycle_and_capability():
         "openai",
         capability="transcribe",
     )
+    claude_vision = validate_model_route(
+        "anthropic",
+        "claude-sonnet-5",
+        capability="vision",
+    )
+    assert claude_vision["ok"] is False
+
+
+def test_ai_custom_guidance_matches_provider_runtime_capabilities():
+    from trading.ai.provider_router import PROVIDER_SPECS
+    from ui.ai_custom_guidance import (
+        AI_CUSTOM_SAFE_STEPS,
+        build_ai_custom_provider_guide,
+    )
+
+    assert len(AI_CUSTOM_SAFE_STEPS) == 12
+    assert PROVIDER_SPECS["openai"].capabilities.vision is True
+    assert PROVIDER_SPECS["anthropic"].capabilities.vision is False
+    assert PROVIDER_SPECS["gemini"].capabilities.vision is True
+    guide = build_ai_custom_provider_guide()
+    assert "Claude: 현재 NoahAI 연결은 텍스트·JSON만 지원" in guide
+    assert "Kimi: OpenAI 호환 정식 API" in guide
+    assert "개발자 API 과금·키는 별개" in guide
 
 
 def test_legacy_model_string_normalizes_without_changing_provider():

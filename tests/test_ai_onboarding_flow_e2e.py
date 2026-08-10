@@ -140,7 +140,7 @@ class TestAIOnboardingFlow(_StubbedTestCase):
         self.assertEqual(payload.get("risk_tolerance"), "MODERATE")
         self.assertLessEqual(float(payload.get("balance_utilization_limit", 1.0)), 0.25)
         self.assertEqual(payload.get("assistant_apply_mode"), "user_confirm")
-        self.assertEqual(payload.get("openai_model"), "gpt-4o-mini")
+        self.assertEqual(payload.get("openai_model"), "gpt-5.6-luna")
         self.assertIn("ai_model_roles", payload)
 
     def test_onboarding_cancel_does_not_apply(self):

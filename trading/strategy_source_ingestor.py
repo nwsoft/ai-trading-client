@@ -607,8 +607,15 @@ class StrategySourceIngestor:
     def _heuristic_rules(self, source: ExtractedStrategySource) -> Dict[str, Any]:
         text = source.text or ""
         lower = text.lower()
-        entry_lines = re.findall(r"[^\n;]*(?:strategy\.entry|진입|매수|longcondition|shortcondition)[^\n;]*", text, flags=re.I)
-        exit_lines = re.findall(r"[^\n;]*(?:strategy\.exit|strategy\.close|청산|매도|exitcondition)[^\n;]*", text, flags=re.I)
+        sentences = [item.strip() for item in re.split(r"[\n;.!?]+", text) if item.strip()]
+        entry_lines = [
+            item for item in sentences
+            if re.search(r"strategy\.entry|진입|매수|\bentry\b|longcondition|shortcondition", item, flags=re.I)
+        ]
+        exit_lines = [
+            item for item in sentences
+            if re.search(r"strategy\.exit|strategy\.close|청산|매도|종료|\bexit\b|\bclose\b|exitcondition", item, flags=re.I)
+        ]
         sl = self._number(r"(?:stop[_\s-]*loss|손절|sl)[^\d]{0,12}(\d+(?:\.\d+)?)\s*%?", text)
         tp = self._number(r"(?:take[_\s-]*profit|익절|tp)[^\d]{0,12}(\d+(?:\.\d+)?)\s*%?", text)
         position = self._number(r"(?:position[_\s-]*size|포지션\s*크기|자산)[^\d]{0,14}(\d+(?:\.\d+)?)\s*%", text)
@@ -630,10 +637,72 @@ class StrategySourceIngestor:
         }
         engine = rules["engine_settings"]
         executable = rules["executable_entry"]
+        executable_exit = rules["executable_exit"]
+
+        def natural_rsi_condition(sentence: str) -> Optional[Dict[str, Any]]:
+            normalized = str(sentence or "")
+            symbolic = re.search(
+                r"\brsi(?:\s*\(\s*\d+\s*\))?\s*(?:값?이|가|는)?\s*"
+                r"(<=|>=|<|>)\s*(\d+(?:\.\d+)?)",
+                normalized,
+                flags=re.I,
+            )
+            if symbolic:
+                operator, threshold = symbolic.groups()
+                return {
+                    "field": "rsi",
+                    "operator": {"<": "lt", "<=": "lte", ">": "gt", ">=": "gte"}[operator],
+                    "value": float(threshold),
+                }
+            korean = re.search(
+                r"\brsi(?:\s*\(\s*\d+\s*\))?\s*(?:값?이|가|는)?\s*"
+                r"(\d+(?:\.\d+)?)\s*(이하|미만|이상|초과)",
+                normalized,
+                flags=re.I,
+            )
+            if korean:
+                threshold, comparison = korean.groups()
+                return {
+                    "field": "rsi",
+                    "operator": {"이하": "lte", "미만": "lt", "이상": "gte", "초과": "gt"}[comparison],
+                    "value": float(threshold),
+                }
+            english = re.search(
+                r"\brsi(?:\s*\(\s*\d+\s*\))?\s*(?:is\s*)?"
+                r"(below|under|above|over)\s*(\d+(?:\.\d+)?)",
+                normalized,
+                flags=re.I,
+            )
+            if english:
+                comparison, threshold = english.groups()
+                return {
+                    "field": "rsi",
+                    "operator": "lt" if comparison.lower() in {"below", "under"} else "gt",
+                    "value": float(threshold),
+                }
+            return None
+
+        for sentence in re.split(r"[\n;.!?]+", text):
+            condition = natural_rsi_condition(sentence)
+            if not condition:
+                continue
+            sentence_lower = sentence.lower()
+            target = (
+                executable_exit
+                if any(token in sentence_lower for token in ("청산", "매도", "종료", "exit", "close"))
+                else executable
+                if any(token in sentence_lower for token in ("진입", "매수", "entry", "long", "short"))
+                else None
+            )
+            if target is not None and condition not in target["all"]:
+                target["all"].append(condition)
+
         rsi_match = re.search(r"(?:ta\.)?rsi\([^\)]*\)\s*(<=|>=|<|>)\s*(\d+(?:\.\d+)?)", text, flags=re.I)
         if rsi_match:
             op = {"<": "lt", "<=": "lte", ">": "gt", ">=": "gte"}[rsi_match.group(1)]
-            executable["all"].append({"field": "rsi", "operator": op, "value": float(rsi_match.group(2))})
+            condition = {"field": "rsi", "operator": op, "value": float(rsi_match.group(2))}
+            if condition not in executable["all"]:
+                executable["all"].append(condition)
         for match in re.finditer(
             r"close\s*(<=|>=|<|>)\s*(?:ta\.)?(ema|sma)\s*\(\s*close\s*,\s*(20|50|200)\s*\)",
             text,
@@ -684,6 +753,10 @@ class StrategySourceIngestor:
         elif "strategy.short" in lower:
             rules["entry_signal"] = "SHORT"
             executable["all"].append({"field": "signal", "operator": "eq", "value": "SHORT"})
+        elif any("long" in item.lower() or "롱" in item for item in entry_lines):
+            rules["entry_signal"] = "LONG"
+        elif any("short" in item.lower() or "숏" in item for item in entry_lines):
+            rules["entry_signal"] = "SHORT"
         if sl is not None:
             engine["sl_percent"] = max(0.05, min(sl, 20.0))
         if tp is not None:
@@ -722,6 +795,36 @@ class StrategySourceIngestor:
         if source.kind == "tradingview":
             return "공개 Pine 원문 확인" if evidence.get("pine_found") else "공개 설명/메타데이터만 확인"
         return f"입력 텍스트 {len(source.text or ''):,}자"
+
+    @staticmethod
+    def _build_source_rule_trace(source: ExtractedStrategySource, rules: Dict[str, Any]) -> Dict[str, Any]:
+        """원문 근거와 실행 규칙의 연결을 저장해 조용한 조건 변환을 막는다."""
+        text = str(source.text or "").strip()
+        lines = [line.strip() for line in re.split(r"[\n;]+", text) if line.strip()]
+        keyword_map = {
+            "entry": ("진입", "매수", "entry", "long", "short", "crossover", "crossunder"),
+            "exit": ("청산", "매도", "exit", "close"),
+            "stop_loss": ("손절", "stop", "sl"),
+            "take_profit": ("익절", "take profit", "tp"),
+            "position_size": ("포지션", "position", "수량", "자산"),
+            "market_conditions": ("상승", "하락", "횡보", "변동", "trend", "range", "volatility"),
+        }
+        fallback = text[:500]
+        trace: Dict[str, Any] = {}
+        for field, keywords in keyword_map.items():
+            value = rules.get(field)
+            matches = [
+                line[:500] for line in lines
+                if any(keyword in line.lower() for keyword in keywords)
+            ][:3]
+            trace[field] = {
+                "status": "matched" if value and (matches or fallback) else "missing",
+                "rule_value": value,
+                "evidence": matches or ([fallback] if value and fallback else []),
+                "source_kind": source.kind,
+                "source_reference": source.reference,
+            }
+        return trace
 
     @staticmethod
     def infer_market_regimes(text: str, market_conditions: Any = "") -> Dict[str, Any]:
@@ -897,6 +1000,7 @@ class StrategySourceIngestor:
             rules["risk_model"] = dict(result["risk_model"])
         rules["engine_settings"] = engine
         rules["source_evidence"] = asdict(source)
+        rules["source_rule_trace"] = self._build_source_rule_trace(source, rules)
         missing = [key for key in self.REQUIRED_RULES if not rules.get(key)]
         missing.extend(item for item in (result.get("missing_conditions") or []) if item not in missing)
         from .declarative_strategy_engine import DeclarativeStrategyEngine
@@ -921,6 +1025,14 @@ class StrategySourceIngestor:
             source.text,
             rules.get("market_conditions", ""),
         )
+        from .noah_strategy_ir import NoahStrategyIR
+
+        strategy_ir = NoahStrategyIR.compile(
+            rules,
+            source_kind=source.kind,
+            source_reference=source.reference,
+            missing_conditions=missing,
+        )
         return {
             "name": str(result.get("name") or source.title or "사용자 전략"),
             "summary": str(result.get("summary") or "소스에서 확인 가능한 조건만 추출했습니다."),
@@ -935,4 +1047,7 @@ class StrategySourceIngestor:
             "market_regime_suggestion": regime_suggestion,
             "ai_analyzed": bool(result),
             "ready_for_review": bool(evidence_available and not missing),
+            "strategy_ir": strategy_ir,
+            "ir_level_1": NoahStrategyIR.project(strategy_ir, 1),
+            "ir_level_2": NoahStrategyIR.project(strategy_ir, 2),
         }

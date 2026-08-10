@@ -1,6 +1,8 @@
 > [폐기] 본 문서는 2025-10-29 기준으로 삭제되었습니다.
 
 프로젝트는 테마 시스템을 더 이상 사용하지 않습니다. 단일 고정 스킨(하드코딩) 전환 계획은 `UI_FIXED_SKIN_PLAN.md`를 참고하세요. 과거 팔레트 정보는 `HISTORICAL_THEME_BASELINE.md`에 보존되어 있습니다.
+
+2026-08-01 기준 `theme_system` 소스는 프로젝트 외부 격리로 이동했으며 현행 위치가 아닙니다. 현재 색상 정본은 `utils/fixed_colors.py`, 서비스별 시각 정본은 `ui/visual_system.py`입니다.
         "primary": "#1f2937",      # 여기서 색상 변경
         "secondary": "#374151",
         ...

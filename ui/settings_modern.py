@@ -28,6 +28,9 @@ from typing import Optional, Any, Dict, List
 sys.path.append(os.path.dirname(os.path.dirname(__file__)))
 from utils.fixed_colors import FIXED_COLORS
 from api.binance_client import BinanceClient, BinanceConfig
+from config.app_version import RELEASE_BUILD_LABEL
+from ui.ai_custom_guidance import build_ai_custom_provider_guide
+from ui.live_trading_guidance import build_live_trading_guide
 from ui.visual_system import get_ui_icon, style_tabview
 from trading.ai.model_registry import (
     model_record,
@@ -35,6 +38,7 @@ from trading.ai.model_registry import (
     selectable_models,
     validate_model_route,
 )
+from membership_policy import normalize_user_grade, referral_exchange_entitlement
 import threading
 
 class ModernSettingsWindow:
@@ -44,7 +48,7 @@ class ModernSettingsWindow:
     _AI_PROVIDER_LABELS = {
         "OpenAI": "openai",
         "DeepSeek": "deepseek",
-        "Kimi (NoahAI 시험 연동)": "kimi",
+        "Kimi (Moonshot AI)": "kimi",
         "Anthropic Claude": "anthropic",
         "Google Gemini": "gemini",
     }
@@ -76,22 +80,19 @@ class ModernSettingsWindow:
 
     _STOCK_API_VERSION_OPTIONS = {
         'kiwoom': {
-            'openapi': ['pykiwoom', 'kiwoom_api'],
+            'openapi_plus': ['pykiwoom'],
             'mock': ['mock'],
         },
         'shinhan': {
-            'openapi': ['solapi', 'xingapi'],
-            'rest': ['solapi_rest'],
+            'partner_rest': ['shinhan_openapi_v2'],
             'mock': ['mock'],
         },
         'miraeAsset': {
-            'openapi': ['miraemts', 'miraedaas'],
-            'rest': ['kis'],
+            'partner_rest': ['mirae_partner_profile'],
             'mock': ['mock'],
         },
         'koreaInvestment': {
-            'openapi': ['kis'],
-            'rest': ['kis'],
+            'rest': ['kis_openapi_v1'],
             'mock': ['mock'],
         },
     }
@@ -102,7 +103,15 @@ class ModernSettingsWindow:
         "nwsoft/ai-trading-client",
     ]
 
-    def __init__(self, parent=None, current_settings=None, on_save_callback=None, ai_diagnosis_result=None):
+    def __init__(
+        self,
+        parent=None,
+        current_settings=None,
+        on_save_callback=None,
+        ai_diagnosis_result=None,
+        membership_user_grade=None,
+        membership_policy=None,
+    ):
         self.parent = parent
         self.root = ctk.CTkToplevel(parent) if parent else ctk.CTk()
         self.root.title("NoahAI Trading - 설정")
@@ -113,7 +122,6 @@ class ModernSettingsWindow:
         # 모달 창 설정
         if parent:
             self.root.transient(parent)
-            self.root.grab_set()  # 모달 창으로 설정
 
         # 설정 데이터
         self.current_settings = current_settings or {}
@@ -126,7 +134,21 @@ class ModernSettingsWindow:
         self.original_settings = self.current_settings.copy()
         self.on_save_callback = on_save_callback  # 콜백 함수 저장
         self.main_app = getattr(parent, 'main_app', None) if parent is not None else None
-        self._ai_diagnosis_collapsed = False
+        self.membership_user_grade = normalize_user_grade(
+            membership_user_grade
+            if membership_user_grade is not None
+            else getattr(self.main_app, 'current_user_grade', 'pro_coin')
+        )
+        self.membership_policy = dict(
+            membership_policy
+            if isinstance(membership_policy, dict)
+            else getattr(self.main_app, 'current_membership_policy', {}) or {}
+        )
+        self._referral_status_labels: Dict[str, Any] = {}
+        self._referral_api_controls: Dict[str, List[Any]] = {}
+        self._referral_selection_controls: Dict[str, List[Any]] = {}
+        # 설정 본문이 800px 창 밖으로 밀리지 않도록 상세 진단은 기본 접힘이다.
+        self._ai_diagnosis_collapsed = True
         self._ai_diagnosis_body_frame = None
 
         # Pylance 에러 방지: 조건부 생성되는 UI 속성은 None으로 초기화
@@ -134,24 +156,230 @@ class ModernSettingsWindow:
         self.dynamic_mode_combo = None
         self.manual_regime_combo = None
 
-        # UI 설정
-        self.setup_ui()
-        # 현재 설정 로드(어떤 방식으로 띄우든 값 주입)
         try:
+            # UI 설정
+            self.setup_ui()
+            # 현재 설정 로드(어떤 방식으로 띄우든 값 주입)
             self.load_current_settings()
+            self.refresh_referral_entitlements()
+
+            # 창 닫기 이벤트 핸들러 설정
+            self.root.protocol("WM_DELETE_WINDOW", self.on_closing)
+            self.root.bind("<Destroy>", self._mark_window_closed, add="+")
+
+            # 중앙 정렬
+            self.center_window()
         except Exception:
+            # 생성 중 실패한 빈 Toplevel이 대시보드를 가로막지 않게 즉시 정리한다.
+            try:
+                self.root.destroy()
+            except Exception:
+                pass
+            raise
+
+        # 모든 위젯 생성이 끝난 뒤에만 모달 잠금을 건다.
+        if parent:
+            self.root.after_idle(self._activate_modal)
+
+    def _activate_modal(self) -> None:
+        """완전히 그려진 설정창만 모달로 활성화한다."""
+        if not self._window_alive():
+            return
+        try:
+            self.root.lift()
+            self.root.grab_set()
+            self.root.focus_force()
+        except (tk.TclError, RuntimeError):
             pass
-
-        # 창 닫기 이벤트 핸들러 설정
-        self.root.protocol("WM_DELETE_WINDOW", self.on_closing)
-        self.root.bind("<Destroy>", self._mark_window_closed, add="+")
-
-        # 중앙 정렬
-        self.center_window()
 
     def _color(self, key: str, fallback: str = "#9ca3af") -> str:
         """고정 색상 접근 헬퍼"""
         return FIXED_COLORS.get(key, fallback)
+
+    def _current_membership_contract(self) -> tuple[str, Dict[str, Any]]:
+        main_app = getattr(self, 'main_app', None)
+        grade = normalize_user_grade(
+            getattr(main_app, 'current_user_grade', self.membership_user_grade)
+        )
+        raw_policy = getattr(main_app, 'current_membership_policy', self.membership_policy)
+        policy = dict(raw_policy or {}) if isinstance(raw_policy, dict) else {}
+        self.membership_user_grade = grade
+        self.membership_policy = policy
+        return grade, policy
+
+    def _referral_entitlement(self, exchange: str) -> Dict[str, Any]:
+        grade, policy = self._current_membership_contract()
+        return referral_exchange_entitlement(grade, exchange, policy)
+
+    def _open_referral_url(self, exchange: str) -> None:
+        entitlement = self._referral_entitlement(exchange)
+        url = str(entitlement.get('referral_url') or '').strip()
+        if not url.lower().startswith('https://'):
+            messagebox.showwarning(
+                "레퍼럴 가입 링크",
+                "서버에서 검증된 HTTPS 가입 링크가 아직 준비되지 않았습니다.",
+            )
+            return
+        webbrowser.open(url)
+
+    @staticmethod
+    def _open_referral_dashboard() -> None:
+        webbrowser.open("https://daltrading.net/auth/dashboard")
+
+    def _add_referral_entitlement_banner(self, parent, exchange: str) -> None:
+        row = ctk.CTkFrame(parent, fg_color="#0d1b2c", border_width=1, border_color="#31506f")
+        row.pack(fill="x", padx=20, pady=(0, 12))
+        entitlement = self._referral_entitlement(exchange)
+        status = str(entitlement.get('status') or '')
+        allowed = bool(entitlement.get('allowed'))
+        color = "#34d399" if allowed or status == "paid_exempt" else "#fbbf24"
+        if status in {"rejected", "expired"}:
+            color = "#fb7185"
+        label = ctk.CTkLabel(
+            row,
+            text=str(entitlement.get('label') or "레퍼럴 상태 확인 필요"),
+            font=ctk.CTkFont(family="Segoe UI", size=12, weight="bold"),
+            text_color=color,
+        )
+        label.pack(side="left", padx=10, pady=8)
+        self._referral_status_labels[exchange] = label
+        if self.membership_user_grade == "referral":
+            ctk.CTkButton(
+                row,
+                text="가입 링크",
+                width=86,
+                height=28,
+                command=lambda ex=exchange: self._open_referral_url(ex),
+            ).pack(side="right", padx=(4, 8), pady=6)
+            ctk.CTkButton(
+                row,
+                text="가입·상태",
+                width=110,
+                height=28,
+                fg_color="#0f766e",
+                command=self._open_referral_dashboard,
+            ).pack(side="right", padx=4, pady=6)
+
+    def _register_referral_api_controls(self, exchange: str, *widgets: Any) -> None:
+        self._referral_api_controls.setdefault(exchange, []).extend(
+            widget for widget in widgets if widget is not None
+        )
+
+    def _register_referral_selection_controls(self, exchange: str, *widgets: Any) -> None:
+        self._referral_selection_controls.setdefault(exchange, []).extend(
+            widget for widget in widgets if widget is not None
+        )
+
+    def _apply_referral_control_state(self, exchange: str) -> None:
+        entitlement = self._referral_entitlement(exchange)
+        grade = self.membership_user_grade
+        allowed = bool(entitlement.get('allowed')) if grade == "referral" else True
+        can_verify = bool(entitlement.get('can_verify_affiliation')) if grade == "referral" else True
+        if not allowed:
+            exchange_vars = getattr(self, 'exchange_vars', {}) or {}
+            trade_vars = getattr(self, 'trade_exchange_vars', {}) or {}
+            if exchange in exchange_vars:
+                exchange_vars[exchange].set(False)
+            if exchange in trade_vars:
+                trade_vars[exchange].set(False)
+        for widget in self._referral_api_controls.get(exchange, []):
+            try:
+                widget.configure(state="normal" if can_verify else "disabled")
+            except Exception:
+                pass
+        for widget in self._referral_selection_controls.get(exchange, []):
+            try:
+                widget.configure(state="normal" if allowed else "disabled")
+            except Exception:
+                pass
+        label = self._referral_status_labels.get(exchange)
+        if label is not None:
+            status = str(entitlement.get('status') or '')
+            color = "#34d399" if allowed or status == "paid_exempt" else "#fbbf24"
+            if status in {"rejected", "expired"}:
+                color = "#fb7185"
+            try:
+                label.configure(text=entitlement.get('label', ''), text_color=color)
+            except Exception:
+                pass
+
+    def refresh_referral_entitlements(self) -> None:
+        for exchange in ("binance", "bybit", "okx", "bitget"):
+            self._apply_referral_control_state(exchange)
+
+    def _ensure_referral_api_allowed(self, exchange: str, status_var: Any) -> bool:
+        entitlement = self._referral_entitlement(exchange)
+        if (
+            self.membership_user_grade != "referral"
+            or bool(entitlement.get('allowed'))
+            or bool(entitlement.get('can_verify_affiliation'))
+        ):
+            return True
+        try:
+            status_var.set(str(entitlement.get('label') or "레퍼럴 승인 후 사용할 수 있습니다."))
+        except Exception:
+            pass
+        messagebox.showwarning(
+            "레퍼럴 귀속 확인 필요",
+            f"{str(entitlement.get('label') or '레퍼럴 승인 필요')}\n\n"
+            "서버에서 이 거래소가 활성화되어야 API 키 검증과 레퍼럴 자동 확인을 진행할 수 있습니다.",
+        )
+        return False
+
+    def _apply_auto_referral_result(self, exchange: str, result: Dict[str, Any], status_var: Any) -> None:
+        status = str(result.get("status") or "pending").strip().lower()
+        policy = result.get("membership_policy")
+        if isinstance(policy, dict):
+            self.membership_policy = dict(policy)
+            main_app = getattr(self, 'main_app', None)
+            apply_policy = getattr(main_app, 'apply_server_membership_policy', None)
+            if callable(apply_policy):
+                apply_policy("referral", policy)
+        self.refresh_referral_entitlements()
+        if status == "verified":
+            status_var.set("API 검증 · 레퍼럴 자동 승인 완료")
+        elif status == "rejected":
+            status_var.set("API 검증 · 레퍼럴 귀속 불일치")
+            messagebox.showwarning(
+                "레퍼럴 귀속 불일치",
+                "API 키는 유효하지만 NoahAI Affiliate 고객으로 확인되지 않아 거래 기능이 차단됩니다. "
+                "공식 가입 링크와 거래소 계정을 확인하세요.",
+            )
+        else:
+            status_var.set("API 검증 · 서버 자동 확인 대기")
+            messagebox.showinfo(
+                "레퍼럴 자동 확인 대기",
+                "UID는 자동 제출되었습니다. 운영 서버의 Affiliate 조회 키가 준비되지 않았거나 거래소 응답을 "
+                "재확인해야 하므로 거래 기능은 승인 전까지 차단됩니다.",
+            )
+
+    def _auto_verify_referral_after_api_check(
+        self,
+        exchange: str,
+        api_key: str,
+        secret_key: str,
+        status_var: Any,
+        passphrase: str = "",
+    ) -> None:
+        if self.membership_user_grade != "referral":
+            self.root.after(0, lambda: status_var.set("검증 완료"))
+            return
+        try:
+            from referral_account_proof import verify_and_submit
+
+            result = verify_and_submit(exchange, api_key, secret_key, passphrase)
+            self.root.after(
+                0,
+                lambda ex=exchange, payload=result, var=status_var: self._apply_auto_referral_result(
+                    ex, payload, var
+                ),
+            )
+        except Exception as exc:
+            safe_message = str(exc)[:180] or "레퍼럴 자동 확인 실패"
+            self.root.after(
+                0,
+                lambda msg=safe_message, var=status_var: var.set(f"API 검증 · {msg}"),
+            )
 
     def _mark_window_closed(self, event=None) -> None:
         if event is None or getattr(event, "widget", None) is self.root:
@@ -473,7 +701,7 @@ class ModernSettingsWindow:
                     "- OpenRouter: https://openrouter.ai/api/v1\n"
                     "- Ollama(local): http://localhost:11434/v1\n\n"
                     "초보자 권장\n"
-                    "- 모델: gpt-4o-mini\n"
+                    "- 모델: 계정에서 확인된 OpenAI 권장 모델\n"
                     "- Billing 한도: Hard 10~20달러 / Soft 5달러\n"
                     "- 키 이름(Name): NoahAI-Desktop\n\n"
                     "참고\n"
@@ -940,7 +1168,7 @@ class ModernSettingsWindow:
             lines.append(f"- 선택 증권사: {', '.join(selected_brokers)}")
             lines.append("- 안내: '지원'은 NoahAI 앱의 연동 경로 지원을 의미합니다. 실제 연결 가능 여부는 증권사 OpenAPI 권한(개인/법인/제휴 정책)에 따라 달라질 수 있습니다.")
 
-        kiwoom_api_type = 'openapi'
+        kiwoom_api_type = 'openapi_plus'
         if hasattr(self, 'kiwoom_api_type_combo') and self.kiwoom_api_type_combo is not None:
             try:
                 kiwoom_api_type = str(self.kiwoom_api_type_combo.get()).strip().lower()
@@ -954,28 +1182,28 @@ class ModernSettingsWindow:
             except Exception:
                 pass
 
-        shinhan_api_type = 'openapi'
+        shinhan_api_type = 'partner_rest'
         if hasattr(self, 'shinhan_api_type_combo') and self.shinhan_api_type_combo is not None:
             try:
                 shinhan_api_type = str(self.shinhan_api_type_combo.get()).strip().lower()
             except Exception:
                 pass
 
-        shinhan_api_version = 'solapi'
+        shinhan_api_version = 'shinhan_openapi_v2'
         if hasattr(self, 'shinhan_api_version_combo') and self.shinhan_api_version_combo is not None:
             try:
                 shinhan_api_version = str(self.shinhan_api_version_combo.get()).strip()
             except Exception:
                 pass
 
-        mirae_asset_api_type = 'openapi'
+        mirae_asset_api_type = 'partner_rest'
         if hasattr(self, 'mirae_asset_api_type_combo') and self.mirae_asset_api_type_combo is not None:
             try:
                 mirae_asset_api_type = str(self.mirae_asset_api_type_combo.get()).strip().lower()
             except Exception:
                 pass
 
-        mirae_asset_api_version = 'miraemts'
+        mirae_asset_api_version = 'mirae_partner_profile'
         if hasattr(self, 'mirae_asset_api_version_combo') and self.mirae_asset_api_version_combo is not None:
             try:
                 mirae_asset_api_version = str(self.mirae_asset_api_version_combo.get()).strip()
@@ -989,7 +1217,7 @@ class ModernSettingsWindow:
             except Exception:
                 pass
 
-        korea_investment_api_version = 'kis'
+        korea_investment_api_version = 'kis_openapi_v1'
         if hasattr(self, 'korea_investment_api_version_combo') and self.korea_investment_api_version_combo is not None:
             try:
                 korea_investment_api_version = str(self.korea_investment_api_version_combo.get()).strip()
@@ -1203,7 +1431,7 @@ class ModernSettingsWindow:
             if not broker_names:
                 actions.append('설정에서 사용할 증권사를 최소 1개 선택하세요.')
             if 'kiwoom' in broker_names:
-                kiwoom_type = str(self.kiwoom_api_type_combo.get()).strip().lower() if hasattr(self, 'kiwoom_api_type_combo') else 'openapi'
+                kiwoom_type = str(self.kiwoom_api_type_combo.get()).strip().lower() if hasattr(self, 'kiwoom_api_type_combo') else 'openapi_plus'
                 if not sys.platform.startswith('win') and kiwoom_type != 'mock':
                     actions.append('키움 실연결은 Windows 전용입니다. 현재 환경에서는 mock으로 먼저 테스트하거나 Windows에서 실행하세요.')
                 else:
@@ -1507,7 +1735,7 @@ class ModernSettingsWindow:
             sections.append('')
             sections.append('키움증권 점검')
             sections.append('- 필수 조건: Windows 실행, OpenAPI+ 설치, KOA Studio 로그인 가능')
-            sections.append('- 권장값: api_type=openapi, api_version=pykiwoom')
+            sections.append('- 권장값: api_type=openapi_plus, api_version=pykiwoom')
             sections.append('- 실패 시: mock 성공 + openapi 실패면 설치/비트수/OCX 문제 가능성이 큽니다.')
 
         if 'shinhan' in broker_names:
@@ -1516,7 +1744,7 @@ class ModernSettingsWindow:
             sections.append('- 핵심 포인트: 토큰 발급에 app_key/app_secret이 필요합니다.')
             sections.append('- 중요: NoahAI는 신한 연동을 지원하지만, 계정의 OpenAPI 권한이 개인계정에 열려 있는지는 신한 정책/신청 상태에 따라 달라질 수 있습니다.')
             sections.append('- 현재 빌드는 입력한 ID/비밀번호를 app_key/app_secret 대응값으로도 동기화 저장합니다.')
-            sections.append('- 권장값: api_type=openapi 또는 rest, api_version=solapi')
+            sections.append('- 권장값: api_type=partner_rest, api_version=shinhan_openapi_v2')
             sections.append('- 연결 전 확인: 증권사 고객센터/개발자 포털에서 내 계정이 API 사용 승인 상태인지 확인하세요.')
 
         if 'miraeAsset' in broker_names:
@@ -1524,14 +1752,14 @@ class ModernSettingsWindow:
             sections.append('미래에셋증권 점검')
             sections.append('- 핵심 포인트: 인증 정보 저장값과 API 타입/버전 조합이 맞아야 합니다.')
             sections.append('- 중요: NoahAI는 미래에셋 연동을 지원하지만, OpenAPI 접근 권한은 계정 유형/신청 상태에 따라 제한될 수 있습니다.')
-            sections.append('- 권장값: api_type=openapi 또는 rest, api_version=miraemts 또는 허용된 운영 버전')
+            sections.append('- 권장값: api_type=partner_rest, api_version=mirae_partner_profile')
             sections.append('- 연결 전 확인: 개인계정 API 사용 가능 여부와 발급된 app_key/app_secret 상태를 먼저 확인하세요.')
 
         if 'koreaInvestment' in broker_names:
             sections.append('')
             sections.append('한국투자증권 점검')
             sections.append('- 핵심 포인트: KIS 앱키/시크릿과 계좌번호가 저장되어야 인증/조회가 가능합니다.')
-            sections.append('- 권장값: api_type=rest, api_version=kis')
+            sections.append('- 권장값: api_type=rest, api_version=kis_openapi_v1')
             sections.append('- 연결 전 확인: KIS Developers 앱 등록, 계정 API 권한 승인, 모의/실전 도메인 구분')
 
         sections.append('')
@@ -1699,7 +1927,7 @@ class ModernSettingsWindow:
                 else 'korea_investment_api_type_combo' if broker_key == 'koreaInvestment'
                 else f'{broker_key}_api_type_combo'
             )
-            api_type = self._safe_combo_value(api_type_attr, default=str(config.get('api_type', 'openapi') or 'openapi'))
+            api_type = self._safe_combo_value(api_type_attr, default=str(config.get('api_type', 'openapi_plus') or 'openapi_plus'))
             api_version_attr = (
                 'mirae_asset_api_version_combo' if broker_key == 'miraeAsset'
                 else 'korea_investment_api_version_combo' if broker_key == 'koreaInvestment'
@@ -1930,11 +2158,11 @@ class ModernSettingsWindow:
             font=ctk.CTkFont(family="Segoe UI", size=14, weight="bold"),
             text_color=status_color
         )
-        header_label.pack(anchor="w")
+        header_label.pack(side='left', fill='x', expand=True)
 
         toggle_button = ctk.CTkButton(
             header_frame,
-            text='접기',
+            text='상세 보기' if self._ai_diagnosis_collapsed else '접기',
             command=self._toggle_ai_diagnosis_panel,
             font=ctk.CTkFont(family='Segoe UI', size=11, weight='bold'),
             width=80,
@@ -1942,8 +2170,13 @@ class ModernSettingsWindow:
             fg_color='#334155',
             hover_color='#475569',
         )
-        toggle_button.pack(anchor='e')
+        toggle_button.pack(side='right')
         self._ai_diagnosis_toggle_btn = toggle_button
+
+        body_frame = ctk.CTkFrame(diagnosis_frame, fg_color="#1a2540")
+        self._ai_diagnosis_body_frame = body_frame
+        if not self._ai_diagnosis_collapsed:
+            body_frame.pack(fill="x", padx=15, pady=(0, 12))
 
         generated_at = str(self.ai_diagnosis_result.get('generated_at', '') or '').strip()
         runtime_summary = self._get_python_runtime_summary()
@@ -1954,7 +2187,7 @@ class ModernSettingsWindow:
         )
 
         runtime_label = ctk.CTkLabel(
-            diagnosis_frame,
+            body_frame,
             text=runtime_text,
             font=ctk.CTkFont(family='Segoe UI', size=11),
             text_color='#94a3b8',
@@ -1964,7 +2197,7 @@ class ModernSettingsWindow:
 
         if generated_at:
             meta_label = ctk.CTkLabel(
-                diagnosis_frame,
+                body_frame,
                 text=f"진단 시각(로컬): {generated_at}  |  마지막 준비도 점검 시점",
                 font=ctk.CTkFont(family='Segoe UI', size=11),
                 text_color='#94a3b8',
@@ -1973,10 +2206,6 @@ class ModernSettingsWindow:
             meta_label.pack(fill='x', padx=15, pady=(0, 8))
         else:
             runtime_label.configure(text=f"{runtime_text}  |  진단 시각(로컬): -")
-
-        body_frame = ctk.CTkFrame(diagnosis_frame, fg_color="#1a2540")
-        body_frame.pack(fill="x", padx=15, pady=(0, 12))
-        self._ai_diagnosis_body_frame = body_frame
 
         # 진단 요약
         if 'summary' in self.ai_diagnosis_result:
@@ -2052,6 +2281,53 @@ class ModernSettingsWindow:
             f"다음 항목을 확인/수정해주세요:\n\n" + "\n".join(issues[:3])
         )
 
+    def _show_live_trading_readiness_dialog(self) -> None:
+        """설정 중 언제든 열 수 있는 거래소·증권 실거래 필수 안내."""
+        try:
+            dialog = ctk.CTkToplevel(self.root)
+            dialog.title(f"{RELEASE_BUILD_LABEL} 실거래 필수 안내")
+            dialog.geometry("820x680")
+            dialog.minsize(720, 560)
+            dialog.transient(self.root)
+            dialog.grab_set()
+
+            frame = ctk.CTkFrame(
+                dialog,
+                fg_color="#0b1120",
+                border_width=1,
+                border_color="#f59e0b",
+                corner_radius=14,
+            )
+            frame.pack(fill="both", expand=True, padx=12, pady=12)
+            ctk.CTkLabel(
+                frame,
+                text="거래소·증권 실거래 시작 전 필수 안내",
+                font=ctk.CTkFont(family="Segoe UI", size=20, weight="bold"),
+                text_color="#fbbf24",
+            ).pack(anchor="w", padx=16, pady=(14, 8))
+            text_box = ctk.CTkTextbox(
+                frame,
+                wrap="word",
+                fg_color="#101826",
+                text_color="#e5edf6",
+                border_width=1,
+                border_color="#334155",
+                corner_radius=10,
+                font=ctk.CTkFont(family="Segoe UI", size=12),
+            )
+            text_box.pack(fill="both", expand=True, padx=16, pady=(0, 12))
+            text_box.insert("1.0", build_live_trading_guide(RELEASE_BUILD_LABEL))
+            text_box.configure(state="disabled")
+            ctk.CTkButton(
+                frame,
+                text="닫기",
+                width=110,
+                height=36,
+                command=dialog.destroy,
+            ).pack(side="right", padx=16, pady=(0, 14))
+        except Exception as exc:
+            messagebox.showerror("실거래 필수 안내", f"안내를 열 수 없습니다.\n{exc}")
+
     def setup_ui(self):
         """UI 설정 (메인 컨테이너/제목/탭/하단 버튼)"""
         # 메인 컨테이너 (투명색 금지 정책: 고정 배경 적용)
@@ -2080,16 +2356,48 @@ class ModernSettingsWindow:
             justify="center",
             wraplength=1080,
         ).pack(pady=(0, 14))
+
+        readiness_bar = ctk.CTkFrame(
+            main_frame,
+            fg_color="#2a1f0c",
+            border_width=1,
+            border_color="#f59e0b",
+            corner_radius=10,
+        )
+        readiness_bar.pack(fill="x", pady=(0, 12))
+        ctk.CTkLabel(
+            readiness_bar,
+            text=(
+                f"{RELEASE_BUILD_LABEL} · LIVE는 별도 권한입니다 · "
+                "PAPER OFF + 주문 대상/증권 LIVE + API 준비 + 가드레일"
+            ),
+            font=ctk.CTkFont(family="Segoe UI", size=12, weight="bold"),
+            text_color="#fde68a",
+            justify="left",
+            anchor="w",
+        ).pack(side="left", fill="x", expand=True, padx=12, pady=9)
+        ctk.CTkButton(
+            readiness_bar,
+            text="실거래 필수 안내",
+            width=132,
+            height=30,
+            fg_color="#d97706",
+            hover_color="#b45309",
+            command=self._show_live_trading_readiness_dialog,
+        ).pack(side="right", padx=10, pady=7)
         
         # AI 진단 결과 표시 (있는 경우)
         if self.ai_diagnosis_result:
             self._create_ai_diagnosis_panel(main_frame)
 
+        # 하단 버튼을 먼저 예약해야 큰 탭/진단 패널이 창 밖으로 밀어내지 않는다.
+        self.create_button_area(main_frame)
+
         # 탭 뷰 생성 (고정 스킨)
         self.tabview = ctk.CTkTabview(
             main_frame,
             width=850,
-            height=650
+            height=500
         )
         self.tabview.pack(fill="both", expand=True, pady=(0, 20))
 
@@ -2111,9 +2419,6 @@ class ModernSettingsWindow:
             height=34,
         )
 
-        # 하단 버튼 영역
-        self.create_button_area(main_frame)
-
     def create_openai_tab(self):
         """기존 OpenAI 설정과 호환되는 멀티 AI 엔진/API 탭."""
         tab = self.tabview.add("AI 엔진/API")
@@ -2121,7 +2426,7 @@ class ModernSettingsWindow:
 
         # 스크롤 가능한 프레임
         scroll_frame = ctk.CTkScrollableFrame(tab)
-        scroll_frame.pack(fill="both", expand=True, padx=20, pady=20)
+        scroll_frame.pack(fill="both", expand=True, padx=14, pady=14)
 
         # OpenAI API 설정 그룹
         openai_group = ctk.CTkFrame(scroll_frame)
@@ -2290,10 +2595,7 @@ class ModernSettingsWindow:
         trading_model_label.pack(anchor="w", padx=20, pady=(10, 5))
         self.ai_analyst_provider_combo = ctk.CTkComboBox(
             openai_group,
-            values=[
-                label for label, provider in self._AI_PROVIDER_LABELS.items()
-                if provider != "kimi"
-            ],
+            values=list(self._AI_PROVIDER_LABELS),
             state="readonly",
             height=34,
             command=lambda _value: self._on_assignment_provider_change("analyst"),
@@ -2455,6 +2757,92 @@ class ModernSettingsWindow:
             text_color=self._color("text_secondary", "#9ca3af"), wraplength=650, justify="left",
         ).pack(anchor="w", padx=14, pady=(0, 12))
 
+        feature_frame = ctk.CTkFrame(openai_group, fg_color=self._color("background", "#050a13"), corner_radius=10)
+        feature_frame.pack(fill="x", padx=20, pady=(0, 14))
+        profile_row = ctk.CTkFrame(feature_frame, fg_color="transparent")
+        profile_row.pack(fill="x", padx=14, pady=(12, 8))
+        ctk.CTkLabel(
+            profile_row, text="AI 커스텀 사용 난이도", font=ctk.CTkFont(family="Segoe UI", size=13, weight="bold"),
+        ).pack(side="left")
+        self.ai_custom_feature_profile_combo = ctk.CTkComboBox(
+            profile_row, values=["초보자", "일반", "고급", "실험실"], state="readonly", width=120, height=30,
+            command=self._on_ai_custom_feature_profile_changed,
+        )
+        self.ai_custom_feature_profile_combo.set("일반")
+        self.ai_custom_feature_profile_combo.pack(side="left", padx=10)
+        ctk.CTkLabel(
+            profile_row,
+            text="처음에는 일반(권장) · 프로필은 화면 복잡도만 바꿉니다",
+            font=ctk.CTkFont(family="Segoe UI", size=10),
+            text_color=self._color("text_secondary", "#9ca3af"),
+        ).pack(side="left", padx=(2, 0))
+        self.ai_custom_profile_help_label = ctk.CTkLabel(
+            feature_frame,
+            text="",
+            font=ctk.CTkFont(family="Segoe UI", size=11),
+            text_color="#cbd5e1",
+            justify="left",
+            wraplength=700,
+        )
+        self.ai_custom_profile_help_label.pack(fill="x", padx=14, pady=(0, 8))
+
+        advanced_toggle_row = ctk.CTkFrame(feature_frame, fg_color="transparent")
+        advanced_toggle_row.pack(fill="x", padx=14, pady=(0, 8))
+        self._ai_custom_advanced_features_visible = False
+        self.ai_custom_advanced_toggle_button = ctk.CTkButton(
+            advanced_toggle_row,
+            text="개별 고급 기능 펼치기",
+            width=170,
+            height=30,
+            fg_color="#334155",
+            hover_color="#475569",
+            command=self._toggle_ai_custom_advanced_features,
+        )
+        self.ai_custom_advanced_toggle_button.pack(side="left")
+        ctk.CTkLabel(
+            advanced_toggle_row,
+            text="모르면 펼치지 않아도 됩니다. 선택한 프로필이 안전한 시작값을 자동 적용합니다.",
+            font=ctk.CTkFont(family="Segoe UI", size=10),
+            text_color=self._color("text_secondary", "#9ca3af"),
+        ).pack(side="left", padx=10)
+        self.ai_custom_feature_vars = {}
+        self.ai_custom_feature_switches = {}
+        feature_labels = {
+            "replay_analytics": "과거 재생 요약(PnL·MDD)",
+            "monthly_yearly_table": "월별·연별 수익률 표",
+            "expression_graph": "Expression Graph 편집기",
+            "user_indicator_language": "제한형 사용자 지표 언어",
+            "strategy_package": ".noahstrategy 내보내기·가져오기",
+            "team_sharing": "팀 공유 권한 메타데이터",
+            "quality_report": "과최적화·PAPER 품질 리포트",
+            "signed_webhook": "외부 TradingView 신호 검증(실험실 전용)",
+            "b2b_audit": "B2B 감사 번들",
+        }
+        feature_grid = ctk.CTkFrame(feature_frame, fg_color="transparent")
+        feature_grid.pack(fill="x", padx=14, pady=(0, 8))
+        for index, (key, label) in enumerate(feature_labels.items()):
+            variable = ctk.BooleanVar(value=False)
+            self.ai_custom_feature_vars[key] = variable
+            switch = ctk.CTkSwitch(
+                feature_grid, text=label, variable=variable,
+                font=ctk.CTkFont(family="Segoe UI", size=11),
+            )
+            switch.grid(row=index // 2, column=index % 2, sticky="w", padx=(0, 18), pady=3)
+            self.ai_custom_feature_switches[key] = switch
+        self.ai_custom_feature_grid = feature_grid
+        feature_grid.pack_forget()
+        ctk.CTkLabel(
+            feature_frame,
+            text=(
+                "웹훅은 지정 거래소 연결 방식이 아닙니다. TradingView 같은 외부 서비스의 알림을 NoahAI 전략 후보로 받는 "
+                "실험실 입력 통로이며, 앱이 직접 전략을 계산하면 필요하지 않습니다. 운영 endpoint와 실제 E2E 전에는 사용하지 마세요.\n"
+                "백테스트는 최소 필터이고 PAPER가 필수입니다. 유료 마켓은 결제·법무 준비 전 항상 잠깁니다."
+            ),
+            font=ctk.CTkFont(family="Segoe UI", size=10),
+            text_color=self._color("text_secondary", "#9ca3af"), wraplength=700, justify="left",
+        ).pack(anchor="w", padx=14, pady=(0, 12))
+        self._on_ai_custom_feature_profile_changed("일반")
+
         # ── AI 모델 비용 티어 배치 ──────────────────────────────────────────
         tier_title_label = ctk.CTkLabel(
             openai_group,
@@ -2485,10 +2873,7 @@ class ModernSettingsWindow:
         tier_cheap_label.pack(anchor="w", padx=20, pady=(0, 3))
         self.ai_role_cheap_provider_combo = ctk.CTkComboBox(
             openai_group,
-            values=[
-                label for label, provider in self._AI_PROVIDER_LABELS.items()
-                if provider != "kimi"
-            ],
+            values=list(self._AI_PROVIDER_LABELS),
             state="readonly",
             height=32,
             command=lambda _value: self._on_assignment_provider_change("frequent_cheap"),
@@ -2507,7 +2892,7 @@ class ModernSettingsWindow:
             corner_radius=8,
             command=lambda _value: self._on_assignment_model_change("frequent_cheap"),
         )
-        self.ai_role_cheap_combo.set("gpt-4o-mini")
+        self.ai_role_cheap_combo.set("gpt-5.6-luna")
         self.ai_role_cheap_combo.pack(fill="x", padx=20, pady=(0, 8))
 
         tier_standard_label = ctk.CTkLabel(
@@ -2519,10 +2904,7 @@ class ModernSettingsWindow:
         tier_standard_label.pack(anchor="w", padx=20, pady=(0, 3))
         self.ai_role_standard_provider_combo = ctk.CTkComboBox(
             openai_group,
-            values=[
-                label for label, provider in self._AI_PROVIDER_LABELS.items()
-                if provider != "kimi"
-            ],
+            values=list(self._AI_PROVIDER_LABELS),
             state="readonly",
             height=32,
             command=lambda _value: self._on_assignment_provider_change("standard"),
@@ -2541,7 +2923,7 @@ class ModernSettingsWindow:
             corner_radius=8,
             command=lambda _value: self._on_assignment_model_change("standard"),
         )
-        self.ai_role_standard_combo.set("gpt-4o")
+        self.ai_role_standard_combo.set("gpt-5.6-terra")
         self.ai_role_standard_combo.pack(fill="x", padx=20, pady=(0, 8))
 
         tier_premium_label = ctk.CTkLabel(
@@ -2553,10 +2935,7 @@ class ModernSettingsWindow:
         tier_premium_label.pack(anchor="w", padx=20, pady=(0, 3))
         self.ai_role_premium_provider_combo = ctk.CTkComboBox(
             openai_group,
-            values=[
-                label for label, provider in self._AI_PROVIDER_LABELS.items()
-                if provider != "kimi"
-            ],
+            values=list(self._AI_PROVIDER_LABELS),
             state="readonly",
             height=32,
             command=lambda _value: self._on_assignment_provider_change("premium"),
@@ -2575,7 +2954,7 @@ class ModernSettingsWindow:
             corner_radius=8,
             command=lambda _value: self._on_assignment_model_change("premium"),
         )
-        self.ai_role_premium_combo.set("gpt-4o")
+        self.ai_role_premium_combo.set("gpt-5.6-terra")
         self.ai_role_premium_combo.pack(fill="x", padx=20, pady=(0, 16))
 
         preset_title_label = ctk.CTkLabel(
@@ -2748,12 +3127,13 @@ class ModernSettingsWindow:
         # 백엔드 설정은 사용자가 건드릴 필요 없음 - 제거됨
 
         # 안내 메시지
-        info_text = """AI 엔진/API 설정 안내
+        info_text = f"""AI 엔진/API 설정 안내
 
 • AI 애널리스트 모델: 시장 분석과 신호 후보를 만드는 기본 분석 모델
 • AI 어시스턴트 모델: 사용자와의 대화 및 질의응답에 사용되는 AI 모델
 • 위 엔진 선택은 API 키 편집 대상이며 실제 작업 배치는 각 Provider+모델 선택에서 정합니다
-• DeepSeek·Claude·Gemini는 작업별 배치 지원, Kimi K3/K2.6는 어시스턴트용 NoahAI 시험 연동입니다
+• OpenAI·DeepSeek·Claude·Gemini·Kimi를 작업별로 배치할 수 있습니다
+• Kimi 일반 서비스와 개발자 API는 별개이며 API는 사용량 기반 과금입니다
 • 작업별 모델 배치: 빈번 신호·손익 리포트·정밀 진단마다 서로 다른 Provider와 모델을 보낼 수 있습니다
   기존 모델 문자열은 같은 기존 Provider의 새 구조로 자동 변환됩니다
 • 프리셋 선택 가이드:
@@ -2769,7 +3149,10 @@ class ModernSettingsWindow:
 • OpenAI 호환 Base URL(선택): OpenAI 기본 엔드포인트 대신 DeepSeek/OpenRouter/Ollama 등 호환 API를 사용할 때 입력합니다
 • AI 설정 도우미: '키 발급' 도구가 아니라 키 발급 후 모델/적용정책을 도와주는 기능입니다
 • AI 커스텀 무자막 전사는 분석 Provider와 분리된 OpenAI 전사 프로필을 사용합니다
-• 모델은 권장·계정 확인·미리보기·비권장·종료로 구분되며 종료 모델은 저장할 수 없습니다"""
+• 모델은 권장·계정 확인·미리보기·비권장·종료로 구분되며 종료 모델은 저장할 수 없습니다
+
+[AI 커스텀 Provider별 현재 연결 범위]
+{build_ai_custom_provider_guide()}"""
 
         info_label = ctk.CTkLabel(
             scroll_frame,
@@ -2825,7 +3208,7 @@ class ModernSettingsWindow:
             self.openai_base_url_entry.insert(0, str(base_url or ""))
 
         if hasattr(self, "ai_catalog_status_label"):
-            suffix = " · 어시스턴트용 NoahAI 시험 연동" if provider == "kimi" else ""
+            suffix = " · 정식 OpenAI 호환 API · 별도 사용량 과금" if provider == "kimi" else ""
             self.ai_catalog_status_label.configure(
                 text=(
                     f"{self._AI_PROVIDER_LABELS_REVERSE().get(provider, provider)} API 자격증명 편집"
@@ -2870,12 +3253,64 @@ class ModernSettingsWindow:
             model = str(models[0])
         return {"provider": provider, "model": model}
 
+    def _on_ai_custom_feature_profile_changed(self, selected_label: Optional[str] = None):
+        """숙련도 프로필을 개별 토글의 안전한 시작값으로 적용한다."""
+        from trading.ai_custom_features import PROFILE_FEATURES
+
+        label_to_profile = {"초보자": "beginner", "일반": "standard", "고급": "advanced", "실험실": "lab"}
+        label = str(
+            selected_label
+            or (self.ai_custom_feature_profile_combo.get() if hasattr(self, "ai_custom_feature_profile_combo") else "일반")
+        )
+        profile = label_to_profile.get(label, "standard")
+        for key, value in PROFILE_FEATURES[profile].items():
+            variable = getattr(self, "ai_custom_feature_vars", {}).get(key)
+            if variable is not None:
+                variable.set(bool(value))
+        webhook_switch = getattr(self, "ai_custom_feature_switches", {}).get("signed_webhook")
+        if webhook_switch is not None:
+            webhook_switch.configure(state="normal" if profile == "lab" else "disabled")
+        help_texts = {
+            "beginner": "초보자 · Level 1 요약, 원본 근거, PnL·MDD와 품질 경고만 우선 보여 줍니다.",
+            "standard": "일반(권장) · Level 2 핵심값, 월·연도 성과표와 전략 패키지까지 사용합니다.",
+            "advanced": "고급 · Level 3 전체 IR, Expression Graph와 제한형 사용자 지표를 직접 편집합니다.",
+            "lab": "실험실 · 고급 기능에 외부 서명 신호 검증을 추가합니다. 운영 endpoint가 준비됐다는 뜻은 아닙니다.",
+        }
+        label_widget = getattr(self, "ai_custom_profile_help_label", None)
+        if label_widget is not None:
+            label_widget.configure(text=help_texts[profile])
+
+    def _toggle_ai_custom_advanced_features(self):
+        """프로필만 필요한 사용자가 개별 고급 토글에 압도되지 않도록 기본 접힘 처리한다."""
+        grid = getattr(self, "ai_custom_feature_grid", None)
+        button = getattr(self, "ai_custom_advanced_toggle_button", None)
+        if grid is None or button is None:
+            return
+        visible = not bool(getattr(self, "_ai_custom_advanced_features_visible", False))
+        self._ai_custom_advanced_features_visible = visible
+        if visible:
+            grid.pack(fill="x", padx=14, pady=(0, 8))
+            button.configure(text="개별 고급 기능 접기")
+        else:
+            grid.pack_forget()
+            button.configure(text="개별 고급 기능 펼치기")
+
+    def _collect_ai_custom_feature_settings(self) -> Dict[str, Any]:
+        from trading.ai_custom_features import PROFILE_FEATURES
+
+        label_to_profile = {"초보자": "beginner", "일반": "standard", "고급": "advanced", "실험실": "lab"}
+        label = self.ai_custom_feature_profile_combo.get() if hasattr(self, "ai_custom_feature_profile_combo") else "일반"
+        profile = label_to_profile.get(str(label), "standard")
+        overrides = {}
+        for key, default in PROFILE_FEATURES[profile].items():
+            variable = getattr(self, "ai_custom_feature_vars", {}).get(key)
+            current = bool(variable.get()) if variable is not None else bool(default)
+            if current != bool(default):
+                overrides[key] = current
+        return {"profile": profile, "overrides": overrides}
+
     def _on_assignment_provider_change(self, scope: str):
         provider = self._assignment_provider(scope)
-        if provider == "kimi" and scope != "assistant":
-            provider_name, _ = self._assignment_widget_names(scope)
-            getattr(self, provider_name).set("OpenAI")
-            provider = "openai"
         _, model_name = self._assignment_widget_names(scope)
         model_combo = getattr(self, model_name, None)
         if model_combo is None:
@@ -2946,9 +3381,6 @@ class ModernSettingsWindow:
         for label, route, capability in routes:
             provider = str(route.get("provider") or "openai").lower()
             model = str(route.get("model") or "")
-            if provider == "kimi" and label != "AI 어시스턴트":
-                errors.append(f"{label}: Kimi는 실제 키 검증 전까지 어시스턴트 역할만 허용됩니다.")
-                continue
             static_result = validate_model_route(
                 provider,
                 model,
@@ -3194,7 +3626,7 @@ class ModernSettingsWindow:
                 )
 
     def _apply_ai_model_preset(self, preset_name: str):
-        """OpenAI API 탭의 모델 프리셋을 콤보 UI에 즉시 반영한다."""
+        """AI 엔진/API 탭의 모델 프리셋을 콤보 UI에 즉시 반영한다."""
         provider = self._selected_ai_provider()
         if provider == "deepseek":
             presets = {
@@ -3223,7 +3655,7 @@ class ModernSettingsWindow:
                     "openai_model": "kimi-k3",
                     "assistant_ai_model": "kimi-k2.6" if name == "cost_save" else "kimi-k3",
                     "frequent_cheap": "kimi-k2.6", "standard": "kimi-k2.6", "premium": "kimi-k3",
-                    "label": label, "desc": "Kimi는 어시스턴트용 NoahAI 시험 연동입니다.",
+                    "label": label, "desc": "Kimi 정식 API를 작업별로 배치합니다. 일반 Kimi 서비스와 API 과금은 별개입니다.",
                     "cost_level": "중간",
                 }
                 for name, label in (("cost_save", "절약형"), ("balanced", "균형형"), ("quality", "정밀형"))
@@ -3285,7 +3717,7 @@ class ModernSettingsWindow:
             'balanced': {
                 'openai_model': 'gpt-5.6-luna',
                 'assistant_ai_model': 'gpt-5.6-terra',
-                'frequent_cheap': 'gpt-4o-mini',
+                'frequent_cheap': 'gpt-5.6-luna',
                 'standard': 'gpt-5.6-luna',
                 'premium': 'gpt-5.6-terra',
                 'label': '균형형',
@@ -3309,30 +3741,29 @@ class ModernSettingsWindow:
 
         try:
             provider_label = self._AI_PROVIDER_LABELS_REVERSE().get(provider, "OpenAI")
-            if provider != "kimi":
-                for combo_name in (
-                    "ai_analyst_provider_combo",
-                    "ai_role_cheap_provider_combo",
-                    "ai_role_standard_provider_combo",
-                    "ai_role_premium_provider_combo",
-                ):
-                    combo = getattr(self, combo_name, None)
-                    if combo is not None:
-                        combo.set(provider_label)
-                for scope in ("analyst", "frequent_cheap", "standard", "premium"):
-                    self._on_assignment_provider_change(scope)
+            for combo_name in (
+                "ai_analyst_provider_combo",
+                "ai_role_cheap_provider_combo",
+                "ai_role_standard_provider_combo",
+                "ai_role_premium_provider_combo",
+            ):
+                combo = getattr(self, combo_name, None)
+                if combo is not None:
+                    combo.set(provider_label)
+            for scope in ("analyst", "frequent_cheap", "standard", "premium"):
+                self._on_assignment_provider_change(scope)
             if hasattr(self, "ai_assistant_provider_combo"):
                 self.ai_assistant_provider_combo.set(provider_label)
                 self._on_assignment_provider_change("assistant")
-            if provider != "kimi" and hasattr(self, 'openai_model_combo'):
+            if hasattr(self, 'openai_model_combo'):
                 self.openai_model_combo.set(selected['openai_model'])
             if hasattr(self, 'assistant_ai_model_combo'):
                 self.assistant_ai_model_combo.set(selected['assistant_ai_model'])
-            if provider != "kimi" and hasattr(self, 'ai_role_cheap_combo'):
+            if hasattr(self, 'ai_role_cheap_combo'):
                 self.ai_role_cheap_combo.set(selected['frequent_cheap'])
-            if provider != "kimi" and hasattr(self, 'ai_role_standard_combo'):
+            if hasattr(self, 'ai_role_standard_combo'):
                 self.ai_role_standard_combo.set(selected['standard'])
-            if provider != "kimi" and hasattr(self, 'ai_role_premium_combo'):
+            if hasattr(self, 'ai_role_premium_combo'):
                 self.ai_role_premium_combo.set(selected['premium'])
             if hasattr(self, 'ai_preset_cost_badge_label') and self.ai_preset_cost_badge_label:
                 cost_level = selected.get('cost_level', '-')
@@ -3404,7 +3835,7 @@ class ModernSettingsWindow:
                     'title': '1단계: OpenAI 연결',
                     'body': (
                         "- OpenAI API 키를 발급해 앱에 입력합니다.\n"
-                        "- 초보 권장 모델: gpt-4o-mini\n"
+                        "- 초보 권장: 계정 확인된 최신 균형형 프리셋\n"
                         "- 결제 한도 권장: Hard 10~20달러 / Soft 5달러\n"
                         "- ChatGPT 구독과 OpenAI API 과금은 별개입니다."
                     ),
@@ -3679,12 +4110,12 @@ class ModernSettingsWindow:
                         "   - 생성 직후 키를 복사(다시 전체 조회 불가)\n"
                         "   - 참고: 보통 선충전 없이 사용 가능하며, 정책상 소액 결제 인증이 필요할 수 있습니다\n"
                         "4) 앱에 붙여넣기\n"
-                        "   - 설정 > OpenAI API > OpenAI API Key에 붙여넣기\n"
+                        "   - 설정 > AI 엔진/API > OpenAI API Key에 붙여넣기\n"
                         "5) Base URL은 보통 비워두기\n"
                         "   - OpenAI 공식 API면 비워둡니다\n"
                         "   - DeepSeek/OpenRouter/Ollama 같은 호환 API일 때만 입력\n"
                         "6) 모델/프리셋 선택\n"
-                        "   - 초보 기본 권장: gpt-4o-mini + 균형형 프리셋\n"
+                        "   - 초보 기본 권장: 계정 확인된 최신 균형형 프리셋\n"
                         "7) 저장 후 테스트\n"
                         "   - AI 어시스턴트에서 간단 질문으로 연결 확인\n\n"
                         "참고 1) 'AI 설정 도우미 시작'은 키 발급 기능이 아니라\n"
@@ -3726,7 +4157,7 @@ class ModernSettingsWindow:
                 "AI 설정 도우미 위치 안내",
                 (
                     "AI가 설정을 도와주는 기능 위치\n\n"
-                    "1) 설정 > OpenAI API 탭\n"
+                    "1) 설정 > AI 엔진/API 탭\n"
                     "- 'AI 설정 도우미 시작'\n"
                     "- 'AI로 초기 설정하기 (5문항 가이드)'\n\n"
                     "2) 대시보드 > AI 어시스턴트 탭\n"
@@ -3809,7 +4240,8 @@ class ModernSettingsWindow:
                 "이 구역은 '언제 자동 흐름을 시작할지'와 '실제 주문을 허용할지'를 분리해 관리합니다.\n\n"
                 "핵심 항목\n"
                 "- 자동 시작(auto_start): 증권 탭 진입 시 자동 루프를 바로 시작할지 여부\n"
-                "- 실주문 허용(enable_stock_live_order): 실제 주문 API를 열지 여부\n"
+                "- 전역 실주문 허용(enable_stock_live_order): 모든 증권 LIVE의 1차 권한\n"
+                "- 증권사별 LIVE 허용(allow_live_order): 선택한 증권사의 2차 권한\n"
                 "- STOP 시 포지션 처리: 자동흐름 중지 시 기존 포지션을 유지할지 정리할지 기준\n\n"
                 "왜 아직 수동 확인이 남아 있나\n"
                 "- 증권 주문은 브로커 정책, 장시간, 계좌 상태, 실잔고 영향이 커서\n"
@@ -3817,8 +4249,9 @@ class ModernSettingsWindow:
                 "- NoahAI 철학은 '몰래 자동화'가 아니라 '설명 → 확인 → 허용 범위 실행'입니다.\n\n"
                 "권장 순서\n"
                 "- 처음에는 auto_start OFF, 실주문 허용 OFF\n"
-                "- 연결/로그/진단 확인 후 실주문 허용 ON\n"
-                "- 실주문 허용 ON 후에도 가드레일은 유지\n\n"
+                "- 연결/로그/진단 확인 후 전역 LIVE와 해당 증권사 LIVE를 모두 ON\n"
+                "- PAPER가 ON이면 두 LIVE 권한과 무관하게 외부 주문 없음\n"
+                "- LIVE 권한 ON 후에도 연결 준비상태와 가드레일은 유지\n\n"
                 "즉, 여기 값들은 AI 판단 품질 숫자가 아니라 실행 권한 스위치입니다."
             ),
         )
@@ -4305,6 +4738,7 @@ class ModernSettingsWindow:
             text_color=self._color("text_primary", "#f9fafb")
         )
         binance_title.pack(pady=(20, 15), padx=20)
+        self._add_referral_entitlement_banner(binance_group, "binance")
 
         # API Key
         binance_api_label = ctk.CTkLabel(
@@ -4362,7 +4796,7 @@ class ModernSettingsWindow:
             text_color=self._color("text_secondary", "#94a3b8")
         )
         self._binance_verify_label.pack(side="left", padx=(0, 10))
-        ctk.CTkButton(
+        self._binance_verify_button = ctk.CTkButton(
             binance_verify_row,
             text="검증",
             height=30,
@@ -4371,7 +4805,14 @@ class ModernSettingsWindow:
             text_color="white",
             hover_color="#1d4ed8",
             command=self._on_click_verify_binance
-        ).pack(side="right")
+        )
+        self._binance_verify_button.pack(side="right")
+        self._register_referral_api_controls(
+            "binance",
+            self.binance_api_key_entry,
+            self.binance_secret_key_entry,
+            self._binance_verify_button,
+        )
 
         # 업비트 API 설정
         upbit_group = ctk.CTkFrame(scroll_frame)
@@ -4544,6 +4985,7 @@ class ModernSettingsWindow:
             text_color=self._color("text_primary", "#f9fafb")
         )
         bybit_title.pack(pady=(20, 15), padx=20)
+        self._add_referral_entitlement_banner(bybit_group, "bybit")
 
         # API Key
         bybit_api_label = ctk.CTkLabel(
@@ -4602,7 +5044,7 @@ class ModernSettingsWindow:
             text_color=self._color("text_secondary", "#94a3b8")
         )
         self._bybit_verify_label.pack(side="left", padx=(0, 10))
-        ctk.CTkButton(
+        self._bybit_verify_button = ctk.CTkButton(
             bybit_verify_row,
             text="검증",
             height=30,
@@ -4611,7 +5053,14 @@ class ModernSettingsWindow:
             text_color="white",
             hover_color="#1d4ed8",
             command=self._on_click_verify_bybit
-        ).pack(side="right")
+        )
+        self._bybit_verify_button.pack(side="right")
+        self._register_referral_api_controls(
+            "bybit",
+            self.bybit_api_key_entry,
+            self.bybit_secret_key_entry,
+            self._bybit_verify_button,
+        )
 
         # OKX API 설정
         okx_group = ctk.CTkFrame(scroll_frame)
@@ -4624,6 +5073,7 @@ class ModernSettingsWindow:
             text_color=self._color("text_primary", "#f9fafb")
         )
         okx_title.pack(pady=(20, 15), padx=20)
+        self._add_referral_entitlement_banner(okx_group, "okx")
 
         # API Key
         okx_api_label = ctk.CTkLabel(
@@ -4705,7 +5155,7 @@ class ModernSettingsWindow:
             text_color=self._color("text_secondary", "#94a3b8")
         )
         self._okx_verify_label.pack(side="left", padx=(0, 10))
-        ctk.CTkButton(
+        self._okx_verify_button = ctk.CTkButton(
             okx_verify_row,
             text="검증",
             height=30,
@@ -4714,7 +5164,15 @@ class ModernSettingsWindow:
             text_color="white",
             hover_color="#1d4ed8",
             command=self._on_click_verify_okx
-        ).pack(side="right")
+        )
+        self._okx_verify_button.pack(side="right")
+        self._register_referral_api_controls(
+            "okx",
+            self.okx_api_key_entry,
+            self.okx_secret_key_entry,
+            self.okx_passphrase_entry,
+            self._okx_verify_button,
+        )
 
         # 비트겟 API 설정
         bitget_group = ctk.CTkFrame(scroll_frame)
@@ -4727,6 +5185,7 @@ class ModernSettingsWindow:
             text_color=self._color("text_primary", "#f9fafb")
         )
         bitget_title.pack(pady=(20, 15), padx=20)
+        self._add_referral_entitlement_banner(bitget_group, "bitget")
 
         # API Key
         bitget_api_label = ctk.CTkLabel(
@@ -4808,7 +5267,7 @@ class ModernSettingsWindow:
             text_color=self._color("text_secondary", "#94a3b8")
         )
         self._bitget_verify_label.pack(side="left", padx=(0, 10))
-        ctk.CTkButton(
+        self._bitget_verify_button = ctk.CTkButton(
             bitget_verify_row,
             text="검증",
             height=30,
@@ -4817,7 +5276,15 @@ class ModernSettingsWindow:
             text_color="white",
             hover_color="#1d4ed8",
             command=self._on_click_verify_bitget
-        ).pack(side="right")
+        )
+        self._bitget_verify_button.pack(side="right")
+        self._register_referral_api_controls(
+            "bitget",
+            self.bitget_api_key_entry,
+            self.bitget_secret_key_entry,
+            self.bitget_password_entry,
+            self._bitget_verify_button,
+        )
 
         # Bitget 화이트리스트 등록을 위한 현재 공인 IP 표시
         bitget_ip_row = ctk.CTkFrame(bitget_group)
@@ -5015,7 +5482,7 @@ class ModernSettingsWindow:
 
         self.kiwoom_api_type_combo = ctk.CTkComboBox(
             kiwoom_group,
-            values=["openapi", "mock"],
+            values=["openapi_plus", "mock"],
             height=40,
             font=ctk.CTkFont(family="Segoe UI", size=14),
             fg_color=self._color("background", "#050a13"),
@@ -5026,7 +5493,7 @@ class ModernSettingsWindow:
             dropdown_text_color=self._color("text_primary", "#f9fafb"),
             state="readonly"
         )
-        self.kiwoom_api_type_combo.set("openapi")
+        self.kiwoom_api_type_combo.set("openapi_plus")
         self.kiwoom_api_type_combo.pack(fill="x", padx=20, pady=(0, 8))
 
         # API 버전 선택 (openapi 선택 시 활성화)
@@ -5040,7 +5507,7 @@ class ModernSettingsWindow:
 
         self.kiwoom_api_version_combo = ctk.CTkComboBox(
             kiwoom_group,
-            values=["pykiwoom", "kiwoom_api"],
+            values=["pykiwoom"],
             height=40,
             font=ctk.CTkFont(family="Segoe UI", size=14),
             fg_color=self._color("background", "#050a13"),
@@ -5056,7 +5523,7 @@ class ModernSettingsWindow:
 
         kiwoom_api_hint = ctk.CTkLabel(
             kiwoom_group,
-            text="mock: API 없이 테스트/데모 (모든 OS 사용 가능)  |  pykiwoom / kiwoom_api: Windows 전용 실제 연결\nWindows가 아닌 환경에서 pykiwoom/kiwoom_api 선택 시 연결이 항상 실패합니다. mock을 선택하세요.",
+            text="pykiwoom: 키움 OpenAPI+ Windows 드라이버  |  mock: API 없이 테스트/데모\n실주문은 전역 LIVE와 키움 LIVE, OCX 로그인·계좌 준비상태, 가드레일을 모두 확인합니다.",
             font=ctk.CTkFont(family="Segoe UI", size=11),
             text_color=self._color("text_secondary", "#9ca3af"),
             justify="left",
@@ -5175,7 +5642,7 @@ class ModernSettingsWindow:
 
         self.shinhan_api_type_combo = ctk.CTkComboBox(
             shinhan_group,
-            values=["openapi", "rest", "mock"],
+            values=["partner_rest", "mock"],
             height=40,
             font=ctk.CTkFont(family="Segoe UI", size=14),
             fg_color=self._color("background", "#050a13"),
@@ -5186,7 +5653,7 @@ class ModernSettingsWindow:
             dropdown_text_color=self._color("text_primary", "#f9fafb"),
             state="readonly"
         )
-        self.shinhan_api_type_combo.set("openapi")
+        self.shinhan_api_type_combo.set("partner_rest")
         self.shinhan_api_type_combo.pack(fill="x", padx=20, pady=(0, 8))
 
         ctk.CTkLabel(
@@ -5197,7 +5664,7 @@ class ModernSettingsWindow:
 
         self.shinhan_api_version_combo = ctk.CTkComboBox(
             shinhan_group,
-            values=["solapi", "xingapi", "solapi_rest"],
+            values=["shinhan_openapi_v2"],
             height=40,
             font=ctk.CTkFont(family="Segoe UI", size=14),
             fg_color=self._color("background", "#050a13"),
@@ -5208,16 +5675,24 @@ class ModernSettingsWindow:
             dropdown_text_color=self._color("text_primary", "#f9fafb"),
             state="readonly"
         )
-        self.shinhan_api_version_combo.set("solapi")
+        self.shinhan_api_version_combo.set("shinhan_openapi_v2")
         self.shinhan_api_version_combo.pack(fill="x", padx=20, pady=(0, 5))
 
         ctk.CTkLabel(
             shinhan_group,
-            text="mock: API 없이 테스트/데모  |  solapi: SolAPI REST  |  xingapi: HTS/Xing 계열 호환  |  solapi_rest: REST 전용\nAPI 타입은 연결 프로토콜, API 버전은 실제 호출 클라이언트(라이브러리/엔드포인트)입니다.",
+            text="shinhan_openapi_v2: 신한 공식 제휴 Open API 계약 프로필  |  mock: 테스트/데모\nXingAPI는 LS증권 API이므로 신한 선택지에서 제거했습니다. 제휴 URL·채널·엔드포인트는 계약 프로필로 적용됩니다.",
             font=ctk.CTkFont(family="Segoe UI", size=11),
             text_color=self._color("text_secondary", "#9ca3af"),
             justify="left"
         ).pack(anchor="w", padx=20, pady=(0, 20))
+
+        ctk.CTkLabel(
+            shinhan_group, text="제휴 계약 프로필 JSON:",
+            font=ctk.CTkFont(family="Segoe UI", size=13, weight="bold"),
+            text_color=self._color("text_primary", "#f9fafb"),
+        ).pack(anchor="w", padx=20, pady=(0, 5))
+        self.shinhan_partner_profile_text = ctk.CTkTextbox(shinhan_group, height=150, wrap="word")
+        self.shinhan_partner_profile_text.pack(fill="x", padx=20, pady=(0, 20))
 
         # 미래에셋 API 설정
         mirae_asset_group = ctk.CTkFrame(scroll_frame)
@@ -5330,7 +5805,7 @@ class ModernSettingsWindow:
 
         self.mirae_asset_api_type_combo = ctk.CTkComboBox(
             mirae_asset_group,
-            values=["openapi", "rest", "mock"],
+            values=["partner_rest", "mock"],
             height=40,
             font=ctk.CTkFont(family="Segoe UI", size=14),
             fg_color=self._color("background", "#050a13"),
@@ -5341,7 +5816,7 @@ class ModernSettingsWindow:
             dropdown_text_color=self._color("text_primary", "#f9fafb"),
             state="readonly"
         )
-        self.mirae_asset_api_type_combo.set("openapi")
+        self.mirae_asset_api_type_combo.set("partner_rest")
         self.mirae_asset_api_type_combo.pack(fill="x", padx=20, pady=(0, 8))
 
         ctk.CTkLabel(
@@ -5352,7 +5827,7 @@ class ModernSettingsWindow:
 
         self.mirae_asset_api_version_combo = ctk.CTkComboBox(
             mirae_asset_group,
-            values=["miraemts", "miraedaas", "kis"],
+            values=["mirae_partner_profile"],
             height=40,
             font=ctk.CTkFont(family="Segoe UI", size=14),
             fg_color=self._color("background", "#050a13"),
@@ -5363,16 +5838,24 @@ class ModernSettingsWindow:
             dropdown_text_color=self._color("text_primary", "#f9fafb"),
             state="readonly"
         )
-        self.mirae_asset_api_version_combo.set("miraemts")
+        self.mirae_asset_api_version_combo.set("mirae_partner_profile")
         self.mirae_asset_api_version_combo.pack(fill="x", padx=20, pady=(0, 5))
 
         ctk.CTkLabel(
             mirae_asset_group,
-            text="mock: API 없이 테스트/데모  |  miraemts/miraedaas: 미래에셋 계열  |  kis: REST 호환 경로\n여러 버전은 브로커 API 변화/운영 환경 차이를 흡수하기 위한 선택지입니다.",
+            text="mirae_partner_profile: 미래에셋 제휴 계약에서 발급된 URL·인증·엔드포인트 적용\n한국투자 KIS 경로는 미래에셋에서 완전히 분리했습니다. mock은 테스트/데모 전용입니다.",
             font=ctk.CTkFont(family="Segoe UI", size=11),
             text_color=self._color("text_secondary", "#9ca3af"),
             justify="left"
         ).pack(anchor="w", padx=20, pady=(0, 20))
+
+        ctk.CTkLabel(
+            mirae_asset_group, text="제휴 계약 프로필 JSON:",
+            font=ctk.CTkFont(family="Segoe UI", size=13, weight="bold"),
+            text_color=self._color("text_primary", "#f9fafb"),
+        ).pack(anchor="w", padx=20, pady=(0, 5))
+        self.mirae_partner_profile_text = ctk.CTkTextbox(mirae_asset_group, height=150, wrap="word")
+        self.mirae_partner_profile_text.pack(fill="x", padx=20, pady=(0, 20))
 
         # 한국투자증권 API 설정
         korea_investment_group = ctk.CTkFrame(scroll_frame)
@@ -5476,7 +5959,7 @@ class ModernSettingsWindow:
 
         self.korea_investment_api_type_combo = ctk.CTkComboBox(
             korea_investment_group,
-            values=["rest", "openapi", "mock"],
+            values=["rest", "mock"],
             height=40,
             font=ctk.CTkFont(family="Segoe UI", size=14),
             fg_color=self._color("background", "#050a13"),
@@ -5499,7 +5982,7 @@ class ModernSettingsWindow:
 
         self.korea_investment_api_version_combo = ctk.CTkComboBox(
             korea_investment_group,
-            values=["kis", "mock"],
+            values=["kis_openapi_v1"],
             height=40,
             font=ctk.CTkFont(family="Segoe UI", size=14),
             fg_color=self._color("background", "#050a13"),
@@ -5510,12 +5993,12 @@ class ModernSettingsWindow:
             dropdown_text_color=self._color("text_primary", "#f9fafb"),
             state="readonly"
         )
-        self.korea_investment_api_version_combo.set("kis")
+        self.korea_investment_api_version_combo.set("kis_openapi_v1")
         self.korea_investment_api_version_combo.pack(fill="x", padx=20, pady=(0, 5))
 
         ctk.CTkLabel(
             korea_investment_group,
-            text="권장: api_type=rest, api_version=kis  |  mock: API 없이 테스트/데모",
+            text="KIS Developers 공식 REST 계약(토큰·헤더·TR ID·실전/모의 서버)을 사용합니다.\n실주문은 PAPER OFF + 전역 LIVE ON + 한국투자 LIVE ON이 모두 충족될 때만 실행됩니다.",
             font=ctk.CTkFont(family="Segoe UI", size=11),
             text_color=self._color("text_secondary", "#9ca3af"),
             justify="left"
@@ -5920,6 +6403,7 @@ AI 최적화 시스템과 충돌 발생
             fg_color=self._color("primary", "#1f6feb")
         )
         self.binance_radio.pack(anchor="w", padx=20, pady=8)
+        self._register_referral_selection_controls("binance", self.binance_radio)
 
         # 바이비트
         self.bybit_radio = ctk.CTkCheckBox(
@@ -5931,6 +6415,7 @@ AI 최적화 시스템과 충돌 발생
             fg_color=self._color("primary", "#1f6feb")
         )
         self.bybit_radio.pack(anchor="w", padx=20, pady=8)
+        self._register_referral_selection_controls("bybit", self.bybit_radio)
 
         # OKX
         self.okx_radio = ctk.CTkCheckBox(
@@ -5942,6 +6427,7 @@ AI 최적화 시스템과 충돌 발생
             fg_color=self._color("primary", "#1f6feb")
         )
         self.okx_radio.pack(anchor="w", padx=20, pady=8)
+        self._register_referral_selection_controls("okx", self.okx_radio)
 
         # 비트겟
         self.bitget_radio = ctk.CTkCheckBox(
@@ -5953,6 +6439,7 @@ AI 최적화 시스템과 충돌 발생
             fg_color=self._color("primary", "#1f6feb")
         )
         self.bitget_radio.pack(anchor="w", padx=20, pady=8)
+        self._register_referral_selection_controls("bitget", self.bitget_radio)
 
         trade_scope_group = ctk.CTkFrame(scroll_frame)
         trade_scope_group.pack(fill="x", padx=0, pady=(0, 20))
@@ -5989,15 +6476,20 @@ AI 최적화 시스템과 충돌 발생
             "upbit": "Upbit 주문",
             "bithumb": "Bithumb 주문",
         }
+        self.trade_exchange_checks: Dict[str, Any] = {}
         for index, key in enumerate(("binance", "bybit", "okx", "bitget", "upbit", "bithumb")):
-            ctk.CTkCheckBox(
+            checkbox = ctk.CTkCheckBox(
                 trade_grid,
                 text=trade_labels[key],
                 variable=self.trade_exchange_vars[key],
                 font=ctk.CTkFont(family="Segoe UI", size=12),
                 text_color=self._color("text_primary", "#f9fafb"),
                 fg_color=self._color("primary", "#1f6feb"),
-            ).grid(row=index // 3, column=index % 3, sticky="w", padx=8, pady=6)
+            )
+            checkbox.grid(row=index // 3, column=index % 3, sticky="w", padx=8, pady=6)
+            self.trade_exchange_checks[key] = checkbox
+            if key in {"binance", "bybit", "okx", "bitget"}:
+                self._register_referral_selection_controls(key, checkbox)
         for column in range(3):
             trade_grid.grid_columnconfigure(column, weight=1)
         trade_actions = ctk.CTkFrame(trade_scope_group, fg_color="transparent")
@@ -6143,6 +6635,30 @@ AI 최적화 시스템과 충돌 발생
             fg_color=self._color("primary", "#1f6feb")
         )
         self.korea_investment_checkbox.pack(anchor="w", padx=20, pady=8)
+
+        self.stock_broker_live_vars = {
+            key: ctk.BooleanVar(value=False) for key in self.stock_broker_vars
+        }
+        ctk.CTkLabel(
+            stock_brokers_frame,
+            text="증권사별 LIVE 주문 권한 (전역 LIVE 권한과 모두 켜져야 실행)",
+            font=ctk.CTkFont(family="Segoe UI", size=13, weight="bold"),
+            text_color="#f59e0b",
+        ).pack(anchor="w", padx=20, pady=(14, 6))
+        for broker_key, broker_label in (
+            ('kiwoom', '키움 LIVE 허용'),
+            ('shinhan', '신한 LIVE 허용'),
+            ('miraeAsset', '미래에셋 LIVE 허용'),
+            ('koreaInvestment', '한국투자 KIS LIVE 허용'),
+        ):
+            ctk.CTkCheckBox(
+                stock_brokers_frame,
+                text=broker_label,
+                variable=self.stock_broker_live_vars[broker_key],
+                font=ctk.CTkFont(family="Segoe UI", size=13),
+                text_color="#f59e0b",
+                fg_color="#d97706",
+            ).pack(anchor="w", padx=40, pady=5)
 
         stock_mode_frame = ctk.CTkFrame(scroll_frame)
         stock_mode_frame.pack(fill="x", padx=20, pady=(0, 20))
@@ -6350,8 +6866,8 @@ AI 최적화 시스템과 충돌 발생
         ctk.CTkLabel(
             stock_ctrl_frame,
             text=(
-                "'실주문 허용'을 켜야 실제 증권사 주문이 나갑니다. 끄면 기본적으로 분석·계획만 수행합니다. "
-                "단, 설정 → 일반의 페이퍼 트레이딩이 ON이면 실주문 허용과 무관하게 내부 가상 주문이 실행됩니다."
+                "실제 주문은 PAPER OFF + 전역 실주문 허용 ON + 해당 증권사 LIVE 허용 ON + API 준비상태 정상일 때만 나갑니다. "
+                "조건이 하나라도 빠지면 분석·계획(LEARNING)만 수행하며, 페이퍼 트레이딩이 ON이면 내부 가상 주문(PAPER)으로 고정됩니다."
             ),
             font=ctk.CTkFont(family="Segoe UI", size=11),
             text_color="#f59e0b",
@@ -6452,59 +6968,60 @@ AI 최적화 시스템과 충돌 발생
         """하단 버튼 영역 생성"""
         # 하단 버튼 영역 배경도 고정 배경색으로 통일
         button_frame = ctk.CTkFrame(parent, fg_color="#0b1120")
-        button_frame.pack(fill="x", pady=(0, 10))
+        button_frame.pack(side="bottom", fill="x", pady=(0, 6))
+        compact_button_font = ctk.CTkFont(family="Segoe UI", size=13, weight="bold")
 
         # 저장 버튼
         save_button = ctk.CTkButton(
             button_frame,
             text="전체 설정 저장",
-            image=get_ui_icon("save", (18, 18), "#ffffff"),
+            image=get_ui_icon("save", (14, 14), "#ffffff"),
             compound="left",
-            height=50,
-            width=170,
-            font=ctk.CTkFont(family="Segoe UI", size=16, weight="bold"),
+            height=38,
+            width=142,
+            font=compact_button_font,
             fg_color=self._color("success", "#10b981"),
             text_color="white",
             hover_color="#059669",
             border_width=0,
-            corner_radius=10,
+            corner_radius=8,
             command=self.save_settings
         )
-        save_button.pack(side="left", padx=(0, 10))
+        save_button.pack(side="left", padx=(0, 6))
 
         # 취소 버튼
         cancel_button = ctk.CTkButton(
             button_frame,
             text="취소",
-            image=get_ui_icon("close", (16, 16), "#ffffff"),
+            image=get_ui_icon("close", (14, 14), "#ffffff"),
             compound="left",
-            height=50,
-            width=120,
-            font=ctk.CTkFont(family="Segoe UI", size=16, weight="bold"),
+            height=38,
+            width=90,
+            font=compact_button_font,
             fg_color=self._color("danger", "#ef4444"),
             text_color="white",
             hover_color="#dc2626",
             border_width=0,
-            corner_radius=10,
+            corner_radius=8,
             command=self.cancel_settings
         )
-        cancel_button.pack(side="left", padx=(0, 10))
+        cancel_button.pack(side="left", padx=(0, 6))
 
         # 백업 복구 버튼
         restore_button = ctk.CTkButton(
             button_frame,
             text="백업에서 복구",
-            height=50,
-            width=170,
-            font=ctk.CTkFont(family="Segoe UI", size=15, weight="bold"),
+            height=38,
+            width=132,
+            font=compact_button_font,
             fg_color="#334155",
             text_color="white",
             hover_color="#475569",
             border_width=0,
-            corner_radius=10,
+            corner_radius=8,
             command=self._show_backup_restore_dialog
         )
-        restore_button.pack(side="left", padx=(0, 10))
+        restore_button.pack(side="left", padx=(0, 6))
 
         # 기본값 복원 버튼은 OpenAI 탭 카드로 이동
 
@@ -6639,7 +7156,7 @@ AI 최적화 시스템과 충돌 발생
     def _get_stock_api_versions(self, broker: str, api_type: str):
         """증권사/연결방식별 API 버전 후보 목록 반환"""
         broker_map = self._STOCK_API_VERSION_OPTIONS.get(broker, {})
-        return broker_map.get((api_type or 'openapi').lower(), [])
+        return broker_map.get((api_type or 'openapi_plus').lower(), [])
 
     def _sync_stock_api_version_options(self, broker: str, preserve_value: bool = True):
         """api_type 선택값에 맞춰 api_version 콤보 후보를 동기화"""
@@ -6863,8 +7380,6 @@ AI 최적화 시스템과 충돌 발생
                 else:
                     role_provider = analyst_provider
                     role_model = str(raw_route or openai_model)
-                if role_provider == "kimi":
-                    role_provider = analyst_provider if analyst_provider != "kimi" else "openai"
                 getattr(self, provider_widget).set(
                     self._AI_PROVIDER_LABELS_REVERSE().get(role_provider, "OpenAI")
                 )
@@ -6896,6 +7411,19 @@ AI 최적화 시스템과 충돌 발생
                 self.ai_custom_runtime_enabled_var.set(bool(runtime_cfg.get('enabled', False)))
             if hasattr(self, 'ai_custom_limited_live_var'):
                 self.ai_custom_limited_live_var.set(bool(runtime_cfg.get('allow_limited_live', False)))
+            if hasattr(self, 'ai_custom_feature_profile_combo'):
+                from trading.ai_custom_features import resolve_ai_custom_features
+
+                feature_state = resolve_ai_custom_features(self.current_settings)
+                profile_label = {
+                    'beginner': '초보자', 'standard': '일반',
+                    'advanced': '고급', 'lab': '실험실',
+                }.get(feature_state['profile'], '일반')
+                self.ai_custom_feature_profile_combo.set(profile_label)
+                for key, value in feature_state['features'].items():
+                    variable = getattr(self, 'ai_custom_feature_vars', {}).get(key)
+                    if variable is not None:
+                        variable.set(bool(value))
 
             if hasattr(self, 'assistant_apply_mode_combo'):
                 self.assistant_apply_mode_combo.set("사용자 최종확인")
@@ -6940,7 +7468,7 @@ AI 최적화 시스템과 충돌 발생
             if hasattr(self, 'kiwoom_account_entry'):
                 self.kiwoom_account_entry.insert(0, kiwoom_config.get('account_no', ''))
             if hasattr(self, 'kiwoom_api_type_combo'):
-                self.kiwoom_api_type_combo.set(kiwoom_config.get('api_type', 'openapi'))
+                self.kiwoom_api_type_combo.set(kiwoom_config.get('api_type', 'openapi_plus'))
                 self._sync_stock_api_version_options('kiwoom', preserve_value=False)
             if hasattr(self, 'kiwoom_api_version_combo'):
                 self.kiwoom_api_version_combo.set(kiwoom_config.get('api_version', 'pykiwoom'))
@@ -6957,11 +7485,16 @@ AI 최적화 시스템과 충돌 발생
             if hasattr(self, 'shinhan_account_entry'):
                 self.shinhan_account_entry.insert(0, shinhan_config.get('account_no', ''))
             if hasattr(self, 'shinhan_api_type_combo'):
-                self.shinhan_api_type_combo.set(shinhan_config.get('api_type', 'openapi'))
+                self.shinhan_api_type_combo.set(shinhan_config.get('api_type', 'partner_rest'))
                 self._sync_stock_api_version_options('shinhan', preserve_value=False)
             if hasattr(self, 'shinhan_api_version_combo'):
-                self.shinhan_api_version_combo.set(shinhan_config.get('api_version', 'solapi'))
+                self.shinhan_api_version_combo.set(shinhan_config.get('api_version', 'shinhan_openapi_v2'))
                 self._sync_stock_api_version_options('shinhan', preserve_value=True)
+            if hasattr(self, 'shinhan_partner_profile_text'):
+                self.shinhan_partner_profile_text.delete('1.0', 'end')
+                self.shinhan_partner_profile_text.insert(
+                    '1.0', json.dumps(shinhan_config.get('partner_profile', {}) or {}, ensure_ascii=False, indent=2)
+                )
 
             # 미래에셋 설정 로드
             mirae_asset_config = stock_configs.get('miraeAsset', {})
@@ -6974,11 +7507,16 @@ AI 최적화 시스템과 충돌 발생
             if hasattr(self, 'mirae_asset_account_entry'):
                 self.mirae_asset_account_entry.insert(0, mirae_asset_config.get('account_no', ''))
             if hasattr(self, 'mirae_asset_api_type_combo'):
-                self.mirae_asset_api_type_combo.set(mirae_asset_config.get('api_type', 'openapi'))
+                self.mirae_asset_api_type_combo.set(mirae_asset_config.get('api_type', 'partner_rest'))
                 self._sync_stock_api_version_options('miraeAsset', preserve_value=False)
             if hasattr(self, 'mirae_asset_api_version_combo'):
-                self.mirae_asset_api_version_combo.set(mirae_asset_config.get('api_version', 'miraemts'))
+                self.mirae_asset_api_version_combo.set(mirae_asset_config.get('api_version', 'mirae_partner_profile'))
                 self._sync_stock_api_version_options('miraeAsset', preserve_value=True)
+            if hasattr(self, 'mirae_partner_profile_text'):
+                self.mirae_partner_profile_text.delete('1.0', 'end')
+                self.mirae_partner_profile_text.insert(
+                    '1.0', json.dumps(mirae_asset_config.get('partner_profile', {}) or {}, ensure_ascii=False, indent=2)
+                )
 
             # 한국투자증권 설정 로드
             korea_investment_config = stock_configs.get('koreaInvestment', {})
@@ -6994,7 +7532,7 @@ AI 최적화 시스템과 충돌 발생
                 self.korea_investment_api_type_combo.set(korea_investment_config.get('api_type', 'rest'))
                 self._sync_stock_api_version_options('koreaInvestment', preserve_value=False)
             if hasattr(self, 'korea_investment_api_version_combo'):
-                self.korea_investment_api_version_combo.set(korea_investment_config.get('api_version', 'kis'))
+                self.korea_investment_api_version_combo.set(korea_investment_config.get('api_version', 'kis_openapi_v1'))
                 self._sync_stock_api_version_options('koreaInvestment', preserve_value=True)
 
             # AI 설정은 제거됨 - AI가 자동으로 최적화
@@ -7049,6 +7587,10 @@ AI 최적화 시스템과 충돌 발생
                     print(f"증권사 {key}: {'활성화' if is_enabled else '비활성화'}")
             else:
                 print("stock_broker_vars가 존재하지 않음")
+            if hasattr(self, 'stock_broker_live_vars'):
+                for key, var in self.stock_broker_live_vars.items():
+                    cfg = stock_configs.get(key, {}) if isinstance(stock_configs, dict) else {}
+                    var.set(bool(cfg.get('allow_live_order', False)))
 
             if hasattr(self, 'auto_stock_broker_diagnosis_var'):
                 auto_diag = bool(
@@ -7565,9 +8107,30 @@ AI 최적화 시스템과 충돌 발생
             )
             doc_label.pack(anchor="w", padx=20, pady=2)
 
+    def _read_stock_partner_profile(self, broker: str) -> Dict[str, Any]:
+        widget_name = {
+            'shinhan': 'shinhan_partner_profile_text',
+            'miraeAsset': 'mirae_partner_profile_text',
+        }[broker]
+        widget = getattr(self, widget_name, None)
+        current = dict(
+            self.current_settings.get('stock_broker_configs', {}).get(broker, {}).get('partner_profile', {}) or {}
+        )
+        if widget is None:
+            return current
+        raw = str(widget.get('1.0', 'end') or '').strip()
+        if not raw:
+            return {}
+        parsed = json.loads(raw)
+        if not isinstance(parsed, dict):
+            raise ValueError(f'{broker} partner_profile은 JSON 객체여야 합니다.')
+        return parsed
+
     def save_settings(self):
         """설정 저장 - 기존 PyQt5 설정 창과 동일한 로직"""
         try:
+            shinhan_partner_profile = self._read_stock_partner_profile('shinhan')
+            mirae_partner_profile = self._read_stock_partner_profile('miraeAsset')
             active_provider = self._selected_ai_provider()
             analyst_route = self._assignment_route("analyst")
             assistant_route = self._assignment_route("assistant")
@@ -7678,6 +8241,7 @@ AI 최적화 시스템과 충돌 발생
                     'limited_max_leverage': 1,
                     'limited_max_position_size': 0.01,
                 },
+                'ai_custom_features': self._collect_ai_custom_feature_settings(),
                 'assistant_apply_mode': 'user_confirm',
                 'assistant_voice': {
                     'enabled': bool(self.assistant_voice_enabled_var.get()) if hasattr(self, 'assistant_voice_enabled_var') else False,
@@ -7710,19 +8274,19 @@ AI 최적화 시스템과 충돌 발생
                 'stock_broker_configs': {
                     'kiwoom': {
                         'enabled': self.stock_broker_vars['kiwoom'].get() if hasattr(self, 'stock_broker_vars') and 'kiwoom' in self.stock_broker_vars else False,
-                        'api_type': self.kiwoom_api_type_combo.get() if hasattr(self, 'kiwoom_api_type_combo') else 'openapi',
+                        'api_type': self.kiwoom_api_type_combo.get() if hasattr(self, 'kiwoom_api_type_combo') else 'openapi_plus',
                         'api_version': self.kiwoom_api_version_combo.get() if hasattr(self, 'kiwoom_api_version_combo') else 'pykiwoom',
                         'id': self.kiwoom_id_entry.get() if hasattr(self, 'kiwoom_id_entry') else '',
                         'password': self.kiwoom_password_entry.get() if hasattr(self, 'kiwoom_password_entry') else '',
                         'cert_password': self.kiwoom_cert_password_entry.get() if hasattr(self, 'kiwoom_cert_password_entry') else '',
                         'account_no': self.kiwoom_account_entry.get() if hasattr(self, 'kiwoom_account_entry') else '',
-                        'allow_live_order': self.current_settings.get('stock_broker_configs', {}).get('kiwoom', {}).get('allow_live_order', False),
+                        'allow_live_order': bool(self.stock_broker_live_vars['kiwoom'].get()) if hasattr(self, 'stock_broker_live_vars') else False,
                         'asset_types': ['stock', 'etf']
                     },
                     'shinhan': {
                         'enabled': self.stock_broker_vars['shinhan'].get() if hasattr(self, 'stock_broker_vars') and 'shinhan' in self.stock_broker_vars else False,
-                        'api_type': self.shinhan_api_type_combo.get() if hasattr(self, 'shinhan_api_type_combo') else 'openapi',
-                        'api_version': self.shinhan_api_version_combo.get() if hasattr(self, 'shinhan_api_version_combo') else 'solapi',
+                        'api_type': self.shinhan_api_type_combo.get() if hasattr(self, 'shinhan_api_type_combo') else 'partner_rest',
+                        'api_version': self.shinhan_api_version_combo.get() if hasattr(self, 'shinhan_api_version_combo') else 'shinhan_openapi_v2',
                         'id': self.shinhan_id_entry.get() if hasattr(self, 'shinhan_id_entry') else '',
                         'password': self.shinhan_password_entry.get() if hasattr(self, 'shinhan_password_entry') else '',
                         'cert_password': self.shinhan_cert_password_entry.get() if hasattr(self, 'shinhan_cert_password_entry') else '',
@@ -7731,12 +8295,14 @@ AI 최적화 시스템과 충돌 발생
                         # (어댑터는 app_key/app_secret 우선 사용)
                         'app_key': (self.shinhan_id_entry.get() if hasattr(self, 'shinhan_id_entry') else '') or self.current_settings.get('stock_broker_configs', {}).get('shinhan', {}).get('app_key', ''),
                         'app_secret': (self.shinhan_password_entry.get() if hasattr(self, 'shinhan_password_entry') else '') or self.current_settings.get('stock_broker_configs', {}).get('shinhan', {}).get('app_secret', ''),
+                        'allow_live_order': bool(self.stock_broker_live_vars['shinhan'].get()) if hasattr(self, 'stock_broker_live_vars') else False,
+                        'partner_profile': shinhan_partner_profile,
                         'asset_types': ['stock', 'etf']
                     },
                     'miraeAsset': {
                         'enabled': self.stock_broker_vars['miraeAsset'].get() if hasattr(self, 'stock_broker_vars') and 'miraeAsset' in self.stock_broker_vars else False,
-                        'api_type': self.mirae_asset_api_type_combo.get() if hasattr(self, 'mirae_asset_api_type_combo') else 'openapi',
-                        'api_version': self.mirae_asset_api_version_combo.get() if hasattr(self, 'mirae_asset_api_version_combo') else 'miraemts',
+                        'api_type': self.mirae_asset_api_type_combo.get() if hasattr(self, 'mirae_asset_api_type_combo') else 'partner_rest',
+                        'api_version': self.mirae_asset_api_version_combo.get() if hasattr(self, 'mirae_asset_api_version_combo') else 'mirae_partner_profile',
                         'id': self.mirae_asset_id_entry.get() if hasattr(self, 'mirae_asset_id_entry') else '',
                         'password': self.mirae_asset_password_entry.get() if hasattr(self, 'mirae_asset_password_entry') else '',
                         'cert_password': self.mirae_asset_cert_password_entry.get() if hasattr(self, 'mirae_asset_cert_password_entry') else '',
@@ -7744,18 +8310,22 @@ AI 최적화 시스템과 충돌 발생
                         # app_key/app_secret 전용 입력 UI가 없는 동안에는 id/password를 동기화 저장
                         'app_key': (self.mirae_asset_id_entry.get() if hasattr(self, 'mirae_asset_id_entry') else '') or self.current_settings.get('stock_broker_configs', {}).get('miraeAsset', {}).get('app_key', ''),
                         'app_secret': (self.mirae_asset_password_entry.get() if hasattr(self, 'mirae_asset_password_entry') else '') or self.current_settings.get('stock_broker_configs', {}).get('miraeAsset', {}).get('app_secret', ''),
+                        'allow_live_order': bool(self.stock_broker_live_vars['miraeAsset'].get()) if hasattr(self, 'stock_broker_live_vars') else False,
+                        'partner_profile': mirae_partner_profile,
                         'asset_types': ['stock', 'etf']
                     },
                     'koreaInvestment': {
                         'enabled': self.stock_broker_vars['koreaInvestment'].get() if hasattr(self, 'stock_broker_vars') and 'koreaInvestment' in self.stock_broker_vars else False,
                         'api_type': self.korea_investment_api_type_combo.get() if hasattr(self, 'korea_investment_api_type_combo') else 'rest',
-                        'api_version': self.korea_investment_api_version_combo.get() if hasattr(self, 'korea_investment_api_version_combo') else 'kis',
+                        'api_version': self.korea_investment_api_version_combo.get() if hasattr(self, 'korea_investment_api_version_combo') else 'kis_openapi_v1',
                         'id': self.korea_investment_id_entry.get() if hasattr(self, 'korea_investment_id_entry') else '',
                         'password': self.korea_investment_password_entry.get() if hasattr(self, 'korea_investment_password_entry') else '',
                         'cert_password': self.korea_investment_cert_password_entry.get() if hasattr(self, 'korea_investment_cert_password_entry') else '',
                         'account_no': self.korea_investment_account_entry.get() if hasattr(self, 'korea_investment_account_entry') else '',
                         'app_key': (self.korea_investment_id_entry.get() if hasattr(self, 'korea_investment_id_entry') else '') or self.current_settings.get('stock_broker_configs', {}).get('koreaInvestment', {}).get('app_key', ''),
                         'app_secret': (self.korea_investment_password_entry.get() if hasattr(self, 'korea_investment_password_entry') else '') or self.current_settings.get('stock_broker_configs', {}).get('koreaInvestment', {}).get('app_secret', ''),
+                        'allow_live_order': bool(self.stock_broker_live_vars['koreaInvestment'].get()) if hasattr(self, 'stock_broker_live_vars') else False,
+                        'sandbox': bool(self.current_settings.get('stock_broker_configs', {}).get('koreaInvestment', {}).get('sandbox', False)),
                         'asset_types': ['stock', 'etf']
                     }
                 },
@@ -8179,6 +8749,8 @@ AI 최적화 시스템과 충돌 발생
 
     def _on_click_verify_binance(self):
         """바이낸스 API 키 검증 버튼 핸들러(비동기)"""
+        if not self._ensure_referral_api_allowed("binance", self._binance_verify_status):
+            return
         try:
             api_key = self.binance_api_key_entry.get().strip() if hasattr(self, 'binance_api_key_entry') else ''
             secret_key = self.binance_secret_key_entry.get().strip() if hasattr(self, 'binance_secret_key_entry') else ''
@@ -8237,7 +8809,15 @@ AI 최적화 시스템과 충돌 발생
                 else:
                     err_msg = "검증 실패"
             if ok:
-                self.root.after(0, lambda: self._set_binance_status("검증 완료", ok=True))
+                if self.membership_user_grade == "referral":
+                    self.root.after(
+                        0,
+                        lambda: self._set_binance_status(
+                            "API 검증 완료 · Binance Partner 조회 권한 대기", ok=None
+                        ),
+                    )
+                else:
+                    self.root.after(0, lambda: self._set_binance_status("검증 완료", ok=True))
             else:
                 text = f"{err_msg}" if err_msg else "검증 실패"
                 self.root.after(0, lambda: self._set_binance_status(text, ok=False))
@@ -8289,6 +8869,8 @@ AI 최적화 시스템과 충돌 발생
 
     def _on_click_verify_okx(self):
         """OKX API 키 검증"""
+        if not self._ensure_referral_api_allowed("okx", self._okx_verify_status):
+            return
         api_key = self.okx_api_key_entry.get().strip()
         secret_key = self.okx_secret_key_entry.get().strip()
         passphrase = self.okx_passphrase_entry.get().strip()
@@ -8315,7 +8897,9 @@ AI 최적화 시스템과 충돌 발생
             success = adapter.connect()
 
             if success:
-                self.root.after(0, lambda: self._okx_verify_status.set("검증 완료"))
+                self._auto_verify_referral_after_api_check(
+                    "okx", api_key, secret_key, self._okx_verify_status, passphrase
+                )
             else:
                 raw_error = str(getattr(adapter, 'last_error', '') or '')
                 guidance = str(getattr(adapter, 'last_auth_guidance', '') or '')
@@ -8392,6 +8976,8 @@ AI 최적화 시스템과 충돌 발생
 
     def _on_click_verify_bybit(self):
         """바이비트 API 키 검증"""
+        if not self._ensure_referral_api_allowed("bybit", self._bybit_verify_status):
+            return
         api_key = self.bybit_api_key_entry.get().strip()
         secret_key = self.bybit_secret_key_entry.get().strip()
 
@@ -8417,7 +9003,9 @@ AI 최적화 시스템과 충돌 발생
             success = adapter.connect()
 
             if success:
-                self.root.after(0, lambda: self._bybit_verify_status.set("검증 완료"))
+                self._auto_verify_referral_after_api_check(
+                    "bybit", api_key, secret_key, self._bybit_verify_status
+                )
             else:
                 raw_error = str(getattr(adapter, 'last_error', '') or '')
                 guidance = str(getattr(adapter, 'last_auth_guidance', '') or '')
@@ -8452,6 +9040,8 @@ AI 최적화 시스템과 충돌 발생
 
     def _on_click_verify_bitget(self):
         """비트겟 API 키 검증"""
+        if not self._ensure_referral_api_allowed("bitget", self._bitget_verify_status):
+            return
         api_key = self.bitget_api_key_entry.get().strip()
         secret_key = self.bitget_secret_key_entry.get().strip()
         password = self.bitget_password_entry.get().strip()
@@ -8563,7 +9153,9 @@ AI 최적화 시스템과 충돌 발생
             success = adapter.connect()
 
             if success:
-                self.root.after(0, lambda: self._bitget_verify_status.set("검증 완료"))
+                self._auto_verify_referral_after_api_check(
+                    "bitget", api_key, secret_key, self._bitget_verify_status, password
+                )
             else:
                 raw_error = str(getattr(adapter, 'last_error', '') or '')
                 guidance = str(getattr(adapter, 'last_auth_guidance', '') or '')
@@ -8600,12 +9192,12 @@ AI 최적화 시스템과 충돌 발생
                 self.root.after(0, _apply_bitget_exception_hint)
 
     def create_advanced_layers_tab(self):
-        """고급 자동매매 계층 설정 탭 - 프리셋 전환 + 개별 ON/OFF"""
+        """고급 매매 계층 설정 탭 - 프리셋 전환 + 개별 ON/OFF"""
         tab = self.tabview.add("고급 매매 계층")
         self._add_tab_save_bar(tab, "5. 고급 정책 (선택)")
 
         scroll_frame = ctk.CTkScrollableFrame(tab)
-        scroll_frame.pack(fill="both", expand=True, padx=20, pady=20)
+        scroll_frame.pack(fill="both", expand=True, padx=14, pady=14)
 
         # ── 현재 설정에서 advanced_trading_layers 읽기 ──────────────
         atl = self.current_settings.get("advanced_trading_layers", {})
@@ -8627,8 +9219,24 @@ AI 최적화 시스템과 충돌 발생
             ),
             font=ctk.CTkFont(family="Segoe UI", size=12),
             text_color=self._color("text_secondary", "#9ca3af"),
-            justify="center",
-        ).pack(pady=(0, 16))
+            justify="left",
+            wraplength=700,
+        ).pack(fill="x", padx=14, pady=(0, 12))
+
+        beginner_guide = ctk.CTkFrame(
+            scroll_frame, fg_color="#0b2a20", corner_radius=12,
+            border_width=1, border_color="#166534",
+        )
+        beginner_guide.pack(fill="x", pady=(0, 16))
+        ctk.CTkLabel(
+            beginner_guide,
+            text=(
+                "처음 사용하는 분: safe(권장)를 선택하고 저장한 뒤 LEARNING/PAPER에서 7~14일 관찰하세요.\n"
+                "개별 임계값은 차단 로그와 충분한 종료 거래 표본이 있을 때만 바꾸고, aggressive는 숙련자 검증용입니다."
+            ),
+            font=ctk.CTkFont(family="Segoe UI", size=12, weight="bold"),
+            text_color="#bbf7d0", justify="left", wraplength=680,
+        ).pack(fill="x", padx=16, pady=12)
 
         # ── 프리셋 전환 버튼 그룹 ──────────────────────────────────
         preset_group = ctk.CTkFrame(scroll_frame, corner_radius=12)
@@ -8643,10 +9251,14 @@ AI 최적화 시스템과 충돌 발생
 
         ctk.CTkLabel(
             preset_group,
-            text="dev: 전체 OFF (개발/테스트용)  |  safe: 검증된 안전 임계값  |  aggressive: 더 공격적 임계값",
+            text=(
+                "전체 OFF: 개발·진단용(실거래 권장 아님)  |  safe: 신규 사용자 권장  |  "
+                "aggressive: 더 낮은 통과 기준의 숙련자 검증용"
+            ),
             font=ctk.CTkFont(family="Segoe UI", size=11),
             text_color=self._color("text_secondary", "#9ca3af"),
-        ).pack(pady=(0, 10))
+            justify="left", wraplength=680,
+        ).pack(fill="x", padx=16, pady=(0, 10))
 
         btn_row = ctk.CTkFrame(preset_group, fg_color="transparent")
         btn_row.pack(pady=(0, 16))
@@ -8666,11 +9278,11 @@ AI 최적화 시스템과 충돌 발생
                 presets = {
                     "dev": {k: {"enabled": False} for k in ["profitability_validation", "portfolio_orchestration", "strategy_engine", "execution_optimizer", "ops_automation"]},
                     "safe": {
-                        "profitability_validation": {"enabled": True, "min_win_rate": 0.45, "min_sharpe": 0.50, "max_mdd": 0.30},
-                        "portfolio_orchestration": {"enabled": True},
-                        "strategy_engine": {"enabled": True, "consensus_threshold": 0.45},
-                        "execution_optimizer": {"enabled": True, "max_slippage_bps": 50},
-                        "ops_automation": {"enabled": True, "quality_score_threshold": 35.0},
+                        "profitability_validation": {"enabled": True, "min_trades": 20, "min_win_rate": 0.45, "min_sharpe": 0.35, "max_mdd": 0.25, "min_walkforward_pass_rate": 0.45},
+                        "portfolio_orchestration": {"enabled": True, "max_single_asset_weight": 0.25},
+                        "strategy_engine": {"enabled": True, "consensus_threshold": 0.70, "cooldown_sec": 120},
+                        "execution_optimizer": {"enabled": True, "max_retries": 2, "max_slippage_bps": 25},
+                        "ops_automation": {"enabled": True, "quality_score_threshold": 55.0},
                     },
                     "aggressive": {
                         "profitability_validation": {"enabled": True, "min_win_rate": 0.35, "min_sharpe": 0.30, "max_mdd": 0.40},
@@ -8728,17 +9340,17 @@ AI 최적화 시스템과 충돌 발생
             )
 
         ctk.CTkButton(
-            btn_row, text="dev (전체 OFF)", width=150, height=36,
+            btn_row, text="전체 OFF (개발·진단)", width=170, height=36,
             fg_color="#1e3a5f", hover_color="#1d4ed8",
             command=lambda: _apply_preset("dev"),
         ).pack(side="left", padx=6)
         ctk.CTkButton(
-            btn_row, text="safe (권장)", width=150, height=36,
+            btn_row, text="safe (신규 권장)", width=160, height=36,
             fg_color="#14532d", hover_color="#15803d",
             command=lambda: _apply_preset("safe"),
         ).pack(side="left", padx=6)
         ctk.CTkButton(
-            btn_row, text="aggressive", width=150, height=36,
+            btn_row, text="aggressive (숙련자)", width=180, height=36,
             fg_color="#78350f", hover_color="#d97706",
             command=lambda: _apply_preset("aggressive"),
         ).pack(side="left", padx=6)
@@ -8753,7 +9365,7 @@ AI 최적화 시스템과 충돌 발생
             text="프리셋을 누르면 저장 전 변경값을 여기에 표시합니다.",
             font=ctk.CTkFont(size=11),
             text_color=self._color("text_secondary", "#94a3b8"),
-            wraplength=980,
+            wraplength=680,
             justify="left",
         )
         self._preset_preview_label.pack(padx=16, pady=(0, 14))
@@ -8771,15 +9383,15 @@ AI 최적화 시스템과 충돌 발생
 
         layer_defs = [
             ("profitability_validation",  "1⃣ 수익성 검증 (Profitability Gate)",
-             "최근 거래 KPI(거래수/승률/샤프/워크포워드) 미달 시 신규 진입 차단. 차단 시: dev 임시 OFF, 기준 완화(min_trades/min_win_rate 등), 종료거래 데이터 축적 후 재평가"),
+             "최근 거래 KPI(거래수·승률·샤프·워크포워드)를 검사합니다. 일반 미달은 1포지션·1배 회복 학습으로 표본을 더 모으고, Hard MDD는 신규 진입을 차단합니다."),
             ("portfolio_orchestration",   "2⃣ 포트폴리오 오케스트레이션",
-             "자산군별 자본 배분 및 리스크 예산 관리"),
+             "코인·주식·ETF의 자본 비중, 단일 자산 집중도와 상관관계를 제한해 한 전략·한 종목 쏠림을 줄입니다."),
             ("strategy_engine",           "3⃣ 전략 엔진 (레짐 필터/합의)",
-             "시장 국면 필터 + 다중 지표 합의 스코어 기반 진입 결정"),
+             "AI 진입 후보를 시장 국면·다중 신호 합의·재진입 쿨다운으로 한 번 더 거릅니다. 새로운 전략을 만드는 계층은 아닙니다."),
             ("execution_optimizer",       "4⃣ 실행 최적화 (슬리피지 제어)",
-             "주문 유형 최적화, 슬리피지 감시, 자동 시장가 전환"),
+             "주문 재시도·시간 제한·허용 슬리피지를 관리하고 정책 안에서 시장가 대체 여부를 판단합니다."),
             ("ops_automation",            "5⃣ 운영 자동화 (이상 감지/롤백)",
-             "quality_score 모니터링, 이상 거래 자동 감지, 일일 브리핑"),
+             "거절률·슬리피지·품질 점수를 감시하고 이상 상태를 기록·롤백하며 운영 브리핑 근거를 만듭니다."),
         ]
 
         self._atl_vars: dict = {}
@@ -8802,6 +9414,7 @@ AI 최적화 시스템과 충돌 발생
                 font=ctk.CTkFont(family="Segoe UI", size=11),
                 text_color=self._color("text_secondary", "#6b7280"),
                 justify="left",
+                wraplength=660,
             ).pack(anchor="w", padx=16, pady=(0, 10))
 
         strategy_detail_group = ctk.CTkFrame(scroll_frame, corner_radius=12)
@@ -8818,22 +9431,24 @@ AI 최적화 시스템과 충돌 발생
                 "이 엔진은 새로운 매매전략을 만드는 기능이 아니라, AI가 만든 진입 후보를 한 번 더 거르는 후행 필터입니다.\n"
                 "합의 임계값은 0.10~0.95이며 높을수록 진입이 보수적입니다(예: 0.60이면 합의점수 0.60 이상만 통과). "
                 "심볼 쿨다운은 같은 종목의 재진입 최소 대기시간(0~3600초)입니다.\n"
-                "이 합의·수익성 재평가는 기본 AI와 '기본 AI 후보 재확인' 역할에 적용됩니다. "
-                "'사용자 전략 원형 독립 실행'은 전략값을 재심사하지 않고 시장국면·계좌·주문 안전만 통과합니다. "
+                "이 합의·수익성 재평가는 기본 AI와 '기본 AI 후보 확인(권장)' 역할에 적용됩니다. "
+                "'사용자 전략 독립 신호(숙련자)'는 전략값을 재심사하지 않고 시장국면·계좌·주문 안전만 통과합니다. "
                 "고변동장 '평가 계속'도 무조건 진입을 뜻하지 않습니다."
             ),
             font=ctk.CTkFont(family="Segoe UI", size=11),
             text_color=self._color("text_secondary", "#9ca3af"),
             justify="left",
-            wraplength=980,
+            wraplength=680,
         ).pack(anchor="w", padx=18, pady=(0, 12))
 
         strategy_policy = dict(atl.get("strategy_engine", {}) or {})
-        policy_row = ctk.CTkFrame(strategy_detail_group, fg_color="transparent")
-        policy_row.pack(fill="x", padx=18, pady=(0, 16))
+        policy_list = ctk.CTkFrame(strategy_detail_group, fg_color="transparent")
+        policy_list.pack(fill="x", padx=18, pady=(0, 16))
 
-        ctk.CTkLabel(policy_row, text="고변동장 처리", font=ctk.CTkFont(size=12, weight="bold")).pack(
-            side="left", padx=(0, 8)
+        high_vol_row = ctk.CTkFrame(policy_list, fg_color="#111827", corner_radius=8)
+        high_vol_row.pack(fill="x", pady=4)
+        ctk.CTkLabel(high_vol_row, text="고변동장 처리", font=ctk.CTkFont(size=12, weight="bold")).pack(
+            anchor="w", padx=12, pady=(9, 4)
         )
         self._atl_high_vol_action_var = ctk.StringVar(
             value=(
@@ -8843,32 +9458,54 @@ AI 최적화 시스템과 충돌 발생
             )
         )
         ctk.CTkComboBox(
-            policy_row,
+            high_vol_row,
             values=["평가 계속 (권장)", "항상 차단"],
             variable=self._atl_high_vol_action_var,
             width=180,
             state="readonly",
-        ).pack(side="left", padx=(0, 22))
+        ).pack(anchor="w", padx=12)
+        ctk.CTkLabel(
+            high_vol_row,
+            text=(
+                "기본값 ‘평가 계속’: 변동성이 높아도 자동 진입하지 않고 합의·수익성·국면·계좌·주문 검사를 계속합니다. "
+                "‘항상 차단’: 고변동장 신규 진입 후보를 모두 막습니다. 급등락 공포가 크거나 PAPER 초기에는 차단을 선택할 수 있습니다."
+            ),
+            font=ctk.CTkFont(size=10), text_color="#94a3b8", justify="left", wraplength=640,
+        ).pack(fill="x", padx=12, pady=(5, 10))
 
-        ctk.CTkLabel(policy_row, text="합의 임계값", font=ctk.CTkFont(size=12, weight="bold")).pack(
-            side="left", padx=(0, 8)
+        consensus_row = ctk.CTkFrame(policy_list, fg_color="#111827", corner_radius=8)
+        consensus_row.pack(fill="x", pady=4)
+        ctk.CTkLabel(consensus_row, text="합의 임계값", font=ctk.CTkFont(size=12, weight="bold")).pack(
+            anchor="w", padx=12, pady=(9, 4)
         )
         self._atl_consensus_threshold_var = ctk.StringVar(
             value=str(strategy_policy.get("consensus_threshold", 0.60))
         )
         ctk.CTkEntry(
-            policy_row, textvariable=self._atl_consensus_threshold_var, width=90
-        ).pack(side="left", padx=(0, 22))
+            consensus_row, textvariable=self._atl_consensus_threshold_var, width=120
+        ).pack(anchor="w", padx=12)
+        ctk.CTkLabel(
+            consensus_row,
+            text="허용 범위 0.10~0.95 · 현재 템플릿 기본값 0.60 · safe 권장값 0.70. 값이 높을수록 더 많은 신호 합의가 필요해 진입이 보수적입니다.",
+            font=ctk.CTkFont(size=10), text_color="#94a3b8", justify="left", wraplength=640,
+        ).pack(fill="x", padx=12, pady=(5, 10))
 
-        ctk.CTkLabel(policy_row, text="심볼 쿨다운(초)", font=ctk.CTkFont(size=12, weight="bold")).pack(
-            side="left", padx=(0, 8)
+        cooldown_row = ctk.CTkFrame(policy_list, fg_color="#111827", corner_radius=8)
+        cooldown_row.pack(fill="x", pady=4)
+        ctk.CTkLabel(cooldown_row, text="심볼 쿨다운(초)", font=ctk.CTkFont(size=12, weight="bold")).pack(
+            anchor="w", padx=12, pady=(9, 4)
         )
         self._atl_cooldown_sec_var = ctk.StringVar(
             value=str(strategy_policy.get("cooldown_sec", 60))
         )
         ctk.CTkEntry(
-            policy_row, textvariable=self._atl_cooldown_sec_var, width=90
-        ).pack(side="left")
+            cooldown_row, textvariable=self._atl_cooldown_sec_var, width=120
+        ).pack(anchor="w", padx=12)
+        ctk.CTkLabel(
+            cooldown_row,
+            text="같은 심볼 재진입 최소 대기시간입니다. 허용 범위 0~3600초 · 기본 60초 · safe 120초. 잦은 재진입과 수수료 누적을 줄입니다.",
+            font=ctk.CTkFont(size=10), text_color="#94a3b8", justify="left", wraplength=640,
+        ).pack(fill="x", padx=12, pady=(5, 10))
 
         # ── 도움말 ─────────────────────────────────────────────────
         help_group = ctk.CTkFrame(scroll_frame, corner_radius=12)
@@ -8878,8 +9515,8 @@ AI 최적화 시스템과 충돌 발생
             text="수익성 검증 안내\n1) 일반 성과 미달은 1포지션·1배의 회복 학습으로 계속 표본을 수집합니다.\n2) 수수료 차감 순손익과 다음 재평가 거래 수를 확인하세요.\n3) Hard MDD 차단은 임의로 우회하지 말고 손실·체결 원인을 먼저 점검하세요.\n자세한 설명은 대시보드 > 사용자 메뉴얼 > '수익성 검증·회복 학습 대응' 절을 참조하세요.",
             font=ctk.CTkFont(family="Segoe UI", size=12),
             text_color=self._color("info", "#3b82f6"),
-            justify="left",
-        ).pack(padx=20, pady=16)
+            justify="left", wraplength=660,
+        ).pack(fill="x", padx=20, pady=16)
 
     def create_alphaarena_tab(self):
         """AlphaArena 모드 설정 탭 (새로운 alpha_arena 구조 적용)"""
@@ -8904,12 +9541,18 @@ AI 최적화 시스템과 충돌 발생
 
         intro_desc = ctk.CTkLabel(
             intro_group,
-            text="Alpha Arena 모드는 일반 자동매매와 다릅니다.\n\n1. LLM이 말로 거래를 지시하고\n2. 그 지시만 그대로 바이낸스에 나가며\n3. NoahAI의 기존 TP/SL 보험과 워치독은 동작하지 않습니다.\n\n설정에서 엔진과 심볼, 주기만 바꿔주세요.",
+            text=(
+                "숙련자용 독립 실험 모드 · 기본 OFF\n\n"
+                "AlphaArena는 지정 거래소 전체를 쓰는 표준 자동매매가 아니라 Binance USDT 선물 전용 독립 실행 체계입니다. "
+                "LLM 판단을 구조화해 주문 후보로 만들고 TP/SL 필수·레버리지·틱 위험·쿨다운·최대 포지션 게이트를 통과한 경우에만 주문합니다.\n\n"
+                "표준 자동매매의 수익성·포트폴리오·전략 합의 계층 및 기존 TP/SL 보험·워치독과는 공유되지 않습니다. "
+                "처음 사용자는 켜지 말고 표준 LEARNING/PAPER와 AI 커스텀부터 검증하세요."
+            ),
             font=ctk.CTkFont(family="Segoe UI", size=12),
             text_color=self._color("text_secondary", "#9ca3af"),
-            justify="left"
+            justify="left", wraplength=680,
         )
-        intro_desc.pack(pady=(0, 20), padx=20)
+        intro_desc.pack(fill="x", pady=(0, 20), padx=20)
 
         # 활성화 스위치
         enable_group = ctk.CTkFrame(scroll_frame)
@@ -8933,6 +9576,23 @@ AI 최적화 시스템과 충돌 발생
             offvalue=False
         )
         enable_switch.pack(anchor="w", padx=20, pady=(0, 20))
+
+        defaults_group = ctk.CTkFrame(scroll_frame, fg_color="#0b1120", corner_radius=12)
+        defaults_group.pack(fill="x", pady=(0, 20))
+        ctk.CTkLabel(
+            defaults_group, text="현재 고정 가드레일과 기본값",
+            font=ctk.CTkFont(family="Segoe UI", size=15, weight="bold"), text_color="#38bdf8",
+        ).pack(anchor="w", padx=20, pady=(16, 6))
+        ctk.CTkLabel(
+            defaults_group,
+            text=(
+                "거래소: Binance USDT 선물 · 판단 주기: 60초(최소 30초) · 기본 심볼: BTC/ETH/SOL/XRP/DOGE/BNB\n"
+                "레버리지: 10~20배로 제한 · 진입마다 TP와 SL 필수 · 심볼별 쿨다운 30초 · 최대 동시 포지션 6개\n"
+                "틱당 모델 제시 위험 합계 상한: $1,500. 이 값은 수익 보장이나 계좌 전체 손실 상한을 뜻하지 않습니다."
+            ),
+            font=ctk.CTkFont(family="Segoe UI", size=11), text_color="#cbd5e1",
+            justify="left", wraplength=660,
+        ).pack(fill="x", padx=20, pady=(0, 16))
 
         # AI 엔진 선택 섹션
         ai_group = ctk.CTkFrame(scroll_frame)
@@ -8999,27 +9659,15 @@ AI 최적화 시스템과 충돌 발생
         )
         deepseek_entry.pack(fill="x", padx=20, pady=(0, 15))
 
-        # Qwen3 (Alibaba) API Key
-        qwen_label = ctk.CTkLabel(
-            api_key_group,
-            text="Qwen3 (Alibaba) API Key:",
-            font=ctk.CTkFont(family="Segoe UI", size=12, weight="bold"),
-            text_color=self._color("text_primary", "#f9fafb")
-        )
-        qwen_label.pack(anchor="w", padx=20, pady=(5, 5))
-
+        # 레거시 설정 파일의 Qwen 키는 읽고 보존하되 현재 실행 UI에는 노출하지 않는다.
         self.alpha_arena_qwen_api_key_var = ctk.StringVar(value="")
-        qwen_entry = ctk.CTkEntry(
+        ctk.CTkLabel(
             api_key_group,
-            textvariable=self.alpha_arena_qwen_api_key_var,
-            placeholder_text="API 키를 입력하세요",
-            height=35,
-            font=ctk.CTkFont(family="Segoe UI", size=12),
-            fg_color=self._color("background", "#050a13"),
-            border_color=self._color("secondary", "#1f2937"),
-            show="*"
-        )
-        qwen_entry.pack(fill="x", padx=20, pady=(0, 20))
+            text="현재 실행 선택은 DeepSeek V4 Flash만 지원합니다. 기존 Qwen 키는 호환 보관되지만 새 실행에 사용되지 않습니다.",
+            font=ctk.CTkFont(family="Segoe UI", size=11),
+            text_color=self._color("text_secondary", "#9ca3af"),
+            justify="left", wraplength=660,
+        ).pack(fill="x", padx=20, pady=(0, 20))
 
         # 초기 자금 기준 선택 섹션
         capital_group = ctk.CTkFrame(scroll_frame)
@@ -9128,10 +9776,10 @@ AI 최적화 시스템과 충돌 발생
         warning_title.pack(anchor="w", padx=20, pady=(20, 10))
 
         warning_items = [
-            "• Alpha Arena는 LLM이 직접 거래를 지시하는 모드입니다",
-            "• 기존 TP/SL 보험과 워치독은 동작하지 않습니다",
-            "• LLM이 TP/SL을 지정하지 않으면 주문이 실행되지 않습니다",
-            "• 모든 거래 결과는 사용자 본인의 책임입니다"
+            "• 기본 OFF인 숙련자 실험 모드이며 표준 자동매매와 동시에 켜기 전에 별도 검증이 필요합니다",
+            "• 기존 TP/SL 보험·워치독 대신 AlphaArena 자체 TP/SL 필수·주문 게이트가 동작합니다",
+            "• LLM이 TP/SL을 지정하지 않거나 위험·쿨다운·포지션 한도를 넘으면 주문이 차단됩니다",
+            "• 소스 자동 테스트 통과는 Windows 설치본·실계정 장시간 E2E 완료를 뜻하지 않습니다"
         ]
 
         for item in warning_items:
@@ -9140,16 +9788,16 @@ AI 최적화 시스템과 충돌 발생
                 text=item,
                 font=ctk.CTkFont(family="Segoe UI", size=12),
                 text_color=self._color("text_primary", "#f9fafb"),
-                justify="left"
+                justify="left", wraplength=650,
             )
             item_label.pack(anchor="w", padx=20, pady=(0, 5))
 
         help_label = ctk.CTkLabel(
             warning_card,
-            text="• 모르면 대시보드 사용자메뉴얼에서 AlphaArena 가서 설명을 읽어주세요",
+            text="• 대시보드 → 사용자 메뉴얼 → AlphaArena에서 실행 흐름·주의사항을 먼저 확인하거나 AI 어시스턴트에 ‘AlphaArena가 뭐야?’라고 질문하세요.",
             font=ctk.CTkFont(family="Segoe UI", size=12),
             text_color=self._color("info", "#3b82f6"),
-            justify="left"
+            justify="left", wraplength=650,
         )
         help_label.pack(anchor="w", padx=20, pady=(10, 20))
 

@@ -745,9 +745,9 @@ NoahAI는 **인간의 감정적 판단 부담을 구조적으로 분산**시키�
 
 #### 1. ETF/주식 판단 인프라 운영 고도화 (상시 운영 + 안전정책형)
 - **근거**: `trading/exchanges/interfaces/stock_exchange.py`, `trading/exchanges/adapters/kiwoom_stock_adapter.py`, `trading/stock_analysis_service.py`
-- **상태**: StockAnalysisService 완성, ETF/주식 신호 분기 완성, 증권사 어댑터 경로 완성. 상시 운영 가능하며, 실주문은 `enable_stock_live_order`/`allow_live_order` 정책으로 제어된다.
+- **상태**: StockAnalysisService와 ETF/주식 신호 분기를 공통 사용한다. 키움 OpenAPI+와 한국투자 KIS 공식 계약을 분리 구현했고, 신한·미래에셋은 증권사 제휴 계약 프로필을 주입하는 구조다. 실주문은 `NOT PAPER AND enable_stock_live_order AND broker.allow_live_order AND adapter_ready` 정책으로 제어된다.
 - **완성된 부분**: ETF/주식 분석·신호·가드레일·AI 컨텍스트 생성 ✅
-- **운영 중 항목**: 실제 사용자/테스터가 상시 사용 중이며(내부 운영 기준 약 30명), 정책형 실주문 제어 하에서 운영 데이터를 축적한다.
+- **운영 검증 항목**: 배포 후 Windows 키움 OCX와 각 증권사 실제 계약 계정으로 연결·조회·소액 주문·취소·체결내역을 순서대로 검증한다. 소스/Mock 테스트를 실계정 주문 증명으로 표현하지 않는다.
 - **고도화 항목**: 브로커별 운영 파라미터 튜닝, OS/브로커 편차 대응, 실주문 정책·가드레일 세분화
 - **실행**: 외부 증권사 API (집행 브리지만 NoahAI)
 

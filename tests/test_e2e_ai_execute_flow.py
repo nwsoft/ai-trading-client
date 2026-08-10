@@ -49,9 +49,9 @@ def _make_exchange_factory_stub():
     class _FakeExchangeFactory:
         @staticmethod
         def validate_stock_broker_api_combo(broker, api_type, api_version):
-            if broker == "kiwoom" and api_type == "openapi" and api_version == "pykiwoom":
+            if broker == "kiwoom" and api_type == "openapi_plus" and api_version == "pykiwoom":
                 return True, None
-            if broker == "shinhan" and api_type == "rest" and api_version == "solapi_rest":
+            if broker == "shinhan" and api_type == "partner_rest" and api_version == "shinhan_openapi_v2":
                 return True, None
             return False, f"유효하지 않은 조합: {broker}/{api_type}/{api_version}"
     mod.ExchangeFactory = _FakeExchangeFactory
@@ -387,7 +387,7 @@ class TestAIExecuteReadinessDiagnosis(_StubbedTestCase):
             enabled_stock_brokers=["kiwoom"],
             stock_broker_configs={
                 "kiwoom": {
-                    "api_type": "openapi",
+                    "api_type": "openapi_plus",
                     "api_version": "pykiwoom",
                     "id": "user01",
                     "password": "pass01",
