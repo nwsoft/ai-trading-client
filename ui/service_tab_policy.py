@@ -56,7 +56,7 @@ SERVICE_TAB_SPECS: Dict[str, Dict[str, List[str]]] = {
         ],
     },
     "ai_analyst": {
-        "primary": ["AI 애널리스트"],
+        "primary": ["AI 애널리스트", "AI 어시스턴트"],
         "detail": [
             "AI 요약 리포트",
             "시나리오 점검",
@@ -91,6 +91,39 @@ def get_service_detail_tabs(service_name: str | None) -> List[str]:
     service = normalize_service_name(service_name)
     spec = SERVICE_TAB_SPECS.get(service, {})
     return list(spec.get("detail", []))
+
+
+def get_service_tab_order(
+    service_name: str | None,
+    source_tabs: List[str] | None = None,
+) -> List[str]:
+    """Return the single canonical visible-tab order for a service.
+
+    Exchange/broker detail tabs always follow the service's information and
+    analysis tabs.  This prevents a tab that was recreated after navigation
+    (for example ``코인 정보``) from drifting behind BINANCE/UPBIT.
+    """
+    service = normalize_service_name(service_name)
+    sources = list(dict.fromkeys(source_tabs or []))
+    if service in {"blockchain", "stock"}:
+        info_tab = "코인 정보" if service == "blockchain" else "종목 정보"
+        order = [
+            "실시간 거래 로그",
+            info_tab,
+            "거래 통계",
+            "시장 트렌드",
+            "AI 학습",
+            "AI 리포트",
+            "AI 어시스턴트",
+            "AI 커스텀",
+            "금융 인텔리전스",
+        ]
+        if service == "blockchain":
+            order.append("AlphaArena")
+        return order + sources
+
+    spec = SERVICE_TAB_SPECS.get(service, {})
+    return list(spec.get("primary", [])) + list(spec.get("detail", [])) + sources
 
 
 def get_service_tab_snapshot(service_name: str | None) -> Dict[str, object]:

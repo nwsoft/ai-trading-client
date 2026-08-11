@@ -31,7 +31,14 @@ from utils.fixed_colors import FIXED_COLORS as _FIXED_COLORS, build_widget_palet
 from ui.custom_widgets import RoundedButton, RoundedFrame, create_rounded_button
 from ui.visual_system import get_ui_icon, style_tabview
 from ui.refresh_lifecycle import schedule_visible_refresh
-from ui.widget_lifecycle import delete_ctk_tab, log_windows_gui_resources
+from ui.widget_lifecycle import (
+    cleanup_widget_tree,
+    delete_ctk_tab,
+    log_windows_gui_resources,
+    reorder_ctk_tabs,
+    WidgetOwnershipRegistry,
+    widget_is_alive,
+)
 from ui.controllers.account_state_controller import (
     AccountPanelResult,
     account_panel_error,
@@ -265,6 +272,10 @@ class ModernDashboard(ctk.CTk):
         self._ui_coalesce_lock = threading.Lock()
         self._ui_dispatch_metrics = {"queued": 0, "coalesced": 0, "dropped": 0}
         self._global_async_refresh_registry: Dict[str, Dict[str, Any]] = {}
+        # 동적 탭의 화면 트리와 대시보드 캐시 참조는 반드시 함께 폐기한다.
+        # 개별 탭 이름을 하드코딩한 무효화 목록 대신 모든 캐시 위젯이 이
+        # 단일 소유권 레지스트리를 통과한다.
+        self._widget_ownership = WidgetOwnershipRegistry()
 
         # 계단식 탭 구조: 서비스별 하위 탭 관리
         self.service_sub_tabs = {
@@ -280,9 +291,20 @@ class ModernDashboard(ctk.CTk):
         # 거래소 상태 라벨 저장소 {exchange: CTkLabel}
         self._exchange_status_labels: dict[str, ctk.CTkLabel] = {}
         # AI 실행 이력/요약 카드 상태
-        self.ai_execute_history: List[Dict[str, Any]] = []
         self.max_ai_execute_history_size: int = 30
+        from ui.ai_activity import AIActivityLedger
+        self._ai_activity_ledger = AIActivityLedger(self.max_ai_execute_history_size)
+        self.ai_execute_history = self._ai_activity_ledger.events
+        self._ai_execute_history_lock = self._ai_activity_ledger.lock
         self.ai_execute_summary_label: Optional[ctk.CTkLabel] = None
+        # 자산 통합은 종료 거래 체결금액이 아니라 계좌 화면에서 이미
+        # 수신한 현재 잔고를 정본으로 사용한다. 통화별로 보관해 KRW/USDT를
+        # 환율 없이 임의 합산하지 않는다.
+        from ui.asset_insight_data import AssetSnapshotStore
+        self._asset_snapshot_store = AssetSnapshotStore()
+        self._asset_balance_snapshot_at: Optional[datetime] = None
+        self._asset_insight_refresh_inflight = False
+        self._asset_insight_refresh_attempt_at = 0.0
         # 성능 최적화: 진단 결과 캐시 (설정이 바뀌지 않으면 재사용)
         self._diagnosis_cache: Optional[List[str]] = None
         self._diagnosis_cache_settings_hash: Optional[int] = None
@@ -386,10 +408,7 @@ class ModernDashboard(ctk.CTk):
 
     # --- 안전 유틸리티: 파괴된 위젯 접근 방지 ---
     def _widget_alive(self, widget: Optional[Any]) -> bool:
-        try:
-            return bool(widget) and hasattr(widget, 'winfo_exists') and widget.winfo_exists() and not getattr(self, '_is_destroying', False)
-        except Exception:
-            return False
+        return widget_is_alive(widget) and not getattr(self, '_is_destroying', False)
 
     def _safe_text_set(self, text_widget: Optional[Any], content: str) -> None:
         try:
@@ -761,34 +780,67 @@ class ModernDashboard(ctk.CTk):
         risk_level: str,
         risk_reasons: list[str],
         result: str,
-    ) -> None:
+        status: str = 'completed',
+    ) -> str:
         """AI 실행 이벤트를 이력에 기록하고 요약 카드를 갱신한다."""
         try:
-            event = {
-                'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
-                'action': action,
-                'title': title,
-                'plan_lines': list(plan_lines or []),
-                'risk_level': risk_level,
-                'risk_reasons': list(risk_reasons or []),
-                'result': result,
-            }
-            self.ai_execute_history.append(event)
-            if len(self.ai_execute_history) > self.max_ai_execute_history_size:
-                self.ai_execute_history.pop(0)
+            ledger = self._ai_activity_ledger
+            ledger.max_size = max(1, int(self.max_ai_execute_history_size))
+            event_id = ledger.record(
+                action=action,
+                title=title,
+                plan_lines=plan_lines,
+                risk_level=risk_level,
+                risk_reasons=risk_reasons,
+                result=result,
+                status=status,
+            )
             self._refresh_ai_execute_summary_card()
-        except Exception:
-            pass
+            return event_id
+        except Exception as exc:
+            logging.getLogger(__name__).exception("AI 활동 이력 기록 실패: %s", exc)
+            return ''
+
+    def _record_ai_assistant_request(self, message: str, service_context: str = '') -> str:
+        """AI 어시스턴트·애널리스트의 실제 요청을 공용 실행 이력에 연결한다."""
+        context = str(service_context or '').strip().lower()
+        title = 'AI 애널리스트 심층분석' if context == 'ai_analyst' else 'AI 어시스턴트 질문'
+        first_line = str(message or '').strip().splitlines()[0][:180]
+        return self._record_ai_execute_event(
+            action='ai_analysis_request',
+            title=title,
+            plan_lines=[first_line or 'AI 분석 요청'],
+            risk_level='normal',
+            risk_reasons=[],
+            result='응답 생성 중',
+            status='running',
+        )
+
+    def _finish_ai_assistant_request(
+        self,
+        event_id: str,
+        *,
+        result: str = '응답 완료',
+        failed: bool = False,
+    ) -> bool:
+        """요청 접수 행을 응답 완료 또는 오류 상태로 원자적으로 마감한다."""
+        if not event_id:
+            return False
+        updated = self._ai_activity_ledger.finish(event_id, result=result, failed=failed)
+        if updated:
+            self._refresh_ai_execute_summary_card()
+        return updated
 
     def _refresh_ai_execute_summary_card(self) -> None:
         """하단 AI 실행 요약 카드를 최신 이벤트로 갱신한다."""
         try:
             if not getattr(self, 'ai_execute_summary_label', None):
                 return
-            if not self.ai_execute_history:
+            history_snapshot = self._ai_activity_ledger.snapshot(limit=1)
+            last = history_snapshot[-1] if history_snapshot else None
+            if last is None:
                 self.ai_execute_summary_label.configure(text='AI 실행 기록 없음')
                 return
-            last = self.ai_execute_history[-1]
             timestamp = str(last.get('timestamp', '') or '')[-8:]
             title = str(last.get('title', '') or '')[:18]
             result = str(last.get('result', '') or '')[:14]
@@ -828,11 +880,12 @@ class ModernDashboard(ctk.CTk):
             )
             box.pack(fill='both', expand=True, padx=10, pady=(0, 10))
 
-            if not self.ai_execute_history:
+            history_snapshot = self._ai_activity_ledger.snapshot(limit=20)
+            if not history_snapshot:
                 content = '기록이 없습니다.'
             else:
                 chunks = []
-                for item in reversed(self.ai_execute_history[-20:]):
+                for item in reversed(history_snapshot):
                     risk_reasons = item.get('risk_reasons', []) or []
                     reason_text = '\n'.join(f"  - {r}" for r in risk_reasons)
                     plan_text = '\n'.join(f"  {line}" for line in (item.get('plan_lines', []) or []))
@@ -925,25 +978,30 @@ class ModernDashboard(ctk.CTk):
                 except Exception:
                     self.exchange_info_label.configure(text=f"거래소: {exchange_display}")
 
-            # 서비스 하위 탭(거래소 탭) 재구성: 비활성 거래소 탭 제거 후, 활성 거래소만 생성
+            # 현재 서비스의 source 탭만 갱신한다. 주식 화면에서 설정을 저장할 때
+            # 블록체인 탭을 강제로 만들던 기존 경로가 거래소/증권사 혼합의 원인이었다.
             if hasattr(self, 'tab_widget') and self.tab_widget is not None:
                 try:
-                    # blockchain 서비스의 하위 탭만 리프레시
-                    self.clear_service_sub_tabs('blockchain')
-                    # 최신 enabled 기준으로 재생성
                     self.enabled_exchanges = list(enabled)
-                    self.create_service_sub_tabs('blockchain')
+                    current_service = str(
+                        getattr(self, 'current_service', 'blockchain') or 'blockchain'
+                    ).strip().lower()
+                    target_service = 'stock' if current_service == 'stock' else 'blockchain'
+                    self.clear_service_sub_tabs(target_service)
+                    self.create_service_sub_tabs(target_service)
                 except Exception as ie:
                     try:
                         self.logger.warning(f"거래소 탭 재구성 중 오류: {ie}")
                     except Exception:
                         pass
-            # 블록체인 서비스 기본 탭 선택 유지(있다면)
-            if hasattr(self, 'show_blockchain_content'):
-                try:
+            # 현재 서비스의 본문만 동기화한다.
+            try:
+                if str(getattr(self, 'current_service', 'blockchain')).lower() == 'stock':
+                    self.show_stock_content()
+                else:
                     self.show_blockchain_content()
-                except Exception:
-                    pass
+            except Exception:
+                pass
             # 잔고 등 표시 업데이트
             self.update_balance_display()
         except Exception as e:
@@ -1221,8 +1279,15 @@ class ModernDashboard(ctk.CTk):
             result.append((key, f"{self._format_balance_number(value, hint)}{suffix}"))
         return result
 
+    def _cache_asset_balance_snapshot(self, source: str, balance: Any) -> None:
+        """계좌 패널에서 검증된 최신 잔고를 자산 통합용으로 보관한다."""
+        store = getattr(self, '_asset_snapshot_store', None)
+        if store is not None and store.update(source, balance):
+            self._asset_balance_snapshot_at = datetime.now()
+
     def _update_balance_metric_widgets(self, widgets: Dict[str, Any], exchange: str, balance: Any) -> None:
         """잔고 미니 카드 3개를 동일한 규칙으로 갱신한다."""
+        self._cache_asset_balance_snapshot(exchange, balance)
         items = self._balance_metric_items(exchange, balance)
         labels = widgets.get('balance_values', [])
         for index, pair in enumerate(labels):
@@ -1342,54 +1407,52 @@ class ModernDashboard(ctk.CTk):
                 pnl_number = 0.0
 
             card = ctk.CTkFrame(
-                body, height=52, fg_color="#111827", corner_radius=10,
+                body, height=58, fg_color="#111827", corner_radius=10,
                 border_width=1, border_color="#334155",
             )
             card.pack(fill="x", padx=1, pady=3)
             card.pack_propagate(False)
+            card.grid_propagate(False)
             card.grid_columnconfigure(0, weight=2)
             card.grid_columnconfigure(1, weight=3)
             card.grid_columnconfigure(2, weight=2)
+            card.grid_rowconfigure((0, 1), weight=1)
 
-            identity = ctk.CTkFrame(card, fg_color="transparent")
-            identity.grid(row=0, column=0, sticky="nsew", padx=(9, 3))
+            # 카드마다 투명 CTkFrame 3개(각각 Canvas 포함)를 만들던 구조를 제거한다.
+            # 직접 grid한 6개 라벨은 Windows 자원 압박 시 빈 카드만 남는 현상을 줄인다.
             ctk.CTkLabel(
-                identity, text=str(symbol), font=ctk.CTkFont(size=12, weight="bold"),
+                card, text=str(symbol), font=ctk.CTkFont(size=12, weight="bold"),
                 text_color=self._color('text_primary', '#f8fafc'), anchor="w",
-            ).pack(anchor="w", pady=(5, 0))
+            ).grid(row=0, column=0, sticky="sw", padx=(9, 3), pady=(3, 0))
             side_color = '#22c55e' if side in {'LONG', 'BUY', 'HOLD'} else '#ef4444'
             ctk.CTkLabel(
-                identity, text=("보유" if stock_mode else side), font=ctk.CTkFont(size=10, weight="bold"),
+                card, text=("보유" if stock_mode else side), font=ctk.CTkFont(size=10, weight="bold"),
                 text_color=side_color, anchor="w",
-            ).pack(anchor="w", pady=(0, 3))
-
-            detail = ctk.CTkFrame(card, fg_color="transparent")
-            detail.grid(row=0, column=1, sticky="nsew", padx=3)
+            ).grid(row=1, column=0, sticky="nw", padx=(9, 3), pady=(0, 3))
             ctk.CTkLabel(
-                detail, text=f"수량 {self._format_position_number(quantity)}",
+                card, text=f"수량 {self._format_position_number(quantity)}",
                 font=self._get_safe_font("small"), text_color="#cbd5e1", anchor="w",
-            ).pack(anchor="w", pady=(5, 0))
+            ).grid(row=0, column=1, sticky="sw", padx=3, pady=(3, 0))
             entry_text = self._format_position_number(entry)
             lev_text = f" · {self._format_position_number(leverage)}x" if leverage not in (None, '', 0, '0') else ''
             ctk.CTkLabel(
-                detail, text=f"진입 {entry_text}{lev_text}", font=self._get_safe_font("small"),
+                card, text=f"진입 {entry_text}{lev_text}", font=self._get_safe_font("small"),
                 text_color="#94a3b8", anchor="w",
-            ).pack(anchor="w", pady=(0, 3))
-
-            pnl_frame = ctk.CTkFrame(card, fg_color="transparent")
-            pnl_frame.grid(row=0, column=2, sticky="nsew", padx=(3, 9))
+            ).grid(row=1, column=1, sticky="nw", padx=3, pady=(0, 3))
             ctk.CTkLabel(
-                pnl_frame, text="평가손익" if stock_mode else "미실현 PnL",
+                card, text="평가손익" if stock_mode else "미실현 PnL",
                 font=self._get_safe_font("small"), text_color="#94a3b8", anchor="e",
-            ).pack(anchor="e", pady=(5, 0))
+            ).grid(row=0, column=2, sticky="se", padx=(3, 9), pady=(3, 0))
             ctk.CTkLabel(
-                pnl_frame, text=f"{self._format_position_number(pnl, signed=True)} {quote}",
+                card, text=f"{self._format_position_number(pnl, signed=True)} {quote}",
                 font=ctk.CTkFont(size=12, weight="bold"),
                 text_color=('#22c55e' if pnl_number >= 0 else '#ef4444'), anchor="e",
-            ).pack(anchor="e", pady=(0, 3))
+            ).grid(row=1, column=2, sticky="ne", padx=(3, 9), pady=(0, 3))
 
     def _display_unified_balances(self, all_balances: Dict[str, Dict[str, float]]) -> None:
         try:
+            for source, balance in (all_balances or {}).items():
+                self._cache_asset_balance_snapshot(str(source), balance)
             if not hasattr(self, 'balance_display'):
                 return
             lines: List[str] = ["통합 잔고 요약", "", "• 거래소/증권사별 현황"]
@@ -1838,7 +1901,7 @@ class ModernDashboard(ctk.CTk):
                 self.logger.info("[DEBUG] AI 위젯 pack 시작")
                 ai_widget.pack(fill="both", expand=True)
                 self.logger.info("[DEBUG] AI 위젯 pack 완료")
-                self.ai_learning_widget = ai_widget
+                self._register_tab_widget("AI 학습", "ai_learning_widget", ai_widget)
                 self.logger.info("[DEBUG] AI 학습 위젯 장착 완료")
             except Exception as e:
                 # 폴백: 오류 메시지 표시
@@ -1880,13 +1943,13 @@ class ModernDashboard(ctk.CTk):
             try:
                 ai_report_widget = AIReportWidget(container, colors=report_palette)
                 ai_report_widget.pack(fill="both", expand=True)
-                self.ai_report_widget = ai_report_widget
+                self._register_tab_widget("AI 리포트", "ai_report_widget", ai_report_widget)
             except Exception as e:
                 try:
                     from ui.widgets.ai_report_widget_safe import AIReportWidgetSafe
                     ai_report_widget = AIReportWidgetSafe(container, colors=report_palette)
                     ai_report_widget.pack(fill="both", expand=True)
-                    self.ai_report_widget = ai_report_widget
+                    self._register_tab_widget("AI 리포트", "ai_report_widget", ai_report_widget)
                     self.logger.warning(f"AIReportWidget 로드 실패, 안전 버전으로 대체: {e}")
                 except Exception as e2:
                     err = ctk.CTkLabel(container, text=f"AI 리포트 위젯 로드 실패\n{e2}")
@@ -1905,6 +1968,13 @@ class ModernDashboard(ctk.CTk):
             name = "AI 어시스턴트"
             created = not self._tab_exists(name)
             tab = self._get_or_add_tab(name)
+            cached = getattr(self, 'ai_assistant_widget', None)
+            cached_input = getattr(cached, 'chat_input', None) if cached is not None else None
+            cached_live = self._widget_alive(cached) and self._widget_alive(cached_input)
+            if not cached_live:
+                self._invalidate_tab_widget_reference(name)
+                if not created and tab.winfo_children():
+                    self._clear_tab_children(tab)
             if created or not tab.winfo_children():
                 widget = None
                 try:
@@ -1960,7 +2030,7 @@ class ModernDashboard(ctk.CTk):
                 if widget is not None:
                     try:
                         widget.pack(fill="both", expand=True, padx=12, pady=12)
-                        self.ai_assistant_widget = widget
+                        self._register_tab_widget(name, "ai_assistant_widget", widget)
                         return
                     except Exception as e:
                         self.logger.error(f"AI 어시스턴트 위젯 배치 오류: {e}")
@@ -1971,6 +2041,21 @@ class ModernDashboard(ctk.CTk):
                 ctk.CTkLabel(frame, text="AI 어시스턴트 위젯을 불러올 수 없습니다. (폴백)", font=self._get_safe_font("body", ctk.CTkFont(size=13)), text_color=self._color('text_secondary', '#cbd5e1')).pack(anchor="w", padx=12, pady=(0, 8))
         except Exception:
             pass
+
+    def _get_live_ai_assistant(self) -> Optional[Any]:
+        """파괴된 Tcl 입력창을 재사용하지 않고 살아 있는 어시스턴트를 반환한다."""
+        assistant = getattr(self, 'ai_assistant_widget', None)
+        chat_input = getattr(assistant, 'chat_input', None) if assistant is not None else None
+        if self._widget_alive(assistant) and self._widget_alive(chat_input):
+            return assistant
+
+        self._invalidate_tab_widget_reference("AI 어시스턴트")
+        self._ensure_ai_assistant_tab()
+        assistant = getattr(self, 'ai_assistant_widget', None)
+        chat_input = getattr(assistant, 'chat_input', None) if assistant is not None else None
+        if self._widget_alive(assistant) and self._widget_alive(chat_input):
+            return assistant
+        return None
 
     def _ensure_custom_strategy_tab(self) -> None:
         """AI 커스텀 전략 입력·분석·버전 관리 화면을 보장한다."""
@@ -1984,7 +2069,7 @@ class ModernDashboard(ctk.CTk):
             from ui.widgets.custom_strategy_widget import CustomStrategyWidget
             widget = CustomStrategyWidget(tab, dashboard=self, settings=self.settings)
             widget.pack(fill="both", expand=True)
-            self.custom_strategy_widget = widget
+            self._register_tab_widget(name, "custom_strategy_widget", widget)
         except Exception as exc:
             try:
                 self.logger.warning(f"AI 커스텀 전략 탭 생성 실패: {exc}")
@@ -2199,7 +2284,7 @@ class ModernDashboard(ctk.CTk):
                         settings=self.settings, # 전체 설정 전달
                         recorder=recorder  # Recorder 전달 (데이터베이스 저장용)
                     )
-                    self.alpha_arena_widget = widget
+                    self._register_tab_widget(name, "alpha_arena_widget", widget)
                     self.logger.info("AlphaArena 위젯 생성 완료.")
                 except Exception as e:
                     self.logger.error(f"AlphaArena 위젯 생성 오류: {e}")
@@ -2307,6 +2392,7 @@ class ModernDashboard(ctk.CTk):
                 height=200,
             )
             self.coin_search_results.pack(fill="x", padx=5, pady=(0, 8))
+            self._register_tab_widget(tab_name, "coin_search_results", self.coin_search_results)
 
             # evaluator 점수 테이블 헤더
             evaluator_header_frame = ctk.CTkFrame(main_container)
@@ -2335,6 +2421,7 @@ class ModernDashboard(ctk.CTk):
                 height=220,
             )
             self.evaluator_scroll.pack(fill="x", pady=5)
+            self._register_tab_widget(tab_name, "evaluator_scroll", self.evaluator_scroll)
 
             # 버튼 행 (코인 선정 실행 + 새로고침 나란히)
             btn_row = ctk.CTkFrame(main_container, fg_color="transparent")
@@ -2522,6 +2609,7 @@ class ModernDashboard(ctk.CTk):
                 border_width=2
             )
             self.trading_stats_scroll.pack(fill="both", expand=True, pady=5)
+            self._register_tab_widget(tab_name, "trading_stats_scroll", self.trading_stats_scroll)
 
             # 버튼 행
             button_row = ctk.CTkFrame(main_container, fg_color="transparent")
@@ -2579,7 +2667,7 @@ class ModernDashboard(ctk.CTk):
             from ui.widgets.market_trend_widget import MarketTrendWidget
             trend_widget = MarketTrendWidget(tab, dashboard_ref=self, colors=dict(_FIXED_COLORS))
             trend_widget.pack(fill="both", expand=True, padx=10, pady=10)
-            self.market_trend_widget = trend_widget  # 서비스 컨텍스트 동기화용 참조 저장
+            self._register_tab_widget(tab_name, "market_trend_widget", trend_widget)
             self.demo_widget = None
 
             # 탭 생성 직후 1회 강제 갱신으로 '수집 대기' 상태를 빠르게 해소한다.
@@ -3007,27 +3095,9 @@ class ModernDashboard(ctk.CTk):
             return None, '데이터 없음'
 
         try:
-            by_day: Dict[str, Dict[str, float]] = {}
-            with sqlite3.connect(db_path) as conn:
-                cur = conn.cursor()
-                cur.execute(
-                    """
-                    SELECT DATE(COALESCE(exit_time, entry_time)) AS d,
-                           LOWER(COALESCE(asset_type, '')) AS asset_type,
-                           SUM(COALESCE(pnl, 0)) AS pnl_sum
-                    FROM trade_log
-                    WHERE LOWER(COALESCE(asset_type, '')) IN ('crypto', 'stock')
-                      AND LOWER(COALESCE(reason, '')) != 'binance_import'
-                    GROUP BY DATE(COALESCE(exit_time, entry_time)), LOWER(COALESCE(asset_type, ''))
-                    ORDER BY d
-                    """
-                )
-                for d, asset_type, pnl_sum in (cur.fetchall() or []):
-                    if not d:
-                        continue
-                    day_row = by_day.setdefault(str(d), {'crypto': 0.0, 'stock': 0.0})
-                    key = 'crypto' if str(asset_type) == 'crypto' else 'stock'
-                    day_row[key] = float(pnl_sum or 0.0)
+            from ui.asset_insight_data import load_trade_history_metrics
+
+            by_day = dict(load_trade_history_metrics(db_path).get('daily_pnl', {}) or {})
 
             xs: List[float] = []
             ys: List[float] = []
@@ -3579,6 +3649,7 @@ class ModernDashboard(ctk.CTk):
                 height=210,
             )
             self.stock_user_activity_scroll.pack(fill="x", padx=5, pady=(0, 10))
+            self._register_tab_widget(tab_name, "stock_user_activity_scroll", self.stock_user_activity_scroll)
 
             # AI 평가 결과를 위한 컬럼 구조
             evaluator_header_frame = ctk.CTkFrame(main_container)
@@ -3608,6 +3679,7 @@ class ModernDashboard(ctk.CTk):
                 height=220,
             )
             self.stock_evaluator_scroll.pack(fill="x", pady=5)
+            self._register_tab_widget(tab_name, "stock_evaluator_scroll", self.stock_evaluator_scroll)
 
             # 새로고침 버튼
             refresh_button = ctk.CTkButton(
@@ -3977,6 +4049,7 @@ class ModernDashboard(ctk.CTk):
                 border_width=2
             )
             self.stock_trading_stats_scroll.pack(fill="both", expand=True, pady=5)
+            self._register_tab_widget(tab_name, "stock_trading_stats_scroll", self.stock_trading_stats_scroll)
 
             # 버튼 행
             button_row = ctk.CTkFrame(main_container, fg_color="transparent")
@@ -4029,7 +4102,7 @@ class ModernDashboard(ctk.CTk):
             except Exception:
                 pass
             trend_widget.pack(fill="both", expand=True, padx=10, pady=10)
-            self.market_trend_widget = trend_widget
+            self._register_tab_widget(tab_name, "market_trend_widget", trend_widget)
 
             print("주식 시장 트렌드 탭 기본 생성 완료")
         except Exception as e:
@@ -6809,9 +6882,18 @@ class ModernDashboard(ctk.CTk):
             # _drain_ui_call_queue까지 중단되어, 복귀한 거래소 탭의 잔고가 영구히
             # "조회 중"에 머문다.
 
-            if str(service_name or '').lower() != 'stock':
+            previous_service = str(
+                getattr(self, 'current_service', 'blockchain') or 'blockchain'
+            ).strip().lower()
+            target_service = str(service_name or '').strip().lower()
+
+            if target_service != 'stock':
                 self._stop_stock_auto_trade_loop()
 
+            # 이전 서비스의 거래소/증권사 source 탭만 한 번 제거한다.
+            # 기본 탭 정리는 마지막 정책 단계 하나에서 수행한다.
+            if previous_service != target_service:
+                self.clear_service_sub_tabs(previous_service)
             self.current_service = service_name
 
             try:
@@ -6823,13 +6905,6 @@ class ModernDashboard(ctk.CTk):
             self._update_service_button_styles(service_name)
 
             self._dbg(f"버튼 색상 업데이트 완료: {service_name}")
-
-            # 문서 요구사항: 모든 서비스 전환 시 이전 하위 프레임 완전 destroy
-            self._destroy_all_service_tabs_except_protected()
-            
-            # service_sub_tabs 딕셔너리도 초기화 (이전 서비스 탭 참조 제거)
-            for svc in self.service_sub_tabs.keys():
-                self.service_sub_tabs[svc].clear()
 
             # 서비스별 메뉴 업데이트 (탭 콘텐츠 생성)
             self.update_service_content(service_name)
@@ -6889,21 +6964,8 @@ class ModernDashboard(ctk.CTk):
             except Exception:
                 pass
 
-            # 금융 인텔리전스를 거래소/증권사 탭보다 먼저 보장한다.
-            # 초기 실행처럼 하위 탭이 먼저 생성되는 경로에서도 탭 순서를 고정하기 위함이다.
-            try:
-                from ui.service_tab_policy import normalize_service_name
-                normalized_service = normalize_service_name(service_name)
-                if normalized_service in {'blockchain', 'stock'}:
-                    self._ensure_financial_intelligence_tab(normalized_service)
-            except Exception:
-                pass
-
             # 현재 서비스의 하위 탭 생성 (예: 블록체인: 거래소별)
             self.create_service_sub_tabs(service_name)
-
-            # 서비스별 탭 정책 적용: 선택한 서비스와 무관한 공통/타 서비스 탭 제거
-            self._apply_service_tab_policy(service_name)
 
             try:
                 from log_system.log_adapter import log_event
@@ -7155,17 +7217,52 @@ class ModernDashboard(ctk.CTk):
             pass
 
     def _clear_tab_children(self, tab_frame: Any) -> None:
+        tab_name = self._tab_name_for_frame(tab_frame)
+        if tab_name:
+            self._invalidate_tab_widget_reference(tab_name)
         try:
+            cleanup_widget_tree(tab_frame, include_root=False)
             for child in tab_frame.winfo_children():
                 try:
-                    cleanup = getattr(child, "cleanup", None)
-                    if callable(cleanup):
-                        cleanup()
                     child.destroy()
                 except Exception:
                     pass
         except Exception:
             pass
+
+    def _tab_name_for_frame(self, tab_frame: Any) -> Optional[str]:
+        """Resolve the canonical tab owner for an in-place tree rebuild."""
+        tabview = getattr(self, 'tab_widget', None)
+        for name, frame in (getattr(tabview, '_tab_dict', {}) or {}).items():
+            if frame is tab_frame:
+                return str(name)
+        return None
+
+    def _register_tab_widget(self, tab_name: str, attribute: str, widget: Any) -> Any:
+        """Cache a widget under the lifecycle of its owning dynamic tab."""
+        return self._widget_ownership.register_attribute(tab_name, self, attribute, widget)
+
+    def _register_tab_mapping_widget(
+        self,
+        tab_name: str,
+        mapping: Dict[Any, Any],
+        mapping_key: Any,
+        widget: Any,
+    ) -> Any:
+        """Cache one mapped widget under the lifecycle of its owning tab."""
+        return self._widget_ownership.register_mapping(tab_name, mapping, mapping_key, widget)
+
+    def _invalidate_tab_widget_reference(self, tab_name: str) -> None:
+        """Release every cached reference owned by a tab, including future ones."""
+        self._widget_ownership.invalidate(str(tab_name))
+
+    def _delete_dashboard_tab(self, tab_name: str) -> bool:
+        """Single deletion boundary: references, callbacks, menus, then frame."""
+        self._invalidate_tab_widget_reference(tab_name)
+        tabview = getattr(self, 'tab_widget', None)
+        if tabview is None:
+            return False
+        return delete_ctk_tab(tabview, tab_name)
 
     def clear_service_sub_tabs(self, service_name: str):
         """서비스별 하위 탭 제거 (동적 교체용)"""
@@ -7178,7 +7275,7 @@ class ModernDashboard(ctk.CTk):
             existing = list(self.service_sub_tabs[service_name].keys())
             for label in existing:
                 try:
-                    delete_ctk_tab(self.tab_widget, label)
+                    self._delete_dashboard_tab(label)
                 except Exception:
                     pass
                 # 내부 레퍼런스 제거
@@ -7267,56 +7364,59 @@ class ModernDashboard(ctk.CTk):
 
 
     def _collect_asset_insight_metrics(self) -> Dict[str, Any]:
-        """자산통합 상세탭에서 공통으로 사용하는 실데이터 지표를 수집합니다."""
-        asset_breakdown = {"암호화폐": 0.0, "주식": 0.0, "기타": 0.0}
-        total_pnl = 0.0
-        total_assets = 0.0
-        db_path = ""
+        """현재 잔고와 거래 이력을 역할·통화별로 분리해 수집합니다."""
+        from ui.asset_insight_data import (
+            load_trade_history_metrics,
+            normalize_current_balances,
+        )
 
-        try:
-            db_path = self._get_dashboard_read_db_path()
-        except Exception:
-            db_path = ""
+        store = getattr(self, '_asset_snapshot_store', None)
+        snapshots = store.snapshot() if store is not None else {'crypto': {}, 'stock': {}}
+        current = normalize_current_balances(
+            snapshots.get('crypto', {}),
+            snapshots.get('stock', {}),
+        )
+        db_path = self._get_dashboard_read_db_path()
+        history = load_trade_history_metrics(db_path)
 
-        try:
-            if db_path and os.path.exists(db_path):
-                with sqlite3.connect(db_path) as conn:
-                    cursor = conn.cursor()
-
-                    cursor.execute(
-                        """
-                        SELECT LOWER(COALESCE(asset_type, '')), 
-                               SUM(COALESCE(entry_amount, 0)),
-                               SUM(COALESCE(pnl, 0))
-                        FROM trade_log
-                        WHERE exit_time IS NOT NULL
-                          AND LOWER(COALESCE(reason, '')) != 'binance_import'
-                        GROUP BY LOWER(COALESCE(asset_type, ''))
-                        """
-                    )
-
-                    for asset_type, amount_sum, pnl_sum in (cursor.fetchall() or []):
-                        amount_value = float(amount_sum or 0.0)
-                        pnl_value = float(pnl_sum or 0.0)
-                        if str(asset_type) == 'crypto':
-                            asset_breakdown['암호화폐'] += amount_value
-                        elif str(asset_type) == 'stock':
-                            asset_breakdown['주식'] += amount_value
-                        else:
-                            asset_breakdown['기타'] += amount_value
-                        total_pnl += pnl_value
-        except Exception:
-            pass
-
-        total_assets = sum(asset_breakdown.values())
+        asset_breakdown = dict(current.get('asset_breakdown', {}) or {})
+        total_assets = float(current.get('total_assets', 0.0) or 0.0)
+        display_currency = current.get('comparable_currency')
+        pnl_by_currency = dict(history.get('pnl_by_currency', {}) or {})
+        total_pnl = (
+            float(pnl_by_currency.get(str(display_currency), 0.0) or 0.0)
+            if display_currency
+            else 0.0
+        )
         concentration, concentration_level = self._calculate_asset_concentration(asset_breakdown, total_assets)
         corr_value, corr_label = self._calculate_asset_correlation(db_path)
         actions = self._build_rebalance_actions(asset_breakdown, total_assets, concentration, corr_value)
 
+        if not current.get('has_current_data'):
+            actions = ['블록체인 또는 주식/증권 계좌에서 잔고를 조회한 뒤 다시 확인하세요.']
+        elif not current.get('allocation_comparable'):
+            concentration = 0.0
+            concentration_level = '통화 환산 필요'
+            actions = [
+                'KRW와 USDT는 환율 기준시각 없이 합산하지 않습니다. 통화별 잔고를 각각 점검하세요.',
+                *actions,
+            ][:4]
+
         return {
             'asset_breakdown': asset_breakdown,
+            'asset_breakdown_by_currency': current.get('asset_breakdown_by_currency', {}),
+            'currency_totals': current.get('currency_totals', {}),
+            'display_currency': display_currency,
+            'allocation_comparable': bool(current.get('allocation_comparable')),
+            'has_current_data': bool(current.get('has_current_data')),
+            'received_sources': list(current.get('received_sources', []) or []),
+            'unvalued_assets': list(current.get('unvalued_assets', []) or []),
+            'valuation_complete': bool(current.get('valuation_complete', True)),
             'total_assets': total_assets,
             'total_pnl': total_pnl,
+            'pnl_by_currency': pnl_by_currency,
+            'history_closed_count': int(history.get('closed_count', 0) or 0),
+            'history_error': str(history.get('error', '') or ''),
             'concentration': concentration,
             'concentration_level': concentration_level,
             'corr_value': corr_value,
@@ -7324,6 +7424,78 @@ class ModernDashboard(ctk.CTk):
             'actions': actions,
             'snapshot': self._get_saved_asset_snapshot(),
         }
+
+    def _refresh_asset_insight_balances_async(self, owner: Any, force: bool = False) -> None:
+        """자산 통합 진입 시 활성 계좌 잔고를 UI 밖에서 한 번 갱신한다."""
+        now = time.time()
+        if self._asset_insight_refresh_inflight:
+            return
+        if not force and now - float(self._asset_insight_refresh_attempt_at or 0.0) < 15.0:
+            return
+        self._asset_insight_refresh_inflight = True
+        self._asset_insight_refresh_attempt_at = now
+
+        def _load() -> Dict[str, Dict[str, Any]]:
+            crypto: Dict[str, Any] = {}
+            stock: Dict[str, Any] = {}
+            manager = getattr(self, 'unified_manager', None)
+            if manager is not None:
+                enabled = list((self.settings or {}).get('enabled_exchanges', []) or [])
+                for exchange in enabled:
+                    name = str(exchange or '').strip().lower()
+                    if not name:
+                        continue
+                    trading_type = 'spot' if name in {'upbit', 'bithumb'} else 'futures'
+                    try:
+                        adapter = manager.get_exchange(name, trading_type)
+                        if adapter is not None and hasattr(adapter, 'get_balance'):
+                            crypto[f'{name}_{trading_type}'] = adapter.get_balance()
+                    except Exception as exc:
+                        self.logger.debug(f'자산 통합 거래소 잔고 생략({name}): {exc}')
+
+            for broker in list((self.settings or {}).get('enabled_stock_brokers', []) or []):
+                try:
+                    adapter = self._get_stock_adapter(str(broker))
+                    if adapter is None:
+                        continue
+                    if (
+                        hasattr(adapter, 'is_connected')
+                        and not bool(getattr(adapter, 'is_connected', False))
+                        and hasattr(adapter, 'connect')
+                    ):
+                        adapter.connect()
+                    if hasattr(adapter, 'get_balance'):
+                        stock[str(broker)] = adapter.get_balance()
+                except Exception as exc:
+                    self.logger.debug(f'자산 통합 증권사 잔고 생략({broker}): {exc}')
+            return {'crypto': crypto, 'stock': stock}
+
+        def _apply(result: Any) -> None:
+            self._asset_insight_refresh_inflight = False
+            payload = result if isinstance(result, dict) else {}
+            for source, balance in dict(payload.get('crypto', {}) or {}).items():
+                self._cache_asset_balance_snapshot(source, balance)
+            for source, balance in dict(payload.get('stock', {}) or {}).items():
+                self._cache_asset_balance_snapshot(source, balance)
+            if (
+                str(getattr(self, 'current_service', '')).lower() == 'real_estate'
+                and (payload.get('crypto') or payload.get('stock'))
+            ):
+                self.show_real_estate_content()
+                self._ensure_asset_allocation_diagnosis_tab()
+                self._ensure_risk_briefing_full_tab()
+
+        def _error(exc: Exception) -> None:
+            self._asset_insight_refresh_inflight = False
+            self.logger.warning(f'자산 통합 잔고 새로고침 실패: {exc}')
+
+        self._run_visible_refresh_async(
+            owner,
+            'asset_insight_balances',
+            _load,
+            _apply,
+            _error,
+        )
 
     def _build_asset_correlation_service_summary(
         self,
@@ -7338,38 +7510,23 @@ class ModernDashboard(ctk.CTk):
             if not db_path or not os.path.exists(db_path):
                 return {'summary': '상관관계 서비스: 데이터 없음', 'top_pair': None}
 
-            by_day: Dict[str, Dict[str, float]] = {}
-            with sqlite3.connect(db_path) as conn:
-                cur = conn.cursor()
-                cur.execute(
-                    """
-                    SELECT DATE(COALESCE(exit_time, entry_time)) AS d,
-                           LOWER(COALESCE(asset_type, '')) AS asset_type,
-                           SUM(COALESCE(pnl, 0)) AS pnl_sum
-                    FROM trade_log
-                    WHERE LOWER(COALESCE(asset_type, '')) IN ('crypto', 'stock')
-                      AND LOWER(COALESCE(reason, '')) != 'binance_import'
-                    GROUP BY DATE(COALESCE(exit_time, entry_time)), LOWER(COALESCE(asset_type, ''))
-                    ORDER BY d
-                    """
-                )
-                rows = cur.fetchall() or []
+            from ui.asset_insight_data import load_trade_history_metrics
 
-            for d, asset_type, pnl_sum in rows:
-                if not d:
-                    continue
-                day_row = by_day.setdefault(str(d), {'crypto': 0.0, 'stock': 0.0})
-                key = 'crypto' if str(asset_type) == 'crypto' else 'stock'
-                day_row[key] = float(pnl_sum or 0.0)
+            history = load_trade_history_metrics(db_path)
+            by_day = dict(history.get('daily_pnl', {}) or {})
+            paired_days = [
+                day for day in sorted(by_day.keys())
+                if 'crypto' in by_day.get(day, {}) and 'stock' in by_day.get(day, {})
+            ]
 
-            if len(by_day) < 3:
+            if len(paired_days) < 3:
                 return {'summary': '상관관계 서비스: 표본 부족', 'top_pair': None}
 
             crypto_prices: List[float] = []
             stock_prices: List[float] = []
             c_level = 100.0
             s_level = 100.0
-            for day in sorted(by_day.keys()):
+            for day in paired_days:
                 row = by_day.get(day, {})
                 c_level = max(1.0, c_level + float(row.get('crypto', 0.0)))
                 s_level = max(1.0, s_level + float(row.get('stock', 0.0)))
@@ -7411,9 +7568,15 @@ class ModernDashboard(ctk.CTk):
         corr_value = metrics.get('corr_value')
         corr_label = str(metrics.get('corr_label', '데이터 없음') or '데이터 없음')
         actions = list(metrics.get('actions', []) or [])
+        has_current_data = bool(metrics.get('has_current_data'))
+        allocation_comparable = bool(metrics.get('allocation_comparable'))
 
         risk_lines: List[str] = []
-        if concentration >= 60:
+        if not has_current_data:
+            risk_lines.append('편중 위험 미판정: 현재 계좌 잔고가 아직 수신되지 않았습니다.')
+        elif not allocation_comparable:
+            risk_lines.append('편중 위험 미판정: KRW와 USDT는 기준 환율 없이 합산하지 않습니다.')
+        elif concentration >= 60:
             risk_lines.append('편중 위험 높음: 단일 자산군 의존도가 높아 급변동 구간 방어력이 약합니다.')
         elif concentration >= 45:
             risk_lines.append('편중 위험 중간: 비중 변화가 커지는 자산군을 주간 단위로 점검해야 합니다.')
@@ -7708,6 +7871,10 @@ class ModernDashboard(ctk.CTk):
         corr_value = metrics.get('corr_value')
         corr_label = str(metrics.get('corr_label', '데이터 없음') or '데이터 없음')
         corr_service = self._build_asset_correlation_service_summary(asset_breakdown, total_assets)
+        display_currency = metrics.get('display_currency')
+        has_current_data = bool(metrics.get('has_current_data'))
+        allocation_comparable = bool(metrics.get('allocation_comparable'))
+        from ui.asset_insight_data import format_money
 
         # ── 섹션1: 자산군별 비중 바 차트 ──────────────────────────────
         sec1 = ctk.CTkFrame(scroll, fg_color="#111827", corner_radius=12, border_width=1, border_color="#1f2937")
@@ -7715,9 +7882,12 @@ class ModernDashboard(ctk.CTk):
         ctk.CTkLabel(sec1, text="자산군별 비중", font=self._get_safe_font("subtitle"),
                      text_color="#fbbf24").pack(anchor="w", padx=14, pady=(10, 4))
 
-        if total_assets <= 0:
-            ctk.CTkLabel(sec1, text="거래 이력이 없어 비중 데이터가 없습니다.",
+        if not has_current_data:
+            ctk.CTkLabel(sec1, text="현재 계좌 잔고가 아직 수신되지 않았습니다. 블록체인 또는 주식/증권 계좌에서 새로고침하세요.",
                          font=self._get_safe_font("body"), text_color="#6b7280").pack(anchor="w", padx=14, pady=(0, 12))
+        elif not allocation_comparable:
+            ctk.CTkLabel(sec1, text="KRW와 USDT 잔고가 함께 있어 환율 기준시각 없이는 비중을 계산하지 않습니다.",
+                         font=self._get_safe_font("body"), text_color="#f59e0b").pack(anchor="w", padx=14, pady=(0, 12))
         else:
             colors_map = {"암호화폐": "#8b5cf6", "주식": "#06b6d4", "기타": "#84cc16"}
             bar_canvas_w = 500
@@ -7737,7 +7907,7 @@ class ModernDashboard(ctk.CTk):
             for asset, color in colors_map.items():
                 amt = float(asset_breakdown.get(asset, 0.0) or 0.0)
                 pct = (amt / total_assets * 100.0) if total_assets > 0 else 0.0
-                ctk.CTkLabel(legend_frame, text=f"■ {asset}: {pct:.1f}% ({amt:,.0f}원)",
+                ctk.CTkLabel(legend_frame, text=f"■ {asset}: {pct:.1f}% ({format_money(amt, display_currency)})",
                              font=self._get_safe_font("small"), text_color=color).pack(side="left", padx=10)
 
         # ── 섹션2: 집중도(HHI) 미터 ────────────────────────────────────
@@ -7849,6 +8019,10 @@ class ModernDashboard(ctk.CTk):
         corr_label = str(metrics.get('corr_label', '데이터 없음') or '데이터 없음')
         actions = list(metrics.get('actions', []) or [])
         total_pnl = float(metrics.get('total_pnl', 0.0) or 0.0)
+        display_currency = metrics.get('display_currency')
+        has_current_data = bool(metrics.get('has_current_data'))
+        allocation_comparable = bool(metrics.get('allocation_comparable'))
+        from ui.asset_insight_data import format_money
 
         # ── 섹션1: 리스크 수준 카드 그리드 ─────────────────────────────
         sec1 = ctk.CTkFrame(scroll, fg_color="transparent")
@@ -7868,12 +8042,14 @@ class ModernDashboard(ctk.CTk):
         conc_level_tag = "danger" if concentration >= 60 else "warning" if concentration >= 45 else "safe"
         corr_abs = abs(float(corr_value)) if corr_value is not None else 0.0
         corr_level_tag = "danger" if corr_abs >= 0.7 else "warning" if corr_abs >= 0.4 else "safe"
-        pnl_level_tag = "danger" if total_pnl < -total_assets * 0.1 else "warning" if total_pnl < 0 else "safe"
+        pnl_level_tag = "danger" if total_assets > 0 and total_pnl < -total_assets * 0.1 else "warning" if total_pnl < 0 else "safe"
 
         _risk_card(sec1, 0, 0, "", "집중도", f"{concentration:.0f}/100\n({concentration_level})", conc_level_tag)
         _risk_card(sec1, 0, 1, "", "상관계수",
                    f"{float(corr_value):+.2f}\n({corr_label})" if corr_value is not None else "N/A\n(데이터 없음)", corr_level_tag)
-        _risk_card(sec1, 0, 2, "", "누적 손익", f"{total_pnl:+,.0f}원", pnl_level_tag)
+        pnl_text = format_money(abs(total_pnl), display_currency)
+        pnl_text = ("+" if total_pnl >= 0 else "-") + pnl_text
+        _risk_card(sec1, 0, 2, "", "실현 손익(가져오기 제외)", pnl_text, pnl_level_tag)
 
         # ── 섹션2: 시나리오별 손실액 추정 테이블 ────────────────────────
         sec2 = ctk.CTkFrame(scroll, fg_color="#111827", corner_radius=12, border_width=1, border_color="#1f2937")
@@ -7881,9 +8057,12 @@ class ModernDashboard(ctk.CTk):
         ctk.CTkLabel(sec2, text="시나리오별 손실액 추정", font=self._get_safe_font("subtitle"),
                      text_color="#fbbf24").pack(anchor="w", padx=14, pady=(10, 4))
 
-        if total_assets <= 0:
-            ctk.CTkLabel(sec2, text="자산 데이터가 없습니다.",
+        if not has_current_data:
+            ctk.CTkLabel(sec2, text="현재 잔고가 수신되지 않아 손실액을 계산하지 않습니다.",
                          font=self._get_safe_font("body"), text_color="#6b7280").pack(anchor="w", padx=14, pady=(0, 12))
+        elif not allocation_comparable:
+            ctk.CTkLabel(sec2, text="KRW와 USDT를 환율 없이 합산하지 않으므로 통합 손실액 추정을 보류합니다.",
+                         font=self._get_safe_font("body"), text_color="#f59e0b").pack(anchor="w", padx=14, pady=(0, 12))
         else:
             scenarios = [
                 ("하락 -5%", 0.05),
@@ -7907,8 +8086,8 @@ class ModernDashboard(ctk.CTk):
                 dominant = max(crypto_amt, stock_amt)
                 max_loss = dominant * rate
                 color = "#ef4444" if rate >= 0.30 else "#f59e0b" if rate >= 0.10 else "#cbd5e1"
-                vals = [label, f"-{total_loss:,.0f}원", f"-{crypto_loss:,.0f}원",
-                        f"-{stock_loss:,.0f}원", f"-{max_loss:,.0f}원"]
+                vals = [label, f"-{format_money(total_loss, display_currency)}", f"-{format_money(crypto_loss, display_currency)}",
+                        f"-{format_money(stock_loss, display_currency)}", f"-{format_money(max_loss, display_currency)}"]
                 for j, val in enumerate(vals):
                     ctk.CTkLabel(tbl_frame, text=val, font=self._get_safe_font("small"),
                                  text_color=color, width=140).grid(row=i + 1, column=j, padx=4, pady=2, sticky="w")
@@ -8031,7 +8210,7 @@ class ModernDashboard(ctk.CTk):
             ctk.CTkLabel(policy_grid, text=v, font=self._get_safe_font("subtitle"),
                          text_color="#f9fafb").grid(row=1, column=j, padx=12, pady=2)
 
-        # ── 백테스트 엔진: DB에서 거래 데이터 로드
+        # ── 백테스트 엔진: 공통 스키마 어댑터에서 거래 데이터 로드
         db_path = ""
         trades: list = []
         try:
@@ -8040,33 +8219,24 @@ class ModernDashboard(ctk.CTk):
             pass
 
         if db_path and os.path.exists(db_path):
-            try:
-                with sqlite3.connect(db_path) as conn:
-                    cur = conn.cursor()
-                    where_clause = (
-                        "WHERE exit_time IS NOT NULL "
-                        "AND LOWER(COALESCE(reason, '')) != 'binance_import'"
-                    )
-                    params = []
-                    if asset_type_filter:
-                        where_clause += " AND LOWER(COALESCE(asset_type, '')) = ?"
-                        params.append(asset_type_filter)
+            from ui.asset_insight_data import load_closed_trade_records
 
-                    query = f"""
-                        SELECT COALESCE(pnl, 0), COALESCE(entry_amount, 0),
-                               COALESCE(exit_time, entry_time), LOWER(COALESCE(asset_type, ''))
-                        FROM trade_log
-                        {where_clause}
-                        ORDER BY COALESCE(exit_time, entry_time) DESC
-                        LIMIT 200
-                    """
-                    cur.execute(query, tuple(params))
-                    trades = [
-                        (float(r[0] or 0.0), float(r[1] or 0.0), str(r[2] or ''), str(r[3] or 'unknown'))
-                        for r in (cur.fetchall() or [])
-                    ]
-            except Exception:
-                trades = []
+            loaded_trades = load_closed_trade_records(
+                db_path,
+                asset_class=asset_type_filter,
+                limit=200,
+            )
+            trades = [
+                (
+                    float(row.get("pnl", 0.0) or 0.0),
+                    float(row.get("notional", 0.0) or 0.0),
+                    str(row.get("timestamp", "") or ""),
+                    str(row.get("asset_class", "other") or "other"),
+                )
+                for row in (loaded_trades.get("records", []) or [])
+            ]
+            if loaded_trades.get("error"):
+                self.logger.warning("시나리오 거래 데이터 어댑터: %s", loaded_trades["error"])
 
         # ── 3가지 시나리오 정의 (현재 정책 기준)
         scenarios_def = [
@@ -8201,38 +8371,28 @@ class ModernDashboard(ctk.CTk):
                      font=self._get_safe_font("body"), text_color="#9ca3af",
                      wraplength=900, justify="left").pack(anchor="w", padx=14, pady=(0, 10))
 
-        # ── DB에서 거래 이력 로드 + 이상 탐지
+        # ── 공통 스키마 어댑터에서 거래 이력 로드 + 이상 탐지
         alerts: list = []
         try:
             from trading.fraud_detection_service import detect_abnormal_transactions, TransactionRecord, compute_fraud_risk_summary
             from datetime import date as _date
-            import sqlite3 as _sql
-
             db_path = self._get_dashboard_read_db_path()
             tx_records: list = []
             if db_path and os.path.exists(db_path):
-                with _sql.connect(db_path) as conn:
-                    cur = conn.cursor()
-                    cur.execute("""
-                        SELECT COALESCE(entry_amount, 0), DATE(COALESCE(exit_time, entry_time)),
-                               COALESCE(symbol, ''), COALESCE(asset_type, '')
-                        FROM trade_log
-                        WHERE exit_time IS NOT NULL
-                          AND LOWER(COALESCE(reason, '')) != 'binance_import'
-                        ORDER BY COALESCE(exit_time, entry_time) DESC
-                        LIMIT 100
-                    """)
-                    for amt, dt_str, symbol, atype in (cur.fetchall() or []):
-                        try:
-                            tx_date = _date.fromisoformat(str(dt_str)) if dt_str else _date.today()
-                        except Exception:
-                            tx_date = _date.today()
-                        tx_records.append(TransactionRecord(
-                            amount=float(amt or 0.0),
-                            tx_date=tx_date,
-                            counterpart=str(symbol or ''),
-                            category=str(atype or 'trading'),
-                        ))
+                from ui.asset_insight_data import load_closed_trade_records
+
+                loaded_trades = load_closed_trade_records(db_path, limit=100)
+                for row in (loaded_trades.get("records", []) or []):
+                    try:
+                        tx_date = _date.fromisoformat(str(row.get("day", "")))
+                    except Exception:
+                        tx_date = _date.today()
+                    tx_records.append(TransactionRecord(
+                        amount=float(row.get("notional", 0.0) or 0.0),
+                        tx_date=tx_date,
+                        counterpart=str(row.get("symbol", "") or ""),
+                        category=str(row.get("asset_class", "trading") or "trading"),
+                    ))
             if tx_records:
                 alert = detect_abnormal_transactions(tx_records)
                 alerts.append(alert)
@@ -8539,11 +8699,19 @@ class ModernDashboard(ctk.CTk):
             tab_name, mode = config[service]
             tab = self._get_or_add_tab(tab_name)
 
-            # 동일 서비스 위젯이 이미 정상 생성되어 있으면 재사용한다.
-            # CustomTkinter 스크롤 프레임을 짧은 간격으로 destroy/rebuild하면
-            # 예약된 Canvas 콜백이 삭제된 위젯을 참조해 빈 탭이 될 수 있다.
+            # 블록체인/주식은 같은 탭 프레임 안에서 서비스별 위젯을 보관하고
+            # pack/forget으로 교체한다. 드롭다운 메뉴가 포함된 큰 위젯을 서비스
+            # 왕복마다 destroy/rebuild하지 않아 Windows USER 자원 사용이 bounded 된다.
             existing_widgets = getattr(self, "financial_intelligence_widgets", {}) or {}
             existing_widget = existing_widgets.get(service)
+            for other_service, other_widget in list(existing_widgets.items()):
+                if other_service == service or other_widget is None:
+                    continue
+                try:
+                    if other_widget.winfo_exists() and other_widget.master is tab:
+                        other_widget.pack_forget()
+                except Exception:
+                    pass
             try:
                 if (
                     existing_widget is not None
@@ -8557,7 +8725,19 @@ class ModernDashboard(ctk.CTk):
             except Exception:
                 pass
 
-            self._clear_tab_children(tab)
+            # 이전 서비스 위젯은 파괴하지 않고 숨긴다. 오류 안내처럼 캐시 대상이
+            # 아닌 잔여 자식만 숨겨 새 본문과 겹치지 않게 한다.
+            try:
+                for child in tab.winfo_children():
+                    try:
+                        child.pack_forget()
+                    except Exception:
+                        try:
+                            child.grid_forget()
+                        except Exception:
+                            pass
+            except Exception:
+                pass
             db_path = self._get_dashboard_read_db_path()
             widget = FinancialIntelligenceWidget(
                 tab,
@@ -8568,7 +8748,12 @@ class ModernDashboard(ctk.CTk):
             widget.pack(fill="both", expand=True)
             if not hasattr(self, "financial_intelligence_widgets"):
                 self.financial_intelligence_widgets = {}
-            self.financial_intelligence_widgets[service] = widget
+            self._register_tab_mapping_widget(
+                tab_name,
+                self.financial_intelligence_widgets,
+                service,
+                widget,
+            )
         except Exception as e:
             error_message = f"금융 인텔리전스 화면을 열 수 없습니다: {type(e).__name__}: {e}"
             try:
@@ -8636,6 +8821,7 @@ class ModernDashboard(ctk.CTk):
                 self._ensure_fraud_detection_full_tab()
                 self._ensure_tax_calculation_full_tab()
             elif service == 'ai_analyst':
+                self._ensure_ai_assistant_tab()
                 self._ensure_service_info_tab(
                     "AI 요약 리포트",
                     "AI 요약 리포트",
@@ -8654,108 +8840,26 @@ class ModernDashboard(ctk.CTk):
                 if is_service_detail_tab:
                     if tab_name not in self.service_sub_tabs.get(service, {}):
                         try:
-                            delete_ctk_tab(tv, tab_name)
+                            self._delete_dashboard_tab(tab_name)
                         except Exception:
                             pass
                     continue
 
                 if tab_name not in protected_tabs:
                     try:
-                        delete_ctk_tab(tv, tab_name)
+                        self._delete_dashboard_tab(tab_name)
                     except Exception:
                         pass
+
+            from ui.service_tab_policy import get_service_tab_order
+
+            source_tabs = list(self.service_sub_tabs.get(service, {}).keys())
+            reorder_ctk_tabs(tv, get_service_tab_order(service, source_tabs))
 
             # 비거래 서비스는 핵심 탭만 유지하고 안내성 탭/공통 어시스턴트 탭은 강제 생성하지 않는다.
         except Exception as e:
             try:
                 self.logger.warning(f"서비스 탭 정책 적용 실패 ({service_name}): {e}")
-            except Exception:
-                pass
-
-    def _destroy_previous_service_tabs(self, current_service: str):
-        """이전 서비스의 모든 하위 탭 완전 제거 (문서 요구사항)"""
-        try:
-            if not hasattr(self, 'tab_widget') or not self.tab_widget:
-                return
-
-            tv = cast(ctk.CTkTabview, self.tab_widget)
-            tabs_to_remove = []
-            protected_tabs = self._get_service_protected_tabs(current_service)
-
-            # 현재 탭 목록 확인
-            try:
-                if hasattr(tv, '_tab_dict'):
-                    for tab_name in list(tv._tab_dict.keys()):
-                        if tab_name not in protected_tabs:
-                            # 패턴은 블록체인과 주식 모두 사용하므로 service_sub_tabs로 구분
-                            should_remove = False
-                            
-                            is_service_detail_tab = any(
-                                tab_name in tabs
-                                for tabs in self.service_sub_tabs.values()
-                            )
-                            if is_service_detail_tab:
-                                # 현재 서비스의 service_sub_tabs에 있으면 보호
-                                is_current_service_tab = False
-                                if current_service in ['blockchain', 'stock']:
-                                    if current_service in self.service_sub_tabs:
-                                        if tab_name in self.service_sub_tabs[current_service]:
-                                            is_current_service_tab = True
-                                
-                                if not is_current_service_tab:
-                                    should_remove = True
-                            elif tab_name not in protected_tabs:
-                                should_remove = True
-                            
-                            if should_remove:
-                                tabs_to_remove.append(tab_name)
-            except Exception:
-                pass
-
-            # 탭 제거 실행
-            for tab_name in tabs_to_remove:
-                try:
-                    delete_ctk_tab(tv, tab_name)
-                except Exception:
-                    pass
-
-        except Exception as e:
-            try:
-                self.logger.warning(f"이전 서비스 탭 제거 실패: {e}")
-            except Exception:
-                pass
-
-    def _destroy_all_service_tabs_except_protected(self):
-        """모든 서비스 탭을 제거하되 보호된 기본 탭은 유지 (문서 요구사항)"""
-        try:
-            if not hasattr(self, 'tab_widget') or not self.tab_widget:
-                return
-
-            tv = cast(ctk.CTkTabview, self.tab_widget)
-            tabs_to_remove = []
-
-            current_service = getattr(self, 'current_service', 'blockchain')
-            protected_tabs = self._get_service_protected_tabs(current_service)
-
-            # 현재 모든 탭 확인
-            try:
-                if hasattr(tv, '_tab_dict'):
-                    for tab_name in list(tv._tab_dict.keys()):
-                        if tab_name not in protected_tabs:
-                            tabs_to_remove.append(tab_name)
-            except Exception:
-                pass
-
-            # 서비스 탭들 제거
-            for tab_name in tabs_to_remove:
-                try:
-                    delete_ctk_tab(tv, tab_name)
-                except Exception:
-                    pass
-
-        except Exception as e:
-            try:
-                self.logger.warning(f"서비스 탭 완전 제거 실패: {e}")
             except Exception:
                 pass
 
@@ -9149,23 +9253,10 @@ class ModernDashboard(ctk.CTk):
             print(f"잔고 섹션 생성 실패: {exchange} - {e}")
 
     def create_service_sub_tabs(self, service_name: str):
-        """서비스별 하위 탭 생성 (블록체인: 거래소별) - 이전 서비스 탭 완전 제거"""
+        """현재 서비스의 거래소/증권사 하위 탭을 한 번만 생성한다."""
         try:
             if not hasattr(self, 'tab_widget') or not self.tab_widget:
                 return
-
-            # 시작 직후/설정 새로고침 경로에서도 금융 인텔리전스가
-            # 거래소·증권사 상세 탭보다 앞에 생성되도록 보장한다.
-            try:
-                from ui.service_tab_policy import normalize_service_name
-                normalized_service = normalize_service_name(service_name)
-                if normalized_service in {'blockchain', 'stock'}:
-                    self._ensure_financial_intelligence_tab(normalized_service)
-            except Exception:
-                pass
-
-            # 문서 요구사항: 서비스 전환 시 이전 하위 프레임 완전 destroy
-            self._destroy_previous_service_tabs(service_name)
 
             if service_name == 'blockchain':
                 # 설정에서 활성화된 거래소만 탭 생성
@@ -9306,6 +9397,10 @@ class ModernDashboard(ctk.CTk):
                     except Exception as e:
                         print(f"하위 탭 생성 실패: {broker} - {e}")
             self.after_idle(self._apply_source_tab_distinction)
+            try:
+                self._apply_service_tab_policy(service_name)
+            except Exception:
+                pass
         except Exception as e:
             print(f"하위 탭 생성 오류: {e}")
 
@@ -10478,46 +10573,38 @@ class ModernDashboard(ctk.CTk):
                 )
                 summary_title.pack(anchor="w", padx=15, pady=(12, 0))
 
-                # 자산 통계 계산
-                db_path = ''
-                try:
-                    db_path = self._get_dashboard_read_db_path()
-                    total_assets = 0.0
-                    total_pnl = 0.0
-                    asset_breakdown = {"암호화폐": 0.0, "주식": 0.0, "기타": 0.0}
-
-                    if os.path.exists(db_path):
-                        with sqlite3.connect(db_path) as conn:
-                            cursor = conn.cursor()
-                            # 블록체인 포지션 통계
-                            try:
-                                cursor.execute("SELECT SUM(entry_amount) as total, SUM(pnl) as loss FROM trade_log WHERE asset_type='crypto' AND exit_time IS NOT NULL AND LOWER(COALESCE(reason, '')) != 'binance_import'")
-                                row = cursor.fetchone()
-                                if row and row[0]:
-                                    asset_breakdown["암호화폐"] = float(row[0])
-                                    if row[1]:
-                                        total_pnl += float(row[1])
-                            except:
-                                pass
-
-                            # 주식 포지션 통계
-                            try:
-                                cursor.execute("SELECT SUM(entry_amount) as total, SUM(pnl) as loss FROM trade_log WHERE asset_type='stock' AND exit_time IS NOT NULL AND LOWER(COALESCE(reason, '')) != 'binance_import'")
-                                row = cursor.fetchone()
-                                if row and row[0]:
-                                    asset_breakdown["주식"] = float(row[0])
-                                    if row[1]:
-                                        total_pnl += float(row[1])
-                            except:
-                                pass
-
-                    total_assets = sum(asset_breakdown.values())
-
-                except Exception:
-                    pass
+                # 현재 계좌 잔고와 종료 거래 손익을 분리해 수집한다.
+                metrics = self._collect_asset_insight_metrics()
+                self._refresh_asset_insight_balances_async(tab)
+                db_path = self._get_dashboard_read_db_path()
+                total_assets = float(metrics.get('total_assets', 0.0) or 0.0)
+                total_pnl = float(metrics.get('total_pnl', 0.0) or 0.0)
+                asset_breakdown = dict(metrics.get('asset_breakdown', {}) or {})
+                display_currency = metrics.get('display_currency')
+                currency_totals = dict(metrics.get('currency_totals', {}) or {})
+                asset_by_currency = dict(metrics.get('asset_breakdown_by_currency', {}) or {})
+                has_current_data = bool(metrics.get('has_current_data'))
+                allocation_comparable = bool(metrics.get('allocation_comparable'))
+                unvalued_assets = list(metrics.get('unvalued_assets', []) or [])
+                from ui.asset_insight_data import format_money
 
                 # 통계 표시
-                stats_content = f"총 자산: {total_assets:,.0f}원 | 누적 손익: {total_pnl:+,.0f}원"
+                if not has_current_data:
+                    stats_content = "현재 잔고 미수신 | 블록체인 또는 주식/증권 계좌에서 잔고를 먼저 조회하세요."
+                elif allocation_comparable:
+                    sign = '+' if total_pnl >= 0 else '-'
+                    stats_content = (
+                        f"현재 자산: {format_money(total_assets, display_currency)} | "
+                        f"종료 거래 실현손익(가져오기 제외): {sign}{format_money(abs(total_pnl), display_currency)}"
+                    )
+                else:
+                    totals_text = " · ".join(
+                        format_money(float(amount or 0.0), currency)
+                        for currency, amount in sorted(currency_totals.items())
+                    )
+                    stats_content = f"현재 자산(통화별): {totals_text} | 환율 없이 통합 합계 미계산"
+                if unvalued_assets:
+                    stats_content += f" | 시세 미환산 보유자산 {len(unvalued_assets)}종"
                 stats_label = ctk.CTkLabel(
                     summary_card,
                     text=stats_content,
@@ -10545,12 +10632,18 @@ class ModernDashboard(ctk.CTk):
                         snapshot_status.configure(text="저장된 자산 스냅샷이 없습니다.", text_color="#9ca3af")
                         return
 
-                    snapshot_total = float(current_snapshot.get('total_assets', 0) or 0)
-                    snapshot_pnl = float(current_snapshot.get('total_pnl', 0) or 0)
-                    snapshot_status.configure(
-                        text=f"마지막 저장: {saved_at} | 총자산 {snapshot_total:,.0f}원 | 손익 {snapshot_pnl:+,.0f}원",
-                        text_color="#cbd5e1"
-                    )
+                    snapshot_totals = current_snapshot.get('currency_totals', {})
+                    if isinstance(snapshot_totals, dict) and snapshot_totals:
+                        saved_values = " · ".join(
+                            format_money(float(amount or 0.0), currency)
+                            for currency, amount in sorted(snapshot_totals.items())
+                        )
+                        snapshot_text = f"마지막 저장: {saved_at} | {saved_values}"
+                    else:
+                        snapshot_total = float(current_snapshot.get('total_assets', 0) or 0)
+                        snapshot_currency = current_snapshot.get('display_currency') or 'KRW'
+                        snapshot_text = f"마지막 저장: {saved_at} | {format_money(snapshot_total, snapshot_currency)}"
+                    snapshot_status.configure(text=snapshot_text, text_color="#cbd5e1")
 
                 def save_asset_snapshot():
                     snapshot = {
@@ -10558,6 +10651,9 @@ class ModernDashboard(ctk.CTk):
                         'total_assets': total_assets,
                         'total_pnl': total_pnl,
                         'asset_breakdown': dict(asset_breakdown),
+                        'asset_breakdown_by_currency': asset_by_currency,
+                        'currency_totals': currency_totals,
+                        'display_currency': display_currency,
                         'stock_asset_mode': self._get_stock_asset_mode(),
                     }
                     if self._save_asset_snapshot(snapshot):
@@ -10608,7 +10704,16 @@ class ModernDashboard(ctk.CTk):
                     alloc_row = ctk.CTkFrame(allocation_card, fg_color="transparent")
                     alloc_row.pack(fill="x", padx=15, pady=6)
 
-                    label_text = f"{icon} {asset_type}: {percentage:.1f}% ({amount:,.0f}원)"
+                    if allocation_comparable:
+                        amount_text = format_money(amount, display_currency)
+                        label_text = f"{icon} {asset_type}: {percentage:.1f}% ({amount_text})"
+                    else:
+                        per_currency = dict(asset_by_currency.get(asset_type, {}) or {})
+                        amount_text = " · ".join(
+                            format_money(float(value or 0.0), currency)
+                            for currency, value in sorted(per_currency.items())
+                        ) or "잔고 없음"
+                        label_text = f"{icon} {asset_type}: 비중 미계산 ({amount_text})"
                     alloc_label = ctk.CTkLabel(
                         alloc_row,
                         text=label_text,
@@ -10625,8 +10730,10 @@ class ModernDashboard(ctk.CTk):
                     filled_bar.pack(side="left", fill="x", expand=False)
                     filled_bar.configure(width=int(percentage * 2))
 
-                concentration, concentration_level = self._calculate_asset_concentration(asset_breakdown, total_assets)
-                corr_value, corr_label = self._calculate_asset_correlation(db_path)
+                concentration = float(metrics.get('concentration', 0.0) or 0.0)
+                concentration_level = str(metrics.get('concentration_level', '데이터 부족') or '데이터 부족')
+                corr_value = metrics.get('corr_value')
+                corr_label = str(metrics.get('corr_label', '데이터 없음') or '데이터 없음')
 
                 # ===== 3. 포트폴리오 리스크 요약 =====
                 risk_card = ctk.CTkFrame(scroll_frame, fg_color="#1a1f2e", corner_radius=12, border_width=2, border_color="#374151")
@@ -10648,7 +10755,12 @@ class ModernDashboard(ctk.CTk):
                         f"{concentration:.1f}/100 ({concentration_level})",
                         "#ef4444" if concentration >= 60 else "#fbbf24" if concentration >= 45 else "#22c55e",
                     ),
-                    ("누적 손익 기준 하방", f"{min(0, total_pnl):+,.0f}원", "#ef4444" if total_pnl < 0 else "#22c55e"),
+                    (
+                        "종료 거래 실현손익(가져오기 제외)",
+                        (("+" if total_pnl >= 0 else "-") + format_money(abs(total_pnl), display_currency))
+                        if display_currency else "통화별 확인",
+                        "#ef4444" if total_pnl < 0 else "#22c55e",
+                    ),
                     (
                         "자산군 상관계수(crypto-stock)",
                         f"{corr_text} ({corr_label})",
@@ -10680,12 +10792,7 @@ class ModernDashboard(ctk.CTk):
                 )
                 action_title.pack(anchor="w", padx=15, pady=(12, 8))
 
-                actions = self._build_rebalance_actions(
-                    asset_breakdown=asset_breakdown,
-                    total_assets=total_assets,
-                    concentration=concentration,
-                    corr_value=corr_value,
-                )
+                actions = list(metrics.get('actions', []) or [])
 
                 for action in actions:
                     action_label = ctk.CTkLabel(
@@ -10919,6 +11026,7 @@ class ModernDashboard(ctk.CTk):
                     corner_radius=8,
                 )
                 self._ai_summary_preview_box.pack(fill="both", expand=True, padx=12, pady=(0, 8))
+                self._register_tab_widget(tab_name, "_ai_summary_preview_box", self._ai_summary_preview_box)
 
                 scenario_preview = ctk.CTkFrame(preview_wrap, fg_color="#111827", corner_radius=12, border_width=1, border_color="#1f2937")
                 scenario_preview.grid(row=0, column=1, padx=(6, 0), pady=4, sticky="nsew")
@@ -10936,6 +11044,7 @@ class ModernDashboard(ctk.CTk):
                     corner_radius=8,
                 )
                 self._ai_scenario_preview_box.pack(fill="both", expand=True, padx=12, pady=(0, 8))
+                self._register_tab_widget(tab_name, "_ai_scenario_preview_box", self._ai_scenario_preview_box)
 
                 preview_btn_row = ctk.CTkFrame(scroll, fg_color="transparent")
                 preview_btn_row.pack(fill="x", padx=12, pady=(0, 8))
@@ -10959,6 +11068,7 @@ class ModernDashboard(ctk.CTk):
                     fg_color="#1f2937", text_color="#d1d5db",
                     font=ctk.CTkFont(size=13), corner_radius=8)
                 self._ai_analyst_result_box.pack(fill="both", expand=True, padx=12, pady=(0, 12))
+                self._register_tab_widget(tab_name, "_ai_analyst_result_box", self._ai_analyst_result_box)
                 self._ai_analyst_result_box.insert("end",
                     "위의 분석 카드 버튼을 클릭하면 AI가 현재 거래 상황을 분석하여 결과를 표시합니다.\n\n"
                     "팁: AI 어시스턴트 탭에서 음성으로 분석을 요청할 수도 있습니다.")
@@ -11089,16 +11199,13 @@ class ModernDashboard(ctk.CTk):
         except Exception as context_error:
             self.logger.warning(f"금융 인텔리전스 컨텍스트 연결 생략: {context_error}")
         try:
-            # AI 어시스턴트 위젯에 프롬프트 주입 후 탭 전환
-            aw = getattr(self, 'ai_assistant_widget', None)
-            # send_ai_message()가 실제 메서드명 (send_message()는 존재하지 않음)
-            if aw and hasattr(aw, 'chat_input') and hasattr(aw, 'send_ai_message'):
-                aw.chat_input.delete(0, "end")
-                aw.chat_input.insert(0, prompt)
-                # 서비스 컨텍스트를 ai_analyst로 동기화
-                if hasattr(aw, 'set_service_context'):
-                    aw.set_service_context('ai_analyst', announce=False)
-                aw.send_ai_message()
+            # 서비스 전환 중 파괴된 Tcl 입력창의 캐시 참조는 재사용하지 않는다.
+            aw = self._get_live_ai_assistant()
+            if aw and hasattr(aw, 'send_quick_question'):
+                aw.set_service_context('ai_analyst', announce=False)
+                sent = bool(aw.send_quick_question(prompt))
+                if not sent:
+                    raise RuntimeError('AI 어시스턴트 입력창이 활성 상태가 아닙니다.')
                 # AI 어시스턴트 탭으로 전환
                 if hasattr(self, 'tab_widget') and self.tab_widget:
                     try:
@@ -11116,8 +11223,24 @@ class ModernDashboard(ctk.CTk):
                         f"분석 요청: {prompt}\n\n"
                         "설정 > AI 엔진/API 탭에서 API 키를 먼저 설정해주세요.")
                     result_box.configure(state="disabled")
+                self._record_ai_execute_event(
+                    action='ai_analysis_request',
+                    title='AI 애널리스트 심층분석',
+                    plan_lines=[prompt.splitlines()[0][:180]],
+                    risk_level='normal',
+                    risk_reasons=['AI 어시스턴트 위젯 연결 실패'],
+                    result='요청 실패',
+                )
         except Exception as e:
             self.logger.error(f"AI 애널리스트 분석 요청 오류: {e}")
+            self._record_ai_execute_event(
+                action='ai_analysis_request',
+                title='AI 애널리스트 심층분석',
+                plan_lines=[prompt.splitlines()[0][:180]],
+                risk_level='normal',
+                risk_reasons=[str(e)[:180]],
+                result='요청 오류',
+            )
 
     def _draw_diagnostic_button(self):
         """진단용 Canvas 둥근 버튼 그리기"""
@@ -11700,6 +11823,18 @@ class ModernDashboard(ctk.CTk):
             # 종료 플래그 설정 (새로운 after() 작업 차단)
             self._is_destroying = True
 
+            # 프로세스 동안 재사용하던 설정 창은 대시보드 종료 시에만 파괴한다.
+            try:
+                settings_controller = getattr(self, '_settings_controller', None)
+                if settings_controller is not None:
+                    dispose = getattr(settings_controller, 'dispose', None)
+                    if callable(dispose):
+                        dispose()
+                self._settings_controller = None
+                self._settings_window = None
+            except Exception:
+                pass
+
             # 전역 종료 플래그 설정 (재시작 방지)
             # 종료 플래그는 일시 비활성화(초기 표시 검증 목적)
             # try:
@@ -11845,6 +11980,10 @@ class ModernDashboard(ctk.CTk):
                         cleanup()
                 except Exception:
                     pass
+
+            ownership = getattr(self, '_widget_ownership', None)
+            if ownership is not None:
+                ownership.clear()
 
             print("모든 위젯 정리 완료")
         except Exception as e:
@@ -13101,8 +13240,7 @@ class ModernDashboard(ctk.CTk):
         2) 현재 서비스 기준 최적화 진단 질문 자동 전송
         """
         try:
-            self._ensure_ai_assistant_tab()
-            assistant = getattr(self, 'ai_assistant_widget', None)
+            assistant = self._get_live_ai_assistant()
             if assistant is None:
                 messagebox.showwarning("AI 최적화", "AI 어시스턴트를 불러올 수 없습니다.")
                 return
@@ -13137,8 +13275,7 @@ class ModernDashboard(ctk.CTk):
     def _open_ai_optimization_apply_center(self) -> None:
         """Quick Actions의 AI 최적화 '적용' 워크플로우를 실행한다."""
         try:
-            self._ensure_ai_assistant_tab()
-            assistant = getattr(self, 'ai_assistant_widget', None)
+            assistant = self._get_live_ai_assistant()
             if assistant is None:
                 messagebox.showwarning("AI 최적화 적용", "AI 어시스턴트를 불러올 수 없습니다.")
                 return
@@ -13339,7 +13476,17 @@ class ModernDashboard(ctk.CTk):
                 # 사용자 확인 실패해도 설정 창은 열어야 함
                 pass
 
-            # 이미 열려 있으면 포커스만 이동
+            # 이미 만든 설정 컨트롤러가 있으면 같은 widget/menu 트리를 다시 사용한다.
+            controller = getattr(self, '_settings_controller', None)
+            try:
+                if controller is not None and hasattr(controller, 'show'):
+                    if controller.show():
+                        return
+            except Exception:
+                self._settings_controller = None
+                self._settings_window = None
+
+            # 이전 버전/부분 초기화 호환: 살아 있는 raw window만 있으면 포커스한다.
             existing = getattr(self, '_settings_window', None)
             try:
                 if existing is not None and hasattr(existing, 'winfo_exists') and existing.winfo_exists():

@@ -113,6 +113,10 @@ class ModernSettingsWindow:
         membership_policy=None,
     ):
         self.parent = parent
+        # 대시보드에서 여는 설정은 프로세스 수명 동안 한 창만 재사용한다.
+        # 30개가 넘는 CTk 드롭다운의 native tk.Menu를 매번 재할당하면
+        # Windows USER/Menu 한도에 도달할 수 있다. 독립 실행 창만 닫을 때 파괴한다.
+        self._reuse_on_close = parent is not None
         self.root = ctk.CTkToplevel(parent) if parent else ctk.CTk()
         self.root.title("NoahAI Trading - 설정")
         self.root.geometry("900x800")
@@ -131,7 +135,7 @@ class ModernSettingsWindow:
         self.ai_diagnosis_result = self._normalize_ai_diagnosis_result(ai_diagnosis_result)
         # Pylance 타입 에러 방지용 명시적 초기화
         self.exchange_var = None
-        self.original_settings = self.current_settings.copy()
+        self.original_settings = copy.deepcopy(self.current_settings)
         self.on_save_callback = on_save_callback  # 콜백 함수 저장
         self.main_app = getattr(parent, 'main_app', None) if parent is not None else None
         self.membership_user_grade = normalize_user_grade(
@@ -391,6 +395,54 @@ class ModernSettingsWindow:
         except Exception:
             return False
 
+    def show(self, *, ai_diagnosis_result=None) -> bool:
+        """이미 생성된 설정 창을 다시 표시하고 같은 widget/menu 트리를 재사용한다."""
+        if not self._window_alive():
+            return False
+        if ai_diagnosis_result is not None:
+            self.ai_diagnosis_result = self._normalize_ai_diagnosis_result(
+                ai_diagnosis_result
+            )
+        try:
+            self.root.deiconify()
+            self.root.lift()
+            self.root.after_idle(self._activate_modal)
+            return True
+        except (tk.TclError, RuntimeError):
+            return False
+
+    def _hide_or_destroy(self) -> None:
+        """대시보드 소유 창은 숨기고, 독립 창은 완전히 종료한다."""
+        try:
+            self.root.grab_release()
+        except Exception:
+            pass
+        if self._reuse_on_close and self._window_alive():
+            try:
+                self.root.withdraw()
+                return
+            except Exception:
+                pass
+        self.dispose()
+
+    def dispose(self) -> None:
+        """앱 종료 시 재사용 설정 창과 타이머를 명시적으로 파괴한다."""
+        try:
+            if getattr(self, '_ai_status_timer', None):
+                self.root.after_cancel(self._ai_status_timer)
+                self._ai_status_timer = None
+        except Exception:
+            pass
+        try:
+            self.root.grab_release()
+        except Exception:
+            pass
+        try:
+            if self.root.winfo_exists():
+                self.root.destroy()
+        except Exception:
+            pass
+
     def _read_live_widget(self, attribute: str, default: Any = "") -> Any:
         """파괴 중인 설정 입력 위젯의 Tcl command를 다시 호출하지 않는다."""
         if not self._window_alive():
@@ -485,9 +537,13 @@ class ModernSettingsWindow:
                 )
                 return
 
-            if hasattr(dashboard, "_ensure_ai_assistant_tab"):
-                dashboard._ensure_ai_assistant_tab()
-            assistant = getattr(dashboard, "ai_assistant_widget", None)
+            resolver = getattr(dashboard, "_get_live_ai_assistant", None)
+            if callable(resolver):
+                assistant = resolver()
+            else:
+                if hasattr(dashboard, "_ensure_ai_assistant_tab"):
+                    dashboard._ensure_ai_assistant_tab()
+                assistant = getattr(dashboard, "ai_assistant_widget", None)
             if assistant is None or not hasattr(assistant, "send_quick_question"):
                 messagebox.showwarning(
                     "AI에게 묻기",
@@ -514,7 +570,8 @@ class ModernSettingsWindow:
             except Exception:
                 pass
 
-            assistant.send_quick_question(prompt)
+            if not assistant.send_quick_question(prompt):
+                raise RuntimeError("AI 어시스턴트 입력창이 활성 상태가 아닙니다.")
         except Exception as exc:
             messagebox.showerror(
                 "AI에게 묻기",
@@ -522,68 +579,17 @@ class ModernSettingsWindow:
             )
 
     def _ask_save_on_close(self):
-        """NoahAI 브랜딩을 유지하는 저장/폐기/계속 편집 대화상자."""
-        result = {"choice": None}
-        dialog = ctk.CTkToplevel(self.root)
-        dialog.title("NoahAI 설정")
-        dialog.geometry("520x270")
-        dialog.resizable(False, False)
-        dialog.transient(self.root)
-        dialog.grab_set()
-        self._apply_window_branding(dialog)
+        """추가 CTkToplevel 없이 OS 표준 3상태 확인창을 사용한다.
 
-        card = ctk.CTkFrame(
-            dialog, fg_color="#0b1120", corner_radius=16,
-            border_width=1, border_color="#273449",
+        오류 화면의 빈 흰색 ``NoahAI 설정`` 창은 USER/Menu 자원이 부족한
+        상태에서 별도 CTkToplevel의 본문 생성이 중간 실패한 결과였다.
+        """
+        return messagebox.askyesnocancel(
+            "NoahAI 설정",
+            "변경한 설정을 저장할까요?\n\n"
+            "예: 저장 후 닫기\n아니오: 저장하지 않고 닫기\n취소: 계속 편집",
+            parent=self.root,
         )
-        card.pack(fill="both", expand=True, padx=14, pady=14)
-        title_row = ctk.CTkFrame(card, fg_color="transparent")
-        title_row.pack(fill="x", padx=18, pady=(18, 8))
-        try:
-            logo_path = Path(__file__).resolve().parents[1] / "icon.png"
-            from PIL import Image
-            source_logo = Image.open(logo_path)
-            logo = ctk.CTkImage(light_image=source_logo, dark_image=source_logo, size=(42, 42))
-            self._branding_image_refs.append(logo)
-            ctk.CTkLabel(title_row, text="", image=logo, width=42).pack(side="left", padx=(0, 10))
-        except Exception:
-            pass
-        ctk.CTkLabel(
-            title_row, text="변경한 설정을 저장할까요?",
-            font=ctk.CTkFont(family="Segoe UI", size=19, weight="bold"),
-            text_color="#f8fafc",
-        ).pack(side="left")
-        ctk.CTkLabel(
-            card,
-            text="저장 후 닫기, 저장하지 않고 닫기, 계속 편집 중 하나를 선택하세요.",
-            font=ctk.CTkFont(family="Segoe UI", size=12),
-            text_color="#a9bad0",
-        ).pack(anchor="w", padx=20, pady=(0, 18))
-
-        def finish(choice):
-            result["choice"] = choice
-            dialog.destroy()
-
-        buttons = ctk.CTkFrame(card, fg_color="transparent")
-        buttons.pack(fill="x", padx=18, pady=(0, 18))
-        ctk.CTkButton(
-            buttons, text="저장 후 닫기", width=145, height=42,
-            fg_color="#10b981", hover_color="#059669",
-            command=lambda: finish(True),
-        ).pack(side="left", padx=4)
-        ctk.CTkButton(
-            buttons, text="저장하지 않고 닫기", width=155, height=42,
-            fg_color="#dc2626", hover_color="#b91c1c",
-            command=lambda: finish(False),
-        ).pack(side="left", padx=4)
-        ctk.CTkButton(
-            buttons, text="계속 편집", width=120, height=42,
-            fg_color="#334155", hover_color="#475569",
-            command=lambda: finish(None),
-        ).pack(side="right", padx=4)
-        dialog.protocol("WM_DELETE_WINDOW", lambda: finish(None))
-        self.root.wait_window(dialog)
-        return result["choice"]
 
     @staticmethod
     def _shade_color(hex_color: str, factor: float = 0.85) -> str:
@@ -3796,14 +3802,9 @@ class ModernSettingsWindow:
                 messagebox.showinfo("초기 설정 가이드", "대시보드가 연결되지 않아 온보딩을 시작할 수 없습니다.")
                 return
 
-            # AI 어시스턴트 탭/위젯 보장
-            if hasattr(dashboard, '_ensure_ai_assistant_tab'):
-                try:
-                    dashboard._ensure_ai_assistant_tab()
-                except Exception:
-                    pass
-
-            assistant = getattr(dashboard, 'ai_assistant_widget', None)
+            # 공용 생명주기 해석기를 통해 파괴된 Tcl 위젯 재사용을 막는다.
+            resolver = getattr(dashboard, '_get_live_ai_assistant', None)
+            assistant = resolver() if callable(resolver) else None
             if hasattr(dashboard, 'tab_widget') and dashboard.tab_widget:
                 try:
                     dashboard.tab_widget.set("AI 어시스턴트")
@@ -4288,7 +4289,7 @@ class ModernSettingsWindow:
         ctk.CTkLabel(
             contract_group,
             text=(
-                f"정본 v{contract_report.get('schema_version')} · 현재 모드 "
+                f"앱 {RELEASE_BUILD_LABEL} · 설정 스키마 {contract_report.get('schema_version')} · 현재 모드 "
                 f"{contract_report.get('mode')} · 호환 보관 "
                 f"{contract_report.get('archived_legacy_count', 0)}개 · "
                 f"모순 {len(contract_report.get('issues', []))}건 · 주문 권한 확인 "
@@ -7254,16 +7255,13 @@ AI 최적화 시스템과 충돌 발생
             if choice is None:
                 return
 
-            # 실제로 닫을 때만 타이머를 정리한다.
-            try:
-                if hasattr(self, '_ai_status_timer') and self._ai_status_timer:
-                    self.root.after_cancel(self._ai_status_timer)
-            except Exception:
-                pass
             if choice is True:
                 self.save_settings()
             else:
-                self.root.destroy()
+                # 화면에서 바꾼 값만 폐기하고 저장 정본으로 되돌린 뒤 숨긴다.
+                self.current_settings = copy.deepcopy(self.original_settings)
+                self.load_current_settings()
+                self._hide_or_destroy()
 
         except Exception as e:
             print(f"설정 창 닫기 처리 오류: {e}")
@@ -8647,8 +8645,9 @@ AI 최적화 시스템과 충돌 발생
                 # 2. 저장 직후 필요한 경우 증권사 1차 진단 안내
                 self._maybe_show_post_save_stock_broker_diagnosis()
 
-                # 3. 모달 창 즉시 닫기 (사용자 경험 개선)
-                self.root.destroy()
+                # 3. 대시보드 소유 창은 파괴하지 않고 숨겨 native menu를 재사용한다.
+                self.original_settings = copy.deepcopy(self.current_settings)
+                self._hide_or_destroy()
 
                 # 4. 콜백은 창이 닫힌 후 백그라운드에서 실행
                 if self.on_save_callback:
@@ -8681,7 +8680,9 @@ AI 최적화 시스템과 충돌 발생
 
     def cancel_settings(self):
         """설정 취소"""
-        self.root.destroy()
+        self.current_settings = copy.deepcopy(self.original_settings)
+        self.load_current_settings()
+        self._hide_or_destroy()
 
     def reset_settings(self):
         """설정을 기본값으로 복원 - 기존 PyQt5 설정 창과 동일한 로직"""

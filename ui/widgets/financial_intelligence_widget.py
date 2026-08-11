@@ -307,17 +307,22 @@ class FinancialIntelligenceWidget(ctk.CTkFrame):
         if feature == "종목 조건 검색" and self.mode == "blockchain":
             prompt += " 블록체인 코인 정보 화면과 코인 탐색의 차이도 함께 설명해줘."
         try:
-            ensure = getattr(dashboard, "_ensure_ai_assistant_tab", None)
-            if callable(ensure):
-                ensure()
-            assistant = getattr(dashboard, "ai_assistant_widget", None)
+            resolver = getattr(dashboard, "_get_live_ai_assistant", None)
+            if callable(resolver):
+                assistant = resolver()
+            else:
+                ensure = getattr(dashboard, "_ensure_ai_assistant_tab", None)
+                if callable(ensure):
+                    ensure()
+                assistant = getattr(dashboard, "ai_assistant_widget", None)
             if assistant is not None and hasattr(assistant, "send_quick_question"):
                 if hasattr(assistant, "set_service_context"):
                     assistant.set_service_context(
                         "stock" if self.mode == "stock" else "blockchain",
                         announce=False,
                     )
-                assistant.send_quick_question(prompt)
+                if not assistant.send_quick_question(prompt):
+                    raise RuntimeError("AI 어시스턴트 입력창이 활성 상태가 아닙니다.")
                 tabview = getattr(dashboard, "tab_widget", None)
                 if tabview is not None:
                     tabview.set("AI 어시스턴트")

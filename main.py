@@ -1497,8 +1497,8 @@ class NoahAIClient:
 
             # 설정 창을 모달로 실행하고 완료까지 대기
             logger = self._get_main_logger(); logger.info('설정 창 실행 중...')
-            # CustomTkinter에서는 mainloop() 사용
-            settings_window.root.mainloop()
+            # 별도의 중첩 mainloop/Tcl 루트를 만들지 않고 이 창만 기다린다.
+            settings_window.run()
             logger = self._get_main_logger(); logger.info('설정 창 실행 완료')
 
             # 설정 창이 닫힌 후 API 키 재검증

@@ -1,6 +1,6 @@
 # NoahAI Client 공식 문서
 
-> 기준: 2026-08-10 · 재빌드 대상 소스 v3.9.0.8 AI Custom Update · `pending_windows_rebuild`  
+> 기준: 2026-08-10 · 재빌드 대상 소스 v3.9.0.8 AI Custom Update Fix 1 · `pending_windows_rebuild`  
 > 이 파일은 문서 진입점입니다. 현재 상태는 아래 정본 문서로 판단하고, `docs/archive/`와 `data/**/reports/`는 제품 설명 정본으로 사용하지 않습니다.
 
 ## 먼저 읽을 문서

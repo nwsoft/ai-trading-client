@@ -812,11 +812,17 @@ class AIAssistantWidget(CTkFrame):
     def set_service_context(self, service_name: str, announce: bool = False):
         """대시보드 서비스 전환에 맞춰 어시스턴트 컨텍스트를 동기화"""
         try:
+            if not self.winfo_exists():
+                return False
             prev = getattr(self, 'assistant_service_context', 'blockchain')
             self.assistant_service_context = (service_name or 'blockchain').strip().lower()
 
             # 입력창 placeholder 갱신
-            if hasattr(self, 'chat_input') and self.chat_input is not None:
+            if (
+                hasattr(self, 'chat_input')
+                and self.chat_input is not None
+                and self.chat_input.winfo_exists()
+            ):
                 self.chat_input.configure(placeholder_text=self._build_input_placeholder())
 
             # 퀵 질문 패널 갱신
@@ -825,17 +831,23 @@ class AIAssistantWidget(CTkFrame):
             if announce and prev != self.assistant_service_context:
                 profile = self._get_service_profile(self.assistant_service_context)
                 self.add_ai_message(f"AI 어시스턴트가 {profile['label']} 분석 모드로 전환되었습니다.")
+            return True
         except Exception as e:
             self.logger.debug(f"서비스 컨텍스트 전환 실패: {e}")
+            return False
 
-    def send_quick_question(self, question: str):
+    def send_quick_question(self, question: str) -> bool:
         """빠른 질문 전송"""
         try:
+            if not self.winfo_exists() or not self.chat_input.winfo_exists():
+                return False
             self.chat_input.delete(0, "end")
             self.chat_input.insert(0, question)
             self.send_ai_message()
+            return True
         except Exception as e:
             self.logger.error(f"빠른 질문 전송 오류: {e}")
+            return False
 
     def update_model_caption(self):
         """하위 호환용 no-op: 내부 모델명은 대화 화면에 노출하지 않는다."""
@@ -1215,6 +1227,15 @@ class AIAssistantWidget(CTkFrame):
                 except Exception:
                     pass
 
+            # 요청 접수와 실제 응답을 공용 활동 이력의 같은 이벤트로 연결한다.
+            activity_id = str(getattr(self, '_active_ai_activity_id', '') or '')
+            if activity_id and (message or '').strip():
+                dashboard = getattr(self, 'parent_dashboard', None)
+                finisher = getattr(dashboard, '_finish_ai_assistant_request', None)
+                if callable(finisher):
+                    finisher(activity_id, result='응답 완료', failed=False)
+                self._active_ai_activity_id = ''
+
             # 음성 출력은 설정으로 켜진 경우에만 수행
             try:
                 if self.voice_module and getattr(self.voice_module, 'config', None):
@@ -1223,14 +1244,33 @@ class AIAssistantWidget(CTkFrame):
                         self.voice_module.speak(speech_text)
             except Exception:
                 pass
-        except Exception:
-            pass
+        except Exception as exc:
+            activity_id = str(getattr(self, '_active_ai_activity_id', '') or '')
+            dashboard = getattr(self, 'parent_dashboard', None)
+            finisher = getattr(dashboard, '_finish_ai_assistant_request', None)
+            if activity_id and callable(finisher):
+                finisher(activity_id, result=f'화면 응답 오류: {type(exc).__name__}', failed=True)
+            self._active_ai_activity_id = ''
+            self.logger.warning("AI 응답 화면 기록 실패: %s", exc)
 
     def send_ai_message(self):
         """AI 메시지 전송"""
         message = self.chat_input.get().strip()
         if not message:
             return
+
+        dashboard = getattr(self, 'parent_dashboard', None)
+        recorder = getattr(dashboard, '_record_ai_assistant_request', None)
+        activity_id = ''
+        if callable(recorder):
+            try:
+                activity_id = recorder(
+                    message,
+                    service_context=getattr(self, 'assistant_service_context', 'blockchain'),
+                ) or ''
+            except Exception:
+                pass
+        self._active_ai_activity_id = activity_id
 
         # 첫 번째 실제 질문 시 초기 메시지들 제거
         if not hasattr(self, '_first_message_sent'):
@@ -1454,6 +1494,40 @@ class AIAssistantWidget(CTkFrame):
             return None
         knowledge = self._settings_knowledge_for_question(message)
         return knowledge or None
+
+    @staticmethod
+    def _build_fix1_feedback_support(message: str) -> Optional[str]:
+        """Fix 1 추가 피드백 기능을 Provider 없이도 정확히 안내한다."""
+        normalized = str(message or '').lower().replace(' ', '')
+        if any(token in normalized for token in ('nomoremenus', '메뉴할당', 'invalidcommand', '화면오류', '탭오류', 'fix1')):
+            return (
+                "NoahAI입니다. Fix 1은 제보된 화면만 개별 예외 처리하지 않습니다. 설정창은 한 인스턴스를 재사용하고, "
+                "시장 트렌드·금융 인텔리전스·AlphaArena·코인/종목 정보·거래 통계·AI 화면은 공통 탭 소유권으로 "
+                "예전 위젯 참조·콜백·native 메뉴를 함께 정리합니다.\n"
+                "`No more menus can be allocated` 또는 `invalid command name`이 다시 나오면 정상 동작이 아닙니다. "
+                "설정/서비스 반복 횟수, 직전 화면, 발생 시각 로그와 전체 화면만 전달하고 API 키·계정정보는 보내지 마세요. "
+                "새 Windows EXE의 100회 왕복과 USER/GDI 상한 검증 전에는 설치본 완료로 판단하지 않습니다."
+            )
+        if any(token in normalized for token in ('통합자산', '자산통합', '자산배분', 'hhi', '집중도')):
+            return (
+                "NoahAI입니다. 자산 통합은 종료 거래의 누적 체결금액이 아니라 거래소·증권사에서 수신한 현재 잔고를 사용합니다. "
+                "탭 진입 시 활성 계좌 잔고를 백그라운드에서 갱신하고, 거래 DB는 종료 거래 실현손익과 상관 표본에만 사용합니다.\n"
+                "KRW와 USDT는 환율 기준시각 없이 합산하지 않습니다. 한 통화만 있으면 비중·HHI·손실 시나리오를 계산하고, "
+                "두 통화가 함께 있으면 통화별 잔고와 '환산 필요'를 표시합니다. '현재 잔고 미수신'이면 블록체인 또는 주식/증권 계좌의 연결·새로고침 상태를 먼저 확인하세요."
+            )
+        if any(token in normalized for token in ('ai실행기록', '실행기록없음', 'ai기록')):
+            return (
+                "NoahAI입니다. 대시보드 우측 하단 AI 실행 기록은 전체 AI 실행뿐 아니라 AI 어시스턴트 질문과 "
+                "AI 애널리스트 심층분석 요청도 기록합니다. 질문 하나는 같은 요청 ID에서 '응답 생성 중'에서 '응답 완료' 또는 오류 사유로 갱신되며, '기록'을 누르면 최신순 상세를 확인할 수 있습니다. "
+                "새 요청 뒤에도 '기록 없음'이면 같은 시각의 실시간 로그와 설치본 빌드 라벨을 확인하세요."
+            )
+        if any(token in normalized for token in ('심층분석', 'ai애널리스트', '시나리오분석')):
+            return (
+                "NoahAI입니다. AI 애널리스트의 심층분석 버튼은 살아 있는 AI 어시스턴트 입력창을 확인·재생성한 뒤 질문을 전달하고 AI 어시스턴트 탭으로 이동합니다. "
+                "설정의 AI Provider/API 키가 없으면 로컬 안내로 제한될 수 있지만, 파괴된 입력창 오류는 정상 동작이 아닙니다. "
+                "오류가 나면 `invalid command name ... ctkentry` 여부와 발생 시각만 전달하고 API 키는 보내지 마세요."
+            )
+        return None
 
     def _build_multi_venue_support(self, message: str) -> Optional[str]:
         """다중 거래소·증권사 실행 계약과 현재 설정을 API 없이 설명한다."""
@@ -1855,6 +1929,11 @@ class AIAssistantWidget(CTkFrame):
                 self.add_ai_message(membership_support)
                 return
 
+            fix1_feedback_support = self._build_fix1_feedback_support(message)
+            if fix1_feedback_support:
+                self.add_ai_message(fix1_feedback_support)
+                return
+
             financial_intelligence_support = self._build_financial_intelligence_support(message)
             if financial_intelligence_support:
                 self.add_ai_message(financial_intelligence_support)
@@ -2154,6 +2233,12 @@ class AIAssistantWidget(CTkFrame):
 
         except Exception as e:
             self.logger.error(f"AI 응답 생성 오류: {e}")
+            activity_id = str(getattr(self, '_active_ai_activity_id', '') or '')
+            dashboard = getattr(self, 'parent_dashboard', None)
+            finisher = getattr(dashboard, '_finish_ai_assistant_request', None)
+            if activity_id and callable(finisher):
+                finisher(activity_id, result=f'응답 오류: {type(e).__name__}', failed=True)
+            self._active_ai_activity_id = ''
             fallback = self._generate_local_fallback_response(message, f"AI 응답 생성 오류: {str(e)}")
             self.add_ai_message(fallback)
 

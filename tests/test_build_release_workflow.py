@@ -21,6 +21,9 @@ def test_one_command_windows_release_contract():
 
     assert "validate_windows_tkinter_build_runtime" in script
     assert "resolve_windows_vc_runtime_binaries" in script
+    assert "RELEASE_BUILD_LABEL" in script
+    assert "(?i)\\b(fix|patch|hotfix)\\b" in script
+    assert "same-version patch label detected" in script
     assert "build_windows_safe.ps1" in script
     assert "release_tag_push.ps1" in script
     assert "-SkipCommit" in script
@@ -36,6 +39,14 @@ def test_release_upload_requires_remote_digest_match():
     assert 'AssetName "AITrading.exe"' in script
     assert 'AssetName "release-manifest.json"' in script
     assert "remote asset SHA-256 mismatch" in script
+
+
+def test_release_manifest_records_source_revision():
+    source = (ROOT / "scripts" / "generate_release_assets.py").read_text(encoding="utf-8")
+
+    assert "def _source_revision()" in source
+    assert '"source_revision": _source_revision()' in source
+    assert '"dirty": bool(status)' in source
 
 
 def test_builder_uses_atomic_deploy_replacement():

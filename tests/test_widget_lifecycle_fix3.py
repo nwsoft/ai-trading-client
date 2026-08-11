@@ -1,6 +1,10 @@
 from pathlib import Path
 
-from ui.widget_lifecycle import delete_ctk_tab, get_windows_gui_resources
+from ui.widget_lifecycle import (
+    WidgetOwnershipRegistry,
+    delete_ctk_tab,
+    get_windows_gui_resources,
+)
 
 
 class _Widget:
@@ -60,9 +64,44 @@ def test_dashboard_dynamic_tab_paths_use_destructive_helper():
     source = (Path(__file__).parents[1] / "ui" / "dashboard_modern.py").read_text(
         encoding="utf-8"
     )
-    assert source.count("delete_ctk_tab(") >= 5
+    # 대시보드 삭제는 단 하나의 소유권 경계만 통과한다. 저수준 helper를
+    # 여러 곳에서 직접 호출하면 캐시 무효화가 다시 누락될 수 있다.
+    assert source.count("delete_ctk_tab(") == 1
+    assert source.count("self._delete_dashboard_tab(") >= 3
     assert "tv.delete(tab_name)" not in source
     assert "self.tab_widget.delete(label)" not in source
+
+
+def test_widget_ownership_registry_clears_attribute_and_mapping_by_identity():
+    registry = WidgetOwnershipRegistry()
+    owner = type("Owner", (), {})()
+    mapping = {}
+    first = _Widget()
+    second = _Widget()
+
+    registry.register_attribute("AI 어시스턴트", owner, "assistant", first)
+    registry.register_mapping("금융 인텔리전스", mapping, "blockchain", first)
+    registry.register_attribute("AI 어시스턴트", owner, "assistant", second)
+
+    assert owner.assistant is second
+    assert mapping["blockchain"] is first
+    assert registry.invalidate("AI 어시스턴트") == 1
+    assert owner.assistant is None
+    assert mapping["blockchain"] is first
+    assert registry.invalidate("금융 인텔리전스") == 1
+    assert "blockchain" not in mapping
+
+
+def test_widget_ownership_registry_stays_bounded_during_rebuild_stress():
+    registry = WidgetOwnershipRegistry()
+    owner = type("Owner", (), {})()
+
+    for _ in range(200):
+        registry.register_attribute("시장 트렌드", owner, "trend", _Widget())
+        assert registry.binding_count() == 1
+        registry.invalidate("시장 트렌드")
+        assert owner.trend is None
+        assert registry.binding_count() == 0
 
 
 def test_gui_resource_probe_is_safe_off_windows():

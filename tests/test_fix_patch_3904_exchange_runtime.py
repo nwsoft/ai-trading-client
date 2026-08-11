@@ -210,7 +210,8 @@ def test_service_switch_keeps_dashboard_dispatch_queue_alive():
     )[0]
     assert "self.cleanup_after_jobs()" not in block
     assert "self.cleanup_all_widgets()" not in block
-    assert "self._destroy_all_service_tabs_except_protected()" in block
+    assert "self.clear_service_sub_tabs(previous_service)" in block
+    assert "self._destroy_all_service_tabs_except_protected()" not in block
 
 
 def test_trading_stats_supports_non_binance_execution_ledger():

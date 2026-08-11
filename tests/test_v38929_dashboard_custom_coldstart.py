@@ -24,7 +24,8 @@ def test_exchange_overview_prioritizes_three_positions_and_slim_four_kpis():
     assert source.count("left_pane.grid_rowconfigure(2, weight=1, minsize=230)") >= 2
     assert source.count("positions_frame.configure(height=240)") >= 2
     assert "CTkScrollableFrame" in source
-    assert "body, height=52" in source
+    assert "body, height=58" in source
+    assert "card.grid_propagate(False)" in source
     assert "미실현 PnL" in source
     assert "7초 자동 갱신" in source
     assert 'grid.grid_columnconfigure((0, 1, 2, 3)' in source
@@ -234,7 +235,8 @@ def test_settings_have_visible_section_save_bars_and_noahai_close_branding():
     source = (ROOT / "ui" / "settings_modern.py").read_text(encoding="utf-8")
     assert source.count("self._add_tab_save_bar(tab") >= 8
     dialog = source[source.index("    def _ask_save_on_close"):source.index("    @staticmethod\n    def _shade_color")]
-    assert "icon.png" in dialog
+    assert "ctk.CTkToplevel(" not in dialog
+    assert "messagebox.askyesnocancel(" in dialog
     assert "저장 후 닫기" in dialog
     assert "저장하지 않고 닫기" in dialog
     assert "계속 편집" in dialog
@@ -379,8 +381,8 @@ def test_windows_executable_metadata_is_aligned_to_3908():
         for chunk in iter(lambda: exe_file.read(1024 * 1024), b""):
             digest.update(chunk)
     assert previous_asset["sha256"] == digest.hexdigest()
-    assert previous_asset["version"] == "3.9.0.7"
-    assert previous_asset["release_label"] == "v3.9.0.7 Fix Patch 3"
+    assert previous_asset["version"] == "3.9.0.8"
+    assert previous_asset["release_label"] == "v3.9.0.8 AI Custom Update"
     assert previous_asset["purpose"] == "previous_published_windows_build"
     assert "/v3.9.0.8/AITrading.exe" in manifest["assets"]["exe"]["download_url"]
     release_builder = (ROOT / "scripts" / "generate_release_assets.py").read_text(encoding="utf-8")
@@ -422,12 +424,13 @@ def test_3901_cross_platform_icon_and_tab_visual_system_is_shared():
     assert "style_tabview(" in manual
 
 
-def test_3901_financial_intelligence_is_created_before_exchange_or_broker_tabs():
+def test_3901_financial_intelligence_order_is_canonical_without_rebuild_dependency():
     dashboard = (ROOT / "ui" / "dashboard_modern.py").read_text(encoding="utf-8")
     switch_body = dashboard[dashboard.index("    def switch_service"):dashboard.index("    def _get_ops_kpi_specs_for_service")]
-    assert switch_body.index("self._ensure_financial_intelligence_tab(normalized_service)") < switch_body.index(
-        "self.create_service_sub_tabs(service_name)"
-    )
+    policy_body = dashboard[dashboard.index("    def _apply_service_tab_policy"):dashboard.index("    def _check_actual_exchange_status")]
+    assert "self.create_service_sub_tabs(service_name)" in switch_body
+    assert "get_service_tab_order" in policy_body
+    assert "reorder_ctk_tabs" in policy_body
 
 
 def test_3901_user_financial_intelligence_has_no_raw_json_input():

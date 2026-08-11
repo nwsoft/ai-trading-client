@@ -1,3 +1,29 @@
+## v3.9.0.8 AI Custom Update Fix 1 공통 원인 재검증 (2026-08-11)
+
+- 동적 화면 소유권 registry: 속성/매핑 identity 해제, 재구성 200회 뒤 바인딩 0, 대시보드 저수준 삭제 단일 경계 **PASS**
+- AI·시장 트렌드·금융 인텔리전스·AlphaArena·코인/종목·거래 통계·AI 애널리스트 장기 참조를 같은 탭 소유권에 등록 **PASS**
+- 통합자산 현재 잔고 단일 저장소, 동시 갱신, KRW/USDT 무단 합산 차단, 구형/신형 거래 DB 공통 어댑터 **PASS**
+- 시나리오 점검·보안 경고의 `asset_type`·`entry_amount` 직접 SQL 0건 **PASS**
+- AI 요청 ID 단일 원장의 `running → completed/failed`, 파괴된 Tcl 입력 거부, 생존 위젯 재확인 **PASS**
+- 공통 원인 집중 회귀: `48 passed`
+- 전체 자동 회귀: `1,432 passed, 6 skipped, 0 failed`
+- 문서/버전 정합성 `PASS`, 빌드 포함 검사 `PASS`, 활성 소스 감사 `PASS`(활성 Python 342개, 구문 실패·정의 전용 메서드 0개)
+- 실제 사용자 DB 읽기 점검: `data/nwsoft/trading.db` 종료 거래 104건, `data/Teayu/trading.db` 종료 거래 47,699건을 레거시 호환 경로로 읽고 스키마 오류 0건
+- Windows 외부 게이트: 새 EXE에서 자산 잔고 수신·통화별 표기, AI 애널리스트 심층분석 응답, 하단 실행 기록 생성까지 실제 계정/화면으로 확인
+- 현재 배포 상태: `pending_windows_rebuild`
+
+## v3.9.0.8 AI Custom Update Fix 1 검증 (2026-08-10)
+
+- Fix 1 집중 회귀: 설정창 단일 인스턴스·native 메뉴 회수·정본 탭 순서·현재 서비스 설정 갱신·포지션 경량 렌더 계약
+- 기존 UI 생명주기·서비스 정책·설정창 복구·메뉴 회귀와 함께 재검증
+- 전체 자동 회귀: `1,421 passed, 6 skipped, 0 failed`
+- native 메뉴 반복 생성 스모크: 12개 ComboBox 생성/정리 100회에서 메뉴 명령 `3 → 최대 15 → 3`, 잔류 명령 0개
+- 실제 설정창 재사용 스모크: 설정창 생성 전 메뉴 3개, 생성 후 35개, 숨김/재표시 25회 내내 35개 고정, 단일 창 유지, `dispose()` 후 3개 복귀
+- 실제 CTkTabview 정본 순서 스모크: 프레임 identity와 현재 선택을 유지한 채 `실시간 로그 → 코인 정보 → 거래 통계 → BINANCE` 순서 복구
+- 문서/버전 정합성 `PASS`, 빌드 포함 검사 `PASS`, 활성 소스 감사 `PASS`(활성 Python 339개, 구문 실패·정의 전용 메서드 0개)
+- Windows 외부 게이트: 새 EXE에서 설정 열기/닫기 100회, 블록체인↔주식 100회, 10회 단위 USER/GDI 기록, 빈 창·탭 혼합·순서 이동·빈 포지션 카드 0건
+- 현재 배포 상태: `pending_windows_rebuild`
+
 ## v3.9.0.8 AI Custom Update 검증 (2026-08-10)
 
 - 기존 P1~P3 신규 기능 집중 회귀: `35 passed`

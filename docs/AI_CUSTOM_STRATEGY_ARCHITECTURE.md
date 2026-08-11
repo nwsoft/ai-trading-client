@@ -1,6 +1,6 @@
 # AI 커스텀 전략 아키텍처 및 사용자 흐름
 
-기준 버전: NoahAI Client v3.9.0.8 AI Custom Update 소스  
+기준 버전: NoahAI Client v3.9.0.8 AI Custom Update Fix 1 소스  
 AI 커스텀 구현 기준선: v3.9.0.8 P1~P3 Client Source Candidate  
 기준 일자: 2026-08-10  
 배포 경계: Windows 재빌드·실계정 장시간 E2E 전 (`pending_windows_rebuild`)

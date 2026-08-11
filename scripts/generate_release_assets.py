@@ -7,6 +7,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import subprocess
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
@@ -63,6 +64,33 @@ def _sha256_of(file_path: Path) -> str:
     return h.hexdigest()
 
 
+def _git_value(*args: str) -> str:
+    try:
+        result = subprocess.run(
+            ["git", *args],
+            cwd=PROJECT_ROOT,
+            check=True,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+        )
+    except Exception:
+        return ""
+    return result.stdout.strip()
+
+
+def _source_revision() -> dict:
+    commit = _git_value("rev-parse", "HEAD")
+    short_commit = _git_value("rev-parse", "--short", "HEAD")
+    status = _git_value("status", "--porcelain")
+    return {
+        "commit": commit,
+        "short_commit": short_commit,
+        "dirty": bool(status),
+    }
+
+
 def _latest_runtime_source() -> Path:
     """Windows 실행 파일에 포함되는 최신 런타임 소스를 반환한다."""
     source_files = [
@@ -109,6 +137,7 @@ def _build_manifest(
             "authenticode_required": False,
             "source": "github_release_manifest",
         },
+        "source_revision": _source_revision(),
         "assets": {
             "exe": {
                 "name": exe_name,
@@ -147,17 +176,17 @@ def main() -> int:
     parser.add_argument("--repo", default="nwsoft/ai-trading-client", help="GitHub repository owner/name")
     parser.add_argument(
         "--previous-exe",
-        default="deploy/previous/AITrading-v3.9.0.7-Fix-Patch-3.exe",
+        default="deploy/previous/AITrading-v3.9.0.8-AI-Custom-Update.exe",
         help="직전 공개 Windows EXE 보존 경로",
     )
     parser.add_argument(
         "--previous-release-label",
-        default="v3.9.0.7 Fix Patch 3",
+        default="v3.9.0.8 AI Custom Update",
         help="직전 공개 Windows EXE 릴리스 표기",
     )
     parser.add_argument(
         "--previous-version",
-        default="3.9.0.7",
+        default="3.9.0.8",
         help="직전 공개 Windows EXE 버전",
     )
     args = parser.parse_args()

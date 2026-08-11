@@ -1,6 +1,6 @@
 # NoahAI AI 어시스턴트 가이드 (대시보드)
 
-기준 버전: NoahAI Client v3.9.0.8 AI Custom Update (2026-08-10)
+기준 버전: NoahAI Client v3.9.0.8 AI Custom Update Fix 1 (2026-08-10)
 
 이 문서는 **공개 저장소 기준**으로 `ui/widgets/ai_assistant_widget.py`의 실제 동작과 맞추었습니다. 설치 후 바로 확인할 수 있도록 **전제 조건 → UI 위치 → 대화로 되는 일/안 되는 일 → 확인 기반 설정 반영 규칙 → 트러블슈팅 → 음성(STT/TTS) 로드맵** 순으로 읽으면 됩니다.
 

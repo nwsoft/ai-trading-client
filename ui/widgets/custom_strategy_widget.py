@@ -927,10 +927,14 @@ class CustomStrategyWidget(ctk.CTkScrollableFrame):
             )
             return
         try:
-            ensure = getattr(dashboard, "_ensure_ai_assistant_tab", None)
-            if callable(ensure):
-                ensure()
-            assistant = getattr(dashboard, "ai_assistant_widget", None)
+            resolver = getattr(dashboard, "_get_live_ai_assistant", None)
+            if callable(resolver):
+                assistant = resolver()
+            else:
+                ensure = getattr(dashboard, "_ensure_ai_assistant_tab", None)
+                if callable(ensure):
+                    ensure()
+                assistant = getattr(dashboard, "ai_assistant_widget", None)
             tab_widget = getattr(dashboard, "tab_widget", None)
             if assistant is None or tab_widget is None:
                 raise RuntimeError("AI 어시스턴트 탭을 준비하지 못했습니다.")
@@ -960,7 +964,8 @@ class CustomStrategyWidget(ctk.CTkScrollableFrame):
                     "시장상황·적용범위·전략 역할을 어떻게 고르며, XAI에서 무엇을 확인하고 "
                     "저장·승인·자동검증·최종 적용하는지 화면 순서대로 설명해줘."
                 )
-            assistant.send_quick_question(prompt)
+            if not assistant.send_quick_question(prompt):
+                raise RuntimeError("AI 어시스턴트 입력창이 활성 상태가 아닙니다.")
         except Exception as exc:
             messagebox.showerror("AI 어시스턴트 연결", f"질문 화면을 열지 못했습니다.\n{exc}")
 

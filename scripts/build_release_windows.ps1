@@ -15,6 +15,7 @@ $originalLocation = Get-Location
 $transcriptStarted = $false
 $scriptExitCode = 0
 $createReleaseCommit = $false
+$sameVersionPatchRelease = $false
 
 function Invoke-Checked([string]$Label, [scriptblock]$Command) {
     Write-Host "[BUILD_RELEASE] $Label"
@@ -60,6 +61,11 @@ try {
         throw "version mismatch: requested=$Version config=$configuredVersion"
     }
     Write-Host "[BUILD_RELEASE] version=$Version profile=$GateProfile"
+    $releaseLabel = (& python -c "from config.app_version import RELEASE_BUILD_LABEL; print(RELEASE_BUILD_LABEL)").Trim()
+    if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($releaseLabel)) {
+        throw "failed to read RELEASE_BUILD_LABEL"
+    }
+    Write-Host "[BUILD_RELEASE] label=$releaseLabel"
 
     Invoke-Checked "Tcl/Tk preflight" {
         & python -c "import build_safe; raise SystemExit(0 if build_safe.validate_windows_tkinter_build_runtime() else 1)"
@@ -90,10 +96,17 @@ try {
             if (-not $tagExists) {
                 $createReleaseCommit = $true
                 Write-Host "[BUILD_RELEASE] New tag ${tagName}: verified source changes will be committed after a successful build."
+            } elseif ($releaseLabel -match '(?i)\b(fix|patch|hotfix)\b') {
+                $createReleaseCommit = $true
+                $sameVersionPatchRelease = $true
+                Write-Host (
+                    "[BUILD_RELEASE] Existing tag ${tagName}: same-version patch label detected. " +
+                    "Verified source changes will be committed after a successful build, then existing release assets will be replaced."
+                )
             } elseif (-not $AllowDirtyWorkingTree) {
                 throw (
                     "tag $tagName already exists and the working tree is dirty. Commit the source separately, " +
-                    "or use -AllowDirtyWorkingTree only for an intentional same-tag emergency asset replacement."
+                    "or set RELEASE_BUILD_LABEL to a Fix/Patch/Hotfix label for a same-version patch release."
                 )
             } else {
                 Write-Warning "[BUILD_RELEASE] Existing tag emergency mode: dirty source will not move $tagName."
@@ -124,7 +137,11 @@ try {
 
     if (-not $BuildOnly -and $createReleaseCommit) {
         if ([string]::IsNullOrWhiteSpace($CommitMessage)) {
-            $CommitMessage = "release: v$Version"
+            if ($sameVersionPatchRelease) {
+                $CommitMessage = "release: $releaseLabel"
+            } else {
+                $CommitMessage = "release: v$Version"
+            }
         }
         Invoke-Checked "Create verified release source commit" {
             & git add -A
@@ -133,6 +150,10 @@ try {
             }
         }
         Write-Host "[BUILD_RELEASE] release source committed: $CommitMessage"
+        if ($sameVersionPatchRelease) {
+            $sourceCommit = (& git rev-parse --short HEAD).Trim()
+            Write-Host "[BUILD_RELEASE] same-version patch source commit=$sourceCommit; tag v$Version remains on the original version anchor."
+        }
     }
 
     if ($BuildOnly) {

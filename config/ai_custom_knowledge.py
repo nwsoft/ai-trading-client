@@ -70,7 +70,10 @@ def build_ai_custom_knowledge(
         )
     elif _topic(message, "버전", "업데이트", "3.9.0.8", "새 기능", "추가", "변경", "고도화"):
         body = (
-            "이번 업데이트는 Noah Strategy IR v1과 원본 근거 추적, Level 1·2·3, "
+            "Fix 1은 설정창을 프로세스당 하나만 재사용하고 블록체인/주식 전환의 탭 소유권과 순서를 단일 정책으로 고정합니다. "
+            "설정창이 비거나 열리지 않는 문제, 거래소와 증권사 탭 혼합, 코인 정보 순서 이동, 포지션 빈 카드의 자원 원인을 함께 줄였습니다. "
+            "추가 피드백으로 현재 잔고 기반 통합자산·KRW/USDT 분리, AI 애널리스트의 생존 입력창 재연결, 실제 AI 질문의 하단 실행 기록도 보강했습니다.\n"
+            "AI 커스텀 본 업데이트는 Noah Strategy IR v1과 원본 근거 추적, Level 1·2·3, "
             "초보자/일반/고급/실험실 프로필, PnL·MDD·월별·연별 검증표, 중첩 Expression Graph, "
             "제한형 사용자 지표 언어, .noahstrategy 패키지, 품질·감사 보고서와 서명 webhook 게이트를 포함합니다.\n"
             "Windows 새 실행 파일과 실제 TradingView/webhook·장시간 PAPER/LIVE·서버 팀 공유는 별도 검증 대상이며, "
