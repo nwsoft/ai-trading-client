@@ -987,7 +987,20 @@ class ModernDashboard(ctk.CTk):
                         getattr(self, 'current_service', 'blockchain') or 'blockchain'
                     ).strip().lower()
                     target_service = 'stock' if current_service == 'stock' else 'blockchain'
-                    self.clear_service_sub_tabs(target_service)
+                    if target_service == 'stock':
+                        desired_labels = [
+                            str(item).upper()
+                            for item in self.settings.get('enabled_stock_brokers', [])
+                        ]
+                    else:
+                        desired_labels = [str(item).upper() for item in enabled]
+                    rendered = dict(self.service_sub_tabs.get(target_service, {}) or {})
+                    rebuild_required = (
+                        list(rendered.keys()) != desired_labels
+                        or not all(widget_is_alive(frame) for frame in rendered.values())
+                    )
+                    if rebuild_required:
+                        self.clear_service_sub_tabs(target_service)
                     self.create_service_sub_tabs(target_service)
                 except Exception as ie:
                     try:
@@ -1745,6 +1758,20 @@ class ModernDashboard(ctk.CTk):
             self.logger.info(f"[DEBUG] AI 학습 탭 생성/조회: {tab_name}")
             tab = self._get_or_add_tab(tab_name)
             self.logger.info("[DEBUG] AI 학습 탭 획득 완료")
+            cached = self._widget_ownership.resolve_attribute(self, "ai_learning_widget")
+            if cached is not None and tab.winfo_children():
+                try:
+                    cached.set_service_context(
+                        str(getattr(self, 'current_service', 'blockchain') or 'blockchain'),
+                        announce=False,
+                    )
+                except TypeError:
+                    cached.set_service_context(
+                        str(getattr(self, 'current_service', 'blockchain') or 'blockchain')
+                    )
+                except Exception:
+                    pass
+                return
             # 기존 내용 초기화 후 재구성 (중복 방지)
             self._clear_tab_children(tab)
 
@@ -1920,6 +1947,9 @@ class ModernDashboard(ctk.CTk):
                 return
             tab_name = "AI 리포트"
             tab = self._get_or_add_tab(tab_name)
+            cached = self._widget_ownership.resolve_attribute(self, "ai_report_widget")
+            if cached is not None and tab.winfo_children():
+                return
             # 기존 내용 초기화 후 재구성 (중복 방지)
             self._clear_tab_children(tab)
 
@@ -6887,6 +6917,15 @@ class ModernDashboard(ctk.CTk):
             ).strip().lower()
             target_service = str(service_name or '').strip().lower()
 
+            # 활성 서비스 버튼을 다시 누르는 것은 화면 전체 재생성 명령이 아니다.
+            # 과거에는 같은 버튼 클릭마다 모든 탭/메뉴/after job을 폐기 후 재할당해
+            # Windows USER menu 한도와 부분 렌더 실패를 유발했다.
+            if previous_service == target_service:
+                self._update_service_button_styles(target_service)
+                self._apply_service_tab_policy(target_service)
+                log_windows_gui_resources(self.logger, f"service-switch-reused:{target_service}")
+                return
+
             if target_service != 'stock':
                 self._stop_stock_auto_trade_loop()
 
@@ -7198,9 +7237,13 @@ class ModernDashboard(ctk.CTk):
             try:
                 current = None
                 try:
-                    # CTkTabview는 get() 미지원일 수 있으므로 세이프 가드
-                    if hasattr(tv, "_name_list") and tv._name_list:  # type: ignore[attr-defined]
-                        current = tv._name_list[0]  # 첫 탭을 최소 선택
+                    getter = getattr(tv, "get", None)
+                    if callable(getter):
+                        current = getter()
+                    if not current:
+                        current = getattr(tv, "_current_name", None)
+                    if not current and hasattr(tv, "_name_list") and tv._name_list:  # type: ignore[attr-defined]
+                        current = tv._name_list[0]
                 except Exception:
                     pass
                 if current:
@@ -9259,6 +9302,26 @@ class ModernDashboard(ctk.CTk):
                 return
 
             if service_name == 'blockchain':
+                desired_labels = [
+                    str(exchange).upper()
+                    for exchange in self.settings.get('enabled_exchanges', ['binance'])
+                ]
+            elif service_name == 'stock':
+                desired_labels = [
+                    str(broker).upper()
+                    for broker in self.settings.get('enabled_stock_brokers', [])
+                ]
+            else:
+                desired_labels = []
+            existing_tabs = dict(self.service_sub_tabs.get(service_name, {}) or {})
+            if (
+                list(existing_tabs.keys()) == desired_labels
+                and all(widget_is_alive(frame) for frame in existing_tabs.values())
+            ):
+                self._apply_service_tab_policy(service_name)
+                return
+
+            if service_name == 'blockchain':
                 # 설정에서 활성화된 거래소만 탭 생성
                 enabled_exchanges = self.settings.get('enabled_exchanges', ['binance'])
                 for exchange in enabled_exchanges:
@@ -9325,8 +9388,41 @@ class ModernDashboard(ctk.CTk):
                         right_pane = ctk.CTkFrame(root_split, fg_color="#0b1120")
                         right_pane.pack(side="left", fill="both", expand=True)
                         self.create_exchange_logs_section(right_pane, exchange)
+                        section_frames = {
+                            "control": control_frame,
+                            "balance": balance_frame,
+                            "positions": positions_frame,
+                            "stats": stats_frame,
+                            "logs": right_pane,
+                        }
+                        incomplete = [
+                            name for name, frame in section_frames.items()
+                            if not list(frame.winfo_children())
+                        ]
+                        if incomplete:
+                            raise RuntimeError(
+                                "service_tab_partial_render:" + ",".join(incomplete)
+                            )
                     except Exception as e:
-                        print(f"하위 탭 생성 실패: {exchange} - {e}")
+                        try:
+                            self.logger.exception(f"하위 탭 생성 실패: {exchange} - {e}")
+                        except Exception:
+                            print(f"하위 탭 생성 실패: {exchange} - {e}")
+                        try:
+                            self._clear_tab_children(tab)
+                            error_card = self._create_card_frame(tab, corner_radius=14)
+                            error_card.pack(fill="x", padx=24, pady=24)
+                            ctk.CTkLabel(
+                                error_card,
+                                text=(
+                                    f"{exchange.upper()} 화면을 완전하게 만들지 못했습니다.\n"
+                                    "부분 화면으로 거래하지 말고 프로그램을 재시작한 뒤 다시 확인하세요."
+                                ),
+                                text_color="#fca5a5",
+                                justify="left",
+                            ).pack(anchor="w", padx=16, pady=16)
+                        except Exception:
+                            pass
             elif service_name == 'stock':
                 # 설정에서 활성화된 증권사만 탭 생성
                 enabled_brokers = self.settings.get('enabled_stock_brokers', [])
@@ -9394,8 +9490,26 @@ class ModernDashboard(ctk.CTk):
                         right_pane = ctk.CTkFrame(root_split, fg_color="#0b1120")
                         right_pane.pack(side="left", fill="both", expand=True)
                         self.create_broker_logs_section(right_pane, broker)
+                        section_frames = {
+                            "control": control_frame,
+                            "balance": balance_frame,
+                            "positions": positions_frame,
+                            "stats": stats_frame,
+                            "logs": right_pane,
+                        }
+                        incomplete = [
+                            name for name, frame in section_frames.items()
+                            if not list(frame.winfo_children())
+                        ]
+                        if incomplete:
+                            raise RuntimeError(
+                                "service_tab_partial_render:" + ",".join(incomplete)
+                            )
                     except Exception as e:
-                        print(f"하위 탭 생성 실패: {broker} - {e}")
+                        try:
+                            self.logger.exception(f"하위 탭 생성 실패: {broker} - {e}")
+                        except Exception:
+                            print(f"하위 탭 생성 실패: {broker} - {e}")
             self.after_idle(self._apply_source_tab_distinction)
             try:
                 self._apply_service_tab_policy(service_name)
@@ -11795,6 +11909,28 @@ class ModernDashboard(ctk.CTk):
         try:
             print("[DEBUG] dashboard on_closing called")
 
+            # 거래소 어댑터를 멈춘 뒤에는 포지션/미체결 조회가 실패할 수 있다.
+            # 업데이트 안전 승인은 반드시 안전 종료보다 먼저, 정확한 staged SHA에
+            # 묶어서 수행한다. 적용 단계에서는 이 승인을 재사용한다.
+            update_preflight = {"ok": True, "needed": False}
+            try:
+                if (
+                    hasattr(self, 'main_app')
+                    and self.main_app
+                    and hasattr(self.main_app, 'prepare_update_preflight_on_exit')
+                ):
+                    update_preflight = dict(
+                        self.main_app.prepare_update_preflight_on_exit() or update_preflight
+                    )
+            except Exception as preflight_e:
+                update_preflight = {
+                    "ok": False,
+                    "needed": True,
+                    "reason": "preflight_exception",
+                    "error": str(preflight_e),
+                }
+                print(f"자동 업데이트 사전 승인 실패: {preflight_e}")
+
             # 거래 중지 -> DB flush -> 로그 flush 후 위젯을 파괴한다.
             try:
                 shutdown_ok = True
@@ -11808,6 +11944,7 @@ class ModernDashboard(ctk.CTk):
             try:
                 if (
                     shutdown_ok
+                    and update_preflight.get("ok", False)
                     and hasattr(self, 'main_app')
                     and self.main_app
                     and hasattr(self.main_app, 'prepare_update_apply_on_exit')
@@ -11817,6 +11954,11 @@ class ModernDashboard(ctk.CTk):
                         print("[AUTO_UPDATE] 종료 시 업데이트 적용 스크립트 예약 완료")
                 elif not shutdown_ok:
                     print("[AUTO_UPDATE] 안전 종료 또는 DB flush 실패로 업데이트 적용을 연기합니다.")
+                elif update_preflight.get("needed"):
+                    print(
+                        "[AUTO_UPDATE] 종료 전 안전 승인 실패로 업데이트 적용을 연기합니다: "
+                        f"{update_preflight.get('reason', 'unknown')}"
+                    )
             except Exception as _up_e:
                 print(f"자동 업데이트 적용 예약 실패: {_up_e}")
 

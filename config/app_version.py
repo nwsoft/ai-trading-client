@@ -9,10 +9,10 @@
 
 RELEASE_VERSION = "3.9.0.8"
 RELEASE_DATE = "2026-08-10"
-RELEASE_HIGHLIGHT = "AI 커스텀 P1~P3 · Windows UI 생명주기·서비스 탭 안정화"
-RELEASE_PATCH = "AI Custom Update Fix 1"
+RELEASE_HIGHLIGHT = "AI 커스텀 P1~P3 · 자동업데이트 상태 머신·Windows UI 재사용 안정화"
+RELEASE_PATCH = "AI Custom Update Fix 2"
 RELEASE_BUILD_LABEL = f"v{RELEASE_VERSION} {RELEASE_PATCH}"
-RELEASE_NOTICE_ID = "v3.9.0.8-ai-custom-fix1-ui-lifecycle-source-candidate"
+RELEASE_NOTICE_ID = "v3.9.0.8-ai-custom-fix2-updater-ui-root-contract-source-candidate"
 
 DASHBOARD_TITLE = f"Noah AI Client - 대시보드 Beta {RELEASE_VERSION} {RELEASE_PATCH}"
 USER_MANUAL_TITLE = f"NoahAI 사용메뉴얼 {RELEASE_BUILD_LABEL}"

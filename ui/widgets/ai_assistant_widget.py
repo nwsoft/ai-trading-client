@@ -1497,16 +1497,23 @@ class AIAssistantWidget(CTkFrame):
 
     @staticmethod
     def _build_fix1_feedback_support(message: str) -> Optional[str]:
-        """Fix 1 추가 피드백 기능을 Provider 없이도 정확히 안내한다."""
+        """Fix 1/2 장애·복구 계약을 Provider 없이도 정확히 안내한다."""
         normalized = str(message or '').lower().replace(' ', '')
+        if any(token in normalized for token in ('자동업데이트', '업데이트안됨', '재시작업데이트', '다운로드완료', 'sha256', 'fix2')):
+            return (
+                "NoahAI입니다. Fix 2 자동업데이트는 거래소를 끄기 전에 staged EXE·SHA-256·설치 경로에 묶인 안전 승인을 받고, "
+                "안전 종료 뒤 승인된 파일만 교체합니다. 복사 후와 재시작 후 설치 EXE SHA-256이 배포 manifest와 같아야 완료입니다.\n"
+                "기존 Fix 1은 다운로드 뒤 적용이 막히거나 초기 API 연결 지연을 실패로 오판해 이전 EXE로 복원될 수 있으므로 최초 Fix 2는 수동 교체합니다. "
+                "그 뒤 설정 → 업데이트에서 적용 단계와 현재/배포 SHA 앞 12자리가 같은지 확인하세요. 실패하면 단계·오류 문구·SHA 앞 12자리만 전달하고 API 키나 계정정보는 보내지 마세요."
+            )
         if any(token in normalized for token in ('nomoremenus', '메뉴할당', 'invalidcommand', '화면오류', '탭오류', 'fix1')):
             return (
-                "NoahAI입니다. Fix 1은 제보된 화면만 개별 예외 처리하지 않습니다. 설정창은 한 인스턴스를 재사용하고, "
+                "NoahAI입니다. Fix 2는 제보된 화면만 개별 예외 처리하지 않습니다. 설정창은 한 인스턴스를 재사용하고, "
                 "시장 트렌드·금융 인텔리전스·AlphaArena·코인/종목 정보·거래 통계·AI 화면은 공통 탭 소유권으로 "
-                "예전 위젯 참조·콜백·native 메뉴를 함께 정리합니다.\n"
+                "예전 위젯 참조·콜백·native 메뉴를 함께 정리합니다. 같은 서비스와 동일 source 구성은 화면을 다시 만들지 않고 재사용하며 일부 섹션만 생성된 화면은 정상으로 표시하지 않습니다.\n"
                 "`No more menus can be allocated` 또는 `invalid command name`이 다시 나오면 정상 동작이 아닙니다. "
                 "설정/서비스 반복 횟수, 직전 화면, 발생 시각 로그와 전체 화면만 전달하고 API 키·계정정보는 보내지 마세요. "
-                "새 Windows EXE의 100회 왕복과 USER/GDI 상한 검증 전에는 설치본 완료로 판단하지 않습니다."
+                "Fix 2 새 Windows EXE의 100회 왕복과 USER/GDI 상한 검증 전에는 설치본 완료로 판단하지 않습니다."
             )
         if any(token in normalized for token in ('통합자산', '자산통합', '자산배분', 'hhi', '집중도')):
             return (
@@ -1993,7 +2000,7 @@ class AIAssistantWidget(CTkFrame):
                 return
 
             # 현재 거래 상황 데이터 수집
-            context = self._get_current_trading_context()
+            context = self._get_current_trading_context(message)
             settings_knowledge = self._settings_knowledge_for_question(message)
             if settings_knowledge:
                 # 질문과 직접 관련된 설정 지식을 앞에 두어 긴 거래 컨텍스트가
@@ -2305,7 +2312,7 @@ class AIAssistantWidget(CTkFrame):
     def _generate_local_fallback_response(self, message: str, reason: str = "AI 응답 불안정") -> str:
         """AI 응답 실패 시 현재 앱에서 확인 가능한 정보로 안전하게 안내"""
         try:
-            context = self._get_current_trading_context()
+            context = self._get_current_trading_context(message)
             settings_knowledge = self._settings_knowledge_for_question(message)
             if settings_knowledge:
                 return (
@@ -2317,7 +2324,15 @@ class AIAssistantWidget(CTkFrame):
 
             tips: List[str] = []
             if "거래" in message_lower and ("없" in message_lower or "부재" in message_lower):
-                tips.append("- 거래 부재 문의입니다. 거래소 연결 상태, 잔고, 선택 코인, 활성 포지션부터 점검하세요.")
+                target = self._exchange_from_question(message) or "화면 선택 거래소"
+                tips.append(
+                    f"- {target} 거래 부재 문의입니다. 아래의 해당 거래소 최근 실행 판단과 "
+                    "차단 사유를 기준으로 확인합니다. 완료 거래가 0건인 것 자체는 진입 차단 사유가 아닙니다."
+                )
+                tips.append(
+                    "- 정확한 진입 시각은 약속할 수 없습니다. 다음 분석 주기에 신호·신뢰도·잔고·최소주문·"
+                    "위험한도·소유권 조건을 모두 통과할 때만 주문됩니다."
+                )
             if any(keyword in message_lower for keyword in ["포지션", "비중", "레버리지", "전략"]):
                 tips.append("- 설정 조정형 요청은 거래소 연결과 무관하게 settings 저장으로 처리할 수 있습니다.")
             if "리스크" in message_lower or "위험" in message_lower:
@@ -2326,7 +2341,18 @@ class AIAssistantWidget(CTkFrame):
             if not tips:
                 tips.append("- 현재 확인 가능한 거래 현황을 먼저 안내합니다.")
 
-            short_context = "\n".join(context.splitlines()[:12]) if context else "거래 상황 요약을 불러오지 못했습니다."
+            if context:
+                context_lines = context.splitlines()
+                diagnostic_lines = [
+                    line for line in context_lines
+                    if any(key in line for key in (
+                        '질문 대상 거래소', '거래소 연결 상태', '설정 레버리지 상한',
+                        '최근 유효 주문 파라미터', '최근 실행 판단', '활성 포지션'
+                    ))
+                ]
+                short_context = "\n".join((context_lines[:6] + diagnostic_lines)[:16])
+            else:
+                short_context = "거래 상황 요약을 불러오지 못했습니다."
             return (
                 f"AI 실시간 응답이 일시적으로 불안정하여 로컬 진단으로 안내합니다.\n"
                 f"사유: {reason}\n\n"
@@ -3045,7 +3071,23 @@ AI 상태: {ai_status}"""
         except Exception:
             pass
 
-    def _get_current_trading_context(self) -> str:
+    @staticmethod
+    def _exchange_from_question(message: str) -> Optional[str]:
+        text = str(message or '').lower()
+        aliases = {
+            'binance': ('바이낸스', 'binance'),
+            'upbit': ('업비트', 'upbit'),
+            'bithumb': ('빗썸', 'bithumb'),
+            'bybit': ('바이비트', 'bybit'),
+            'okx': ('오케이엑스', 'okx'),
+            'bitget': ('비트겟', 'bitget'),
+        }
+        for exchange, names in aliases.items():
+            if any(name in text for name in names):
+                return exchange
+        return None
+
+    def _get_current_trading_context(self, question: str = '') -> str:
         """현재 거래 상황 데이터 수집 (CustomTkinter 버전)"""
         try:
             context_parts = []
@@ -3157,8 +3199,10 @@ AI 상태: {ai_status}"""
             # 1. 거래소 정보 및 연결 상태
             if hasattr(dashboard, 'exchange_manager') and dashboard.exchange_manager:
                 exchange_manager = dashboard.exchange_manager
-                selected_exchange = exchange_manager.settings.get('selected_exchange', 'binance')
-                context_parts.append(f"현재 거래소: {selected_exchange}")
+                ui_selected_exchange = exchange_manager.settings.get('selected_exchange', 'binance')
+                selected_exchange = self._exchange_from_question(question) or ui_selected_exchange
+                context_parts.append(f"화면 선택 거래소: {ui_selected_exchange}")
+                context_parts.append(f"질문 대상 거래소: {selected_exchange}")
 
                 # 거래소 연결 상태 확인 (개선된 버전)
                 try:
@@ -3224,9 +3268,12 @@ AI 상태: {ai_status}"""
             # 3. 현재 설정 정보 (상세)
             if hasattr(dashboard, 'settings') and dashboard.settings:
                 settings = dashboard.settings
-                context_parts.append(f"레버리지: {settings.get('default_leverage', 1)}x")
-                context_parts.append(f"TP: {settings.get('default_tp', 0.0015)*100:.1f}%")
-                context_parts.append(f"SL: {settings.get('default_sl', 0.0020)*100:.1f}%")
+                context_parts.append(
+                    f"설정 레버리지 상한: {settings.get('default_leverage', 1)}x "
+                    "(실제 주문 레버리지가 아님)"
+                )
+                context_parts.append(f"설정 TP 기본값: {settings.get('default_tp', 0.0015)*100:.2f}%")
+                context_parts.append(f"설정 SL 기본값: {settings.get('default_sl', 0.0020)*100:.2f}%")
                 context_parts.append(f"최소 거래 금액: {settings.get('min_trade_amount', 5)} USDT")
 
                 # AI 거래 설정
@@ -3332,23 +3379,27 @@ AI 상태: {ai_status}"""
                     position_info = []
                     total_position_value = 0.0
                     for symbol, position in active_positions.items():
-                        if not isinstance(position, dict):
-                            continue
-
+                        getter = (
+                            (lambda key, default=None: position.get(key, default))
+                            if isinstance(position, dict)
+                            else (lambda key, default=None: getattr(position, key, default))
+                        )
                         try:
-                            size = float(position.get('size', 0) or 0)
+                            size = float(getter('quantity', getter('size', 0)) or 0)
                         except Exception:
                             size = 0.0
 
                         if size <= 0:
                             continue
 
-                        side = position.get('side', 'UNKNOWN')
-                        entry_price = float(position.get('entry_price', 0) or 0)
-                        current_price = float(position.get('current_price', 0) or 0)
-                        pnl = float(position.get('pnl', 0) or 0)
+                        side_value = getter('side', 'UNKNOWN')
+                        side = getattr(side_value, 'value', side_value)
+                        entry_price = float(getter('entry_price', 0) or 0)
+                        current_price = float(getter('current_price', 0) or 0)
+                        pnl = float(getter('unrealized_pnl', getter('pnl', 0)) or 0)
+                        leverage = int(getter('leverage', 1) or 1)
 
-                        position_str = f"{symbol}: {side} {size} @ {entry_price:.4f}"
+                        position_str = f"{symbol}: {side} {size} @ {entry_price:.4f}, 실제 {leverage}x"
                         if current_price > 0:
                             position_str += f" (현재: {current_price:.4f}, PnL: {pnl:.2f})"
                             total_position_value += abs(size * current_price)
@@ -3364,6 +3415,39 @@ AI 상태: {ai_status}"""
                     context_parts.append("활성 포지션: 없음")
             except Exception as e:
                 context_parts.append(f"포지션 정보: 조회 오류 - {str(e)}")
+
+            # 설정값과 실제 주문값을 혼동하지 않도록 마지막 실행 판단을 별도 제공한다.
+            try:
+                runtime = getattr(dashboard, 'unified_trader', None)
+                if selected_exchange == 'binance' and getattr(dashboard, 'trader', None):
+                    effective = getattr(dashboard.trader, 'last_effective_trade_params', {}) or {}
+                else:
+                    effective = (
+                        (getattr(runtime, 'last_effective_trade_params', {}) or {}).get(selected_exchange, {})
+                        if runtime else {}
+                    )
+                if effective:
+                    latest_symbol, latest = list(effective.items())[-1]
+                    context_parts.append(
+                        f"최근 유효 주문 파라미터({latest_symbol}): "
+                        f"설정상한 {latest.get('configured_leverage', '-')}x → "
+                        f"실제 {latest.get('effective_leverage', '-')}x; "
+                        f"근거={latest.get('leverage_reason', '-')}"
+                    )
+                decisions = (
+                    (getattr(runtime, 'last_trade_decisions', {}) or {}).get(selected_exchange, {})
+                    if runtime else {}
+                )
+                if decisions:
+                    latest_symbol, latest = max(
+                        decisions.items(), key=lambda item: str(item[1].get('recorded_at', ''))
+                    )
+                    context_parts.append(
+                        f"최근 실행 판단({latest_symbol}): {latest.get('status', '-')} - "
+                        f"{latest.get('reason', '사유 없음')}"
+                    )
+            except Exception as e:
+                context_parts.append(f"최근 실행 판단: 조회 오류 - {e}")
 
             # 6. 시장 데이터 (새로 추가)
             if hasattr(dashboard, 'exchange_manager') and dashboard.exchange_manager:

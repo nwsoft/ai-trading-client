@@ -2,6 +2,15 @@
 
 ## AI 자산 의사결정 인프라 로드맵 (v3.9.0.8 업데이트+)
 
+### 2026-08-11 v3.9.0.8 AI Custom Update Fix 2
+
+- `[Fix 2 소스 완료]` 업데이트를 `종료 전 거래 안전 승인 → 안전 종료/flush → 승인된 SHA 적용 → 복사 후 SHA 검증 → 재시작 health` 단일 상태 머신으로 통합
+- `[Fix 2 소스 완료]` 같은 버전 패치의 설치 완료를 버전 문자열이 아니라 설치 EXE SHA-256으로 판정하고 실패 단계·staged 자산을 재시도 가능하게 보존
+- `[Fix 2 소스 완료]` 유지 포지션이 없는 시작 API 지연은 advisory, 유지 포지션은 최대 30초 API·포지션 복구 재시도 후 fail-closed
+- `[Fix 2 소스 완료]` 동일 서비스·동일 source 구성·공통 AI 탭 재사용, 현재 선택 탭 보존, 부분 서비스 화면 fail-closed
+- `[Fix 2 외부 게이트]` 최초 Fix 2 수동 교체, 이후 same-version 자동업데이트, 설정/서비스 100회 USER·GDI 측정, 빌드 DLL·Tcl/Tk·EXE SHA 검증
+- 근본 원인·판정 기준은 `INCIDENT_260811_V3908_FIX2_UPDATER_UI_ROOT_CAUSE.md`에서 관리
+
 ### 2026-08-10 v3.9.0.8 AI Custom Update Fix 1
 
 - `[2026-08-11 공통 원인 완료]` 현재 잔고를 스레드 안전 단일 저장소로 통합하고 구형/신형 거래 DB 어댑터를 통합자산·시나리오·보안 경고가 함께 사용, KRW/USDT 무단 합산 차단

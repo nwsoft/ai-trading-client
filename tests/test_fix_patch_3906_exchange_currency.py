@@ -7,6 +7,7 @@ import pytest
 
 from trading.recorder import Recorder
 from trading.unified_trader import UnifiedTrader
+from trading.trader import Trader
 from scripts.generate_champion_challenger_7d_report import generate_report
 from utils.report_formatting import format_champion_challenger_section
 
@@ -105,6 +106,24 @@ def test_learning_store_does_not_require_nonexistent_closed_history():
     assert thresholds["min_ai_confidence"] == 0.45
 
 
+def test_binance_learning_store_uses_the_same_zero_history_contract():
+    trader = Trader.__new__(Trader)
+    trader.logger = logging.getLogger("test.v3906.binance")
+    trader._get_recent_learning_entries = lambda **_kwargs: [
+        {
+            "confidence": 0.5,
+            "recent_trade_count": 0,
+            "recent_win_rate": 0.0,
+        }
+        for _ in range(40)
+    ]
+
+    thresholds = trader._get_ai_learned_thresholds("BTCUSDT")
+
+    assert thresholds["min_trades_history"] == 0
+    assert thresholds["min_ai_confidence"] == 0.45
+
+
 def test_learned_minimum_never_exceeds_observed_completed_history():
     trader = _bare_trader()
     trader._get_recent_learning_entries_unified = lambda **_kwargs: [
@@ -141,7 +160,9 @@ def test_missing_history_is_not_scored_as_zero_percent_win_rate():
 
     assert result["confidence"] == 0.6
     assert "낮은 승률" not in result["reasoning"]
-    assert "초기 검증" in result["reasoning"]
+    assert "제한 학습 허용" in result["reasoning"]
+    assert "진입 차단 사유 아님" in result["reasoning"]
+    assert result["history_gate_blocked"] is False
 
 
 def test_market_thresholds_do_not_create_a_cold_start_deadlock():

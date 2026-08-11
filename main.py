@@ -2662,7 +2662,9 @@ class NoahAIClient:
                         notify_callback=self._notify_auto_update,
                     )
                     if self.auto_update_manager.needs_post_update_health_check():
-                        self.dashboard.safe_after(1000, self._run_post_update_health_async)
+                        # PyInstaller one-file 압축 해제와 거래소 어댑터 초기화가
+                        # 끝날 시간을 준 뒤 설치 SHA/DB/포지션 복구를 검증한다.
+                        self.dashboard.safe_after(5000, self._run_post_update_health_async)
             except Exception as _up_e:
                 if logger:
                     logger.warning(f"자동 업데이트 스케줄러 시작 실패: {_up_e}")
@@ -2776,6 +2778,15 @@ class NoahAIClient:
             return bool(self.auto_update_manager.apply_pending_update_and_restart())
         except Exception:
             return False
+
+    def prepare_update_preflight_on_exit(self) -> Dict[str, Any]:
+        """거래소 어댑터를 정지하기 전에 업데이트 적용을 승인한다."""
+        try:
+            if self.auto_update_manager is None:
+                return {"ok": True, "needed": False}
+            return dict(self.auto_update_manager.authorize_pending_update() or {})
+        except Exception as exc:
+            return {"ok": False, "needed": True, "reason": "preflight_exception", "error": str(exc)}
 
     @staticmethod
     def _update_position_symbol(position: Any) -> str:
@@ -2914,17 +2925,35 @@ class NoahAIClient:
                 checks["db"] = str(connection.execute("PRAGMA quick_check").fetchone()[0]).lower() == "ok"
         except Exception as exc:
             checks["db_error"] = str(exc)
-        state = self._collect_update_exchange_state()
-        checks["api"] = bool(state.get("ok"))
         expected = {
             (str(row.get("exchange") or ""), str(row.get("symbol") or ""))
             for row in ((transaction.get("preflight") or {}).get("expected_positions") or [])
         }
-        actual = {
-            (str(row.get("exchange") or ""), str(row.get("symbol") or ""))
-            for row in (state.get("positions") or [])
-        }
-        checks["positions"] = expected == actual
+        # 포지션을 유지한 업데이트만 거래소 복구를 blocking 조건으로 삼는다.
+        # 빈 계좌에서도 시작 1초 안에 모든 활성 거래소 API가 연결되어야 한다는
+        # 기존 조건은 정상 교체본을 실패로 오판하고 이전 EXE로 롤백시켰다.
+        state: Dict[str, Any] = {}
+        actual = set()
+        attempts = 6 if expected else 1
+        for attempt in range(attempts):
+            state = self._collect_update_exchange_state()
+            actual = {
+                (str(row.get("exchange") or ""), str(row.get("symbol") or ""))
+                for row in (state.get("positions") or [])
+            }
+            if not expected or (state.get("ok") and actual == expected):
+                break
+            if attempt + 1 < attempts:
+                time.sleep(5)
+
+        if expected:
+            checks["api"] = bool(state.get("ok"))
+            checks["positions"] = expected == actual
+        else:
+            checks["api"] = True
+            checks["positions"] = True
+            if not state.get("ok"):
+                checks["api_advisory"] = list(state.get("errors") or [])
         return {
             "ok": all(checks.get(key) is True for key in ("version", "db", "api", "positions")),
             "checks": checks,

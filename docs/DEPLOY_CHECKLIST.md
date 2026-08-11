@@ -1,4 +1,4 @@
-# 배포 체크리스트 (2026-08-10 · v3.9.0.8 AI Custom Update Fix 1 기준)
+# 배포 체크리스트 (2026-08-10 · v3.9.0.8 AI Custom Update Fix 2 기준)
 
 운영 환경 배포 전/후 점검해야 할 항목을 정리했습니다. 이 문서는 `noahai_client/build_safe.py`의 현재 PyInstaller 스펙을 기준으로 작성되었습니다.
 
@@ -52,7 +52,7 @@
 ## 1-A) 사용자 동선/매뉴얼 동기화 (배포 게이트)
 - 새 EXE를 캐시의 `AITrading.new.exe`가 아니라 정상 설치 경로에서 실행하고 자동 업데이트 진단의 설치 대상도 같은 정상 EXE인지 확인
 - `release-manifest.json`에 `sha256_required=true`, `authenticode_required=false`가 있고 EXE SHA-256이 실제 파일과 일치하지 않으면 업로드하지 않음
-- 릴리스 자산 재생성 뒤에도 `release_label=v3.9.0.8 AI Custom Update Fix 1`가 유지되고, EXE가 있으면 `build_status=built`, `size>0`, SHA-256 비어 있지 않음을 확인
+- 릴리스 자산 재생성 뒤에도 `release_label=v3.9.0.8 AI Custom Update Fix 2`가 유지되고, EXE가 있으면 `build_status=built`, `size>0`, SHA-256 비어 있지 않음을 확인
 - EXE 아카이브에 `PyQt5/Qt5/bin` 또는 `pandas` 하위 `MSVCP140*.dll`/`VCRUNTIME140*.dll`이 없고 루트 단일 세트가 빌드에 사용한 공식 VC143 원본 SHA-256과 일치하는지 확인
 - 키움 로그인/진단과 실제 차트 OCR을 각각 실행해 PyQt5와 ONNX가 모두 보존됐는지 확인
 - 승인된 레퍼럴 계정으로 Binance PAPER를 60분 이상 실행하고 제보 PC에서도 APPCRASH 재발 여부와 새 덤프를 확인
@@ -87,7 +87,7 @@
 - 인증 개인 체결 스트림을 연결한 거래소는 공개 시세 WS와 별개로 건강 상태가 표시되고, 끊김 뒤 마지막 커서 이후 REST 증분 복구가 중복 없이 이어지는지 확인
 - 전략 검증 연구소의 미사용 구간·워크포워드·비용/파라미터 민감도·몬테카를로·과최적화·PAPER 결과를 확인하고 `auto_promoted=false`인지 확인
 - `.noahstrategy` 6단계 구현 시 API 키·계좌·잔고·개인 거래·로컬 절대경로·승인/활성 상태가 포함되면 내보내기/가져오기가 모두 실패 폐쇄되는지 확인
-- 대시보드 하단에 `v3.9.0.8 AI Custom Update Fix 1` 식별과 `업데이트·사용법` 버튼이 노출되는지 확인
+- 대시보드 하단에 `v3.9.0.8 AI Custom Update Fix 2` 식별과 `업데이트·사용법` 버튼이 노출되는지 확인
 - 1500×980과 배포 최소 지원 해상도에서 하단 3영역이 한 줄로 유지되고 거래소·분석 탭의 마지막 카드·버튼이 잘리지 않는지 확인
 - macOS와 Windows에서 상단 서비스·매뉴얼·설정·종료 아이콘의 모양·크기·정렬이 동일한지 확인
 - 현재 서비스의 고유 선택 색상·테두리와 비선택 탭의 배경 구분이 명확한지 확인

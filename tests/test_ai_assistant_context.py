@@ -206,7 +206,7 @@ class AIAssistantContextTests(unittest.TestCase):
         )
 
         self.assertIn("현재 AI 커스텀 실자동매매 사용 스위치: OFF", response)
-        self.assertIn("v3.9.0.8 AI Custom Update Fix 1", response)
+        self.assertIn("v3.9.0.8 AI Custom Update Fix 2", response)
         self.assertIn("원문의 어느 문장·화면이 어떤 IR 노드", response)
         self.assertIn("Level 1", response)
         self.assertIn("미지원은 차단", response)
@@ -761,6 +761,52 @@ class AIAssistantSettingsHistoryTests(unittest.TestCase):
         self.assertFalse(saved)
         self.assertEqual(widget.parent_dashboard.settings["default_leverage"], 3)
         self.assertTrue(any("저장 직전 안전 재검증" in message for message in widget.messages))
+
+    def test_question_exchange_overrides_screen_selection_and_shows_effective_leverage(self):
+        widget = self._make_widget()
+        unified = SimpleNamespace(
+            active_positions={"upbit": {}},
+            last_effective_trade_params={
+                "upbit": {
+                    "BTC/KRW": {
+                        "configured_leverage": 10,
+                        "effective_leverage": 1,
+                        "leverage_reason": "현물 거래소는 레버리지를 사용하지 않음",
+                    }
+                }
+            },
+            last_trade_decisions={
+                "upbit": {
+                    "BTC/KRW": {
+                        "status": "skipped",
+                        "reason": "최소 주문금액 미달",
+                        "recorded_at": "2026-08-11T00:00:00+00:00",
+                    }
+                }
+            },
+        )
+        widget.parent_dashboard = SimpleNamespace(
+            current_service="blockchain",
+            exchange_manager=FakeExchangeManager(),
+            settings={
+                "selected_exchange": "binance",
+                "default_leverage": 10,
+                "default_tp": 0.0018,
+                "default_sl": 0.0020,
+            },
+            recorder=FakeRecorder(),
+            trader=None,
+            unified_trader=unified,
+            selected_coins=[],
+        )
+
+        context = widget._get_current_trading_context("업비트는 왜 거래하지 않았나요?")
+
+        self.assertIn("화면 선택 거래소: binance", context)
+        self.assertIn("질문 대상 거래소: upbit", context)
+        self.assertIn("설정 레버리지 상한: 10x (실제 주문 레버리지가 아님)", context)
+        self.assertIn("설정상한 10x → 실제 1x", context)
+        self.assertIn("최소 주문금액 미달", context)
 
 
 if __name__ == "__main__":

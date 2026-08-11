@@ -62,7 +62,15 @@ from .exit_policy import (
     record_insurance_submission,
 )
 from .execution_mode import ExecutionMode, resolve_crypto_execution_mode
+from .leverage_policy import exchange_leverage_cap, resolve_effective_leverage
 from .market_data_utils import kline_number
+from .position_ownership import (
+    NOAH_POSITION_OWNER,
+    is_noah_managed_position,
+    managed_trade_map,
+    normalize_position_symbol,
+    parse_entry_time,
+)
 from api.kpi_client import emit_kpi_event, flush_kpi_events
 from api.position_kpi import emit_position_closed, emit_position_opened, utc_now
 
@@ -105,8 +113,17 @@ class UnifiedTrader:
         except Exception:
             pass
     def _get_ai_max_positions(self, exchange_name: str) -> int:
-        """AI/동적 파라미터 기반 최대 포지션 수 결정 (임시: 3, 추후 AI가 동적으로 조절)"""
-        return 3
+        """Return the configured per-exchange cap, never more than three."""
+        try:
+            overrides = dict(
+                ((self.settings or {}).get('exchange_risk_overrides', {}) or {}).get(
+                    str(exchange_name or '').lower(), {}
+                ) or {}
+            )
+            raw = overrides.get('max_positions', (self.settings or {}).get('max_positions', 3))
+            return max(1, min(3, int(raw or 3)))
+        except (TypeError, ValueError, AttributeError):
+            return 3
 
     def _get_rr_guardrail_config(self) -> Dict[str, Any]:
         """RR 하한 가드레일 설정을 안전하게 조회합니다."""
@@ -410,6 +427,11 @@ class UnifiedTrader:
             self.logger = logging.getLogger(__name__)
         self.active_positions = {}  # 실제 포지션 {exchange: {symbol: Position}}
         self.paper_positions = {}  # 가상 포지션 {exchange: {symbol: Position}}
+        self.external_position_symbols: Dict[str, set[str]] = {}
+        self.last_trade_decisions: Dict[str, Dict[str, Dict[str, Any]]] = {}
+        self.last_effective_trade_params: Dict[str, Dict[str, Dict[str, Any]]] = {}
+        self._close_failure_fingerprints: Dict[str, str] = {}
+        self._close_retry_state: Dict[str, Dict[str, Any]] = {}
         self.monitoring_flags = {}  # {exchange: bool}
         self.monitoring_threads = {}  # {exchange: Thread}
         self.advanced_order_managers = {}
@@ -797,6 +819,63 @@ class UnifiedTrader:
                 self.paper_positions = {}
             return self.paper_positions.setdefault(exchange_name, {})
         return self.active_positions.setdefault(exchange_name, {})
+
+    def _managed_open_trade_map(self, exchange_name: str) -> Dict[str, Dict[str, Any]]:
+        getter = getattr(getattr(self, 'recorder', None), 'get_open_managed_trades', None)
+        rows = getter(exchange_name) if callable(getter) else []
+        return dict(managed_trade_map(rows or []))
+
+    def _remember_trade_decision(
+        self,
+        exchange_name: str,
+        symbol: str,
+        status: str,
+        reason: str,
+        **extra: Any,
+    ) -> None:
+        venue = str(exchange_name or '').strip().lower()
+        snapshot = {
+            'exchange': venue,
+            'symbol': str(symbol or ''),
+            'status': str(status or 'unknown'),
+            'reason': str(reason or ''),
+            'recorded_at': datetime.now(timezone.utc).isoformat(),
+            **extra,
+        }
+        if not isinstance(getattr(self, 'last_trade_decisions', None), dict):
+            self.last_trade_decisions = {}
+        self.last_trade_decisions.setdefault(venue, {})[str(symbol or '')] = snapshot
+        saver = getattr(getattr(self, 'recorder', None), 'save_ai_decision', None)
+        if callable(saver):
+            try:
+                saver(str(symbol or ''), f'trade_runtime::{venue}', snapshot)
+            except Exception:
+                pass
+
+    def _effective_leverage_policy(
+        self,
+        exchange_name: str,
+        requested: Any,
+        *,
+        cold_start: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        level = 'NORMAL'
+        analyzer = getattr(self, 'analyzer', None)
+        if analyzer is not None:
+            try:
+                market_data = analyzer._analyze_current_market_conditions()
+                level = str((market_data or {}).get('level', 'NORMAL')).upper()
+            except Exception:
+                level = 'NORMAL'
+        if level not in {'HIGH', 'NORMAL', 'LOW'}:
+            level = 'NORMAL'
+        return resolve_effective_leverage(
+            configured_leverage=requested,
+            exchange=exchange_name,
+            market_level=level,
+            exchange_max_leverage=exchange_leverage_cap(self.settings or {}, exchange_name),
+            cold_start_max_leverage=(cold_start or {}).get('max_leverage'),
+        )
 
     def _trade_stats_store(self, exchange_name: str) -> Dict[str, Any]:
         stores = self.paper_trade_stats if self._execution_mode(exchange_name) == ExecutionMode.PAPER else self.trade_stats
@@ -1840,6 +1919,11 @@ class UnifiedTrader:
                         f"⏸️ {exchange_name} {symbol} AI 커스텀 HOLD - 현재 범위·국면·진입조건 미충족: "
                         f"{candidate.reason}"
                     )
+                    self._remember_trade_decision(
+                        exchange_name, symbol, 'hold',
+                        f'AI 커스텀 후보 차단: {candidate.reason}',
+                        signal=str(analysis.get('signal', 'HOLD')),
+                    )
                     continue
                 if candidate.strategy_name:
                     self.logger.info(
@@ -1864,6 +1948,11 @@ class UnifiedTrader:
                     self.logger.warning(
                         f"⛔ {exchange_name} {symbol} 기본/confirm 후보 수익성 검증 차단: "
                         f"{profitability_report.get('reasons', [])}"
+                    )
+                    self._remember_trade_decision(
+                        exchange_name, symbol, 'blocked',
+                        f"수익성 검증 차단: {profitability_report.get('reasons', [])}",
+                        signal=str(analysis.get('signal', 'HOLD')),
                     )
                     continue
 
@@ -1896,6 +1985,11 @@ class UnifiedTrader:
                             f"⛔ {exchange_name} {symbol} {custom_name} HOLD - 후행 전략 가드레일 차단: "
                             f"{strategy_meta.get('reasons', [])}"
                         )
+                        self._remember_trade_decision(
+                            exchange_name, symbol, 'blocked',
+                            f"전략 가드레일 차단: {strategy_meta.get('reasons', [])}",
+                            signal=str(analysis.get('signal', 'HOLD')),
+                        )
                         continue
 
                 if analysis.get('signal') in ['LONG', 'SHORT']:
@@ -1906,6 +2000,14 @@ class UnifiedTrader:
                         analysis['_learning_only'] = True
                     trade_result = self._execute_signal_trade(exchange_name, symbol, analysis)
                     status = trade_result.get('status')
+                    self._remember_trade_decision(
+                        exchange_name,
+                        symbol,
+                        str(status or 'unknown'),
+                        str(trade_result.get('reason') or trade_result.get('error') or '주문 처리'),
+                        signal=str(analysis.get('signal', 'HOLD')),
+                        trade_plan=dict(trade_result.get('trade_plan') or {}),
+                    )
                     if learning_only:
                         if exchange_name in learning_scope:
                             learning_payload = dict(analysis)
@@ -1967,9 +2069,20 @@ class UnifiedTrader:
                     if hold_reason:
                         self.logger.info(f"⏸️ {exchange_name} {symbol} 거래 신호 없음(HOLD): {hold_reason}")
                         self.logger.info(f"{symbol} 신호 없음(HOLD): {hold_reason} (ex={exchange_name})")
+                        self._remember_trade_decision(
+                            exchange_name, symbol, 'hold', hold_reason,
+                            signal=str(analysis.get('signal', 'HOLD')),
+                        )
                     else:
                         self.logger.info(f"⏸️ {exchange_name} {symbol} 거래 신호 없음: {analysis.get('signal', 'HOLD')}")
                         self.logger.info(f"{symbol} 신호 없음: {analysis.get('signal', 'HOLD')} (ex={exchange_name})")
+                        self._remember_trade_decision(
+                            exchange_name,
+                            symbol,
+                            'hold',
+                            str(analysis.get('reason') or f"최종 신호 {analysis.get('signal', 'HOLD')}"),
+                            signal=str(analysis.get('signal', 'HOLD')),
+                        )
 
             # 4. 포지션 모니터링
             self._monitor_exchange_positions(exchange_name)
@@ -2055,6 +2168,53 @@ class UnifiedTrader:
                 execution_mode = self._execution_mode(exchange_name)
                 paper = execution_mode == ExecutionMode.PAPER
                 demo = False
+
+            # 현물의 SHORT 신호는 신규 공매도 주문이 아니다. NoahAI가 실제로
+            # 진입해 소유권 원장이 있는 LONG만 청산하고, 기존 수동 보유자산은
+            # 신호가 와도 절대 매도하지 않는다.
+            if str(exchange_name or '').lower() in {'upbit', 'bithumb'} and str(signal).upper() == 'SHORT':
+                position_store = self._position_store(exchange_name)
+                target_key = normalize_position_symbol(symbol)
+                managed_item = next(
+                    (
+                        (stored_symbol, candidate)
+                        for stored_symbol, candidate in position_store.items()
+                        if normalize_position_symbol(stored_symbol) == target_key
+                        and is_noah_managed_position(candidate)
+                    ),
+                    None,
+                )
+                if managed_item is None:
+                    return {
+                        'status': 'skipped',
+                        'reason': (
+                            '현물 SHORT는 신규 공매도가 아닙니다. '
+                            'NoahAI가 진입한 LONG 포지션이 없어 수동 보유자산을 보호했습니다'
+                        ),
+                    }
+                if learning_only:
+                    return {
+                        'status': 'learning_planned',
+                        'reason': 'LEARNING 모드: 현물 LONG 청산 판단만 기록하고 주문은 제출하지 않음',
+                    }
+                stored_symbol, managed_position = managed_item
+                try:
+                    close_price = float(
+                        self.exchange_manager.get_current_price(stored_symbol, exchange_name)
+                        if hasattr(self, 'exchange_manager') else 0.0
+                    )
+                except Exception:
+                    close_price = float(getattr(managed_position, 'current_price', 0.0) or 0.0)
+                closed = self._close_position_unified(
+                    exchange_name, stored_symbol, managed_position, close_price
+                )
+                return {
+                    'status': 'success' if closed else 'error',
+                    'reason': (
+                        '현물 SHORT 신호를 NoahAI 관리 LONG 청산으로 실행'
+                        if closed else '현물 관리 LONG 청산 실패'
+                    ),
+                }
 
             # 데모 모드에서 신호 향상
             if demo and hasattr(self, 'demo_trader'):
@@ -2171,8 +2331,18 @@ class UnifiedTrader:
             if cold_start:
                 max_positions = min(max_positions, int(cold_start.get('max_positions', 1) or 1))
 
-            if len(active_positions) >= max_positions:
-                return {'status': 'skipped', 'reason': f'최대 포지션 수 초과: {len(active_positions)} >= {max_positions}'}
+            external_count = len(
+                (getattr(self, 'external_position_symbols', {}) or {}).get(exchange_name, set())
+            )
+            effective_count = len(active_positions) + external_count
+            if effective_count >= max_positions:
+                return {
+                    'status': 'skipped',
+                    'reason': (
+                        f'최대 포지션 수 초과: 관리 {len(active_positions)} + '
+                        f'수동/외부 {external_count} = {effective_count} >= {max_positions}'
+                    ),
+                }
 
             # AI 강화 파라미터 적용
             optimized_params = self._get_ai_enhanced_parameters_unified(exchange_name, symbol, analysis, pre_entry_analysis)
@@ -2335,14 +2505,28 @@ class UnifiedTrader:
                 }
 
             # 레버리지 기본값 설정 (try 블록 밖에서 선언)
-            leverage = int(self.settings.get('default_leverage', 10)) if isinstance(self.settings, dict) else 10
             desired_leverage_raw = optimized_params.get(
                 'leverage',
                 self.settings.get('default_leverage', 10),
             )
-            leverage = self._clamp_leverage(exchange_name, desired_leverage_raw)
-            if cold_start:
-                leverage = min(leverage, int(cold_start.get('max_leverage', 1) or 1))
+            leverage_policy = self._effective_leverage_policy(
+                exchange_name,
+                desired_leverage_raw,
+                cold_start=cold_start,
+            )
+            leverage = int(leverage_policy['effective'])
+            optimized_params['leverage'] = leverage
+            optimized_params['_leverage_policy'] = leverage_policy
+            if not isinstance(getattr(self, 'last_effective_trade_params', None), dict):
+                self.last_effective_trade_params = {}
+            self.last_effective_trade_params.setdefault(exchange_name, {})[symbol] = {
+                'configured_leverage': int(leverage_policy['configured']),
+                'effective_leverage': leverage,
+                'leverage_reason': str(leverage_policy['reason']),
+                'tp_percent': float(optimized_params.get('tp_percent', 0.0) or 0.0),
+                'sl_percent': float(optimized_params.get('sl_percent', 0.0) or 0.0),
+                'updated_at': datetime.now(timezone.utc).isoformat(),
+            }
 
             authorized_targets = (
                 list(getattr(self, "trade_enabled_exchanges", []) or [])
@@ -2437,11 +2621,7 @@ class UnifiedTrader:
                 normalized_symbol = self._normalize_symbol_for_adapter(exchange_client, symbol) if exchange_client else symbol
                 is_futures_exchange = exchange_name in ['bybit', 'okx', 'bitget']  # 바이낸스 제외
                 # 레버리지 가드레일 적용
-                desired_leverage_raw = optimized_params.get('leverage', self.settings.get('default_leverage', 10))
-                desired_leverage = self._clamp_leverage(exchange_name, desired_leverage_raw)
-                if cold_start:
-                    desired_leverage = min(desired_leverage, int(cold_start.get('max_leverage', 1) or 1))
-                leverage = desired_leverage  # 외부 변수에 할당
+                desired_leverage = leverage
                 # 마진 타입 가드레일 적용
                 default_margin_type = str(self.settings.get('default_margin_type', 'ISOLATED')).upper()
                 if default_margin_type not in ('ISOLATED', 'CROSS', 'CROSSED'):
@@ -3224,7 +3404,14 @@ class UnifiedTrader:
                 unrealized_pnl_percent=0.0,
                 entry_time=datetime.now(timezone.utc),
                 tp_price=tp_price,
-                sl_price=sl_price
+                sl_price=sl_price,
+                entry_order_id=str(
+                    order_result.get('order_id')
+                    or order_result.get('orderId')
+                    or order_result.get('id')
+                    or ''
+                ) or None,
+                position_owner=NOAH_POSITION_OWNER,
             )
 
             self._position_store(exchange_name)[symbol] = position
@@ -3814,9 +4001,23 @@ class UnifiedTrader:
             return False
 
 
-    def _close_position_unified(self, exchange_name: str, symbol: str, position: Position, current_price: float):
+    def _close_position_unified(self, exchange_name: str, symbol: str, position: Position, current_price: float) -> bool:
         """포지션 청산 (바이낸스와 동일한 로직)"""
         try:
+            if not is_noah_managed_position(position):
+                self.logger.warning(
+                    f"{exchange_name} {symbol} 수동/외부 포지션 보호: NoahAI 진입 원장이 없어 청산 차단"
+                )
+                return False
+            retry_key = str(
+                getattr(position, 'position_id', None)
+                or getattr(position, 'entry_order_id', None)
+                or f"{exchange_name}:{normalize_position_symbol(symbol)}:{getattr(position, 'entry_time', '')}"
+            )
+            retry_state = (getattr(self, '_close_retry_state', {}) or {}).get(retry_key, {})
+            now_epoch = datetime.now(timezone.utc).timestamp()
+            if float(retry_state.get('next_retry_at', 0.0) or 0.0) > now_epoch:
+                return False
             close_quantity = float(position.quantity or 0.0)
             # paper_trading 모드에서는 네트워크 호출 없이 즉시 성공 처리
             paper = self._execution_mode(exchange_name) == ExecutionMode.PAPER
@@ -3837,7 +4038,7 @@ class UnifiedTrader:
             else:
                 exchange_client = self.get_exchange_client(exchange_name)
                 if not exchange_client:
-                    return
+                    return False
                 if str(exchange_name or '').lower() in {'upbit', 'bithumb'}:
                     from trading.spot_position_policy import (
                         DEFAULT_KRW_MIN_NOTIONAL,
@@ -3853,7 +4054,7 @@ class UnifiedTrader:
                         self.logger.error(
                             f"{exchange_name} {symbol} 실제 잔고 확인 실패 - 청산 주문 차단"
                         )
-                        return
+                        return False
                     asset = spot_base_asset(symbol)
                     actual_quantity = balance_quantity(actual_balance, asset)
                     close_quantity = safe_managed_close_quantity(
@@ -3865,7 +4066,7 @@ class UnifiedTrader:
                         self.logger.error(
                             f"{exchange_name} {symbol} 앱 관리수량과 실제 잔고 불일치 - 청산 주문 차단"
                         )
-                        return
+                        return False
                     if close_quantity * float(current_price or 0.0) < DEFAULT_KRW_MIN_NOTIONAL:
                         # 거래소 최소 주문금액보다 작은 잔여분은 주문 실패를 반복하지
                         # 않고 dust로 분리한다. 실제 잔고는 그대로 유지된다.
@@ -3874,7 +4075,7 @@ class UnifiedTrader:
                             f"{exchange_name} {symbol} 잔여 관리수량 {close_quantity:g} "
                             f"({close_quantity * float(current_price or 0.0):,.0f} KRW)을 dust로 분리"
                         )
-                        return
+                        return False
                 # 반대 방향 주문 실행 (거래소별 안전 분기)
                 opposite_side = 'SELL' if position.side == PositionSide.LONG else 'BUY'
                 try:
@@ -4251,25 +4452,51 @@ class UnifiedTrader:
                     self.logger.warning(f"{exchange_name} {symbol} 잔여 오더 정리 실패(계속): {_ce}")
 
                 self.logger.info(f"✅ {exchange_name} {symbol} 포지션 청산 완료 (PnL: {pnl_percent:.4f}%)")
+                getattr(self, '_close_retry_state', {}).pop(retry_key, None)
+                getattr(self, '_close_failure_fingerprints', {}).pop(retry_key, None)
+                return True
             else:
-                emit_kpi_event(
-                    event_type='trade_order_failed',
-                    category='trade',
-                    asset_class='crypto',
-                    status='failed',
-                    source='noahai_client_unified_trader_close',
-                    metadata={
-                        'exchange': exchange_name,
-                        'symbol': symbol,
-                        'side': 'CLOSE',
-                        'close': True,
-                        'reason': str(order_result.get('error', 'Unknown error')),
-                    },
+                reason = str(order_result.get('error') or order_result.get('message') or '거래소가 오류 상세를 반환하지 않음')
+                attempts = int(retry_state.get('attempts', 0) or 0) + 1
+                retry_delay = min(900, 30 * (2 ** min(attempts - 1, 5)))
+                if not isinstance(getattr(self, '_close_retry_state', None), dict):
+                    self._close_retry_state = {}
+                self._close_retry_state[retry_key] = {
+                    'attempts': attempts,
+                    'reason': reason,
+                    'next_retry_at': now_epoch + retry_delay,
+                }
+                fingerprint = f"{retry_key}:{reason}"
+                if not isinstance(getattr(self, '_close_failure_fingerprints', None), dict):
+                    self._close_failure_fingerprints = {}
+                if self._close_failure_fingerprints.get(retry_key) != fingerprint:
+                    emit_kpi_event(
+                        event_type='trade_order_failed',
+                        category='trade',
+                        asset_class='crypto',
+                        status='failed',
+                        source='noahai_client_unified_trader_close',
+                        metadata={
+                            'exchange': exchange_name,
+                            'symbol': symbol,
+                            'side': 'CLOSE',
+                            'close': True,
+                            'reason': reason,
+                            'position_owner': NOAH_POSITION_OWNER,
+                            'position_key': retry_key,
+                            'retry_after_seconds': retry_delay,
+                        },
+                    )
+                    self._close_failure_fingerprints[retry_key] = fingerprint
+                self.logger.error(
+                    f"❌ {exchange_name} {symbol} 포지션 청산 실패: {reason} "
+                    f"(동일 실패 KPI 중복 억제, {retry_delay}초 후 재시도)"
                 )
-                self.logger.error(f"❌ {exchange_name} {symbol} 포지션 청산 실패: {order_result.get('error', 'Unknown error')}")
+                return False
 
         except Exception as e:
             self.logger.error(f"❌ {exchange_name} {symbol} 포지션 청산 실패: {e}")
+            return False
 
     def _update_trade_stats_unified(self, exchange_name: str, pnl_percent: float):
         """거래 통계 업데이트 (거래소별)"""
@@ -4564,7 +4791,12 @@ class UnifiedTrader:
             self.logger.error(f"❌ {exchange_name} 거래 통계 DB 로드 실패: {e}")
 
     def _restore_positions_from_exchange(self, exchange_name: str):
-        """거래소에서 실제 포지션 조회하여 복구 (max_positions 제한 적용)"""
+        """Persisted NoahAI entries만 실제 계좌와 대조해 복구한다.
+
+        거래소의 계정 전체 포지션/잔고는 수동 거래를 포함하므로 소유권의
+        증거가 아니다. 일치하지 않는 포지션은 외부 포지션으로 표시해 신규
+        진입 한도에는 포함하지만 모니터링·청산 대상으로 가져오지 않는다.
+        """
         try:
             if self._execution_mode(exchange_name) == ExecutionMode.PAPER:
                 self.logger.info(f"🧪 {exchange_name} PAPER - 실제 포지션 복구 차단")
@@ -4574,65 +4806,106 @@ class UnifiedTrader:
                 self.logger.info("바이낸스 포지션 복구는 Trader 경로에서 처리됨 (Unified 경로 스킵)")
                 return
 
-            # UnifiedTradingManager를 통해 거래소별 포지션 조회
-            if hasattr(self, 'unified_manager') and self.unified_manager:
-                trading_type = 'futures' if str(exchange_name).lower() in ['bybit', 'okx', 'bitget'] else 'spot'
-                adapter = self.unified_manager.get_exchange(exchange_name, trading_type)
-                if adapter and hasattr(adapter, 'get_positions'):
-                    actual_positions = adapter.get_positions()
-                    if actual_positions:
-                        # 🔥 max_positions 제한 가져오기
-                        max_positions = self._get_ai_max_positions(exchange_name)
+            venue = str(exchange_name or '').lower()
+            managed = self._managed_open_trade_map(venue)
+            self.active_positions.setdefault(venue, {})
+            self.external_position_symbols.setdefault(venue, set())
+            self.external_position_symbols[venue].clear()
+            adapter = self.get_exchange_client(venue)
+            if not adapter:
+                self.logger.warning(f"{venue} 포지션 복구 생략: 거래소 클라이언트 없음")
+                return
 
-                        # 거래소별 딕셔너리 보장
-                        if exchange_name not in self.active_positions:
-                            self.active_positions[exchange_name] = {}
+            if venue in {'upbit', 'bithumb'}:
+                from trading.spot_position_policy import balance_quantity, safe_managed_close_quantity, spot_base_asset
+                try:
+                    balances = adapter.get_balance() or {}
+                except Exception as exc:
+                    self.logger.warning(f"{venue} 현물 복구 잔고 조회 실패: {exc}")
+                    return
+                restored = 0
+                for key, row in managed.items():
+                    symbol = str(row.get('symbol') or '')
+                    actual_qty = balance_quantity(balances, spot_base_asset(symbol))
+                    managed_qty = safe_managed_close_quantity(
+                        managed_quantity=float(row.get('quantity') or 0.0),
+                        actual_quantity=actual_qty,
+                        baseline_quantity=float(row.get('spot_baseline_quantity') or 0.0),
+                    )
+                    if managed_qty <= 0:
+                        continue
+                    try:
+                        current_price = float(self.exchange_manager.get_current_price(symbol, venue) or 0.0)
+                    except Exception:
+                        current_price = float(row.get('entry_price') or 0.0)
+                    position = Position(
+                        symbol=symbol,
+                        side=PositionSide.LONG,
+                        entry_price=float(row.get('entry_price') or current_price),
+                        current_price=current_price,
+                        quantity=managed_qty,
+                        leverage=1,
+                        unrealized_pnl=0.0,
+                        unrealized_pnl_percent=0.0,
+                        entry_time=parse_entry_time(row.get('entry_time')),
+                        tp_price=float(row.get('tp_price') or 0.0) or None,
+                        sl_price=float(row.get('sl_price') or 0.0) or None,
+                        position_id=str(row.get('id') or ''),
+                        entry_order_id=str(row.get('order_id') or ''),
+                        entry_order_ids=list(row.get('_entry_order_ids') or []),
+                        entry_time_source='execution',
+                        execution_mode=str(row.get('execution_mode') or 'live'),
+                        position_owner=NOAH_POSITION_OWNER,
+                        spot_baseline_quantity=float(row.get('spot_baseline_quantity') or 0.0),
+                    )
+                    self.active_positions[venue][symbol] = position
+                    restored += 1
+                self.logger.info(
+                    f"✅ {venue} NoahAI 소유 현물 복구: {restored}개 "
+                    f"(수동 잔고는 복구·청산 대상 제외)"
+                )
+                return
 
-                        restored_count = 0
-                        skipped_count = 0
-
-                        for pos_data in actual_positions:
-                            # 포지션 데이터를 Position 객체로 변환
-                            if isinstance(pos_data, dict):
-                                symbol = pos_data.get('symbol', '')
-
-                                # 🔥 max_positions 제한 체크
-                                if len(self.active_positions[exchange_name]) >= max_positions:
-                                    skipped_count += 1
-                                    self.logger.warning(f"⚠️ {exchange_name} 포지션 복구 중단: 최대 포지션 수 도달 ({len(self.active_positions[exchange_name])}/{max_positions})")
-                                    break  # ✅ 제한 도달 시 복구 중단
-
-                                if symbol not in self.active_positions[exchange_name]:
-                                    # CCXT 포지션 데이터를 Position 객체로 변환
-                                    side_str = str(pos_data.get('side', '')).lower()
-                                    restored_tp, restored_sl = self._get_restored_tp_sl_prices(exchange_name, symbol)
-                                    position = Position(
-                                        symbol=symbol,
-                                        side=PositionSide.LONG if side_str == 'long' else PositionSide.SHORT,
-                                        entry_price=float(pos_data.get('entryPrice', 0)),
-                                        current_price=float(pos_data.get('markPrice', 0)),
-                                        quantity=float(pos_data.get('contracts', 0)),
-                                        leverage=int(pos_data.get('leverage', 1)),
-                                        unrealized_pnl=float(pos_data.get('unrealizedPnl', 0)),
-                                        unrealized_pnl_percent=float(pos_data.get('percentage', 0)),
-                                        entry_time=datetime.now(timezone.utc),  # 정확한 시간은 거래소에서 조회 필요
-                                        tp_price=restored_tp,
-                                        sl_price=restored_sl,
-                                        entry_time_source='restored_unverified',
-                                        execution_mode='live',
-                                    )
-                                    # 포지션 추가
-                                    self.active_positions[exchange_name][position.symbol] = position
-                                    restored_count += 1
-                                    self.logger.info(f"✅ {exchange_name} 포지션 복구: {position.symbol} {position.side.name} {position.quantity} (TP={restored_tp}, SL={restored_sl})")
-
-                        total_positions = len(actual_positions) if actual_positions else 0
-                        if skipped_count > 0:
-                            self.logger.warning(f"✅ {exchange_name} 포지션 복구 완료: {restored_count}/{total_positions}개 복구 (최대: {max_positions}개, {skipped_count}개 제한 초과로 스킵)")
-                        else:
-                            self.logger.info(f"✅ {exchange_name} 포지션 복구 완료: {restored_count}/{total_positions}개 (최대: {max_positions}개)")
-                    else:
-                        self.logger.info(f"📊 {exchange_name}에서 복구할 포지션 없음")
+            actual_positions = adapter.get_positions() if hasattr(adapter, 'get_positions') else []
+            actual_by_symbol = {
+                normalize_position_symbol(pos.get('symbol')): pos
+                for pos in (actual_positions or [])
+                if isinstance(pos, dict) and float(pos.get('contracts') or pos.get('size') or 0.0) > 0
+            }
+            restored = 0
+            for key, pos_data in actual_by_symbol.items():
+                row = managed.get(key)
+                if row is None:
+                    self.external_position_symbols[venue].add(str(pos_data.get('symbol') or key))
+                    continue
+                symbol = str(pos_data.get('symbol') or row.get('symbol') or '')
+                side_str = str(pos_data.get('side') or row.get('side') or '').lower()
+                restored_tp, restored_sl = self._get_restored_tp_sl_prices(venue, symbol)
+                position = Position(
+                    symbol=symbol,
+                    side=PositionSide.LONG if side_str in {'long', 'buy'} else PositionSide.SHORT,
+                    entry_price=float(pos_data.get('entryPrice') or row.get('entry_price') or 0.0),
+                    current_price=float(pos_data.get('markPrice') or pos_data.get('last') or 0.0),
+                    quantity=float(pos_data.get('contracts') or pos_data.get('size') or row.get('quantity') or 0.0),
+                    leverage=int(float(pos_data.get('leverage') or row.get('leverage') or 1)),
+                    unrealized_pnl=float(pos_data.get('unrealizedPnl') or 0.0),
+                    unrealized_pnl_percent=float(pos_data.get('percentage') or 0.0),
+                    entry_time=parse_entry_time(row.get('entry_time')),
+                    tp_price=float(row.get('tp_price') or restored_tp or 0.0) or None,
+                    sl_price=float(row.get('sl_price') or restored_sl or 0.0) or None,
+                    position_id=str(row.get('id') or ''),
+                    entry_order_id=str(row.get('order_id') or ''),
+                    entry_order_ids=list(row.get('_entry_order_ids') or []),
+                    entry_time_source='execution',
+                    execution_mode=str(row.get('execution_mode') or 'live'),
+                    position_owner=NOAH_POSITION_OWNER,
+                )
+                self.active_positions[venue][symbol] = position
+                restored += 1
+            self.logger.info(
+                f"✅ {venue} 소유권 대조 복구: NoahAI {restored}개, "
+                f"수동/외부 {len(self.external_position_symbols[venue])}개(자동청산 제외)"
+            )
         except Exception as e:
             self.logger.error(f"❌ {exchange_name} 포지션 복구 실패: {e}")
 
@@ -4765,6 +5038,11 @@ class UnifiedTrader:
                                         symbol = tracked_symbol
                                         break
                             if tracked_position is not None:
+                                if not is_noah_managed_position(tracked_position):
+                                    self.logger.warning(
+                                        f"수동/외부 포지션 보호: {exchange_name} {symbol} close_all 제외"
+                                    )
+                                    continue
                                 current_price = float(
                                     pos.get("markPrice")
                                     or pos.get("last")
@@ -4779,41 +5057,10 @@ class UnifiedTrader:
                                     current_price,
                                 )
                                 continue
-                            close_side = 'sell' if side == 'long' else 'buy'
-                            try:
-                                exchange.create_market_order(symbol, close_side, contracts, params={'reduceOnly': True})
-                                self.logger.info(f"✅ close_all: {exchange_name} {symbol} {contracts} 청산 완료")
-                                current_price = float(
-                                    pos.get("markPrice")
-                                    or pos.get("last")
-                                    or pos.get("entryPrice")
-                                    or 0.0
-                                )
-                                emit_kpi_event(
-                                    event_type='trade_order_executed',
-                                    category='trade',
-                                    asset_class='crypto',
-                                    status='success',
-                                    source='noahai_client_unified_close_all',
-                                    metric_value=contracts,
-                                    metadata={
-                                        'exchange': exchange_name,
-                                        'symbol': symbol,
-                                        'quote_currency': (
-                                            'KRW'
-                                            if str(exchange_name or '').lower() in {'upbit', 'bithumb'}
-                                            or 'KRW' in str(symbol or '').upper()
-                                            else 'USDT'
-                                        ),
-                                        'side': 'CLOSE',
-                                        'close': True,
-                                        'reason': 'close_all_untracked',
-                                        'executed_price': current_price,
-                                        'notional_estimate': contracts * current_price,
-                                    },
-                                )
-                            except Exception as ce:
-                                self.logger.warning(f"⚠️ close_all: {exchange_name} {symbol} 청산 실패: {ce}")
+                            self.logger.warning(
+                                f"수동/외부 포지션 보호: {exchange_name} {symbol} "
+                                f"계정 포지션은 close_all 자동청산에서 제외"
+                            )
                 except Exception as pe:
                     self.logger.warning(f"⚠️ close_all: {exchange_name} 포지션 조회 실패: {pe}")
 
@@ -5782,7 +6029,7 @@ Response in JSON format:
                     confidence += 0.1
                     reasoning_parts.append("충분한 거래 이력")
             else:
-                reasoning_parts.append("완료 거래 없음·초기 검증")
+                reasoning_parts.append("완료 거래 없음·제한 학습 허용")
 
             # 신뢰도 범위 제한 (0.1 ~ 0.95)
             confidence = max(0.1, min(0.95, confidence))
@@ -5790,9 +6037,9 @@ Response in JSON format:
             # 데이터 신뢰도 주석 추가(표본 부족/기본값 사용)
             data_notes = []
             if pattern_analysis.get('data_insufficient'):
-                data_notes.append('표본 부족')
+                data_notes.append('성과 표본 없음(진입 차단 사유 아님)')
             if pattern_analysis.get('used_defaults'):
-                data_notes.append('기본값 사용')
+                data_notes.append('중립 기본값 사용')
             note_suffix = f" | 데이터: {', '.join(data_notes)}" if data_notes else ''
             reasoning = f"동적 AI 검증: {', '.join(reasoning_parts) if reasoning_parts else '기본 검증'}{note_suffix}"
 
@@ -5816,7 +6063,9 @@ Response in JSON format:
             return {
                 'confidence': confidence,
                 'reasoning': reasoning,
-                'validation': 'APPROVED' if confidence >= 0.4 else 'REJECTED'
+                'validation': 'APPROVED' if confidence >= 0.4 else 'REJECTED',
+                'cold_start': not has_completed_history,
+                'history_gate_blocked': False,
             }
 
         except Exception as e:
@@ -6181,6 +6430,7 @@ Response in JSON format:
                 tp_price=tp_price,
                 sl_price=sl_price,
                 execution_mode=execution_mode,
+                position_owner=NOAH_POSITION_OWNER,
                 custom_strategy_id=optimized_params.get('_selected_custom_strategy_id'),
                 custom_strategy_name=optimized_params.get('_selected_custom_strategy'),
                 custom_strategy_rules=dict(optimized_params.get('_custom_strategy_rules') or {}),
@@ -6229,6 +6479,8 @@ Response in JSON format:
                             'exchange': exchange_name,
                             'order_id': entry_order_id,
                             'reason': 'AI live entry',
+                            'execution_mode': execution_mode,
+                            'spot_baseline_quantity': position.spot_baseline_quantity,
                         },
                     )
                     if trade_log_id is None:

@@ -1,6 +1,6 @@
 # NoahAI 마스터 문서
 
-> 최신 동기화: 2026-08-10 · 소스 대상 v3.9.0.8 AI Custom Update Fix 1, 대시보드 매뉴얼·어시스턴트 지식 반영·Windows 재빌드 전  
+> 최신 동기화: 2026-08-11 · 소스 대상 v3.9.0.8 AI Custom Update Fix 2, 대시보드 매뉴얼·어시스턴트 지식 반영·Windows 재빌드 전  
 > 이 파일은 공식 문서의 지도입니다. 기능의 사실 판단은 코드 → 테스트 → 아래 정본 순서로 확인합니다.
 
 ## 공식 정본
@@ -23,6 +23,7 @@
 | 빌드 | `docs/BUILD_GUIDE.md` | 의존성·명령·산출물 검증 |
 | 배포 | `docs/DEPLOY_CHECKLIST.md` | 배포 전후 운영 게이트 |
 | 테스트 | `docs/TEST_STATUS.md` | 최신 자동·GUI 검증 근거 |
+| Fix 2 업데이트·UI 근본 장애 | `docs/INCIDENT_260811_V3908_FIX2_UPDATER_UI_ROOT_CAUSE.md` | 자동업데이트 상태 머신·화면 재사용·DLL 판정·배포 계약 |
 | AI 커스텀·어시스턴트 QA | `docs/AI_CUSTOM_ASSISTANT_TEST_RUNBOOK_v3.9.0.2.md` | 순서·계정·기대 결과 |
 | AI 커스텀 핵심 고도화 | `docs/AI_CUSTOME_UPDATE_PLAN.md` | 시장 검증, Noah Strategy IR, Progressive Strategy UI, P0~P3와 KPI |
 | AI 커스텀 제품 로드맵 | `docs/AI_CUSTOM_STRATEGY_OS_PRODUCT_ROADMAP.md` | 1~8단계와 현재 구현 경계 |

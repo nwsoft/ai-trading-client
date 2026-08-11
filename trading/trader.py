@@ -38,7 +38,15 @@ from .exit_policy import (
     record_insurance_submission,
 )
 from .execution_mode import ExecutionMode, resolve_crypto_execution_mode
+from .leverage_policy import exchange_leverage_cap, resolve_effective_leverage
 from .market_data_utils import kline_number
+from .position_ownership import (
+    NOAH_POSITION_OWNER,
+    is_noah_managed_position,
+    managed_trade_map,
+    normalize_position_symbol,
+    parse_entry_time,
+)
 from api.kpi_client import emit_kpi_event, flush_kpi_events
 from api.position_kpi import emit_position_closed, emit_position_opened, utc_now
 
@@ -64,8 +72,11 @@ class Position:
     tp_price: Optional[float] = None
     sl_price: Optional[float] = None
     position_id: Optional[str] = None
+    entry_order_id: Optional[str] = None
+    entry_order_ids: List[str] = field(default_factory=list)
     entry_time_source: str = "execution"
     execution_mode: str = "live"
+    position_owner: str = "legacy_unknown"
     custom_strategy_id: Optional[str] = None
     custom_strategy_name: Optional[str] = None
     custom_strategy_rules: Dict[str, Any] = field(default_factory=dict)
@@ -216,6 +227,7 @@ class Trader:
         self.portfolio_allocation_cache = {}
         self.cycle_execution_metrics = {}
         self.last_order_execution_metrics = {}
+        self.external_position_symbols = set()
 
         # 동적 임계값 캐시 (모니터링 중 optimizer 호출 최적화)
         self.dynamic_thresholds_cache = {}  # {symbol: {'thresholds': {...}, 'timestamp': time}}
@@ -1207,6 +1219,8 @@ class Trader:
                 strategy_variant=strategy_variant,
                 fee_asset=fee_asset,
                 fee_source=fee_source,
+                position_owner=NOAH_POSITION_OWNER,
+                execution_mode=str(mode or 'live'),
             )
 
             self.recorder.insert_trade_log(trade_log)
@@ -2089,6 +2103,14 @@ class Trader:
                     self.log_event('trade', f"🔍 실제 거래소에서 포지션 조회 시작 (메모리: {memory_positions_before}개)")
                     actual_positions = self.binance_client.get_positions()
                     actual_symbols = {pos.symbol for pos in actual_positions}
+                    getter = getattr(self.recorder, 'get_open_managed_trades', None)
+                    managed_rows = getter('binance') if callable(getter) else []
+                    managed_by_symbol = managed_trade_map(managed_rows or [])
+                    self.external_position_symbols = {
+                        pos.symbol
+                        for pos in actual_positions
+                        if normalize_position_symbol(pos.symbol) not in managed_by_symbol
+                    }
                     self.log_event('trade', f"🔍 실제 거래소 포지션: {len(actual_positions)}개, 심볼={list(actual_symbols)}")
                     
                     # 메모리에 있지만 실제로는 없는 포지션 제거 (청산되었지만 메모리에 남아있는 경우)
@@ -2111,6 +2133,14 @@ class Trader:
                     skipped_count = 0
                     for pos in actual_positions:
                         if pos.symbol not in self.active_positions:
+                            managed_row = managed_by_symbol.get(normalize_position_symbol(pos.symbol))
+                            if managed_row is None:
+                                self.log_event(
+                                    'trade',
+                                    f"[{pos.symbol}] 수동/외부 포지션 감지 - 자동 모니터링·청산 제외",
+                                    level='WARNING',
+                                )
+                                continue
                             # 🔥 max_positions 제한 체크
                             if len(self.active_positions) >= max_positions:
                                 skipped_count += 1
@@ -2127,11 +2157,16 @@ class Trader:
                                 current_price=pos.mark_price,
                                 unrealized_pnl=pos.unrealized_pnl,
                                 unrealized_pnl_percent=0.0,
-                                entry_time=datetime.now(timezone.utc),
+                                entry_time=parse_entry_time(managed_row.get('entry_time')),
                                 leverage=pos.leverage,
-                                tp_price=0.0,
-                                sl_price=0.0,
-                                entry_time_source="restored_unverified",
+                                tp_price=float(managed_row.get('tp_price') or 0.0) or None,
+                                sl_price=float(managed_row.get('sl_price') or 0.0) or None,
+                                position_id=str(managed_row.get('id') or ''),
+                                entry_order_id=str(managed_row.get('order_id') or ''),
+                                entry_order_ids=list(managed_row.get('_entry_order_ids') or []),
+                                entry_time_source="execution",
+                                execution_mode=str(managed_row.get('execution_mode') or 'live'),
+                                position_owner=NOAH_POSITION_OWNER,
                             )
                             self.active_positions[pos.symbol] = position
                             self.log_event('trade', f"[{pos.symbol}] 실제 포지션 발견 - 메모리에 추가", level='INFO')
@@ -2166,8 +2201,9 @@ class Trader:
                 max_positions = min(max_positions, int(cold_start_profile.get('max_positions', 1) or 1))
 
             # 단일모드(집중모드)일 때: 포지션이 있으면 전체 스킵
-            if decision_execution_enabled and (position_mode == 'single' or max_positions == 1) and len(active_positions) > 0:
-                self.log_event('trade', f"집중모드 - 포지션 모니터링 중 (활성 포지션: {len(active_positions)}개)")
+            effective_position_count = len(active_positions) + len(getattr(self, 'external_position_symbols', set()))
+            if decision_execution_enabled and (position_mode == 'single' or max_positions == 1) and effective_position_count > 0:
+                self.log_event('trade', f"집중모드 - 포지션 모니터링 중 (관리+수동/외부: {effective_position_count}개)")
                 return
 
             # 🔥 필터링 먼저 실행 (보유 심볼 제외)
@@ -2192,8 +2228,8 @@ class Trader:
                 return
 
             # 🔥 필터링 후 최대 포지션 수 확인
-            if decision_execution_enabled and len(active_positions) >= max_positions:
-                self.log_event('trade', f"최대 포지션 수 도달 - 필터링 후 신규 대상 없음 (활성: {len(active_positions)}개 >= 최대: {max_positions}개, 필터링 후 코인: {len(filtered)}개)", level='INFO')
+            if decision_execution_enabled and effective_position_count >= max_positions:
+                self.log_event('trade', f"최대 포지션 수 도달 - 신규 대상 없음 (관리+수동/외부: {effective_position_count}개 >= 최대: {max_positions}개)", level='INFO')
                 return
 
             # 이후 로직은 filtered를 사용
@@ -2556,10 +2592,42 @@ class Trader:
                             optimized_params = self._get_ai_enhanced_parameters(symbol, signal_data, pre_entry_analysis)
                             if cold_start_profile and candidate.requires_noah_strategy_policy:
                                 optimized_params['risk_multiplier'] = float(cold_start_profile.get('risk_multiplier', 0.10) or 0.10)
-                                optimized_params['leverage'] = min(
-                                    int(optimized_params.get('leverage', 1) or 1),
-                                    int(cold_start_profile.get('max_leverage', 1) or 1),
+                                policy = resolve_effective_leverage(
+                                    configured_leverage=(
+                                        (optimized_params.get('_leverage_policy') or {}).get(
+                                            'configured', self.settings.get('default_leverage', 1)
+                                        )
+                                    ),
+                                    exchange='binance',
+                                    market_level=(
+                                        (optimized_params.get('_leverage_policy') or {}).get(
+                                            'market_level', 'NORMAL'
+                                        )
+                                    ),
+                                    exchange_max_leverage=exchange_leverage_cap(self.settings, 'binance'),
+                                    cold_start_max_leverage=cold_start_profile.get('max_leverage', 1),
                                 )
+                                optimized_params['leverage'] = int(policy['effective'])
+                                optimized_params['_leverage_policy'] = dict(policy)
+                            self.last_effective_trade_params = getattr(
+                                self, 'last_effective_trade_params', {}
+                            )
+                            self.last_effective_trade_params[symbol] = {
+                                'exchange': 'binance',
+                                'symbol': symbol,
+                                'configured_leverage': int(
+                                    (optimized_params.get('_leverage_policy') or {}).get(
+                                        'configured', self.settings.get('default_leverage', 1)
+                                    )
+                                ),
+                                'effective_leverage': int(optimized_params.get('leverage', 1) or 1),
+                                'leverage_reason': str(
+                                    (optimized_params.get('_leverage_policy') or {}).get('reason', '')
+                                ),
+                                'tp_percent': float(optimized_params.get('tp_percent', 0.0) or 0.0),
+                                'sl_percent': float(optimized_params.get('sl_percent', 0.0) or 0.0),
+                                'recorded_at': datetime.now(timezone.utc).isoformat(),
+                            }
                             optimized_params['confidence'] = float(confidence or 0.0)
                             optimized_params['volatility'] = max(0.005, abs(float(signal_data.get('volatility', 0.5) or 0.5)) / 100.0)
                             optimized_params['model_version'] = str(signal_data.get('ai_model', '') or 'local')
@@ -3151,8 +3219,15 @@ class Trader:
                 return False
 
             # 최대 포지션 수 확인
-            if len(self.active_positions) >= self.settings['max_positions']:
-                self.log_event('trade', f"[{symbol}] ✅ 최대 포지션 수 도달로 거래 제한 - 정상 동작 (현재: {len(self.active_positions)}개, 최대: {self.settings['max_positions']}개)")
+            effective_position_count = len(self.active_positions) + len(
+                getattr(self, 'external_position_symbols', set())
+            )
+            if effective_position_count >= self.settings['max_positions']:
+                self.log_event(
+                    'trade',
+                    f"[{symbol}] ✅ 최대 포지션 수 도달로 거래 제한 - 정상 동작 "
+                    f"(관리+수동/외부: {effective_position_count}개, 최대: {self.settings['max_positions']}개)"
+                )
                 return False
 
             # 🔥 잔고 확인 (거래 실행 전에 미리 체크)
@@ -4207,7 +4282,9 @@ class Trader:
                             tp_price=final_tp_price,  # 🔥 실제 거래소에서 조회한 값 또는 계산된 값
                             sl_price=final_sl_price,  # 🔥 실제 거래소에서 조회한 값 또는 계산된 값
                             position_id=None,
+                            entry_order_id=str(entry_order_id or '') or None,
                             execution_mode=str(mode or 'live'),
+                            position_owner=NOAH_POSITION_OWNER,
                             custom_strategy_id=trade_params.get('_selected_custom_strategy_id'),
                             custom_strategy_name=trade_params.get('_selected_custom_strategy'),
                             custom_strategy_rules=dict(trade_params.get('_custom_strategy_rules') or {}),
@@ -5260,9 +5337,9 @@ class Trader:
             try:
                 data_notes = []
                 if pattern_analysis.get('data_insufficient'):
-                    data_notes.append('표본 부족')
+                    data_notes.append('성과 표본 없음(진입 차단 사유 아님)')
                 if pattern_analysis.get('used_defaults'):
-                    data_notes.append('기본값 사용')
+                    data_notes.append('중립 기본값 사용')
                 if data_notes:
                     reason = f"{reason} | 데이터: {', '.join(data_notes)}"
             except Exception:
@@ -5513,6 +5590,12 @@ class Trader:
             # 기본 AI 검증 로직
             confidence = 0.7  # 기본 신뢰도
             reasoning = "기본 AI 검증 완료"
+            has_completed_history = not (
+                pattern_analysis.get('data_insufficient', False)
+                or pattern_analysis.get('used_defaults', False)
+            )
+            if not has_completed_history:
+                reasoning = "완료 거래 없음·제한 학습 허용"
 
             # 패턴 분석 기반 신뢰도 조정 (실제 데이터가 있을 때만 적용)
             if not pattern_analysis.get('data_insufficient', False) and not pattern_analysis.get('used_defaults', False):
@@ -5553,7 +5636,9 @@ class Trader:
             return {
                 'confidence': confidence,
                 'reasoning': f"{reasoning} | threshold={threshold:.2f}",
-                'validation': 'APPROVED' if confidence >= threshold else 'REJECTED'
+                'validation': 'APPROVED' if confidence >= threshold else 'REJECTED',
+                'cold_start': not has_completed_history,
+                'history_gate_blocked': False,
             }
 
         except Exception as e:
@@ -5674,22 +5759,26 @@ class Trader:
             enhanced_params = base_params.copy()
             selected_custom = dict(signal_data.get('_custom_engine_settings', {}) or {})
 
-            # 1. 동적 레버리지 조정 (기존: 고정 1x → 개선: 1~3x)
+            # 1. 모든 파생 거래소가 공유하는 실효 레버리지 정책.
+            # 설정값은 상한이며 시장 안전상한(HIGH 1/NORMAL 2/LOW 3)이
+            # 실제 주문값을 결정한다. XAI에는 두 값을 분리해 남긴다.
+            market_level = 'NORMAL'
             if self.analyzer:
                 try:
                     market_data = self.analyzer._analyze_current_market_conditions()
-                    market_level = market_data.get('level', 'NORMAL')
-
-                    if market_level == 'HIGH':
-                        leverage = 1  # 고변동성: 안전한 1x
-                    elif market_level == 'LOW':
-                        leverage = 2  # 저변동성: 적극적 2x
-                    else:
-                        leverage = 1  # 기본: 1x
-
-                    enhanced_params['leverage'] = leverage
+                    market_level = str(market_data.get('level', 'NORMAL')).upper()
                 except Exception:
-                    enhanced_params['leverage'] = 1
+                    market_level = 'NORMAL'
+            leverage_policy = resolve_effective_leverage(
+                configured_leverage=base_params.get(
+                    'leverage', self.settings.get('default_leverage', 1)
+                ),
+                exchange='binance',
+                market_level=market_level,
+                exchange_max_leverage=exchange_leverage_cap(self.settings, 'binance'),
+            )
+            enhanced_params['leverage'] = int(leverage_policy['effective'])
+            enhanced_params['_leverage_policy'] = dict(leverage_policy)
 
             # 2. 동적 포지션 크기 (기존: 고정 → 개선: 시장 상황별)
             confidence = signal_data.get('confidence', 0.5)
@@ -6189,6 +6278,13 @@ class Trader:
         """포지션 청산"""
         try:
             symbol = position.symbol
+            if not is_noah_managed_position(position):
+                self.log_event(
+                    'trade',
+                    f"[{symbol}] 수동/외부 포지션 보호: NoahAI 진입 원장이 없어 청산 차단",
+                    level='WARNING',
+                )
+                return False
             self.log_event('trade', f"[{symbol}] close_position called with reason: {reason}")
             current_price = self.binance_client.get_current_price(symbol)
             self.log_event('trade', f"[{symbol}] Current price retrieved: {current_price}")
@@ -6786,6 +6882,7 @@ class Trader:
                 tp_price=tp_price,
                 sl_price=sl_price,
                 execution_mode='paper',
+                position_owner=NOAH_POSITION_OWNER,
                 custom_strategy_id=trade_params.get('_selected_custom_strategy_id'),
                 custom_strategy_name=trade_params.get('_selected_custom_strategy'),
                 custom_strategy_rules=dict(trade_params.get('_custom_strategy_rules') or {}),
@@ -6975,8 +7072,11 @@ class Trader:
                         # 일반 청산과 같은 단일 경로를 사용해야 거래로그와 포지션 종료 KPI가 함께 남는다.
                         self.close_position(tracked_position, reason='graceful_stop')
                     else:
-                        # 진입시각을 증명할 수 없는 거래소 복구 포지션은 시간을 임의 생성하지 않는다.
-                        self._close_position_market(symbol)
+                        self.log_event(
+                            'system',
+                            f"[{symbol}] 수동/외부 포지션 보호 - 우아한 정지 자동청산 제외",
+                            level='WARNING',
+                        )
                 else:
                     self.log_event('system', f"[{symbol}] ✅ TP/SL 정상 설정됨 - 포지션은 TP/SL 체결까지 유지 (정상 동작)")
                 # TP/SL이 있으면 체결 대기/폴백 타임아웃 후 시장가 강제청산 로직도 가능
@@ -7016,6 +7116,10 @@ class Trader:
     def _close_position_market(self, symbol: str):
         """시장가로 포지션 청산"""
         try:
+            tracked = self.active_positions.get(symbol)
+            if tracked is None or not is_noah_managed_position(tracked):
+                self.logger.warning(f"{symbol} 수동/외부 포지션 보호 - 시장가 청산 차단")
+                return False
             # 포지션 정보 조회
             position_info = self.binance_client.client.futures_position_information(symbol=symbol)
             if not position_info:
@@ -7181,7 +7285,7 @@ class Trader:
                 print(f"❌ 바이낸스 거래 통계 DB 로드 실패: {e}")
 
     def _restore_positions_from_exchange(self):
-        """거래소에서 실제 포지션 조회하여 복구 (max_positions 제한 적용)"""
+        """실제 바이낸스 포지션 중 NoahAI 진입 원장과 일치하는 것만 복구."""
         try:
             if self._execution_mode() != ExecutionMode.LIVE:
                 self.log_event('system', f"🧪 {self._execution_mode().value} 모드 - 실제 포지션 복구 차단")
@@ -7190,56 +7294,44 @@ class Trader:
                 # 실제 거래소에서 포지션 조회
                 actual_positions = self.binance_client.get_positions()
 
-                if actual_positions:
-                    # 🔥 max_positions 제한 가져오기
-                    max_positions = self.settings.get('max_positions', 3)
-                    
-                    restored_count = 0
-                    skipped_count = 0
-                    
-                    for pos in actual_positions:
-                        symbol = pos.symbol
-                        if symbol not in self.active_positions:
-                            # 🔥 max_positions 제한 체크
-                            if len(self.active_positions) >= max_positions:
-                                skipped_count += 1
-                                if hasattr(self, 'logger') and self.logger:
-                                    self.logger.warning(f"⚠️ 바이낸스 포지션 복구 중단: 최대 포지션 수 도달 ({len(self.active_positions)}/{max_positions})")
-                                break  # ✅ 제한 도달 시 복구 중단
-                            
-                            # Position 객체 생성
-                            position = Position(
-                                symbol=symbol,
-                                side=PositionSide.LONG if pos.side == "LONG" else PositionSide.SHORT,
-                                quantity=pos.size,
-                                entry_price=pos.entry_price,
-                                current_price=pos.mark_price,
-                                unrealized_pnl=pos.unrealized_pnl,
-                                unrealized_pnl_percent=0.0,  # 계산 필요
-                                entry_time=datetime.now(timezone.utc),  # 정확한 시간은 알 수 없음
-                                leverage=pos.leverage,
-                                tp_price=0.0,  # TP/SL 정보는 별도 조회 필요
-                                sl_price=0.0,
-                                entry_time_source="restored_unverified",
-                            )
-
-                            # PnL 계산
-                            self.calculate_pnl(position)
-
-                            # 포지션 추가
-                            self.active_positions[symbol] = position
-                            restored_count += 1
-
-                            if hasattr(self, 'logger') and self.logger:
-                                self.logger.info(f"✅ 바이낸스 포지션 복구: {symbol} {position.side.value} {position.quantity}")
-
+                getter = getattr(self.recorder, 'get_open_managed_trades', None)
+                rows = getter('binance') if callable(getter) else []
+                managed = managed_trade_map(rows or [])
+                self.external_position_symbols = set()
+                restored_count = 0
+                for pos in actual_positions or []:
+                    symbol = str(pos.symbol)
+                    row = managed.get(normalize_position_symbol(symbol))
+                    if row is None:
+                        self.external_position_symbols.add(symbol)
+                        continue
+                    position = Position(
+                        symbol=symbol,
+                        side=PositionSide.LONG if pos.side == "LONG" else PositionSide.SHORT,
+                        quantity=float(pos.size),
+                        entry_price=float(pos.entry_price or row.get('entry_price') or 0.0),
+                        current_price=float(pos.mark_price or 0.0),
+                        unrealized_pnl=float(pos.unrealized_pnl or 0.0),
+                        unrealized_pnl_percent=0.0,
+                        entry_time=parse_entry_time(row.get('entry_time')),
+                        leverage=int(pos.leverage or row.get('leverage') or 1),
+                        tp_price=float(row.get('tp_price') or 0.0) or None,
+                        sl_price=float(row.get('sl_price') or 0.0) or None,
+                        position_id=str(row.get('id') or ''),
+                        entry_order_id=str(row.get('order_id') or ''),
+                        entry_order_ids=list(row.get('_entry_order_ids') or []),
+                        entry_time_source="execution",
+                        execution_mode=str(row.get('execution_mode') or 'live'),
+                        position_owner=NOAH_POSITION_OWNER,
+                    )
+                    self.calculate_pnl(position)
+                    self.active_positions[symbol] = position
+                    restored_count += 1
                 if hasattr(self, 'logger') and self.logger:
-                    total_positions = len(actual_positions) if actual_positions else 0
-                    max_positions = self.settings.get('max_positions', 3)
-                    if skipped_count > 0:
-                        self.logger.warning(f"✅ 바이낸스 포지션 복구 완료: {restored_count}/{total_positions}개 복구 (최대: {max_positions}개, {skipped_count}개 제한 초과로 스킵)")
-                    else:
-                        self.logger.info(f"✅ 바이낸스 포지션 복구 완료: {restored_count}/{total_positions}개 (최대: {max_positions}개)")
+                    self.logger.info(
+                        f"✅ 바이낸스 소유권 대조 복구: NoahAI {restored_count}개, "
+                        f"수동/외부 {len(self.external_position_symbols)}개(자동청산 제외)"
+                    )
             else:
                 if hasattr(self, 'logger') and self.logger:
                     self.logger.warning("⚠️ binance_client가 없어 포지션 복구 불가")
@@ -7617,7 +7709,7 @@ Response in JSON format:
         try:
             base_thresholds = {
                 'max_loss_rate': 50.0,
-                'min_trades_history': 1,
+                'min_trades_history': 0,
                 'min_ai_confidence': 0.4,
             }
 
@@ -7634,7 +7726,7 @@ Response in JSON format:
             if volatility > 0.02:  # 높은 변동성 (AI 학습 기준점)
                 return {
                     'max_loss_rate': base_thresholds['max_loss_rate'] * 0.8,  # AI가 학습할 조정 계수
-                    'min_trades_history': max(5, base_thresholds['min_trades_history']),
+                    'min_trades_history': base_thresholds['min_trades_history'],
                     'min_ai_confidence': min(0.8, base_thresholds['min_ai_confidence'] * 1.5),
                     '_source': 'market_base',
                     '_base': dict(base_thresholds),
@@ -7642,7 +7734,7 @@ Response in JSON format:
             elif volatility > 0.01:  # 중간 변동성 (AI 학습 기준점)
                 return {
                     'max_loss_rate': base_thresholds['max_loss_rate'] * 0.9,  # AI가 학습할 조정 계수
-                    'min_trades_history': max(3, base_thresholds['min_trades_history']),
+                    'min_trades_history': base_thresholds['min_trades_history'],
                     'min_ai_confidence': min(0.7, base_thresholds['min_ai_confidence'] * 1.25),
                     '_source': 'market_base',
                     '_base': dict(base_thresholds),
@@ -7660,10 +7752,10 @@ Response in JSON format:
             # 오류 시 기본값 반환
             return {
                 'max_loss_rate': 50.0,
-                'min_trades_history': 1,
+                'min_trades_history': 0,
                 'min_ai_confidence': 0.4,
                 '_source': 'fallback',
-                '_base': {'max_loss_rate': 50.0, 'min_trades_history': 1, 'min_ai_confidence': 0.4},
+                '_base': {'max_loss_rate': 50.0, 'min_trades_history': 0, 'min_ai_confidence': 0.4},
             }
 
     def _get_ai_learned_thresholds(self, symbol: str) -> Optional[Dict]:
@@ -7675,9 +7767,16 @@ Response in JSON format:
 
             win_rates = []
             conf_values = []
+            observed_trade_counts = []
             for item in entries:
                 try:
-                    win_rates.append(float(item.get('recent_win_rate', 0.0) or 0.0))
+                    recent_trade_count = max(0, int(item.get('recent_trade_count', 0) or 0))
+                except Exception:
+                    recent_trade_count = 0
+                observed_trade_counts.append(recent_trade_count)
+                try:
+                    if recent_trade_count > 0:
+                        win_rates.append(float(item.get('recent_win_rate', 0.0) or 0.0))
                 except Exception:
                     pass
                 try:
@@ -7685,18 +7784,22 @@ Response in JSON format:
                 except Exception:
                     pass
 
-            if not win_rates:
-                return None
-
-            avg_win_rate = max(0.0, min(1.0, sum(win_rates) / len(win_rates)))
             avg_conf = max(0.2, min(0.9, (sum(conf_values) / len(conf_values)) if conf_values else 0.5))
-
             min_ai_conf = max(0.25, min(0.75, avg_conf - 0.05))
-            max_loss = max(35.0, min(65.0, 60.0 - (avg_win_rate * 30.0)))
-            min_trades = 3 if len(entries) >= 30 else 5
+            if win_rates:
+                avg_win_rate = max(0.0, min(1.0, sum(win_rates) / len(win_rates)))
+                max_loss = max(35.0, min(65.0, 60.0 - (avg_win_rate * 30.0)))
+                target_min_trades = 3 if len(entries) >= 30 else 5
+                min_trades = min(target_min_trades, max(observed_trade_counts or [0]))
+            else:
+                avg_win_rate = 0.0
+                max_loss = 60.0
+                min_trades = 0
 
             self.logger.info(
-                f"[{symbol}] 학습저장소 임계값 반영: n={len(entries)}, avg_win={avg_win_rate*100:.1f}%, avg_conf={avg_conf:.2f}"
+                f"[{symbol}] 학습저장소 임계값 반영: n={len(entries)}, "
+                f"closed_samples={max(observed_trade_counts or [0])}, "
+                f"avg_win={avg_win_rate*100:.1f}%, avg_conf={avg_conf:.2f}"
             )
             return {
                 'max_loss_rate': max_loss,

@@ -93,5 +93,6 @@ def test_unified_close_all_reuses_lifecycle_close_and_flushes_kpi_queue():
     ).read_text(encoding="utf-8")
 
     assert "self._close_position_unified(" in unified_source
-    assert "'reason': 'close_all_untracked'" in unified_source
+    assert "'reason': 'close_all_untracked'" not in unified_source
+    assert "계정 포지션은 close_all 자동청산에서 제외" in unified_source
     assert "flush_kpi_events(timeout=5.0)" in unified_source

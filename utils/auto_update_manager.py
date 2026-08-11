@@ -45,6 +45,7 @@ class AutoUpdateManager:
         self._health_callback: Optional[Callable[[Dict[str, Any]], Dict[str, Any]]] = None
         self._apply_started = False
         self._shutdown_confirmed = False
+        self._approved_preflight: Dict[str, Any] = {}
         self._check_running = False
         self._sha_cache: Dict[str, Any] = {}
 
@@ -355,6 +356,88 @@ class AutoUpdateManager:
             "version": version,
         }
 
+    def authorize_pending_update(self) -> Dict[str, Any]:
+        """Approve one exact staged asset *before* trading adapters are stopped.
+
+        The approval is intentionally bound to the staged path, SHA and install
+        target.  Shutdown is performed only after this method succeeds; apply
+        then consumes the approval without querying already-stopped adapters.
+        """
+        if not self.auto_apply_on_exit or not self.has_pending_update():
+            return {"ok": True, "needed": False}
+
+        asset_path = Path(str(self.pending_update.get("asset_path") or ""))
+        expected_sha = str(
+            self.pending_update.get("sha256") or self.transaction.get("sha256") or ""
+        ).lower()
+        if not asset_path.is_file():
+            result = {"ok": False, "needed": True, "reason": "staged_executable_missing"}
+            self._write_transaction("verification_failed", error=result["reason"])
+            return result
+        actual_sha = self._sha256_file(asset_path)
+        if not expected_sha or actual_sha != expected_sha:
+            result = {
+                "ok": False,
+                "needed": True,
+                "reason": "staged_sha256_invalid",
+                "expected_sha256": expected_sha,
+                "actual_sha256": actual_sha,
+            }
+            self._write_transaction("verification_failed", error=result["reason"])
+            return result
+
+        target_exe = self._resolve_install_target_executable()
+        self.install_target_exe = target_exe
+        target_check = self._check_install_target_replaceable(target_exe)
+        if not target_check.get("ok"):
+            result = {"ok": False, "needed": True, **target_check}
+            self._write_transaction(
+                "target_not_writable",
+                error=str(result.get("reason") or "target_not_writable"),
+                target_path=str(target_exe),
+            )
+            return result
+
+        existing = dict(self._approved_preflight or {})
+        existing_age = time.time() - float(existing.get("approved_at_epoch") or 0)
+        if (
+            existing.get("ok")
+            and 0 <= existing_age <= 120
+            and str(existing.get("asset_path") or "") == str(asset_path)
+            and str(existing.get("sha256") or "").lower() == expected_sha
+            and str(existing.get("target_path") or "") == str(target_exe)
+        ):
+            return existing
+
+        preflight = self.run_update_preflight()
+        if not preflight.get("ok"):
+            self._write_transaction(
+                "preflight_blocked",
+                error=str(preflight.get("reason") or "trading_state_unsafe"),
+                preflight=preflight,
+            )
+            return {"ok": False, "needed": True, **preflight}
+
+        approval = {
+            "ok": True,
+            "needed": True,
+            "approved_at_epoch": time.time(),
+            "asset_path": str(asset_path),
+            "sha256": expected_sha,
+            "target_path": str(target_exe),
+            "preflight": preflight,
+        }
+        self._approved_preflight = dict(approval)
+        self._write_transaction(
+            "preflight_approved",
+            asset_path=str(asset_path),
+            target_path=str(target_exe),
+            sha256=expected_sha,
+            preflight=preflight,
+            preflight_approved_at=datetime.now(timezone.utc).isoformat(),
+        )
+        return approval
+
     def apply_pending_update_and_restart(self) -> bool:
         """Apply downloaded update via external PowerShell script and relaunch app."""
         if self._apply_started:
@@ -380,16 +463,23 @@ class AutoUpdateManager:
         if not expected_sha or self._sha256_file(asset_path) != expected_sha:
             self._write_transaction("verification_failed", error="staged_sha256_invalid")
             return False
-        preflight = self.run_update_preflight()
-        if not preflight.get("ok"):
+        approval = dict(self._approved_preflight or {})
+        approval_age = time.time() - float(approval.get("approved_at_epoch") or 0)
+        approval_matches = bool(
+            approval.get("ok")
+            and 0 <= approval_age <= 120
+            and str(approval.get("asset_path") or "") == str(asset_path)
+            and str(approval.get("sha256") or "").lower() == expected_sha
+        )
+        if not approval_matches:
             self._write_transaction(
                 "preflight_blocked",
-                error=str(preflight.get("reason") or "trading_state_unsafe"),
-                preflight=preflight,
+                error="pre_shutdown_approval_missing_or_expired",
             )
             return False
 
-        target_exe = self._resolve_install_target_executable()
+        preflight = dict(approval.get("preflight") or {})
+        target_exe = Path(str(approval.get("target_path") or ""))
         self.install_target_exe = target_exe
 
         if self._looks_like_update_cache_path(target_exe):
@@ -451,9 +541,11 @@ class AutoUpdateManager:
                 close_fds=True,
             )
             self._apply_started = True
+            self._approved_preflight = {}
             self._log_info(f"auto-update apply scheduled: {asset_path}")
             return True
         except Exception as exc:
+            self._write_transaction("apply_spawn_failed", error=str(exc))
             self._log_warning(f"failed to spawn apply script: {exc}")
             return False
 
@@ -473,13 +565,23 @@ class AutoUpdateManager:
         current_exe = str(Path(sys.executable))
         install_target = str(self.install_target_exe or Path(sys.executable))
         pending_asset = str(self.pending_update.get("asset_path") or "")
+        installed_sha = self._installed_executable_sha()
+        expected_sha = str(
+            self.pending_update.get("sha256") or self.transaction.get("sha256") or ""
+        ).lower()
         return {
             "current_exe": current_exe,
             "install_target_exe": install_target,
             "update_cache_dir": str(self.update_cache_dir),
             "pending_asset_path": pending_asset,
             "transaction_phase": str(self.transaction.get("phase") or "none"),
+            "transaction_error": str(
+                self.transaction.get("error") or self.transaction.get("detail") or ""
+            ),
             "transaction_journal": str(self.transaction_journal_path),
+            "installed_sha256": installed_sha,
+            "expected_sha256": expected_sha,
+            "asset_matches_installed": str(bool(installed_sha and expected_sha and installed_sha == expected_sha)).lower(),
         }
 
     def needs_post_update_health_check(self) -> bool:
@@ -522,6 +624,20 @@ class AutoUpdateManager:
                 "reason": "version_mismatch",
                 "expected_version": self.transaction.get("new_version"),
                 "actual_version": self._get_current_version(),
+                "details": result,
+            }
+        expected_sha = str(self.transaction.get("sha256") or "").lower()
+        target_path = Path(str(self.transaction.get("target_path") or sys.executable))
+        try:
+            actual_sha = self._sha256_file(target_path) if target_path.is_file() else ""
+        except Exception:
+            actual_sha = ""
+        if not expected_sha or actual_sha != expected_sha:
+            result = {
+                "ok": False,
+                "reason": "installed_sha256_mismatch",
+                "expected_sha256": expected_sha,
+                "actual_sha256": actual_sha,
                 "details": result,
             }
         if result.get("ok"):
@@ -926,10 +1042,28 @@ exit 1
 
     def _restore_pending_update(self) -> None:
         transaction = dict(getattr(self, "transaction", {}) or {})
-        if str(transaction.get("phase") or "") not in {"downloaded", "preflight_blocked", "shutdown_failed", "shutdown_not_confirmed"}:
+        if str(transaction.get("phase") or "") not in {
+            "downloaded",
+            "preflight_approved",
+            "preflight_blocked",
+            "shutdown_failed",
+            "shutdown_not_confirmed",
+            "target_not_writable",
+            "apply_scheduled",
+            "replacing",
+            "failed",
+            "verification_failed",
+            "apply_spawn_failed",
+        }:
             return
         asset_path = Path(str(transaction.get("asset_path") or ""))
         if not asset_path.exists():
+            return
+        expected_sha = str(transaction.get("sha256") or "").lower()
+        try:
+            if not expected_sha or self._sha256_file(asset_path) != expected_sha:
+                return
+        except Exception:
             return
         self.pending_update = {
             "latest_version": str(transaction.get("new_version") or ""),
@@ -939,6 +1073,25 @@ exit 1
             "sha256": str(transaction.get("sha256") or ""),
             "verification": dict(transaction.get("verification") or {}),
         }
+        self._apply_started = False
+
+    def _check_install_target_replaceable(self, target_path: Path) -> Dict[str, Any]:
+        """Fail early when the stable EXE target cannot be replaced safely."""
+        if self._looks_like_update_cache_path(target_path):
+            return {"ok": False, "reason": "install_target_is_update_cache"}
+        if not target_path.is_file() or target_path.suffix.lower() != ".exe":
+            return {"ok": False, "reason": "install_target_missing"}
+        probe = target_path.parent / f".noah_update_write_probe_{os.getpid()}.tmp"
+        try:
+            probe.write_bytes(b"ok")
+            probe.unlink()
+        except Exception as exc:
+            try:
+                probe.unlink(missing_ok=True)
+            except Exception:
+                pass
+            return {"ok": False, "reason": "install_target_directory_not_writable", "error": str(exc)}
+        return {"ok": True, "reason": ""}
 
     @staticmethod
     def _is_path_under(path: Path, parent: Path) -> bool:
@@ -1179,11 +1332,18 @@ if (-not $copied) {{
 }}
 
 try {{
+    $targetSha = (Get-FileHash -Algorithm SHA256 -Path $target).Hash.ToLowerInvariant()
+    if ($targetSha -ne $expectedSha.ToLowerInvariant()) {{
+        Set-Phase 'failed' 'installed SHA256 mismatch after replacement'
+        Restore-And-Start
+        exit 1
+    }}
+    # 새 프로세스가 health check를 시작하기 전에 상태를 기록한다. 부모
+    # 스크립트가 이후 healthy 상태를 postcheck_pending으로 되돌리지 않는다.
+    Set-Phase 'postcheck_pending'
     $proc = Start-Process -FilePath $target -PassThru
-    Set-Phase 'launched'
     Start-Sleep -Seconds 8
     Get-Process -Id $proc.Id -ErrorAction Stop | Out-Null
-    Set-Phase 'postcheck_pending'
     exit 0
 }} catch {{
     Set-Phase 'failed' ('launch failed: ' + $_.Exception.Message)

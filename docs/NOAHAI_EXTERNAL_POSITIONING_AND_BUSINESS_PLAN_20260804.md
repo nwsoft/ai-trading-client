@@ -1,7 +1,7 @@
 # NoahAI 대외 설명·AI 커스텀·비즈니스 플랜 정본
 
 기준일: 2026-08-09  
-제품 기준: NoahAI Client v3.9.0.8 AI Custom Update Fix 1 소스  
+제품 기준: NoahAI Client v3.9.0.8 AI Custom Update Fix 2 소스  
 AI 커스텀 구현 기준선: v3.9.0.8 P1~P3 Client Source Candidate  
 배포 경계: Windows 재빌드·실계정 장시간 E2E 전 (`pending_windows_rebuild`)  
 적용 대상: 클라이언트 인앱 매뉴얼, NoahAI Labs 웹사이트, info.noahai.net·ip.noahai.net 판매 자료, daltrading 회원·전략 허브, 제안서·보도자료·영상 대본

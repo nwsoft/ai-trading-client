@@ -1,10 +1,10 @@
 # AI 커스텀 핵심 고도화 계획
 
-기준 제품: NoahAI Client v3.9.0.8 AI Custom Update Fix 1 소스  
+기준 제품: NoahAI Client v3.9.0.8 AI Custom Update Fix 2 소스  
 기준일: 2026-08-10  
 문서 상태: P0~P3 클라이언트 소스 구현과 외부 운영 게이트를 분리한 제품·개발 정본  
 배포 경계: Windows 재빌드·실계정 장시간 E2E 전 (`pending_windows_rebuild`)
-릴리스 결정: P0~P3 클라이언트 고도화와 사용자 매뉴얼·AI 어시스턴트 지식을 `v3.9.0.8 AI Custom Update Fix 1` 범위로 관리한다. 새 Windows EXE·SHA-256·설치 검증 전에는 배포 완료로 표시하지 않는다.
+릴리스 결정: P0~P3 클라이언트 고도화와 사용자 매뉴얼·AI 어시스턴트 지식을 `v3.9.0.8 AI Custom Update Fix 2` 범위로 관리한다. 새 Windows EXE·SHA-256·설치 검증 전에는 배포 완료로 표시하지 않는다.
 
 > 파일명 `AI_CUSTOME_UPDATE_PLAN.md`는 기존 경로 호환을 위해 유지한다. 제품명과 본문 표기는 `AI 커스텀`, 영문 식별자는 `AI_CUSTOM`으로 통일한다.
 

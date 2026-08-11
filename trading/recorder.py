@@ -44,6 +44,9 @@ class TradeLog:
     strategy_variant: Optional[str] = None
     fee_asset: Optional[str] = None
     fee_source: Optional[str] = None
+    position_owner: str = "legacy_unknown"
+    execution_mode: str = "live"
+    spot_baseline_quantity: float = 0.0
 
 
 @dataclass
@@ -305,6 +308,9 @@ class Recorder:
                         strategy_variant TEXT,
                         fee_asset TEXT,
                         fee_source TEXT,
+                        position_owner TEXT NOT NULL DEFAULT 'legacy_unknown',
+                        execution_mode TEXT NOT NULL DEFAULT 'live',
+                        spot_baseline_quantity REAL NOT NULL DEFAULT 0.0,
                         created_at DATETIME DEFAULT CURRENT_TIMESTAMP
                     )
                 """)
@@ -616,6 +622,9 @@ class Recorder:
                         'strategy_variant': 'TEXT',
                         'fee_asset': 'TEXT',
                         'fee_source': 'TEXT',
+                        'position_owner': "TEXT NOT NULL DEFAULT 'legacy_unknown'",
+                        'execution_mode': "TEXT NOT NULL DEFAULT 'live'",
+                        'spot_baseline_quantity': 'REAL NOT NULL DEFAULT 0.0',
                     }
                     for column, column_type in required_columns.items():
                         if column not in cols:
@@ -698,6 +707,14 @@ class Recorder:
                 slippage=0.0,
                 exchange=exchange,
                 order_id=order_id,
+                position_owner='noahai',
+                execution_mode=str(trade_params.get('execution_mode', 'live') or 'live'),
+                spot_baseline_quantity=float(
+                    trade_params.get(
+                        'spot_baseline_quantity',
+                        getattr(position, 'spot_baseline_quantity', 0.0),
+                    ) or 0.0
+                ),
             )
 
             inserted_id = self.insert_trade_log(trade_log)
@@ -744,6 +761,23 @@ class Recorder:
                 actual_fees = self.estimate_fees(position.quantity, exit_price)
                 actual_slippage = self.estimate_slippage(position.symbol)
                 actual_quantity = position.quantity
+
+            entry_order_ids = [
+                str(value)
+                for value in (getattr(position, 'entry_order_ids', []) or [])
+                if str(value or '').strip()
+            ]
+            if len(entry_order_ids) > 1:
+                return self._close_managed_entry_group(
+                    symbol=position.symbol,
+                    exchange=exchange or self.exchange,
+                    entry_order_ids=entry_order_ids,
+                    exit_price=float(actual_exit_price),
+                    reason=reason,
+                    fees=float(actual_fees or 0.0),
+                    slippage=float(actual_slippage or 0.0),
+                    exit_order_id=exit_order_id,
+                )
 
             # 2. 정확한 손익 계산 (단위 일치 + 레버리지 중복 제거)
             # ① 총 손익(화폐단위): 레버리지 곱하지 않음
@@ -815,6 +849,127 @@ class Recorder:
         except Exception as e:
             log_event('trade', f"거래 청산 로그 기록 오류: {e}", exchange=self.exchange, level='ERROR')
             return False
+
+    def _close_managed_entry_group(
+        self,
+        *,
+        symbol: str,
+        exchange: str,
+        entry_order_ids: List[str],
+        exit_price: float,
+        reason: str,
+        fees: float,
+        slippage: float,
+        exit_order_id: Optional[str],
+    ) -> bool:
+        """Close every persisted scale-in row without duplicating aggregate PnL."""
+        clean_ids = list(dict.fromkeys(str(value) for value in entry_order_ids if value))
+        if not clean_ids:
+            return False
+        try:
+            placeholders = ",".join("?" for _ in clean_ids)
+            with sqlite3.connect(self.db_path) as conn:
+                rows = conn.execute(
+                    f"""
+                    SELECT id, entry_price, quantity, UPPER(COALESCE(side, 'LONG'))
+                    FROM trade_log
+                    WHERE symbol = ?
+                      AND LOWER(COALESCE(exchange, '')) = ?
+                      AND exit_time IS NULL
+                      AND order_id IN ({placeholders})
+                    """,
+                    (symbol, str(exchange or '').lower(), *clean_ids),
+                ).fetchall()
+                total_notional = sum(
+                    max(0.0, float(row[1] or 0.0) * float(row[2] or 0.0))
+                    for row in rows
+                )
+                closed_at = self._to_db_datetime(datetime.now())
+                for trade_id, entry_price, quantity, side in rows:
+                    entry = float(entry_price or 0.0)
+                    qty = float(quantity or 0.0)
+                    notional = max(0.0, entry * qty)
+                    weight = (notional / total_notional) if total_notional > 0 else 0.0
+                    row_fees = fees * weight if fees > 0 else notional * 0.0004
+                    row_slippage = slippage * weight if slippage > 0 else notional * 0.0002
+                    side_sign = 1.0 if str(side).upper() == 'LONG' else -1.0
+                    pnl = ((float(exit_price) - entry) * qty * side_sign) - row_fees - row_slippage
+                    pnl_percent = (pnl / notional * 100.0) if notional > 0 else 0.0
+                    conn.execute(
+                        """
+                        UPDATE trade_log
+                        SET exit_price = ?, exit_time = ?, pnl = ?, pnl_percent = ?,
+                            reason = ?, fees = ?, slippage = ?, exit_order_id = ?
+                        WHERE id = ?
+                        """,
+                        (
+                            float(exit_price), closed_at, pnl, pnl_percent, reason,
+                            row_fees, row_slippage,
+                            str(exit_order_id) if exit_order_id else None,
+                            trade_id,
+                        ),
+                    )
+                conn.commit()
+            log_event(
+                'trade',
+                f"NoahAI 분할 진입 {len(rows)}건 일괄 청산 원장 반영: {symbol}",
+                exchange=exchange,
+                level='INFO',
+            )
+            return bool(rows)
+        except Exception as e:
+            log_event(
+                'trade',
+                f"NoahAI 분할 진입 일괄 청산 원장 오류: {e}",
+                exchange=exchange,
+                level='ERROR',
+            )
+            return False
+
+    def get_open_managed_trades(self, exchange: str) -> List[Dict[str, Any]]:
+        """Return open positions that a persisted NoahAI entry order owns.
+
+        Account-wide exchange positions and balances are deliberately excluded.
+        Legacy rows are accepted only when they have both a NoahAI reason and an
+        exchange order id; this provides a safe upgrade path for open positions
+        created before ``position_owner`` was introduced.
+        """
+        venue = str(exchange or "").strip().lower()
+        if not venue:
+            return []
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                conn.row_factory = sqlite3.Row
+                rows = conn.execute(
+                    """
+                    SELECT id, symbol, side, entry_price, quantity, leverage,
+                           entry_time, tp_price, sl_price, order_id,
+                           COALESCE(position_owner, 'legacy_unknown') AS position_owner,
+                           COALESCE(execution_mode, 'live') AS execution_mode,
+                           COALESCE(spot_baseline_quantity, 0.0) AS spot_baseline_quantity,
+                           reason
+                    FROM trade_log
+                    WHERE LOWER(COALESCE(exchange, '')) = ?
+                      AND exit_time IS NULL
+                      AND order_id IS NOT NULL
+                      AND TRIM(order_id) <> ''
+                      AND (
+                            LOWER(COALESCE(position_owner, '')) = 'noahai'
+                            OR LOWER(COALESCE(reason, '')) LIKE 'ai %'
+                          )
+                    ORDER BY entry_time DESC, id DESC
+                    """,
+                    (venue,),
+                ).fetchall()
+            return [dict(row) for row in rows]
+        except Exception as e:
+            log_event(
+                'trade',
+                f"NoahAI 소유 미청산 포지션 조회 오류: {e}",
+                exchange=venue,
+                level='ERROR',
+            )
+            return []
 
     def get_actual_trade_info(self, symbol: str, entry_time: datetime, side: str):
         """바이낸스 API에서 실제 거래 정보 가져오기"""
@@ -985,8 +1140,9 @@ class Recorder:
                         pnl, pnl_percent, entry_time, exit_time, reason,
                         side, tp_price, sl_price, fees, slippage, exchange,
                         order_id, exit_order_id, model_version, strategy_variant,
-                        fee_asset, fee_source
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        fee_asset, fee_source, position_owner, execution_mode,
+                        spot_baseline_quantity
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """, (
                     trade_log.symbol, trade_log.entry_price, trade_log.exit_price,
                     trade_log.quantity, trade_log.leverage, trade_log.pnl,
@@ -1000,6 +1156,9 @@ class Recorder:
                     getattr(trade_log, 'strategy_variant', None),
                     getattr(trade_log, 'fee_asset', None),
                     getattr(trade_log, 'fee_source', None),
+                    str(getattr(trade_log, 'position_owner', 'legacy_unknown') or 'legacy_unknown'),
+                    str(getattr(trade_log, 'execution_mode', 'live') or 'live'),
+                    float(getattr(trade_log, 'spot_baseline_quantity', 0.0) or 0.0),
                 ))
                 conn.commit()
 
@@ -2753,6 +2912,9 @@ class Recorder:
                     'strategy_variant': 'TEXT',
                     'fee_asset': 'TEXT',
                     'fee_source': 'TEXT',
+                    'position_owner': "TEXT NOT NULL DEFAULT 'legacy_unknown'",
+                    'execution_mode': "TEXT NOT NULL DEFAULT 'live'",
+                    'spot_baseline_quantity': 'REAL NOT NULL DEFAULT 0.0',
                 }
                 existing_columns = set(self._get_table_columns(cursor, 'trade_log'))
                 added_columns = []

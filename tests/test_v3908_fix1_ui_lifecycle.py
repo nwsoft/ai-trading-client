@@ -108,3 +108,36 @@ def test_service_switch_has_one_source_teardown_and_current_service_refresh() ->
     assert "show_stock_content()" in refresh_source
     assert "identity = ctk.CTkFrame" not in position_source
     assert "card.grid_propagate(False)" in position_source
+
+
+def test_same_service_click_reuses_existing_tree_and_tab_style_preserves_selection() -> None:
+    source = (Path(__file__).resolve().parents[1] / "ui" / "dashboard_modern.py").read_text(
+        encoding="utf-8"
+    )
+    switch_source = source[source.index("    def switch_service("):source.index("    def _get_ops_kpi_specs_for_service(")]
+    style_source = source[source.index("    def _apply_tabview_style("):source.index("    def _clear_tab_children(")]
+
+    assert "if previous_service == target_service:" in switch_source
+    assert "service-switch-reused" in switch_source
+    assert "getter = getattr(tv, \"get\", None)" in style_source
+    assert "current = tv._name_list[0]  # 첫 탭을 최소 선택" not in style_source
+
+
+def test_service_source_tabs_are_reused_and_partial_render_is_rejected() -> None:
+    source = (Path(__file__).resolve().parents[1] / "ui" / "dashboard_modern.py").read_text(
+        encoding="utf-8"
+    )
+    create_source = source[source.index("    def create_service_sub_tabs("):source.index("    def _get_service_split_layout(")]
+
+    assert "all(widget_is_alive(frame) for frame in existing_tabs.values())" in create_source
+    assert "service_tab_partial_render:" in create_source
+    assert "부분 화면으로 거래하지 말고" in create_source
+
+
+def test_exit_authorizes_update_before_shutdown() -> None:
+    source = (Path(__file__).resolve().parents[1] / "ui" / "dashboard_modern.py").read_text(
+        encoding="utf-8"
+    )
+    close_source = source[source.index("    def on_closing("):source.index("    def _safe_destroy_widgets(")]
+
+    assert close_source.index("prepare_update_preflight_on_exit") < close_source.index("shutdown_for_exit")

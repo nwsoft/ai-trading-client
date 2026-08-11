@@ -10,7 +10,7 @@
 
 배포 대상 릴리스: `https://github.com/nwsoft/ai-trading-client/releases/tag/v3.9.0.8`
 
-> v3.9.0.8 AI Custom Update Fix 1 manifest는 `pending_windows_rebuild`입니다. Windows에서 새로 빌드한 뒤 AI 커스텀 프로필·Level 전환·성과표·패키지·어시스턴트 지식과 기존 VC 런타임·Kiwoom·OCR·거래소 안전 회귀를 함께 검증해야 합니다. 직전 공개 v3.9.0.8 AI Custom Update 자산은 `deploy/previous/AITrading-v3.9.0.8-AI-Custom-Update.exe`에 보존했으며 비교·복구용 `previous_published_asset`으로만 사용합니다.
+> v3.9.0.8 AI Custom Update Fix 2 manifest는 `pending_windows_rebuild`입니다. Windows에서 새로 빌드한 뒤 AI 커스텀 프로필·Level 전환·성과표·패키지·어시스턴트 지식과 기존 VC 런타임·Kiwoom·OCR·거래소 안전 회귀를 함께 검증해야 합니다. 직전 공개 v3.9.0.8 AI Custom Update 자산은 `deploy/previous/AITrading-v3.9.0.8-AI-Custom-Update.exe`에 보존했으며 비교·복구용 `previous_published_asset`으로만 사용합니다.
 
 > 빌드 전 `.venv/bin/python scripts/active_source_audit.py`와 `.venv/bin/python verify_build_includes.py`를 모두 통과해야 합니다. 격리된 레거시 `theme_system`과 위젯/대시보드 보관본은 활성 소스·PyInstaller 입력에 포함하지 않습니다.
 
@@ -229,7 +229,7 @@ gh release upload v3.9.0.8 deploy/AITrading.exe deploy/version.txt deploy/releas
 ```
 
 - 태그를 새로 만들지 않고 릴리즈 에셋만 교체
-- v3.9.0.8에서는 생성 후 manifest의 `release_label=v3.9.0.8 AI Custom Update Fix 1`, `build_status=built`, EXE `size>0`, 실제 SHA-256 일치를 확인한 뒤 업로드한다.
+- v3.9.0.8에서는 생성 후 manifest의 `release_label=v3.9.0.8 AI Custom Update Fix 2`, `build_status=built`, EXE `size>0`, 실제 SHA-256 일치를 확인한 뒤 업로드한다.
 
 6) **원격 main 선행 커밋 때문에 `-PushBranch`가 막힐 때**
 

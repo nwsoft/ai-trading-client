@@ -225,7 +225,12 @@ class BithumbSpotAdapter(SpotExchange):
     def place_order(self, symbol: str, side: str, quantity: float, 
                    price: Optional[float] = None, order_type: str = "MARKET") -> Dict[str, Any]:
         if not self.is_connected:
-            return {}
+            return {
+                'status': 'error',
+                'error': '빗썸 거래소가 연결되지 않아 주문을 제출하지 못했습니다',
+                'symbol': symbol,
+                'side': side,
+            }
         try:
             symbol = self._normalize_bithumb_symbol(symbol)
 
@@ -248,7 +253,13 @@ class BithumbSpotAdapter(SpotExchange):
             return order
         except Exception as e:
             self.log_event('system', f"주문 실행 실패: {e}", level='ERROR')
-            return {}
+            self.last_error = str(e)
+            return {
+                'status': 'error',
+                'error': str(e),
+                'symbol': symbol,
+                'side': side,
+            }
     
     def cancel_order(self, order_id: str, symbol: Optional[str] = None) -> bool:
         if not self.is_connected:

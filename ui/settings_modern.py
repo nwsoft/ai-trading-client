@@ -985,6 +985,13 @@ class ModernSettingsWindow:
             "stable_target_unavailable": "정상 설치 EXE 경로를 확인할 수 없습니다.",
             "shutdown_not_confirmed": "안전 종료가 확인되지 않아 적용하지 않았습니다.",
             "preflight_blocked": "열린 포지션·주문 안전 점검에서 적용이 보류됐습니다.",
+            "pre_shutdown_approval_missing_or_expired": "종료 전에 받은 안전 승인이 없거나 만료되었습니다.",
+            "staged_executable_missing": "다운로드한 임시 EXE를 찾을 수 없습니다.",
+            "staged_sha256_invalid": "다운로드한 임시 EXE의 SHA-256 검증에 실패했습니다.",
+            "install_target_is_update_cache": "업데이트 캐시를 설치 경로로 사용할 수 없습니다.",
+            "install_target_missing": "교체할 설치 EXE를 찾을 수 없습니다.",
+            "install_target_directory_not_writable": "설치 폴더에 쓰기 권한이 없어 자동 교체할 수 없습니다.",
+            "installed_sha256_mismatch": "재시작한 EXE가 배포 SHA-256과 일치하지 않습니다.",
         }.get(str(reason or ""), str(reason or "알 수 없는 오류"))
 
     def _open_latest_release_page(self):
@@ -1049,12 +1056,23 @@ class ModernSettingsWindow:
 
         try:
             info = auto_manager.get_runtime_diagnostics()
+            installed_sha = str(info.get('installed_sha256') or '')
+            expected_sha = str(info.get('expected_sha256') or '')
+            phase = str(info.get('transaction_phase') or 'none')
+            error = str(info.get('transaction_error') or '')
             text = (
                 f"적용 대상 EXE: {info.get('install_target_exe', '-') }\n"
                 f"현재 실행 EXE: {info.get('current_exe', '-') }\n"
-                f"업데이트 캐시: {info.get('update_cache_dir', '-') }"
+                f"업데이트 캐시: {info.get('update_cache_dir', '-') }\n"
+                f"적용 단계: {phase}"
+                f"{' · ' + self._auto_update_reason_text(error) if error else ''}\n"
+                f"현재 SHA: {installed_sha[:12] or '-'} · 배포 SHA: {expected_sha[:12] or '-'}"
             )
-            label.configure(text=text, text_color="#94a3b8")
+            sha_matches = bool(installed_sha and expected_sha and installed_sha == expected_sha)
+            label.configure(
+                text=text,
+                text_color="#22c55e" if sha_matches else ("#f59e0b" if expected_sha else "#94a3b8"),
+            )
         except Exception:
             try:
                 label.configure(
@@ -1081,7 +1099,7 @@ class ModernSettingsWindow:
             messagebox.showinfo("업데이트", "적용 가능한 다운로드 업데이트가 없습니다. 먼저 '업데이트 확인'을 실행해 주세요.")
             return
 
-        preflight = auto_manager.run_update_preflight()
+        preflight = auto_manager.authorize_pending_update()
         if not preflight.get("ok"):
             messagebox.showwarning(
                 "업데이트 연기",

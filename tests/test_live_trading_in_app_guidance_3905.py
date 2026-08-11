@@ -16,10 +16,10 @@ def test_fix_patch_build_is_identifiable_inside_client():
         USER_MANUAL_TITLE,
     )
 
-    assert RELEASE_BUILD_LABEL == "v3.9.0.8 AI Custom Update Fix 1"
-    assert "AI Custom Update Fix 1" in DASHBOARD_TITLE
-    assert "AI Custom Update Fix 1" in USER_MANUAL_TITLE
-    assert "ai-custom-fix1-ui-lifecycle-source-candidate" in RELEASE_NOTICE_ID
+    assert RELEASE_BUILD_LABEL == "v3.9.0.8 AI Custom Update Fix 2"
+    assert "AI Custom Update Fix 2" in DASHBOARD_TITLE
+    assert "AI Custom Update Fix 2" in USER_MANUAL_TITLE
+    assert "ai-custom-fix2-updater-ui-root-contract-source-candidate" in RELEASE_NOTICE_ID
 
 
 def test_user_guide_covers_all_live_venues_modes_and_memberships():

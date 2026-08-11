@@ -78,7 +78,7 @@ def check_release_version_markers(text_map: Dict[str, str]) -> List[str]:
         errors.append("[MANUAL] 인앱 메뉴얼 제목이 USER_MANUAL_TITLE 상수를 사용하지 않습니다.")
 
     app_version = text_map.get("app_version", "")
-    if 'RELEASE_HIGHLIGHT = "AI 커스텀 P1~P3 · Windows UI 생명주기·서비스 탭 안정화"' not in app_version:
+    if 'RELEASE_HIGHLIGHT = "AI 커스텀 P1~P3 · 자동업데이트 상태 머신·Windows UI 재사용 안정화"' not in app_version:
         errors.append("[APP_VERSION] 대시보드 사용자용 최신 업데이트 요약이 현행 변경과 다릅니다.")
 
     expected_release_line = f"현재 설치 기준 버전: **v{RELEASE_VERSION}**"
@@ -131,19 +131,19 @@ def check_release_surface_alignment(text_map: Dict[str, str]) -> List[str]:
     """동일 버전의 핵심 변경이 사용자 노출·기술·검증 문서에 함께 있는지 확인한다."""
     if RELEASE_VERSION == "3.9.0.8":
         required = {
-            "manual_widget": ("v3.9.0.8 Fix 1 최신 업데이트", "Noah Strategy IR", "초보자·일반·고급·실험실", "PAPER"),
+            "manual_widget": ("v3.9.0.8 Fix 2 최신 업데이트", "Noah Strategy IR", "초보자·일반·고급·실험실", "PAPER"),
             "user_guide": ("현재 설치 기준 버전: **v3.9.0.8**", "AI Custom Update", "pending_windows_rebuild"),
-            "release_notes": ("v3.9.0.8 AI Custom Update Fix 1", "Noah Strategy IR", ".noahstrategy", "pending_windows_rebuild"),
-            "deploy_release_notes": ("v3.9.0.8 AI Custom Update Fix 1", "Expression Graph", "pending_windows_rebuild"),
-            "update_plan": ("v3.9.0.8 AI Custom Update Fix 1", "AI 어시스턴트", "pending_windows_rebuild"),
-            "test_status": ("v3.9.0.8 AI Custom Update Fix 1", "Windows", "PAPER"),
-            "readme": ("v3.9.0.8 AI Custom Update Fix 1", "Noah Strategy IR", "pending_windows_rebuild"),
-            "docs_readme": ("v3.9.0.8 AI Custom Update Fix 1", "Expression Graph", "pending_windows_rebuild"),
-            "deploy_checklist": ("v3.9.0.8 AI Custom Update Fix 1", "pending_windows_rebuild"),
-            "master_documentation": ("v3.9.0.8 AI Custom Update Fix 1", "어시스턴트 지식", "Windows 재빌드 전"),
-            "build_guide": ("v3.9.0.8 AI Custom Update Fix 1", "v3.9.0.8 AI Custom Update 자산", "pending_windows_rebuild"),
-            "ai_custom_architecture": ("v3.9.0.8 AI Custom Update Fix 1", "Noah Strategy IR", "pending_windows_rebuild"),
-            "assistant_guide": ("v3.9.0.8 AI Custom Update Fix 1", "백테스트/PAPER", ".noahstrategy"),
+            "release_notes": ("v3.9.0.8 AI Custom Update Fix 2", "Noah Strategy IR", ".noahstrategy", "pending_windows_rebuild"),
+            "deploy_release_notes": ("v3.9.0.8 AI Custom Update Fix 2", "Expression Graph", "pending_windows_rebuild"),
+            "update_plan": ("v3.9.0.8 AI Custom Update Fix 2", "AI 어시스턴트", "pending_windows_rebuild"),
+            "test_status": ("v3.9.0.8 AI Custom Update Fix 2", "Windows", "PAPER"),
+            "readme": ("v3.9.0.8 AI Custom Update Fix 2", "Noah Strategy IR", "pending_windows_rebuild"),
+            "docs_readme": ("v3.9.0.8 AI Custom Update Fix 2", "Expression Graph", "pending_windows_rebuild"),
+            "deploy_checklist": ("v3.9.0.8 AI Custom Update Fix 2", "pending_windows_rebuild"),
+            "master_documentation": ("v3.9.0.8 AI Custom Update Fix 2", "어시스턴트 지식", "Windows 재빌드 전"),
+            "build_guide": ("v3.9.0.8 AI Custom Update Fix 2", "v3.9.0.8 AI Custom Update 자산", "pending_windows_rebuild"),
+            "ai_custom_architecture": ("v3.9.0.8 AI Custom Update Fix 2", "Noah Strategy IR", "pending_windows_rebuild"),
+            "assistant_guide": ("v3.9.0.8 AI Custom Update Fix 2", "백테스트/PAPER", ".noahstrategy"),
         }
         errors: List[str] = []
         for surface, markers in required.items():
