@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""AI 어시스턴트가 v3.9.0.8 설정을 비밀값 없이 설명하기 위한 정본 검색."""
+"""AI 어시스턴트가 현행 설정을 비밀값 없이 설명하기 위한 정본 검색."""
 
 from pathlib import Path
 import re

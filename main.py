@@ -7,6 +7,7 @@ PyQt5 진입점
 
 # 표준 라이브러리
 import atexit
+import copy
 import importlib.util
 import json
 import math
@@ -1186,6 +1187,13 @@ class NoahAIClient:
                     from utils.runtime_stability import begin_runtime_session
 
                     stability = begin_runtime_session()
+                    if stability.get("parallel_session"):
+                        logger = self._get_main_logger()
+                        if logger:
+                            logger.warning(
+                                "이미 실행 중인 NoahAI Client가 있어 중복 실행을 차단합니다."
+                            )
+                        return
                     _RUNTIME_SESSION_STARTED = True
                     if stability.get("previous_unclean"):
                         logger = self._get_main_logger()
@@ -1580,38 +1588,54 @@ class NoahAIClient:
                         logger.warning("설정 저장 콜백에 유효한 설정 딕셔너리가 전달되지 않음")
                 return
 
-            # Diff 계산(적용 전)
+            persisted = bool(kwargs.get('persisted', False))
+
+            # 설정 창은 별도 snapshot을 편집한다. 적용 전 snapshot과 비교해야
+            # 실제 변경 범위만 재시작할 수 있다.
             try:
                 from config.diff_engine import compute_settings_diff
-                _merged = {**self.settings, **new_settings}
-                diff_plan = compute_settings_diff(self.settings, _merged)
+                old_settings = copy.deepcopy(self.settings)
+                merged_settings = copy.deepcopy(self.settings)
+                merged_settings.update(copy.deepcopy(new_settings))
+                diff_plan = compute_settings_diff(old_settings, merged_settings)
             except Exception:
                 diff_plan = None
+                merged_settings = copy.deepcopy(new_settings)
+
+            changed_keys = set(diff_plan.get('changed_keys', set()) if diff_plan else set())
+            runtime_changed = bool(
+                diff_plan
+                and (diff_plan.get('trading_changed') or diff_plan.get('exchanges_changed'))
+            )
 
             # 메모리 설정 갱신 및 디스크 저장
-            self.settings.update(new_settings)
-            if 'ai_custom_runtime' in new_settings:
+            self.settings.update(copy.deepcopy(new_settings))
+            if 'ai_custom_runtime' in changed_keys:
                 self.sync_custom_strategy_runtime_pools()
             self._apply_membership_feature_limits(self.current_user_grade)
             if self.auto_update_manager is not None:
                 self.auto_update_manager.update_settings(self.settings)
-            try:
-                from config.settings import save_settings
-                save_settings(self.settings)
-            except Exception as e:
-                logger = self._get_main_logger()
-                if logger:
-                    if logger is not None:
+            if not persisted:
+                try:
+                    from config.settings import save_settings
+                    save_settings(self.settings)
+                except Exception as e:
+                    logger = self._get_main_logger()
+                    if logger:
                         logger.warning(f"설정 파일 저장 실패(계속 진행): {e}")
 
             logger = self._get_main_logger()
             if logger:
                 if logger is not None:
-                    logger.info("✅ 설정 저장됨 — 런타임 구성 갱신 시작")
+                    changed_label = (
+                        ", ".join(sorted(changed_keys))
+                        if changed_keys else "변경 없음"
+                    )
+                    logger.info(f"✅ 설정 저장됨 — 변경 범위 적용 시작: {changed_label}")
 
             # 로그 레벨 등 로깅 설정이 바뀐 경우 즉시 재설정
             try:
-                if 'log_level' in new_settings:
+                if diff_plan and diff_plan.get('logging_changed'):
                     self.setup_logging()
                     logger = self._get_main_logger()
                     if logger:
@@ -1630,7 +1654,7 @@ class NoahAIClient:
             if hasattr(self, 'unified_manager') and self.unified_manager:
                 try:
                     # 🔥 거래/거래소/AI 설정이 변경된 경우에만 재초기화
-                    if diff_plan and (diff_plan.get('trading_changed') or diff_plan.get('exchanges_changed') or diff_plan.get('ai_changed')):
+                    if runtime_changed:
                         logger = self._get_main_logger()
                         if logger:
                             logger.info("🔄 거래 설정 변경 감지 - UnifiedTradingManager 재초기화")
@@ -1709,7 +1733,7 @@ class NoahAIClient:
             if hasattr(self, 'exchange_manager') and self.exchange_manager:
                 try:
                     if hasattr(self.exchange_manager, 'update_settings'):
-                        if not diff_plan or diff_plan.get('exchanges_changed') or diff_plan.get('trading_changed'):
+                        if not diff_plan or runtime_changed:
                             self.exchange_manager.update_settings(self.settings, unified_manager=self.unified_manager)
                     else:
                         from trading.exchange_manager import ExchangeManager
@@ -1745,7 +1769,7 @@ class NoahAIClient:
                     # 교체하면 Bybit/OKX/Bitget/Upbit/Bithumb 경로는 생성 당시의
                     # 실행 모드를 계속 사용하게 된다.
                     update_trader_settings = getattr(self.unified_trader, 'update_settings', None)
-                    if callable(update_trader_settings):
+                    if runtime_changed and callable(update_trader_settings):
                         update_trader_settings(self.settings)
                     # UnifiedTrader에 AIManager 주입 메서드가 있을 경우에만 시도
                     try:
@@ -1771,7 +1795,12 @@ class NoahAIClient:
             # 대시보드에 변경사항 반영
             if hasattr(self, 'dashboard') and self.dashboard:
                 if hasattr(self.dashboard, 'refresh_after_settings_change'):
-                    self.dashboard.refresh_after_settings_change(self.settings, self.exchange_manager, self.unified_manager)
+                    self.dashboard.refresh_after_settings_change(
+                        self.settings,
+                        self.exchange_manager,
+                        self.unified_manager,
+                        diff_plan=diff_plan,
+                    )
                 else:
                     # 최소한의 교체
                     self.dashboard.settings = self.settings
@@ -1811,7 +1840,11 @@ class NoahAIClient:
 
                 # 잔고 즉시 새로고침 시도 (캐시 무시)
                 try:
-                    if hasattr(self, 'exchange_manager') and self.exchange_manager:
+                    if (
+                        self.exchange_manager
+                        and diff_plan
+                        and diff_plan.get('exchanges_changed')
+                    ):
                         for exchange_name in list(self.settings.get('enabled_exchanges', []) or []):
                             self.exchange_manager.get_exchange_balance(
                                 str(exchange_name).strip().lower(),
@@ -1821,10 +1854,16 @@ class NoahAIClient:
                     pass
 
             # 전략 런타임 브리지/프로파일 재동기화
-            try:
-                self._initialize_strategy_runtime_bridges()
-            except Exception:
-                pass
+            if not diff_plan or changed_keys.intersection({
+                'ai_custom_runtime', 'ai_custom_features', 'advanced_trading_layers',
+                'advanced_trading_policy_presets', 'trading_strategies',
+                'signal_thresholds', 'dynamic_thresholds_enabled',
+                'dynamic_thresholds_profile', 'dynamic_thresholds_mode',
+            }):
+                try:
+                    self._initialize_strategy_runtime_bridges()
+                except Exception:
+                    pass
 
             logger = self._get_main_logger()
             if logger:

@@ -8,9 +8,9 @@
 
 > UI 정책: 본 프로젝트의 GUI는 CustomTkinter만 지원합니다. PyQt5/PySide6는 Windows 빌드에서 키움증권 OpenAPI+ 지원 목적으로만 포함됩니다 (레거시 UI 파일은 ImportError 스텁으로 남아 있습니다).
 
-배포 대상 릴리스: `https://github.com/nwsoft/ai-trading-client/releases/tag/v3.9.0.8`
+배포 대상 릴리스: `https://github.com/nwsoft/ai-trading-client/releases/tag/v3.9.0.9`
 
-> v3.9.0.8 AI Custom Update Fix 2 manifest는 `pending_windows_rebuild`입니다. Windows에서 새로 빌드한 뒤 AI 커스텀 프로필·Level 전환·성과표·패키지·어시스턴트 지식과 기존 VC 런타임·Kiwoom·OCR·거래소 안전 회귀를 함께 검증해야 합니다. 직전 공개 v3.9.0.8 AI Custom Update 자산은 `deploy/previous/AITrading-v3.9.0.8-AI-Custom-Update.exe`에 보존했으며 비교·복구용 `previous_published_asset`으로만 사용합니다.
+> v3.9.0.9 AI Custom Stability Update 소스는 `pending_windows_rebuild`입니다. 공개 v3.9.0.8 Fix 4 자산은 `deploy/previous/AITrading-v3.9.0.8-AI-Custom-Update-Fix4.exe`와 SHA `91070a67eb0a...`로 보존했습니다. Windows에서 새로 빌드한 뒤 설정/거래소 탭 100회, 단일 프로세스, USER/GDI/TK_MENU, Binance WebSocket 장시간 PAPER와 기존 AI 커스텀·VC 런타임·Kiwoom·OCR 회귀를 함께 검증해야 합니다.
 
 > 빌드 전 `.venv/bin/python scripts/active_source_audit.py`와 `.venv/bin/python verify_build_includes.py`를 모두 통과해야 합니다. 격리된 레거시 `theme_system`과 위젯/대시보드 보관본은 활성 소스·PyInstaller 입력에 포함하지 않습니다.
 
@@ -168,7 +168,7 @@ powershell -ExecutionPolicy Bypass -File scripts/build_windows_safe.ps1 -GatePro
 태그 기반 GitHub 릴리즈를 한 번에 처리하려면 아래 스크립트를 사용합니다.
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File scripts/release_tag_push.ps1 -Version 3.9.0.8 -Branch main -PushBranch
+powershell -ExecutionPolicy Bypass -File scripts/release_tag_push.ps1 -Version 3.9.0.9 -Branch main -PushBranch
 ```
 
 옵션
@@ -191,7 +191,7 @@ powershell -ExecutionPolicy Bypass -File scripts/release_tag_push.ps1 -Version 3
 1) **가장 안전한 기본 배포(권장)**
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File scripts/release_tag_push.ps1 -Version 3.9.0.8
+powershell -ExecutionPolicy Bypass -File scripts/release_tag_push.ps1 -Version 3.9.0.9
 ```
 
 - 태그 push + GitHub 릴리즈 에셋 업로드까지 수행
@@ -200,7 +200,7 @@ powershell -ExecutionPolicy Bypass -File scripts/release_tag_push.ps1 -Version 3
 2) **브랜치도 같이 push (실패해도 릴리즈는 계속 진행)**
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File scripts/release_tag_push.ps1 -Version 3.9.0.8 -Branch main -PushBranch
+powershell -ExecutionPolicy Bypass -File scripts/release_tag_push.ps1 -Version 3.9.0.9 -Branch main -PushBranch
 ```
 
 - `main` push가 거절돼도 태그/릴리즈 업로드는 계속 진행
@@ -208,7 +208,7 @@ powershell -ExecutionPolicy Bypass -File scripts/release_tag_push.ps1 -Version 3
 3) **브랜치 push 실패 시 즉시 중단(엄격 모드)**
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File scripts/release_tag_push.ps1 -Version 3.9.0.8 -Branch main -PushBranch -StrictBranchPush
+powershell -ExecutionPolicy Bypass -File scripts/release_tag_push.ps1 -Version 3.9.0.9 -Branch main -PushBranch -StrictBranchPush
 ```
 
 - 팀 정책상 브랜치 push 성공이 필수일 때 사용
@@ -216,7 +216,7 @@ powershell -ExecutionPolicy Bypass -File scripts/release_tag_push.ps1 -Version 3
 4) **이미 커밋한 상태에서 태그/릴리즈만 수행**
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File scripts/release_tag_push.ps1 -Version 3.9.0.8 -SkipCommit
+powershell -ExecutionPolicy Bypass -File scripts/release_tag_push.ps1 -Version 3.9.0.9 -SkipCommit
 ```
 
 - 로컬 변경 자동 커밋 없이 현재 HEAD 기준으로 태그/릴리즈 처리
@@ -225,11 +225,11 @@ powershell -ExecutionPolicy Bypass -File scripts/release_tag_push.ps1 -Version 3
 
 ```powershell
 python scripts/generate_release_assets.py --out-dir deploy --exe deploy/AITrading.exe --repo nwsoft/ai-trading-client
-gh release upload v3.9.0.8 deploy/AITrading.exe deploy/version.txt deploy/release_notes.md deploy/release-manifest.json --repo nwsoft/ai-trading-client --clobber
+gh release upload v3.9.0.9 deploy/AITrading.exe deploy/version.txt deploy/release_notes.md deploy/release-manifest.json --repo nwsoft/ai-trading-client --clobber
 ```
 
 - 태그를 새로 만들지 않고 릴리즈 에셋만 교체
-- v3.9.0.8에서는 생성 후 manifest의 `release_label=v3.9.0.8 AI Custom Update Fix 2`, `build_status=built`, EXE `size>0`, 실제 SHA-256 일치를 확인한 뒤 업로드한다.
+- v3.9.0.9에서는 생성 후 manifest의 `release_label=v3.9.0.9 AI Custom Stability Update`, `build_status=built`, EXE `size>0`, 실제 SHA-256 일치를 확인한 뒤 업로드한다.
 
 6) **원격 main 선행 커밋 때문에 `-PushBranch`가 막힐 때**
 
@@ -242,7 +242,7 @@ git push origin main
 재정렬 후 릴리즈를 다시 실행합니다.
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File scripts/release_tag_push.ps1 -Version 3.9.0.8 -Branch main -PushBranch
+powershell -ExecutionPolicy Bypass -File scripts/release_tag_push.ps1 -Version 3.9.0.9 -Branch main -PushBranch
 ```
 
 주의

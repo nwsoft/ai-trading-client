@@ -283,6 +283,19 @@ class ModernDashboard(ctk.CTk):
             'stock': {},       # 증권사별 탭 레퍼런스 (미래 확장)
             'real_estate': {}  # 지역별 탭 레퍼런스 (미래 확장)
         }
+        # 서비스 소스 탭은 버튼만 모두 만들고 무거운 화면 트리는 현재 선택한
+        # 소스 하나만 소유한다. 여러 거래소 화면을 동시에 유지하면 Windows의
+        # USER/GDI/Tk 메뉴 자원과 after 콜백이 누적되어 부분 렌더가 발생한다.
+        self._active_source_tab_by_service: Dict[str, Optional[str]] = {
+            'blockchain': None,
+            'stock': None,
+            'real_estate': None,
+        }
+        self._service_source_names: Dict[str, Dict[str, str]] = {
+            'blockchain': {},
+            'stock': {},
+            'real_estate': {},
+        }
 
         # 설정에서 활성화된 거래소 목록 (초기 로드; 이후 변경 시 refresh 메서드로 갱신)
         self.enabled_exchanges = self.settings.get('enabled_exchanges', ['binance'])
@@ -1582,7 +1595,13 @@ class ModernDashboard(ctk.CTk):
         except Exception as e:
             print(f"데모 모드 위젯 업데이트 실패: {e}")
 
-    def refresh_after_settings_change(self, new_settings, exchange_manager=None, unified_manager=None):
+    def refresh_after_settings_change(
+        self,
+        new_settings,
+        exchange_manager=None,
+        unified_manager=None,
+        diff_plan=None,
+    ):
         """설정 변경 후 대시보드 내부 상태 갱신"""
         try:
             self.settings = new_settings
@@ -1593,17 +1612,24 @@ class ModernDashboard(ctk.CTk):
             # 활성화 거래소 갱신 및 화면 업데이트 트리거
             self.enabled_exchanges = self.settings.get('enabled_exchanges', ['binance'])
 
-            self.update_exchange_info()
-            # 필요한 섹션 갱신 (잔고/포지션 등)
-            self.update_balance_display()
+            changed_keys = set(diff_plan.get('changed_keys', set()) if diff_plan else set())
+            runtime_changed = bool(
+                not diff_plan
+                or diff_plan.get('exchanges_changed')
+                or diff_plan.get('trading_changed')
+            )
+            if runtime_changed:
+                self.update_exchange_info()
+                self.update_balance_display()
             # 항상 최상단 표시 설정 즉시 반영
             self.refresh_always_on_top_setting()
 
             # 데모 모드 위젯 업데이트
-            self._update_demo_mode_widget()
+            if not diff_plan or 'demo_mode' in changed_keys:
+                self._update_demo_mode_widget()
             # 클래식 보기 적용: 토글이 켜졌다면 AI 탭 보장 및 선택
             try:
-                if bool(self.settings.get('classic_view', False)):
+                if (not diff_plan or 'classic_view' in changed_keys) and bool(self.settings.get('classic_view', False)):
                     self._ensure_ai_learning_tab()
                     self._ensure_ai_report_tab()
                     self._ensure_ai_assistant_tab()  # AI 어시스턴트도 추가
@@ -1617,13 +1643,14 @@ class ModernDashboard(ctk.CTk):
                 pass
             # AI READY 배지 갱신
             try:
-                self.update_ai_status_badges()
+                if not diff_plan or diff_plan.get('ai_changed'):
+                    self.update_ai_status_badges()
             except Exception:
                 pass
             # 어시스턴트 탭이 열려 있다면 모델을 즉시 재적용
             try:
                 aw = getattr(self, 'ai_assistant_widget', None)
-                if aw is not None:
+                if aw is not None and (not diff_plan or diff_plan.get('ai_changed')):
                     new_model = (self.settings or {}).get('assistant_ai_model', 'gpt-4o')
                     # AIAssistantWidget에 런타임 변경 API가 있으면 사용
                     setter = getattr(aw, 'set_assistant_model', None)
@@ -1641,7 +1668,8 @@ class ModernDashboard(ctk.CTk):
                 pass
             # Alpha Arena 탭 갱신 (설정 변경 시 enabled 상태 반영)
             try:
-                self._ensure_alpha_arena_tab()
+                if not diff_plan or 'alpha_arena' in changed_keys:
+                    self._ensure_alpha_arena_tab()
             except Exception as alpha_err:
                 # Alpha Arena 탭 생성 실패는 무시 (설정에서 비활성화되었거나 오류)
                 self.logger.debug(f"Alpha Arena 탭 갱신 중 오류 (무시): {alpha_err}")
@@ -7361,6 +7389,8 @@ class ModernDashboard(ctk.CTk):
                     pass
                 # 내부 레퍼런스 제거
                 self.service_sub_tabs[service_name].pop(label, None)
+            self._active_source_tab_by_service[service_name] = None
+            self._service_source_names[service_name] = {}
         except Exception as e:
             try:
                 self.logger.warning(f"하위 탭 제거 오류: {e}")
@@ -9334,227 +9364,173 @@ class ModernDashboard(ctk.CTk):
             print(f"잔고 섹션 생성 실패: {exchange} - {e}")
 
     def create_service_sub_tabs(self, service_name: str):
-        """현재 서비스의 거래소/증권사 하위 탭을 한 번만 생성한다."""
+        """소스 탭 버튼을 만들고 현재 선택한 소스 화면 하나만 지연 생성한다."""
         try:
             if not hasattr(self, 'tab_widget') or not self.tab_widget:
                 return
 
+            service_name = str(service_name or '').strip().lower()
             if service_name == 'blockchain':
-                desired_labels = [
-                    str(exchange).upper()
-                    for exchange in self.settings.get('enabled_exchanges', ['binance'])
-                ]
+                sources = list(self.settings.get('enabled_exchanges', ['binance']) or [])
             elif service_name == 'stock':
-                desired_labels = [
-                    str(broker).upper()
-                    for broker in self.settings.get('enabled_stock_brokers', [])
-                ]
+                sources = list(self.settings.get('enabled_stock_brokers', []) or [])
             else:
-                desired_labels = []
-            existing_tabs = dict(self.service_sub_tabs.get(service_name, {}) or {})
-            if (
-                list(existing_tabs.keys()) == desired_labels
-                and all(widget_is_alive(frame) for frame in existing_tabs.values())
-            ):
-                self._apply_service_tab_policy(service_name)
-                return
+                sources = []
 
-            if service_name == 'blockchain':
-                # 설정에서 활성화된 거래소만 탭 생성
-                enabled_exchanges = self.settings.get('enabled_exchanges', ['binance'])
-                for exchange in enabled_exchanges:
-                    tab_label = f"{exchange.upper()}"
-                    try:
-                        # 탭 재사용 또는 생성 (중복 방지)
-                        tab = self._get_or_add_tab(tab_label)
-                        # 내용 중복 방지 위해 초기화
-                        self._clear_tab_children(tab)
-                        self.service_sub_tabs['blockchain'][tab_label] = tab
+            desired = [str(source).upper() for source in sources]
+            existing = dict(self.service_sub_tabs.get(service_name, {}) or {})
+            exact_live_set = (
+                list(existing.keys()) == desired
+                and all(widget_is_alive(frame) for frame in existing.values())
+            )
+            if not exact_live_set:
+                self.clear_service_sub_tabs(service_name)
+                self._service_source_names[service_name] = {}
+                for source in sources:
+                    label = str(source).upper()
+                    tab = self._get_or_add_tab(label)
+                    self._clear_tab_children(tab)
+                    self.service_sub_tabs[service_name][label] = tab
+                    self._service_source_names[service_name][label] = str(source)
+                    placeholder = ctk.CTkLabel(
+                        tab,
+                        text=f"{label} 화면은 탭을 선택할 때 안전하게 불러옵니다.",
+                        text_color=self._color('text_secondary', '#94a3b8'),
+                    )
+                    placeholder.pack(expand=True)
+            else:
+                self._service_source_names[service_name] = {
+                    str(source).upper(): str(source) for source in sources
+                }
 
-                        # 레이아웃 컨테이너
-                        container = ctk.CTkFrame(tab, fg_color="#0b1120")
-                        container.pack(fill="both", expand=True, padx=10, pady=10)
+            selected = str(cast(ctk.CTkTabview, self.tab_widget).get() or '')
+            if selected in self.service_sub_tabs.get(service_name, {}):
+                self._ensure_active_source_tab(service_name, selected)
 
-                        # 반응형 좌/우 레이아웃: 좌측 스택(제어/잔고/포지션/거래통계), 우측 전체 로그
-                        root_split = ctk.CTkFrame(container, fg_color="#0b1120")
-                        root_split.pack(fill="both", expand=True)
-
-                        layout = self._get_service_split_layout()
-                        left_pane = ctk.CTkFrame(root_split, width=layout["left_width"], fg_color="#0b1120")
-                        left_pane.pack(side="left", fill="y", padx=(0, 10))
-                        try:
-                            left_pane.pack_propagate(False)
-                            left_pane.grid_propagate(False)
-                        except Exception:
-                            pass
-
-                        left_pane.grid_columnconfigure(0, weight=1)
-                        left_pane.grid_rowconfigure(2, weight=1, minsize=230)
-                        left_pane.grid_rowconfigure(3, minsize=88)
-
-                        # 1) 제어
-                        control_frame = self._create_card_frame(left_pane)
-                        control_frame.grid(row=0, column=0, sticky="ew", pady=(0, 8))
-                        self.create_exchange_control_section(control_frame, exchange)
-
-                        # 2) 잔고 (가장 낮은 높이)
-                        balance_frame = self._create_card_frame(left_pane)
-                        balance_frame.grid(row=1, column=0, sticky="ew", pady=(0, 8))
-                        self.create_exchange_balance_section(balance_frame, exchange)
-
-                        # 3) 포지션 (적당한 높이, 확장 가능)
-                        positions_frame = self._create_card_frame(left_pane)
-                        positions_frame.grid(row=2, column=0, sticky="nsew", pady=(0, 8))
-                        try:
-                            positions_frame.configure(height=240)
-                            positions_frame.pack_propagate(False)
-                        except Exception:
-                            pass
-                        self.create_exchange_positions_section(positions_frame, exchange)
-
-                        # 4) 거래 통계 (포지션 공간을 우선하는 슬림 KPI 바)
-                        stats_frame = self._create_card_frame(left_pane)
-                        stats_frame.grid(row=3, column=0, sticky="nsew")
-                        try:
-                            stats_frame.configure(height=88)
-                            stats_frame.pack_propagate(False)
-                        except Exception:
-                            pass
-                        self.create_exchange_stats_section(stats_frame, exchange)
-
-                        # 오른쪽: 실시간 로그 전체
-                        right_pane = ctk.CTkFrame(root_split, fg_color="#0b1120")
-                        right_pane.pack(side="left", fill="both", expand=True)
-                        self.create_exchange_logs_section(right_pane, exchange)
-                        section_frames = {
-                            "control": control_frame,
-                            "balance": balance_frame,
-                            "positions": positions_frame,
-                            "stats": stats_frame,
-                            "logs": right_pane,
-                        }
-                        incomplete = [
-                            name for name, frame in section_frames.items()
-                            if not list(frame.winfo_children())
-                        ]
-                        if incomplete:
-                            raise RuntimeError(
-                                "service_tab_partial_render:" + ",".join(incomplete)
-                            )
-                    except Exception as e:
-                        try:
-                            self.logger.exception(f"하위 탭 생성 실패: {exchange} - {e}")
-                        except Exception:
-                            print(f"하위 탭 생성 실패: {exchange} - {e}")
-                        try:
-                            self._clear_tab_children(tab)
-                            error_card = self._create_card_frame(tab, corner_radius=14)
-                            error_card.pack(fill="x", padx=24, pady=24)
-                            ctk.CTkLabel(
-                                error_card,
-                                text=(
-                                    f"{exchange.upper()} 화면을 완전하게 만들지 못했습니다.\n"
-                                    "부분 화면으로 거래하지 말고 프로그램을 재시작한 뒤 다시 확인하세요."
-                                ),
-                                text_color="#fca5a5",
-                                justify="left",
-                            ).pack(anchor="w", padx=16, pady=16)
-                        except Exception:
-                            pass
-            elif service_name == 'stock':
-                # 설정에서 활성화된 증권사만 탭 생성
-                enabled_brokers = self.settings.get('enabled_stock_brokers', [])
-                for broker in enabled_brokers:
-                    tab_label = f"{broker.upper()}"
-                    try:
-                        # 탭 재사용 또는 생성 (중복 방지)
-                        tab = self._get_or_add_tab(tab_label)
-                        # 내용 중복 방지 위해 초기화
-                        self._clear_tab_children(tab)
-                        self.service_sub_tabs['stock'][tab_label] = tab
-
-                        # 레이아웃 컨테이너
-                        container = ctk.CTkFrame(tab, fg_color="#0b1120")
-                        container.pack(fill="both", expand=True, padx=10, pady=10)
-
-                        # 반응형 좌/우 레이아웃: 좌측 스택(제어/잔고/포지션/거래통계), 우측 전체 로그
-                        root_split = ctk.CTkFrame(container, fg_color="#0b1120")
-                        root_split.pack(fill="both", expand=True)
-
-                        layout = self._get_service_split_layout()
-                        left_pane = ctk.CTkFrame(root_split, width=layout["left_width"], fg_color="#0b1120")
-                        left_pane.pack(side="left", fill="y", padx=(0, 10))
-                        try:
-                            left_pane.pack_propagate(False)
-                            left_pane.grid_propagate(False)
-                        except Exception:
-                            pass
-
-                        left_pane.grid_columnconfigure(0, weight=1)
-                        left_pane.grid_rowconfigure(2, weight=1, minsize=230)
-                        left_pane.grid_rowconfigure(3, minsize=88)
-
-                        # 1) 제어
-                        control_frame = self._create_card_frame(left_pane)
-                        control_frame.grid(row=0, column=0, sticky="ew", pady=(0, 8))
-                        self.create_broker_control_section(control_frame, broker)
-
-                        # 2) 잔고 (가장 낮은 높이)
-                        balance_frame = self._create_card_frame(left_pane)
-                        balance_frame.grid(row=1, column=0, sticky="ew", pady=(0, 8))
-                        self.create_broker_balance_section(balance_frame, broker)
-
-                        # 3) 포지션 (적당한 높이, 확장 가능)
-                        positions_frame = self._create_card_frame(left_pane)
-                        positions_frame.grid(row=2, column=0, sticky="nsew", pady=(0, 8))
-                        try:
-                            positions_frame.configure(height=240)
-                            positions_frame.pack_propagate(False)
-                        except Exception:
-                            pass
-                        self.create_broker_positions_section(positions_frame, broker)
-
-                        # 4) 거래 통계 (보유 종목 공간을 우선하는 슬림 KPI 바)
-                        stats_frame = self._create_card_frame(left_pane)
-                        stats_frame.grid(row=3, column=0, sticky="nsew")
-                        try:
-                            stats_frame.configure(height=88)
-                            stats_frame.pack_propagate(False)
-                        except Exception:
-                            pass
-                        self.create_broker_stats_section(stats_frame, broker)
-
-                        # 오른쪽: 실시간 로그 전체
-                        right_pane = ctk.CTkFrame(root_split, fg_color="#0b1120")
-                        right_pane.pack(side="left", fill="both", expand=True)
-                        self.create_broker_logs_section(right_pane, broker)
-                        section_frames = {
-                            "control": control_frame,
-                            "balance": balance_frame,
-                            "positions": positions_frame,
-                            "stats": stats_frame,
-                            "logs": right_pane,
-                        }
-                        incomplete = [
-                            name for name, frame in section_frames.items()
-                            if not list(frame.winfo_children())
-                        ]
-                        if incomplete:
-                            raise RuntimeError(
-                                "service_tab_partial_render:" + ",".join(incomplete)
-                            )
-                    except Exception as e:
-                        try:
-                            self.logger.exception(f"하위 탭 생성 실패: {broker} - {e}")
-                        except Exception:
-                            print(f"하위 탭 생성 실패: {broker} - {e}")
             self.after_idle(self._apply_source_tab_distinction)
+            self._apply_service_tab_policy(service_name)
+        except Exception as e:
             try:
-                self._apply_service_tab_policy(service_name)
+                self.logger.exception(f"하위 탭 목록 생성 오류: {service_name} - {e}")
+            except Exception:
+                print(f"하위 탭 목록 생성 오류: {service_name} - {e}")
+
+    def _ensure_active_source_tab(self, service_name: str, tab_label: str) -> None:
+        """선택 소스 하나에만 완전한 UI 트리를 부여한다."""
+        service_name = str(service_name or '').strip().lower()
+        tab_label = str(tab_label or '')
+        tabs = self.service_sub_tabs.get(service_name, {}) or {}
+        target = tabs.get(tab_label)
+        if target is None or not widget_is_alive(target):
+            return
+
+        previous = self._active_source_tab_by_service.get(service_name)
+        if previous == tab_label and list(target.winfo_children()):
+            return
+
+        if previous and previous != tab_label:
+            previous_frame = tabs.get(previous)
+            if previous_frame is not None and widget_is_alive(previous_frame):
+                self._clear_tab_children(previous_frame)
+                ctk.CTkLabel(
+                    previous_frame,
+                    text=f"{previous} 화면은 다시 선택할 때 불러옵니다.",
+                    text_color=self._color('text_secondary', '#94a3b8'),
+                ).pack(expand=True)
+
+        source = self._service_source_names.get(service_name, {}).get(
+            tab_label,
+            tab_label.lower(),
+        )
+        self._active_source_tab_by_service[service_name] = None
+        self._clear_tab_children(target)
+        try:
+            section_frames = self._build_source_tab_content(
+                service_name,
+                source,
+                target,
+            )
+            incomplete = [
+                name for name, frame in section_frames.items()
+                if not list(frame.winfo_children())
+            ]
+            if incomplete:
+                raise RuntimeError("service_tab_partial_render:" + ",".join(incomplete))
+            self._active_source_tab_by_service[service_name] = tab_label
+        except Exception as e:
+            try:
+                self.logger.exception(f"선택 탭 생성 실패: {tab_label} - {e}")
             except Exception:
                 pass
-        except Exception as e:
-            print(f"하위 탭 생성 오류: {e}")
+            self._clear_tab_children(target)
+            error_card = self._create_card_frame(target, corner_radius=14)
+            error_card.pack(fill="x", padx=24, pady=24)
+            ctk.CTkLabel(
+                error_card,
+                text=(
+                    f"{tab_label} 화면을 완전하게 만들지 못했습니다.\n"
+                    "부분 화면으로 거래하지 말고 오류 기록을 확인하세요."
+                ),
+                text_color="#fca5a5",
+                justify="left",
+            ).pack(anchor="w", padx=16, pady=16)
+
+    def _build_source_tab_content(
+        self,
+        service_name: str,
+        source: str,
+        tab: Any,
+    ) -> Dict[str, Any]:
+        """거래소/증권사 공통 레이아웃을 한 번의 소유권 경계에서 생성한다."""
+        container = ctk.CTkFrame(tab, fg_color="#0b1120")
+        container.pack(fill="both", expand=True, padx=10, pady=10)
+        root_split = ctk.CTkFrame(container, fg_color="#0b1120")
+        root_split.pack(fill="both", expand=True)
+
+        layout = self._get_service_split_layout()
+        left_pane = ctk.CTkFrame(root_split, width=layout["left_width"], fg_color="#0b1120")
+        left_pane.pack(side="left", fill="y", padx=(0, 10))
+        left_pane.pack_propagate(False)
+        left_pane.grid_propagate(False)
+        left_pane.grid_columnconfigure(0, weight=1)
+        left_pane.grid_rowconfigure(2, weight=1, minsize=230)
+        left_pane.grid_rowconfigure(3, minsize=88)
+
+        control = self._create_card_frame(left_pane)
+        control.grid(row=0, column=0, sticky="ew", pady=(0, 8))
+        balance = self._create_card_frame(left_pane)
+        balance.grid(row=1, column=0, sticky="ew", pady=(0, 8))
+        positions = self._create_card_frame(left_pane)
+        positions.grid(row=2, column=0, sticky="nsew", pady=(0, 8))
+        positions.configure(height=240)
+        positions.pack_propagate(False)
+        stats = self._create_card_frame(left_pane)
+        stats.grid(row=3, column=0, sticky="nsew")
+        stats.configure(height=88)
+        stats.pack_propagate(False)
+        logs = ctk.CTkFrame(root_split, fg_color="#0b1120")
+        logs.pack(side="left", fill="both", expand=True)
+
+        if service_name == 'stock':
+            self.create_broker_control_section(control, source)
+            self.create_broker_balance_section(balance, source)
+            self.create_broker_positions_section(positions, source)
+            self.create_broker_stats_section(stats, source)
+            self.create_broker_logs_section(logs, source)
+        else:
+            self.create_exchange_control_section(control, source)
+            self.create_exchange_balance_section(balance, source)
+            self.create_exchange_positions_section(positions, source)
+            self.create_exchange_stats_section(stats, source)
+            self.create_exchange_logs_section(logs, source)
+
+        return {
+            "control": control,
+            "balance": balance,
+            "positions": positions,
+            "stats": stats,
+            "logs": logs,
+        }
 
     def _get_service_split_layout(self) -> Dict[str, int]:
         """대시보드 너비 기준으로 서비스 하위 탭 분할 폭을 계산한다."""
@@ -12806,6 +12782,12 @@ class ModernDashboard(ctk.CTk):
             self.after_idle(
                 lambda current=selected: self._kick_visible_refreshes_for_tab(current)
             )
+            service = str(getattr(self, "current_service", "blockchain") or "blockchain").lower()
+            if selected in (self.service_sub_tabs.get(service, {}) or {}):
+                self.after_idle(
+                    lambda current_service=service, current_tab=selected:
+                    self._ensure_active_source_tab(current_service, current_tab)
+                )
             if selected == "AI 커스텀":
                 self.after_idle(self._ensure_custom_strategy_tab)
             elif selected in {"금융 인텔리전스", "금융 인텔리전스 허브", "성과·위험 분석"}:
@@ -13690,7 +13672,7 @@ class ModernDashboard(ctk.CTk):
                 def _on_saved(new_settings: Dict[str, Any]):
                     try:
                         if hasattr(self, 'main_app') and self.main_app and hasattr(self.main_app, 'on_settings_saved'):
-                            self.main_app.on_settings_saved(new_settings)
+                            self.main_app.on_settings_saved(new_settings, persisted=True)
                         else:
                             # 폴백: 대시보드 내부 상태만 갱신
                             self.refresh_after_settings_change(new_settings)
@@ -13722,7 +13704,7 @@ class ModernDashboard(ctk.CTk):
                 # AI 진단 결과를 설정 창에 전달
                 win = ModernSettingsWindow(
                     parent=self,
-                    current_settings=self.settings,
+                    current_settings=copy.deepcopy(self.settings),
                     on_save_callback=_on_saved,
                     ai_diagnosis_result=ai_diagnosis
                 )

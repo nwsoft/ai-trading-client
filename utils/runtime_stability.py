@@ -17,6 +17,7 @@ from typing import Any, Dict, Optional
 
 _LOCK = threading.Lock()
 _SESSION_MARKER: Optional[Path] = None
+_INSTANCE_MARKER: Optional[Path] = None
 _CRASH_LOG: Optional[Path] = None
 _FATAL_EXCEPTION_SEEN = False
 _FAULT_FILE = None
@@ -122,11 +123,67 @@ def install_exception_hooks() -> None:
 def begin_runtime_session() -> Dict[str, Any]:
     """이전 비정상 종료 표식을 읽고 현재 세션 표식을 원자적으로 생성한다."""
     global _SESSION_MARKER, _CRASH_LOG, _FATAL_EXCEPTION_SEEN
-    global _FAULT_FILE, _FAULT_HANDLER_OWNED
+    global _FAULT_FILE, _FAULT_HANDLER_OWNED, _INSTANCE_MARKER
     runtime_dir = _runtime_dir()
     _SESSION_MARKER = runtime_dir / "runtime_session.active.json"
+    _INSTANCE_MARKER = runtime_dir / "runtime_instance.lock"
     _CRASH_LOG = runtime_dir / "runtime_stability.jsonl"
     _FATAL_EXCEPTION_SEEN = False
+
+    # 동일 계정 폴더에서 두 프로세스가 Tk/WebSocket/업데이터 상태를 동시에
+    # 소유하지 못하게 한다. O_EXCL은 두 실행이 같은 순간 시작해도 하나만
+    # 성공하는 프로세스 단위 경계다.
+    instance_owner: Dict[str, Any] = {}
+    acquired_instance = False
+    for _attempt in range(2):
+        try:
+            fd = os.open(
+                str(_INSTANCE_MARKER),
+                os.O_CREAT | os.O_EXCL | os.O_WRONLY,
+                0o600,
+            )
+            try:
+                payload = json.dumps({"pid": os.getpid(), "started_at": _now()})
+                os.write(fd, payload.encode("utf-8"))
+            finally:
+                os.close(fd)
+            acquired_instance = True
+            break
+        except FileExistsError:
+            try:
+                instance_owner = json.loads(
+                    _INSTANCE_MARKER.read_text(encoding="utf-8")
+                )
+            except Exception:
+                instance_owner = {"unreadable": True}
+            owner_pid = instance_owner.get("pid") if isinstance(instance_owner, dict) else None
+            if owner_pid == os.getpid():
+                acquired_instance = True
+                break
+            if owner_pid and _process_is_running(owner_pid):
+                _append_event({
+                    "event": "parallel_runtime_blocked",
+                    "existing_instance": instance_owner,
+                    "pid": os.getpid(),
+                })
+                return {
+                    "previous_unclean": False,
+                    "parallel_session": True,
+                    "previous_session": instance_owner,
+                    "marker": str(_SESSION_MARKER),
+                }
+            try:
+                _INSTANCE_MARKER.unlink(missing_ok=True)
+            except Exception:
+                break
+
+    if not acquired_instance:
+        return {
+            "previous_unclean": False,
+            "parallel_session": True,
+            "previous_session": instance_owner,
+            "marker": str(_SESSION_MARKER),
+        }
 
     previous: Dict[str, Any] = {}
     parallel_session = False
@@ -149,6 +206,21 @@ def begin_runtime_session() -> Dict[str, Any]:
             "previous_session": previous,
             "pid": os.getpid(),
         })
+        if parallel_session:
+            # 기존 프로세스가 정본이다. 방금 획득한 보조 잠금은 넘겨주고
+            # 현재 프로세스는 main.start에서 즉시 종료한다.
+            try:
+                owner = json.loads(_INSTANCE_MARKER.read_text(encoding="utf-8"))
+                if owner.get("pid") == os.getpid():
+                    _INSTANCE_MARKER.unlink(missing_ok=True)
+            except Exception:
+                pass
+            return {
+                "previous_unclean": False,
+                "parallel_session": True,
+                "previous_session": previous,
+                "marker": str(_SESSION_MARKER),
+            }
 
     current = {
         "started_at": _now(),
@@ -156,7 +228,9 @@ def begin_runtime_session() -> Dict[str, Any]:
         "platform": sys.platform,
         "python": sys.version.split()[0],
     }
-    temp = _SESSION_MARKER.with_suffix(".tmp")
+    temp = _SESSION_MARKER.with_name(
+        f"{_SESSION_MARKER.name}.{os.getpid()}.{threading.get_ident()}.tmp"
+    )
     temp.write_text(json.dumps(current, ensure_ascii=False, indent=2), encoding="utf-8")
     temp.replace(_SESSION_MARKER)
     _FAULT_HANDLER_OWNED = False
@@ -190,7 +264,7 @@ def begin_runtime_session() -> Dict[str, Any]:
 
 def mark_clean_shutdown(reason: str = "normal_shutdown") -> bool:
     """치명 예외가 없었던 명시적 종료에서만 세션 표식을 제거한다."""
-    global _FAULT_FILE, _FAULT_HANDLER_OWNED
+    global _FAULT_FILE, _FAULT_HANDLER_OWNED, _INSTANCE_MARKER
     if _FATAL_EXCEPTION_SEEN:
         return False
     marker = _SESSION_MARKER
@@ -206,6 +280,13 @@ def mark_clean_shutdown(reason: str = "normal_shutdown") -> bool:
         marker_preserved = marker_owner not in (None, os.getpid())
         if not marker_preserved:
             marker.unlink(missing_ok=True)
+        try:
+            if _INSTANCE_MARKER is not None and _INSTANCE_MARKER.exists():
+                owner = json.loads(_INSTANCE_MARKER.read_text(encoding="utf-8"))
+                if owner.get("pid") == os.getpid():
+                    _INSTANCE_MARKER.unlink(missing_ok=True)
+        except Exception:
+            pass
         _append_event({
             "event": "clean_shutdown",
             "reason": str(reason or "normal_shutdown"),

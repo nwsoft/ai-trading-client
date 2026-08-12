@@ -19,10 +19,12 @@ def test_exchange_overview_prioritizes_three_positions_and_slim_four_kpis():
     source = (ROOT / "ui" / "dashboard_modern.py").read_text(encoding="utf-8")
     assert "window_height = max(900, min(980, screen_height - 40))" in source
     assert "self.minsize(min(1280, window_width), min(900, window_height))" in source
-    assert source.count("stats_frame.configure(height=88)") >= 2
-    assert source.count("left_pane.grid_rowconfigure(3, minsize=88)") >= 2
-    assert source.count("left_pane.grid_rowconfigure(2, weight=1, minsize=230)") >= 2
-    assert source.count("positions_frame.configure(height=240)") >= 2
+    # 거래소/증권사가 하나의 지연 생성 공통 builder를 사용하므로 높이 계약도
+    # 중복 구현하지 않고 한 곳에서 양쪽 source에 적용한다.
+    assert source.count("stats.configure(height=88)") >= 1
+    assert source.count("left_pane.grid_rowconfigure(3, minsize=88)") >= 1
+    assert source.count("left_pane.grid_rowconfigure(2, weight=1, minsize=230)") >= 1
+    assert source.count("positions.configure(height=240)") >= 1
     assert "CTkScrollableFrame" in source
     assert "body, height=58" in source
     assert "card.grid_propagate(False)" in source
@@ -247,7 +249,7 @@ def test_settings_have_visible_section_save_bars_and_noahai_close_branding():
     assert "self.ai_custom_limited_live_var = ctk.BooleanVar(value=False)" in source
     assert 'text="AI 애널리스트 모델:"' in source
     main_source = (ROOT / "main.py").read_text(encoding="utf-8")
-    assert "if 'ai_custom_runtime' in new_settings:" in main_source
+    assert "if 'ai_custom_runtime' in changed_keys:" in main_source
     assert "self.sync_custom_strategy_runtime_pools()" in main_source
 
     custom_source = (ROOT / "ui" / "widgets" / "custom_strategy_widget.py").read_text(encoding="utf-8")
@@ -356,23 +358,23 @@ def test_custom_strategy_source_limits_and_visible_ai_model_are_explicit():
     assert "audio_transcript_available" in ingestor
 
 
-def test_windows_executable_metadata_is_aligned_to_3908():
+def test_windows_executable_metadata_is_aligned_to_3909():
     version_info = (ROOT / "config" / "windows_version_info.txt").read_text(encoding="utf-8")
     spec = (ROOT / "aiautotrade.spec").read_text(encoding="utf-8")
     safe_builder = (ROOT / "build_safe.py").read_text(encoding="utf-8")
-    assert "filevers=(3, 9, 0, 8)" in version_info
-    assert "ProductVersion', u'3.9.0.8'" in version_info
+    assert "filevers=(3, 9, 0, 9)" in version_info
+    assert "ProductVersion', u'3.9.0.9'" in version_info
     assert "version='config/windows_version_info.txt'" in spec
     assert "version='config/windows_version_info.txt'" in safe_builder
-    assert 'RELEASE_VERSION = "3.9.0.8"' in (ROOT / "config" / "app_version.py").read_text(encoding="utf-8")
-    assert (ROOT / "deploy" / "version.txt").read_text(encoding="utf-8").strip() == "3.9.0.8"
+    assert 'RELEASE_VERSION = "3.9.0.9"' in (ROOT / "config" / "app_version.py").read_text(encoding="utf-8")
+    assert (ROOT / "deploy" / "version.txt").read_text(encoding="utf-8").strip() == "3.9.0.9"
     manifest = json.loads((ROOT / "deploy" / "release-manifest.json").read_text(encoding="utf-8"))
-    assert manifest["version"] == "3.9.0.8"
+    assert manifest["version"] == "3.9.0.9"
     exe_asset = manifest["assets"]["exe"]
-    # 공개 manifest는 직전 Windows Fix 2 자산이며 Fix 4 소스 재빌드는 별도다.
-    assert manifest.get("build_status") == "built"
-    assert exe_asset["size"] > 0
-    assert len(exe_asset["sha256"]) == 64
+    # v3.9.0.9는 Windows 재빌드 대기이며 직전 공개 Fix 4는 별도 보존한다.
+    assert manifest.get("build_status") == "pending_windows_rebuild"
+    assert exe_asset["size"] == 0
+    assert exe_asset["sha256"] == ""
     previous_asset = manifest["previous_published_asset"]
     exe_path = ROOT / previous_asset["path"]
     assert exe_path.exists()
@@ -383,9 +385,9 @@ def test_windows_executable_metadata_is_aligned_to_3908():
             digest.update(chunk)
     assert previous_asset["sha256"] == digest.hexdigest()
     assert previous_asset["version"] == "3.9.0.8"
-    assert previous_asset["release_label"] == "v3.9.0.8 AI Custom Update"
+    assert previous_asset["release_label"] == "v3.9.0.8 AI Custom Update Fix 4"
     assert previous_asset["purpose"] == "previous_published_windows_build"
-    assert "/v3.9.0.8/AITrading.exe" in manifest["assets"]["exe"]["download_url"]
+    assert "/v3.9.0.9/AITrading.exe" in manifest["assets"]["exe"]["download_url"]
     release_builder = (ROOT / "scripts" / "generate_release_assets.py").read_text(encoding="utf-8")
     assert "AITrading.exe가 최신 런타임 소스보다 오래된 빌드" in release_builder
     assert "_latest_runtime_source" in release_builder

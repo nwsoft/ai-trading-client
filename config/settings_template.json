@@ -949,6 +949,8 @@
   },
   "ui_settings": {
     "always_on_top": false,
+    "auto_show_stock_broker_diagnosis_after_save": false,
+    "stock_broker_diagnosis_opt_in_confirmed": false,
     "window_geometry": "1400x900",
     "remember_window_position": true,
     "auto_update_enabled": true,

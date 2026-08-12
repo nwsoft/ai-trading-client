@@ -124,6 +124,11 @@ class BinanceWebSocketManager:
         # 🔥 데이터 구조 중복 제거 - tickers, orderbooks만 사용
 
         self.lock = threading.RLock()  # 재진입 가능한 락 유지
+        # 구독은 심볼별 single-flight, 실제 소켓 send/close/reconnect는 self.lock
+        # 하나로 직렬화한다. 여러 분석/모니터링 스레드가 같은 WebSocketApp을
+        # 동시에 조작하면 Windows websocket-client 네이티브 경로에서 access
+        # violation으로 프로세스가 종료될 수 있다.
+        self._subscription_locks: Dict[str, threading.RLock] = {}
         self._connected = False
         self._connection_event = threading.Event()
 
@@ -319,7 +324,29 @@ class BinanceWebSocketManager:
         self.logger.debug("Server pong received")
         self.last_ping_time = time.time()
 
+    def _subscription_lock_for(self, symbol: str) -> threading.RLock:
+        normalized = str(symbol or '').strip().upper()
+        with self.lock:
+            lock = self._subscription_locks.get(normalized)
+            if lock is None:
+                lock = threading.RLock()
+                self._subscription_locks[normalized] = lock
+            return lock
+
+    def _send_ws_message(self, payload: Dict[str, Any]) -> bool:
+        """WebSocketApp의 send를 reconnect/close와 같은 락에서 실행한다."""
+        with self.lock:
+            ws = getattr(self, 'ws', None)
+            if ws is None or not getattr(ws, 'sock', None) or not self._connected:
+                return False
+            ws.send(json.dumps(payload))
+            return True
+
     def start_ticker_socket(self, symbol):
+        with self._subscription_lock_for(symbol):
+            return self._start_ticker_socket_singleflight(symbol)
+
+    def _start_ticker_socket_singleflight(self, symbol):
         """티커 웹소켓 구독 시작"""
         if not symbol or symbol == 'USDT':
             sym = str(symbol) if symbol else 'None'
@@ -354,7 +381,9 @@ class BinanceWebSocketManager:
                 "id": int(time.time())
             }
 
-            self.ws.send(json.dumps(subscribe_message))
+            if not self._send_ws_message(subscribe_message):
+                self.logger.error(f"[WebSocket] {symbol} ticker subscription send skipped")
+                return False
             self.logger.debug(f"[WebSocket] {symbol} ticker subscription sent")
 
             timeout = time.time() + 10
@@ -499,6 +528,10 @@ class BinanceWebSocketManager:
             return None
 
     def start_orderbook_socket(self, symbol):
+        with self._subscription_lock_for(symbol):
+            return self._start_orderbook_socket_singleflight(symbol)
+
+    def _start_orderbook_socket_singleflight(self, symbol):
         """오더북 웹소켓 구독 시작"""
         if not symbol or symbol == 'USDT':
             sym = str(symbol) if symbol else 'None'
@@ -531,7 +564,9 @@ class BinanceWebSocketManager:
                 "params": [f"{symbol.lower()}@bookTicker"],
                 "id": int(time.time())
             }
-            self.ws.send(json.dumps(subscribe_message))
+            if not self._send_ws_message(subscribe_message):
+                self.logger.error(f"[WebSocket] {symbol} orderbook subscription send skipped")
+                return False
             self.logger.debug(f"[WebSocket] {symbol} orderbook subscription sent")
 
             timeout = time.time() + 10
@@ -785,8 +820,10 @@ class BinanceWebSocketManager:
         """웹소켓 연결 종료"""
         try:
             self.logger.info("WebSocket manager shutdown attempt")
-            if hasattr(self, 'ws'):
-                self.ws.close()
+            with self.lock:
+                if hasattr(self, 'ws'):
+                    self._connected = False
+                    self.ws.close()
             self.logger.info("WebSocket manager shutdown completed")
         except Exception as e:
             self.logger.error(f"WebSocket shutdown error: {str(e)}")
@@ -805,7 +842,7 @@ class BinanceWebSocketManager:
                     for stream in (f"{symbol.lower()}@ticker", f"{symbol.lower()}@bookTicker"):
                         msg = {"method": "UNSUBSCRIBE", "params": [stream], "id": int(time.time())}
                         try:
-                            self.ws.send(json.dumps(msg))
+                            self._send_ws_message(msg)
                             self.logger.debug(f"[WebSocket] {symbol} unsubscribe sent for {stream}")
                         except Exception as e:
                             self.logger.debug(f"[WebSocket] {symbol} unsubscribe send failed for {stream}: {e}")
@@ -913,7 +950,7 @@ class BinanceWebSocketManager:
                     for stream in (f"{symbol.lower()}@ticker", f"{symbol.lower()}@bookTicker"):
                         msg = {"method": "UNSUBSCRIBE", "params": [stream], "id": int(time.time())}
                         try:
-                            self.ws.send(json.dumps(msg))
+                            self._send_ws_message(msg)
                             self.logger.debug(f"[WebSocket] {symbol} unsubscribe sent for {stream}")
                         except Exception as e:
                             self.logger.debug(f"[WebSocket] {symbol} unsubscribe send failed for {stream}: {e}")

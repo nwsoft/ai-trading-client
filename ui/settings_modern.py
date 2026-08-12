@@ -5,6 +5,16 @@
 고정 스킨 디자인 (테마 시스템 제거됨)
 """
 
+# 이 모듈은 main.py 외의 진입점과 PyInstaller 수집 경로에서도 직접 import된다.
+# CustomTkinter를 먼저 import하면 Windows 메뉴 가드를 설치할 기회를 잃으므로
+# 모든 CTk 선택 위젯 클래스가 로드되기 전에 반드시 설치한다.
+try:
+    from ui.windows_menu_guard import install_windows_menu_guard
+
+    install_windows_menu_guard()
+except Exception:
+    pass
+
 import customtkinter as ctk
 import tkinter as tk
 from tkinter import messagebox, filedialog
@@ -118,6 +128,9 @@ class ModernSettingsWindow:
         # Windows USER/Menu 한도에 도달할 수 있다. 독립 실행 창만 닫을 때 파괴한다.
         self._reuse_on_close = parent is not None
         self.root = ctk.CTkToplevel(parent) if parent else ctk.CTk()
+        # Toplevel은 생성 즉시 OS에 노출된다. 아래 대형 설정 트리를 만드는 동안
+        # 빈 회색 창이 먼저 보이지 않도록 완성 전까지 숨긴다.
+        self.root.withdraw()
         self.root.title("NoahAI Trading - 설정")
         self.root.geometry("900x800")
         self.root.resizable(True, True)
@@ -128,7 +141,9 @@ class ModernSettingsWindow:
             self.root.transient(parent)
 
         # 설정 데이터
-        self.current_settings = current_settings or {}
+        # 대시보드의 live settings 객체를 편집 중간에 직접 바꾸면 저장 콜백의
+        # diff가 항상 0이 되고, 불필요한 전체 런타임 재초기화가 발생한다.
+        self.current_settings = copy.deepcopy(current_settings or {})
         self._ai_provider_key_buffer: Dict[str, str] = {}
         self._ai_discovered_models: Dict[str, List[str]] = {}
         self._closed = False
@@ -173,6 +188,8 @@ class ModernSettingsWindow:
 
             # 중앙 정렬
             self.center_window()
+            self.root.update_idletasks()
+            self.root.deiconify()
         except Exception:
             # 생성 중 실패한 빈 Toplevel이 대시보드를 가로막지 않게 즉시 정리한다.
             try:
@@ -1380,18 +1397,24 @@ class ModernSettingsWindow:
 
     def _should_auto_show_stock_broker_diagnosis_after_save(self) -> bool:
         """저장 후 증권사 자동 점검 팝업 노출 여부를 반환한다."""
+        ui_settings = self.current_settings.get('ui_settings', {})
+        # 과거 기본값 True는 사용자 선택이 아니었다. 새 명시적 opt-in 표식이
+        # 있는 경우에만 저장 후 자동 팝업을 허용한다.
+        if not bool(ui_settings.get('stock_broker_diagnosis_opt_in_confirmed', False)):
+            return False
         try:
             if hasattr(self, 'auto_stock_broker_diagnosis_var') and self.auto_stock_broker_diagnosis_var is not None:
                 return bool(self.auto_stock_broker_diagnosis_var.get())
         except Exception:
             pass
-        return bool(self.current_settings.get('ui_settings', {}).get('auto_show_stock_broker_diagnosis_after_save', True))
+        return bool(ui_settings.get('auto_show_stock_broker_diagnosis_after_save', False))
 
     def _maybe_show_post_save_stock_broker_diagnosis(self):
         """저장 직후 필요한 경우 증권사 1차 진단을 안내한다. (비동기 실행으로 UI 블로킹 방지)"""
         try:
-            if hasattr(self.root, 'after'):
-                self.root.after(100, self._show_post_save_diagnosis_async)
+            owner = self.parent if self.parent is not None else self.root
+            if hasattr(owner, 'after'):
+                owner.after(100, self._show_post_save_diagnosis_async)
         except Exception as e:
             print(f"저장 후 증권사 점검 안내 스케줄 실패: {e}")
 
@@ -1432,6 +1455,7 @@ class ModernSettingsWindow:
 
     def _show_stock_broker_guided_checklist(self, title: str, quick_diagnosis_text: str):
         """증권 연결 점검 결과를 앱 안에서 사람이 읽기 쉬운 안내로 보여준다."""
+        dialog = None
         try:
             broker_names = []
             if hasattr(self, 'stock_broker_vars') and isinstance(self.stock_broker_vars, dict):
@@ -1515,11 +1539,12 @@ class ModernSettingsWindow:
                 '- 아래 "지원요약 복사"를 누르면 현재 설정/환경/오류 후보가 복사되어 개발팀·서비스사 전달이 빨라집니다.'
             )
 
-            dialog = ctk.CTkToplevel(self.root)
+            owner = self.parent if self.parent is not None else self.root
+            dialog = ctk.CTkToplevel(owner)
+            dialog.withdraw()
             dialog.title(title)
             dialog.geometry('760x640')
-            dialog.transient(self.root)
-            dialog.grab_set()
+            dialog.transient(owner)
 
             frame = ctk.CTkFrame(dialog)
             frame.pack(fill='both', expand=True, padx=16, pady=16)
@@ -1613,7 +1638,16 @@ class ModernSettingsWindow:
                 width=100,
                 command=dialog.destroy,
             ).pack(side='right')
+            dialog.update_idletasks()
+            dialog.deiconify()
+            dialog.lift()
+            dialog.grab_set()
         except Exception as e:
+            try:
+                if dialog is not None and dialog.winfo_exists():
+                    dialog.destroy()
+            except Exception:
+                pass
             messagebox.showerror("점검 안내 실패", f"증권 연결 점검 안내를 표시하지 못했습니다:\n{e}")
 
     def _build_stock_broker_3min_checklist_text(self, broker_names: List[str], os_display: str, quick_diagnosis_text: str) -> str:
@@ -5368,10 +5402,10 @@ class ModernSettingsWindow:
             command=self._on_click_stock_broker_connection_checklist,
         ).pack(side="right", padx=12, pady=8)
 
-        self.auto_stock_broker_diagnosis_var = ctk.BooleanVar(value=True)
+        self.auto_stock_broker_diagnosis_var = ctk.BooleanVar(value=False)
         ctk.CTkCheckBox(
             scroll_frame,
-            text="설정 저장 후 연결 위험이 보이면 자동으로 1차 진단 안내",
+            text="설정 저장 후 증권 연결 점검 자동 표시 (선택 사항)",
             variable=self.auto_stock_broker_diagnosis_var,
             font=ctk.CTkFont(family="Segoe UI", size=12),
             text_color=self._color("text_secondary", "#94a3b8"),
@@ -7609,11 +7643,10 @@ AI 최적화 시스템과 충돌 발생
                     var.set(bool(cfg.get('allow_live_order', False)))
 
             if hasattr(self, 'auto_stock_broker_diagnosis_var'):
+                ui_settings = self.current_settings.get('ui_settings', {})
                 auto_diag = bool(
-                    self.current_settings.get('ui_settings', {}).get(
-                        'auto_show_stock_broker_diagnosis_after_save',
-                        True
-                    )
+                    ui_settings.get('stock_broker_diagnosis_opt_in_confirmed', False)
+                    and ui_settings.get('auto_show_stock_broker_diagnosis_after_save', False)
                 )
                 self.auto_stock_broker_diagnosis_var.set(auto_diag)
 
@@ -8448,7 +8481,10 @@ AI 최적화 시스템과 충돌 발생
                     new_settings['ui_settings']['auto_show_stock_broker_diagnosis_after_save'] = bool(
                         self.auto_stock_broker_diagnosis_var.get()
                     ) if hasattr(self, 'auto_stock_broker_diagnosis_var') else bool(
-                        self.current_settings.get('ui_settings', {}).get('auto_show_stock_broker_diagnosis_after_save', True)
+                        self.current_settings.get('ui_settings', {}).get('auto_show_stock_broker_diagnosis_after_save', False)
+                    )
+                    new_settings['ui_settings']['stock_broker_diagnosis_opt_in_confirmed'] = bool(
+                        new_settings['ui_settings']['auto_show_stock_broker_diagnosis_after_save']
                     )
                     new_settings['ui_settings'].update(self._collect_auto_update_ui_settings())
                     print(f"UI 설정 저장: always_on_top = {always_on_top_value}")
@@ -8457,14 +8493,16 @@ AI 최적화 시스템과 충돌 발생
                     if 'ui_settings' not in new_settings:
                         new_settings['ui_settings'] = {}
                     new_settings['ui_settings']['always_on_top'] = self.current_settings.get('ui_settings', {}).get('always_on_top', False)
-                    new_settings['ui_settings']['auto_show_stock_broker_diagnosis_after_save'] = self.current_settings.get('ui_settings', {}).get('auto_show_stock_broker_diagnosis_after_save', True)
+                    new_settings['ui_settings']['auto_show_stock_broker_diagnosis_after_save'] = self.current_settings.get('ui_settings', {}).get('auto_show_stock_broker_diagnosis_after_save', False)
+                    new_settings['ui_settings']['stock_broker_diagnosis_opt_in_confirmed'] = self.current_settings.get('ui_settings', {}).get('stock_broker_diagnosis_opt_in_confirmed', False)
                     new_settings['ui_settings'].update(self._collect_auto_update_ui_settings())
                     print(f"UI 설정 기본값 유지: always_on_top = {self.current_settings.get('ui_settings', {}).get('always_on_top', False)}")
             except Exception as e:
                 if 'ui_settings' not in new_settings:
                     new_settings['ui_settings'] = {}
                 new_settings['ui_settings']['always_on_top'] = self.current_settings.get('ui_settings', {}).get('always_on_top', False)
-                new_settings['ui_settings']['auto_show_stock_broker_diagnosis_after_save'] = self.current_settings.get('ui_settings', {}).get('auto_show_stock_broker_diagnosis_after_save', True)
+                new_settings['ui_settings']['auto_show_stock_broker_diagnosis_after_save'] = self.current_settings.get('ui_settings', {}).get('auto_show_stock_broker_diagnosis_after_save', False)
+                new_settings['ui_settings']['stock_broker_diagnosis_opt_in_confirmed'] = self.current_settings.get('ui_settings', {}).get('stock_broker_diagnosis_opt_in_confirmed', False)
                 new_settings['ui_settings'].update(self._collect_auto_update_ui_settings())
                 print(f"UI 설정 저장 오류: {e}")
 
@@ -8657,17 +8695,15 @@ AI 최적화 시스템과 충돌 발생
             # 설정 파일에 저장 (기존 함수 사용)
             from config.settings import save_settings
             if save_settings(self.current_settings):
-                # 1. 먼저 사용자에게 피드백
-                messagebox.showinfo("성공", "설정이 저장되었습니다!")
-
-                # 2. 저장 직후 필요한 경우 증권사 1차 진단 안내
+                # 저장 성공 messagebox는 macOS에서 전체 화면을 회색 modal 상태로
+                # 만들고 후속 콜백을 지연시켰다. 대시보드 toast가 비차단 피드백을 담당한다.
                 self._maybe_show_post_save_stock_broker_diagnosis()
 
-                # 3. 대시보드 소유 창은 파괴하지 않고 숨겨 native menu를 재사용한다.
+                # 대시보드 소유 창은 파괴하지 않고 숨겨 native menu를 재사용한다.
                 self.original_settings = copy.deepcopy(self.current_settings)
                 self._hide_or_destroy()
 
-                # 4. 콜백은 창이 닫힌 후 백그라운드에서 실행
+                # 콜백은 창이 닫힌 후 실행한다.
                 if self.on_save_callback:
                     # after_idle을 사용하여 UI 스레드를 블로킹하지 않고 실행
                     if self.parent:

@@ -48,7 +48,16 @@ def compute_settings_diff(old: Dict[str, Any], new: Dict[str, Any]) -> Dict[str,
         f"{p}_{s}" in changed for p in exchange_key_prefixes for s in exchange_key_suffixes
     )
     # 트레이딩 파라미터 변경 (최소 범위)
-    trading_changed = any(k in changed for k in {'default_leverage', 'default_tp', 'default_sl'})
+    trading_changed = any(
+        k in changed
+        for k in {
+            'default_leverage', 'default_tp', 'default_sl', 'default_margin_type',
+            'paper_trading', 'trade_enabled_exchanges', 'learning_enabled_exchanges',
+            'max_positions', 'position_mode', 'min_trade_amount',
+            'exchange_position_factors', 'exchange_risk_overrides',
+            'multi_venue_execution', 'stock_auto_trading', 'enable_stock_live_order',
+        }
+    )
 
     return {
         'changed_keys': changed,

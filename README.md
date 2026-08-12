@@ -6,9 +6,9 @@
 
 NoahAI의 핵심은 자동매매가 아니라 **판단·설명·기록·검증·환류 구조를 갖춘 AI 금융 의사결정 인프라**입니다.
 
-## 현재 작업 버전: v3.9.0.8 AI Custom Update Fix 4 · Windows 재빌드 전
+## 현재 작업 버전: v3.9.0.9 AI Custom Stability Update · Windows 재빌드 전
 
-2026-08-11 현재 v3.9.0.8은 Noah Strategy IR, 원본 근거 추적, Level 1·2·3, 사용자 난이도 프로필, PnL·MDD·월/연도 검증표, Expression Graph·제한형 사용자 지표, 전략 패키지와 AI 어시스턴트 지식을 하나의 AI 커스텀 업데이트로 묶습니다. Fix 4는 이전 UI·업데이트·포지션 소유권 수정을 유지하면서 자동 AI 호출의 지속조건 오판을 제거하고 역할별 영속 예산을 추가했으며, LIVE 암호화폐 주문을 영속 명령 원장·거래소 client-order ID·오류 분류·조정 전 신규진입 중단 경계로 보강합니다. 새 Windows EXE는 `pending_windows_rebuild`입니다.
+2026-08-12 현재 v3.9.0.9는 v3.9.0.8의 Noah Strategy IR, 원본 근거 추적, Level 1·2·3, 사용자 난이도 프로필, PnL·MDD·월/연도 검증표, Expression Graph·제한형 사용자 지표, 전략 패키지와 AI 어시스턴트 지식을 유지합니다. 여기에 설정 snapshot/diff 저장, 현재 선택한 거래소 하나만 소유하는 지연 UI, 프로세스 단일 인스턴스, Binance WebSocket 직렬화를 추가했습니다. 공개 v3.9.0.8 Fix 4 EXE는 SHA `91070a67eb0a...`로 이전 자산에 보존했으며, v3.9.0.9 Windows EXE와 SHA가 생성될 때까지 `pending_windows_rebuild`입니다.
 
 - PyQt5는 Windows 키움 OpenAPI+의 `QAxWidget`/COM 연결에 필요하므로 제거하지 않습니다.
 - PyQt5·pandas·루트에서 수집된 VC DLL을 모두 제거한 뒤, 빌드 아키텍처와 같은 공식 VC143 재배포 폴더의 검증된 단일 세트만 EXE 루트에 넣습니다.
@@ -19,7 +19,7 @@ NoahAI의 핵심은 자동매매가 아니라 **판단·설명·기록·검증·
 - Bitget·Bybit·OKX·Upbit·Bithumb 분석은 선택 거래소의 티커·캔들만 사용하며 Binance 펀딩비·OI·K라인으로 폴백하지 않습니다. Binance가 활성 범위에 없는 프로필은 Binance REST/WebSocket 런타임 자체를 만들지 않습니다.
 - Upbit·Bithumb LIVE는 주문 전에 실제 보유량과 앱 원장을 조정합니다. 동일 종목 중복 진입과 원장 밖 최소주문금액 이상 보유자산 재진입을 차단하고, 최소주문금액 미만은 dust로 분리하며 앱 진입 전 잔고는 청산하지 않습니다.
 - Fix Patch 2의 로그 개인정보·파일 회전·설정창 복구 수정과 레퍼럴 `관리자 전역 활성 ∩ 사용자별 verified` 실행 게이트를 모두 유지합니다.
-- 같은 `3.9.0.8`이어도 공개 manifest의 EXE SHA-256이 다르면 자동업데이트가 새 빌드를 감지합니다.
+- 이번 안정화는 이미 공개된 v3.9.0.8 Fix 4를 덮어쓰지 않고 v3.9.0.9 새 태그·새 EXE·새 manifest SHA로 배포합니다.
 
 ### Fix Patch 1에서 유지되는 레퍼럴 권한
 

@@ -1,6 +1,6 @@
-## v3.9.0.8 AI Custom Update Fix 4 소스 검증 (2026-08-11)
+## v3.9.0.9 AI Custom Stability Update 소스 검증 (2026-08-12)
 
-- 배포 신원: 현재 `deploy/release-manifest.json`은 `Fix 2`, SHA-256 `c1edaf84410f...`의 built EXE를 가리킵니다. Fix 2 제목 제보 화면은 Fix 3/4 설치 증거가 아니며 Fix 4 Windows 재빌드·게시가 필요합니다.
+- 배포 신원: 현재 `deploy/release-manifest.json`은 v3.9.0.9 `pending_windows_rebuild`를 가리킵니다. 공개 v3.9.0.8 Fix 4 SHA-256 `91070a67eb0a...`는 이전 자산으로 별도 보존했으며 새 Windows EXE·manifest SHA가 필요합니다.
 - Windows 메뉴 상한: CTkComboBox/OptionMenu 500개 생성 후 유휴 `TK_MENU=0`, 전체 설정창 생성·숨김·재열기 후 `TK_MENU=0` **PASS**. 선택 중에도 프로세스 전체 최대 1개 native 메뉴만 허용합니다.
 - 탭/상태 정본: 금융 인텔리전스가 6개 거래소보다 앞에 위치, `거래소: 6곳 · 기준 BINANCE`, `자동매매: 정지 (0/6 실행)` 순수 계약 회귀 **PASS**.
 - 사용자 AI 비용 사실확인: `data/260809_Teayu/ai_market_call_budget.json`에서 2026-07-24~08-09 매일 정확히 1,200회 소진, DeepSeek 화면 74,492 요청·57,134,137토큰과 증가 방향 일치 **CONFIRMED**
@@ -8,9 +8,11 @@
 - AI 호출 회귀: level-trigger 후보/RSI 제거, 단순 새 캔들 로컬 처리, 30분 상태 캐시, 5분 미세변화 간격, 기존 고비용 설정 hard ceiling, 모든 자동 역할 영속 예산 **PASS**
 - OMS 회귀: 암호화폐 명령 원자 선점·재시작 중복 차단, 거래소별 client-order ID 전달, 오류 분류, 모호한 청산 재주문 금지와 신규진입 중단 **PASS**
 - 사용자 원장 복제 시뮬레이션: 기존 8월 10,800회는 `legacy_snapshot` 보존, Fix 4 카운터 240회에서 정지, 6개 거래소별 최대 40회 **PASS**
-- Fix 4 집중·연관 회귀 `82 passed`; 전체 자동 회귀 `1,458 passed, 6 skipped, 0 failed`; 문서/버전 정합성·활성 소스 감사 **PASS**(활성 Python 349개, 구문 실패 0)
-- Windows 외부 게이트: 새 Fix 4 EXE, 6개 거래소 client-order ID 수용, 타임아웃 직후 재시작, 주문/포지션 조정 후 재개, 장시간 PAPER/LIVE
-- 현재 소스 배포 상태: `pending_windows_rebuild`; 공개 manifest의 직전 Fix 2 Windows 자산 `built`와 구분
+- 설정/탭/프로세스 집중 회귀: UI-only diff 무재시작, 메뉴 가드 선설치, 선택 source 단일 트리, 원자적 중복 실행 차단, Binance 구독 직렬화 **PASS**
+- macOS 실렌더: 설정 읽기 `0.003초`, 전체 설정 UI 생성 `0.696초`, BINANCE→UPBIT→BITHUMB→BINANCE에서 완전한 source 트리 항상 1개 **PASS**
+- 전체 자동 회귀 `1,468 passed, 6 skipped, 0 failed` (`.venv/bin/python -m pytest -q`, 2026-08-12)
+- Windows 외부 게이트: 새 v3.9.0.9 EXE, 설정/6개 거래소 왕복 100회, 중복 실행 차단, USER/GDI/TK_MENU 상한, Binance PAPER 2시간, client-order ID·주문/포지션 조정 E2E
+- 현재 소스 배포 상태: `pending_windows_rebuild`; 이전 공개 v3.9.0.8 Fix 4 Windows 자산과 구분
 
 ## v3.9.0.8 AI Custom Update Fix 3 실행 소유권 검증 (2026-08-11)
 

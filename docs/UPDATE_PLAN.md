@@ -1,6 +1,12 @@
 # NoahAI 기술 확장 계획
 
-## AI 자산 의사결정 인프라 로드맵 (v3.9.0.8 업데이트+)
+## AI 자산 의사결정 인프라 로드맵 (v3.9.0.9 업데이트+)
+
+### 2026-08-12 v3.9.0.9 AI Custom Stability Update
+
+- 설정 snapshot/diff, 선택 source 단일 UI 소유권, 설정/점검창 완성 후 표시, 단일 프로세스, Binance WebSocket 직렬화를 완료했습니다.
+- AI 어시스턴트와 AI 커스텀 P1~P3 범위는 유지합니다.
+- 전체 회귀 `1,468 passed, 6 skipped`; 새 Windows EXE·SHA·100회 탭/설정 왕복 전 상태는 `pending_windows_rebuild`입니다.
 
 ### 2026-08-11 v3.9.0.8 AI Custom Update Fix 2
 

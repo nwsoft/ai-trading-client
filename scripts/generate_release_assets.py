@@ -85,9 +85,10 @@ def _source_revision() -> dict:
     short_commit = _git_value("rev-parse", "--short", "HEAD")
     status = _git_value("status", "--porcelain")
     return {
+        "available": bool(commit),
         "commit": commit,
         "short_commit": short_commit,
-        "dirty": bool(status),
+        "dirty": bool(status) if commit else None,
     }
 
 
@@ -176,12 +177,12 @@ def main() -> int:
     parser.add_argument("--repo", default="nwsoft/ai-trading-client", help="GitHub repository owner/name")
     parser.add_argument(
         "--previous-exe",
-        default="deploy/previous/AITrading-v3.9.0.8-AI-Custom-Update.exe",
+        default="deploy/previous/AITrading-v3.9.0.8-AI-Custom-Update-Fix4.exe",
         help="직전 공개 Windows EXE 보존 경로",
     )
     parser.add_argument(
         "--previous-release-label",
-        default="v3.9.0.8 AI Custom Update",
+        default="v3.9.0.8 AI Custom Update Fix 4",
         help="직전 공개 Windows EXE 릴리스 표기",
     )
     parser.add_argument(
