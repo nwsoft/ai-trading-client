@@ -200,7 +200,9 @@ class BybitFuturesAdapter(FuturesExchange):
             return []
     
     def place_order(self, symbol: str, side: str, quantity: float, 
-                   price: Optional[float] = None, order_type: str = "MARKET") -> Dict[str, Any]:
+                   price: Optional[float] = None, order_type: str = "MARKET",
+                   client_order_id: Optional[str] = None,
+                   reduce_only: bool = False) -> Dict[str, Any]:
         if not self.is_connected:
             return {'status': 'error', 'error': '연결되지 않음'}
         try:
@@ -230,9 +232,12 @@ class BybitFuturesAdapter(FuturesExchange):
 
             type_literal = 'limit' if str(order_type).upper() == 'LIMIT' else 'market'
             side_literal = 'buy' if str(side).lower() == 'buy' else 'sell'
+            params = {"orderLinkId": client_order_id} if client_order_id else {}
+            if reduce_only:
+                params["reduceOnly"] = True
             order = self.exchange.create_order(  # type: ignore
                 symbol=norm_symbol, type=type_literal, side=side_literal,  # type: ignore
-                amount=quantity, price=price
+                amount=quantity, price=price, params=params
             )
             return {
                 'status': 'success',

@@ -4,6 +4,26 @@
 대상: 처음 사용하는 사용자, 기존 사용자, 테스터, 고객지원 담당자  
 상태: 소스 기능 기준. Windows 새 설치본·실계정 장시간 E2E는 별도 검증
 
+## Fix 4 AI 호출비와 LIVE 주문 안전 기준
+
+사용자 제공 DeepSeek 통계와 로컬 `ai_market_call_budget.json`을 대조한 결과, 2026-07-24부터 08-09까지 매일 기존 시장 호출 한도 1,200회를 정확히 소진했습니다. 이는 사용자 착각이 아니라 자동 시장분석이 지속 중인 LONG/SHORT·RSI 극단 상태와 단순 새 캔들을 반복 이벤트로 본 실제 문제입니다. 다만 Provider 화면만으로 `3.9.0.7` 배포가 유일한 원인이라고 단정할 수는 없습니다.
+
+| 설정 | Fix 4 기본값 | 의미 |
+|---|---:|---|
+| `stable_state_cache_sec` | 1,800초 | 같은 시장상태 AI 결과 재사용 |
+| `minimum_event_interval_sec` | 300초 | 미세 가격·RSI 변화의 최소 호출 간격 |
+| `exploration_interval_sec` | 1,800초 | 안정 상태의 주기적 재확인 |
+| `max_daily_market_calls` | 240회 | 시장분석 전역 일 한도 |
+| `max_daily_calls_per_exchange` | 40회 | 거래소별 시장분석 일 한도 |
+| `max_monthly_market_calls` | 6,000회 | 시장분석 월 한도 |
+| `max_daily_automatic_ai_calls` | 360회 | 모든 자동 AI 역할 합계 일 한도 |
+| `max_monthly_automatic_ai_calls` | 9,000회 | 모든 자동 AI 역할 합계 월 한도 |
+| `pattern_similarity_cache_sec` | 900초 | 같은 손실패턴 비교 재사용 |
+
+기존 설정 파일에 1,200/300/30,000이 남아 있어도 `allow_high_cost_limits=false`이면 240/40/6,000의 hard ceiling을 적용한다. Fix 4 첫 실행은 이전 누적을 삭제하지 않고 `legacy_snapshot`에 보존한 뒤 새 정책 카운터를 시작하므로, 이미 8월 누적이 6,000회를 넘었다는 이유로 월말까지 전부 차단되지 않는다. 한도 도달은 거래 중지 조건이 아니며 로컬 신호와 국면·계좌·주문 검증은 계속한다. 사용자가 AI 어시스턴트에 직접 보낸 질문은 자동매매 호출예산과 분리한다.
+
+LIVE 암호화폐 주문은 SQLite `crypto_order_commands`에 명령을 먼저 선점하고 Binance `newClientOrderId`, Bybit `orderLinkId`, OKX `clOrdId`, Bitget `clientOid`, Upbit `identifier`로 같은 명령을 연결한다. 현재 Bithumb CCXT 어댑터는 `client_order_id`를 지원하는 새 `/v2/orders`가 아니라 구형 주문 endpoint를 사용하므로 미지원 값을 억지로 보내지 않고 로컬 명령 원장만 적용한다. 인증·잔고·주문규격·포지션 불일치·전송 모호·rate limit을 분류하며, 청산 결과가 모호한 경우 지원 거래소는 client-order ID로 먼저 조회하고 확인되지 않으면 자동 재제출과 해당 거래소 신규 진입을 중단해 이중 청산을 방지한다. Windows 설치본과 거래소별 소액 LIVE 재시작 E2E는 아직 외부 검증 대상이다.
+
 ## 처음 설정하는 권장 순서
 
 1. `일반`에서 처음에는 PAPER를 켠다.

@@ -47,6 +47,7 @@ class OrderRequest:
     price: Optional[float] = None
     stop_price: Optional[float] = None
     time_in_force: str = "GTC"  # GTC, IOC, FOK
+    client_order_id: Optional[str] = None
 
 
 @dataclass
@@ -1901,6 +1902,8 @@ class BinanceClient:
                 # Binance API는 문자열 파라미터를 권장하므로 문자열로 변환 + precision 반영
                 'quantity': _fmt_qty(qty)
             }
+            if order_request.client_order_id:
+                order_params['newClientOrderId'] = str(order_request.client_order_id)
 
             if price_param:
                 order_params['price'] = str(price_param)
@@ -2123,6 +2126,7 @@ class BinanceClient:
         close_position: Optional[bool] = None,
         working_type: Optional[str] = None,
         position_side: Optional[str] = None,  # 'LONG' or 'SHORT' (헤지 모드용)
+        client_order_id: Optional[str] = None,
     ) -> Dict:
         """선물 주문 편의 메서드 (Binance API 공식 규칙 준수)"""
 
@@ -2151,6 +2155,8 @@ class BinanceClient:
                 'side': side,
                 'type': order_type,
             }
+            if client_order_id:
+                params['newClientOrderId'] = str(client_order_id)
 
             # --- closePosition 검증 ---
             if close_position:

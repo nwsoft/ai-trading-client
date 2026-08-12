@@ -255,7 +255,9 @@ class OkxFuturesAdapter(FuturesExchange):
             return []
     
     def place_order(self, symbol: str, side: str, quantity: float, 
-                   price: Optional[float] = None, order_type: str = "MARKET") -> Dict[str, Any]:
+                   price: Optional[float] = None, order_type: str = "MARKET",
+                   client_order_id: Optional[str] = None,
+                   reduce_only: bool = False) -> Dict[str, Any]:
         if not self.is_connected:
             return {'status': 'error', 'error': '연결되지 않음'}
         try:
@@ -354,6 +356,10 @@ class OkxFuturesAdapter(FuturesExchange):
 
             # ✅ OKX 전용 파라미터 구성: tdMode + (hedge 모드일 때만 positionSide)
             params: Dict[str, Any] = {}
+            if client_order_id:
+                params['clOrdId'] = client_order_id
+            if reduce_only:
+                params['reduceOnly'] = True
             try:
                 # tdMode: settings에서 기본 마진 타입을 읽거나 기본 cross
                 default_margin = 'cross'

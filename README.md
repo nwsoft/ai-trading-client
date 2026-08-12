@@ -6,9 +6,9 @@
 
 NoahAI의 핵심은 자동매매가 아니라 **판단·설명·기록·검증·환류 구조를 갖춘 AI 금융 의사결정 인프라**입니다.
 
-## 현재 작업 버전: v3.9.0.8 AI Custom Update Fix 2 · Windows 재빌드 전
+## 현재 작업 버전: v3.9.0.8 AI Custom Update Fix 4 · Windows 재빌드 전
 
-2026-08-11 현재 v3.9.0.8은 Noah Strategy IR, 원본 근거 추적, Level 1·2·3, 사용자 난이도 프로필, PnL·MDD·월/연도 검증표, Expression Graph·제한형 사용자 지표, 전략 패키지와 AI 어시스턴트 지식을 하나의 AI 커스텀 업데이트로 묶습니다. Fix 2는 Fix 1의 공통 화면 소유권·현재 잔고·DB 어댑터·AI 활동 원장에 더해 동일 화면 재사용, 부분 렌더 차단, 종료 전 업데이트 승인, 교체 전후 SHA-256 검증, 재시도 가능한 업데이트 저널과 초기 API 지연 오판 롤백 방지를 포함합니다. 새 Windows EXE는 `pending_windows_rebuild`입니다.
+2026-08-11 현재 v3.9.0.8은 Noah Strategy IR, 원본 근거 추적, Level 1·2·3, 사용자 난이도 프로필, PnL·MDD·월/연도 검증표, Expression Graph·제한형 사용자 지표, 전략 패키지와 AI 어시스턴트 지식을 하나의 AI 커스텀 업데이트로 묶습니다. Fix 4는 이전 UI·업데이트·포지션 소유권 수정을 유지하면서 자동 AI 호출의 지속조건 오판을 제거하고 역할별 영속 예산을 추가했으며, LIVE 암호화폐 주문을 영속 명령 원장·거래소 client-order ID·오류 분류·조정 전 신규진입 중단 경계로 보강합니다. 새 Windows EXE는 `pending_windows_rebuild`입니다.
 
 - PyQt5는 Windows 키움 OpenAPI+의 `QAxWidget`/COM 연결에 필요하므로 제거하지 않습니다.
 - PyQt5·pandas·루트에서 수집된 VC DLL을 모두 제거한 뒤, 빌드 아키텍처와 같은 공식 VC143 재배포 폴더의 검증된 단일 세트만 EXE 루트에 넣습니다.

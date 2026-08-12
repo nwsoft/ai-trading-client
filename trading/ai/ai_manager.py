@@ -15,6 +15,7 @@ import threading
 import time
 
 from .openai_client import OpenAIClient
+from .request_governor import AIRequestGovernor
 
 
 def ai_workload_route_status(
@@ -102,6 +103,7 @@ class AIManager:
         self._pattern_similarity_cache: Dict[str, Dict[str, Any]] = {}
         self._pattern_similarity_last_attempt: Dict[str, float] = {}
         self._pattern_similarity_lock = threading.RLock()
+        self._request_governor = AIRequestGovernor(runtime_settings)
         # 로거 초기화
         self.logger = logging.getLogger(__name__)
         # 🔥 로그 시스템 통일을 위한 헬퍼 메서드
@@ -182,6 +184,21 @@ class AIManager:
         prompt: str,
         **kwargs: Any,
     ) -> Optional[Dict[str, Any]]:
+        governor = getattr(self, "_request_governor", None)
+        if governor is None:
+            governor = AIRequestGovernor(getattr(self, "_settings", {}) or {})
+            self._request_governor = governor
+        reservation = governor.reserve(role)
+        if not bool(reservation.get("allowed")):
+            logger = getattr(self, "logger", logging.getLogger(__name__))
+            logger.warning(
+                "AI 자동 호출 차단: role=%s reason=%s daily=%s role_daily=%s",
+                role,
+                reservation.get("reason"),
+                reservation.get("daily"),
+                reservation.get("role_daily"),
+            )
+            return None
         client = self._get_client_for_role(role)
         return client.chat_json(
             system,

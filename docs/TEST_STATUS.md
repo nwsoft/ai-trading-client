@@ -1,3 +1,17 @@
+## v3.9.0.8 AI Custom Update Fix 4 소스 검증 (2026-08-11)
+
+- 배포 신원: 현재 `deploy/release-manifest.json`은 `Fix 2`, SHA-256 `c1edaf84410f...`의 built EXE를 가리킵니다. Fix 2 제목 제보 화면은 Fix 3/4 설치 증거가 아니며 Fix 4 Windows 재빌드·게시가 필요합니다.
+- Windows 메뉴 상한: CTkComboBox/OptionMenu 500개 생성 후 유휴 `TK_MENU=0`, 전체 설정창 생성·숨김·재열기 후 `TK_MENU=0` **PASS**. 선택 중에도 프로세스 전체 최대 1개 native 메뉴만 허용합니다.
+- 탭/상태 정본: 금융 인텔리전스가 6개 거래소보다 앞에 위치, `거래소: 6곳 · 기준 BINANCE`, `자동매매: 정지 (0/6 실행)` 순수 계약 회귀 **PASS**.
+- 사용자 AI 비용 사실확인: `data/260809_Teayu/ai_market_call_budget.json`에서 2026-07-24~08-09 매일 정확히 1,200회 소진, DeepSeek 화면 74,492 요청·57,134,137토큰과 증가 방향 일치 **CONFIRMED**
+- 인과 경계: Provider 화면만으로 3.9.0.7만의 단독 원인은 확정하지 않음. 로컬 시장 원장 20,400회와 Provider 전체 74,492회의 차이는 시장분석 밖 호출·다른 경로/클라이언트 포함 가능 **OPEN TELEMETRY**
+- AI 호출 회귀: level-trigger 후보/RSI 제거, 단순 새 캔들 로컬 처리, 30분 상태 캐시, 5분 미세변화 간격, 기존 고비용 설정 hard ceiling, 모든 자동 역할 영속 예산 **PASS**
+- OMS 회귀: 암호화폐 명령 원자 선점·재시작 중복 차단, 거래소별 client-order ID 전달, 오류 분류, 모호한 청산 재주문 금지와 신규진입 중단 **PASS**
+- 사용자 원장 복제 시뮬레이션: 기존 8월 10,800회는 `legacy_snapshot` 보존, Fix 4 카운터 240회에서 정지, 6개 거래소별 최대 40회 **PASS**
+- Fix 4 집중·연관 회귀 `82 passed`; 전체 자동 회귀 `1,458 passed, 6 skipped, 0 failed`; 문서/버전 정합성·활성 소스 감사 **PASS**(활성 Python 349개, 구문 실패 0)
+- Windows 외부 게이트: 새 Fix 4 EXE, 6개 거래소 client-order ID 수용, 타임아웃 직후 재시작, 주문/포지션 조정 후 재개, 장시간 PAPER/LIVE
+- 현재 소스 배포 상태: `pending_windows_rebuild`; 공개 manifest의 직전 Fix 2 Windows 자산 `built`와 구분
+
 ## v3.9.0.8 AI Custom Update Fix 3 실행 소유권 검증 (2026-08-11)
 
 - 포지션 소유권: NoahAI 진입 주문 원장이 있는 포지션만 재시작 복구·모니터 청산·close_all·우아한 종료 대상으로 인정 **PASS**

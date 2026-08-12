@@ -440,7 +440,11 @@ def test_unified_trader_execute_signal_trade_uses_quality_control_and_allocation
     trader.portfolio_allocation_cache = {"bybit": {"allocations": {"BTCUSDT": {"capital": 10000.0}}, "risk_scale": 1.0}}
     trader.active_positions = {"bybit": {}}
     trader.risk_manager = None
-    trader.recorder = None
+    trader.recorder = MagicMock()
+    trader.recorder.claim_crypto_order_command.return_value = {
+        "claimed": True,
+        "status": "created",
+    }
     trader._perform_pre_entry_analysis_unified = MagicMock(return_value={"proceed": True, "reason": "ok"})
     trader._calculate_dynamic_tp_sl_unified = MagicMock(return_value={"tp": 0.02, "sl": 0.01})
     trader._analyze_pattern_similarity_unified = MagicMock(return_value={"action": "KEEP"})

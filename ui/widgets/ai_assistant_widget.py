@@ -1497,23 +1497,25 @@ class AIAssistantWidget(CTkFrame):
 
     @staticmethod
     def _build_fix1_feedback_support(message: str) -> Optional[str]:
-        """Fix 1/2 장애·복구 계약을 Provider 없이도 정확히 안내한다."""
+        """Fix 1~4 장애·복구 계약을 Provider 없이도 정확히 안내한다."""
         normalized = str(message or '').lower().replace(' ', '')
-        if any(token in normalized for token in ('자동업데이트', '업데이트안됨', '재시작업데이트', '다운로드완료', 'sha256', 'fix2')):
+        if any(token in normalized for token in ('자동업데이트', '업데이트안됨', '재시작업데이트', '다운로드완료', 'sha256', 'fix2', 'fix4')):
             return (
-                "NoahAI입니다. Fix 2 자동업데이트는 거래소를 끄기 전에 staged EXE·SHA-256·설치 경로에 묶인 안전 승인을 받고, "
+                "NoahAI입니다. 창 제목이 Fix 2이면 Fix 3/4가 설치된 것이 아닙니다. 현재 공개 manifest도 Fix 2를 가리키므로 Fix 4 EXE와 manifest SHA가 함께 게시된 뒤 "
+                "설정 → 업데이트의 현재/배포 SHA 앞 12자리가 같아야 최신 설치로 판정합니다. Fix 2 자동업데이트는 거래소를 끄기 전에 staged EXE·SHA-256·설치 경로에 묶인 안전 승인을 받고, "
                 "안전 종료 뒤 승인된 파일만 교체합니다. 복사 후와 재시작 후 설치 EXE SHA-256이 배포 manifest와 같아야 완료입니다.\n"
-                "기존 Fix 1은 다운로드 뒤 적용이 막히거나 초기 API 연결 지연을 실패로 오판해 이전 EXE로 복원될 수 있으므로 최초 Fix 2는 수동 교체합니다. "
-                "그 뒤 설정 → 업데이트에서 적용 단계와 현재/배포 SHA 앞 12자리가 같은지 확인하세요. 실패하면 단계·오류 문구·SHA 앞 12자리만 전달하고 API 키나 계정정보는 보내지 마세요."
+                "실패하면 단계·오류 문구·SHA 앞 12자리만 전달하고 API 키나 계정정보는 보내지 마세요."
             )
         if any(token in normalized for token in ('nomoremenus', '메뉴할당', 'invalidcommand', '화면오류', '탭오류', 'fix1')):
             return (
-                "NoahAI입니다. Fix 2는 제보된 화면만 개별 예외 처리하지 않습니다. 설정창은 한 인스턴스를 재사용하고, "
+                "NoahAI입니다. Fix 4는 Windows CTk 드롭다운을 누른 동안에만 프로세스 전체 최대 1개 native 메뉴를 만들고, 닫기·선택·다른 드롭다운 열기 때 폐기합니다. "
+                "설정창은 한 인스턴스를 재사용하고, "
                 "시장 트렌드·금융 인텔리전스·AlphaArena·코인/종목 정보·거래 통계·AI 화면은 공통 탭 소유권으로 "
                 "예전 위젯 참조·콜백·native 메뉴를 함께 정리합니다. 같은 서비스와 동일 source 구성은 화면을 다시 만들지 않고 재사용하며 일부 섹션만 생성된 화면은 정상으로 표시하지 않습니다.\n"
+                "금융 인텔리전스는 거래소 탭보다 앞에 있어야 하고, `거래소: N곳 · 기준 ...`은 분석 범위, `자동매매: 정지/부분 실행/전체 실행 (n/m)`은 실제 워커 상태입니다. "
                 "`No more menus can be allocated` 또는 `invalid command name`이 다시 나오면 정상 동작이 아닙니다. "
                 "설정/서비스 반복 횟수, 직전 화면, 발생 시각 로그와 전체 화면만 전달하고 API 키·계정정보는 보내지 마세요. "
-                "Fix 2 새 Windows EXE의 100회 왕복과 USER/GDI 상한 검증 전에는 설치본 완료로 판단하지 않습니다."
+                "Fix 4 창 제목·SHA 일치와 100회 왕복의 USER/GDI/TK_MENU 상한 검증 전에는 설치본 완료로 판단하지 않습니다."
             )
         if any(token in normalized for token in ('통합자산', '자산통합', '자산배분', 'hhi', '집중도')):
             return (

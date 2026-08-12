@@ -177,7 +177,7 @@ class UnifiedTradingManager:
     
     def place_order_unified(self, exchange_name: str, trading_type: str, symbol: str,
         side: str, quantity: float, price: Optional[float] = None,
-        order_type: str = "MARKET") -> Dict[str, Any]:
+        order_type: str = "MARKET", client_order_id: Optional[str] = None) -> Dict[str, Any]:
         """통합 주문 실행 (거래소별 안전 분기, 모든 거래소 정상 동작 보장)"""
         exchange = self.get_exchange(exchange_name, trading_type)
         if not exchange:
@@ -195,11 +195,15 @@ class UnifiedTradingManager:
                     side=side_up,              # BUY/SELL
                     order_type=ot_up,          # MARKET/LIMIT/...
                     quantity=quantity,
-                    price=price
+                    price=price,
+                    client_order_id=client_order_id,
                 )
                 result = exchange.place_order(order_req)
             elif hasattr(exchange, 'place_order'):
-                result = exchange.place_order(symbol, side, quantity, price, order_type)
+                result = exchange.place_order(
+                    symbol, side, quantity, price, order_type,
+                    client_order_id=client_order_id,
+                )
             else:
                 return {'error': '지원하지 않는 거래소 타입 또는 place_order 미구현', 'status': 'failed'}
 
@@ -267,11 +271,15 @@ class UnifiedTradingManager:
         price: Optional[float] = None,
         order_type: str = "MARKET",
         policy: Optional[Dict[str, Any]] = None,
+        client_order_id: Optional[str] = None,
     ) -> Dict[str, Any]:
         """재시도/타임아웃/슬리피지 상한을 적용한 공통 주문 실행."""
         effective = dict(policy or {})
         if not bool(effective.get('enabled', False)):
-            result = self.place_order_unified(exchange_name, trading_type, symbol, side, quantity, price, order_type)
+            result = self.place_order_unified(
+                exchange_name, trading_type, symbol, side, quantity, price,
+                order_type, client_order_id=client_order_id,
+            )
             result.setdefault('latency_ms', 0.0)
             result.setdefault('slippage_bps', 0.0)
             result.setdefault('errors', [])
@@ -294,6 +302,7 @@ class UnifiedTradingManager:
                 quantity=quantity,
                 price=dyn_price,
                 order_type=dyn_order_type,
+                client_order_id=client_order_id,
             ),
             order_type=chosen_order_type,
             request_price=price,
@@ -319,8 +328,18 @@ class UnifiedTradingManager:
         quantity: float,
         price: Optional[float],
         order_type: str,
+        client_order_id: Optional[str] = None,
     ) -> tuple[bool, Dict[str, Any], List[str]]:
-        result = self.place_order_unified(exchange_name, trading_type, symbol, side, quantity, price, order_type)
+        if client_order_id:
+            result = self.place_order_unified(
+                exchange_name, trading_type, symbol, side, quantity, price,
+                order_type, client_order_id=client_order_id,
+            )
+        else:
+            # 기존/외부 어댑터의 7개 인자 계약과도 호환한다.
+            result = self.place_order_unified(
+                exchange_name, trading_type, symbol, side, quantity, price, order_type,
+            )
         status = str((result or {}).get('status') or '').strip().lower()
         success = status == 'success'
         errors = [] if success else [str((result or {}).get('error') or 'order_failed')]

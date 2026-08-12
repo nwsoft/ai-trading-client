@@ -209,7 +209,8 @@ class UpbitSpotAdapter(SpotExchange):
             return False
     
     def place_order(self, symbol: str, side: str, quantity: float, 
-                   price: Optional[float] = None, order_type: str = "MARKET") -> Dict[str, Any]:
+                   price: Optional[float] = None, order_type: str = "MARKET",
+                   client_order_id: Optional[str] = None) -> Dict[str, Any]:
         if not self.is_connected:
             return {
                 'status': 'error',
@@ -232,9 +233,10 @@ class UpbitSpotAdapter(SpotExchange):
             
             type_literal = 'limit' if order_type.upper() == 'LIMIT' else 'market'
             side_literal = 'buy' if side.lower() == 'buy' else 'sell'
+            params = {"identifier": client_order_id} if client_order_id else {}
             order = self.exchange.create_order(  # type: ignore
                 symbol=symbol, type=type_literal, side=side_literal,
-                amount=quantity, price=price
+                amount=quantity, price=price, params=params
             )
             return order
         except Exception as e:

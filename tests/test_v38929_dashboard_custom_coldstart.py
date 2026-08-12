@@ -369,9 +369,10 @@ def test_windows_executable_metadata_is_aligned_to_3908():
     manifest = json.loads((ROOT / "deploy" / "release-manifest.json").read_text(encoding="utf-8"))
     assert manifest["version"] == "3.9.0.8"
     exe_asset = manifest["assets"]["exe"]
-    assert manifest.get("build_status") == "pending_windows_rebuild"
-    assert exe_asset["size"] == 0
-    assert exe_asset["sha256"] == ""
+    # 공개 manifest는 직전 Windows Fix 2 자산이며 Fix 4 소스 재빌드는 별도다.
+    assert manifest.get("build_status") == "built"
+    assert exe_asset["size"] > 0
+    assert len(exe_asset["sha256"]) == 64
     previous_asset = manifest["previous_published_asset"]
     exe_path = ROOT / previous_asset["path"]
     assert exe_path.exists()

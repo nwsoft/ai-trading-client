@@ -223,7 +223,8 @@ class BithumbSpotAdapter(SpotExchange):
             return {}
     
     def place_order(self, symbol: str, side: str, quantity: float, 
-                   price: Optional[float] = None, order_type: str = "MARKET") -> Dict[str, Any]:
+                   price: Optional[float] = None, order_type: str = "MARKET",
+                   client_order_id: Optional[str] = None) -> Dict[str, Any]:
         if not self.is_connected:
             return {
                 'status': 'error',

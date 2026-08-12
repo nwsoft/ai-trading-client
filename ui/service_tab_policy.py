@@ -139,3 +139,45 @@ def get_service_tab_snapshot(service_name: str | None) -> Dict[str, object]:
         "detail_tabs": detail,
         "protected_tabs": protected,
     }
+
+
+def format_exchange_scope_label(
+    enabled_exchanges: List[str] | None,
+    selected_exchange: str | None,
+) -> str:
+    """Keep analysis scope distinct from the currently selected context."""
+    enabled = list(
+        dict.fromkeys(
+            str(item).strip().lower()
+            for item in (enabled_exchanges or [])
+            if str(item).strip()
+        )
+    )
+    selected = str(selected_exchange or "").strip().lower()
+    if not enabled:
+        return "거래소: 없음"
+    if selected not in enabled:
+        selected = enabled[0]
+    if len(enabled) == 1:
+        return f"거래소: {enabled[0].upper()}"
+    return f"거래소: {len(enabled)}곳 · 기준 {selected.upper()}"
+
+
+def format_trading_runtime_status(
+    enabled_exchanges: Set[str] | List[str] | None,
+    running_exchanges: Set[str] | List[str] | None,
+) -> str:
+    """Describe worker execution, not saved API/enablement configuration."""
+    enabled = {str(item).strip().lower() for item in (enabled_exchanges or []) if str(item).strip()}
+    running = {
+        str(item).strip().lower()
+        for item in (running_exchanges or [])
+        if str(item).strip()
+    } & enabled
+    if not enabled:
+        return "자동매매: 대상 거래소 없음"
+    if not running:
+        return f"자동매매: 정지 (0/{len(enabled)} 실행)"
+    if running == enabled:
+        return f"자동매매: 전체 실행 ({len(running)}/{len(enabled)})"
+    return f"자동매매: 부분 실행 ({len(running)}/{len(enabled)})"

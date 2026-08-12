@@ -22,8 +22,8 @@ SETTINGS_TABS: Dict[str, Dict[str, Any]] = {
         "summary": "실잔고·비공개 포지션·실주문 연결을 설정합니다. 키가 입력돼도 조회/주문 권한과 허용 IP가 맞아야 합니다.",
     },
     "AI 엔진/API": {
-        "aliases": ("ai 엔진", "provider", "모델", "openai", "deepseek", "claude", "gemini", "전사", "캐시", "비용", "호출예산", "ai 커스텀", "ai커스텀", "사용 난이도", "웹훅", "webhook"),
-        "summary": "분석·대화·빈번/표준/정밀 역할별 Provider와 모델을 정합니다. AI 커스텀 사용 난이도는 전략 엔진이 아니라 화면 복잡도·기능 노출 프로필이며 처음에는 일반(권장)을 사용합니다.",
+        "aliases": ("ai 엔진", "provider", "모델", "openai", "deepseek", "claude", "gemini", "kimi", "kimi k3", "전사", "캐시", "비용", "호출예산", "ai 커스텀", "ai커스텀", "사용 난이도", "웹훅", "webhook"),
+        "summary": "분석·대화·빈번/표준/정밀 역할별 Provider와 모델을 정합니다. Kimi K3는 Kimi Open Platform API 키와 계정 모델 권한을 확인해야 하며 일반 Kimi 서비스의 멤버십·잔액과 API 과금은 별도입니다. AI 커스텀 사용 난이도는 전략 엔진이 아니라 화면 복잡도·기능 노출 프로필이며 처음에는 일반(권장)을 사용합니다.",
     },
     "고급 매매 계층": {
         "aliases": ("고급 매매", "전략 엔진", "합의 임계값", "쿨다운", "고변동", "수익성 검증"),

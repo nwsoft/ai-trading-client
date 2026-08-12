@@ -63,6 +63,7 @@ from .exit_policy import (
 )
 from .execution_mode import ExecutionMode, resolve_crypto_execution_mode
 from .leverage_policy import exchange_leverage_cap, resolve_effective_leverage
+from .order_command_policy import classify_order_error, exchange_client_order_id
 from .market_data_utils import kline_number
 from .position_ownership import (
     NOAH_POSITION_OWNER,
@@ -402,6 +403,68 @@ class UnifiedTrader:
         # 🔥 각 어댑터에서 심볼 정규화를 처리하므로 여기서는 기본 반환
         return str(symbol).strip().upper()
 
+    def _lookup_order_by_client_id(
+        self, exchange_name: str, exchange_client: Any, symbol: str, client_order_id: str,
+    ) -> Optional[Dict[str, Any]]:
+        """모호한 응답 뒤 재제출 전에 거래소의 client-order ID로 조회한다."""
+        try:
+            normalized = str(exchange_name or '').lower()
+            if normalized == 'binance':
+                native = getattr(exchange_client, 'client', None)
+                getter = getattr(native, 'futures_get_order', None)
+                if callable(getter):
+                    return dict(getter(symbol=symbol, origClientOrderId=client_order_id) or {})
+                return None
+
+            ccxt_exchange = getattr(exchange_client, 'exchange', None)
+            if ccxt_exchange is None:
+                return None
+            normalized_symbol = symbol
+            normalizer = getattr(exchange_client, '_normalize_symbol', None)
+            if callable(normalizer):
+                normalized_symbol = normalizer(symbol)
+
+            if normalized == 'bybit':
+                getter = getattr(ccxt_exchange, 'privateGetV5OrderRealtime', None)
+                if not callable(getter):
+                    return None
+                response = getter({
+                    'category': 'linear',
+                    'symbol': str(normalized_symbol).replace('/', '').split(':', 1)[0],
+                    'orderLinkId': client_order_id,
+                })
+                rows = ((response or {}).get('result') or {}).get('list') or []
+                if not rows:
+                    return None
+                row = dict(rows[0])
+                return {
+                    'status': row.get('orderStatus'),
+                    'order_id': row.get('orderId'),
+                    'filled': row.get('cumExecQty'),
+                    'average': row.get('avgPrice'),
+                    'raw_result': row,
+                }
+            if normalized == 'okx':
+                return dict(ccxt_exchange.fetch_order(
+                    None, normalized_symbol, {'clOrdId': client_order_id}
+                ) or {})
+            if normalized == 'bitget':
+                return dict(ccxt_exchange.fetch_order(
+                    None, normalized_symbol, {'clientOid': client_order_id}
+                ) or {})
+            if normalized == 'upbit':
+                getter = getattr(ccxt_exchange, 'privateGetOrder', None)
+                if not callable(getter):
+                    return None
+                response = getter({'identifier': client_order_id})
+                parser = getattr(ccxt_exchange, 'parse_order', None)
+                return dict(parser(response) if callable(parser) else response or {})
+        except Exception as exc:
+            self.logger.warning(
+                f"{exchange_name} {symbol} client-order ID 조정 조회 실패: {exc}"
+            )
+        return None
+
     def __init__(self, settings: Dict[str, Any], exchange_manager: ExchangeManager,
         unified_manager: UnifiedTradingManager, analyzer: Optional[Analyzer] = None,
         optimizer: Optional[Optimizer] = None, recorder: Optional[Recorder] = None,
@@ -432,6 +495,7 @@ class UnifiedTrader:
         self.last_effective_trade_params: Dict[str, Dict[str, Dict[str, Any]]] = {}
         self._close_failure_fingerprints: Dict[str, str] = {}
         self._close_retry_state: Dict[str, Dict[str, Any]] = {}
+        self._entry_halts: Dict[str, Dict[str, Any]] = {}
         self.monitoring_flags = {}  # {exchange: bool}
         self.monitoring_threads = {}  # {exchange: Thread}
         self.advanced_order_managers = {}
@@ -2137,6 +2201,7 @@ class UnifiedTrader:
     def _execute_signal_trade(self, exchange_name: str, symbol: str, analysis: Dict[str, Any]) -> Dict[str, Any]:
         """거래소별 신호 거래 실행 (AI 기반 고급 거래 실행)"""
         opportunity_auth = None
+        crypto_command_id = ""
         try:
             signal = analysis.get('signal', 'HOLD')
             confidence = analysis.get('confidence', 0.0)
@@ -2168,6 +2233,17 @@ class UnifiedTrader:
                 execution_mode = self._execution_mode(exchange_name)
                 paper = execution_mode == ExecutionMode.PAPER
                 demo = False
+
+            halt = (getattr(self, "_entry_halts", {}) or {}).get(str(exchange_name).lower())
+            if halt and not paper and not learning_only:
+                return {
+                    "status": "skipped",
+                    "reason": (
+                        "주문 상태/청산 오류가 아직 조정되지 않아 신규 진입을 중단했습니다: "
+                        f"{halt.get('category', 'unknown')} - {halt.get('reason', '')}"
+                    ),
+                    "entry_halt": dict(halt),
+                }
 
             # 현물의 SHORT 신호는 신규 공매도 주문이 아니다. NoahAI가 실제로
             # 진입해 소유권 원장이 있는 LONG만 청산하고, 기존 수동 보유자산은
@@ -2615,6 +2691,39 @@ class UnifiedTrader:
                     },
                 }
 
+            # 외부 주문보다 먼저 영속 명령을 선점한다. 프로세스가 주문 응답 전에
+            # 종료되어도 같은 명령을 다시 제출하지 않고 조정 대상으로 남긴다.
+            if not paper and not demo:
+                crypto_command_id = str(opportunity_auth.idempotency_key or "")
+                if not crypto_command_id or not self.recorder:
+                    get_opportunity_coordinator().release(opportunity_auth)
+                    return {
+                        "status": "skipped",
+                        "reason": "영속 주문 명령 원장을 사용할 수 없어 LIVE 주문을 차단했습니다",
+                    }
+                claimed = self.recorder.claim_crypto_order_command(
+                    command_id=crypto_command_id,
+                    exchange=exchange_name,
+                    symbol=symbol,
+                    side=signal,
+                    intent_type="entry",
+                    quantity=position_size,
+                )
+                if not bool(claimed.get("claimed")):
+                    get_opportunity_coordinator().release(opportunity_auth)
+                    return {
+                        "status": "skipped",
+                        "reason": (
+                            "동일 주문 명령이 이미 원장에 존재하여 중복 제출을 차단했습니다 "
+                            f"(status={claimed.get('status')})"
+                        ),
+                        "command_id": crypto_command_id,
+                    }
+                self.recorder.update_crypto_order_command(
+                    crypto_command_id, status="submitting", increment_attempt=True,
+                )
+                optimized_params["_client_order_id"] = exchange_client_order_id(crypto_command_id)
+
             # 레버리지/마진 타입 설정 (선물 거래소에서만)
             try:
                 # CCXT 어댑터 여부에 따라 심볼 정규화
@@ -2738,6 +2847,10 @@ class UnifiedTrader:
                             price=None,
                             order_type='market',
                             policy=execution_policy,
+                            client_order_id=(
+                                exchange_client_order_id(crypto_command_id)
+                                if crypto_command_id else None
+                            ),
                         ))
                     elif not paper:
                         # 직접 클라이언트 경로
@@ -2747,7 +2860,11 @@ class UnifiedTrader:
                                 symbol=order_symbol,
                                 side=side_for_ccxt,
                                 order_type='market',
-                                quantity=position_size
+                                quantity=position_size,
+                                client_order_id=(
+                                    exchange_client_order_id(crypto_command_id)
+                                    if crypto_command_id else None
+                                ),
                             )
                         elif exchange_client:
                             # CCXT 어댑터만 지원 (바이낸스 제외)
@@ -2757,7 +2874,11 @@ class UnifiedTrader:
                                     symbol=order_symbol,
                                     side=side_for_ccxt,
                                     order_type='market',
-                                    quantity=position_size
+                                    quantity=position_size,
+                                    client_order_id=(
+                                        exchange_client_order_id(crypto_command_id)
+                                        if crypto_command_id else None
+                                    ),
                                 )
                             else:
                                 raise RuntimeError('CCXT 어댑터가 아닙니다')
@@ -2788,6 +2909,14 @@ class UnifiedTrader:
                 or (isinstance(order_result, dict) and order_result.get('_execution_confirmed'))
             )
             if self._is_order_success(order_result) and execution_confirmed:
+                if crypto_command_id and self.recorder:
+                    self.recorder.update_crypto_order_command(
+                        crypto_command_id,
+                        status="confirmed",
+                        exchange_order_id=str(
+                            order_result.get("order_id") or order_result.get("id") or ""
+                        ),
+                    )
                 get_opportunity_coordinator().record_result(
                     opportunity_auth,
                     status="paper_filled" if paper else "submitted",
@@ -3127,6 +3256,21 @@ class UnifiedTrader:
                         raw_txt = str(raw)
                     reason = f"status={st} raw={raw_txt}"
                 self.logger.warning(f"주문 실패 상세: {exchange_name} {symbol} → {reason}")
+                error_policy = classify_order_error(reason)
+                if crypto_command_id and self.recorder:
+                    self.recorder.update_crypto_order_command(
+                        crypto_command_id,
+                        status=("ambiguous" if error_policy.get("reconcile") else "failed"),
+                        error_class=str(error_policy.get("category", "unknown")),
+                        error_message=str(reason),
+                    )
+                if error_policy.get("halt_entries"):
+                    self._entry_halts[str(exchange_name).lower()] = {
+                        "category": error_policy.get("category"),
+                        "reason": str(reason),
+                        "command_id": crypto_command_id,
+                        "created_at": datetime.now(timezone.utc).isoformat(),
+                    }
                 emit_kpi_event(
                     event_type='trade_order_failed',
                     category='trade',
@@ -3158,6 +3302,14 @@ class UnifiedTrader:
                     detail=str(e),
                 )
             self.logger.error(f"❌ {exchange_name} {symbol} 거래 실행 실패: {e}")
+            if crypto_command_id and self.recorder:
+                error_policy = classify_order_error(e)
+                self.recorder.update_crypto_order_command(
+                    crypto_command_id,
+                    status=("ambiguous" if error_policy.get("reconcile") else "failed"),
+                    error_class=str(error_policy.get("category", "unknown")),
+                    error_message=str(e),
+                )
             emit_kpi_event(
                 event_type='trade_order_failed',
                 category='trade',
@@ -4021,6 +4173,45 @@ class UnifiedTrader:
             close_quantity = float(position.quantity or 0.0)
             # paper_trading 모드에서는 네트워크 호출 없이 즉시 성공 처리
             paper = self._execution_mode(exchange_name) == ExecutionMode.PAPER
+            close_command_id = f"close:{retry_key}"
+            reconciled_order_result: Optional[Dict[str, Any]] = None
+
+            if not paper and self.recorder:
+                claimed = self.recorder.claim_crypto_order_command(
+                    command_id=close_command_id,
+                    exchange=exchange_name,
+                    symbol=symbol,
+                    side=('SELL' if position.side == PositionSide.LONG else 'BUY'),
+                    intent_type='close',
+                    quantity=close_quantity,
+                    position_key=retry_key,
+                )
+                existing_status = str(claimed.get('status') or '')
+                # submitting/ambiguous는 거래소 조회 전 재제출하면 이중 청산이
+                # 될 수 있으므로 자동 재제출을 금지한다.
+                if not claimed.get('claimed') and existing_status in {'submitting', 'ambiguous', 'confirmed'}:
+                    exchange_client_for_lookup = self.get_exchange_client(exchange_name)
+                    reconciled_order_result = self._lookup_order_by_client_id(
+                        exchange_name,
+                        exchange_client_for_lookup,
+                        symbol,
+                        exchange_client_order_id(close_command_id),
+                    )
+                    if reconciled_order_result:
+                        self.logger.info(
+                            f"{exchange_name} {symbol} 청산 명령을 client-order ID로 조정했습니다"
+                        )
+                    else:
+                        self._entry_halts[str(exchange_name).lower()] = {
+                            'category': 'close_reconciliation_required',
+                            'reason': f'청산 명령 상태 확인 필요: {existing_status}',
+                            'command_id': close_command_id,
+                            'created_at': datetime.now(timezone.utc).isoformat(),
+                        }
+                        return False
+                self.recorder.update_crypto_order_command(
+                    close_command_id, status='submitting', increment_attempt=True,
+                )
 
             if paper:
                 now_ts = int(datetime.now(timezone.utc).timestamp() * 1000)
@@ -4035,6 +4226,9 @@ class UnifiedTrader:
                     'timestamp': now_ts,
                     'simulated': True
                 }
+            elif reconciled_order_result is not None:
+                order_result = reconciled_order_result
+                exchange_client = self.get_exchange_client(exchange_name)
             else:
                 exchange_client = self.get_exchange_client(exchange_name)
                 if not exchange_client:
@@ -4081,36 +4275,19 @@ class UnifiedTrader:
                 try:
                     if hasattr(exchange_client, 'exchange'):
                         # CCXT 어댑터 경로
+                        close_kwargs: Dict[str, Any] = {
+                            'symbol': symbol,
+                            'side': opposite_side.lower(),
+                            'order_type': 'market',
+                            'quantity': close_quantity,
+                        }
+                        if exchange_name != 'bithumb':
+                            close_kwargs['client_order_id'] = exchange_client_order_id(close_command_id)
+                        if exchange_name in {'bybit', 'okx', 'bitget'}:
+                            close_kwargs['reduce_only'] = True
                         order_result = exchange_client.place_order(
-                            symbol=symbol,
-                            side=opposite_side.lower(),
-                            order_type='market',
-                            quantity=close_quantity
+                            **close_kwargs,
                         )
-                        # 실패 시 reduceOnly 강제 경로로 1회 재시도
-                        try:
-                            st = str(order_result.get('status','')).lower()
-                            if (
-                                exchange_name in {'bybit', 'okx', 'bitget'}
-                                and st not in ('success', 'closed', 'filled', 'pending', 'new')
-                            ):
-                                ex = getattr(exchange_client, 'exchange', None)
-                                if ex is not None:
-                                    try:
-                                        norm_sym = symbol
-                                        # 일부 어댑터는 심볼 정규화를 제공
-                                        if hasattr(exchange_client, '_normalize_symbol'):
-                                            norm_sym = exchange_client._normalize_symbol(symbol)  # type: ignore
-                                        ro = ex.create_order(norm_sym, 'market', opposite_side.lower(), close_quantity, None, {'reduceOnly': True})
-                                        order_result = {
-                                            'status': 'success',
-                                            'order_id': ro.get('id') if isinstance(ro, dict) else None,
-                                            'raw_result': ro,
-                                        }
-                                    except Exception:
-                                        pass
-                        except Exception:
-                            pass
                     else:
                         # 바이낸스 네이티브 경로: reduceOnly로 안전 청산
                         try:
@@ -4125,7 +4302,8 @@ class UnifiedTrader:
                                     order_type='MARKET',
                                     quantity=close_quantity,
                                     reduce_only=True,
-                                    close_position=None
+                                    close_position=None,
+                                    client_order_id=exchange_client_order_id(close_command_id),
                                 )
                                 # 성공 표준화
                                 st = str(order_result.get('status', '')).upper()
@@ -4159,6 +4337,14 @@ class UnifiedTrader:
                 or (isinstance(order_result, dict) and order_result.get('_execution_confirmed'))
             )
             if self._is_order_success(order_result) and execution_confirmed:
+                if not paper and self.recorder:
+                    self.recorder.update_crypto_order_command(
+                        close_command_id,
+                        status='confirmed',
+                        exchange_order_id=str(
+                            order_result.get('order_id') or order_result.get('id') or ''
+                        ),
+                    )
                 # 체결·통계·KPI는 실제로 청산 요청한 관리수량을 기준으로 한다.
                 position.quantity = close_quantity
                 # PnL 계산
@@ -4454,17 +4640,37 @@ class UnifiedTrader:
                 self.logger.info(f"✅ {exchange_name} {symbol} 포지션 청산 완료 (PnL: {pnl_percent:.4f}%)")
                 getattr(self, '_close_retry_state', {}).pop(retry_key, None)
                 getattr(self, '_close_failure_fingerprints', {}).pop(retry_key, None)
+                getattr(self, '_entry_halts', {}).pop(str(exchange_name).lower(), None)
                 return True
             else:
                 reason = str(order_result.get('error') or order_result.get('message') or '거래소가 오류 상세를 반환하지 않음')
                 attempts = int(retry_state.get('attempts', 0) or 0) + 1
-                retry_delay = min(900, 30 * (2 ** min(attempts - 1, 5)))
+                error_policy = classify_order_error(reason)
+                # 명백한 rate limit처럼 주문 미접수로 분류 가능한 경우만 제한적으로
+                # 재시도한다. 전송 모호/포지션 불일치는 조회가 끝나기 전 재제출 금지.
+                can_retry = bool(error_policy.get('retry')) and not bool(error_policy.get('reconcile')) and attempts < 3
+                retry_delay = int(error_policy.get('delay', 0) or 0) if can_retry else 0
                 if not isinstance(getattr(self, '_close_retry_state', None), dict):
                     self._close_retry_state = {}
                 self._close_retry_state[retry_key] = {
                     'attempts': attempts,
                     'reason': reason,
-                    'next_retry_at': now_epoch + retry_delay,
+                    'category': error_policy.get('category'),
+                    'reconciliation_required': bool(error_policy.get('reconcile')),
+                    'next_retry_at': (now_epoch + retry_delay) if can_retry else float('inf'),
+                }
+                if not paper and self.recorder:
+                    self.recorder.update_crypto_order_command(
+                        close_command_id,
+                        status=('ambiguous' if error_policy.get('reconcile') else 'failed'),
+                        error_class=str(error_policy.get('category', 'unknown')),
+                        error_message=reason,
+                    )
+                self._entry_halts[str(exchange_name).lower()] = {
+                    'category': error_policy.get('category'),
+                    'reason': reason,
+                    'command_id': close_command_id,
+                    'created_at': datetime.now(timezone.utc).isoformat(),
                 }
                 fingerprint = f"{retry_key}:{reason}"
                 if not isinstance(getattr(self, '_close_failure_fingerprints', None), dict):
@@ -4485,12 +4691,18 @@ class UnifiedTrader:
                             'position_owner': NOAH_POSITION_OWNER,
                             'position_key': retry_key,
                             'retry_after_seconds': retry_delay,
+                            'error_class': error_policy.get('category'),
+                            'reconciliation_required': bool(error_policy.get('reconcile')),
                         },
                     )
                     self._close_failure_fingerprints[retry_key] = fingerprint
                 self.logger.error(
                     f"❌ {exchange_name} {symbol} 포지션 청산 실패: {reason} "
-                    f"(동일 실패 KPI 중복 억제, {retry_delay}초 후 재시도)"
+                    + (
+                        f"(동일 실패 KPI 중복 억제, {retry_delay}초 후 제한 재시도)"
+                        if can_retry
+                        else "(신규 진입 중단, 거래소 상태 조정 후 재개 필요)"
+                    )
                 )
                 return False
 

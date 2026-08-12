@@ -28,17 +28,18 @@ def test_user_surfaces_share_provider_scope_and_menu_path():
 
 def test_release_metadata_and_installed_manual_are_scoped_separately():
     assert "현재 작업 버전: v3.9.0.8" in _read("README.md")
-    assert "v3.9.0.8 AI Custom Update Fix 2" in _read("README.md")
+    assert "v3.9.0.8 AI Custom Update Fix 4" in _read("README.md")
     assert "v3.9.0.5 설정 정본·실행 모드 통합" in _read("RELEASE_NOTES.md")
     manual = _read("ui/widgets/user_manual_widget.py")
     assert "현재 설치 버전" in manual
-    assert "v3.9.0.8 Fix 3 최신 업데이트" in manual
+    assert "v3.9.0.8 Fix 4 최신 업데이트" in manual
     assert "새 Windows 빌드 전 업데이트 대상" not in manual
     assert "SHA-256이 게시된 Windows" in _read("docs/AI_API_USER_GUIDE.md")
     manifest = json.loads(_read("deploy/release-manifest.json"))
     assert manifest["version"] == "3.9.0.8"
     assert manifest["release_label"] == "v3.9.0.8 AI Custom Update Fix 2"
-    assert manifest["build_status"] == "pending_windows_rebuild"
+    # manifest는 직전 공개 Windows 자산(Fix 2), 소스 라벨은 Fix 4로 분리한다.
+    assert manifest["build_status"] == "built"
     assert manifest["previous_published_asset"]["version"] == "3.9.0.8"
     assert manifest["previous_published_asset"]["release_label"] == "v3.9.0.8 AI Custom Update"
     assert manifest["previous_published_asset"]["path"] == "deploy/previous/AITrading-v3.9.0.8-AI-Custom-Update.exe"
@@ -47,7 +48,7 @@ def test_release_metadata_and_installed_manual_are_scoped_separately():
     assert 'RELEASE_VERSION = "3.9.0.8"' in _read("config/app_version.py")
     assert "FileVersion', u'3.9.0.8" in _read("config/windows_version_info.txt")
     assert "ProductVersion', u'3.9.0.8" in _read("config/windows_version_info.txt")
-    assert 'RELEASE_HIGHLIGHT = "AI 커스텀 P1~P3 · 자동업데이트 상태 머신·Windows UI 재사용 안정화"' in _read("config/app_version.py")
+    assert 'RELEASE_HIGHLIGHT = "AI 커스텀 P1~P3 · Windows UI 메뉴·AI 호출·주문 명령 안전화"' in _read("config/app_version.py")
 
 
 def test_release_asset_generator_preserves_fix_patch_identity(tmp_path):

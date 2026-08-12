@@ -599,6 +599,28 @@ class Recorder:
                     )
                 """)
 
+                # 암호화폐 OMS 명령 원장: 프로세스 재시작 뒤에도 같은 명령을
+                # 재제출하지 않고 거래소 결과를 먼저 조회하기 위한 SSOT.
+                cursor.execute("""
+                    CREATE TABLE IF NOT EXISTS crypto_order_commands (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        command_id TEXT NOT NULL UNIQUE,
+                        exchange TEXT NOT NULL,
+                        symbol TEXT NOT NULL,
+                        side TEXT NOT NULL,
+                        intent_type TEXT NOT NULL,
+                        quantity REAL DEFAULT 0.0,
+                        position_key TEXT,
+                        status TEXT NOT NULL DEFAULT 'created',
+                        exchange_order_id TEXT,
+                        error_class TEXT,
+                        error_message TEXT,
+                        attempts INTEGER NOT NULL DEFAULT 0,
+                        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+                    )
+                """)
+
                 conn.commit()
 
                 # 스키마 보강: ai_optimization에 optimization_data 컬럼이 없으면 추가
@@ -2669,6 +2691,67 @@ class Recorder:
             return True
         except Exception as e:
             log_event('trade', f"idempotency 저장 실패: {e}", exchange=self.exchange, level='ERROR')
+            return False
+
+    def claim_crypto_order_command(
+        self, *, command_id: str, exchange: str, symbol: str, side: str,
+        intent_type: str, quantity: float, position_key: str = "",
+    ) -> Dict[str, Any]:
+        """명령을 원자적으로 선점한다. 기존 명령이면 재제출 권한을 주지 않는다."""
+        try:
+            with sqlite3.connect(self.db_path, timeout=20.0) as conn:
+                cursor = conn.cursor()
+                cursor.execute(
+                    """
+                    INSERT OR IGNORE INTO crypto_order_commands (
+                        command_id, exchange, symbol, side, intent_type, quantity,
+                        position_key, status, attempts
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, 'created', 0)
+                    """,
+                    (str(command_id), str(exchange), str(symbol), str(side),
+                     str(intent_type), float(quantity or 0.0), str(position_key or "")),
+                )
+                claimed = cursor.rowcount == 1
+                cursor.execute(
+                    """SELECT status, exchange_order_id, error_class, attempts
+                       FROM crypto_order_commands WHERE command_id = ?""",
+                    (str(command_id),),
+                )
+                row = cursor.fetchone() or ("unknown", None, None, 0)
+                conn.commit()
+            return {
+                "claimed": claimed,
+                "status": str(row[0] or "unknown"),
+                "exchange_order_id": str(row[1] or ""),
+                "error_class": str(row[2] or ""),
+                "attempts": int(row[3] or 0),
+            }
+        except Exception as exc:
+            log_event('trade', f"암호화폐 주문 명령 선점 실패: {exc}", exchange=self.exchange, level='ERROR')
+            return {"claimed": False, "status": "ledger_error", "error": str(exc)}
+
+    def update_crypto_order_command(
+        self, command_id: str, *, status: str, exchange_order_id: str = "",
+        error_class: str = "", error_message: str = "", increment_attempt: bool = False,
+    ) -> bool:
+        try:
+            with sqlite3.connect(self.db_path, timeout=20.0) as conn:
+                conn.execute(
+                    """
+                    UPDATE crypto_order_commands
+                    SET status = ?, exchange_order_id = COALESCE(NULLIF(?, ''), exchange_order_id),
+                        error_class = ?, error_message = ?,
+                        attempts = attempts + ?, updated_at = CURRENT_TIMESTAMP
+                    WHERE command_id = ?
+                    """,
+                    (str(status), str(exchange_order_id or ""), str(error_class or ""),
+                     str(error_message or "")[:1000], 1 if increment_attempt else 0,
+                     str(command_id)),
+                )
+                conn.commit()
+            return True
+        except Exception as exc:
+            log_event('trade', f"암호화폐 주문 명령 갱신 실패: {exc}", exchange=self.exchange, level='ERROR')
             return False
 
     def cleanup_old_logs(self, days: int = 90):

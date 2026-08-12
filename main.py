@@ -20,6 +20,16 @@ import warnings
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional, Mapping, Sequence, Union
 
+# CustomTkinter가 각 선택 위젯마다 Windows HMENU를 영구 보유하지 않게 한다.
+# UI 모듈/위젯 인스턴스가 생성되기 전에 설치해야 한다.
+try:
+    from ui.windows_menu_guard import install_windows_menu_guard
+
+    install_windows_menu_guard()
+except Exception:
+    # 비 Windows와 최소 테스트 환경에서는 원래 CustomTkinter 동작을 유지한다.
+    pass
+
 # 표준 logging 모듈 import (프로젝트 log_system과 분리되어 충돌 없음)
 import logging
 from logging.handlers import RotatingFileHandler

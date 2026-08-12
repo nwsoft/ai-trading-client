@@ -964,19 +964,22 @@ class ModernDashboard(ctk.CTk):
             # 현재 활성화된 거래소 목록 기준으로 섹션을 초기 생성/갱신
             enabled = self.settings.get('enabled_exchanges', ['binance']) if isinstance(self.settings, dict) else ['binance']
             selected_exchange = self.settings.get('selected_exchange', 'binance') if isinstance(self.settings, dict) else 'binance'
-            exchange_display = str(selected_exchange or '').upper()
+            from ui.service_tab_policy import format_exchange_scope_label
+
+            enabled = list(dict.fromkeys(str(item).strip().lower() for item in (enabled or []) if str(item).strip()))
+            exchange_display = format_exchange_scope_label(enabled, selected_exchange)
 
             # 거래소 정보 라벨 업데이트
             if hasattr(self, 'exchange_info_label'):
                 try:
                     # 기존 스타일 유지하면서 텍스트만 업데이트
                     self.exchange_info_label.configure(
-                        text=f"거래소: {exchange_display}",
+                        text=exchange_display,
                         fg_color=self._color('surface', '#0b1120'),
                         corner_radius=8
                     )
                 except Exception:
-                    self.exchange_info_label.configure(text=f"거래소: {exchange_display}")
+                    self.exchange_info_label.configure(text=exchange_display)
 
             # 현재 서비스의 source 탭만 갱신한다. 주식 화면에서 설정을 저장할 때
             # 블록체인 탭을 강제로 만들던 기존 경로가 거래소/증권사 혼합의 원인이었다.
@@ -6900,7 +6903,11 @@ class ModernDashboard(ctk.CTk):
     def switch_service(self, service_name):
         """서비스 탭 전환"""
         try:
-            log_windows_gui_resources(self.logger, f"service-switch-before:{service_name}")
+            log_windows_gui_resources(
+                self.logger,
+                f"service-switch-before:{service_name}",
+                root=self,
+            )
             try:
                 from log_system.log_adapter import log_event
                 log_event('system', f'Service 전환 시도: {service_name}')
@@ -6923,7 +6930,11 @@ class ModernDashboard(ctk.CTk):
             if previous_service == target_service:
                 self._update_service_button_styles(target_service)
                 self._apply_service_tab_policy(target_service)
-                log_windows_gui_resources(self.logger, f"service-switch-reused:{target_service}")
+                log_windows_gui_resources(
+                    self.logger,
+                    f"service-switch-reused:{target_service}",
+                    root=self,
+                )
                 return
 
             if target_service != 'stock':
@@ -7012,7 +7023,11 @@ class ModernDashboard(ctk.CTk):
             except Exception:
                 print(f"서비스 전환 완료: {service_name}")  # 디버깅용
             self.logger.info(f"서비스 전환: {service_name}")
-            log_windows_gui_resources(self.logger, f"service-switch-after:{service_name}")
+            log_windows_gui_resources(
+                self.logger,
+                f"service-switch-after:{service_name}",
+                root=self,
+            )
 
         except Exception as e:
             try:
@@ -7143,17 +7158,40 @@ class ModernDashboard(ctk.CTk):
 
     def _get_or_add_tab(self, name: str):
         tv = cast(ctk.CTkTabview, self.tab_widget)
+        created = False
         try:
             tab_frame = tv.tab(name)
         except Exception:
             tab_frame = tv.add(name)
+            created = True
         # 탭 프레임은 투명 배경으로 설정하여 상위 탭뷰의 라운드/배경이 자연스럽게 드러나도록 함
         try:
             if hasattr(tab_frame, 'configure'):
                 tab_frame.configure(fg_color="#0b1120")
         except Exception:
             pass
+        if created:
+            # 기능/거래소 탭이 어느 순서로 지연 생성되더라도 다음 idle에서
+            # 금융 인텔리전스가 거래소 뒤로 밀리지 않게 헤더 순서만 보정한다.
+            try:
+                self.after_idle(self._reorder_current_service_tabs)
+            except Exception:
+                pass
         return tab_frame
+
+    def _reorder_current_service_tabs(self) -> bool:
+        """Reapply the canonical header order without deleting/rebuilding tabs."""
+        try:
+            from ui.service_tab_policy import get_service_tab_order, normalize_service_name
+
+            service = normalize_service_name(getattr(self, "current_service", "blockchain"))
+            source_tabs = list((self.service_sub_tabs.get(service, {}) or {}).keys())
+            return reorder_ctk_tabs(
+                cast(ctk.CTkTabview, self.tab_widget),
+                get_service_tab_order(service, source_tabs),
+            )
+        except Exception:
+            return False
 
     def _apply_tabview_style(self, tv: "ctk.CTkTabview") -> None:
         """CTkTabview의 세그먼티드 버튼 스타일을 강제 적용한다.
@@ -12491,14 +12529,9 @@ class ModernDashboard(ctk.CTk):
         try:
             enabled = set(self.enabled_exchanges)
             running = set(self._running_exchanges)
-            if not enabled:
-                state_text = "상태: (거래소 없음)"
-            elif not running:
-                state_text = "상태: 전체정지"
-            elif running == enabled:
-                state_text = "상태: 전체실행"
-            else:
-                state_text = f"상태: 부분실행 ({len(running)}/{len(enabled)})"
+            from ui.service_tab_policy import format_trading_runtime_status
+
+            state_text = format_trading_runtime_status(enabled, running)
 
             if hasattr(self, 'status_display') and getattr(self, 'status_display', None):
                 try:
@@ -12768,6 +12801,7 @@ class ModernDashboard(ctk.CTk):
         """선택 시점에 동적 탭 내용을 다시 보장한다."""
         try:
             selected = str(cast(ctk.CTkTabview, self.tab_widget).get() or '')
+            self.after_idle(self._reorder_current_service_tabs)
             self.after_idle(self._apply_source_tab_distinction)
             self.after_idle(
                 lambda current=selected: self._kick_visible_refreshes_for_tab(current)
@@ -13575,7 +13609,7 @@ class ModernDashboard(ctk.CTk):
 
     def show_settings_dialog(self):
         try:
-            log_windows_gui_resources(self.logger, "settings-open-before")
+            log_windows_gui_resources(self.logger, "settings-open-before", root=self)
             # 로그인 상태 확인 (개발환경 대응)
             try:
                 from path_utils import get_current_user_account
@@ -13692,7 +13726,7 @@ class ModernDashboard(ctk.CTk):
                     on_save_callback=_on_saved,
                     ai_diagnosis_result=ai_diagnosis
                 )
-                log_windows_gui_resources(self.logger, "settings-open-after")
+                log_windows_gui_resources(self.logger, "settings-open-after", root=self)
                 # 열린 창 레퍼런스 저장 (재포커스 용)
                 try:
                     self._settings_window = getattr(win, 'root', win)

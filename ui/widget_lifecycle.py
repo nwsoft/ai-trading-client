@@ -284,16 +284,50 @@ def get_windows_gui_resources() -> Optional[Dict[str, int]]:
         return None
 
 
-def log_windows_gui_resources(logger: Any, event: str) -> Optional[Dict[str, int]]:
+def get_tk_menu_count(root: Any) -> Optional[int]:
+    """Count live Tcl widget commands whose Tk class is ``Menu``.
+
+    USER/GDI totals show that a process is growing, while this count identifies
+    whether native Tk menus are the resource family that is growing.  The scan
+    is diagnostics-only and is called around service/settings transitions.
+    """
+    if root is None:
+        return None
+    try:
+        tk_app = root.tk
+        raw = tk_app.call("info", "commands", ".*")
+        commands = tk_app.splitlist(raw) if isinstance(raw, str) else tuple(raw or ())
+        count = 0
+        for command in commands:
+            try:
+                if str(tk_app.call("winfo", "class", command)).lower() == "menu":
+                    count += 1
+            except Exception:
+                continue
+        return count
+    except Exception:
+        return None
+
+
+def log_windows_gui_resources(
+    logger: Any,
+    event: str,
+    *,
+    root: Any = None,
+) -> Optional[Dict[str, int]]:
     """Log bounded diagnostic evidence without affecting non-Windows runs."""
     resources = get_windows_gui_resources()
     if resources is not None:
+        tk_menu = get_tk_menu_count(root)
+        if tk_menu is not None:
+            resources["tk_menu"] = tk_menu
         try:
             logger.info(
-                "Windows GUI resources (%s): USER=%s, GDI=%s",
+                "Windows GUI resources (%s): USER=%s, GDI=%s, TK_MENU=%s",
                 event,
                 resources["user"],
                 resources["gdi"],
+                resources.get("tk_menu", "unknown"),
             )
         except Exception:
             pass
