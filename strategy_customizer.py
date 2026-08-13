@@ -713,6 +713,43 @@ class StrategyCustomizer:
         self._refresh_runtime_strategy_pool()
         self._sync_pipeline_statuses(strategy_key)
         return version
+
+    def get_custom_strategy_version(self, strategy_key: str, version_id: str) -> Dict[str, Any]:
+        """수정본 생성 UI용으로 저장된 버전의 독립 복사본을 반환한다."""
+        return self.custom_pipeline.get_version(strategy_key, version_id)
+
+    def delete_custom_strategy(
+        self,
+        strategy_key: str,
+        *,
+        deleted_by: str,
+        version_id: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """비활성 프라이빗 전략 또는 특정 버전을 저장소와 런타임 목록에서 제거한다."""
+        if version_id:
+            deleted = self.custom_pipeline.delete_version(
+                strategy_key,
+                version_id,
+                deleted_by=deleted_by,
+            )
+            deleted_ids = {str(version_id)}
+            result = deleted
+        else:
+            result = self.custom_pipeline.delete_strategy(
+                strategy_key,
+                deleted_by=deleted_by,
+            )
+            deleted_ids = set(result.get("version_ids", []) or [])
+        for strategy_id, strategy in list(self.user_strategies.items()):
+            if strategy.get("pipeline_strategy_key") != strategy_key:
+                continue
+            if version_id and strategy.get("pipeline_version_id") not in deleted_ids:
+                continue
+            self.user_strategies.pop(strategy_id, None)
+            if self.active_strategy_id == strategy_id:
+                self.active_strategy_id = None
+        self._refresh_runtime_strategy_pool()
+        return result
     
     def _validate_strategy(self, strategy: Dict) -> Dict[str, Any]:
         """전략 검증"""
@@ -1149,6 +1186,11 @@ class StrategyCustomizer:
                     "version": strategy.get("version"),
                     "strategy_key": strategy.get("pipeline_strategy_key"),
                     "version_id": strategy.get("pipeline_version_id"),
+                    "rules": dict(strategy.get("rules", {}) or {}),
+                    "base_params": dict(strategy.get("base_params", {}) or {}),
+                    "source_kind": str(strategy.get("source_kind", "text") or "text"),
+                    "source_reference": str(strategy.get("source_reference", "") or ""),
+                    "xai": dict(strategy.get("xai", {}) or {}),
                     "missing_conditions": strategy.get("missing_conditions", []),
                     "guidance": dict(strategy.get("guidance", {}) or {}),
                     "improvement_advice": dict(strategy.get("improvement_advice", {}) or {}),
@@ -1167,6 +1209,9 @@ class StrategyCustomizer:
                     "ir_version": str((strategy.get("strategy_ir") or {}).get("ir_version", "") or ""),
                     "correlation_id": str(strategy.get("correlation_id", "") or ""),
                     "version_diff": dict(strategy.get("version_diff", {}) or {}),
+                    "paper_validation": dict(strategy.get("paper_validation", {}) or {}),
+                    "execution_validation": dict(strategy.get("execution_validation", {}) or {}),
+                    "validation_lab": dict(strategy.get("validation_lab", {}) or {}),
                     "performance": strategy.get("live_performance", {})
                 }
                 for strategy_id, strategy in self.user_strategies.items()

@@ -177,17 +177,17 @@ def main() -> int:
     parser.add_argument("--repo", default="nwsoft/ai-trading-client", help="GitHub repository owner/name")
     parser.add_argument(
         "--previous-exe",
-        default="deploy/previous/AITrading-v3.9.0.8-AI-Custom-Update-Fix4.exe",
+        default="deploy/previous/AITrading-v3.9.0.9-AI-Custom-Stability-Update.exe",
         help="직전 공개 Windows EXE 보존 경로",
     )
     parser.add_argument(
         "--previous-release-label",
-        default="v3.9.0.8 AI Custom Update Fix 4",
+        default="v3.9.0.9 AI Custom Stability Update",
         help="직전 공개 Windows EXE 릴리스 표기",
     )
     parser.add_argument(
         "--previous-version",
-        default="3.9.0.8",
+        default="3.9.0.9",
         help="직전 공개 Windows EXE 버전",
     )
     args = parser.parse_args()

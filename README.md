@@ -6,9 +6,13 @@
 
 NoahAI의 핵심은 자동매매가 아니라 **판단·설명·기록·검증·환류 구조를 갖춘 AI 금융 의사결정 인프라**입니다.
 
-## 현재 작업 버전: v3.9.0.9 AI Custom Stability Update · Windows 재빌드 전
+## 현재 작업 버전: v3.9.0.10 AI Custom Management & Runtime Integrity Update · Windows 재빌드 전
 
-2026-08-12 현재 v3.9.0.9는 v3.9.0.8의 Noah Strategy IR, 원본 근거 추적, Level 1·2·3, 사용자 난이도 프로필, PnL·MDD·월/연도 검증표, Expression Graph·제한형 사용자 지표, 전략 패키지와 AI 어시스턴트 지식을 유지합니다. 여기에 설정 snapshot/diff 저장, 현재 선택한 거래소 하나만 소유하는 지연 UI, 프로세스 단일 인스턴스, Binance WebSocket 직렬화를 추가했습니다. 공개 v3.9.0.8 Fix 4 EXE는 SHA `91070a67eb0a...`로 이전 자산에 보존했으며, v3.9.0.9 Windows EXE와 SHA가 생성될 때까지 `pending_windows_rebuild`입니다.
+2026-08-13 현재 v3.9.0.10은 v3.9.0.9 기능 전체를 유지하며 설정 `copy` 회귀, 빠른 탭 전환의 오래된 렌더 요청, 동적 위젯 Toplevel 소유권을 보강했습니다. AI 커스텀 프라이빗 전략은 수정본을 새 버전으로 저장하고 비활성 전략을 삭제할 수 있습니다. v3.9.0.9 EXE는 SHA `857ee230a60f...`로 이전 자산에 보존했으며 v3.9.0.10 Windows EXE와 SHA가 생성될 때까지 `pending_windows_rebuild`입니다.
+
+### UI 플랫폼 전환 방향 (아직 구현 전)
+
+반복된 Tk/CustomTkinter 화면 수명주기 문제를 장기적으로 해소하고 SaaS와 데스크톱 경험을 맞추기 위해, Python 매매·AI 엔진은 유지하면서 Web UI와 데스크톱 셸을 화면 단위로 병행 이전합니다. 기존 UI를 즉시 제거하거나 주문 경로를 새 화면에 바로 연결하지 않습니다. 목표 구조·불변 계약은 [아키텍처](docs/ARCHITECTURE.md), 단계·백업·롤백은 [업데이트 계획](docs/UPDATE_PLAN.md), 검증 경계는 [테스트 상태](docs/TEST_STATUS.md)를 정본으로 사용합니다.
 
 - PyQt5는 Windows 키움 OpenAPI+의 `QAxWidget`/COM 연결에 필요하므로 제거하지 않습니다.
 - PyQt5·pandas·루트에서 수집된 VC DLL을 모두 제거한 뒤, 빌드 아키텍처와 같은 공식 VC143 재배포 폴더의 검증된 단일 세트만 EXE 루트에 넣습니다.

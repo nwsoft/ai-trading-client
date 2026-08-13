@@ -14,6 +14,7 @@
   - `UPDATE_PLAN.md`: 개선 계획 및 진행 상황
   - `CHANGELOG.md`: 버전별 변경 사항
   - `USER_GUIDE.md`: 사용자 가이드
+  - UI 플랫폼 전환: `ARCHITECTURE.md`(목표 구조·불변 계약), `UPDATE_PLAN.md`(단계·백업·롤백), `UI_DESIGN_GUIDE.md`(화면 기준), `TEST_STATUS.md`(검증 경계)에만 나누어 기록하고 별도 중복 계획서를 만들지 않음
 - **중복 문서 정리**: 완료되거나 사용하지 않는 문서는 삭제 또는 아카이브
 
 ### 3. 문서 업데이트 규칙

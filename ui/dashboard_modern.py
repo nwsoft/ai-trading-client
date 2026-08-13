@@ -7,6 +7,7 @@ Modern Dashboard - CustomTkinter 기반
 
 import sys
 import os
+import copy
 import json
 import sqlite3
 import logging
@@ -37,6 +38,7 @@ from ui.widget_lifecycle import (
     log_windows_gui_resources,
     reorder_ctk_tabs,
     WidgetOwnershipRegistry,
+    widget_is_owned_by,
     widget_is_alive,
 )
 from ui.controllers.account_state_controller import (
@@ -296,6 +298,19 @@ class ModernDashboard(ctk.CTk):
             'stock': {},
             'real_estate': {},
         }
+        # 빠른 탭 전환 중 after_idle 요청이 누적되면 이미 선택이 끝난 소스까지
+        # 차례로 파괴/재생성하게 된다. 서비스마다 최신 요청 하나만 남긴다.
+        self._source_render_generation: Dict[str, int] = {}
+        self._source_render_jobs: Dict[str, Any] = {}
+        self._source_rendering: set[str] = set()
+        # AI 커스텀은 기본 화면 하나만으로도 CTk 위젯이 100개 이상이며,
+        # 저장 전략 행까지 더해진다. 탭 선택 때마다 트리를 파괴/재생성하면
+        # Windows USER/GDI 자원과 Tcl 명령이 순간적으로 겹쳐 화면 조각이
+        # 최상위 창 밖에 남는 렌더 손상으로 이어질 수 있다. 시작 시에는 탭
+        # 헤더만 만들고, 최초 선택 때 단일 인스턴스를 생성해 계속 재사용한다.
+        self._custom_strategy_widget_building = False
+        self._custom_strategy_render_generation = 0
+        self._custom_strategy_render_job: Optional[Any] = None
 
         # 설정에서 활성화된 거래소 목록 (초기 로드; 이후 변경 시 refresh 메서드로 갱신)
         self.enabled_exchanges = self.settings.get('enabled_exchanges', ['binance'])
@@ -1111,7 +1126,7 @@ class ModernDashboard(ctk.CTk):
                 self._ensure_trend_tab()
                 self._ensure_ai_learning_tab()
                 self._ensure_ai_assistant_tab()
-                self._ensure_custom_strategy_tab()
+                self._ensure_custom_strategy_tab(materialize=False)
             except Exception:
                 pass
 
@@ -2118,19 +2133,84 @@ class ModernDashboard(ctk.CTk):
             return assistant
         return None
 
-    def _ensure_custom_strategy_tab(self) -> None:
-        """AI 커스텀 전략 입력·분석·버전 관리 화면을 보장한다."""
+    def _cancel_custom_strategy_tab_render(self) -> None:
+        """Cancel a queued AI Custom materialization without touching its live tree."""
+        job = getattr(self, "_custom_strategy_render_job", None)
+        self._custom_strategy_render_job = None
+        if job is None:
+            return
+        try:
+            self.after_cancel(job)
+        except Exception:
+            pass
+
+    def _schedule_custom_strategy_tab_render(self) -> None:
+        """Keep only the latest AI Custom selection request."""
+        self._cancel_custom_strategy_tab_render()
+        generation = int(getattr(self, "_custom_strategy_render_generation", 0) or 0) + 1
+        self._custom_strategy_render_generation = generation
+
+        def _materialize(expected_generation: int = generation) -> None:
+            self._custom_strategy_render_job = None
+            if expected_generation != getattr(self, "_custom_strategy_render_generation", 0):
+                return
+            if bool(getattr(self, "_is_destroying", False)):
+                return
+            try:
+                selected = str(cast(ctk.CTkTabview, self.tab_widget).get() or "")
+            except Exception:
+                return
+            if selected != "AI 커스텀":
+                return
+            self._ensure_custom_strategy_tab(materialize=True)
+
+        try:
+            self._custom_strategy_render_job = self.after_idle(_materialize)
+        except Exception:
+            _materialize()
+
+    def _ensure_custom_strategy_tab(
+        self,
+        *,
+        materialize: bool = True,
+        refresh: bool = False,
+    ) -> None:
+        """Ensure one persistent AI Custom screen, or only its lightweight tab header."""
+        started_build = False
         try:
             if not getattr(self, 'tab_widget', None):
                 return
             name = "AI 커스텀"
             tab = self._get_or_add_tab(name)
+            if not materialize:
+                return
+
+            current = getattr(self, "custom_strategy_widget", None)
+            # CTkScrollableFrame의 실제 tab 소유자는 내부 _parent_frame이다.
+            current_is_owned = widget_is_owned_by(current, tab)
+            if current_is_owned:
+                try:
+                    current.pack(fill="both", expand=True)
+                except Exception:
+                    pass
+                if refresh and hasattr(current, "refresh_versions"):
+                    current.refresh_versions()
+                return
+            if bool(getattr(self, "_custom_strategy_widget_building", False)):
+                return
+
+            self._custom_strategy_widget_building = True
+            started_build = True
+            log_windows_gui_resources(self.logger, "ai-custom-build-before", root=self)
+            # 이 지점은 최초 생성 또는 실제로 파괴된 인스턴스 복구에서만
+            # 통과한다. 정상 탭 선택은 위의 동일 인스턴스 재사용 경로다.
             self._clear_tab_children(tab)
 
             from ui.widgets.custom_strategy_widget import CustomStrategyWidget
             widget = CustomStrategyWidget(tab, dashboard=self, settings=self.settings)
             widget.pack(fill="both", expand=True)
             self._register_tab_widget(name, "custom_strategy_widget", widget)
+            log_windows_gui_resources(self.logger, "ai-custom-build-after", root=self)
         except Exception as exc:
             try:
                 self.logger.warning(f"AI 커스텀 전략 탭 생성 실패: {exc}")
@@ -2140,6 +2220,9 @@ class ModernDashboard(ctk.CTk):
                     _sys.__stdout__.flush()
             except Exception:
                 pass
+        finally:
+            if started_build:
+                self._custom_strategy_widget_building = False
 
     def _ensure_life_finance_tab(self) -> None:
         """'생활금융 서비스' 탭을 보장하고 실행형 위젯을 삽입합니다."""
@@ -7380,6 +7463,7 @@ class ModernDashboard(ctk.CTk):
                 return
             if service_name not in self.service_sub_tabs:
                 return
+            self._cancel_source_tab_render(service_name)
             # 생성된 하위 탭 라벨 목록
             existing = list(self.service_sub_tabs[service_name].keys())
             for label in existing:
@@ -7397,6 +7481,98 @@ class ModernDashboard(ctk.CTk):
             except Exception:
                 import logging
                 logging.getLogger(__name__).warning(f"하위 탭 제거 오류: {e}")
+
+    def _cancel_source_tab_render(self, service_name: str) -> None:
+        """서비스에 예약된 이전 소스 렌더를 취소하고 세대를 무효화한다."""
+        service = str(service_name or '').strip().lower()
+        self._source_render_generation[service] = int(
+            self._source_render_generation.get(service, 0)
+        ) + 1
+        job = self._source_render_jobs.pop(service, None)
+        if job is not None:
+            try:
+                self.after_cancel(job)
+            except Exception:
+                pass
+
+    def _schedule_source_tab_render(
+        self,
+        service_name: str,
+        tab_label: str,
+        *,
+        delay_ms: int = 35,
+    ) -> None:
+        """최신으로 선택된 소스 하나만 UI 스레드에서 렌더한다."""
+        service = str(service_name or '').strip().lower()
+        label = str(tab_label or '')
+        self._cancel_source_tab_render(service)
+        generation = self._source_render_generation[service]
+
+        def render_latest() -> None:
+            self._source_render_jobs.pop(service, None)
+            if generation != self._source_render_generation.get(service):
+                return
+            try:
+                selected = str(cast(ctk.CTkTabview, self.tab_widget).get() or '')
+            except Exception:
+                return
+            current_service = str(
+                getattr(self, 'current_service', 'blockchain') or 'blockchain'
+            ).strip().lower()
+            if current_service != service or selected != label:
+                return
+            try:
+                log_windows_gui_resources(
+                    self.logger,
+                    f"source-render-before:{service}:{label}:g{generation}",
+                    root=self,
+                )
+                self._ensure_active_source_tab(
+                    service,
+                    label,
+                    expected_generation=generation,
+                )
+                log_windows_gui_resources(
+                    self.logger,
+                    f"source-render-after:{service}:{label}:g{generation}",
+                    root=self,
+                )
+            except Exception as exc:
+                try:
+                    self.logger.exception(
+                        "소스 탭 렌더 소유권/생명주기 실패: %s/%s - %s",
+                        service,
+                        label,
+                        exc,
+                    )
+                except Exception:
+                    logging.getLogger(__name__).exception(
+                        "소스 탭 렌더 실패: %s/%s", service, label
+                    )
+
+        try:
+            self._source_render_jobs[service] = self.after(
+                max(0, int(delay_ms)),
+                render_latest,
+            )
+        except Exception:
+            self._source_render_jobs.pop(service, None)
+
+    def _assert_dashboard_widget_ownership(self, widget: Any, context: str) -> None:
+        """동적 화면이 대시보드가 아닌 별도 native 창에 붙는 것을 차단한다."""
+        try:
+            owner = widget.winfo_toplevel()
+            if str(owner) != str(self):
+                raise RuntimeError(
+                    f"dashboard_widget_owner_mismatch:{context}:"
+                    f"owner={owner}:dashboard={self}"
+                )
+        except RuntimeError:
+            raise
+        except Exception as exc:
+            raise RuntimeError(
+                f"dashboard_widget_owner_check_failed:{context}:{exc}"
+            ) from exc
 
 
     def _get_service_protected_tabs(self, service_name: str | None = None) -> set[str]:
@@ -9405,7 +9581,7 @@ class ModernDashboard(ctk.CTk):
 
             selected = str(cast(ctk.CTkTabview, self.tab_widget).get() or '')
             if selected in self.service_sub_tabs.get(service_name, {}):
-                self._ensure_active_source_tab(service_name, selected)
+                self._schedule_source_tab_render(service_name, selected, delay_ms=0)
 
             self.after_idle(self._apply_source_tab_distinction)
             self._apply_service_tab_policy(service_name)
@@ -9415,34 +9591,45 @@ class ModernDashboard(ctk.CTk):
             except Exception:
                 print(f"하위 탭 목록 생성 오류: {service_name} - {e}")
 
-    def _ensure_active_source_tab(self, service_name: str, tab_label: str) -> None:
+    def _ensure_active_source_tab(
+        self,
+        service_name: str,
+        tab_label: str,
+        *,
+        expected_generation: Optional[int] = None,
+    ) -> None:
         """선택 소스 하나에만 완전한 UI 트리를 부여한다."""
         service_name = str(service_name or '').strip().lower()
         tab_label = str(tab_label or '')
+        if expected_generation is not None and expected_generation != self._source_render_generation.get(service_name):
+            return
+        try:
+            selected = str(cast(ctk.CTkTabview, self.tab_widget).get() or '')
+            current_service = str(
+                getattr(self, 'current_service', 'blockchain') or 'blockchain'
+            ).strip().lower()
+            if selected != tab_label or current_service != service_name:
+                return
+        except Exception:
+            return
+        if service_name in self._source_rendering:
+            self._schedule_source_tab_render(service_name, tab_label)
+            return
         tabs = self.service_sub_tabs.get(service_name, {}) or {}
         target = tabs.get(tab_label)
         if target is None or not widget_is_alive(target):
             return
+        self._assert_dashboard_widget_ownership(target, f"source-tab:{service_name}:{tab_label}")
 
         previous = self._active_source_tab_by_service.get(service_name)
         if previous == tab_label and list(target.winfo_children()):
             return
 
-        if previous and previous != tab_label:
-            previous_frame = tabs.get(previous)
-            if previous_frame is not None and widget_is_alive(previous_frame):
-                self._clear_tab_children(previous_frame)
-                ctk.CTkLabel(
-                    previous_frame,
-                    text=f"{previous} 화면은 다시 선택할 때 불러옵니다.",
-                    text_color=self._color('text_secondary', '#94a3b8'),
-                ).pack(expand=True)
-
         source = self._service_source_names.get(service_name, {}).get(
             tab_label,
             tab_label.lower(),
         )
-        self._active_source_tab_by_service[service_name] = None
+        self._source_rendering.add(service_name)
         self._clear_tab_children(target)
         try:
             section_frames = self._build_source_tab_content(
@@ -9456,6 +9643,25 @@ class ModernDashboard(ctk.CTk):
             ]
             if incomplete:
                 raise RuntimeError("service_tab_partial_render:" + ",".join(incomplete))
+            for name, frame in section_frames.items():
+                self._assert_dashboard_widget_ownership(
+                    frame,
+                    f"source-section:{service_name}:{tab_label}:{name}",
+                )
+            if expected_generation is not None and expected_generation != self._source_render_generation.get(service_name):
+                self._clear_tab_children(target)
+                return
+
+            # 새 트리를 완전히 만든 뒤에만 숨겨진 이전 트리를 폐기한다.
+            if previous and previous != tab_label:
+                previous_frame = tabs.get(previous)
+                if previous_frame is not None and widget_is_alive(previous_frame):
+                    self._clear_tab_children(previous_frame)
+                    ctk.CTkLabel(
+                        previous_frame,
+                        text=f"{previous} 화면은 다시 선택할 때 불러옵니다.",
+                        text_color=self._color('text_secondary', '#94a3b8'),
+                    ).pack(expand=True)
             self._active_source_tab_by_service[service_name] = tab_label
         except Exception as e:
             try:
@@ -9474,6 +9680,8 @@ class ModernDashboard(ctk.CTk):
                 text_color="#fca5a5",
                 justify="left",
             ).pack(anchor="w", padx=16, pady=16)
+        finally:
+            self._source_rendering.discard(service_name)
 
     def _build_source_tab_content(
         self,
@@ -12784,13 +12992,12 @@ class ModernDashboard(ctk.CTk):
             )
             service = str(getattr(self, "current_service", "blockchain") or "blockchain").lower()
             if selected in (self.service_sub_tabs.get(service, {}) or {}):
-                self.after_idle(
-                    lambda current_service=service, current_tab=selected:
-                    self._ensure_active_source_tab(current_service, current_tab)
-                )
+                self._schedule_source_tab_render(service, selected)
             if selected == "AI 커스텀":
-                self.after_idle(self._ensure_custom_strategy_tab)
-            elif selected in {"금융 인텔리전스", "금융 인텔리전스 허브", "성과·위험 분석"}:
+                self._schedule_custom_strategy_tab_render()
+            else:
+                self._cancel_custom_strategy_tab_render()
+            if selected in {"금융 인텔리전스", "금융 인텔리전스 허브", "성과·위험 분석"}:
                 service = str(getattr(self, "current_service", "blockchain") or "blockchain")
                 self.after_idle(lambda current=service: self._ensure_financial_intelligence_tab(current))
         except Exception:
@@ -13225,7 +13432,7 @@ class ModernDashboard(ctk.CTk):
             self._ensure_ai_learning_tab()    # AI 학습
             self._ensure_ai_report_tab()      # AI 리포트
             self._ensure_ai_assistant_tab()   # AI 어시스턴트
-            self._ensure_custom_strategy_tab()  # AI 커스텀
+            self._ensure_custom_strategy_tab(materialize=False)  # AI 커스텀 헤더만 생성
             # Alpha Arena 탭은 설정에서 활성화된 경우에만 생성
             try:
                 self._ensure_alpha_arena_tab()    # AlphaArena
@@ -13731,14 +13938,14 @@ class ModernDashboard(ctk.CTk):
                 except Exception:
                     pass
                 try:
-                    self.logger.error(f"설정 창 열기 실패: {e}")
+                    self.logger.exception(f"설정 창 열기 실패: {e}")
                 except Exception:
                     print(f"설정 창 열기 실패: {e}")
                 return
 
         except Exception as e:
             try:
-                self.logger.error(f"설정 다이얼로그 표시 실패: {e}")
+                self.logger.exception(f"설정 다이얼로그 표시 실패: {e}")
             except Exception:
                 pass
             print(f"설정 다이얼로그 표시 실패: {e}")

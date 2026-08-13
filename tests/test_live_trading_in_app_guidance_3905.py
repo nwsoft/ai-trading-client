@@ -16,10 +16,10 @@ def test_fix_patch_build_is_identifiable_inside_client():
         USER_MANUAL_TITLE,
     )
 
-    assert RELEASE_BUILD_LABEL == "v3.9.0.9 AI Custom Stability Update"
-    assert "AI Custom Stability Update" in DASHBOARD_TITLE
-    assert "AI Custom Stability Update" in USER_MANUAL_TITLE
-    assert "ai-custom-ui-settings-process-websocket-stability-source-candidate" in RELEASE_NOTICE_ID
+    assert RELEASE_BUILD_LABEL == "v3.9.0.10 AI Custom Management & Runtime Integrity Update"
+    assert "AI Custom Management & Runtime Integrity Update" in DASHBOARD_TITLE
+    assert "AI Custom Management & Runtime Integrity Update" in USER_MANUAL_TITLE
+    assert "ai-custom-management-settings-tab-runtime-integrity-source-candidate" in RELEASE_NOTICE_ID
 
 
 def test_user_guide_covers_all_live_venues_modes_and_memberships():

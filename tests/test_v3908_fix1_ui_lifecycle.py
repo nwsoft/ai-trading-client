@@ -130,9 +130,12 @@ def test_service_source_tabs_are_reused_and_partial_render_is_rejected() -> None
     create_source = source[source.index("    def create_service_sub_tabs("):source.index("    def _get_service_split_layout(")]
 
     assert "all(widget_is_alive(frame) for frame in existing.values())" in create_source
-    assert "self._ensure_active_source_tab(service_name, selected)" in create_source
+    assert "self._schedule_source_tab_render(service_name, selected, delay_ms=0)" in create_source
     assert "previous_frame" in create_source
     assert "self._clear_tab_children(previous_frame)" in create_source
+    assert create_source.index("self._build_source_tab_content(") < create_source.index(
+        "self._clear_tab_children(previous_frame)"
+    )
     assert "service_tab_partial_render:" in create_source
     assert "부분 화면으로 거래하지 말고" in create_source
 

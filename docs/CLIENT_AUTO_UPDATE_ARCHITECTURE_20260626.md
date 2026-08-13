@@ -1,5 +1,22 @@
 # NoahAI Client 자동업데이트 아키텍처 제안 (2026-06-26)
 
+## 2026-08-13 현재 상태와 UI 플랫폼 전환 보정
+
+이 문서의 2026-06-26 본문은 최초 제안 당시의 기록이다. 현재 소스에는 `utils/auto_update_manager.py`, GitHub release manifest, staged EXE SHA 검증, 종료 전 안전 승인, 실패 복구와 진행 UI가 존재한다. 따라서 아래의 “업데이트 엔진이 없다”는 문장은 과거 기준이며 현재 판정에 사용하지 않는다.
+
+UI 플랫폼 전환 뒤에도 사용자는 Windows의 `NoahAI.exe`를 실행한다. 다만 배포 단위는 기존 단일 PyInstaller EXE에서 `desktop shell + bundled web assets + Python engine + native broker worker`의 서명된 버전 bundle로 바뀐다.
+
+전환 원칙:
+
+1. 기존 updater는 v3.9.0.10 레거시 클라이언트용으로 유지하고, 새 bundle updater가 Windows POC를 통과하기 전에는 교체하지 않는다.
+2. 최초 이전은 `NoahAI-Setup.exe`/MSI로 설치하고 이후에는 설치된 `NoahAI.exe`가 자동업데이트를 수행한다.
+3. 새 버전은 side-by-side 폴더에 설치하고 전체 bundle의 manifest·SHA-256·코드서명·update signature를 확인한다.
+4. 거래 안전 승인과 worker flush 뒤 새 버전을 health check하고, 실패하면 이전 폴더로 원자적 복귀한다.
+5. 설정·전략·거래 원장·로그는 설치 버전 밖에 두며 업데이트/롤백 대상에 포함하지 않는다.
+6. Electron/Tauri 모두 공식 Windows 업데이트 기능은 제공하지만, Python sidecar·열린 포지션·broker worker까지 포함한 NoahAI 거래 안전 계약은 별도 구현·E2E 대상이다.
+
+새 UI 전환의 정본은 `ARCHITECTURE.md`와 `UPDATE_PLAN.md`이며, 이 문서는 updater 세부 계약을 담당한다.
+
 ## 1. 목적
 
 이 문서는 GitHub Release + update.exe 배포 구조를 기준으로,

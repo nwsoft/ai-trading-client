@@ -1,3 +1,26 @@
+## 2026-08-13 UI 플랫폼 전환 설계·기준선 (배포 버전 변경 없음)
+
+- 현행 구조 분석: CustomTkinter 대형 화면 클래스, 동적 탭/콜백/Toplevel 소유권, UI의 거래·설정 직접 결합을 전환 대상 경계로 식별 **DOCUMENTED**
+- 의존성 분석: Windows 키움은 PyQt5/QAxWidget을 사용하고 현재 빌드는 PySide6/PyQt6를 제외함 **CONFIRMED**
+- 목표 구조: Web UI + desktop shell + localhost gateway + Python application services + 별도 Kiwoom worker **DECIDED FOR PLAN**
+- 기능 보존 준비: 앱 셸·5개 서비스·6개 거래소·4개 증권·AI 커스텀·차트·설정·OMS·파일/업데이트 기능군 parity 원장 정의 **DOCUMENTED**
+- 차트/랭킹 준비: Lightweight Charts 후보, market event 계약, 전략/XAI marker, 목적별 검증 랭킹·privacy/license 경계 **DOCUMENTED**
+- 소스 기준선 백업: 633개 파일, SHA-256 `b4bdf11d6c633c1c4942bb1fb422241436fd3c923dfac2230e3e8146bb48ab96` **VERIFIED**
+- 기존 자동 회귀 기준: v3.9.0.10 `1,475 passed, 6 skipped, 0 failed`; 이번 작업은 문서·백업만 수행하여 런타임 결과를 새로 주장하지 않음
+- 미검증: Electron/Tauri POC, Gateway 계약, 화면 parity, Windows 설치형 EXE, bundle 자동업데이터·롤백, 다중 모니터, PAPER/LIVE E2E **NOT IMPLEMENTED**
+- 판정: UI 전환 계획과 복구 기준선은 준비됐지만 제품 UI 전환은 아직 시작되지 않음
+
+## v3.9.0.10 AI Custom Management & Runtime Integrity Update 소스 검증 (2026-08-13)
+
+- 설정 회귀: `dashboard_modern.py`의 `copy.deepcopy()` 의존성 import와 설정창 생성 경로 회귀 검사 **PASS**
+- 소스 탭 생명주기: 서비스별 예약 렌더 최신 1개 병합, 선택/세대 재확인, 새 트리 완성 뒤 이전 트리 정리, 대시보드 Toplevel 소유권 검사 **PASS**
+- AI 커스텀 생명주기: 7개 저장 전략 조건, 시작 시 헤더-only 지연 생성, 최초 선택 1회 생성, `CTkScrollableFrame._parent_frame` 소유권 판정, 반복 선택 동일 인스턴스 재사용, 중복 idle·재진입 차단 **PASS**
+- 프라이빗 전략 관리: 저장 버전 복원→새 버전 저장, 적용 중 삭제 차단, 비활성 전체 버전 삭제, 민감 규칙 없는 삭제 tombstone **PASS**
+- AI 커스텀 실제 macOS 렌더: 위젯 생성, 6개 상위 카드, root Toplevel 소유권 **PASS**
+- 전체 자동 회귀: `1,475 passed, 6 skipped, 0 failed` (`.venv/bin/python -m pytest -q`, 2026-08-13) **PASS**
+- Windows 외부 게이트: v3.9.0.10 EXE 신규 빌드, 설정 50회, 6개 거래소 왕복 100회, 급속 탭 전환 200회, USER/GDI/TK_MENU, 분리 native 창 0, PAPER 2시간
+- 배포 상태: `pending_windows_rebuild`; 직전 v3.9.0.9 EXE SHA-256 `857ee230a60f...`는 이전 자산
+
 ## v3.9.0.9 AI Custom Stability Update 소스 검증 (2026-08-12)
 
 - 배포 신원: 현재 `deploy/release-manifest.json`은 v3.9.0.9 `pending_windows_rebuild`를 가리킵니다. 공개 v3.9.0.8 Fix 4 SHA-256 `91070a67eb0a...`는 이전 자산으로 별도 보존했으며 새 Windows EXE·manifest SHA가 필요합니다.

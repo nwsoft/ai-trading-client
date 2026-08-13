@@ -1,9 +1,79 @@
-# NoahAI 시스템 아키텍처 (v3.9.0.5)
+# NoahAI 시스템 아키텍처 (현재 소스 v3.9.0.10)
+
+## 2026-08-13 UI 플랫폼 전환 결정 (문서 설계, 배포 버전 변경 없음)
+
+### 결론
+
+NoahAI의 매매·AI 엔진은 Python으로 유지하고, 최종 사용자 UI는 **웹 우선 프런트엔드 + 데스크톱 셸**로 전환한다. CustomTkinter 화면을 PySide6 위젯으로 그대로 번역하지 않는다. 먼저 UI와 엔진 사이에 애플리케이션 서비스 계약을 만들고, 같은 계약을 기존 UI와 새 UI가 함께 사용하면서 화면 단위로 전환한다.
+
+```text
+브라우저 SaaS ───────────────┐
+                             ├─ Web UI (동일 디자인 시스템·화면 계약)
+Windows/macOS 데스크톱 셸 ───┘
+                │ REST 조회·명령 / WebSocket 이벤트
+                ▼
+로컬 Gateway (localhost 전용, 실행별 인증 토큰, Origin 제한)
+                │
+                ▼
+Python Application Services
+  ├─ 설정·프로필·회원 권한
+  ├─ 거래소 상태·잔고·포지션·성과 조회
+  ├─ AI 커스텀 IR·검증·버전·XAI
+  ├─ OMS 명령·중복 방지·위험·주문 승인
+  └─ 로그·감사·업데이트 상태
+                │
+                ├─ Binance/Upbit/Bithumb/Bybit/OKX/Bitget 어댑터
+                └─ Windows Kiwoom Worker (PyQt5/QAxWidget, 별도 프로세스)
+```
+
+### 왜 PySide6 전체 전환이 아닌가
+
+- PySide6는 Qt 6의 공식 Python 바인딩이며 복잡한 데스크톱 화면, model/view, 신호/슬롯, 네이티브 창 관리에는 CustomTkinter보다 강하다.
+- 그러나 현재 키움 어댑터는 Windows ActiveX를 위해 `PyQt5.QAxContainer.QAxWidget`을 사용하고 Windows 빌드는 PyQt5를 포함하면서 PySide6/PyQt6를 제외한다. PyQt5와 PySide6를 같은 프로세스에 혼합하는 전환은 런타임·플러그인·배포 충돌 위험을 만든다.
+- PySide6로 주 UI를 만들면 데스크톱 UI와 daltrading/SaaS 웹 UI를 각각 구현해야 한다. NoahAI가 원하는 동일한 사용 경험과 빠른 사용자 피드백에는 웹 우선 UI가 더 적합하다.
+- Qt가 필요한 키움/ActiveX 경계는 삭제하지 않고 별도 worker로 격리한다. 주 UI와 broker worker는 타입이 정해진 제한 IPC만 사용한다.
+
+### 현재 구조에서 확인된 위험
+
+- `ui/dashboard_modern.py` 약 1.4만 줄, `ui/settings_modern.py` 약 1만 줄의 대형 화면 클래스에 생성·상태·실행·정리 책임이 집중돼 있다.
+- 동적 탭 파괴·재생성, `after/after_idle`, background thread, Toplevel 소유권이 여러 위젯에 분산되어 저장 전략 수나 탭 전환 횟수가 UI 자원과 타이밍을 바꿀 수 있다.
+- UI 모듈이 거래·설정 객체를 직접 읽고 일부 작업을 직접 실행한다. 이 구조에서는 화면 수정이 엔진 재초기화나 연결 점검으로 번질 수 있다.
+- 이는 Python 언어 자체의 한계가 아니다. 단일 GUI 스레드와 native Tk 자원 제약 위에 화면·도메인·수명주기 책임이 결합된 구조적 문제다.
+
+### 전환 중 불변 계약
+
+1. 거래소 API 키·Secret·Passphrase는 브라우저 DOM, WebSocket payload, SaaS 서버로 보내지 않는다.
+2. UI는 거래소 SDK를 직접 호출하지 않고 `Application Services → OMS/Guardrails → Adapter`만 사용한다.
+3. 조회와 명령을 분리한다. 모든 명령에는 `command_id`, 사용자 의도, 대상 계정·거래소, 설정/전략 버전, 멱등성 키와 감사 결과가 있어야 한다.
+4. 기존 CustomTkinter UI와 새 UI가 별도 설정·포지션·전략 저장소를 만들지 않는다. 전환 기간에도 원본 상태는 하나다.
+5. 새 UI가 준비되지 않았거나 health/parity gate에 실패하면 기존 UI로 즉시 돌아갈 수 있어야 한다.
+6. 원격 SaaS에서 로컬 LIVE 주문을 직접 제어하는 기능은 초기 전환 범위가 아니다. 초기 SaaS는 설명·설정 초안·읽기 전용 동기화부터 시작한다.
+7. CustomTkinter 제거는 모든 화면과 PAPER/LIVE 안전 게이트가 동등성 검증을 통과한 뒤 마지막 단계에서만 수행한다.
+
+### 기술 판단 근거
+
+- [Qt for Python 공식 문서](https://doc.qt.io/qtforpython-6/) — PySide6는 Qt 6의 공식 Python 바인딩이다.
+- [Qt Model/View 공식 문서](https://doc.qt.io/qt-6/model-view-programming.html) — 화면과 데이터 모델 분리, 여러 view 동기화에 적합하다.
+- [Qt ActiveQt 공식 문서](https://doc.qt.io/qt-6/activeqt-index.html) — Windows COM/ActiveX 위젯 경계의 근거다.
+- [Electron 공식 문서](https://www.electronjs.org/docs/latest/) — Chromium과 Node.js를 묶어 동일 웹 화면을 데스크톱 앱으로 제공한다.
+- [Tauri 공식 문서](https://v2.tauri.app/start/) — 시스템 WebView와 Rust host를 사용하며 작은 배포 크기가 장점이지만 플랫폼 WebView·sidecar 운영 검증이 필요하다.
+- [TradingView Desktop 공식 안내](https://www.tradingview.com/support/solutions/43000671618-what-is-tradingview-desktop/) — 웹 플랫폼과 데스크톱의 기능·경험을 맞추는 제품 방향을 확인할 수 있다. 공식 문서가 내부 데스크톱 프레임워크를 공개하지 않으므로 NoahAI 문서에서 특정 구현을 단정하지 않는다.
+- [TradingView Lightweight Charts 공식 저장소](https://github.com/tradingview/lightweight-charts) — Apache-2.0 기반 HTML5 금융 차트와 확장 플러그인을 제공하며 NOTICE/attribution 의무를 지킨다.
+- [TradingView Advanced Charts 공식 안내](https://www.tradingview.com/charting-library-docs/latest/introduction/) — 고급 지표·드로잉을 제공하지만 비공개·paywall 환경은 별도 라이선스 검토가 필요하고 시장 데이터는 제품이 제공해야 한다.
+- [Binance 공식 WebSocket 문서](https://developers.binance.com/en/docs/introduction) — 공식 market stream과 API만 사용하고 문서화되지 않은 동작에 의존하지 않는다.
+
+### 차트·전략 허브 확장 경계
+
+- Web chart는 `MarketDataService`가 정규화한 과거 snapshot과 versioned realtime event만 소비한다. 화면별로 거래소 REST/WebSocket 연결을 새로 만들지 않는다.
+- 차트 마커는 임의 UI 좌표가 아니라 `strategy_version + command_id + order_id + fill_id`에 연결해 XAI·체결 감사와 같은 사실을 표시한다.
+- 가격·지표·포지션·PAPER/LIVE·비용의 계산 원본은 Python 엔진이다. JavaScript는 표현과 사용자 상호작용을 담당하고 주문/손익 정본을 다시 계산하지 않는다.
+- 전략 랭킹은 daltrading의 서버 검증 계층이며 로컬 실행 엔진과 분리한다. 랭킹 장애가 로컬 보유 포지션·주문·전략 실행에 영향을 주지 않아야 한다.
+- private 전략 원문·API 자격증명·개인 계좌 데이터는 공개 동의와 최소화 계약 없이 랭킹 서버로 보내지 않는다.
 
 ## 🚀 최신 버전 정보
 
-**본 문서 마지막 대규모 갱신 기준**: v3.8.9.11 (2026-01-25)  
-**운영 기준 최신 패치 동기화**: v3.9.0.5 Fix Patch 5 (2026-08-01)  
+**현재 소스·문서 기준**: v3.9.0.10 (2026-08-13)  
+**배포 상태**: `pending_windows_rebuild`; Windows EXE·SHA·설치 반복시험 전에는 배포 완료로 보지 않음  
 
 **v3.9.0.5 계좌 상태·소스 정합**:
 

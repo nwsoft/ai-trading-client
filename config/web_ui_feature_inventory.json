@@ -1,0 +1,85 @@
+{
+  "schema_version": "1.0.0",
+  "release_version": "3.9.1.0",
+  "transition_mode": "read_only_parallel",
+  "commands_enabled": false,
+  "services": [
+    {
+      "id": "blockchain",
+      "label": "블록체인",
+      "sources": ["binance", "upbit", "bithumb", "bybit", "okx", "bitget"],
+      "features": [
+        {"id": "blockchain.logs", "label": "실시간 거래 로그", "route": "/blockchain/logs", "migration": "read_first"},
+        {"id": "blockchain.coin_info", "label": "코인 정보", "route": "/blockchain/coins", "migration": "read_first"},
+        {"id": "blockchain.statistics", "label": "거래 통계", "route": "/blockchain/statistics", "migration": "read_first"},
+        {"id": "blockchain.trends", "label": "시장 트렌드", "route": "/blockchain/trends", "migration": "read_first"},
+        {"id": "blockchain.ai_learning", "label": "AI 학습", "route": "/blockchain/ai-learning", "migration": "read_first"},
+        {"id": "blockchain.ai_reports", "label": "AI 리포트", "route": "/blockchain/ai-reports", "migration": "read_first"},
+        {"id": "blockchain.ai_assistant", "label": "AI 어시스턴트", "route": "/blockchain/assistant", "migration": "interactive_later"},
+        {"id": "blockchain.ai_custom", "label": "AI 커스텀", "route": "/strategies/studio", "migration": "write_later"},
+        {"id": "blockchain.financial_intelligence", "label": "금융 인텔리전스", "route": "/blockchain/intelligence", "migration": "read_first"},
+        {"id": "blockchain.alpha_arena", "label": "AlphaArena", "route": "/blockchain/alpha-arena", "migration": "read_first"},
+        {"id": "blockchain.source_workspaces", "label": "거래소 운영", "route": "/blockchain/sources/:source", "migration": "commands_last"}
+      ]
+    },
+    {
+      "id": "stock",
+      "label": "주식/증권",
+      "sources": ["kiwoom", "shinhan", "mirae", "kis"],
+      "features": [
+        {"id": "stock.logs", "label": "실시간 거래 로그", "route": "/stocks/logs", "migration": "read_first"},
+        {"id": "stock.info", "label": "종목 정보", "route": "/stocks/symbols", "migration": "read_first"},
+        {"id": "stock.statistics", "label": "거래 통계", "route": "/stocks/statistics", "migration": "read_first"},
+        {"id": "stock.trends", "label": "시장 트렌드", "route": "/stocks/trends", "migration": "read_first"},
+        {"id": "stock.ai", "label": "AI 학습·리포트·어시스턴트·커스텀", "route": "/stocks/ai", "migration": "interactive_later"},
+        {"id": "stock.financial_intelligence", "label": "금융 인텔리전스", "route": "/stocks/intelligence", "migration": "read_first"},
+        {"id": "stock.source_workspaces", "label": "증권사 운영", "route": "/stocks/sources/:source", "migration": "commands_last"}
+      ]
+    },
+    {
+      "id": "portfolio",
+      "label": "자산 통합",
+      "sources": [],
+      "features": [
+        {"id": "portfolio.insights", "label": "자산 통합 인사이트", "route": "/portfolio", "migration": "read_first"},
+        {"id": "portfolio.allocation", "label": "자산 배분 진단", "route": "/portfolio/allocation", "migration": "read_first"},
+        {"id": "portfolio.risk", "label": "리스크 브리핑", "route": "/portfolio/risk", "migration": "read_first"},
+        {"id": "portfolio.performance", "label": "성과·위험 분석", "route": "/portfolio/performance", "migration": "read_first"}
+      ]
+    },
+    {
+      "id": "personal_finance",
+      "label": "생활금융",
+      "sources": [],
+      "features": [
+        {"id": "personal_finance.dashboard", "label": "생활금융 대시보드", "route": "/finance", "migration": "read_first"},
+        {"id": "personal_finance.transactions", "label": "거래", "route": "/finance/transactions", "migration": "write_later"},
+        {"id": "personal_finance.goals", "label": "목표", "route": "/finance/goals", "migration": "write_later"},
+        {"id": "personal_finance.analysis", "label": "분석·차트", "route": "/finance/analysis", "migration": "read_first"},
+        {"id": "personal_finance.products", "label": "금융상품", "route": "/finance/products", "migration": "read_first"},
+        {"id": "personal_finance.security_tax", "label": "보안 경고·세금 계산", "route": "/finance/safety", "migration": "read_first"}
+      ]
+    },
+    {
+      "id": "ai_analyst",
+      "label": "AI애널리스트",
+      "sources": [],
+      "features": [
+        {"id": "ai_analyst.workspace", "label": "AI 애널리스트", "route": "/analyst", "migration": "interactive_later"},
+        {"id": "ai_analyst.summary", "label": "AI 요약 리포트", "route": "/analyst/summary", "migration": "read_first"},
+        {"id": "ai_analyst.scenario", "label": "시나리오 점검", "route": "/analyst/scenarios", "migration": "interactive_later"},
+        {"id": "ai_analyst.intelligence", "label": "금융 인텔리전스 허브", "route": "/analyst/intelligence", "migration": "read_first"}
+      ]
+    }
+  ],
+  "platform_features": [
+    {"id": "platform.login_membership", "label": "로그인·등급·레퍼럴", "migration": "shell_first"},
+    {"id": "platform.settings", "label": "설정 snapshot/diff", "migration": "write_later"},
+    {"id": "platform.manual", "label": "사용자 매뉴얼", "migration": "shell_first"},
+    {"id": "platform.market_charts", "label": "코인·주식 전문 차트", "migration": "read_first"},
+    {"id": "platform.chart_ocr", "label": "차트 이미지/OCR", "migration": "interactive_later"},
+    {"id": "platform.strategy_ranking", "label": "목적별 전략 랭킹", "migration": "server_later"},
+    {"id": "platform.audit_export", "label": "감사·내보내기", "migration": "read_first"},
+    {"id": "platform.updater", "label": "설치·자동업데이트·롤백", "migration": "shell_first"}
+  ]
+}

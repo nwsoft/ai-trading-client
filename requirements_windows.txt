@@ -17,6 +17,8 @@ PyQt5-Qt5==5.15.2
 requests==2.31.0
 websockets==11.0.3
 websocket-client==1.6.4
+fastapi>=0.116.0,<1.0
+uvicorn>=0.35.0,<1.0
 
 # 거래소 API
 python-binance==1.0.19

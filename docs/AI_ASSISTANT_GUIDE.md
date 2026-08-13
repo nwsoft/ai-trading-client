@@ -1,6 +1,6 @@
 # NoahAI AI 어시스턴트 가이드 (대시보드)
 
-기준 버전: NoahAI Client v3.9.0.9 AI Custom Stability Update (2026-08-12)
+기준 버전: NoahAI Client v3.9.0.10 AI Custom Management & Runtime Integrity Update (2026-08-13)
 
 이 문서는 **공개 저장소 기준**으로 `ui/widgets/ai_assistant_widget.py`의 실제 동작과 맞추었습니다. 설치 후 바로 확인할 수 있도록 **전제 조건 → UI 위치 → 대화로 되는 일/안 되는 일 → 확인 기반 설정 반영 규칙 → 트러블슈팅 → 음성(STT/TTS) 로드맵** 순으로 읽으면 됩니다.
 
@@ -29,6 +29,8 @@ AI 커스텀 질문 예시:
 - `XAI에서 원본 근거와 Noah Strategy IR은 어떻게 연결되나요?`
 - `.noahstrategy를 가져오면 바로 실행되나요?`
 - `TradingView webhook이 들어오면 바로 주문하나요?`
+- `승인된 전략의 적용 범위나 시장상황은 어떻게 수정하나요?`
+- `프라이빗 전략을 삭제하려면 왜 먼저 적용 해제해야 하나요?`
 - **차트 이미지 분석**: `ChartScreenshotWidget` 모듈이 로드되는 빌드에서만 **「📊 차트 이미지 분석」** 버튼이 동작합니다. 임포트 실패 시 경고만 표시됩니다.
 
 **대화만으로 할 수 없는 것(현재 코드 기준)**

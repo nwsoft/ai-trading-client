@@ -1,7 +1,9 @@
 # NoahAI Client 공식 문서
 
-> 기준: 2026-08-12 · 재빌드 대상 소스 v3.9.0.9 AI Custom Stability Update · `pending_windows_rebuild`  
+> 기준: 2026-08-13 · 재빌드 대상 소스 v3.9.0.10 AI Custom Management & Runtime Integrity Update · `pending_windows_rebuild`  
 > 이 파일은 문서 진입점입니다. 현재 상태는 아래 정본 문서로 판단하고, `docs/archive/`와 `data/**/reports/`는 제품 설명 정본으로 사용하지 않습니다.
+
+> UI 플랫폼 전환은 구현 완료 기능이 아니라 승인 게이트가 있는 설계입니다. 목표 구조와 불변 계약은 `ARCHITECTURE.md`, 단계·백업·롤백은 `UPDATE_PLAN.md`, 화면 기준은 `UI_DESIGN_GUIDE.md`, 현재 검증 경계는 `TEST_STATUS.md`를 확인합니다.
 
 ## 먼저 읽을 문서
 
@@ -14,12 +16,15 @@
 | 앱 안의 쉬운 설명 | `ui/widgets/user_manual_widget.py` |
 | 개발 계획·완료/미완료 | `UPDATE_PLAN.md` |
 | 기술 구조·책임 경계 | `ARCHITECTURE.md` |
+| UI 플랫폼 전환 단계·백업·롤백 | `UPDATE_PLAN.md`의 2026-08-13 UI 플랫폼 전환 계획 |
+| 레거시/새 UI 디자인 기준 | `UI_DESIGN_GUIDE.md` |
 | 거래 실행 흐름 | `TRADING_FLOW.md` |
 | 개발 규칙 | `DEV_GUIDE.md` |
 | 빌드 | `BUILD_GUIDE.md` |
 | 배포 전후 점검 | `DEPLOY_CHECKLIST.md` |
 | 최신 테스트 근거 | `TEST_STATUS.md` |
 | v3.9.0.9 설정·탭·종료 반복 장애 근본 원인 | `INCIDENT_260812_V3909_UI_SETTINGS_ROOT_CAUSE.md` |
+| v3.9.0.10 설정·탭 렌더·프라이빗 전략 관리 | `INCIDENT_260813_V39010_SETTINGS_TAB_STRATEGY_MANAGEMENT.md` |
 | Fix 2 업데이트 상태 머신 근본 원인 | `INCIDENT_260811_V3908_FIX2_UPDATER_UI_ROOT_CAUSE.md` |
 | 활성 소스·격리 정본 | `SOURCE_QUARANTINE_MANIFEST_20260801.md` |
 | v3.9.0.5 거래·AI·설정 통합 감사 | `INTEGRATED_AUDIT_v3.9.0.5_20260731.md` |
@@ -32,6 +37,10 @@
 | AI 커스텀 제품 로드맵 | `AI_CUSTOM_STRATEGY_OS_PRODUCT_ROADMAP.md` |
 | 기술 백서 | `NOAHAI_TECHNICAL_WHITEPAPER.md` |
 | 사업 설명 | `BUSINESS_PROPOSAL_2026.md` |
+
+## v3.9.0.10 AI 커스텀 관리·런타임 무결성
+
+v3.9.0.10은 3.9.0.9 기능을 유지하면서 설정 `copy` 회귀, 최신 탭 렌더 병합·위젯 소유권 검사, 프라이빗 전략 수정본/비활성 삭제 관리를 추가한 중요 패치입니다. Windows 새 빌드 전 상태는 `pending_windows_rebuild`입니다.
 
 ## v3.9.0.9 AI 커스텀 고도화·안정화
 

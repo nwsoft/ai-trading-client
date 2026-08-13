@@ -60,6 +60,7 @@ class CustomStrategyPipeline:
         self.logger = logger or logging.getLogger(__name__)
         self.strategies: Dict[str, List[Dict[str, Any]]] = {}
         self.active_versions: Dict[str, str] = {}
+        self.deletion_history: List[Dict[str, Any]] = []
         self._load()
 
     @staticmethod
@@ -90,6 +91,7 @@ class CustomStrategyPipeline:
             payload = json.loads(self.storage_path.read_text(encoding="utf-8"))
             self.strategies = dict(payload.get("strategies", {}) or {})
             self.active_versions = dict(payload.get("active_versions", {}) or {})
+            self.deletion_history = list(payload.get("deletion_history", []) or [])[-100:]
             try:
                 os.chmod(self.storage_path, 0o600)
             except OSError:
@@ -103,9 +105,10 @@ class CustomStrategyPipeline:
         self.storage_path.parent.mkdir(parents=True, exist_ok=True)
         temp_path = self.storage_path.with_suffix(self.storage_path.suffix + ".tmp")
         payload = {
-            "schema_version": 2,
+            "schema_version": 3,
             "strategies": self.strategies,
             "active_versions": self.active_versions,
+            "deletion_history": self.deletion_history[-100:],
             "updated_at": self._now(),
         }
         temp_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
@@ -553,6 +556,93 @@ class CustomStrategyPipeline:
 
     def list_versions(self, strategy_key: str) -> List[Dict[str, Any]]:
         return deepcopy(self.strategies.get(strategy_key, []))
+
+    def get_version(self, strategy_key: str, version_id: str) -> Dict[str, Any]:
+        """편집 화면에 전달할 저장 버전의 독립 복사본을 반환한다."""
+        return deepcopy(self._find(strategy_key, version_id))
+
+    def _record_deletion(
+        self,
+        *,
+        strategy_key: str,
+        version_ids: List[str],
+        deleted_by: str,
+        scope: str,
+    ) -> None:
+        self.deletion_history.append({
+            "event": "private_strategy_deleted",
+            "scope": str(scope),
+            "strategy_key": str(strategy_key),
+            "version_ids": [str(item) for item in version_ids],
+            "deleted_by": str(deleted_by),
+            "deleted_at": self._now(),
+        })
+        self.deletion_history = self.deletion_history[-100:]
+
+    def delete_version(
+        self,
+        strategy_key: str,
+        version_id: str,
+        *,
+        deleted_by: str,
+    ) -> Dict[str, Any]:
+        """비활성 프라이빗 버전 하나를 삭제한다.
+
+        적용 중 버전은 먼저 명시적으로 해제해야 한다. 삭제 기록에는 규칙이나
+        자격증명을 남기지 않고 식별자와 행위자만 보존한다.
+        """
+        actor = str(deleted_by or '').strip()
+        if not actor:
+            raise ValueError("삭제 주체가 필요합니다.")
+        version = self._find(strategy_key, version_id)
+        if (
+            str(version.get("status") or "") == "active"
+            or self.active_versions.get(strategy_key) == version_id
+        ):
+            raise ValueError("적용 중인 전략은 먼저 적용 해제한 뒤 삭제하세요.")
+        versions = self.strategies.get(strategy_key, [])
+        self.strategies[strategy_key] = [
+            item for item in versions if item.get("version_id") != version_id
+        ]
+        if not self.strategies[strategy_key]:
+            self.strategies.pop(strategy_key, None)
+            self.active_versions.pop(strategy_key, None)
+        self._record_deletion(
+            strategy_key=strategy_key,
+            version_ids=[version_id],
+            deleted_by=actor,
+            scope="version",
+        )
+        self._save()
+        return deepcopy(version)
+
+    def delete_strategy(self, strategy_key: str, *, deleted_by: str) -> Dict[str, Any]:
+        """적용 중이 아닌 프라이빗 전략과 모든 버전을 삭제한다."""
+        actor = str(deleted_by or '').strip()
+        if not actor:
+            raise ValueError("삭제 주체가 필요합니다.")
+        versions = list(self.strategies.get(strategy_key, []) or [])
+        if not versions:
+            raise ValueError(f"전략을 찾을 수 없습니다: {strategy_key}")
+        if self.active_versions.get(strategy_key) or any(
+            str(item.get("status") or "") == "active" for item in versions
+        ):
+            raise ValueError("적용 중인 전략은 먼저 적용 해제한 뒤 삭제하세요.")
+        version_ids = [str(item.get("version_id") or "") for item in versions]
+        self.strategies.pop(strategy_key, None)
+        self.active_versions.pop(strategy_key, None)
+        self._record_deletion(
+            strategy_key=strategy_key,
+            version_ids=version_ids,
+            deleted_by=actor,
+            scope="strategy",
+        )
+        self._save()
+        return {
+            "strategy_key": strategy_key,
+            "deleted_versions": len(version_ids),
+            "version_ids": version_ids,
+        }
 
     def _trim(self, strategy_key: str) -> None:
         versions = self.strategies.get(strategy_key, [])

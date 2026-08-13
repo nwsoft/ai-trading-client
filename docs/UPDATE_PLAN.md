@@ -1,6 +1,181 @@
 # NoahAI 기술 확장 계획
 
-## AI 자산 의사결정 인프라 로드맵 (v3.9.0.9 업데이트+)
+## 2026-08-13 UI 플랫폼 전환 계획 (문서 설계, 배포 버전 변경 없음)
+
+### 제품·기술 결정
+
+- **선택 방향**: Python 매매/AI 엔진 유지 + Web UI 공통 프런트엔드 + Windows/macOS 데스크톱 셸.
+- **프런트엔드 기준 후보**: TypeScript + React + Vite. 타입 계약·컴포넌트 생태계·테스트·브라우저/SaaS 재사용성을 기준으로 POC하며, 기존 daltrading Jinja 화면을 즉시 재작성하지 않는다.
+- **비선택 방향**: CustomTkinter 화면을 한 번에 제거하거나 PySide6 위젯으로 파일 단위 번역하지 않는다.
+- **PySide6의 위치**: 독립 네이티브 도구가 필요한 경우의 후보이며, 현재 PyQt5/QAxWidget 키움 프로세스와 같은 프로세스에 추가하지 않는다.
+- **데스크톱 셸 결정 게이트**: 고정 Chromium으로 렌더 일관성이 높은 Electron을 기준 후보, 설치 크기·자원 효율이 유리한 Tauri를 비교 후보로 두고 동일 시나리오로 POC한다. 업데이터·코드서명·Python sidecar 복구·다중 모니터·크래시 진단을 모두 통과한 쪽을 선택하며 작은 설치 용량 하나만으로 결정하지 않는다.
+- **SaaS 정합**: daltrading의 현재 FastAPI/Jinja 화면은 즉시 교체하지 않는다. 1차에는 인증·권한·API 계약과 디자인 토큰을 공유하고, 공통 프런트엔드 채택은 별도 배포 게이트로 둔다.
+
+### Web UI와 PySide6 비교 결정
+
+| 기준 | Web UI + desktop shell | PySide6/Qt |
+|---|---|---|
+| 복잡한 데스크톱 화면 | 가능. React 상태·route·컴포넌트로 분리 | 가능. Qt model/view·signal/slot이 강함 |
+| 금융 차트 생태계 | 매우 강함. Canvas/WebGL 금융 차트·표·시각화 선택 폭이 큼 | QtCharts/QML 또는 WebEngine 삽입이 필요해 웹 차트보다 선택 폭이 좁음 |
+| daltrading/SaaS 재사용 | 동일 TypeScript 컴포넌트·계약 재사용 가능 | 웹 화면을 별도로 다시 개발해야 함 |
+| 네이티브 OS/ActiveX | shell/별도 worker bridge 필요 | 강하지만 현재 키움은 PySide6가 아닌 PyQt5/QAxWidget |
+| 현재 NoahAI 충돌 위험 | Python 엔진과 프로세스 경계가 명확함 | PyQt5+PySide6 동시 포함 시 Qt binding/플러그인 충돌 위험 |
+| 업데이트 | shell+assets+engine bundle updater 필요 | Python/Qt bundle updater 필요 |
+| 메모리·설치 크기 | Electron은 큼, Tauri는 작지만 WebView 편차 검증 필요 | 보통 Electron보다 작지만 Qt DLL 포함 필요 |
+| 제품 확장 | 데스크톱·웹·향후 모바일 WebView까지 같은 UX 확장 | 데스크톱 중심 |
+
+**NoahAI 판정**: 데스크톱만 만들고 키움 같은 native 기능이 제품 중심이면 PySide6가 유리할 수 있다. 그러나 NoahAI는 코인·주식 차트, AI 커스텀, daltrading 전략 허브, 사용자 피드백 배포를 함께 확장해야 하므로 Web UI가 더 적합하다. PySide6 전환은 선택하지 않되 Qt가 필요한 키움 worker는 보존한다.
+
+### 시작 기준선과 백업
+
+- 기준 소스: v3.9.0.10 `pending_windows_rebuild`; UI 플랫폼 전환은 아직 런타임에 적용하지 않음.
+- 소스 기준선 백업: `/Users/playone/SynologyDrive/Works/noahai_client_backups/20260813_ui_platform_migration_baseline/noahai_client_source_v3.9.0.10_pre_ui_migration.tar.gz`
+- SHA-256: `b4bdf11d6c633c1c4942bb1fb422241436fd3c923dfac2230e3e8146bb48ab96`
+- 백업 범위: 소스·UI·엔진·테스트·문서·빌드/릴리스 설정 633개 파일. 사용자 데이터·자격증명·`.venv`·빌드 산출물은 의도적으로 제외한다.
+- 전환 구현 시작 전 추가로 현재 사용자 데이터 스키마 샘플을 비식별 fixture로 고정하고, Windows 공개 설치본·manifest·SHA를 별도 보존한다.
+
+### 단계별 이전과 통과 기준
+
+| 단계 | 작업 | 완료 게이트 | 실패 시 복구 |
+|---|---|---|---|
+| 0. 기준선 고정 | 화면/설정/명령/이벤트/DB 스키마 inventory, golden screenshot, API 호출·UI 자원 기준 측정 | 백업 SHA 확인, v3.9.0.10 회귀, Windows 설치본 신원 확인 | 전환 브랜치 폐기, 기준선 복원 |
+| 1. 엔진 경계 추출 | UI에 섞인 조회·저장·진단을 application service와 typed DTO로 이동 | 기존 CTk 화면 동작·주문 결과 불변, UI→거래소 직접 호출 0 | service adapter feature flag OFF |
+| 2. Local Gateway | read API, 상태 snapshot, versioned WebSocket event, health 추가 | localhost 인증·Origin·CSP·rate limit, 재연결/유실 복구, 비밀정보 0 | gateway 비활성, CTk direct adapter 유지 |
+| 3. 새 셸·디자인 시스템 | 로그인, 상단 상태, 내비게이션, 오류/로딩/빈 상태, 매뉴얼 | Windows/macOS 배율·다중 모니터·키보드·스크린리더, Electron/Tauri POC | POC 폐기, 제품 UI 영향 없음 |
+| 4. 읽기 화면 | 거래 로그→코인/종목 정보→시장 트렌드→AI 리포트→자산 통합→AI 애널리스트 | 동일 snapshot에서 값·통화·시각·오류상태 parity, 200회 탭 전환 | 화면별 legacy route |
+| 5. 설정·AI 커스텀 | 설정 snapshot/diff, 프로필, 전략 생성·수정본·삭제·승인·XAI | 저장 100회, 7/50/200 전략, 재시작, 버전/감사/비밀정보 parity | 쓰기 권한은 CTk 유지 |
+| 6. 거래 명령 | 시작/중지, PAPER, 진입/청산, 위험 승인 UI | command idempotency, stale state 차단, 주문 소유권, PAPER soak, 거래소별 E2E | 새 UI 명령 feature flag 즉시 OFF |
+| 7. Broker 격리 | 키움 PyQt5/QAx worker와 기타 native 의존성 프로세스 분리 | worker crash/restart, IPC 인증, 계정 격리, 주문 중복 0 | 기존 Windows broker 경로 |
+| 8. 병행 운영 | 사용자별 opt-in, shadow read, telemetry, crash/updater/latency 비교 | 기능 동등성, 무중단 복구, 테스터 승인, 배포/롤백 훈련 | 기본값 legacy |
+| 9. 전환 완료 | 새 UI 기본값, 레거시 읽기 전용 후 제거 | 2개 연속 승인 빌드와 외부 Windows 게이트, 문서/매뉴얼 동기화 | 직전 legacy LTS 설치본 |
+
+### 전체 기능 동등성 원장
+
+아래 항목이 모두 `PARITY PASS`가 되기 전에는 기존 UI를 제거하지 않는다. “새 화면이 열림”이 아니라 같은 입력·설정·계정 snapshot에서 값, 권한, 부작용, 감사 결과가 같은지를 검사한다.
+
+| 기능군 | 현재 기능 | 새 UI 목표 | 제거 전 필수 게이트 |
+|---|---|---|---|
+| 앱 셸 | 로그인·등급·레퍼럴·상단 상태·매뉴얼·설정·종료·AI 실행 기록 | 공통 shell route와 status store | 로그인/만료/재접속, 단일 실행, 종료 안전, 메뉴/설정 100회 |
+| 블록체인 | 실시간 로그, 코인 정보, 거래 통계, 시장 트렌드, AI 학습/리포트/어시스턴트/커스텀, 금융 인텔리전스, AlphaArena | route별 lazy view, 공통 query/event 계약 | 6개 거래소 왕복 200회, 상태/통화/오류 parity |
+| 거래소 운영 | Binance·Upbit·Bithumb·Bybit·OKX·Bitget 제어·잔고·포지션·통계·로그 | source workspace | API 비밀 노출 0, PAPER/LIVE/학습 분리, 수동 포지션 보호 |
+| 주식/증권 | 종목 정보·통계·트렌드·AI·금융 인텔리전스 | stock routes | 4개 증권 계약, 세션/장시간/통화, 키움 worker crash 복구 |
+| 자산 통합 | 인사이트·자산 배분·리스크·성과·위험 | portfolio routes | 거래소/증권 잔고 snapshot 시각, stale/partial/error 구분 |
+| 생활금융 | 대시보드·거래·목표·분석·차트·금융상품·AI, 현금흐름·보안·세금 | personal finance routes | 입력 저장·재계산·통화·개인정보·빈 상태 parity |
+| AI 애널리스트 | 심층분석·요약·시나리오·금융 인텔리전스 허브·어시스턴트 | analyst workspace | 요청 원장·취소·중복·진행/완료/오류·비용 telemetry |
+| AI 커스텀 | 자연어/Pine/PDF/이미지/영상/URL, IR, Level 1~3, 수정본·삭제·승인·검증·PAPER·감사 | strategy studio | 0/7/50/200 전략, 원문 근거, 버전 불변, 미지원 fail-closed |
+| 차트/OCR | 시장 차트·생활금융 차트·차트 스크린샷 분석 | interactive financial charts + 요청형 OCR | 캔들/지표/마커 parity, 이미지 권한, OCR 지연 로드 |
+| 설정 | AI/API·거래소·증권·모드·리스크·고급 계층·업데이트 | snapshot/diff/settings schema UI | UI-only 무재시작, 관련 worker만 적용, 저장/복원 100회 |
+| 주문/OMS | 시작·중지·진입·청산·소유권·중복 방지·위험 가드 | typed command UI | stale version 차단, idempotency, ambiguous fill fail-closed, 감사 |
+| 파일/운영 | 가져오기·내보내기·알림·트레이·로그·crash·자동업데이트 | shell native bridge | 경로 권한, 서명 bundle, health/rollback, 사용자 데이터 보존 |
+
+각 행은 `inventory → query parity → UI parity → write parity → packaged Windows E2E → tester acceptance` 상태를 가진다. 상태 원장은 테스트 코드와 `TEST_STATUS.md`에만 기록하며 화면 구현자가 임의로 완료 처리하지 않는다.
+
+### 화면을 하나씩 옮긴다는 의미
+
+파일이나 CTk 위젯을 1:1로 복사하는 것이 아니라 **사용자가 끝까지 수행하는 수직 기능 단위**로 옮긴다. 각 수직 단위는 화면, application service, DTO/event, 권한, 오류/빈 상태, telemetry, 자동 테스트와 롤백 플래그를 함께 포함한다. 새 UI와 기존 UI가 같은 service를 사용하므로 기능이 갈라지는 기간을 최소화한다.
+
+권장 순서는 읽기 전용·저위험 화면 → 설정 snapshot/diff → AI 커스텀 편집/검증 → PAPER 명령 → LIVE 명령이다. 주문 버튼은 마지막이며, 시각적으로 완성됐다는 이유로 명령 권한을 열지 않는다.
+
+### Windows 실행·설치·자동업데이트 계약
+
+- 사용자는 전환 뒤에도 시작 메뉴·바탕화면의 **`NoahAI.exe`**를 실행한다. Web UI는 외부 브라우저 탭이 아니라 이 데스크톱 창 안에서 로컬 번들로 렌더링한다.
+- 최초 배포는 `NoahAI-Setup.exe` 또는 MSI가 권장된다. 설치 뒤 사용자는 기존과 동일하게 앱 아이콘/EXE로 실행하며 Node·Python·Rust를 별도로 설치하지 않는다.
+- 기존 `AITrading.exe` 단일 파일을 반드시 유지하는 것을 목표로 하지 않는다. shell·web assets·Python engine·broker worker를 매번 한 파일로 풀어 실행하는 것보다, 사용자별 설치 폴더의 **버전 단위 bundle**이 시작 속도·진단·원자적 롤백에 유리하다.
+- 사용자 설정·전략·거래 원장·로그는 버전 설치 폴더 밖의 기존 사용자 데이터 위치에 둔다. 업데이트나 롤백이 이 데이터를 덮어쓰거나 삭제하지 않는다.
+- 기존 `utils/auto_update_manager.py`는 레거시 단일 EXE 업데이트를 계속 담당한다. 새 구조에서는 그대로 재사용하지 않고 안전 승인·포지션 defer·SHA 검증·진행 UI라는 정책만 새 bundle updater로 이전한다.
+- 새 updater는 `shell + web assets + Python engine + native workers + schema/minimum-compatible-version` 전체를 한 manifest와 서명으로 검증하고, 별도 버전 폴더에 설치한 뒤 health check 성공 시 `current`를 전환한다. 실패하면 이전 버전으로 자동 복귀한다.
+- LIVE/PAPER worker가 안전하게 정지·flush되지 않거나 열린 포지션 정책이 승인되지 않으면 적용하지 않는다. UI 창이 닫혔다는 사실만으로 엔진 종료를 추정하지 않는다.
+- 상용 배포에서는 SHA-256뿐 아니라 Windows 코드서명과 update bundle 서명을 필수화한다. 현재 manifest의 `authenticode_required=false`는 전환 완료 기준이 아니다.
+- 기존 설치본에서 새 설치형 구조로 넘어가는 최초 1회는 별도 migration installer로 수행한다. 그 이후 자동업데이트부터 새 bundle 계약을 사용한다.
+
+### 전문 코인·주식 차트 계획
+
+**1차 기본 엔진**은 Apache-2.0 기반 TradingView Lightweight Charts를 후보로 한다. 데스크톱 bundle에 라이브러리를 포함하고 TradingView NOTICE/attribution 의무를 준수한다. 비공개·유료 NoahAI에 라이선스 확인 없이 Advanced Charts 파일을 포함하지 않는다.
+
+데이터 흐름:
+
+```text
+거래소/증권 REST 과거 캔들 snapshot
+  + 공식 WebSocket 실시간 kline/trade/orderbook
+  → MarketDataService 정규화·gap 탐지·재동기화
+  → CandleDTO / TradeDTO / PositionDTO / StrategyMarkerDTO
+  → Local Gateway versioned stream
+  → Web Chart adapter
+```
+
+`CandleDTO`는 최소한 `source, market_type, symbol, interval, open_time, close_time, open, high, low, close, volume, closed, sequence`를 가진다. 화면은 거래소 WebSocket에 직접 연결하지 않으며 재연결·순서 누락·timezone·미완성 캔들은 MarketDataService에서 처리한다.
+
+| 차트 단계 | 범위 | 통과 기준 |
+|---|---|---|
+| C1 기본 | 캔들·거래량·crosshair·zoom/pan·1m~1M·실시간 마지막 봉 | 원천 캔들과 OHLCV/timezone 일치, gap 복구 |
+| C2 지표 | SMA/EMA/RSI/MACD/BB/ADX/ATR, multi-pane, 사용자 선택 | 기존 전략 엔진 계산값과 동일 오차 기준 |
+| C3 전략/XAI | LONG/SHORT·진입/청산·TP/SL·포지션·신호 근거·비용 마커 | 주문 원장 ID와 marker 1:1, PAPER/LIVE 명시 |
+| C4 검증 | equity curve·drawdown·월/연도 수익·거래 목록·replay | look-ahead 차단, 비용/슬리피지, 표·차트 합계 일치 |
+| C5 고급 | 저장 layout·다중 차트·drawing·알림·깊이/호가 | 성능/접근성/저장 호환; 라이선스 검토 |
+
+목표는 Binance/TradingView 사용자가 익숙한 캔들·지표·마커·시간봉·레이아웃 경험을 제공하는 것이다. `TradingView.com 완전 복제`, 모든 Pine/지표/드로잉 도구 지원은 목표나 완료 표현으로 사용하지 않는다. Advanced Charts/Trading Platform을 선택할 경우 비공개·유료 앱 라이선스와 재배포 조건을 별도 승인받아야 한다.
+
+### 전략 허브·목적별 랭킹 계획
+
+Web UI는 서버 기반 전략 탐색·필터·비교·설명에 PySide6보다 유리하다. daltrading 전략 허브와 공통 API를 사용하되 로컬 private 전략 원문은 사용자가 공개하지 않는 한 업로드하지 않는다.
+
+```text
+로컬 Strategy Passport
+  → 사용자 공개 동의
+  → 패키지 hash·권리·버전·검증 snapshot·체결 증거 검증
+  → daltrading Ranking Service
+  → 목적별 leaderboard/query API
+  → NoahAI Client + daltrading Web UI
+```
+
+- 하나의 전체 수익률/승률 순위를 만들지 않는다.
+- `추세장 / 횡보장 / 저위험 / 소액 / Binance 선물 / Upbit·Bithumb 현물 / 장기 PAPER / 실제 체결 / 초보자 설명 우수` 목적별로 분리한다.
+- 기존 정본 점수 `강건성 30 + 위험 효율 25 + 실행 품질 20 + 증거 품질 15 + 설명·운영 품질 10`을 유지한다.
+- 같은 통화·비용·기간·시장국면·PAPER/LIVE 조건끼리만 비교한다. MDD, 표본 수, 최근성, walk-forward, 실패·중단 이력과 전략 버전을 함께 표시한다.
+- 과최적화 의심, 미래 데이터 누수, 권리 미확인, 가드레일 위반, 표본 부족은 순위 제외 또는 명확한 제한 배지로 처리한다.
+- 랭킹 상위라는 이유로 자동 적용하지 않는다. 가져오기는 비활성 검토 상태이며 사용자 승인·로컬 검증·PAPER를 다시 통과한다.
+
+### 구현 착수 준비 완료 조건
+
+- [x] UI 전환 전 소스 백업과 SHA 검증
+- [x] 목표 구조, Web UI/PySide6 결정, rollback 원칙 문서화
+- [x] 현재 서비스/기능군 parity 원장 정의
+- [x] Windows EXE·bundle updater 계약 정의
+- [x] 차트·전략 랭킹 목표와 라이선스 경계 정의
+- [ ] 현재 화면별 입력/출력/부작용/데이터 원천 machine-readable inventory
+- [ ] application service 인터페이스와 DTO/event JSON Schema 고정
+- [ ] Electron 기준/Tauri 비교 shell POC
+- [ ] Lightweight Charts 실제 Binance testnet 캔들·gap 복구 POC
+- [ ] 기존 CTk와 새 query snapshot golden parity harness
+
+위 5개 미완료 항목을 Stage 0 준비 스프린트로 닫은 뒤 제품 화면 이전을 시작한다.
+
+### 필수 검증 매트릭스
+
+- 플랫폼: Windows 10/11, macOS Intel/Apple Silicon, 100/125/150/200% 배율, 1~3 모니터.
+- 상태: 첫 실행, 빈 데이터, 느린 API, 권한 만료, 부분 거래소 장애, 네트워크 단절/복구, gateway/worker crash.
+- 데이터: KRW/USDT 분리, timezone, stale snapshot, sequence gap, 중복 event, 0개/6개 거래소, 0/7/50/200 전략.
+- 거래: LEARNING/PAPER/LIVE 분리, 수동 포지션 소유권, 현물 SHORT 차단, 명령 멱등성, 모호한 체결 fail-closed, 재시작 조정.
+- 운영: 자동 업데이트 download→검증→안전종료→교체→health→rollback, code signing, crash dump, 버전/SHA 표시.
+- 보안: 비밀정보 renderer 노출 0, localhost 외부 bind 0, raw exchange command 0, 권한/Origin/CSRF/CSP/rate limit 검증.
+
+### 착수 금지 조건
+
+- 기준 Windows 설치본과 SHA가 확인되지 않은 상태에서 레거시 제거 금지.
+- application service 없이 새 화면이 DB·설정·Trader 객체에 직접 접근하는 구현 금지.
+- PyQt5와 PySide6를 같은 프로세스에 혼합하는 임시 해결 금지.
+- 새 UI와 기존 UI가 각각 설정을 저장하거나 주문 상태를 계산하는 이중 원본 금지.
+- 실제 Windows 반복시험과 PAPER soak 없이 “UI 전환 완료” 또는 “완전 안정화” 표현 금지.
+
+## AI 자산 의사결정 인프라 로드맵 (v3.9.0.10 업데이트+)
+
+### 2026-08-13 v3.9.0.10 AI Custom Management & Runtime Integrity Update
+
+- 설정 `copy` 회귀 제거와 설정 Toplevel 단일 소유권을 유지한다.
+- 소스 탭은 최신 요청 하나만 렌더하고 완전 렌더·대시보드 소유권 검증 후 교체한다.
+- 프라이빗 전략은 기존 승인본 불변, 수정본의 다음 버전 저장, 재승인·재검증, 활성 삭제 차단을 제품 계약으로 둔다.
+- 인앱 매뉴얼과 AI 어시스턴트가 수정·삭제·재검증 순서를 동일하게 설명한다.
+- Windows 빌드·SHA·반복시험 전에는 `pending_windows_rebuild`를 유지한다.
 
 ### 2026-08-12 v3.9.0.9 AI Custom Stability Update
 

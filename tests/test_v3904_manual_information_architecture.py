@@ -35,7 +35,7 @@ def test_v3904_manual_is_written_for_installed_users_and_keeps_usage_out_of_hist
     assert "처음 설정하는 순서" in dashboard_section
     assert "세 가지 실행 모드" in dashboard_section
     assert "세 가지 실행 모드" not in updates_section
-    assert "v3.9.0.9 최신 업데이트" in updates_section
+    assert "v3.9.0.10 최신 업데이트" in updates_section
     assert "빈 잔고·계정 응답을 성공으로 저장하던 문제" in updates_section
     assert "기능·설정·오류 검색" in manual
     assert "AI에게 묻기" in manual

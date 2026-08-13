@@ -27,28 +27,28 @@ def test_user_surfaces_share_provider_scope_and_menu_path():
 
 
 def test_release_metadata_and_installed_manual_are_scoped_separately():
-    assert "현재 작업 버전: v3.9.0.9" in _read("README.md")
-    assert "v3.9.0.9 AI Custom Stability Update" in _read("README.md")
+    assert "현재 작업 버전: v3.9.0.10" in _read("README.md")
+    assert "v3.9.0.10 AI Custom Management & Runtime Integrity Update" in _read("README.md")
     assert "v3.9.0.5 설정 정본·실행 모드 통합" in _read("RELEASE_NOTES.md")
     manual = _read("ui/widgets/user_manual_widget.py")
     assert "현재 설치 버전" in manual
-    assert "v3.9.0.9 최신 업데이트" in manual
+    assert "v3.9.0.10 최신 업데이트" in manual
     assert "새 Windows 빌드 전 업데이트 대상" not in manual
     assert "SHA-256이 게시된 Windows" in _read("docs/AI_API_USER_GUIDE.md")
     manifest = json.loads(_read("deploy/release-manifest.json"))
-    assert manifest["version"] == "3.9.0.9"
-    assert manifest["release_label"] == "v3.9.0.9 AI Custom Stability Update"
-    # 현재 manifest는 새 v3.9.0.9 빌드 대기, 이전 공개 자산은 Fix 4로 보존한다.
+    assert manifest["version"] == "3.9.0.10"
+    assert manifest["release_label"] == "v3.9.0.10 AI Custom Management & Runtime Integrity Update"
+    # 현재 manifest는 새 v3.9.0.10 빌드 대기, 이전 공개 자산은 v3.9.0.9로 보존한다.
     assert manifest["build_status"] == "pending_windows_rebuild"
-    assert manifest["previous_published_asset"]["version"] == "3.9.0.8"
-    assert manifest["previous_published_asset"]["release_label"] == "v3.9.0.8 AI Custom Update Fix 4"
-    assert manifest["previous_published_asset"]["path"] == "deploy/previous/AITrading-v3.9.0.8-AI-Custom-Update-Fix4.exe"
+    assert manifest["previous_published_asset"]["version"] == "3.9.0.9"
+    assert manifest["previous_published_asset"]["release_label"] == "v3.9.0.9 AI Custom Stability Update"
+    assert manifest["previous_published_asset"]["path"] == "deploy/previous/AITrading-v3.9.0.9-AI-Custom-Stability-Update.exe"
     assert manifest["previous_published_asset"]["purpose"] == "previous_published_windows_build"
-    assert _read("deploy/version.txt").strip() == "3.9.0.9"
-    assert 'RELEASE_VERSION = "3.9.0.9"' in _read("config/app_version.py")
-    assert "FileVersion', u'3.9.0.9" in _read("config/windows_version_info.txt")
-    assert "ProductVersion', u'3.9.0.9" in _read("config/windows_version_info.txt")
-    assert 'RELEASE_HIGHLIGHT = "AI 커스텀 P1~P3 · UI 생명주기·설정 저장·프로세스·WebSocket 안정화"' in _read("config/app_version.py")
+    assert _read("deploy/version.txt").strip() == "3.9.0.10"
+    assert 'RELEASE_VERSION = "3.9.0.10"' in _read("config/app_version.py")
+    assert "FileVersion', u'3.9.0.10" in _read("config/windows_version_info.txt")
+    assert "ProductVersion', u'3.9.0.10" in _read("config/windows_version_info.txt")
+    assert 'RELEASE_HIGHLIGHT = "AI 커스텀 관리 · 설정 오류 차단 · 최신 탭 렌더·위젯 소유권 안정화"' in _read("config/app_version.py")
 
 
 def test_release_asset_generator_preserves_fix_patch_identity(tmp_path):

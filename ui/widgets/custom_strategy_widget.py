@@ -227,7 +227,7 @@ class CustomStrategyWidget(ctk.CTkScrollableFrame):
         feature_card.pack(fill="x", padx=18, pady=(0, 14))
         ctk.CTkLabel(
             feature_card,
-            text=f"v3.9.0.8 기능 위치 · 현재 {self.feature_state.get('profile_label', '일반')} / Level {self.feature_state.get('view_level', 2)}",
+            text=f"AI 커스텀 기능 위치 · 현재 {self.feature_state.get('profile_label', '일반')} / Level {self.feature_state.get('view_level', 2)}",
             font=self._font(12, "bold"), text_color="#a78bfa",
         ).pack(anchor="w", padx=12, pady=(10, 3))
         ctk.CTkLabel(
@@ -1612,11 +1612,17 @@ class CustomStrategyWidget(ctk.CTkScrollableFrame):
             "execution_validated": "실행 검증 완료 · 최종 적용 대기", "active": "적용 중",
             "paper_rejected": "검증 미통과", "execution_rejected": "자동검증 미통과 · 1% 제한운용 선택 가능",
         }
+        latest_version_ids = {
+            str(item.get("version_id") or "")
+            for _scope, item, _customizer in latest_by_key.values()
+        }
         for scope, item, customizer in rows:
             row = ctk.CTkFrame(self.version_rows, fg_color="#172033", corner_radius=10)
             row.pack(fill="x", pady=4)
+            summary_row = ctk.CTkFrame(row, fg_color="transparent")
+            summary_row.pack(fill="x", padx=8, pady=(4, 0))
             ctk.CTkLabel(
-                row, text=(
+                summary_row, text=(
                     f"{scope_names.get(scope.lower(), scope)} · {item.get('name', '사용자 전략')} · "
                     f"v{item.get('version', '-')} · "
                     f"역할 {'독립 원형' if str(item.get('signal_mode', 'confirm')) == 'independent' else '기본 후보 재확인'} · "
@@ -1624,16 +1630,18 @@ class CustomStrategyWidget(ctk.CTkScrollableFrame):
                     f"우선 {item.get('priority', 5)}"
                 ),
                 font=self._font(12, "bold"), text_color="#e5edf6",
-            ).pack(side="left", padx=12, pady=10)
+            ).pack(side="left", padx=4, pady=6)
+            actions = ctk.CTkFrame(row, fg_color="transparent")
+            actions.pack(side="bottom", fill="x", padx=8, pady=(0, 8))
             status = str(item.get("status", "unknown"))
             if status == "analyzed":
                 ctk.CTkButton(
-                    row, text="내용 확인 후 승인", width=125, height=30,
+                    actions, text="내용 확인 후 승인", width=125, height=30,
                     command=lambda it=item, c=customizer: self._approve(it, c),
                 ).pack(side="right", padx=8)
             elif status == "approved":
                 ctk.CTkButton(
-                    row, text="자동 검증 실행", width=115, height=30,
+                    actions, text="자동 검증 실행", width=115, height=30,
                     command=lambda it=item, c=customizer: self._record_validation(it, c),
                 ).pack(side="right", padx=8)
             elif status == "paper_validated" or (
@@ -1641,24 +1649,24 @@ class CustomStrategyWidget(ctk.CTkScrollableFrame):
                 and str((item.get("execution_validation") or {}).get("mode") or "") in {"live_observation", "limited_live"}
             ):
                 ctk.CTkButton(
-                    row, text="최종 적용", width=90, height=30,
+                    actions, text="최종 적용", width=90, height=30,
                     fg_color="#10b981", hover_color="#059669",
                     command=lambda it=item, c=customizer: self._activate(it, c),
                 ).pack(side="right", padx=8)
             elif status == "execution_validated":
                 ctk.CTkButton(
-                    row, text="PAPER 전진검증 필요", width=135, height=30,
+                    actions, text="PAPER 전진검증 필요", width=135, height=30,
                     state="disabled", font=self._font(10),
                 ).pack(side="right", padx=8)
             elif status == "execution_rejected":
                 ctk.CTkButton(
-                    row, text="검증미통과 안전 시험", width=145, height=30,
+                    actions, text="검증미통과 안전 시험", width=145, height=30,
                     fg_color="#d97706", hover_color="#b45309",
                     command=lambda it=item, c=customizer: self._activate(it, c, operation_mode="limited_live"),
                 ).pack(side="right", padx=8)
             elif status == "active":
                 ctk.CTkButton(
-                    row, text="적용 해제", width=90, height=30,
+                    actions, text="적용 해제", width=90, height=30,
                     fg_color="#475569", hover_color="#64748b",
                     command=lambda it=item, c=customizer: self._deactivate(it, c),
                 ).pack(side="right", padx=8)
@@ -1671,10 +1679,10 @@ class CustomStrategyWidget(ctk.CTkScrollableFrame):
                 (item.get("execution_validation") or {}).get("mode") or ""
             ) == "historical_replay":
                 status_text = "과거재생 통과 · PAPER 필요"
-            ctk.CTkLabel(row, text=status_text, font=self._font(11), text_color="#a9bad0").pack(side="right", padx=8)
+            ctk.CTkLabel(summary_row, text=status_text, font=self._font(11), text_color="#a9bad0").pack(side="right", padx=8)
             if item.get("strategy_ir"):
                 ctk.CTkButton(
-                    row,
+                    actions,
                     text=f"IR v{item.get('ir_version') or '1.0'}",
                     width=70,
                     height=30,
@@ -1685,14 +1693,14 @@ class CustomStrategyWidget(ctk.CTkScrollableFrame):
                 ).pack(side="right", padx=4)
             if item.get("strategy_ir") and self._feature_enabled("strategy_package"):
                 ctk.CTkButton(
-                    row, text="내보내기", width=78, height=30,
+                    actions, text="내보내기", width=78, height=30,
                     fg_color="#0f766e", hover_color="#0d9488", font=self._font(10),
                     command=lambda payload=item: self._export_strategy_package(payload),
                 ).pack(side="right", padx=4)
             version_diff = dict(item.get("version_diff", {}) or {})
             if int(version_diff.get("change_count", 0) or 0) > 0:
                 ctk.CTkButton(
-                    row,
+                    actions,
                     text=f"변경점 {int(version_diff.get('change_count', 0) or 0)}개",
                     width=94,
                     height=30,
@@ -1702,11 +1710,11 @@ class CustomStrategyWidget(ctk.CTkScrollableFrame):
                     command=lambda payload=version_diff: self._show_version_diff(payload),
                 ).pack(side="right", padx=6)
             advice = dict(item.get("improvement_advice", {}) or {})
-            actions = list(advice.get("actions", []) or [])
-            if actions and status in {"execution_rejected", "execution_validated", "paper_validated"}:
+            improvement_actions = list(advice.get("actions", []) or [])
+            if improvement_actions and status in {"execution_rejected", "execution_validated", "paper_validated"}:
                 ctk.CTkButton(
-                    row,
-                    text=f"개선안 · {actions[0].get('priority', '검토')}",
+                    actions,
+                    text=f"개선안 · {improvement_actions[0].get('priority', '검토')}",
                     width=116,
                     height=30,
                     fg_color="#854d0e",
@@ -1714,6 +1722,169 @@ class CustomStrategyWidget(ctk.CTkScrollableFrame):
                     font=self._font(10),
                     command=lambda payload=advice: self._show_improvement_advice(payload),
                 ).pack(side="right", padx=6)
+            ctk.CTkButton(
+                actions,
+                text="수정본 만들기",
+                width=105,
+                height=30,
+                fg_color="#2563eb",
+                hover_color="#1d4ed8",
+                command=lambda payload=item, c=customizer: self._load_version_for_edit(payload, c),
+            ).pack(side="left", padx=4)
+            if str(item.get("version_id") or "") in latest_version_ids:
+                ctk.CTkButton(
+                    actions,
+                    text="전략 삭제",
+                    width=90,
+                    height=30,
+                    fg_color="#7f1d1d",
+                    hover_color="#991b1b",
+                    command=lambda payload=item, c=customizer: self._delete_private_strategy(payload, c),
+                ).pack(side="left", padx=4)
+
+    @staticmethod
+    def _set_entry_value(widget: Any, value: Any) -> None:
+        try:
+            widget.delete(0, "end")
+            widget.insert(0, str(value))
+        except Exception:
+            pass
+
+    def _load_version_for_edit(self, item: Dict[str, Any], customizer) -> None:
+        """저장 버전을 편집기에 불러오되 기존 승인 기록은 덮어쓰지 않는다."""
+        strategy_key = str(item.get("strategy_key") or "")
+        version_id = str(item.get("version_id") or "")
+        try:
+            getter = getattr(customizer, "get_custom_strategy_version", None)
+            version = getter(strategy_key, version_id) if callable(getter) else dict(item)
+            rules = dict(version.get("rules", {}) or {})
+            engine = dict(rules.get("engine_settings", {}) or item.get("base_params", {}) or {})
+            source_kind = str(version.get("source_kind") or item.get("source_kind") or "text")
+            source_reference = str(version.get("source_reference") or item.get("source_reference") or "")
+            self.analysis_result = {
+                "name": str(version.get("name") or item.get("name") or "사용자 전략"),
+                "summary": str((version.get("xai") or {}).get("summary") or "저장된 전략 수정본"),
+                "rules": rules,
+                "engine_settings": engine,
+                "source": {
+                    "kind": source_kind,
+                    "reference": source_reference,
+                    "text": "저장된 프라이빗 전략 버전",
+                    "coverage_summary": f"{strategy_key} / {version_id}",
+                },
+                "missing_conditions": list(version.get("missing_conditions", []) or []),
+                "guidance": dict(version.get("guidance", {}) or {}),
+                "strategy_ir": dict(version.get("strategy_ir", {}) or {}),
+                "risks": list((version.get("xai") or {}).get("risks", []) or []),
+                "ai_model": "저장 버전",
+                "ai_analyzed": True,
+            }
+
+            for label, mapped in self.version_target_map.items():
+                if mapped[0] is customizer and str(mapped[1]) == strategy_key:
+                    self.version_target_combo.set(label)
+                    break
+            scope = str(rules.get("target_scope") or item.get("target_scope") or "exchange:binance")
+            scope_label = next((label for label, value in self.SCOPE_LABELS.items() if value == scope), "Binance만")
+            self.target_combo.set(scope_label)
+            regimes = list(rules.get("market_regimes") or item.get("market_regimes") or ["all"])
+            regime_label = next((label for label, value in self.REGIME_LABELS.items() if list(value) == regimes), None)
+            if regime_label is None:
+                regime_label = "수정본: " + " + ".join(regimes)
+                self._regime_value_map[regime_label] = regimes
+                values = list(self.REGIME_LABELS) + [regime_label]
+                self.regime_combo.configure(values=values)
+            self.regime_combo.set(regime_label)
+            regime_scope = str(rules.get("regime_scope") or item.get("regime_scope") or "market")
+            self.regime_scope_combo.set(next(
+                (label for label, value in self.REGIME_SCOPE_LABELS.items() if value == regime_scope),
+                "전체 시장 기준 (권장)",
+            ))
+            self.priority_combo.set(str(rules.get("priority") or item.get("priority") or 5))
+            signal_mode = str(rules.get("signal_mode") or item.get("signal_mode") or "confirm")
+            self.signal_mode_combo.set(
+                AI_CUSTOM_INDEPENDENT_ROLE_LABEL if signal_mode == "independent" else AI_CUSTOM_CONFIRM_ROLE_LABEL
+            )
+            self._on_signal_mode_change()
+            entry_signal = str(rules.get("entry_signal") or item.get("entry_signal") or "")
+            self.entry_signal_combo.set(entry_signal if entry_signal in {"LONG", "SHORT"} else "소스에서 자동")
+            risk = dict(rules.get("risk_model", {}) or {})
+            self.risk_per_trade_combo.set(str(risk.get("risk_per_trade_percent", 0.5)))
+            self.max_margin_combo.set(str(risk.get("max_margin_usage_percent", 10)))
+            self.max_leverage_combo.set(str(risk.get("max_leverage", 3)))
+            self.transition_combo.set(
+                "커스텀 신규 진입 일시정지"
+                if str(rules.get("regime_transition") or "delegate_to_noah") == "pause"
+                else "기본 노아AI에 맡김"
+            )
+            universe = dict(rules.get("universe_policy", {}) or {})
+            self._set_entry_value(self.universe_include_entry, ", ".join(universe.get("include_symbols", []) or []))
+            self._set_entry_value(self.universe_exclude_entry, ", ".join(universe.get("exclude_symbols", []) or []))
+            for attr, key, default in (
+                ("universe_min_volume_entry", "min_quote_volume", 0),
+                ("universe_max_spread_entry", "max_spread_bps", 30),
+                ("universe_min_vol_entry", "min_volatility_percent", 0),
+                ("universe_max_vol_entry", "max_volatility_percent", 100),
+                ("universe_limit_entry", "max_candidates", 20),
+            ):
+                self._set_entry_value(getattr(self, attr, None), universe.get(key, default))
+            advanced = {
+                key: rules[key]
+                for key in ("executable_entry", "executable_exit", "advanced_order_plan", "user_indicators")
+                if key in rules
+            }
+            if advanced:
+                self.advanced_rules_text.delete("1.0", "end")
+                self.advanced_rules_text.insert("1.0", json.dumps(advanced, ensure_ascii=False, indent=2))
+                self._validate_advanced_editor(show_dialog=False)
+            else:
+                self.advanced_rules_text.delete("1.0", "end")
+                self.advanced_rules_text.insert(
+                    "1.0",
+                    "선택 사항입니다. ‘예제 넣기’ 또는 ‘AI 추출값 불러오기’를 사용하세요.",
+                )
+                self.advanced_validation_label.configure(
+                    text="고급 규칙 미사용",
+                    text_color="#94a3b8",
+                )
+            self._show_analysis(self.analysis_result)
+            self.result_status.configure(text="수정본 준비 · 저장하면 새 버전", text_color="#38bdf8")
+            messagebox.showinfo(
+                "전략 수정본 불러오기",
+                f"{self.analysis_result['name']} v{version.get('version', item.get('version', '-'))}를 불러왔습니다.\n\n"
+                "적용 범위·시장상황·위험값·고급 규칙을 바꾼 뒤 ‘검토 및 전략 버전 저장’을 누르면 "
+                "기존 승인본을 덮어쓰지 않고 다음 버전으로 저장됩니다. 새 버전은 다시 승인·검증해야 합니다.",
+            )
+        except Exception as exc:
+            messagebox.showerror("전략 수정본 불러오기 실패", str(exc))
+
+    def _delete_private_strategy(self, item: Dict[str, Any], customizer) -> None:
+        strategy_key = str(item.get("strategy_key") or "")
+        if str(item.get("status") or "") == "active":
+            messagebox.showwarning("전략 삭제 차단", "적용 중인 전략입니다. 먼저 ‘적용 해제’를 누른 뒤 삭제하세요.")
+            return
+        if not messagebox.askyesno(
+            "프라이빗 전략 삭제",
+            f"{item.get('name', '사용자 전략')}의 저장된 모든 버전을 삭제할까요?\n\n"
+            "실행 중 전략은 삭제할 수 없으며, 삭제한 전략 내용은 복구되지 않습니다. 삭제 행위 기록에는 식별자만 남습니다.",
+        ):
+            return
+        try:
+            result = customizer.delete_custom_strategy(
+                strategy_key,
+                deleted_by="dashboard_user",
+            )
+            if self.version_target_combo.get() not in {"", "새 전략으로 저장"}:
+                selected = self.version_target_map.get(self.version_target_combo.get())
+                if selected and str(selected[1]) == strategy_key:
+                    self.version_target_combo.set("새 전략으로 저장")
+            self.refresh_versions()
+            messagebox.showinfo(
+                "전략 삭제 완료",
+                f"프라이빗 전략과 {int(result.get('deleted_versions', 0) or 0)}개 버전을 삭제했습니다.",
+            )
+        except Exception as exc:
+            messagebox.showerror("전략 삭제 실패", str(exc))
 
     def _show_strategy_ir(self, item: Dict[str, Any]):
         ir = dict((item or {}).get("strategy_ir", {}) or {})

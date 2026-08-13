@@ -64,7 +64,7 @@ def test_profiles_allow_individual_toggles_but_keep_dependencies_fail_closed():
 def test_ai_assistant_knows_v3908_profile_and_backtest_boundaries():
     settings = {"ai_custom_features": {"profile": "advanced", "overrides": {}}}
     profile_answer = build_ai_custom_knowledge("AI 커스텀 고급 프로필과 지표 언어를 설명해줘", settings)
-    assert "v3.9.0.9 AI Custom Stability Update" in profile_answer
+    assert "v3.9.0.10 AI Custom Management & Runtime Integrity Update" in profile_answer
     assert "현재 프로필: 고급 · 보기 Level 3" in profile_answer
     assert "제한형 사용자 지표 언어" in profile_answer
     assert "안전을 우회하지 않습니다" in profile_answer

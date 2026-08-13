@@ -2,6 +2,15 @@
 
 <!-- markdownlint-disable MD007 MD013 MD024 -->
 
+## v3.9.0.10 AI Custom Management & Runtime Integrity Update (2026-08-13)
+
+- 설정창을 막던 `copy` import 누락을 수정하고 설정 controller/Toplevel 단일 인스턴스 계약을 유지합니다.
+- 거래소 탭 렌더 요청을 최신 선택 하나로 병합하며, 새 화면의 완전 렌더와 대시보드 위젯 소유권을 확인한 뒤 이전 화면을 정리합니다.
+- AI 커스텀 저장 전략에 수정본 생성과 비활성 전략 삭제를 추가했습니다. 승인본은 불변이며 변경은 새 버전·재승인·재검증으로 진행됩니다.
+- v3.9.0.9의 Noah Strategy IR, 원본 근거, Level 1~3, PnL/MDD·월/연도 표, Expression Graph, `.noahstrategy`, PAPER 우선 원칙은 유지됩니다.
+- 전체 자동 회귀 `1,473 passed, 6 skipped, 0 failed`를 통과했습니다.
+- 현재 소스 검증과 Windows 배포 검증은 분리합니다. v3.9.0.10 EXE가 새로 빌드되고 SHA가 확정될 때까지 `pending_windows_rebuild`입니다.
+
 ## v3.9.0.9 AI Custom Stability Update · UI 생명주기·설정·프로세스 안정화 (2026-08-12)
 
 - 무거운 거래소/증권사 화면 트리는 현재 선택한 소스 하나만 생성·소유하고, 전환 시 이전 트리와 예약 콜백을 같은 경계에서 폐기합니다.

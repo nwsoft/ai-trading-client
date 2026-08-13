@@ -1,6 +1,6 @@
 # NoahAI 마스터 문서
 
-> 최신 동기화: 2026-08-12 · 소스 대상 v3.9.0.9 AI Custom Stability Update, 대시보드 매뉴얼·어시스턴트 지식 반영·Windows 재빌드 전  
+> 최신 동기화: 2026-08-13 · 소스 대상 v3.9.0.10 AI Custom Management & Runtime Integrity Update, 대시보드 매뉴얼·어시스턴트 지식과 UI 플랫폼 전환 설계·복구 기준선 반영, Windows 재빌드 전  
 > 이 파일은 공식 문서의 지도입니다. 기능의 사실 판단은 코드 → 테스트 → 아래 정본 순서로 확인합니다.
 
 ## 공식 정본
@@ -14,6 +14,8 @@
 | 레퍼럴·거래소 제휴 운영 | `daltrading/REFERRAL_MEMBERSHIP_OPERATIONS_20260727.md` | 제휴 신청·코드 연결·UID 귀속·회원등급 게이트 통합 정본(관련 저장소) |
 | 인앱 매뉴얼 | `ui/widgets/user_manual_widget.py` | 앱 안의 쉬운 기능 설명 |
 | 기술 구조 | `docs/ARCHITECTURE.md` | 모듈 구조와 책임 경계 |
+| UI 플랫폼 전환 실행 계획 | `docs/UPDATE_PLAN.md` | Web UI·desktop shell·Gateway 단계, 백업·검증·롤백 |
+| UI 디자인/상태 계약 | `docs/UI_DESIGN_GUIDE.md` | 레거시 안정화와 새 Web UI 화면 기준 |
 | 거래 흐름 | `docs/TRADING_FLOW.md` | 코인·증권 주문 파이프라인 |
 | 증권사 API 계약 | `docs/STOCK_BROKER_CONTRACTS_v3.9.0.5.md` | 공식 API 이름·설정 이전·PAPER/LEARNING/LIVE 권한 정본 |
 | 활성 소스·격리 | `docs/SOURCE_QUARANTINE_MANIFEST_20260801.md` | 격리 사유·해시·빌드 제외·복원 기준 |

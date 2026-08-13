@@ -1,9 +1,22 @@
 # 개발자 가이드 (회귀 방지 규칙)
 
-> 기준: 2026-08-01 · v3.9.0.5 Fix Patch 5  
+> 기준: 2026-08-13 · v3.9.0.10 및 UI 플랫폼 전환 설계  
 > 금융 인텔리전스의 메뉴·데이터·상태 모델은 `FINANCIAL_INTELLIGENCE_EXPANSION_PLAN_20260723.md`, 검증은 `FINANCIAL_INTELLIGENCE_TEST_CHECKLIST_20260723.md`를 따릅니다. 빌드 절차는 이 문서에 복제하지 않고 `BUILD_GUIDE.md`만 사용합니다.
 
 본 문서는 개발 단계에서의 회귀를 막고, Pylance/런타임 안정성을 유지하기 위한 규칙 모음입니다. PR 전 체크리스트로 활용하세요.
+
+## UI 플랫폼 전환 개발 규칙
+
+1. **엔진 우선 분리**: 새 화면보다 application service와 DTO/event 계약을 먼저 만든다. UI 모듈에서 Trader, 거래소 SDK, DB connection을 새로 직접 참조하지 않는다.
+2. **하나의 원본**: 기존 CTk와 새 Web UI는 같은 설정·전략·포지션·명령 서비스를 사용한다. 호환을 위해 저장소나 손익 계산을 복제하지 않는다.
+3. **조회/명령 분리**: query DTO는 부작용이 없어야 한다. command는 멱등성 키, 기대 상태 버전, 권한, 감사 결과를 가진다.
+4. **이벤트 계약**: 모든 WebSocket event는 `schema_version`, `sequence`, `event_id`, `occurred_at`, `source`, `account_scope`를 포함한다. gap이 생기면 snapshot을 재조회한다.
+5. **GUI thread 격리**: CustomTkinter, Web renderer, PyQt5/QAxWidget의 GUI 객체는 각 소유 스레드/프로세스 밖에서 접근하지 않는다. thread에서 위젯 메서드를 직접 호출하지 않는다.
+6. **Qt binding 혼합 금지**: 현재 Windows 키움 worker가 PyQt5/QAxWidget을 사용하므로 주 프로세스에 PySide6/PyQt6를 추가하지 않는다. 필요하면 별도 프로세스와 제한 IPC를 사용한다.
+7. **브라우저 비밀정보 금지**: API Secret·passphrase·복호화 값은 renderer payload, localStorage, console, crash report에 포함하지 않는다.
+8. **기능 플래그와 롤백**: route별 `legacy/new`, `read/write`, `paper/live` 권한을 분리한다. 새 화면 오류가 엔진 중지나 열린 포지션 청산으로 연결되지 않게 한다.
+9. **레거시 변경 제한**: 전환 기간의 CustomTkinter 신규 기능은 안전/법규/필수 운영에 한정한다. 일반 제품 기능은 service 계약과 새 UI를 먼저 구현한다.
+10. **완료 정의**: 단위 테스트만으로 UI 이전 완료를 선언하지 않는다. parity, 패키지 설치, 반복 전환, updater, crash/recovery, PAPER soak와 실제 대상 OS 결과를 함께 기록한다.
 
 Fix Patch 5 필수 자동 게이트:
 

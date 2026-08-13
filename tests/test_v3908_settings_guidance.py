@@ -77,7 +77,7 @@ def test_settings_and_ai_custom_ui_keep_explanations_visible_without_clipping_la
     assert "현재 실행 선택은 DeepSeek V4 Flash만 지원" in alpha
     assert 'window = ctk.CTkToplevel(self)' in custom_source
     assert "두 도움 기능의 차이" in custom_source
-    assert "v3.9.0.8 기능 위치" in custom_source
+    assert "AI 커스텀 기능 위치" in custom_source
 
 
 def test_v3908_manual_and_tester_docs_cover_the_new_user_questions():

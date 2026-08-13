@@ -1,3 +1,26 @@
+## 2026-08-13 - v3.9.0.10 유지 · UI 플랫폼 전환 설계·백업 정합 (배포 버전 변경 없음)
+
+- 반복된 설정창·동적 탭·Toplevel·native menu 장애를 개별 위젯 문제가 아니라 UI 수명주기와 엔진 결합 문제로 재분류했습니다.
+- Python 매매/AI 엔진은 유지하고 `Web UI + desktop shell + localhost gateway + application services`로 화면 단위 병행 이전하는 목표 구조를 확정했습니다.
+- PySide6는 유효한 네이티브 UI 기술이지만 현재 Windows 키움의 PyQt5/QAxWidget과 같은 프로세스에 혼합하지 않습니다. 키움은 별도 worker로 격리하는 계획입니다.
+- Electron/Tauri는 아직 선택하지 않았습니다. 동일 POC에서 렌더·업데이터·코드서명·sidecar 복구·다중 모니터·crash 진단을 검증한 뒤 결정합니다.
+- 전환 뒤에도 사용자는 설치된 `NoahAI.exe`를 실행합니다. 최초 `Setup.exe`/MSI와 이후 서명된 bundle 자동업데이트를 사용하며, 현재 단일 EXE 교체 updater는 새 shell·web assets·Python engine·broker worker 전체를 원자적으로 갱신하도록 별도 전환해야 합니다.
+- Web UI와 PySide6를 차트 생태계·SaaS 재사용·키움 PyQt5 충돌·배포·자원 기준으로 비교하고 NoahAI에는 Web UI가 적합하다는 결정을 기록했습니다.
+- 전체 기능 동등성 원장, Lightweight Charts 기반 코인/주식 차트 단계, 체결/XAI 마커, daltrading 목적별 전략 랭킹과 공개·권리·과최적화·개인정보 게이트를 전환 계획에 추가했습니다.
+- v3.9.0.10 전환 전 소스 633개 파일을 외부 백업하고 SHA-256 `b4bdf11d6c633c1c4942bb1fb422241436fd3c923dfac2230e3e8146bb48ab96`을 확인했습니다. 사용자 데이터와 자격증명은 백업에 포함하지 않았습니다.
+- 이번 항목은 계획·문서·복구 기준선 정리이며 새 UI, Gateway, 데스크톱 셸을 구현하거나 현재 배포 버전을 변경한 것이 아닙니다.
+
+## 2026-08-13 - v3.9.0.10 AI Custom Management & Runtime Integrity Update · 설정·탭 렌더·프라이빗 전략 관리
+
+- 3.9.0.9 설정 버튼의 `name 'copy' is not defined`는 `ui/dashboard_modern.py`가 `copy.deepcopy()`를 사용하면서 `copy`를 import하지 않은 회귀로 확정하고 수정했습니다. 설정창은 기존처럼 대시보드 소유 Toplevel 하나를 재사용합니다.
+- 빠른 거래소/증권사 탭 전환에서 여러 `after_idle` 렌더가 순서대로 남던 구조를 서비스별 최신 요청 하나로 병합했습니다. 선택이 바뀐 요청은 실행 전에 취소하고, 새 화면의 다섯 섹션과 대시보드 Toplevel 소유권을 검증한 뒤에만 숨겨진 이전 화면을 폐기합니다.
+- 위젯이 대시보드가 아닌 별도 native 창에 붙으면 `dashboard_widget_owner_mismatch`로 실패 폐쇄합니다. 이 계약은 영상의 좌측 상단 분리 화면·빈 본문·종료 전 UI 파손을 탐지하기 위한 진단 기준입니다.
+- 추가 재현 조건인 `AI 커스텀 전략 약 7개 저장 → 재시작`을 반영해 AI 커스텀 전용 생명주기를 다시 점검했습니다. 기존 코드는 시작할 때 보이지 않는 전체 화면을 미리 만들고 AI 커스텀 탭을 선택할 때마다 기존 화면 전체를 파괴·재생성했습니다. 7개 저장 행을 포함한 실제 위젯은 한 번에 553개의 Tcl 위젯 명령을 생성했습니다. 이제 시작 시 탭 헤더만 만들고 최초 선택 때 화면을 한 번 생성하며, 이후 선택은 동일 `CTkScrollableFrame` 인스턴스를 재사용합니다. 중복 idle 요청과 생성 중 재진입도 병합·차단합니다.
+- 프라이빗 전략에 `수정본 만들기`와 `전략 삭제`를 추가했습니다. 승인된 버전의 범위·시장상황·국면 기준·우선순위·위험예산·고급 규칙은 직접 덮어쓰지 않고 다음 버전으로 저장하며 다시 승인·검증해야 합니다.
+- 적용 중 전략 삭제는 차단합니다. 적용 해제된 전략만 모든 버전을 삭제할 수 있고, 삭제 기록에는 규칙·자격증명 없이 전략/버전 식별자와 행위자만 남깁니다.
+- 전체 자동 회귀 `1,475 passed, 6 skipped, 0 failed`와 문서 정합성 점검을 통과했습니다.
+- 기존 v3.9.0.9 Windows EXE SHA-256 `857ee230a60f...`는 `deploy/previous/AITrading-v3.9.0.9-AI-Custom-Stability-Update.exe`로 보존했습니다. v3.9.0.10은 새 Windows EXE·SHA와 실제 탭/설정 반복시험 전까지 `pending_windows_rebuild`입니다.
+
 ## 2026-08-12 - v3.9.0.9 AI Custom Stability Update · 설정 저장·소스 탭·프로세스 생명주기 근본 보강
 
 - 8월 11일 Teayu 로그와 8월 12일 nwsoft 실행 로그·두 영상을 함께 재분석했습니다. Windows `No more menus can be allocated`는 설정창 `CTkComboBox → DropdownMenu → tk.Menu` 할당에서 발생했고, 거래소 탭 영상은 오른쪽 로그만 남고 왼쪽 제어·잔고·포지션·통계 트리가 사라지는 동일한 누적 생명주기 문제였습니다.

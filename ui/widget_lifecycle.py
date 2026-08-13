@@ -29,6 +29,22 @@ def widget_is_alive(widget: Any) -> bool:
         return False
 
 
+def widget_is_owned_by(widget: Any, parent: Any) -> bool:
+    """Return whether a Tk/CTk widget belongs to the expected visual parent.
+
+    ``CTkScrollableFrame`` is a composite: the object itself is parented to an
+    internal canvas while ``_parent_frame`` is the child of the caller's
+    master.  Treating only ``widget.master`` as ownership makes a healthy
+    scrollable screen look stale and causes destructive rebuild loops.
+    """
+    if not widget_is_alive(widget) or parent is None:
+        return False
+    if getattr(widget, "master", None) is parent:
+        return True
+    scrollable_host = getattr(widget, "_parent_frame", None)
+    return getattr(scrollable_host, "master", None) is parent
+
+
 @dataclass
 class _OwnedWidgetBinding:
     owner_key: str

@@ -78,7 +78,7 @@ def check_release_version_markers(text_map: Dict[str, str]) -> List[str]:
         errors.append("[MANUAL] 인앱 메뉴얼 제목이 USER_MANUAL_TITLE 상수를 사용하지 않습니다.")
 
     app_version = text_map.get("app_version", "")
-    if 'RELEASE_HIGHLIGHT = "AI 커스텀 P1~P3 · UI 생명주기·설정 저장·프로세스·WebSocket 안정화"' not in app_version:
+    if 'RELEASE_HIGHLIGHT = "AI 커스텀 관리 · 설정 오류 차단 · 최신 탭 렌더·위젯 소유권 안정화"' not in app_version:
         errors.append("[APP_VERSION] 대시보드 사용자용 최신 업데이트 요약이 현행 변경과 다릅니다.")
 
     expected_release_line = f"현재 설치 기준 버전: **v{RELEASE_VERSION}**"
@@ -129,6 +129,30 @@ def check_for_higher_version_mentions(text_map: Dict[str, str]) -> List[str]:
 
 def check_release_surface_alignment(text_map: Dict[str, str]) -> List[str]:
     """동일 버전의 핵심 변경이 사용자 노출·기술·검증 문서에 함께 있는지 확인한다."""
+    if RELEASE_VERSION == "3.9.0.10":
+        required = {
+            "manual_widget": ("v3.9.0.10 최신 업데이트", "수정본 만들기", "전략 삭제", "PAPER"),
+            "user_guide": ("현재 설치 기준 버전: **v3.9.0.10**", "Runtime Integrity Update", "pending_windows_rebuild"),
+            "release_notes": ("v3.9.0.10 AI Custom Management & Runtime Integrity Update", "수정본", "pending_windows_rebuild"),
+            "deploy_release_notes": ("v3.9.0.10 AI Custom Management & Runtime Integrity Update", "최신 요청 하나", "pending_windows_rebuild"),
+            "update_plan": ("v3.9.0.10 AI Custom Management & Runtime Integrity Update", "AI 어시스턴트", "pending_windows_rebuild"),
+            "test_status": ("v3.9.0.10 AI Custom Management & Runtime Integrity Update", "Windows", "프라이빗 전략 관리"),
+            "readme": ("v3.9.0.10 AI Custom Management & Runtime Integrity Update", "수정본", "pending_windows_rebuild"),
+            "docs_readme": ("v3.9.0.10 AI 커스텀 관리", "위젯 소유권", "pending_windows_rebuild"),
+            "deploy_checklist": ("v3.9.0.10 AI Custom Management & Runtime Integrity Update", "급속 전환 200회", "pending_windows_rebuild"),
+            "master_documentation": ("v3.9.0.10 AI Custom Management & Runtime Integrity Update", "어시스턴트 지식", "Windows 재빌드 전"),
+            "build_guide": ("v3.9.0.10 AI Custom Management & Runtime Integrity Update", "v3.9.0.9", "pending_windows_rebuild"),
+            "ai_custom_architecture": ("v3.9.0.10 AI Custom Management & Runtime Integrity Update", "승인본", "pending_windows_rebuild"),
+            "assistant_guide": ("v3.9.0.10 AI Custom Management & Runtime Integrity Update", "백테스트/PAPER", ".noahstrategy"),
+        }
+        errors: List[str] = []
+        for surface, markers in required.items():
+            text = text_map.get(surface, "")
+            for marker in markers:
+                if marker not in text:
+                    errors.append(f"[RELEASE_SURFACE] {surface}: '{marker}' 누락")
+        return errors
+
     if RELEASE_VERSION == "3.9.0.9":
         required = {
             "manual_widget": ("v3.9.0.9 최신 업데이트", "Noah Strategy IR", "초보자·일반·고급·실험실", "PAPER"),
