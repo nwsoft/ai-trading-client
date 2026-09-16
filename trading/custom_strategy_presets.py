@@ -40,6 +40,42 @@ SHORT 진입: EMA20 < EMA50 < EMA200, 현재 가격 < EMA20, RSI는 25 이상 50
 포지션: 1회 위험예산 0.5%, 증거금 최대 10%, 레버리지 상한 3배.
 공통 안전: 큰 시간대와 진입 신호가 충돌하거나 유동성·스프레드·손익비 기준 미달이면 HOLD한다.
 이 초안은 성과를 보장하지 않으며 사용자 검토·자동검증 전에는 실행하지 않는다.""",
+        "rules_template": {
+            "entry": "EMA 20·50·200 정렬, 가격 위치, RSI, 거래량 비율을 모두 확인",
+            "exit": "고정 TP/SL 또는 사용자 승인 후 선언한 실행 청산 조건",
+            "stop_loss": "1%",
+            "take_profit": "2%",
+            "position_size": "계좌 위험예산 기반, 증거금 최대 10%",
+            "market_conditions": ["상승장", "하락장", "추세장"],
+            "market_regimes": ["bull", "bear"],
+            "signal_mode": "independent",
+            "entry_signal": "",
+            "independent_entries": {
+                "LONG": {"all": [
+                    {"field": "ema20", "operator": "gt_field", "value_field": "ema50"},
+                    {"field": "ema50", "operator": "gt_field", "value_field": "ema200"},
+                    {"field": "current_price", "operator": "gt_field", "value_field": "ema20"},
+                    {"field": "rsi", "operator": "gte", "value": 50},
+                    {"field": "rsi", "operator": "lte", "value": 75},
+                    {"field": "volume_ratio", "operator": "gte", "value": 1.0},
+                ], "any": []},
+                "SHORT": {"all": [
+                    {"field": "ema20", "operator": "lt_field", "value_field": "ema50"},
+                    {"field": "ema50", "operator": "lt_field", "value_field": "ema200"},
+                    {"field": "current_price", "operator": "lt_field", "value_field": "ema20"},
+                    {"field": "rsi", "operator": "gte", "value": 25},
+                    {"field": "rsi", "operator": "lte", "value": 50},
+                    {"field": "volume_ratio", "operator": "gte", "value": 1.0},
+                ], "any": []},
+            },
+            "executable_entry": {"all": [], "any": []},
+            "executable_exit": {"all": [], "any": []},
+            "exit_policy": {"mode": "strategy_owned"},
+            "engine_settings": {
+                "_unit": "percent_points", "tp_percent": 2.0,
+                "sl_percent": 1.0, "position_size": 0.1, "leverage": 1,
+            },
+        },
     },
     "trend_pullback": {
         "name": "눌림목 진입",
@@ -58,6 +94,38 @@ SHORT 진입: EMA50 < EMA200, 가격이 EMA20 또는 EMA50 부근까지 반등, 
 포지션: 1회 위험예산 0.5%, 증거금 최대 10%, 레버리지 상한 3배.
 공통 안전: 큰 시간대 방향과 진입 신호가 충돌하거나 조건이 부족하면 HOLD한다.
 이 초안은 성과를 보장하지 않으며 사용자 검토·자동검증 전에는 실행하지 않는다.""",
+        "rules_template": {
+            "entry": "큰 추세 정렬 후 EMA20 재돌파·재이탈과 RSI·거래량 회복을 확인",
+            "exit": "고정 TP/SL 또는 사용자 승인 후 선언한 실행 청산 조건",
+            "stop_loss": "1%", "take_profit": "1.8%",
+            "position_size": "계좌 위험예산 기반, 증거금 최대 10%",
+            "market_conditions": ["상승장", "하락장", "추세장"],
+            "market_regimes": ["bull", "bear"],
+            "signal_mode": "independent", "entry_signal": "",
+            "independent_entries": {
+                "LONG": {"all": [
+                    {"field": "ema50", "operator": "gt_field", "value_field": "ema200"},
+                    {"field": "current_price", "operator": "crosses_above", "value_field": "ema20"},
+                    {"field": "rsi", "operator": "gte", "value": 40},
+                    {"field": "rsi", "operator": "lte", "value": 60},
+                    {"field": "volume_ratio", "operator": "gte", "value": 1.0},
+                ], "any": []},
+                "SHORT": {"all": [
+                    {"field": "ema50", "operator": "lt_field", "value_field": "ema200"},
+                    {"field": "current_price", "operator": "crosses_below", "value_field": "ema20"},
+                    {"field": "rsi", "operator": "gte", "value": 40},
+                    {"field": "rsi", "operator": "lte", "value": 60},
+                    {"field": "volume_ratio", "operator": "gte", "value": 1.0},
+                ], "any": []},
+            },
+            "executable_entry": {"all": [], "any": []},
+            "executable_exit": {"all": [], "any": []},
+            "exit_policy": {"mode": "strategy_owned"},
+            "engine_settings": {
+                "_unit": "percent_points", "tp_percent": 1.8,
+                "sl_percent": 1.0, "position_size": 0.1, "leverage": 1,
+            },
+        },
     },
     "range_rsi": {
         "name": "횡보장 저점·고점 대응",
@@ -76,6 +144,32 @@ SHORT 진입: 가격이 박스권 상단에 접근, RSI 65~72 이상에서 하�
 포지션: 1회 위험예산 0.5%, 증거금 최대 10%, 레버리지 상한 2배.
 공통 안전: 추세가 강해지거나 여러 시간대 방향이 충돌하면 HOLD한다.
 이 초안은 성과를 보장하지 않으며 사용자 검토·자동검증 전에는 실행하지 않는다.""",
+        "rules_template": {
+            "entry": "ADX 25 이하 횡보장에서 RSI 과매도·과매수 반전 후보를 확인",
+            "exit": "고정 TP/SL 또는 사용자 승인 후 선언한 실행 청산 조건",
+            "stop_loss": "0.8%", "take_profit": "1.2%",
+            "position_size": "계좌 위험예산 기반, 증거금 최대 10%",
+            "market_conditions": ["횡보장", "저변동성"],
+            "market_regimes": ["range", "calm"],
+            "signal_mode": "independent", "entry_signal": "",
+            "independent_entries": {
+                "LONG": {"all": [
+                    {"field": "adx", "operator": "lte", "value": 25},
+                    {"field": "rsi", "operator": "lte", "value": 30},
+                ], "any": []},
+                "SHORT": {"all": [
+                    {"field": "adx", "operator": "lte", "value": 25},
+                    {"field": "rsi", "operator": "gte", "value": 70},
+                ], "any": []},
+            },
+            "executable_entry": {"all": [], "any": []},
+            "executable_exit": {"all": [], "any": []},
+            "exit_policy": {"mode": "strategy_owned"},
+            "engine_settings": {
+                "_unit": "percent_points", "tp_percent": 1.2,
+                "sl_percent": 0.8, "position_size": 0.1, "leverage": 1,
+            },
+        },
     },
     "volume_breakout": {
         "name": "강한 거래량 돌파",
@@ -83,7 +177,7 @@ SHORT 진입: 가격이 박스권 상단에 접근, RSI 65~72 이상에서 하�
         "risk": "상대적 위험도: 중간~높음",
         "regimes": ["trend", "volatile"],
         "executable_template": True,
-        "summary": "가격 범위가 축소된 뒤 거래량을 동반한 20봉 고점·저점 돌파만 검토합니다.",
+        "summary": "거래량 확장과 ADX 추세 강도를 동반한 EMA20 모멘텀 돌파만 검토합니다.",
         "source_text": """전략명: 강한 거래량 돌파
 목적: 좁은 가격 범위 이후 거래량을 동반한 확정 돌파만 추종한다.
 시장상황: LOW에서 NORMAL로 변동성이 확대되는 구간. 이미 과도한 HIGH 변동성이면 HOLD한다.
@@ -94,6 +188,38 @@ SHORT 진입: 최근 20개 봉 최저가 돌파, 거래량이 최근 평균의 1
 포지션: 1회 위험예산 0.5%, 증거금 최대 8%, 레버리지 상한 2배.
 공통 안전: 유동성 부족·스프레드 확대·큰 시간대 역방향·가짜 돌파 의심 시 HOLD한다.
 이 초안은 성과를 보장하지 않으며 사용자 검토·자동검증 전에는 실행하지 않는다.""",
+        "rules_template": {
+            "entry": "거래량 1.5배·ADX 25 이상에서 EMA20 방향 돌파와 RSI 범위를 확인",
+            "exit": "고정 TP/SL 또는 사용자 승인 후 선언한 실행 청산 조건",
+            "stop_loss": "1%", "take_profit": "2%",
+            "position_size": "계좌 위험예산 기반, 증거금 최대 8%",
+            "market_conditions": ["추세장", "고변동성 진입 전환"],
+            "market_regimes": ["bull", "bear", "volatile"],
+            "signal_mode": "independent", "entry_signal": "",
+            "independent_entries": {
+                "LONG": {"all": [
+                    {"field": "current_price", "operator": "crosses_above", "value_field": "ema20"},
+                    {"field": "volume_ratio", "operator": "gte", "value": 1.5},
+                    {"field": "adx", "operator": "gte", "value": 25},
+                    {"field": "rsi", "operator": "gte", "value": 55},
+                    {"field": "rsi", "operator": "lte", "value": 75},
+                ], "any": []},
+                "SHORT": {"all": [
+                    {"field": "current_price", "operator": "crosses_below", "value_field": "ema20"},
+                    {"field": "volume_ratio", "operator": "gte", "value": 1.5},
+                    {"field": "adx", "operator": "gte", "value": 25},
+                    {"field": "rsi", "operator": "gte", "value": 25},
+                    {"field": "rsi", "operator": "lte", "value": 45},
+                ], "any": []},
+            },
+            "executable_entry": {"all": [], "any": []},
+            "executable_exit": {"all": [], "any": []},
+            "exit_policy": {"mode": "strategy_owned"},
+            "engine_settings": {
+                "_unit": "percent_points", "tp_percent": 2.0,
+                "sl_percent": 1.0, "position_size": 0.08, "leverage": 1,
+            },
+        },
     },
 }
 
@@ -139,4 +265,3 @@ def recommend_preset_for_regime(
     if normalized in {"volatile", "high"} and volume_expansion:
         return "volume_breakout"
     return "hold"
-

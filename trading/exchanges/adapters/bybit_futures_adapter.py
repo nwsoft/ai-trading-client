@@ -86,12 +86,21 @@ class BybitFuturesAdapter(FuturesExchange):
                 'apiKey': str(self.api_key) if self.api_key is not None else '',
                 'secret': str(self.secret_key) if self.secret_key is not None else '',
                 'enableRateLimit': True,
+                'timeout': 12000,
                 'options': {
                     'defaultType': 'swap',  # 선물 스왑 기본
+                    # Bybit signed requests require timestamp < server+1000ms.
+                    # CCXT measures the provider offset instead of hiding a
+                    # bad Windows clock behind a very large recv window.
+                    'adjustForTimeDifference': True,
+                    'recvWindow': 5000,
                 },
             }
             self.exchange = ccxt.bybit(config)  # type: ignore
             self.exchange.load_markets()
+            load_time_difference = getattr(self.exchange, 'load_time_difference', None)
+            if callable(load_time_difference):
+                load_time_difference()
             self.is_connected = True
             self.last_error = ""
             self.last_auth_guidance = ""
@@ -102,6 +111,36 @@ class BybitFuturesAdapter(FuturesExchange):
             self._handle_auth_error(e, where='connect')
             self.log_event('system', f"바이비트 선물 연결 실패: {e}", level='ERROR')
             return False
+
+    @staticmethod
+    def _is_clock_error(error: Any) -> bool:
+        message = str(error or '').lower()
+        return any(token in message for token in (
+            'retcode":10002',
+            'retcode=10002',
+            'server timestamp',
+            'recv_window param',
+            'recvwindow param',
+            'timestamp for this request',
+        ))
+
+    def _fetch_balance_with_clock_retry(self) -> Dict[str, Any]:
+        if self.exchange is None:
+            return {}
+        try:
+            return self.exchange.fetch_balance()
+        except Exception as first_error:
+            if not self._is_clock_error(first_error):
+                raise
+            self.log_event(
+                'system',
+                'Bybit 요청 시간 오차 감지 - 서버 시간 차이 재측정 후 계정 조회 1회 재시도',
+                level='WARNING',
+            )
+            load_time_difference = getattr(self.exchange, 'load_time_difference', None)
+            if callable(load_time_difference):
+                load_time_difference()
+            return self.exchange.fetch_balance()
 
     def _normalize_symbol(self, symbol: str) -> str:
         """CCXT 선물 심볼 정규화: BTCUSDT -> BTC/USDT:USDT"""
@@ -140,11 +179,21 @@ class BybitFuturesAdapter(FuturesExchange):
         if not self.is_connected or not self.exchange:
             return {}
         try:
-            balance = self.exchange.fetch_balance()
+            balance = self._fetch_balance_with_clock_retry()
+            self.last_error = ""
+            self.last_auth_guidance = ""
             return normalize_ccxt_total_balances(balance, quote_asset='USDT')
         except Exception as e:
             self.last_error = str(e)
-            self._handle_auth_error(e, where='get_balance')
+            if self._is_clock_error(e):
+                self.last_auth_guidance = ""
+                self.log_event(
+                    'system',
+                    '[Bybit 시간 진단] Windows 날짜/시간 자동 설정과 지금 동기화를 확인하세요. API 키 재발급 사유가 아닙니다.',
+                    level='WARNING',
+                )
+            else:
+                self._handle_auth_error(e, where='get_balance')
             self.log_event('system', f"잔고 조회 실패: {e}", level='ERROR')
             return {}
     
@@ -152,7 +201,9 @@ class BybitFuturesAdapter(FuturesExchange):
         if not self.is_connected or not self.exchange:
             return {}
         try:
-            balance = self.exchange.fetch_balance()
+            balance = self._fetch_balance_with_clock_retry()
+            self.last_error = ""
+            self.last_auth_guidance = ""
             usdt = balance.get('USDT', {}) if isinstance(balance, dict) else {}
             return {
                 'available_balance': usdt.get('free', 0),
@@ -161,7 +212,10 @@ class BybitFuturesAdapter(FuturesExchange):
             }
         except Exception as e:
             self.last_error = str(e)
-            self._handle_auth_error(e, where='get_account_info')
+            if self._is_clock_error(e):
+                self.last_auth_guidance = ""
+            else:
+                self._handle_auth_error(e, where='get_account_info')
             self.log_event('system', f"계정 정보 조회 실패: {e}", level='ERROR')
             return {}
     

@@ -14,6 +14,7 @@ import hmac
 import importlib
 import json
 import logging
+from trading.market_data_utils import optional_market_number
 import time
 from datetime import datetime
 from typing import Dict, List, Optional, Any
@@ -28,6 +29,7 @@ _OPERATION_BY_LEGACY_PATH = {
     '/v1/market/domestic/etf-list': 'etf_list',
     '/v1/market/domestic/stock-info': 'stock_info',
     '/v1/market/domestic/price': 'price',
+    '/v1/market/domestic/candles': 'candles',
     '/v1/market/domestic/etf-info': 'etf_info',
     '/v1/order/domestic/buy': 'buy',
     '/v1/order/domestic/sell': 'sell',
@@ -357,6 +359,25 @@ class ShinhanStockAdapter(StockExchange):
             self.log_event('system', f'신한증권 연결 실패: {e}', level='ERROR')
             return False
 
+    def disconnect(self) -> bool:
+        """Release the read-only REST session as well as trading state."""
+
+        http, self._http = self._http, None
+        try:
+            close = getattr(http, 'close', None)
+            if callable(close):
+                close()
+        except Exception as exc:
+            # REST clients do not own a child runtime.  Clear the adapter state
+            # even if a third-party close hook is noisy so app shutdown is not
+            # incorrectly reported as a surviving worker.
+            self.log_event('system', f'신한증권 HTTP 세션 정리 경고: {exc}', level='WARNING')
+        self._access_token = ''
+        self._token_expires_at = 0.0
+        self.is_connected = False
+        self.mark_execution_stream_disconnected('adapter_disconnect')
+        return True
+
     def health_check(self) -> Dict[str, Any]:
         """연결 상태 경량 확인 (토큰 유효 여부 + 실제 API 호출).
 
@@ -464,7 +485,7 @@ class ShinhanStockAdapter(StockExchange):
                 'market': data.get('mktNm') or data.get('market', ''),
                 'current_price': current_price,
                 'prev_close': abs(self._to_float(data.get('prevClsprc') or data.get('prev_close'))),
-                'change_rate': self._to_float(data.get('flucRt') or data.get('change_rate')),
+                'change_rate': optional_market_number(data.get('flucRt'), data.get('change_rate')),
                 'volume': self._to_int(data.get('acmlVol') or data.get('volume')),
                 'is_etf': self.is_etf(symbol),
                 'status': 'ok',
@@ -472,6 +493,22 @@ class ShinhanStockAdapter(StockExchange):
         except Exception as e:
             self.log_event('system', f'신한 종목정보 조회 실패: {symbol} - {e}', level='ERROR')
             return {'status': 'error', 'error': str(e)}
+
+    def get_daily_candles(self, symbol: str, limit: int = 100) -> List[Dict[str, Any]]:
+        """계약 프로필에 candles operation이 있을 때만 일봉을 조회한다."""
+        if not self.is_connected or not self._resolve_path('/v1/market/domestic/candles'):
+            return []
+        symbol = self._normalize_symbol(symbol)
+        data = self._get('/v1/market/domestic/candles', params={'isuSrtCd': symbol, 'period': 'D', 'count': min(max(int(limit), 1), 500)})
+        items = data.get('candles') or data.get('prices') or data.get('output') or []
+        if isinstance(items, dict): items = [items]
+        rows = []
+        for item in items:
+            if not isinstance(item, dict): continue
+            date_value = str(item.get('date') or item.get('bsopDate') or item.get('stck_bsop_date') or '').replace('-', '')
+            if len(date_value) != 8: continue
+            rows.append({'date': date_value, 'open': abs(self._to_float(item.get('open') or item.get('oprc'))), 'high': abs(self._to_float(item.get('high') or item.get('hgpr'))), 'low': abs(self._to_float(item.get('low') or item.get('lwpr'))), 'close': abs(self._to_float(item.get('close') or item.get('clsprc'))), 'volume': self._to_float(item.get('volume') or item.get('acmlVol'))})
+        return sorted(rows, key=lambda row: row['date'])
 
     def get_realtime_price(self, symbol: str) -> Dict[str, Any]:
         """실시간 시세 조회."""
@@ -485,7 +522,7 @@ class ShinhanStockAdapter(StockExchange):
             return {
                 'code': symbol,
                 'current_price': abs(self._to_float(data.get('stckPrpr') or data.get('current_price'))),
-                'change_rate': self._to_float(data.get('prdy_ctrt') or data.get('change_rate')),
+                'change_rate': optional_market_number(data.get('prdy_ctrt'), data.get('change_rate')),
                 'volume': self._to_int(data.get('acmlVol') or data.get('volume')),
                 'bid_price': abs(self._to_float(data.get('bidPrc') or data.get('bid_price'))),
                 'ask_price': abs(self._to_float(data.get('askPrc') or data.get('ask_price'))),
@@ -747,5 +784,6 @@ class ShinhanStockAdapter(StockExchange):
             'today_trades': len(self.get_today_trades()),
             'open_orders': len(self.get_open_orders()),
             'realized_pnl': 0.0,
+            'pnl_verified': False,
             'status': 'ok',
         }

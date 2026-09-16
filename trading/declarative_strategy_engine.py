@@ -4,12 +4,15 @@
 from __future__ import annotations
 
 import math
+import threading
 from typing import Any, Dict, List, Tuple
 
 from .user_indicator_language import UserIndicatorLanguage
 
 
 class DeclarativeStrategyEngine:
+    _paper_rotation_lock = threading.Lock()
+    _paper_rotation_counters: Dict[str, int] = {}
     ALLOWED_INDICATORS = {"sma", "ema", "rsi", "atr", "volume_sma"}
     ALLOWED_TIMEFRAMES = {"1m", "3m", "5m", "15m", "30m", "1h", "2h", "4h", "6h", "12h", "1d"}
     ALLOWED_SOURCES = {"open", "high", "low", "close", "volume"}
@@ -150,6 +153,24 @@ class DeclarativeStrategyEngine:
                     supported, reason = cls.validate_condition_spec(condition)
                     if not supported:
                         errors.append(f"{section}.{group}[{index}]:{reason}")
+        independent_entries = (rules or {}).get("independent_entries")
+        if independent_entries is not None:
+            if not isinstance(independent_entries, dict):
+                errors.append("independent_entries:invalid_spec")
+            else:
+                for raw_direction, branch_spec in independent_entries.items():
+                    direction = str(raw_direction or "").strip().upper()
+                    if direction not in {"LONG", "SHORT"}:
+                        errors.append(f"independent_entries:unsupported_direction:{direction}")
+                        continue
+                    if not isinstance(branch_spec, dict):
+                        errors.append(f"independent_entries.{direction}:invalid_spec")
+                        continue
+                    branch_validation = cls.validate_rule_spec({"executable_entry": branch_spec})
+                    errors.extend(
+                        f"independent_entries.{direction}:{reason}"
+                        for reason in branch_validation.get("errors", [])
+                    )
         indicator_validation = UserIndicatorLanguage.validate_definitions(
             (rules or {}).get("user_indicators")
         )
@@ -411,6 +432,17 @@ class DeclarativeStrategyEngine:
         spec = dict((rules or {}).get(section, {}) or {})
         if not spec:
             return {"allowed": empty_allowed, "bypassed": True, "reason": empty_reason}
+        timeframe = str(rules.get("decision_timeframe") or rules.get("timeframe") or "").lower()
+        has_conditions = bool(spec.get("expression") or spec.get("all") or spec.get("any"))
+        if timeframe and has_conditions:
+            if str(rules.get("execution_timeframe") or timeframe).lower() != timeframe:
+                return {"allowed": False, "bypassed": False, "reason": "strategy_execution_timeframe_mismatch"}
+            scoped = dict(context.get("_strategy_timeframe_contexts") or {}).get(timeframe)
+            if not isinstance(scoped, dict):
+                return {"allowed": False, "bypassed": False, "reason": f"strategy_timeframe_data_unavailable:{timeframe}"}
+            # Preserve live account/signal inputs, replacing only candle-derived indicators.
+            context = {**context, **{key: value for key, value in scoped.items() if key not in {"signal", "current_price", "confidence"}},
+                       "_previous": {**dict(context.get("_previous") or {}), **dict(scoped.get("_previous") or {})}}
         context, indicator_status = cls._prepare_user_indicator_context(rules, context)
         if indicator_status != "supported":
             return {
@@ -460,18 +492,8 @@ class DeclarativeStrategyEngine:
 
     @classmethod
     def _scope_matches(cls, scope: str, *, asset_class: str, target: str) -> bool:
-        normalized = str(scope or "asset:crypto").strip().lower()
-        asset = str(asset_class or "").strip().lower()
-        current = str(target or "").strip().lower()
-        if normalized == "asset:all":
-            return True
-        if normalized == f"asset:{asset}":
-            return True
-        if normalized.startswith("exchange:"):
-            return asset == "crypto" and normalized.split(":", 1)[1] == current
-        if normalized.startswith("broker:"):
-            return asset == "stock" and normalized.split(":", 1)[1] == current
-        return False
+        from .strategy_scope import scope_matches
+        return scope_matches(scope, asset_class=asset_class, target=target)
 
     @classmethod
     def evaluate_strategy_pool(
@@ -493,11 +515,8 @@ class DeclarativeStrategyEngine:
         )
 
         regimes_context = resolve_market_regimes(context, market_regime)
-        candidates = sorted(
-            [item for item in strategies if isinstance(item, dict)],
-            key=lambda item: int(item.get("priority", 5) or 5),
-            reverse=True,
-        )[:10]
+        from .strategy_scope import scoped_pool
+        candidates = scoped_pool(strategies, asset_class=asset_class, target=target)
         evaluated = []
         scoped = []
         matched_results: List[Dict[str, Any]] = []
@@ -534,6 +553,7 @@ class DeclarativeStrategyEngine:
             ):
                 continue
             scoped.append(item)
+            operation_mode = str(item.get("operation_mode") or "standard").strip().lower()
             allowed_regimes = [
                 str(value).strip().lower()
                 for value in (item.get("market_regimes") or rules.get("market_regimes") or ["all"])
@@ -599,6 +619,7 @@ class DeclarativeStrategyEngine:
                 })
                 evaluated.append({
                     "name": item.get("name", "사용자 전략"),
+                    "operation_mode": operation_mode,
                     "result": {"allowed": False, "reason": "strategy_demoted_to_paper"},
                 })
                 continue
@@ -609,18 +630,77 @@ class DeclarativeStrategyEngine:
             evaluation_context["_market_regime_source"] = regime_source
             evaluation_context["_regime_scope"] = regime_scope
             base_signal = str(evaluation_context.get("signal") or "HOLD").upper()
+            entry: Dict[str, Any]
             if signal_mode == "independent":
-                if entry_signal not in {"LONG", "SHORT"}:
+                independent_entries = dict(rules.get("independent_entries") or {})
+                if independent_entries:
+                    branch_results: Dict[str, Dict[str, Any]] = {}
+                    matched_directions: List[str] = []
+                    for direction in ("LONG", "SHORT"):
+                        branch_spec = independent_entries.get(direction) or independent_entries.get(direction.lower())
+                        if not isinstance(branch_spec, dict):
+                            continue
+                        branch_context = dict(evaluation_context)
+                        branch_context["signal"] = direction
+                        branch_rules = dict(rules)
+                        branch_rules["executable_entry"] = dict(branch_spec)
+                        branch_result = cls.evaluate_entry(branch_rules, branch_context)
+                        branch_results[direction] = branch_result
+                        if branch_result.get("allowed", False):
+                            matched_directions.append(direction)
+                    if len(matched_directions) != 1:
+                        evaluated.append({
+                            "name": item.get("name", "사용자 전략"),
+                            "operation_mode": operation_mode,
+                            "result": {
+                                "allowed": False,
+                                "reason": (
+                                    "independent_direction_conflict"
+                                    if len(matched_directions) > 1
+                                    else "independent_entry_not_met"
+                                ),
+                                "branches": branch_results,
+                            },
+                        })
+                        continue
+                    entry_signal = matched_directions[0]
+                    evaluation_context["signal"] = entry_signal
+                    entry = {
+                        **branch_results[entry_signal],
+                        "dynamic_direction": entry_signal,
+                        "branches": branch_results,
+                    }
+                elif entry_signal not in {"LONG", "SHORT"}:
                     evaluated.append({
                         "name": item.get("name", "사용자 전략"),
+                        "operation_mode": operation_mode,
                         "result": {"allowed": False, "reason": "independent_entry_signal_missing"},
                     })
                     continue
-                evaluation_context["signal"] = entry_signal
+                else:
+                    evaluation_context["signal"] = entry_signal
+                    entry = cls.evaluate_entry(rules, evaluation_context)
             elif "signal" in evaluation_context and base_signal not in {"LONG", "SHORT"}:
                 continue
-            entry = cls.evaluate_entry(rules, evaluation_context)
-            evaluated.append({"name": item.get("name", "사용자 전략"), "result": entry})
+            elif entry_signal in {"LONG", "SHORT"} and base_signal != entry_signal:
+                evaluated.append({
+                    "name": item.get("name", "사용자 전략"),
+                    "operation_mode": operation_mode,
+                    "result": {
+                        "allowed": False,
+                        "reason": "confirm_direction_mismatch",
+                        "required_direction": entry_signal,
+                        "base_direction": base_signal,
+                    },
+                })
+                continue
+            else:
+                entry = cls.evaluate_entry(rules, evaluation_context)
+            evaluated.append({
+                "name": item.get("name", "사용자 전략"),
+                "operation_mode": operation_mode,
+                "result": entry,
+            })
             if entry.get("allowed", False):
                 from .custom_strategy_runtime import (
                     derive_strategy_risk_settings,
@@ -673,6 +753,7 @@ class DeclarativeStrategyEngine:
                     "selected_strategy_id": item.get("id"),
                     "selected_strategy_key": item.get("strategy_key"),
                     "selected_version_id": item.get("version_id"),
+                    "selected_strategy_scope": item.get("strategy_scope"),
                     "selected_strategy_name": item.get("name", "사용자 전략"),
                     "selected_rules": rules,
                     "engine_settings": engine_settings,
@@ -684,7 +765,7 @@ class DeclarativeStrategyEngine:
                     "market_regime_source": regime_source,
                     "signal_mode": signal_mode,
                     "entry_signal": entry_signal if signal_mode == "independent" else base_signal,
-                    "operation_mode": str(item.get("operation_mode") or "standard"),
+                    "operation_mode": operation_mode,
                     "runtime_indicator_values": list(
                         evaluation_context.get("_advanced_indicator_values") or []
                     ),
@@ -692,6 +773,38 @@ class DeclarativeStrategyEngine:
                     "priority": int(item.get("priority", 5) or 5),
                 })
         if matched_results:
+            paper_validation_candidates = [
+                item for item in matched_results
+                if str(item.get("operation_mode") or "").lower() == "paper_validation"
+            ]
+            if paper_validation_candidates:
+                # NoahAI currently has one PAPER execution slot per venue and
+                # symbol, not a hidden independent portfolio per strategy.
+                # Rotate matched observation candidates so list order cannot
+                # starve every strategy except the first. LIVE keeps the
+                # stricter conflicting-signal HOLD contract below.
+                rotation_key = f"{asset_class}:{target}"
+                requested_index = context.get("_paper_validation_rotation_index")
+                if requested_index is None:
+                    with cls._paper_rotation_lock:
+                        requested_index = cls._paper_rotation_counters.get(rotation_key, 0)
+                        cls._paper_rotation_counters[rotation_key] = int(requested_index) + 1
+                winner_index = int(requested_index or 0) % len(paper_validation_candidates)
+                winner = paper_validation_candidates[winner_index]
+                winner["paper_validation_execution_model"] = "shared_round_robin"
+                winner["eligible_alternatives"] = [
+                    {
+                        "name": item.get("selected_strategy_name"),
+                        "version_id": item.get("selected_version_id"),
+                        "priority": item.get("priority"),
+                        "waiting_for_shared_slot": index != winner_index,
+                    }
+                    for index, item in enumerate(paper_validation_candidates)
+                    if index != winner_index
+                ]
+                winner["demotions"] = demotions
+                winner["improvement_proposals"] = improvement_proposals
+                return winner
             resolved_signals = {
                 str(item.get("entry_signal") or "").upper()
                 for item in matched_results
@@ -731,6 +844,8 @@ class DeclarativeStrategyEngine:
         if not evaluated:
             transition = "delegate_to_noah"
             for item in scoped:
+                if str(item.get("operation_mode") or "standard").strip().lower() == "paper_validation":
+                    continue
                 item_rules = dict(item.get("rules") or {})
                 policy = str(item_rules.get("regime_transition", "delegate_to_noah") or "delegate_to_noah").lower()
                 if policy == "pause":
@@ -752,6 +867,21 @@ class DeclarativeStrategyEngine:
                 "transition_action": "delegate_to_noah",
                 "market_regime": regimes_context["market"],
                 "evaluated": [],
+            }
+        blocking_evaluated = [
+            row for row in evaluated
+            if str(row.get("operation_mode") or "standard").strip().lower() != "paper_validation"
+        ]
+        if not blocking_evaluated:
+            return {
+                "allowed": True,
+                "bypassed": True,
+                "reason": "paper_validation_not_matched_delegate_to_noah",
+                "transition_action": "delegate_to_noah",
+                "market_regime": regimes_context["market"],
+                "demotions": demotions,
+                "improvement_proposals": improvement_proposals,
+                "evaluated": evaluated,
             }
         return {
             "allowed": False,

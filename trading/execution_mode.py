@@ -9,6 +9,12 @@ from __future__ import annotations
 from enum import Enum
 from typing import Any, Dict, Iterable, Optional
 
+from config.settings_contract import (
+    LEGACY_TRADE_SCOPE_CONFIRMATION_KEYS,
+    TRADE_SCOPE_CONFIRMATION_KEY,
+)
+from trading.exchanges.venue_capabilities import CRYPTO_VENUES
+
 
 class ExecutionMode(str, Enum):
     LEARNING = "learning"
@@ -16,10 +22,7 @@ class ExecutionMode(str, Enum):
     LIVE = "live"
 
 
-CRYPTO_EXCHANGES = {"binance", "bybit", "okx", "bitget", "upbit", "bithumb"}
-TRADE_SCOPE_CONFIRMATION_KEY = "_trade_scope_user_confirmed_v3904"
-
-
+CRYPTO_EXCHANGES = set(CRYPTO_VENUES)
 def _normalize(value: Any) -> str:
     return str(value or "").strip().lower()
 
@@ -33,9 +36,17 @@ def _normalized_scope(values: Any) -> set[str]:
     }
 
 
+def trade_scope_confirmed(settings: Optional[Dict[str, Any]]) -> bool:
+    """Read the canonical Web/legacy confirmation key with old-profile fallback."""
+    cfg = settings if isinstance(settings, dict) else {}
+    if TRADE_SCOPE_CONFIRMATION_KEY in cfg:
+        return bool(cfg.get(TRADE_SCOPE_CONFIRMATION_KEY, False))
+    return any(bool(cfg.get(key, False)) for key in LEGACY_TRADE_SCOPE_CONFIRMATION_KEYS)
+
+
 def live_order_scope(settings: Optional[Dict[str, Any]]) -> set[str]:
     cfg = settings if isinstance(settings, dict) else {}
-    if not bool(cfg.get(TRADE_SCOPE_CONFIRMATION_KEY, False)):
+    if not trade_scope_confirmed(cfg):
         return set()
     configured = cfg.get("trade_enabled_exchanges", [])
     if isinstance(configured, list) and configured:

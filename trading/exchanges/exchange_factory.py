@@ -4,6 +4,8 @@
 통합 거래소 팩토리 클래스
 """
 
+import os
+import platform
 from typing import Dict, Any, Optional
 from .interfaces.exchange_interface import ExchangeInterface
 from .interfaces.futures_exchange import FuturesExchange
@@ -15,6 +17,7 @@ from .adapters.okx_futures_adapter import OkxFuturesAdapter
 from .adapters.bitget_futures_adapter import BitgetFuturesAdapter
 from .adapters.upbit_spot_adapter import UpbitSpotAdapter
 from .adapters.bithumb_spot_adapter import BithumbSpotAdapter
+from .adapters.coinone_spot_adapter import CoinoneSpotAdapter
 from .adapters.kiwoom_stock_adapter import KiwoomStockAdapter
 from .adapters.shinhan_stock_adapter import ShinhanStockAdapter
 from .adapters.mirae_asset_stock_adapter import MiraeAssetStockAdapter
@@ -132,6 +135,7 @@ class ExchangeFactory:
     _spot_adapters = {
         'upbit': UpbitSpotAdapter,
         'bithumb': BithumbSpotAdapter,
+        'coinone': CoinoneSpotAdapter,
     }
     
     _stock_adapters = {
@@ -173,7 +177,21 @@ class ExchangeFactory:
         api_key = settings.get(f'{exchange_name}_api_key', '')
         secret_key = settings.get(f'{exchange_name}_secret_key', '')
         
-        return adapter_class(api_key, secret_key)
+        kwargs: Dict[str, Any] = {}
+        if exchange_name == 'bithumb':
+            selection = dict(settings.get('crypto_selection', {}) or {})
+            configured = list(
+                dict(selection.get('manual_symbols_by_exchange', {}) or {}).get('bithumb', []) or []
+            )
+            kwargs['order_symbol_query_limit'] = settings.get('bithumb_private_symbol_query_limit', 100)
+            adapter = adapter_class(api_key, secret_key, **kwargs)
+            seeder = getattr(adapter, 'seed_order_symbols', None)
+            if callable(seeder):
+                seeder(configured)
+            return adapter
+        if exchange_name == 'coinone':
+            kwargs['live_e2e_verified'] = bool(settings.get('coinone_live_e2e_verified', False))
+        return adapter_class(api_key, secret_key, **kwargs)
     
     @classmethod
     def create_stock_exchange(cls, exchange_name: str, settings: Dict[str, Any]) -> Optional[StockExchange]:
@@ -244,6 +262,21 @@ class ExchangeFactory:
             )
         
         # ── 실제 어댑터 (openapi / rest) ────────────────────────────────────────
+        if (
+            broker_key == 'kiwoom'
+            and api_type == 'openapi_plus'
+            and api_version == 'pykiwoom'
+            and platform.system() == 'Windows'
+            # All callers (settings probes, Web requests and workers) must
+            # share the process-owned COM contract, not infer thread safety
+            # from an optional UI environment marker.
+        ):
+            from .adapters.kiwoom_process_proxy import KiwoomProcessProxy
+            return KiwoomProcessProxy(
+                user_id, password, cert_password, account_no,
+                api_type=api_type, api_version=api_version,
+                account_password=broker_config.get('account_password', ''),
+            )
         adapter_class = cls._stock_adapters[broker_key]
         return adapter_class(
             user_id,
@@ -256,6 +289,11 @@ class ExchangeFactory:
             app_secret=app_secret,
             sandbox=bool(broker_config.get('sandbox', False)),
             partner_profile=dict(broker_config.get('partner_profile', {}) or {}),
+            configured_etf_symbols=list(
+                broker_config.get('etf_symbols', [])
+                or dict(settings.get('stock_auto_trading', {}) or {}).get('etf_symbols', [])
+                or []
+            ),
         )
     
     @classmethod
@@ -361,6 +399,8 @@ class ExchangeFactory:
             return bool(settings.get('upbit_api_key') and settings.get('upbit_secret_key'))
         elif exchange_name == 'bithumb':
             return bool(settings.get('bithumb_api_key') and settings.get('bithumb_secret_key'))
+        elif exchange_name == 'coinone':
+            return bool(settings.get('coinone_api_key') and settings.get('coinone_secret_key'))
             
         return False
 

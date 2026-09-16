@@ -346,8 +346,23 @@ class AlphaArenaRunner:
                 if not symbol.endswith('USDT'):
                     symbol = f"{symbol}USDT"
                 
-                # 주문 실행
-                result = self.order_executor.execute_trading_decision(symbol, decision)
+                # PAPER는 현재 시장의 AI 판단과 가드 검증만 기록하며 거래소에
+                # 주문을 제출하지 않는다. LIVE는 Headless runtime의 별도 확인
+                # 게이트를 통과한 경우에만 이 Runner가 시작될 수 있다.
+                if bool(self.settings.get('paper_trading', True)):
+                    gate = self.order_executor._check_trade_gates(symbol, decision)
+                    result = {
+                        'status': 'SIMULATED' if gate.get('allowed') else 'SKIPPED',
+                        'mode': 'PAPER',
+                        'symbol': symbol,
+                        'signal': str(decision.get('signal') or 'HOLD'),
+                        'order_submitted': False,
+                        'simulation_id': f"paper_{uuid.uuid4().hex}",
+                    }
+                    if not gate.get('allowed'):
+                        result['skip_reason'] = str(gate.get('reason') or 'guard_rejected')
+                else:
+                    result = self.order_executor.execute_trading_decision(symbol, decision)
                 
                 # 주문 결과 기록
                 if self.metrics:
@@ -386,7 +401,9 @@ class AlphaArenaRunner:
                 
                 # 로깅
                 status = result.get('status', 'UNKNOWN')
-                if status == 'SUCCESS':
+                if status == 'SIMULATED':
+                    self.logger.info(f"[{symbol}] PAPER 판단 기록 완료 (거래소 주문 없음)")
+                elif status == 'SUCCESS':
                     self.logger.info(f"[{symbol}] 주문 실행 성공: {result.get('order_id', 'N/A')}")
                 elif status == 'SKIPPED':
                     skip_reason = result.get('skip_reason', 'Unknown')

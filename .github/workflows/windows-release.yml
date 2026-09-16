@@ -1,0 +1,90 @@
+name: Windows release candidate
+
+on:
+  workflow_dispatch:
+    inputs:
+      publish_release:
+        description: Publish the verified candidate to GitHub Releases
+        required: true
+        type: boolean
+        default: false
+      confirm_external_gates:
+        description: Confirm the Windows tester runbook has passed
+        required: true
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+jobs:
+  build-candidate:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          architecture: "x64"
+          cache: pip
+
+      - name: Install Python 3.11 x86 for Kiwoom OpenAPI+
+        shell: powershell
+        run: |
+          $installer = Join-Path $env:RUNNER_TEMP "python-3.11.9-x86.exe"
+          Invoke-WebRequest "https://www.python.org/ftp/python/3.11.9/python-3.11.9.exe" -OutFile $installer
+          $target = Join-Path $env:RUNNER_TEMP "python311-x86"
+          $process = Start-Process $installer -ArgumentList "/quiet InstallAllUsers=0 Include_launcher=0 Include_test=0 PrependPath=0 TargetDir=$target" -Wait -PassThru -WindowStyle Hidden
+          if ($process.ExitCode -ne 0) { throw "Python x86 installation failed: $($process.ExitCode)" }
+          "NOAHAI_PYTHON_X86=$target\python.exe" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: webui/package-lock.json
+
+      - name: Install Python dependencies
+        run: |
+          python -m pip install -r requirements_windows.txt
+          & $env:NOAHAI_PYTHON_X86 -m pip install -r requirements_kiwoom_x86.txt
+
+      - name: Build Windows release candidate
+        shell: powershell
+        run: powershell -ExecutionPolicy Bypass -File scripts/build_web_ui_windows.ps1
+
+      - name: Read application version
+        id: app_version
+        shell: powershell
+        run: |
+          $version = python -c "from config.app_version import RELEASE_VERSION; print(RELEASE_VERSION)"
+          "version=$version" >> $env:GITHUB_OUTPUT
+
+      - name: Upload release candidate
+        uses: actions/upload-artifact@v4
+        with:
+          name: NoahAI-${{ steps.app_version.outputs.version }}-windows-candidate
+          if-no-files-found: error
+          path: |
+            deploy/web-release/NoahAI-${{ steps.app_version.outputs.version }}-Setup.exe
+            deploy/web-release/NoahAI-${{ steps.app_version.outputs.version }}-Setup.exe.blockmap
+            deploy/web-release/latest.yml
+            deploy/release-manifest.json
+
+      - name: Reject unconfirmed publication
+        if: inputs.publish_release && !inputs.confirm_external_gates
+        shell: powershell
+        run: |
+          $version = python -c "from config.app_version import RELEASE_VERSION; print(RELEASE_VERSION)"
+          $prefix = "V" + ($version -replace '\.', '')
+          $plan = Get-ChildItem -LiteralPath docs -Filter "$prefix*_TEST_PLAN.md" | Select-Object -First 1
+          if ($plan) { Write-Host "Required gate plan: docs/$($plan.Name)" }
+          throw "Windows gate plan still has unchecked rows unless confirm_external_gates is true"
+
+      - name: Publish verified release
+        if: inputs.publish_release && inputs.confirm_external_gates
+        shell: powershell
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: powershell -ExecutionPolicy Bypass -File scripts/publish_web_ui_windows_release.ps1 -ConfirmExternalGates

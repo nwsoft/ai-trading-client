@@ -7,6 +7,7 @@
 
 import importlib
 import logging
+from trading.market_data_utils import optional_market_number
 import platform
 import threading
 import time
@@ -21,8 +22,8 @@ _KIWOOM_SESSION_ERRORS = frozenset([
 _KIWOOM_MARKET_CLOSED_ERRORS = frozenset([
     -304,  # 장 마감
 ])
-_KIWOOM_ACCOUNT_ERRORS = frozenset([
-    -200, -201, -202,  # 계좌/비밀번호 오류
+_KIWOOM_QUERY_ERRORS = frozenset([
+    -200, -201, -202,  # 조회 과부하/요청 전문/입력값 오류
 ])
 
 
@@ -71,6 +72,9 @@ class KiwoomStockAdapter(StockExchange):
         super().__init__("kiwoom")
         self.user_id = user_id
         self.password = password
+        # Login password is not the account inquiry password. Empty uses the
+        # account password registered with OpenAPI+, as in the backend examples.
+        self.account_password = str(kwargs.get('account_password') or '')
         self.cert_password = cert_password
         self.account_no = account_no
         self.api_type = kwargs.get('api_type', 'openapi_plus')
@@ -87,6 +91,9 @@ class KiwoomStockAdapter(StockExchange):
         self._last_connect_failure_reason = ''
         self._last_connect_cooldown_log_ts = 0.0
         self._disconnected_warning_ts: Dict[str, float] = {}
+        # Metadata and quote reads share opt10001. Reuse only a successful
+        # positive quote for one second, never a failure or a prior session.
+        self._basic_info_cache: Dict[str, Any] = {}
         from log_system.log_adapter import log_event
         self.log_event = lambda category, msg, level='INFO': log_event(category, msg, exchange='kiwoom', level=level)
         
@@ -196,61 +203,56 @@ class KiwoomStockAdapter(StockExchange):
             )
             return False
         try:
+            if __import__('struct').calcsize('P') != 4:
+                self._last_connect_failure_reason = 'kiwoom_requires_32bit_host'
+                self.log_event('system', '키움 OpenAPI+는 전용 32비트 호스트에서 연결해야 합니다. 64비트 프로세스에서는 ActiveX를 로드하지 않습니다.', level='ERROR')
+                return False
             # pykiwoom은 PyQt5.QAxWidget 기반 → QApplication이 없으면 Kiwoom() 초기화 실패
             # tkinter 이벤트 루프와 별도로 QApplication 인스턴스만 생성 (exec_()는 호출하지 않음)
             try:
                 from PyQt5.QtWidgets import QApplication
                 from PyQt5.QAxContainer import QAxWidget
                 import sys as _sys
-                if QApplication.instance() is None:
-                    self._qt_app = QApplication(_sys.argv)
+                self._qt_app = QApplication.instance() or QApplication(_sys.argv)
             except ImportError:
                 self.log_event(
                     'system',
                     '[키움증권 연결 불가] PyQt5가 설치되어 있지 않습니다. '
-                    'pip install PyQt5 후 재시도하거나, requirements_windows.txt를 확인하세요.',
+                    'NoahAIKiwoomHost.exe가 포함된 최신 설치본으로 재설치하세요. '
+                    '개발 빌드는 requirements_kiwoom_x86.txt를 확인하세요.',
                     level='ERROR',
                 )
                 return False
 
-            # KHOpenAPI ActiveX 로딩 가능 여부를 먼저 점검해 근본 원인을 분리한다.
+            # Load exactly one OCX. A temporary QAx probe used to create a
+            # second control before pykiwoom and tear it down during startup.
+            # Registry checking does not instantiate or destroy the COM server.
+            from .kiwoom_host_diagnostics import record_stage
+            record_stage("activex_registry")
             try:
-                probe = QAxWidget()
-                control_ok = bool(probe.setControl('KHOPENAPI.KHOpenAPICtrl.1'))
-                has_event = hasattr(probe, 'OnReceiveTrData')
-                if not control_ok or not has_event:
-                    py_bits = 64 if (8 * __import__('struct').calcsize('P')) == 64 else 32
-                    self.log_event(
-                        'system',
-                        '[키움증권 연결 불가] KHOpenAPI ActiveX 로딩 실패 또는 이벤트 바인딩 실패. '
-                        f'setControl={control_ok}, OnReceiveTrData={has_event}, '
-                        f'python_bits={py_bits}, python={platform.python_version()}. '
-                        'OpenAPI+ 재설치(관리자 권한) 후 KOA Studio 연결 성공 여부를 먼저 확인하세요.',
-                        level='ERROR',
-                    )
-                    self._last_connect_failure_reason = (
-                        f'activex_control_probe_failed:py{py_bits}:control{int(control_ok)}:event{int(has_event)}'
-                    )
-                    return False
-            except Exception as probe_exc:
-                self.log_event(
-                    'system',
-                    f'[키움증권 연결 불가] ActiveX 사전 점검 실패: {probe_exc}',
-                    level='ERROR',
-                )
-                self._last_connect_failure_reason = 'activex_probe_exception'
+                import winreg
+                with winreg.OpenKey(winreg.HKEY_CLASSES_ROOT, "KHOPENAPI.KHOpenAPICtrl.1",
+                                    0, winreg.KEY_READ | winreg.KEY_WOW64_32KEY):
+                    pass
+            except OSError:
+                self._last_connect_failure_reason = "activex_32bit_registration_missing"
+                record_stage("activex_registration_missing")
                 return False
+            record_stage("activex_construct")
 
             kiwoom_module = importlib.import_module('pykiwoom.kiwoom')
             Kiwoom = getattr(kiwoom_module, 'Kiwoom')
-            self.kiwoom = Kiwoom()
+            from .kiwoom_bounded_backend import create_bounded_backend
+            self.kiwoom = create_bounded_backend(Kiwoom, request_timeout=self.request_timeout)
+            record_stage("activex_ready")
             self.connection_backend = 'pykiwoom'
             return True
         except ImportError as exc:
             self.log_event(
                 'system',
                 f'[키움증권 연결 불가] pykiwoom 라이브러리를 찾을 수 없습니다: {exc} — '
-                'pip install pykiwoom 후 재시도하거나, 환경설정에서 API 버전을 "mock"으로 변경하세요.',
+                'NoahAIKiwoomHost.exe가 포함된 최신 설치본으로 재설치하세요. '
+                '개발 빌드는 requirements_kiwoom_x86.txt를 확인하세요.',
                 level='ERROR',
             )
             return False
@@ -296,6 +298,7 @@ class KiwoomStockAdapter(StockExchange):
         reason = str(self._last_connect_failure_reason or '')
         return reason.startswith((
             'activex_control_probe_failed',
+            'activex_32bit_registration_missing',
             'qax_event_missing',
             'activex_probe_exception',
             'non_main_thread_init',
@@ -333,9 +336,9 @@ class KiwoomStockAdapter(StockExchange):
             if result in _KIWOOM_MARKET_CLOSED_ERRORS:
                 self.log_event('system', f'장 마감 시간대 TR 요청: {tr_code}', level='WARNING')
                 return None
-            if result in _KIWOOM_ACCOUNT_ERRORS:
-                self.log_event('system', f'계좌/비밀번호 오류 {result} (TR: {tr_code})', level='ERROR')
-                raise RuntimeError(f'account_error:{result}')
+            if result in _KIWOOM_QUERY_ERRORS:
+                self.log_event('system', f'조회 요청 오류 {result} (TR: {tr_code})', level='ERROR')
+                raise RuntimeError(f'query_error:{result}')
         return result
 
     def _parse_trade_record(self, record: Dict[str, Any]) -> Dict[str, Any]:
@@ -369,7 +372,7 @@ class KiwoomStockAdapter(StockExchange):
             'name': self._get_field(record, '종목명', 'name', default=symbol),
             'market': market,
             'current_price': current_price,
-            'change_rate': self._to_float(self._get_field(record, '등락율', '등락률', 'change_rate')),
+            'change_rate': optional_market_number(self._get_field(record, '등락율', '등락률', 'change_rate')),
             'volume': self._to_int(self._get_field(record, '거래량', 'volume')),
             'market_cap': self._to_float(self._get_field(record, '시가총액', 'market_cap')),
             'is_etf': self.is_etf(symbol),
@@ -562,16 +565,26 @@ class KiwoomStockAdapter(StockExchange):
                     login_result = self.kiwoom.CommConnect()
 
             connected = False
+            connection_state_checked = False
             if hasattr(self.kiwoom, 'GetConnectState'):
                 try:
+                    connection_state_checked = True
                     connected = bool(self.kiwoom.GetConnectState())
                 except Exception:
                     connected = False
 
-            if not connected and login_result in (0, None, True):
-                connected = True
+            # OpenAPI+ may return 0 when the login request was accepted, before
+            # the session is actually connected. If GetConnectState is
+            # available, it is the authoritative result. Only old test/backends
+            # without that API may fall back to an explicit success result.
+            if not connection_state_checked:
+                connected = (
+                    login_result is True
+                    or (type(login_result) is int and login_result == 0)
+                )
 
             if connected:
+                self._basic_info_cache.clear()
                 self.is_connected = True
                 self.connection_backend = self.connection_backend or self.api_version
                 self._last_connect_failure_ts = 0.0
@@ -579,7 +592,8 @@ class KiwoomStockAdapter(StockExchange):
                 self._disconnected_warning_ts.clear()
                 if hasattr(self.kiwoom, 'GetLoginInfo') and not self.account_no:
                     try:
-                        accounts = str(self.kiwoom.GetLoginInfo('ACCNO') or '').split(';')
+                        raw_accounts = self.kiwoom.GetLoginInfo('ACCNO')
+                        accounts = raw_accounts if isinstance(raw_accounts, (list, tuple)) else str(raw_accounts or '').split(';')
                         self.account_no = next((acc.strip() for acc in accounts if acc.strip()), self.account_no)
                     except Exception:
                         pass
@@ -685,6 +699,8 @@ class KiwoomStockAdapter(StockExchange):
                     result = self.kiwoom.GetCodeListByMarket(market_code)
                     if isinstance(result, str):
                         raw_codes.extend([code.strip() for code in result.split(';') if code.strip()])
+                    elif isinstance(result, (list, tuple)):
+                        raw_codes.extend(str(code).strip() for code in result if str(code).strip())
                 etf_codes = []
                 seen_codes = set()
                 for code in raw_codes:
@@ -709,17 +725,9 @@ class KiwoomStockAdapter(StockExchange):
                     current_price = 0.0
                     expense_ratio = None
                     base_index = ''
-                    try:
-                        rt = self.get_etf_realtime_metrics(symbol)
-                        if rt.get('status') == 'ok':
-                            current_price = float(rt.get('current_price') or 0.0)
-                            nav = float(rt.get('nav') or 0.0)
-                            tracking_error = rt.get('tracking_error')
-                            trade_value = float(rt.get('trade_value') or 0.0)
-                            expense_ratio = rt.get('expense_ratio')
-                            base_index = rt.get('base_index', '')
-                    except Exception:
-                        pass
+                    # Listing is metadata only. Per-symbol TR requests here
+                    # can exceed the whole list RPC deadline before returning
+                    # even one candidate. Fetch metrics when analysing a symbol.
 
                     etfs.append({
                         'code': symbol,
@@ -791,12 +799,12 @@ class KiwoomStockAdapter(StockExchange):
                 record['종목명'] = self.kiwoom.GetMasterCodeName(symbol)
             if self.kiwoom and hasattr(self.kiwoom, 'block_request'):
                 try:
-                    raw = self._call_block_request('opt10001', 종목코드=symbol, output='주식기본정보', next=0)
-                    record.update(self._extract_first_record(raw))
+                    record.update(self._get_basic_info_record(symbol))
                 except Exception as exc:
                     self.log_event('system', f'주식기본정보 조회 경고: {symbol} - {exc}', level='WARNING')
+                    return {"status": "error", "error": str(exc)}
 
-            if not record:
+            if not record or abs(self._to_float(self._get_field(record, '현재가', 'current_price'))) <= 0:
                 return {"status": "error", "error": "not_available"}
 
             info = self._parse_stock_record(symbol, record, 'ETF' if self.is_etf(symbol) else 'KOSPI')
@@ -811,7 +819,35 @@ class KiwoomStockAdapter(StockExchange):
         except Exception as e:
             self.log_event('system', f"종목 정보 조회 실패: {symbol} - {e}", level='ERROR')
             return {"status": "error", "error": str(e)}
+
+    def get_daily_candles(self, symbol: str, limit: int = 100) -> List[Dict[str, Any]]:
+        if not self.is_connected:
+            return []
+        symbol = self._normalize_symbol(symbol)
+        raw = self._call_block_request(
+            'opt10081', 종목코드=symbol, 기준일자=datetime.now().strftime('%Y%m%d'),
+            수정주가구분='1', output='주식일봉차트조회', next=0,
+        )
+        rows = []
+        for item in self._extract_records(raw)[:max(1, min(int(limit), 500))]:
+            date_value = str(self._get_field(item, '일자', 'date', default='')).replace('-', '')
+            if len(date_value) != 8: continue
+            rows.append({'date': date_value, 'open': abs(self._to_float(self._get_field(item, '시가', 'open'))), 'high': abs(self._to_float(self._get_field(item, '고가', 'high'))), 'low': abs(self._to_float(self._get_field(item, '저가', 'low'))), 'close': abs(self._to_float(self._get_field(item, '현재가', '종가', 'close'))), 'volume': abs(self._to_float(self._get_field(item, '거래량', 'volume')))})
+        return sorted(rows, key=lambda row: row['date'])
     
+    def _get_basic_info_record(self, symbol: str) -> Dict[str, Any]:
+        cached = self._basic_info_cache.get(symbol)
+        if cached is not None and time.monotonic() - cached[0] < 1.0:
+            return dict(cached[1])
+        self._basic_info_cache.pop(symbol, None)
+        raw = self._call_block_request('opt10001', 종목코드=symbol, output='주식기본정보', next=0)
+        record = self._extract_first_record(raw)
+        if abs(self._to_float(self._get_field(record, '현재가', 'current_price'))) > 0:
+            if len(self._basic_info_cache) >= 256:
+                self._basic_info_cache.clear()
+            self._basic_info_cache[symbol] = (time.monotonic(), dict(record))
+        return record
+
     def get_realtime_price(self, symbol: str) -> Dict[str, Any]:
         """
         실시간 시세 조회
@@ -827,19 +863,20 @@ class KiwoomStockAdapter(StockExchange):
                 return {"status": "error", "error": "not_connected"}
 
             symbol = self._normalize_symbol(symbol)
-            raw = self._call_block_request('opt10001', 종목코드=symbol, output='주식기본정보', next=0)
-            record = self._extract_first_record(raw)
+            record = self._get_basic_info_record(symbol)
             if not record:
                 return {"status": "error", "error": "no_price_data"}
 
             current_price = abs(self._to_float(self._get_field(record, '현재가', 'current_price')))
+            if current_price <= 0:
+                return {"status": "error", "error": "no_price_data"}
             return {
                 'code': symbol,
                 'current_price': current_price,
                 'bid_price': abs(self._to_float(self._get_field(record, '매수호가', 'bid_price'))),
                 'ask_price': abs(self._to_float(self._get_field(record, '매도호가', 'ask_price'))),
                 'volume': self._to_int(self._get_field(record, '거래량', 'volume')),
-                'change_rate': self._to_float(self._get_field(record, '등락율', '등락률', 'change_rate')),
+                'change_rate': optional_market_number(self._get_field(record, '등락율', '등락률', 'change_rate')),
                 'timestamp': self._get_field(record, '체결시간', 'timestamp', default=''),
                 'status': 'ok',
             }
@@ -851,18 +888,18 @@ class KiwoomStockAdapter(StockExchange):
     def get_etf_realtime_metrics(self, symbol: str) -> Dict[str, Any]:
         """ETF 실시간 지표 조회 (현재가 + NAV + 추적오차 + 거래대금 통합).
         
-        키움 KOA TR opt10079(ETF 현재가 조회) 사용.
+        키움 KOA TR opt40006(ETF 시간대별 추이) 사용.
         API 키 없는 경우 get_realtime_price() 기반으로 부분 반환.
         """
         try:
             price_data = self.get_realtime_price(symbol)
             if price_data.get('status') != 'ok':
                 return price_data
-            # KOA ETF 전용 TR (opt10079) 시도 - NAV/추적오차/거래대금
+            # opt10079 is a stock tick chart, not an ETF NAV request.
             etf_detail: Dict[str, Any] = {}
             try:
                 raw = self._call_block_request(
-                    'opt10079', 종목코드=self._normalize_symbol(symbol), output='ETF현재가', next=0
+                    'opt40006', 종목코드=self._normalize_symbol(symbol), output='ETF시간대별추이', next=0
                 )
                 record = self._extract_first_record(raw) or {}
                 etf_detail = {
@@ -917,9 +954,10 @@ class KiwoomStockAdapter(StockExchange):
             account_no = self.account_no
             if self.kiwoom and hasattr(self.kiwoom, 'GetLoginInfo'):
                 try:
-                    accounts = str(self.kiwoom.GetLoginInfo('ACCNO') or '')
+                    raw_accounts = self.kiwoom.GetLoginInfo('ACCNO')
+                    accounts = raw_accounts if isinstance(raw_accounts, (list, tuple)) else str(raw_accounts or '').split(';')
                     if accounts and not account_no:
-                        account_no = next((acc.strip() for acc in accounts.split(';') if acc.strip()), account_no)
+                        account_no = next((acc.strip() for acc in accounts if acc.strip()), account_no)
                     user_id = str(self.kiwoom.GetLoginInfo('USER_ID') or self.user_id)
                 except Exception:
                     user_id = self.user_id
@@ -957,10 +995,10 @@ class KiwoomStockAdapter(StockExchange):
             raw = self._call_block_request(
                 'opw00018',
                 계좌번호=self.account_no,
-                비밀번호=self.password,
+                비밀번호=self.account_password,
                 비밀번호입력매체구분='00',
                 조회구분='2',
-                output='계좌평가잔고내역요청',
+                output='계좌평가결과',
                 next=0,
             )
             record = {}
@@ -996,10 +1034,10 @@ class KiwoomStockAdapter(StockExchange):
             raw = self._call_block_request(
                 'opw00018',
                 계좌번호=self.account_no,
-                비밀번호=self.password,
+                비밀번호=self.account_password,
                 비밀번호입력매체구분='00',
                 조회구분='2',
-                output='계좌평가잔고내역요청',
+                output='계좌평가잔고개별합산',
                 next=0,
             )
             records = self._extract_records(raw)
@@ -1219,7 +1257,7 @@ class KiwoomStockAdapter(StockExchange):
                 매매구분='0',
                 종목코드=self._normalize_symbol(symbol) if symbol else '',
                 체결구분='1',
-                output='미체결요청',
+                output='미체결',
                 next=0,
             )
             records = self._extract_records(raw)
@@ -1255,12 +1293,13 @@ class KiwoomStockAdapter(StockExchange):
             raw = self._call_block_request(
                 'opw00007',
                 계좌번호=self.account_no,
-                비밀번호=self.password,
+                비밀번호=self.account_password,
+                비밀번호입력매체구분='00',
+                주문일자=today,
                 조회구분='1',          # 1: 체결 기준
                 주식채권구분='1',       # 1: 주식
                 매도수구분='0',         # 0: 전체
-                시작일=today,
-                종료일=today,
+                시작주문번호='',
                 종목코드=self._normalize_symbol(symbol) if symbol else '',
                 output='계좌별주문체결내역상세',
                 next=0,
@@ -1347,5 +1386,6 @@ class KiwoomStockAdapter(StockExchange):
             'today_trades': len(self.get_today_trades()),
             'open_orders': len(self.get_open_orders()),
             'realized_pnl': realized_pnl,
+            'pnl_verified': False,  # capped mixed history does not prove daily PnL
             'status': 'ok',
         }

@@ -1,16 +1,23 @@
 {
   "name": "noahai-web-ui",
   "private": true,
-  "version": "3.9.1.0",
+  "version": "3.9.137",
+  "main": "electron/main.cjs",
   "type": "module",
+  "engines": {
+    "node": ">=22.12.0"
+  },
   "scripts": {
     "dev": "vite --host 127.0.0.1",
-    "build": "tsc -b && vite build",
+    "build": "tsc --noEmit -p tsconfig.app.json && tsc --noEmit -p tsconfig.node.json && vite build",
     "preview": "vite preview --host 127.0.0.1",
-    "electron:dev": "electron electron/main.cjs"
+    "electron:dev": "node electron/run-electron.cjs",
+    "desktop:pack": "npm run build && electron-builder --dir",
+    "desktop:dist": "npm run build && electron-builder --win nsis --x64"
   },
   "dependencies": {
     "lightweight-charts": "^5.0.8",
+    "electron-updater": "^6.6.2",
     "react": "^19.1.1",
     "react-dom": "^19.1.1"
   },
@@ -19,8 +26,25 @@
     "@types/react": "^19.1.10",
     "@types/react-dom": "^19.1.7",
     "@vitejs/plugin-react": "^4.3.4",
-    "electron": "^43.4.0",
+    "electron": "43.4.0",
+    "electron-builder": "^26.0.12",
     "typescript": "^5.9.2",
     "vite": "^6.1.0"
+  },
+  "overrides": {
+    "js-yaml": "4.3.2"
+  },
+  "build": {
+    "appId": "ai.noah.client",
+    "productName": "NoahAI",
+    "buildVersion": "3.9.1.37",
+    "asar": true,
+    "directories": { "output": "release" },
+    "files": ["dist/**/*", "electron/**/*", "package.json"],
+    "extraResources": [{ "from": "../deploy/web-engine", "to": "engine", "filter": ["**/*"] }],
+    "win": { "target": ["nsis"], "artifactName": "NoahAI-3.9.1.37-Setup.${ext}", "executableName": "NoahAI", "icon": "build/icon.ico" },
+    "mac": { "icon": "build/icon.png", "category": "public.app-category.finance" },
+    "nsis": { "oneClick": false, "perMachine": false, "allowToChangeInstallationDirectory": true, "deleteAppDataOnUninstall": false },
+    "publish": [{ "provider": "github", "owner": "nwsoft", "repo": "ai-trading-client" }]
   }
 }

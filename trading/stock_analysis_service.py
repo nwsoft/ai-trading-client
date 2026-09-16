@@ -18,10 +18,13 @@
 from __future__ import annotations
 
 import logging
+import math
 import hashlib
+import threading
 import time as pytime
 from datetime import datetime, time as dtime, timedelta, timezone
 from typing import Any, Dict, List, Optional
+from .market_data_utils import optional_market_number
 from log_system.log_adapter import log_event
 from api.kpi_client import emit_kpi_event
 from api.position_kpi import (
@@ -37,6 +40,14 @@ from trading.execution_optimizer import ExecutionOptimizer
 from trading.ops_automation import OpsAutomationEngine
 from trading.portfolio_orchestrator import PortfolioOrchestrator
 from trading.profitability_validation import ProfitabilityValidator
+from trading.position_sizing_policy import (
+    ACCOUNT_RISK,
+    LEGACY_VENUE,
+    calculate_position_sizing,
+    derive_market_risk_multiplier,
+    effective_position_limit,
+    normalize_position_sizing_policy,
+)
 from trading.strategy_engine import StrategyEngine
 from trading.execution_mode import ExecutionMode
 from trading.trade_candidate import apply_trade_candidate, evaluate_trade_candidate
@@ -50,6 +61,14 @@ from trading.opportunity_coordinator import (
     normalize_multi_venue_policy,
 )
 from trading.stock_exit_policy import resolve_stock_exit_thresholds
+from trading.stock_paper_valuation import (
+    calculate_stock_paper_valuation,
+    normalize_stock_paper_cost_policy,
+)
+from trading.stock_paper_position_store import (
+    load_stock_paper_positions,
+    save_stock_paper_positions,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -340,15 +359,77 @@ def detect_market_regime(adapter: Any) -> str:
         'bull'    : 상승장 (KOSPI 5일 수익률 >= +1.5%)
         'bear'    : 하락장 (KOSPI 5일 수익률 <= -1.5%)
         'volatile': 고변동 (일간 등락폭 >= 2.0% 평균)
-        'range'   : 횡보장 (나머지)
+        'range'   : 횡보장 (나머지). 5일 지수 이력을 제공하지 않는
+                    증권사는 당일 KOSPI 등락률을 명시적 fallback으로 사용한다.
     """
     try:
+        # 설명과 구현을 일치시킨다. 지원 어댑터에서는 최근 6개 종가로
+        # 5거래일 수익률과 일간 절대 변동 평균을 먼저 계산한다.
+        history = []
+        for method_name in ('get_index_history', 'get_index_price_history'):
+            getter = getattr(adapter, method_name, None)
+            if not callable(getter):
+                continue
+            try:
+                history = getter('KOSPI', count=6) or []
+            except TypeError:
+                try:
+                    history = getter('KOSPI', 6) or []
+                except Exception:
+                    history = []
+            except Exception:
+                history = []
+            if history:
+                break
+        ordered_history = list(history or [])
+        if ordered_history and all(isinstance(row, dict) for row in ordered_history):
+            dated_rows = []
+            for index, row in enumerate(ordered_history):
+                date_key = str(
+                    row.get('date')
+                    or row.get('trading_date')
+                    or row.get('business_date')
+                    or row.get('timestamp')
+                    or ''
+                ).strip()
+                dated_rows.append((date_key, index, row))
+            if all(item[0] for item in dated_rows):
+                ordered_history = [item[2] for item in sorted(dated_rows, key=lambda item: item[0])]
+
+        closes = []
+        for row in ordered_history:
+            try:
+                value = row.get('close') if isinstance(row, dict) else row
+                close = float(value or 0)
+                if math.isfinite(close) and close > 0:
+                    closes.append(close)
+            except (TypeError, ValueError):
+                continue
+        if len(closes) >= 6:
+            adapter._regime_data_reason = 'kospi_history'
+            recent = closes[-6:]
+            five_day_return = (recent[-1] - recent[0]) / recent[0] * 100.0
+            daily_moves = [
+                abs((recent[index] - recent[index - 1]) / recent[index - 1] * 100.0)
+                for index in range(1, len(recent))
+                if recent[index - 1] > 0
+            ]
+            average_daily_move = sum(daily_moves) / len(daily_moves) if daily_moves else 0.0
+            if five_day_return >= 1.5:
+                return 'bull'
+            if five_day_return <= -1.5:
+                return 'bear'
+            if average_daily_move >= 2.0:
+                return 'volatile'
+            return 'range'
+
         index_symbols = []
         if hasattr(adapter, 'get_index_price'):
             for idx in ('KOSPI', '코스피', '001'):
                 try:
                     idx_data = adapter.get_index_price(idx) or {}
-                    if idx_data:
+                    if (idx_data and idx_data.get('status') not in {'error', 'unavailable'}
+                            and optional_market_number(idx_data.get('change_rate'), idx_data.get('change_pct')) is not None):
                         index_symbols.append(idx_data)
                         break
                 except Exception:
@@ -362,12 +443,18 @@ def detect_market_regime(adapter: Any) -> str:
                 try:
                     if hasattr(adapter, 'get_realtime_price'):
                         p = adapter.get_realtime_price(sym) or {}
-                        cr = float(p.get('change_rate') or 0)
+                        if not p or p.get('status') in {'error', 'unavailable'} or p.get('change_rate') is None:
+                            continue
+                        cr = float(p['change_rate'])
+                        if not math.isfinite(cr):
+                            continue
                         changes.append(cr)
                 except Exception:
                     continue
             if not changes:
-                return 'range'
+                adapter._regime_data_reason = 'index_and_proxy_quotes_unavailable'
+                return 'unknown'
+            adapter._regime_data_reason = 'proxy_stock_quotes'
             avg_change = sum(changes) / len(changes)
             if avg_change >= 1.5:
                 return 'bull'
@@ -378,8 +465,14 @@ def detect_market_regime(adapter: Any) -> str:
             return 'range'
 
         # 지수 직접 사용
+        adapter._regime_data_reason = 'kospi_quote'
         idx = index_symbols[0]
-        change_rate = float(idx.get('change_rate') or idx.get('change_pct') or 0)
+        raw_change = optional_market_number(idx.get('change_rate'), idx.get('change_pct'))
+        if raw_change is None:
+            return 'unknown'
+        change_rate = float(raw_change)
+        if not math.isfinite(change_rate):
+            return 'unknown'
         if change_rate >= 1.5:
             return 'bull'
         if change_rate <= -1.5:
@@ -387,8 +480,9 @@ def detect_market_regime(adapter: Any) -> str:
         if abs(change_rate) >= 1.0:
             return 'volatile'
         return 'range'
-    except Exception:
-        return 'range'
+    except Exception as exc:
+        adapter._regime_data_reason = 'index_observation_failed:' + type(exc).__name__
+        return 'unknown'
 
 
 def adjust_thresholds_by_regime(
@@ -519,6 +613,7 @@ def select_stock_universe(
         ]
 
     stock_items: List[Dict[str, Any]] = []
+    universe_issues = []
     if hasattr(adapter, 'get_stock_list'):
         for market in ('KOSPI', 'KOSDAQ'):
             try:
@@ -527,7 +622,8 @@ def select_stock_universe(
                     for item in (adapter.get_stock_list(market) or [])
                     if isinstance(item, dict)
                 )
-            except Exception:
+            except Exception as exc:
+                universe_issues.append(f"{market} 목록 수신 실패({type(exc).__name__})")
                 continue
 
     etf_items: List[Dict[str, Any]] = []
@@ -538,8 +634,15 @@ def select_stock_universe(
                 for item in (adapter.get_etf_list() or [])
                 if isinstance(item, dict)
             ]
-        except Exception:
+        except Exception as exc:
+            universe_issues.append(f"ETF 목록 수신 실패({type(exc).__name__})")
             etf_items = []
+
+    # Worker/UI can distinguish an empty universe from an idle market.
+    try:
+        adapter.last_universe_issues = universe_issues
+    except Exception:
+        pass
 
     ranked_stocks = _dedupe_and_rank(stock_items)
     ranked_etfs = _dedupe_and_rank(etf_items)
@@ -689,8 +792,15 @@ class StockAnalysisService:
     """
     _paper_positions_by_broker: Dict[str, Dict[str, Dict[str, Any]]] = {}
     _custom_exit_plans_by_broker: Dict[str, Dict[str, Dict[str, Any]]] = {}
+    _paper_positions_lock = threading.RLock()
 
-    def __init__(self, adapter: Any, broker_name: str = '', recorder: Optional[Any] = None):
+    def __init__(
+        self,
+        adapter: Any,
+        broker_name: str = '',
+        recorder: Optional[Any] = None,
+        paper_settings: Optional[Dict[str, Any]] = None,
+    ):
         """
         Args:
             adapter  : StockExchange 인터페이스를 구현한 어댑터 인스턴스
@@ -699,6 +809,8 @@ class StockAnalysisService:
         self.adapter = adapter
         self.broker_name = broker_name or getattr(adapter, 'broker_name', '') or getattr(adapter, 'exchange_name', 'unknown')
         self.recorder = recorder
+        self._paper_settings = dict(paper_settings or {})
+        self._paper_persistence_enabled = paper_settings is not None
         self.log_event = lambda category, msg, level='INFO': log_event(
             category, msg, exchange=self.broker_name, level=level
         )
@@ -706,6 +818,45 @@ class StockAnalysisService:
         self._regime_cache: Optional[str] = None
         self._regime_cache_time: float = 0.0
         self._REGIME_CACHE_TTL: float = 300.0
+        if self._paper_persistence_enabled:
+            self._restore_paper_positions()
+
+    def _restore_paper_positions(self) -> None:
+        """Restore only this broker's simulated positions for the active account."""
+        try:
+            restored = load_stock_paper_positions(self._paper_settings)
+            broker_key = str(self.broker_name).lower()
+            # The app-data directory is account-scoped.  Replace the in-memory
+            # view on restore so a logout/login cannot carry another account's
+            # PAPER position into the newly selected account.
+            with self._paper_positions_lock:
+                self._paper_positions_by_broker.clear()
+                self._paper_positions_by_broker.update(
+                    {key: dict(value) for key, value in restored.items()}
+                )
+                self._paper_positions_by_broker.setdefault(broker_key, {})
+            self.log_event(
+                'system',
+                f"증권 PAPER 가상 포지션 {len(self._paper_positions_by_broker[broker_key])}개 복구",
+            )
+        except Exception as exc:
+            self.log_event('system', f"증권 PAPER 포지션 복구 실패: {exc}", level='WARNING')
+
+    def _persist_paper_positions(self) -> None:
+        if not self._paper_persistence_enabled:
+            return
+        try:
+            with self._paper_positions_lock:
+                snapshot = {
+                    broker: {
+                        symbol: dict(position)
+                        for symbol, position in dict(positions or {}).items()
+                    }
+                    for broker, positions in self._paper_positions_by_broker.items()
+                }
+            save_stock_paper_positions(self._paper_settings, snapshot)
+        except Exception as exc:
+            self.log_event('system', f"증권 PAPER 포지션 저장 실패: {exc}", level='ERROR')
 
     def _paper_positions(self) -> Dict[str, Dict[str, Any]]:
         return self._paper_positions_by_broker.setdefault(str(self.broker_name).lower(), {})
@@ -768,12 +919,17 @@ class StockAnalysisService:
         quantity: float,
         price: float,
         order_type: str,
+        asset_class: str = "stock",
+        cost_policy: Optional[Dict[str, Any]] = None,
     ) -> tuple[bool, Dict[str, Any], List[str]]:
         if price <= 0 or quantity <= 0:
             return False, {}, ['paper_price_or_quantity_invalid']
         now = datetime.now(timezone.utc)
         positions = self._paper_positions()
         side_upper = str(side).upper()
+        normalized_asset_class = "etf" if str(asset_class).lower() == "etf" else "stock"
+        costs = normalize_stock_paper_cost_policy(cost_policy)
+        order_result: Dict[str, Any] = {}
         if side_upper == 'BUY':
             existing = positions.get(symbol)
             previous_qty = self._to_float((existing or {}).get('quantity'), default=0.0)
@@ -783,25 +939,142 @@ class StockAnalysisService:
                 ((previous_price * previous_qty) + (price * quantity)) / total_qty
                 if total_qty > 0 else price
             )
+            entry_notional = price * quantity
+            previous_entry_fees = self._to_float((existing or {}).get('entry_fees'), default=0.0)
+            previous_entry_slippage = self._to_float(
+                (existing or {}).get('entry_slippage'), default=0.0
+            )
+            entry_fees = previous_entry_fees + entry_notional * float(costs['buy_commission_rate'])
+            entry_slippage = (
+                previous_entry_slippage
+                + entry_notional * float(costs['buy_slippage_rate'])
+            )
             positions[symbol] = {
                 'symbol': symbol,
                 'code': symbol,
+                'side': 'LONG',
                 'quantity': total_qty,
                 'entry_price': average_price,
                 'current_price': price,
+                'asset_class': normalized_asset_class,
+                'quote_currency': 'KRW',
+                'entry_fees': entry_fees,
+                'entry_slippage': entry_slippage,
+                'buy_commission_rate': costs['buy_commission_rate'],
+                'sell_commission_rate': costs['sell_commission_rate'],
+                'stock_sell_tax_rate': costs['stock_sell_tax_rate'],
+                'etf_sell_tax_rate': costs['etf_sell_tax_rate'],
+                'buy_slippage_rate': costs['buy_slippage_rate'],
+                'sell_slippage_rate': costs['sell_slippage_rate'],
+                'cost_schema_version': costs['cost_schema_version'],
+                'cost_calculation_status': costs['cost_calculation_status'],
+                'cost_source': costs['cost_source'],
+                'cost_policy_issues': list(costs.get('cost_policy_issues') or []),
                 'opened_at': (existing or {}).get('opened_at') or now.isoformat(),
                 'execution_mode': 'paper',
+            }
+            valuation = calculate_stock_paper_valuation(positions[symbol], price, costs)
+            positions[symbol].update({
+                'gross_pnl': valuation['gross_pnl'],
+                'unrealized_pnl': valuation['net_pnl'],
+                'unrealized_pnl_percent': valuation['net_pnl_percent'],
+                'estimated_fees': valuation['estimated_fees'],
+                'estimated_taxes': valuation['estimated_taxes'],
+                'estimated_slippage': valuation['estimated_slippage'],
+                'total_cost': valuation['total_cost'],
+            })
+            order_result = {
+                'gross_pnl': 0.0,
+                'net_pnl': -entry_notional * (
+                    float(costs['buy_commission_rate']) + float(costs['buy_slippage_rate'])
+                ),
+                'fees': entry_notional * float(costs['buy_commission_rate']),
+                'estimated_taxes': 0.0,
+                'estimated_slippage': entry_notional * float(costs['buy_slippage_rate']),
+                'total_cost': entry_notional * (
+                    float(costs['buy_commission_rate']) + float(costs['buy_slippage_rate'])
+                ),
+                'cost_calculation_status': costs['cost_calculation_status'],
+                'cost_source': costs['cost_source'],
+                'cost_policy_issues': list(costs.get('cost_policy_issues') or []),
             }
         elif side_upper == 'SELL':
             existing = positions.get(symbol)
             if not existing:
                 return False, {}, ['paper_position_not_found']
-            remaining = self._to_float(existing.get('quantity')) - quantity
+            normalized_asset_class = (
+                'etf'
+                if str(existing.get('asset_class') or normalized_asset_class).lower() == 'etf'
+                else 'stock'
+            )
+            existing_qty = self._to_float(existing.get('quantity'))
+            if quantity > existing_qty + 1e-9:
+                return False, {}, ['paper_sell_quantity_exceeds_position']
+            close_quantity = min(quantity, existing_qty)
+            ratio = close_quantity / existing_qty if existing_qty > 0 else 0.0
+            close_position = dict(existing)
+            close_position['quantity'] = close_quantity
+            close_position['entry_fees'] = self._to_float(
+                existing.get('entry_fees'), default=0.0
+            ) * ratio
+            close_position['entry_slippage'] = self._to_float(
+                existing.get('entry_slippage'), default=0.0
+            ) * ratio
+            valuation = calculate_stock_paper_valuation(close_position, price, costs)
+            if valuation.get('calculation_status') != 'valid':
+                return False, {}, ['paper_pnl_calculation_invalid']
+            remaining = existing_qty - close_quantity
             if remaining > 1e-9:
                 existing['quantity'] = remaining
                 existing['current_price'] = price
+                existing['entry_fees'] = max(
+                    0.0,
+                    self._to_float(existing.get('entry_fees'), default=0.0)
+                    - float(valuation['entry_fees']),
+                )
+                existing['entry_slippage'] = max(
+                    0.0,
+                    self._to_float(existing.get('entry_slippage'), default=0.0)
+                    - float(valuation['entry_slippage']),
+                )
+                remaining_valuation = calculate_stock_paper_valuation(existing, price, costs)
+                existing.update({
+                    'gross_pnl': remaining_valuation['gross_pnl'],
+                    'unrealized_pnl': remaining_valuation['net_pnl'],
+                    'unrealized_pnl_percent': remaining_valuation['net_pnl_percent'],
+                    'estimated_fees': remaining_valuation['estimated_fees'],
+                    'estimated_taxes': remaining_valuation['estimated_taxes'],
+                    'estimated_slippage': remaining_valuation['estimated_slippage'],
+                    'total_cost': remaining_valuation['total_cost'],
+                })
             else:
                 positions.pop(symbol, None)
+            order_result = {
+                'gross_pnl': valuation['gross_pnl'],
+                'net_pnl': valuation['net_pnl'],
+                'net_pnl_percent': valuation['net_pnl_percent'],
+                'fees': valuation['estimated_fees'],
+                'estimated_taxes': valuation['estimated_taxes'],
+                'estimated_slippage': valuation['estimated_slippage'],
+                'total_cost': valuation['total_cost'],
+                'cost_calculation_status': valuation['cost_calculation_status'],
+                'cost_source': valuation['cost_source'],
+                'cost_policy_issues': list(valuation.get('cost_policy_issues') or []),
+                'closed_quantity': close_quantity,
+                'entry_price': self._to_float(close_position.get('entry_price')),
+                'exit_price': price,
+                'asset_class': valuation['asset_class'],
+                'quote_currency': 'KRW',
+                'fee_rate': float(valuation['buy_commission_rate']) + float(valuation['sell_commission_rate']),
+                'tax_rate': (
+                    float(valuation['etf_sell_tax_rate'])
+                    if valuation['asset_class'] == 'etf'
+                    else float(valuation['stock_sell_tax_rate'])
+                ),
+                'slippage_rate': float(valuation['buy_slippage_rate']) + float(valuation['sell_slippage_rate']),
+            }
+        else:
+            return False, {}, ['paper_side_not_supported']
 
         return True, {
             'status': 'paper_filled',
@@ -810,11 +1083,149 @@ class StockAnalysisService:
             'order_id': f"paper-{self.broker_name}-{symbol}-{int(now.timestamp() * 1000)}",
             'symbol': symbol,
             'side': side_upper,
-            'quantity': quantity,
+            'quantity': float(order_result.get('closed_quantity') or quantity),
             'price': price,
             'filled_price': price,
             'order_type': order_type,
+            'asset_class': normalized_asset_class,
+            'quote_currency': 'KRW',
+            **order_result,
         }, []
+
+    def _refresh_paper_position_valuation(
+        self,
+        symbol: str,
+        current_price: float,
+        cost_policy: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        position = self._paper_positions().get(str(symbol or '').strip().upper())
+        if not position:
+            return {}
+        valuation = calculate_stock_paper_valuation(position, current_price, cost_policy)
+        if valuation.get('calculation_status') != 'valid':
+            position['calculation_status'] = 'invalid'
+            return valuation
+        position.update({
+            'current_price': float(current_price),
+            'side': 'LONG',
+            'quote_currency': 'KRW',
+            'gross_pnl': valuation['gross_pnl'],
+            'unrealized_pnl': valuation['net_pnl'],
+            'unrealized_pnl_percent': valuation['net_pnl_percent'],
+            'estimated_fees': valuation['estimated_fees'],
+            'estimated_taxes': valuation['estimated_taxes'],
+            'estimated_slippage': valuation['estimated_slippage'],
+            'total_cost': valuation['total_cost'],
+            'calculation_status': 'valid',
+            'cost_calculation_status': valuation['cost_calculation_status'],
+            'cost_source': valuation['cost_source'],
+            'cost_policy_issues': list(valuation.get('cost_policy_issues') or []),
+        })
+        return valuation
+
+    def _get_recent_paper_trade_samples(self, limit: int = 50) -> List[Dict[str, Any]]:
+        """Read only this broker's completed PAPER outcomes for PAPER policy."""
+        try:
+            from trading.paper_strategy_ledger import (
+                is_valid_paper_outcome,
+                read_paper_strategy_outcomes,
+            )
+
+            broker = str(self.broker_name or '').strip().lower()
+            rows = [
+                dict(row)
+                for row in read_paper_strategy_outcomes()
+                if str(row.get('exchange') or '').strip().lower() == broker
+                and is_valid_paper_outcome(row)
+            ]
+            rows.sort(key=lambda row: str(row.get('closed_at') or ''))
+            return [
+                {
+                    **row,
+                    'pnl_is_net': True,
+                    'timestamp': row.get('closed_at'),
+                }
+                for row in rows[-max(1, int(limit)):]
+            ]
+        except Exception as exc:
+            self.log_event(
+                'stock_auto_trade',
+                f'PAPER 성과 표본 조회 실패: {exc}',
+                level='WARNING',
+            )
+            return []
+
+    def _record_stock_paper_outcome(
+        self,
+        *,
+        position_before: Dict[str, Any],
+        order_result: Dict[str, Any],
+        strategy_key: str = '',
+        version_id: str = '',
+    ) -> Optional[Dict[str, Any]]:
+        """Write one complete, KRW-denominated stock/ETF PAPER close."""
+        try:
+            from trading.paper_strategy_ledger import record_paper_strategy_outcome
+
+            return record_paper_strategy_outcome(
+                scope='unified',
+                strategy_scope='unified',
+                exchange=self.broker_name,
+                symbol=str(position_before.get('symbol') or position_before.get('code') or ''),
+                strategy_key=str(strategy_key or ''),
+                version_id=str(version_id or ''),
+                opened_at=position_before.get('opened_at'),
+                closed_at=datetime.now(timezone.utc),
+                gross_pnl=float(order_result.get('gross_pnl') or 0.0),
+                net_pnl=float(order_result.get('net_pnl') or 0.0),
+                net_pnl_percent=float(order_result.get('net_pnl_percent') or 0.0),
+                fees=float(order_result.get('fees') or 0.0),
+                estimated_taxes=float(order_result.get('estimated_taxes') or 0.0),
+                estimated_slippage=float(order_result.get('estimated_slippage') or 0.0),
+                entry_price=float(order_result.get('entry_price') or position_before.get('entry_price') or 0.0),
+                exit_price=float(order_result.get('exit_price') or order_result.get('filled_price') or 0.0),
+                quantity=float(order_result.get('closed_quantity') or order_result.get('quantity') or 0.0),
+                side='LONG',
+                quote_currency='KRW',
+                fee_rate=float(order_result.get('fee_rate') or 0.0),
+                tax_rate=float(order_result.get('tax_rate') or 0.0),
+                slippage_rate=float(order_result.get('slippage_rate') or 0.0),
+                calculation_status='valid',
+                cost_calculation_status=str(
+                    order_result.get('cost_calculation_status')
+                    or 'estimated_stock_paper_contract'
+                ),
+                cost_policy_issues=list(order_result.get('cost_policy_issues') or []),
+                guardrail_violations=0,
+                position_id=str(order_result.get('order_id') or ''),
+                leverage=1,
+                entry_reason=str(position_before.get('entry_reason') or ''),
+                entry_market_regime=str(position_before.get('entry_market_regime') or ''),
+                entry_regime_scope=str(position_before.get('entry_regime_scope') or ''),
+                entry_signal_source=str(position_before.get('entry_signal_source') or ''),
+                sizing_policy_reason=str(
+                    dict(position_before.get('position_sizing') or {}).get('reason') or ''
+                ),
+                sizing_target_notional=dict(
+                    position_before.get('position_sizing') or {}
+                ).get('target_notional'),
+                sizing_final_notional=dict(
+                    position_before.get('position_sizing') or {}
+                ).get('final_notional'),
+                sizing_limiting_reasons=list(dict(
+                    position_before.get('position_sizing') or {}
+                ).get('limiting_reasons') or []),
+                exit_reason=str(order_result.get('exit_reason') or 'paper_sell'),
+                tp_price=position_before.get('tp_price'),
+                sl_price=position_before.get('sl_price'),
+                effective_tp_fraction=position_before.get('effective_tp_fraction'),
+                effective_sl_fraction=position_before.get('effective_sl_fraction'),
+                exit_policy_source=str(position_before.get('exit_policy_source') or ''),
+                exit_policy_reason=str(position_before.get('exit_policy_reason') or ''),
+            )
+        except Exception as exc:
+            logger.debug("stock PAPER 전략 귀속 저장 실패 (%s): %s", self.broker_name, exc)
+            return None
 
     def _get_recorder(self) -> Optional[Any]:
         """Recorder 인스턴스를 지연 로드한다."""
@@ -858,15 +1269,34 @@ class StockAnalysisService:
         bear/bull/volatile/range 중 하나를 반환한다.
         """
         now = pytime.time()
+        if now < getattr(self, '_regime_retry_after', 0):
+            return 'unknown'
         if self._regime_cache and (now - self._regime_cache_time) < self._REGIME_CACHE_TTL:
             return self._regime_cache
 
+        previous_regime = self._regime_cache
         regime = detect_market_regime(self.adapter)
+        if regime == 'unknown':
+            self._regime_retry_after = now + 60
+            from trading.runtime_observability import emit_runtime_status
+            emit_runtime_status(self, self.broker_name, 'market_data_missing',
+                '시장국면 확인 불가 · 원인=' + str(getattr(self.adapter, '_regime_data_reason', 'no_usable_index_or_proxy_quote'))
+                + ' · 신규 진입 보류. 기존 포지션 관리는 시도하지만 시세/주문 API 장애 시 청산을 보장하지 않습니다.', level='WARNING')
+            return regime
+        self._regime_retry_after = 0
         self._regime_cache = regime
         self._regime_cache_time = now
 
-        self.log_event('stock_regime', f"시장 레짐 감지: {regime}")
-        self._emit_analysis_log('market_regime', {'regime': regime, 'broker': self.broker_name})
+        if previous_regime and regime != previous_regime:
+            try:
+                from trading.notifications import publish_market_regime_change
+                publish_market_regime_change(self.broker_name, previous_regime, regime)
+            except Exception:
+                pass
+
+        basis = str(getattr(self.adapter, '_regime_data_reason', 'index_or_proxy'))
+        self.log_event('stock_regime', f"시장 레짐 감지: {regime} · 근거={basis}")
+        self._emit_analysis_log('market_regime', {'regime': regime, 'broker': self.broker_name, 'basis': basis})
         self._persist_xai_decision(
             symbol='MARKET',
             decision_type='stock_market_regime',
@@ -874,7 +1304,7 @@ class StockAnalysisService:
                 'regime': regime,
                 'broker': self.broker_name,
                 'reasoning': (
-                    f"KOSPI 기반 레짐 분류: {regime} → "
+                    f"시장 근거 {basis} 기반 레짐 분류: {regime} → "
                     f"{'상승장 감지, 매수 조건 완화' if regime == 'bull' else ''}"
                     f"{'하락장 감지, 매수 조건 강화' if regime == 'bear' else ''}"
                     f"{'고변동 감지, 진입 억제' if regime == 'volatile' else ''}"
@@ -1011,68 +1441,55 @@ class StockAnalysisService:
             return False
 
     def _sync_trade_history_to_recorder(self, trades: List[Dict[str, Any]]) -> int:
-        """어댑터 거래내역을 Recorder.trade_log로 동기화한다."""
+        """Store broker fills as executions, never as fake closed positions.
+
+        A fill is not a completed trade lifecycle.  PnL statistics are produced
+        only by the NoahAI-owned BUY lot -> SELL allocation path below.
+        """
         recorder = self._get_recorder()
         if recorder is None or not trades:
             return 0
-
-        inserted = 0
-        try:
-            from trading.recorder import TradeLog
-        except Exception:
-            return 0
-
+        normalized: List[Dict[str, Any]] = []
         for trade in trades:
-            try:
-                symbol = str(trade.get('symbol') or trade.get('code') or '').strip()
-                if not symbol:
-                    continue
-
-                qty = self._to_float(trade.get('quantity', trade.get('filled_quantity', trade.get('qty', 0.0))))
-                price = self._to_float(trade.get('filled_price', trade.get('price', trade.get('current_price', 0.0))))
-                if qty <= 0 or price <= 0:
-                    continue
-
-                side = self._normalize_side(trade.get('side'))
-                trade_time = self._parse_trade_time(
-                    trade.get('timestamp') or trade.get('filled_at') or trade.get('time') or trade.get('order_time')
-                ) or datetime.now()
-
-                if self._trade_exists(recorder, symbol, side, trade_time, qty, price):
-                    continue
-
-                pnl = self._to_float(trade.get('pnl', trade.get('realized_pnl', 0.0)))
-                notional = price * qty
-                pnl_percent = self._to_float(trade.get('pnl_percent', (pnl / notional * 100.0) if notional > 0 else 0.0))
-                fees = self._to_float(trade.get('fee', trade.get('fees', trade.get('commission', 0.0))))
-
-                row = TradeLog(
-                    id=None,
-                    symbol=symbol,
-                    entry_price=price,
-                    exit_price=price,
-                    quantity=qty,
-                    leverage=1,
-                    pnl=pnl,
-                    pnl_percent=pnl_percent,
-                    entry_time=trade_time,
-                    exit_time=trade_time,
-                    reason='stock_trade_sync',
-                    side=side,
-                    tp_price=None,
-                    sl_price=None,
-                    fees=fees,
-                    slippage=0.0,
-                    exchange=self.broker_name,
-                )
-                inserted_id = recorder.insert_trade_log(row)
-                if inserted_id:
-                    inserted += 1
-            except Exception:
+            if not isinstance(trade, dict):
                 continue
-
+            symbol = str(trade.get('symbol') or trade.get('code') or '').strip()
+            qty = self._to_float(trade.get('quantity', trade.get('filled_quantity', trade.get('qty', 0.0))))
+            price = self._to_float(trade.get('filled_price', trade.get('price', trade.get('current_price', 0.0))))
+            if not symbol or qty <= 0 or price <= 0:
+                continue
+            row = dict(trade)
+            # A broker fill is not a complete BUY-lot -> SELL-lot lifecycle.
+            # Some adapters expose a fill-level `profit` field with a different
+            # meaning, so never promote it to round-trip realized PnL here.
+            for pnl_key in ('pnl', 'profit', 'realized_pnl', 'realizedPnl'):
+                row.pop(pnl_key, None)
+            normalized_side = self._normalize_side(trade.get('side'))
+            row.update({
+                'symbol': symbol,
+                'side': 'buy' if normalized_side == 'LONG' else 'sell',
+                'quantity': qty,
+                'price': price,
+                'timestamp': trade.get('timestamp') or trade.get('filled_at') or trade.get('time') or trade.get('order_time'),
+                'order_id': trade.get('order_id') or trade.get('orderId') or trade.get('odno'),
+                'trade_id': trade.get('trade_id') or trade.get('execution_id') or trade.get('id'),
+                'commission': (
+                    self._to_float(trade.get('fee', trade.get('fees', trade.get('commission', 0.0))))
+                    + self._to_float(trade.get('tax', trade.get('transaction_tax', trade.get('securities_tax', 0.0))))
+                ),
+                'commission_asset': str(trade.get('fee_currency') or 'KRW').upper(),
+                '_execution_confirmed': True,
+                'status': 'filled',
+            })
+            normalized.append(row)
+        result = recorder.save_exchange_execution_history(
+            self.broker_name,
+            normalized,
+            source='broker_execution_api',
+        )
+        inserted = int((result or {}).get('inserted', 0) or 0)
         if inserted > 0:
-            self._emit_analysis_log('trade_sync', {'broker': self.broker_name, 'inserted': inserted})
+            self._emit_analysis_log('trade_sync', {'broker': self.broker_name, 'inserted': inserted, 'ledger': 'exchange_execution_log'})
         return inserted
 
     def sync_recent_trades_to_recorder(self, limit: int = 500) -> int:
@@ -1241,7 +1658,17 @@ class StockAnalysisService:
             return
 
         try:
-            recorder.save_ai_decision(symbol, decision_type, payload)
+            try:
+                recorder.save_ai_decision(
+                    symbol,
+                    decision_type,
+                    payload,
+                    exchange=self.broker_name,
+                )
+            except TypeError:
+                # Compatibility for injected legacy/test recorders. Production
+                # Recorder accepts the explicit owner above.
+                recorder.save_ai_decision(symbol, decision_type, payload)
         except Exception:
             pass
 
@@ -1612,10 +2039,14 @@ class StockAnalysisService:
             info = {}
             if hasattr(self.adapter, 'get_stock_info'):
                 info = self.adapter.get_stock_info(symbol) or {}
+                if info.get('status') == 'error':
+                    raise RuntimeError('stock_info_unavailable:' + str(info.get('error') or 'unknown'))
 
             price = {}
             if hasattr(self.adapter, 'get_realtime_price'):
                 price = self.adapter.get_realtime_price(symbol) or {}
+                if price.get('status') == 'error':
+                    raise RuntimeError('stock_quote_unavailable:' + str(price.get('error') or 'unknown'))
 
             current_price = float(price.get('current_price') or info.get('current_price') or 0)
             prev_close = float(info.get('prev_close') or 0)
@@ -1768,6 +2199,12 @@ class StockAnalysisService:
                 payload={
                     'broker': self.broker_name,
                     'symbol': symbol,
+                    'market': result.get('market'),
+                    'signal': ('LONG' if self._to_float(result.get('score')) >= 70 and self._to_float(result.get('momentum')) >= 0
+                               else 'SHORT' if self._to_float(result.get('score')) <= 30 and self._to_float(result.get('momentum')) < 0 else 'HOLD'),
+                    'rsi': result.get('rsi'),
+                    'macd': result.get('macd'),
+                    'trend': ('up' if self._to_float(result.get('momentum')) > 0 else 'down' if self._to_float(result.get('momentum')) < 0 else 'flat'),
                     'reasoning': (
                         f"score={result.get('score', 0)}, momentum={result.get('momentum', 0)}, "
                         f"is_etf={result.get('is_etf', False)}, market={result.get('market', '')}"
@@ -1864,6 +2301,13 @@ class StockAnalysisService:
                 result.get('filled_price', result.get('price', price)),
                 default=price,
             )
+            execution_fee = max(0.0, self._to_float(
+                result.get('fee', result.get('fees', result.get('commission', 0.0)))
+            ))
+            execution_tax = max(0.0, self._to_float(
+                result.get('tax', result.get('transaction_tax', result.get('securities_tax', 0.0)))
+            ))
+            execution_cost = execution_fee + execution_tax
             event_at = utc_now()
             reason = (
                 close_reason
@@ -1886,10 +2330,19 @@ class StockAnalysisService:
                     side='LONG',
                     tp_price=None,
                     sl_price=None,
-                    fees=0.0,
+                    fees=execution_cost,
                     slippage=0.0,
                     exchange=self.broker_name,
                     order_id=str(order_id) if order_id not in (None, '') else None,
+                    fee_asset='KRW',
+                    fee_source='broker_execution' if execution_cost > 0 else 'broker_not_reported',
+                    position_owner='noahai',
+                    execution_mode=execution_mode,
+                    entry_fee=execution_cost,
+                    entry_fee_asset='KRW',
+                    settlement_currency='KRW',
+                    pnl_source='pending_broker_close',
+                    reconciliation_status='open',
                 )
                 inserted_id = recorder.insert_trade_log(log_row)
                 entry_identity = order_id or f'trade-log:{inserted_id}'
@@ -1921,7 +2374,8 @@ class StockAnalysisService:
 
             open_rows = recorder.execute_query(
                 """
-                SELECT id, entry_price, quantity, entry_time, order_id, fees
+                SELECT id, entry_price, quantity, entry_time, order_id,
+                       COALESCE(entry_fee, fees, 0)
                 FROM trade_log
                 WHERE symbol = ?
                   AND exchange = ?
@@ -1959,14 +2413,13 @@ class StockAnalysisService:
                 remaining_quantity = max(0.0, float(open_quantity) - close_quantity)
                 quantity_to_close -= close_quantity
                 gross_pnl = (filled_price - float(entry_price)) * close_quantity
-                pnl_percent = (
-                    (filled_price - float(entry_price)) / float(entry_price) * 100.0
-                    if float(entry_price) > 0
-                    else 0.0
-                )
                 fee_ratio = close_quantity / float(open_quantity)
                 allocated_entry_fee = float(entry_fees or 0.0) * fee_ratio
                 remaining_entry_fee = max(0.0, float(entry_fees or 0.0) - allocated_entry_fee)
+                allocated_exit_fee = execution_cost * (close_quantity / float(quantity)) if float(quantity or 0.0) > 0 else 0.0
+                net_pnl = gross_pnl - allocated_entry_fee - allocated_exit_fee
+                notional = float(entry_price) * close_quantity
+                pnl_percent = net_pnl / notional * 100.0 if notional > 0 else 0.0
                 entry_identity = entry_order_id or f'trade-log:{trade_id}'
                 position_id = make_position_id(
                     venue=self.broker_name,
@@ -1982,16 +2435,26 @@ class StockAnalysisService:
                         """
                         UPDATE trade_log
                         SET exit_price = ?, exit_time = ?, pnl = ?, pnl_percent = ?,
-                            reason = ?, exit_order_id = ?
+                            reason = ?, exit_order_id = ?, gross_pnl = ?, net_pnl = ?,
+                            entry_fee = ?, exit_fee = ?, fees = ?, fee_asset = 'KRW',
+                            entry_fee_asset = 'KRW', exit_fee_asset = 'KRW',
+                            fee_source = 'broker_execution', settlement_currency = 'KRW',
+                            pnl_source = 'broker_lot_accounting',
+                            reconciliation_status = 'broker_order_linked'
                         WHERE id = ?
                         """,
                         (
                             filled_price,
                             event_at.isoformat(),
-                            gross_pnl,
+                            net_pnl,
                             pnl_percent,
                             reason,
                             str(order_id) if order_id not in (None, '') else None,
+                            gross_pnl,
+                            net_pnl,
+                            allocated_entry_fee,
+                            allocated_exit_fee,
+                            allocated_entry_fee + allocated_exit_fee,
                             trade_id,
                         ),
                     )
@@ -2012,8 +2475,8 @@ class StockAnalysisService:
                         execution_mode=execution_mode,
                         source='noahai_client_stock_position',
                         gross_pnl=gross_pnl,
-                        net_pnl=gross_pnl - allocated_entry_fee,
-                        fees=allocated_entry_fee,
+                        net_pnl=net_pnl,
+                        fees=allocated_entry_fee + allocated_exit_fee,
                     )
                     lifecycle_events.append(
                         {'event': 'closed', 'position_id': position_id, 'emitted': emitted}
@@ -2021,8 +2484,8 @@ class StockAnalysisService:
                     continue
 
                 recorder.execute_query(
-                    "UPDATE trade_log SET quantity = ?, fees = ? WHERE id = ?",
-                    (remaining_quantity, remaining_entry_fee, trade_id),
+                    "UPDATE trade_log SET quantity = ?, fees = ?, entry_fee = ? WHERE id = ?",
+                    (remaining_quantity, remaining_entry_fee, remaining_entry_fee, trade_id),
                 )
                 closed_lot = TradeLog(
                     id=None,
@@ -2031,7 +2494,7 @@ class StockAnalysisService:
                     exit_price=filled_price,
                     quantity=close_quantity,
                     leverage=1,
-                    pnl=gross_pnl,
+                    pnl=net_pnl,
                     pnl_percent=pnl_percent,
                     entry_time=opened_at,
                     exit_time=event_at,
@@ -2039,11 +2502,24 @@ class StockAnalysisService:
                     side='LONG',
                     tp_price=None,
                     sl_price=None,
-                    fees=allocated_entry_fee,
+                    fees=allocated_entry_fee + allocated_exit_fee,
                     slippage=0.0,
                     exchange=self.broker_name,
                     order_id=str(entry_order_id) if entry_order_id not in (None, '') else None,
                     exit_order_id=str(order_id) if order_id not in (None, '') else None,
+                    fee_asset='KRW',
+                    fee_source='broker_execution',
+                    position_owner='noahai',
+                    execution_mode=execution_mode,
+                    gross_pnl=gross_pnl,
+                    net_pnl=net_pnl,
+                    entry_fee=allocated_entry_fee,
+                    exit_fee=allocated_exit_fee,
+                    entry_fee_asset='KRW',
+                    exit_fee_asset='KRW',
+                    settlement_currency='KRW',
+                    pnl_source='broker_lot_accounting',
+                    reconciliation_status='broker_order_linked',
                 )
                 recorder.insert_trade_log(closed_lot)
                 emitted = emit_position_reduced(
@@ -2115,7 +2591,7 @@ class StockAnalysisService:
     def _extract_trade_pnl(self, trade: Dict[str, Any]) -> float:
         """거래 dict에서 손익 값을 안전하게 추출한다."""
         return self._to_float(
-            trade.get('pnl', trade.get('realized_pnl', trade.get('profit', 0.0))),
+            trade.get('net_pnl', trade.get('pnl', trade.get('realized_pnl', trade.get('profit', 0.0)))),
             default=0.0,
         )
 
@@ -2124,6 +2600,7 @@ class StockAnalysisService:
         *,
         symbol: str,
         auto_risk_policy: Optional[Dict[str, Any]] = None,
+        execution_mode: str = '',
     ) -> Dict[str, Any]:
         """증권 자동매매용 손실/쿨다운 가드레일 평가."""
         policy = dict(auto_risk_policy or {})
@@ -2136,17 +2613,29 @@ class StockAnalysisService:
         cooldown_sec = max(0, int(policy.get('cooldown_sec_per_symbol', 0) or 0))
 
         stats: Dict[str, Any] = {}
-        try:
-            if hasattr(self.adapter, 'get_trading_stats'):
-                stats = self.adapter.get_trading_stats() or {}
-        except Exception:
-            stats = {}
+        if execution_mode in {ExecutionMode.PAPER.value, ExecutionMode.LEARNING.value}:
+            recent_trades = self._get_recent_paper_trade_samples(limit=100000)
+            today = datetime.now().date()
+            day_trades = [row for row in recent_trades if (self._parse_trade_time(row.get('timestamp')) or datetime.min).date() == today]
+            stats = {'realized_pnl': sum(self._extract_trade_pnl(row) for row in day_trades)}
+        else:
+            try:
+                if hasattr(self.adapter, 'get_trading_stats'):
+                    stats = self.adapter.get_trading_stats() or {}
+            except Exception:
+                stats = {}
+            recent_trades = self._get_recent_trade_samples(limit=max(20, max_consecutive_losses * 4))
+            try:
+                pnl_is_finite = math.isfinite(float(stats.get('realized_pnl')))
+            except (TypeError, ValueError, OverflowError):
+                pnl_is_finite = False
+            if stats.get('pnl_verified') is False or not pnl_is_finite:
+                return {'allowed': False, 'reasons': ['risk_data_unavailable'], 'metrics': {'pnl_verified': False}}
 
         realized_pnl = self._to_float(stats.get('realized_pnl', 0.0), default=0.0)
         if daily_max_loss > 0 and realized_pnl <= -daily_max_loss:
             reasons.append(f'daily_loss_limit:{realized_pnl:.0f} <= -{daily_max_loss:.0f}')
 
-        recent_trades = self._get_recent_trade_samples(limit=max(20, max_consecutive_losses * 4))
         consecutive_losses = 0
         for trade in reversed(recent_trades):
             pnl = self._extract_trade_pnl(trade)
@@ -2180,8 +2669,19 @@ class StockAnalysisService:
             'metrics': {
                 'realized_pnl': realized_pnl,
                 'consecutive_losses': consecutive_losses,
+                'loss_rate': stats.get('loss_rate'),
+                'loss_basis': stats.get('loss_basis', '증권사 당일 실현손익'),
             },
         }
+
+    def _notify_risk_decision(self, decision: Dict[str, Any], execution_mode: str) -> None:
+        """Forward evidence, not fabricated PnL/rates; never affect an order."""
+        try:
+            from trading.notifications import publish_stock_risk_decision
+            publish_stock_risk_decision(self.broker_name, execution_mode, decision,
+                warning_percent=(getattr(self, 'notification_settings', {}) or {}).get('loss_warning_percent', 5))
+        except Exception:
+            logger.warning('증권 위험 알림 처리 실패 · 위험 판정은 유지합니다.')
 
     def _sync_runtime_state_snapshot(self) -> Dict[str, int]:
         """재시작/순환 시작 시점의 포지션/미체결 스냅샷을 기록한다."""
@@ -2341,6 +2841,7 @@ class StockAnalysisService:
         remaining_order_budget: int,
         exit_policy: Optional[Dict[str, Any]] = None,
         market_regime: Optional[str] = None,
+        paper_cost_policy: Optional[Dict[str, Any]] = None,
     ) -> tuple[List[Dict[str, Any]], int]:
         """보유 포지션에 대해 증권 전용 익절/손절 정책을 적용한다.
 
@@ -2457,12 +2958,15 @@ class StockAnalysisService:
 
             current_price = self._to_float(analysis.get('current_price'), default=0.0)
             if execution_mode == ExecutionMode.PAPER.value:
+                paper_position_before = dict(position)
                 success, order_result, call_errors = self._place_paper_stock_order(
                     symbol=symbol,
                     side='SELL',
                     quantity=quantity,
                     price=current_price,
                     order_type='MARKET',
+                    asset_class=str(position.get('asset_class') or ('etf' if bool(analysis.get('is_etf')) else 'stock')),
+                    cost_policy=paper_cost_policy,
                 )
             else:
                 success, order_result, call_errors = self._place_stock_order(
@@ -2474,6 +2978,23 @@ class StockAnalysisService:
                 )
             if success:
                 executed_orders += 1
+                if execution_mode == ExecutionMode.PAPER.value:
+                    strategy_key = str(
+                        paper_position_before.get('custom_strategy_key')
+                        or custom_exit_plan.get('strategy_key')
+                        or ''
+                    )
+                    version_id = str(
+                        paper_position_before.get('custom_strategy_version_id')
+                        or custom_exit_plan.get('strategy_version_id')
+                        or ''
+                    )
+                    self._record_stock_paper_outcome(
+                        position_before=paper_position_before,
+                        order_result=dict(order_result or {}),
+                        strategy_key=strategy_key,
+                        version_id=version_id,
+                    )
                 self._custom_exit_plans().pop(symbol, None)
 
             decisions.append({
@@ -2640,7 +3161,14 @@ class StockAnalysisService:
                     cached_positions = self.adapter.get_positions() or []
             except Exception:
                 cached_positions = []
-        cached_recent_trades = self._get_recent_trade_samples(limit=400)
+        # PAPER 성과 판단은 PAPER 원장만, LIVE는 증권사 체결만 사용한다.
+        # 두 범위를 섞으면 실제 계좌 거래가 가상 전략을 차단하거나 PAPER
+        # 수익을 LIVE 성과로 오인할 수 있다.
+        cached_recent_trades = (
+            self._get_recent_paper_trade_samples(limit=400)
+            if execution_mode == ExecutionMode.PAPER.value
+            else self._get_recent_trade_samples(limit=400)
+        )
         strategy_performance_context = {
             'recent_win_rate': 0.5,
             'consecutive_losses': 0,
@@ -2655,7 +3183,10 @@ class StockAnalysisService:
                     self._to_float(
                         trade.get(
                             'pnl_percent',
-                            trade.get('realized_pnl', trade.get('pnl', 0.0)),
+                            trade.get(
+                                'net_pnl_percent',
+                                trade.get('realized_pnl', trade.get('net_pnl', trade.get('pnl', 0.0))),
+                            ),
                         ),
                         default=0.0,
                     )
@@ -2683,6 +3214,13 @@ class StockAnalysisService:
             portfolio_policy = dict(auto_risk_policy.get('portfolio_orchestration', {}) or {})
             execution_policy = dict(auto_risk_policy.get('execution_optimizer', {}) or {})
             ops_policy = dict(auto_risk_policy.get('ops_automation', {}) or {})
+        position_sizing_policy = dict(
+            (auto_risk_policy or {}).get('position_sizing_policy', {}) or {}
+        )
+        normalized_sizing_policy = normalize_position_sizing_policy(
+            {'position_sizing_policy': position_sizing_policy},
+            quote_currency='KRW',
+        )
 
         # ── ProfitabilityValidator: 거래 수익성 KPI 기반 자동매매 ON/OFF ──
         # 충분한 거래 데이터가 쌓이면 KPI(승률/샤프/MDD)가 기준 미달 시 사이클 차단
@@ -2739,16 +3277,40 @@ class StockAnalysisService:
             if analyzed.get('status') == 'ok':
                 pre_analyzed[symbol] = analyzed
 
+        if execution_mode == ExecutionMode.PAPER.value:
+            # 보유 종목은 현재 후보군에서 빠졌더라도 청산 전 평가손익이
+            # 멈추면 안 된다. 후보 분석 결과를 재사용하고, 없는 보유 종목만
+            # 추가 조회해 4개 증권사 공통 PAPER Position을 갱신한다.
+            for held_symbol in list(self._paper_positions()):
+                analyzed = pre_analyzed.get(held_symbol)
+                if analyzed is None:
+                    analyzed = self.analyze_symbol(held_symbol)
+                if analyzed.get('status') != 'ok':
+                    continue
+                mark_price = self._to_float(analyzed.get('current_price'), default=0.0)
+                if mark_price > 0:
+                    self._refresh_paper_position_valuation(
+                        held_symbol,
+                        mark_price,
+                        auto_risk_policy,
+                    )
+            cached_positions = [dict(value) for value in self._paper_positions().values()]
+
         orchestrator = PortfolioOrchestrator()
         allocation_result: Dict[str, Any] = {'allocations': {}, 'portfolio_risk': 0.0, 'risk_scale': 1.0}
         if bool(portfolio_policy.get('enabled', False)):
             total_capital = 0.0
-            try:
-                balance = self.adapter.get_balance() if hasattr(self.adapter, 'get_balance') else {}
-                if isinstance(balance, dict):
-                    total_capital = self._to_float(balance.get('total_assets', balance.get('cash', 0.0)), default=0.0)
-            except Exception:
-                total_capital = 0.0
+            if execution_mode in {ExecutionMode.PAPER.value, ExecutionMode.LEARNING.value, 'mock'}:
+                # PAPER/LEARNING이 실계좌 잔고를 읽으면 검증 수량과 LIVE
+                # 자금이 결합된다. 독립 가상 기준자금만 사용한다.
+                total_capital = float(normalized_sizing_policy.get('paper_equity') or 0.0)
+            else:
+                try:
+                    balance = self.adapter.get_balance() if hasattr(self.adapter, 'get_balance') else {}
+                    if isinstance(balance, dict):
+                        total_capital = self._to_float(balance.get('total_assets', balance.get('cash', 0.0)), default=0.0)
+                except Exception:
+                    total_capital = 0.0
 
             candidates: List[Dict[str, Any]] = []
             for symbol, analyzed in pre_analyzed.items():
@@ -2780,11 +3342,15 @@ class StockAnalysisService:
             remaining_order_budget=normalized_max_orders,
             exit_policy=exit_policy,
             market_regime=market_regime,
+            paper_cost_policy=auto_risk_policy,
         )
         decisions.extend(exit_decisions)
         executed_orders += exit_orders
 
         for symbol in normalized_symbols:
+            if market_regime == 'unknown':
+                decisions.append({'symbol': symbol, 'action': 'SKIP', 'reason': 'market_data_unavailable'})
+                continue
             if executed_orders >= normalized_max_orders:
                 decisions.append({
                     'symbol': symbol,
@@ -2800,6 +3366,7 @@ class StockAnalysisService:
                     'action': 'SKIP',
                     'reason': 'analysis_error',
                     'analysis_status': analysis.get('status'),
+                    'analysis_error': analysis.get('error', 'unknown'),
                 })
                 continue
 
@@ -2826,6 +3393,42 @@ class StockAnalysisService:
                 'current_price': self._to_float(analysis.get('current_price')),
                 '_strategy_performance': dict(strategy_performance_context),
             })
+            observer = getattr(self, 'parallel_paper_observer', None)
+            paper_strategy_pool = list(
+                getattr(self, 'paper_validation_strategy_pool', []) or []
+            )
+            from trading.custom_strategy_validator import enrich_advanced_indicator_context
+            def strategy_candles(timeframe, limit):
+                if timeframe != '1d':
+                    raise ValueError('stock_strategy_timeframe_unsupported:' + timeframe)
+                getter = getattr(self.adapter, 'get_daily_candles', None)
+                if not callable(getter):
+                    return []
+                from datetime import datetime, timezone, timedelta
+                output = []
+                for row in getter(symbol, limit) or []:
+                    day = datetime.strptime(str(row.get('date') or '').replace('-', ''), '%Y%m%d').replace(tzinfo=timezone(timedelta(hours=9)))
+                    output.append({**row, 'timestamp': day.timestamp(),
+                                   'close_timestamp': day.replace(hour=15, minute=30).timestamp()})
+                return output
+            custom_context = enrich_advanced_indicator_context(
+                custom_context, list(custom_strategy_pool or []) + paper_strategy_pool, strategy_candles,
+            )
+            if observer is not None:
+                try:
+                    observer.observe(
+                        target=self.broker_name, symbol=symbol,
+                        asset_class='etf' if bool(analysis.get('is_etf')) else 'stock',
+                        primary_execution_mode=execution_mode,
+                        context=custom_context,
+                        strategy_pool=paper_strategy_pool,
+                        market_regime=market_regime,
+                    )
+                except Exception as paper_exc:
+                    self.log_event(
+                        'stock_auto_trade',
+                        f'병행 PAPER 관찰 실패(실주문 영향 없음): {paper_exc}',
+                    )
             candidate = evaluate_trade_candidate(
                 symbol=symbol,
                 context=custom_context,
@@ -2836,6 +3439,26 @@ class StockAnalysisService:
             )
             analysis = apply_trade_candidate(analysis, candidate)
             signal = {'LONG': 'BUY', 'SHORT': 'SELL'}.get(candidate.final_signal, 'HOLD')
+            position_limit = effective_position_limit(
+                (auto_risk_policy or {}).get('max_positions', 3),
+                strategy_risk_model=dict(
+                    (analysis.get('_custom_strategy_rules') or {}).get('risk_model') or {}
+                ),
+                performance_limit=(
+                    profitability_report.get('max_positions')
+                    if profitability_report.get('stage') in {'limited_live_learning', 'recovery_learning', 'validated_adaptive'}
+                    else None
+                ),
+            )
+            analysis['_position_limit'] = position_limit
+            if signal == 'BUY' and len(cached_positions) >= int(position_limit['effective_max_positions']):
+                decisions.append({
+                    'symbol': symbol,
+                    'action': 'SKIP',
+                    'reason': 'effective_position_limit_reached',
+                    'position_limit': position_limit,
+                })
+                continue
             stock_thresholds = resolve_stock_exit_thresholds(
                 policy=exit_policy,
                 is_etf=is_etf,
@@ -2991,7 +3614,9 @@ class StockAnalysisService:
             auto_risk_check = self._evaluate_auto_trade_risk_guard(
                 symbol=symbol,
                 auto_risk_policy=auto_risk_policy,
+                execution_mode=execution_mode,
             )
+            self._notify_risk_decision(auto_risk_check, execution_mode)
             if not bool(auto_risk_check.get('allowed')):
                 reasons = [str(x) for x in (auto_risk_check.get('reasons') or []) if str(x)]
                 decisions.append({
@@ -3039,6 +3664,7 @@ class StockAnalysisService:
                     broker=self.broker_name,
                 )
             if not bool(governance_check.get('allowed')):
+                self._notify_risk_decision(governance_check, execution_mode)
                 reasons = [str(x) for x in (governance_check.get('reasons') or []) if str(x)]
                 decisions.append({
                     'symbol': symbol,
@@ -3106,12 +3732,81 @@ class StockAnalysisService:
 
             current_price = self._to_float(analysis.get('current_price'), default=0.0)
             effective_qty = requested_qty
+            sizing_plan: Dict[str, Any] = {}
+            if normalized_sizing_policy.get('mode') != LEGACY_VENUE and signal == 'BUY':
+                account_equity = 0.0
+                equity_source = 'unavailable'
+                if execution_mode in {ExecutionMode.PAPER.value, ExecutionMode.LEARNING.value, 'mock'}:
+                    account_equity = float(normalized_sizing_policy.get('paper_equity') or 0.0)
+                    equity_source = 'paper_virtual_equity'
+                else:
+                    try:
+                        balance = self.adapter.get_balance() if hasattr(self.adapter, 'get_balance') else {}
+                    except Exception:
+                        balance = {}
+                    if isinstance(balance, dict):
+                        account_equity = self._to_float(
+                            balance.get('total_assets', balance.get('cash', 0.0)),
+                            default=0.0,
+                        )
+                    equity_source = 'live_broker_equity' if account_equity > 0 else 'unavailable'
+                stop_fraction = float(
+                    ((stock_exit_snapshot.get('effective') or {}).get('sl_fraction')) or 0.0
+                )
+                risk_multiplier = float(profitability_report.get('risk_multiplier', 1.0) or 1.0)
+                sizing_plan = calculate_position_sizing(
+                    policy=position_sizing_policy,
+                    asset_class='etf' if is_etf else 'stock',
+                    quote_currency='KRW',
+                    account_equity=account_equity,
+                    account_equity_source=equity_source,
+                    price=current_price,
+                    stop_fraction=stop_fraction,
+                    requested_leverage=1,
+                    leverage_cap=1,
+                    fixed_notional=current_price * requested_qty,
+                    risk_multiplier=risk_multiplier,
+                    market_risk_multiplier=derive_market_risk_multiplier(
+                        market_regime=market_regime,
+                        volatility_fraction=abs(self._to_float(analysis.get('momentum'), 0.0)) / 100.0,
+                    ),
+                    contract_size=1.0,
+                    strategy_risk_model=dict(
+                        (analysis.get('_custom_strategy_rules') or {}).get('risk_model')
+                        or {}
+                    ),
+                )
+                analysis['_position_sizing'] = dict(sizing_plan)
+                if not bool(sizing_plan.get('allowed')):
+                    decisions.append({
+                        'symbol': symbol,
+                        'action': signal,
+                        'reason': 'position_sizing_blocked',
+                        'position_sizing': sizing_plan,
+                    })
+                    continue
+                # 국내 주식·ETF 주문은 정수 주식만 허용한다. 소수점 올림은
+                # 승인한 계좌 위험을 초과하므로 항상 내림한다.
+                effective_qty = float(int(float(sizing_plan.get('target_quantity') or 0.0)))
+                if effective_qty < 1.0:
+                    decisions.append({
+                        'symbol': symbol,
+                        'action': signal,
+                        'reason': 'account_risk_below_one_share',
+                        'position_sizing': sizing_plan,
+                    })
+                    continue
             if bool(portfolio_policy.get('enabled', False)):
-                effective_qty = orchestrator.quantity_from_allocation(
+                allocated_qty = orchestrator.quantity_from_allocation(
                     symbol=symbol,
                     price=current_price,
                     fallback_qty=requested_qty,
                     allocation_result=allocation_result,
+                )
+                effective_qty = (
+                    min(effective_qty, allocated_qty)
+                    if sizing_plan and effective_qty > 0 and allocated_qty > 0
+                    else allocated_qty
                 )
                 if effective_qty <= 0:
                     decisions.append({
@@ -3168,6 +3863,7 @@ class StockAnalysisService:
                 }
 
             if not bool(guardrail_check.get('allowed')):
+                self._notify_risk_decision(guardrail_check, execution_mode)
                 reasons = [str(x) for x in (guardrail_check.get('reasons') or []) if str(x)]
                 decisions.append({
                     'symbol': symbol,
@@ -3266,6 +3962,29 @@ class StockAnalysisService:
                         'trade_candidate': candidate.to_dict(),
                     })
                     continue
+            if sizing_plan:
+                final_notional = float(effective_qty or 0.0) * float(current_price or 0.0)
+                stop_fraction = float(
+                    ((stock_exit_snapshot.get('effective') or {}).get('sl_fraction'))
+                    or 0.0
+                )
+                sizing_plan.update({
+                    'final_quantity': float(effective_qty or 0.0),
+                    'final_notional': final_notional,
+                    'final_estimated_margin': final_notional,
+                    'final_expected_loss_at_stop': final_notional * stop_fraction,
+                })
+                analysis['_position_sizing'] = dict(sizing_plan)
+                self.log_event(
+                    'stock_auto_trade',
+                    (
+                        f"{symbol} 최종 주문 전 자금관리 XAI · 브로커={self.broker_name} "
+                        f"예상손실={sizing_plan['final_expected_loss_at_stop']:.2f} KRW "
+                        f"Notional={final_notional:.2f} KRW 증거금={final_notional:.2f} KRW "
+                        f"레버리지=1x 수량={float(effective_qty or 0.0):.0f} "
+                        f"제한={sizing_plan.get('limiting_reasons', [])}"
+                    ),
+                )
             self.log_event(
                 'stock_auto_trade',
                 (
@@ -3325,6 +4044,7 @@ class StockAnalysisService:
                     'exit_plan': candidate.to_dict().get('exit_plan', {}),
                     'order_validation_passed': True,
                     'opportunity': opportunity_snapshot,
+                    'position_sizing': sizing_plan,
                 }
                 decisions.append({
                     'symbol': symbol,
@@ -3363,6 +4083,7 @@ class StockAnalysisService:
                 continue
 
             execution_attempts += 1
+            paper_position_before = dict(self._paper_positions().get(symbol, {})) if execution_mode == ExecutionMode.PAPER.value else {}
             if execution_mode == ExecutionMode.PAPER.value:
                 started = pytime.perf_counter()
                 success, order_result, call_errors = self._place_paper_stock_order(
@@ -3371,6 +4092,8 @@ class StockAnalysisService:
                     quantity=effective_qty,
                     price=current_price,
                     order_type=selected_order_type,
+                    asset_class='etf' if is_etf else 'stock',
+                    cost_policy=auto_risk_policy,
                 )
                 latency_ms = (pytime.perf_counter() - started) * 1000.0
                 slippage_bps = 0.0
@@ -3457,6 +4180,49 @@ class StockAnalysisService:
                         'market_regime': candidate.market_regime,
                         'exit_policy': dict(stock_exit_snapshot),
                     }
+                if execution_mode == ExecutionMode.PAPER.value and signal == 'BUY':
+                    paper_position = self._paper_positions().get(symbol)
+                    if paper_position is not None:
+                        paper_position['custom_strategy_key'] = candidate.strategy_key
+                        paper_position['custom_strategy_version_id'] = candidate.strategy_version_id
+                        paper_position['custom_strategy_name'] = candidate.strategy_name
+                        paper_position['entry_reason'] = str(candidate.reason or '')
+                        paper_position['entry_market_regime'] = str(candidate.market_regime or '')
+                        paper_position['entry_regime_scope'] = str(candidate.regime_scope or '')
+                        paper_position['entry_signal_source'] = str(candidate.signal_source or '')
+                        paper_position['position_sizing'] = dict(
+                            analysis.get('_position_sizing') or {}
+                        )
+                        paper_position['leverage'] = 1
+                        paper_position['effective_tp_fraction'] = float(
+                            candidate.exit_plan.requested_tp_fraction or 0.0
+                        ) or None
+                        paper_position['effective_sl_fraction'] = float(
+                            candidate.exit_plan.requested_sl_fraction or 0.0
+                        ) or None
+                        paper_position['exit_policy_source'] = str(candidate.exit_plan.source or '')
+                        paper_position['exit_policy_reason'] = (
+                            'strategy_owned' if candidate.exit_plan.strategy_owned else 'noah_dynamic'
+                        )
+                elif execution_mode == ExecutionMode.PAPER.value and signal == 'SELL':
+                    strategy_key = str(
+                        paper_position_before.get('custom_strategy_key')
+                        or candidate.strategy_key
+                        or ''
+                    )
+                    version_id = str(
+                        paper_position_before.get('custom_strategy_version_id')
+                        or candidate.strategy_version_id
+                        or ''
+                    )
+                    self._record_stock_paper_outcome(
+                        position_before=paper_position_before,
+                        order_result=dict(order_result or {}),
+                        strategy_key=strategy_key,
+                        version_id=version_id,
+                    )
+                if execution_mode == ExecutionMode.PAPER.value:
+                    self._persist_paper_positions()
                 if execution_mode in {ExecutionMode.LIVE.value, 'live_api'}:
                     self._insert_auto_trade_log(
                         symbol=symbol,
@@ -3551,6 +4317,7 @@ class StockAnalysisService:
                 'idempotency_key': idempotency_key,
                 'opportunity': opportunity_snapshot,
                 'trade_candidate': candidate.to_dict(),
+                'position_sizing': sizing_plan,
             })
 
             self._persist_xai_decision(
@@ -3568,6 +4335,7 @@ class StockAnalysisService:
                         'errors': call_errors[:2],
                         'opportunity': opportunity_snapshot,
                         'trade_candidate': candidate.to_dict(),
+                        'position_sizing': sizing_plan,
                         'effective_buy_threshold': effective_buy_threshold,
                         'effective_sell_threshold': effective_sell_threshold,
                     },

@@ -150,7 +150,7 @@ class APISignalManager:
             
             enabled = self._get_enabled_exchanges()
             # 각 거래소별로 신호 수집
-            for exchange_name in ['binance', 'upbit', 'bithumb']:
+            for exchange_name in ['binance', 'upbit', 'bithumb', 'coinone']:
                 normalized = self._normalize_exchange(exchange_name)
                 if enabled and normalized not in enabled:
                     continue
@@ -268,7 +268,7 @@ class APISignalManager:
 
             # 국내 현물 거래소는 거래내역 API 미지원/제한 케이스가 잦아
             # 신호 수집에서는 티커 볼륨을 우선 사용해 불필요한 API 호출을 피한다.
-            if exchange_name in ('upbit', 'bithumb'):
+            if exchange_name in ('upbit', 'bithumb', 'coinone'):
                 ticker = {}
                 if hasattr(client, 'get_24h_ticker'):
                     try:

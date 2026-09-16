@@ -7,18 +7,25 @@
 
 import json
 import logging
+from copy import deepcopy
 from datetime import datetime, time
 from typing import Dict, List, Optional, Any, Callable
 from dataclasses import dataclass, asdict
 from enum import Enum
 from uuid import uuid4
 
-from trading.custom_strategy_pipeline import CustomStrategyPipeline
+from trading.custom_strategy_pipeline import (
+    CustomStrategyPipeline,
+    normalize_declared_market_regimes,
+    normalize_declared_regime_scope,
+)
 from trading.noah_strategy_ir import NoahStrategyIR
 from trading.custom_strategy_runtime import (
+    ExitRateContractError,
     derive_strategy_risk_settings,
     limited_live_engine_settings,
     normalize_engine_settings,
+    require_explicit_stored_exit_unit,
 )
 
 class StrategyType(Enum):
@@ -100,6 +107,10 @@ class StrategyCustomizer:
             min_paper_trades=min_paper_trades,
             logger=self.logger,
         )
+        storage_name = str(getattr(self.custom_pipeline, "storage_path", "") or "").lower()
+        self.strategy_storage_scope = (
+            "binance" if storage_name.endswith("binance_private.json") else "unified"
+        )
         self._hydrate_persisted_strategies()
         self._refresh_runtime_strategy_pool()
         
@@ -129,11 +140,16 @@ class StrategyCustomizer:
             target_scope = str(strategy_config.get("target_scope", "") or "").lower()
             rules["target_scope"] = target_scope
             rules["target_exchange"] = str(strategy_config.get("target_exchange", "") or "").lower()
-            rules["market_regimes"] = list(strategy_config.get("market_regimes", ["all"]) or ["all"])
-            rules["regime_scope"] = str(
+            declared_regimes = strategy_config.get(
+                "market_regimes", rules.get("market_regimes")
+            )
+            rules["market_regimes"] = normalize_declared_market_regimes(
+                declared_regimes,
+                fallback_conditions=rules.get("market_conditions"),
+            )
+            rules["regime_scope"] = normalize_declared_regime_scope(
                 strategy_config.get("regime_scope", rules.get("regime_scope", "market"))
-                or "market"
-            ).strip().lower()
+            )
             rules["universe_policy"] = dict(
                 strategy_config.get("universe_policy", rules.get("universe_policy", {}))
                 or {}
@@ -161,7 +177,7 @@ class StrategyCustomizer:
                 "source_reference": str(strategy_config.get("source_reference", "") or ""),
                 "target_exchange": str(strategy_config.get("target_exchange", "") or "").lower(),
                 "target_scope": target_scope,
-                "market_regimes": list(strategy_config.get("market_regimes", ["all"]) or ["all"]),
+                "market_regimes": list(rules["market_regimes"]),
                 "regime_scope": rules["regime_scope"],
                 "universe_policy": dict(rules["universe_policy"]),
                 "priority": max(1, min(int(strategy_config.get("priority", 5) or 5), 10)),
@@ -196,6 +212,15 @@ class StrategyCustomizer:
                     strategy_key=strategy_config.get("strategy_key"),
                 )
                 custom_strategy["status"] = version["status"]
+                # Pipeline이 구형 Web UI 위험 필드와 Level 4 정책을
+                # 정규화하므로 런타임 복사도 같은 규칙·IR을 보유해야 한다.
+                custom_strategy["rules"] = deepcopy(dict(version.get("rules", {}) or {}))
+                custom_strategy["market_regimes"] = list(
+                    custom_strategy["rules"].get("market_regimes", ["all"]) or ["all"]
+                )
+                custom_strategy["regime_scope"] = str(
+                    custom_strategy["rules"].get("regime_scope", "market") or "market"
+                )
                 custom_strategy["pipeline_strategy_key"] = version["strategy_key"]
                 custom_strategy["pipeline_version_id"] = version["version_id"]
                 custom_strategy["version"] = version["version"]
@@ -250,8 +275,13 @@ class StrategyCustomizer:
                     "source_reference": version.get("source_reference", ""),
                     "target_exchange": str(rules.get("target_exchange", "") or "").lower(),
                     "target_scope": str(rules.get("target_scope", "asset:crypto") or "asset:crypto").lower(),
-                    "market_regimes": list(rules.get("market_regimes", ["all"]) or ["all"]),
-                    "regime_scope": str(rules.get("regime_scope", "market") or "market"),
+                    "market_regimes": normalize_declared_market_regimes(
+                        rules.get("market_regimes"),
+                        fallback_conditions=rules.get("market_conditions"),
+                    ),
+                    "regime_scope": normalize_declared_regime_scope(
+                        rules.get("regime_scope", "market")
+                    ),
                     "universe_policy": dict(rules.get("universe_policy", {}) or {}),
                     "priority": max(1, min(int(rules.get("priority", 5) or 5), 10)),
                     "signal_mode": str(rules.get("signal_mode", "confirm") or "confirm").lower(),
@@ -500,7 +530,7 @@ class StrategyCustomizer:
         if is_stock and historical_data is None:
             raise ValueError("주식/ETF 자동 검증에는 연결된 증권사의 가격 이력이 필요합니다.")
         selected_symbol = symbol or {
-            "upbit": "KRW-BTC", "bithumb": "BTC_KRW",
+            "upbit": "KRW-BTC", "bithumb": "BTC_KRW", "coinone": "BTC/KRW",
         }.get(target, "BTCUSDT")
         klines: List[Any] = list(historical_data or [])
         rules = dict(strategy.get("rules", {}) or {})
@@ -1221,11 +1251,45 @@ class StrategyCustomizer:
             self.logger.error(f"전략 목록 조회 오류: {e}")
             return []
 
-    def get_active_strategy_pool(self) -> List[Dict[str, Any]]:
-        """거래 직전 상황 매칭에 사용할 활성 전략을 우선순위순 최대 10개 반환한다."""
+    def _get_runtime_strategy_pool(self, *, include_paper_observing: bool) -> List[Dict[str, Any]]:
+        """Return LIVE-active strategies and, only in PAPER, observation candidates."""
         pool: List[Dict[str, Any]] = []
         for strategy_id, strategy in self.user_strategies.items():
-            if strategy.get("status") != "active":
+            status = str(strategy.get("status") or "")
+            allowed_statuses = {"active", "paper_observing"} if include_paper_observing else {"active"}
+            if status not in allowed_statuses:
+                continue
+            if not strategy.get("trusted_system", False):
+                strategy_key = str(strategy.get("pipeline_strategy_key") or "")
+                version_id = str(strategy.get("pipeline_version_id") or "")
+                if status == "paper_observing" and (
+                    not strategy_key
+                    or self.custom_pipeline.paper_versions.get(strategy_key) != version_id
+                ):
+                    self.logger.warning(
+                        "PAPER 실행 권한 맵과 불일치한 전략을 실행 풀에서 제외: %s",
+                        strategy_id,
+                    )
+                    continue
+                if status == "active" and (
+                    not strategy_key
+                    or self.custom_pipeline.active_versions.get(strategy_key) != version_id
+                ):
+                    self.logger.warning(
+                        "LIVE 실행 권한 맵과 불일치한 전략을 실행 풀에서 제외: %s",
+                        strategy_id,
+                    )
+                    continue
+            execution_readiness = CustomStrategyPipeline.paper_execution_readiness({
+                "rules": dict(strategy.get("rules", {}) or {}),
+                "missing_conditions": list(strategy.get("missing_conditions", []) or []),
+            })
+            if not execution_readiness.get("ready"):
+                self.logger.warning(
+                    "실행 준비가 끝나지 않은 사용자 전략을 실행 풀에서 제외: %s (%s)",
+                    strategy_id,
+                    execution_readiness.get("reasons", []),
+                )
                 continue
             strategy_ir = dict(strategy.get("strategy_ir", {}) or {})
             if not strategy.get("trusted_system", False):
@@ -1241,7 +1305,37 @@ class StrategyCustomizer:
                         ir_validation.get("errors", []),
                     )
                     continue
-            operation_mode = str(strategy.get("operation_mode", "standard") or "standard").lower()
+            operation_mode = (
+                "paper_validation" if status == "paper_observing"
+                else str(strategy.get("operation_mode", "standard") or "standard").lower()
+            )
+            if not strategy.get("trusted_system", False):
+                try:
+                    rules = dict(strategy.get("rules", {}) or {})
+                    stored_exit_blocks = [
+                        strategy.get("base_params", {}),
+                        rules.get("engine_settings", {}),
+                    ]
+                    for override in dict(
+                        rules.get(
+                            "regime_parameters",
+                            rules.get("market_condition_parameters", {}),
+                        ) or {}
+                    ).values():
+                        if isinstance(override, dict):
+                            stored_exit_blocks.append(override)
+                    for adjustment in list(rules.get("performance_adjustments", []) or []):
+                        if isinstance(adjustment, dict) and isinstance(adjustment.get("set"), dict):
+                            stored_exit_blocks.append(adjustment["set"])
+                    for block in stored_exit_blocks:
+                        require_explicit_stored_exit_unit(block)
+                except ExitRateContractError as exc:
+                    self.logger.error(
+                        "활성 사용자 전략 TP/SL 단위 검증 실패로 실행 풀에서 제외: %s (%s)",
+                        strategy_id,
+                        exc,
+                    )
+                    continue
             engine_settings = (
                 limited_live_engine_settings(strategy.get("base_params", {}))
                 if operation_mode == "limited_live"
@@ -1256,8 +1350,13 @@ class StrategyCustomizer:
                 "rules": dict(strategy.get("rules", {}) or {}),
                 "engine_settings": engine_settings,
                 "target_scope": strategy.get("target_scope", "asset:crypto"),
-                "market_regimes": list(strategy.get("market_regimes", ["all"]) or ["all"]),
-                "regime_scope": str(strategy.get("regime_scope", "market") or "market"),
+                "market_regimes": normalize_declared_market_regimes(
+                    strategy.get("market_regimes"),
+                    fallback_conditions=(strategy.get("rules", {}) or {}).get("market_conditions"),
+                ),
+                "regime_scope": normalize_declared_regime_scope(
+                    strategy.get("regime_scope", (strategy.get("rules", {}) or {}).get("regime_scope", "market"))
+                ),
                 "universe_policy": dict(strategy.get("universe_policy", {}) or {}),
                 "priority": int(strategy.get("priority", 5) or 5),
                 "signal_mode": str(strategy.get("signal_mode", "confirm") or "confirm"),
@@ -1265,11 +1364,23 @@ class StrategyCustomizer:
                 "operation_mode": operation_mode,
                 "strategy_key": strategy.get("pipeline_strategy_key"),
                 "version_id": strategy.get("pipeline_version_id"),
+                # Storage ownership is different from the engine that executes
+                # a trade. A UNIFIED strategy may run through native Binance.
+                "strategy_scope": self.strategy_storage_scope,
                 "ir_version": str(strategy_ir.get("ir_version", "") or ""),
                 "ir_hash": str(strategy.get("ir_hash", "") or ""),
                 "correlation_id": str(strategy.get("correlation_id", "") or ""),
             })
-        return sorted(pool, key=lambda item: int(item.get("priority", 5)), reverse=True)[:10]
+        # The ten-strategy cap applies after venue/asset filtering, not globally.
+        return sorted(pool, key=lambda item: int(item.get("priority", 5)), reverse=True)
+
+    def get_active_strategy_pool(self) -> List[Dict[str, Any]]:
+        """거래 직전 상황 매칭에 사용할 일반 운용 전략 풀."""
+        return self._get_runtime_strategy_pool(include_paper_observing=False)
+
+    def get_paper_strategy_pool(self) -> List[Dict[str, Any]]:
+        """PAPER에서 일반 운용 전략과 전진검증 후보를 함께 평가한다."""
+        return self._get_runtime_strategy_pool(include_paper_observing=True)
 
     def _refresh_runtime_strategy_pool(self) -> None:
         if self.trader is not None:

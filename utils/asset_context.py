@@ -10,7 +10,7 @@ from typing import Any, Dict, List
 
 
 CRYPTO_VENUES = {
-    "binance", "upbit", "bithumb", "bybit", "okx", "bitget",
+    "binance", "upbit", "bithumb", "coinone", "bybit", "okx", "bitget",
 }
 
 STOCK_VENUES = {

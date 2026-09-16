@@ -109,6 +109,7 @@ class BitgetFuturesAdapter(FuturesExchange):
                 'secret': secret_key,
                 'password': password,
                 'enableRateLimit': True,
+                'timeout': 12000,
                 'options': {
                     'defaultType': 'swap',  # 선물 스왑 기본
                 },

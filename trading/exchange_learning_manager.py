@@ -11,10 +11,12 @@ import os
 import json
 import logging
 import threading
+import time
 from collections import deque
 from datetime import datetime, timedelta, timezone
 from typing import Any, Deque, Dict, List, Optional
 from dataclasses import dataclass, asdict
+from uuid import uuid4
 import sys
 from api.kpi_client import emit_kpi_event
 
@@ -68,6 +70,10 @@ class ExchangeLearningManager:
 
         # 거래소별 파일 경로 설정
         self.db_path = self._get_exchange_learning_path()
+        self._journal_path = f"{self.db_path}.journal.jsonl"
+        self._pending_checkpoint_entries = 0
+        self._last_checkpoint_monotonic = time.monotonic()
+        self._history_lock = threading.RLock()
 
         # 학습 데이터 로드
         self.learning_history = self._load_learning_data()
@@ -141,6 +147,12 @@ class ExchangeLearningManager:
                 "analysis_delay": 0.3,  # 300ms (가장 보수적)
                 "max_coins_per_analysis": 30,  # 현물이므로 더 적게
                 "websocket_supported": False
+            },
+            "coinone": {
+                "requests_per_minute": 300,
+                "analysis_delay": 0.3,
+                "max_coins_per_analysis": 30,
+                "websocket_supported": False
             }
         }
         return limits.get(self.exchange, limits["binance"])
@@ -150,6 +162,16 @@ class ExchangeLearningManager:
         try:
             if os.path.exists(self.db_path):
                 data = self._read_json_list_safe(self.db_path)
+                data.extend(self._read_learning_journal())
+                deduplicated: Dict[str, Dict] = {}
+                legacy: List[Dict] = []
+                for item in data:
+                    event_id = str(item.get('_learning_event_id') or '') if isinstance(item, dict) else ''
+                    if event_id:
+                        deduplicated[event_id] = item
+                    elif isinstance(item, dict):
+                        legacy.append(item)
+                data = legacy + list(deduplicated.values())
                 # JSON에서 datetime 객체로 변환
                 for item in data:
                     try:
@@ -167,7 +189,7 @@ class ExchangeLearningManager:
                 os.makedirs(os.path.dirname(self.db_path), exist_ok=True)
                 self._atomic_write_json(self.db_path, initial_data)
                 self.logger.info(f"{self.exchange.upper()} 초기 학습 데이터 파일 생성 완료")
-                return []
+                return self._read_learning_journal()
         except Exception as e:
             self.logger.error(f"{self.exchange.upper()} 학습 데이터 로드 오류: {e}")
             return []
@@ -175,41 +197,46 @@ class ExchangeLearningManager:
     def _save_learning_data(self):
         """학습 데이터 저장 (일간 아카이브 자동 로테이션 포함)"""
         try:
-            # 1단계: 아카이브 로테이션 (상한 초과 데이터를 아카이브로 이동)
-            self._rotate_to_archive()
+            with self._history_lock:
+                # 1단계: 아카이브 로테이션 (상한 초과 데이터를 아카이브로 이동)
+                self._rotate_to_archive()
             
-            # 2단계: 운영 파일은 최신 N개만 유지 (UI/판단 성능 보호)
-            max_entries = self._get_retention_limit()
-            if len(self.learning_history) > max_entries:
-                self.learning_history = self.learning_history[-max_entries:]
+                # 2단계: 운영 파일은 최신 N개만 유지 (UI/판단 성능 보호)
+                max_entries = self._get_retention_limit()
+                if len(self.learning_history) > max_entries:
+                    self.learning_history = self.learning_history[-max_entries:]
 
             # 3단계: datetime 객체를 문자열로 변환
-            data_to_save = []
-            for item in self.learning_history:
-                item_copy = item.copy()
+                data_to_save = []
+                for item in self.learning_history:
+                    item_copy = self._storage_entry(item)
                 # timestamp는 datetime 또는 이미 문자열일 수 있음
-                try:
-                    ts = item.get('timestamp')
-                    if ts is None:
-                        ts_str = datetime.now(timezone.utc).isoformat()
-                    elif isinstance(ts, str):
-                        ts_str = ts
-                    else:
-                        # datetime 또는 유사 객체인 경우
-                        ts_str = ts.isoformat()
-                    item_copy['timestamp'] = ts_str
-                except Exception:
-                    # 최후 폴백: 문자열 변환
-                    item_copy['timestamp'] = str(item.get('timestamp', datetime.now(timezone.utc).isoformat()))
-                data_to_save.append(item_copy)
+                    try:
+                        ts = item.get('timestamp')
+                        if ts is None:
+                            ts_str = datetime.now(timezone.utc).isoformat()
+                        elif isinstance(ts, str):
+                            ts_str = ts
+                        else:
+                            # datetime 또는 유사 객체인 경우
+                            ts_str = ts.isoformat()
+                        item_copy['timestamp'] = ts_str
+                    except Exception:
+                        # 최후 폴백: 문자열 변환
+                        item_copy['timestamp'] = str(item.get('timestamp', datetime.now(timezone.utc).isoformat()))
+                    data_to_save.append(item_copy)
 
             # 4단계: 저장 경로 확인 로그
-            self.logger.info(f"💾 {self.exchange.upper()} 학습 데이터 저장 경로: {self.db_path}")
-            self.logger.info(f"💾 저장할 데이터 개수: {len(data_to_save)}개")
-            self.logger.info(f"💾 보관 상한: {max_entries}개")
+                self.logger.info(f"💾 {self.exchange.upper()} 학습 데이터 저장 경로: {self.db_path}")
+                self.logger.info(f"💾 저장할 데이터 개수: {len(data_to_save)}개")
+                self.logger.info(f"💾 보관 상한: {max_entries}개")
 
-            os.makedirs(os.path.dirname(self.db_path), exist_ok=True)
-            self._atomic_write_json(self.db_path, data_to_save)
+                os.makedirs(os.path.dirname(self.db_path), exist_ok=True)
+                self._atomic_write_json(self.db_path, data_to_save)
+                self._truncate_file(self._journal_path)
+                self._pending_checkpoint_entries = 0
+                self._last_checkpoint_monotonic = time.monotonic()
+            self._checkpoint_global_aggregator()
 
             self.logger.info(f"✅ {self.exchange.upper()} 학습 데이터 저장 완료")
         except Exception as e:
@@ -233,7 +260,7 @@ class ExchangeLearningManager:
         """날짜별 아카이브 파일 경로 반환 (YYYYMMDD 패턴)"""
         base_dir = os.path.dirname(self.db_path)
         today = datetime.now().strftime('%Y%m%d')
-        archive_filename = f'ai_learning_data_{self.exchange}_archive_{today}.json'
+        archive_filename = f'ai_learning_data_{self.exchange}_archive_{today}.jsonl'
         return os.path.join(base_dir, archive_filename)
 
     def _rotate_to_archive(self):
@@ -246,23 +273,13 @@ class ExchangeLearningManager:
             
             archive_path = self._get_archive_path()
             try:
-                # 기존 아카이브 데이터 로드
-                existing_archive = []
-                if os.path.exists(archive_path):
-                    existing_archive = self._read_json_list_safe(archive_path)
-                
-                # 제거될 데이터를 아카이브에 추가
-                for item in archived_data:
-                    item_copy = item.copy()
-                    ts = item.get('timestamp')
-                    if ts and not isinstance(ts, str):
-                        # datetime 객체를 ISO 형식으로 변환
-                        item_copy['timestamp'] = ts.isoformat() if hasattr(ts, 'isoformat') else str(ts)
-                    existing_archive.append(item_copy)
-                
-                # 아카이브 파일에 저장
                 os.makedirs(os.path.dirname(archive_path), exist_ok=True)
-                self._atomic_write_json(archive_path, existing_archive)
+                lock = _get_file_lock(archive_path)
+                with lock, open(archive_path, 'a', encoding='utf-8') as archive:
+                    for item in archived_data:
+                        archive.write(json.dumps(self._storage_entry(item), ensure_ascii=False) + '\n')
+                    archive.flush()
+                    os.fsync(archive.fileno())
                 self.logger.info(f"📦 {self.exchange.upper()} 일간 아카이브: {excess_count}개 항목을 {archive_path}로 이동")
             except Exception as e:
                 self.logger.warning(f"⚠️ {self.exchange.upper()} 아카이브 로테이션 실패: {e}")
@@ -311,12 +328,14 @@ class ExchangeLearningManager:
                 api_usage_stats=api_stats
             )
 
-            self.learning_history.append(asdict(learning_data))
-            self._save_learning_data()
+            entry = asdict(learning_data)
+            with self._history_lock:
+                self.learning_history.append(entry)
+                self._persist_increment(entry)
 
             # 글로벌 집계 파일에도 동시 기록
             try:
-                self._append_to_global_aggregator(asdict(learning_data))
+                self._append_to_global_aggregator(entry)
             except Exception as agg_e:
                 self.logger.debug(f"글로벌 학습 집계 기록 스킵/오류: {agg_e}")
 
@@ -426,15 +445,20 @@ class ExchangeLearningManager:
         from log_system.log_adapter import log_event
         try:
             # 거래소 정보 추가
+            learning_data = dict(learning_data or {})
             learning_data['exchange'] = self.exchange
             learning_data['api_limits'] = self.api_limits
+            learning_data.setdefault('_learning_event_id', f"learning_{uuid4().hex}")
 
             # 기존 학습 데이터에 추가
-            self.learning_history.append(learning_data)
+            with self._history_lock:
+                self.learning_history.append(learning_data)
 
-            # 즉시 저장 (UI/파일 조회 일관성 확보)
-            self._save_learning_data()
-            msg = f"🤖 {self.exchange.upper()} AI 학습 데이터 저장 (총 {len(self.learning_history)}개)"
+                # 각 이벤트는 append-only 저널에 즉시 기록하고 큰 JSON 스냅샷은
+                # 묶어서 갱신한다. 종료/충돌 시에도 저널이 다음 시작에 병합된다.
+                self._persist_increment(learning_data)
+                history_size = len(self.learning_history)
+            msg = f"🤖 {self.exchange.upper()} AI 학습 데이터 저장 (총 {history_size}개)"
             self.logger.info(msg)
             log_event('ai_learning', msg, exchange=self.exchange, level='INFO')
 
@@ -464,7 +488,7 @@ class ExchangeLearningManager:
                     'exchange': self.exchange,
                     'symbol': symbol,
                     'signal': signal,
-                    'history_size': len(self.learning_history),
+                    'history_size': history_size,
                 },
             )
 
@@ -580,7 +604,7 @@ class ExchangeLearningManager:
         try:
             # 글로벌 파일은 거래소별 파일과 동일한 디렉토리에 생성하여 경로 불일치 방지
             base_dir = os.path.dirname(self.db_path)
-            agg_path = os.path.join(base_dir, 'ai_learning_data.json')
+            agg_path = os.path.join(base_dir, 'ai_learning_data.journal.jsonl')
             # 안전 변환: timestamp를 문자열(ISO)로 정규화
             entry = dict(learning_data)
             ts = entry.get('timestamp')
@@ -599,19 +623,95 @@ class ExchangeLearningManager:
             except Exception:
                 # 최후 폴백
                 entry['timestamp'] = str(ts or datetime.now(timezone.utc).isoformat())
-            data: List[Dict] = []
-            if os.path.exists(agg_path):
-                loaded = self._read_json_list_safe(agg_path)
-                if isinstance(loaded, list):
-                    data = loaded
-            data.append(entry)
-            # 용량 관리: 최근 5000개만 유지
-            if len(data) > 5000:
-                data = data[-5000:]
-            self._atomic_write_json(agg_path, data)
+            self._append_jsonl(agg_path, self._storage_entry(entry))
         except Exception:
             # 집계 실패는 무시(주 파일에는 이미 저장됨)
             pass
+
+    def _persist_increment(self, entry: Dict[str, Any]) -> None:
+        entry.setdefault('_learning_event_id', f"learning_{uuid4().hex}")
+        self._append_jsonl(self._journal_path, self._storage_entry(entry))
+        self._pending_checkpoint_entries += 1
+        if (
+            self._pending_checkpoint_entries >= 100
+            or time.monotonic() - self._last_checkpoint_monotonic >= 300.0
+        ):
+            self._save_learning_data()
+
+    def _read_learning_journal(self) -> List[Dict]:
+        rows: List[Dict] = []
+        if not os.path.exists(self._journal_path):
+            return rows
+        lock = _get_file_lock(self._journal_path)
+        with lock:
+            try:
+                with open(self._journal_path, 'r', encoding='utf-8') as handle:
+                    for line in handle:
+                        try:
+                            row = json.loads(line)
+                        except json.JSONDecodeError:
+                            continue
+                        if isinstance(row, dict):
+                            rows.append(row)
+            except OSError:
+                return []
+        return rows
+
+    @staticmethod
+    def _storage_entry(value: Dict[str, Any]) -> Dict[str, Any]:
+        """Return a JSON-safe learning record without changing its meaning."""
+        def convert(item: Any) -> Any:
+            if isinstance(item, datetime):
+                return item.isoformat()
+            if isinstance(item, dict):
+                return {str(key): convert(child) for key, child in item.items()}
+            if isinstance(item, (list, tuple)):
+                return [convert(child) for child in item]
+            if isinstance(item, (str, int, float, bool)) or item is None:
+                return item
+            return str(item)
+        return convert(dict(value))
+
+    @staticmethod
+    def _append_jsonl(path: str, entry: Dict[str, Any]) -> None:
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        lock = _get_file_lock(path)
+        with lock, open(path, 'a', encoding='utf-8') as handle:
+            handle.write(json.dumps(entry, ensure_ascii=False) + '\n')
+            handle.flush()
+            os.fsync(handle.fileno())
+
+    @staticmethod
+    def _truncate_file(path: str) -> None:
+        if not os.path.exists(path):
+            return
+        lock = _get_file_lock(path)
+        with lock, open(path, 'w', encoding='utf-8'):
+            pass
+
+    def _checkpoint_global_aggregator(self) -> None:
+        base_dir = os.path.dirname(self.db_path)
+        aggregate_path = os.path.join(base_dir, 'ai_learning_data.json')
+        journal_path = os.path.join(base_dir, 'ai_learning_data.journal.jsonl')
+        if not os.path.exists(journal_path):
+            return
+        journal_rows: List[Dict] = []
+        journal_lock = _get_file_lock(journal_path)
+        with journal_lock:
+            with open(journal_path, 'r', encoding='utf-8') as handle:
+                for line in handle:
+                    try:
+                        row = json.loads(line)
+                    except json.JSONDecodeError:
+                        continue
+                    if isinstance(row, dict):
+                        journal_rows.append(row)
+            if not journal_rows:
+                return
+            current = self._read_json_list_safe(aggregate_path) if os.path.exists(aggregate_path) else []
+            self._atomic_write_json(aggregate_path, (current + journal_rows)[-5000:])
+            with open(journal_path, 'w', encoding='utf-8'):
+                pass
 
     def _atomic_write_json(self, path: str, payload: List[Dict]) -> None:
         """JSON 파일을 임시 파일에 쓴 뒤 원자적으로 교체합니다."""

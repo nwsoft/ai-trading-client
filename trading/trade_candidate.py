@@ -58,6 +58,7 @@ class TradeCandidate:
     strategy_id: str = ""
     strategy_key: str = ""
     strategy_version_id: str = ""
+    strategy_scope: str = ""
     strategy_name: str = ""
     engine_settings: Dict[str, Any] = field(default_factory=dict)
     selected_rules: Dict[str, Any] = field(default_factory=dict)
@@ -91,6 +92,20 @@ def _build_exit_plan(
     rules = dict(selected_rules or {})
     if not selected_name:
         return ExitPlan()
+    raw_exit_policy = rules.get("exit_policy")
+    if isinstance(raw_exit_policy, Mapping):
+        exit_policy_mode = str(raw_exit_policy.get("mode") or "").strip().lower()
+    else:
+        exit_policy_mode = str(raw_exit_policy or "").strip().lower()
+    if exit_policy_mode in {"inherit_noah_base", "inherit_noah_base_legacy"}:
+        return ExitPlan(
+            source="noah_dynamic",
+            strategy_owned=False,
+            requested_tp_fraction=0.0,
+            requested_sl_fraction=0.0,
+            allow_noah_dynamic_adjustment=True,
+            insurance_order_policy="dynamic_backup",
+        )
     try:
         tp_fraction = float(settings.get("tp_percent", 0.0) or 0.0)
     except (TypeError, ValueError):
@@ -209,6 +224,7 @@ def evaluate_trade_candidate(
         strategy_id=str(custom_result.get("selected_strategy_id") or ""),
         strategy_key=str(custom_result.get("selected_strategy_key") or ""),
         strategy_version_id=str(custom_result.get("selected_version_id") or ""),
+        strategy_scope=str(custom_result.get("selected_strategy_scope") or ""),
         strategy_name=selected_name,
         engine_settings=engine_settings,
         selected_rules=selected_rules,
@@ -243,6 +259,7 @@ def apply_trade_candidate(
         result["_selected_custom_strategy_id"] = candidate.strategy_id
         result["_selected_custom_strategy_key"] = candidate.strategy_key
         result["_selected_custom_strategy_version_id"] = candidate.strategy_version_id
+        result["_selected_custom_strategy_scope"] = candidate.strategy_scope
         result["_custom_engine_settings"] = dict(candidate.engine_settings)
         result["_custom_strategy_rules"] = dict(candidate.selected_rules)
         result["_custom_runtime_indicator_values"] = list(candidate.runtime_indicator_values)

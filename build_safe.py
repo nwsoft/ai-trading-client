@@ -478,7 +478,7 @@ def create_safe_spec_file(target_platform: str, output_path: str = 'aiautotrade_
         'trading.exchange_manager', 'trading.api_signal_manager',
         'trading.ai_custom_features', 'trading.user_indicator_language',
         'trading.strategy_package', 'trading.strategy_quality_report',
-        'trading.signed_strategy_webhook',
+        'trading.signed_strategy_webhook', 'trading.notifications',
         'referral_account_proof',
         # 증권 어댑터 (배포판에서 동적 import가 실패하지 않도록 명시적으로 포함)
         'trading.exchanges.exchange_factory',

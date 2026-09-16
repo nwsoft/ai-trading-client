@@ -52,6 +52,7 @@ class NormalizedProviderError:
 class ProviderResponse:
     provider: str
     model: str
+    requested_model: str = ""
     content: Any = None
     finish_reason: Optional[str] = None
     usage: Dict[str, Any] = field(default_factory=dict)
@@ -83,7 +84,7 @@ PROVIDER_SPECS: Dict[str, ProviderSpec] = {
         default_model="deepseek-v4-flash",
         model_prefixes=("deepseek-",),
         fallback_models=tuple(selectable_models("deepseek")),
-        capabilities=ProviderCapabilities(structured_output=True),
+        capabilities=ProviderCapabilities(vision=True, structured_output=True),
     ),
     "kimi": ProviderSpec(
         provider="kimi",
@@ -209,40 +210,55 @@ class OpenAICompatibleAdapter:
 
     def health_check(self) -> Dict[str, Any]:
         if not self.is_ready():
+            initialization_error = (
+                self.client.get_initialization_error()
+                if hasattr(self.client, "get_initialization_error")
+                else {}
+            )
             return {
                 "ok": False,
                 "provider": self.spec.provider,
-                "error": {"code": "credential_missing", "message": "API 키가 없거나 클라이언트를 초기화하지 못했습니다."},
+                "network_checked": False,
+                "error": initialization_error or {
+                    "code": "credential_missing",
+                    "message": f"{self.spec.label}에 저장된 API 키가 없습니다.",
+                },
             }
         models = self.client.list_chat_models(allowed_prefixes=self.spec.model_prefixes)
         error = self.client.get_last_error()
         if error:
-            return {"ok": False, "provider": self.spec.provider, "error": error}
-        return {"ok": True, "provider": self.spec.provider, "models": models}
+            return {"ok": False, "provider": self.spec.provider, "network_checked": True, "error": error}
+        return {"ok": True, "provider": self.spec.provider, "network_checked": True, "models": models}
 
     def chat_text(self, system_prompt: str, user_prompt: str, **kwargs: Any) -> ProviderResponse:
-        model = str(kwargs.pop("model", None) or self.model)
-        content = self.client.chat(system_prompt, user_prompt, model=model, **kwargs)
+        requested_model = str(kwargs.pop("model", None) or self.model)
+        content = self.client.chat(system_prompt, user_prompt, model=requested_model, **kwargs)
         error = self._normalized_error()
+        usage = self.client.get_last_usage()
+        actual_model = str(usage.get("model") or requested_model)
         return ProviderResponse(
             provider=self.spec.provider,
-            model=model,
+            model=actual_model,
+            requested_model=requested_model,
             content=content,
             finish_reason=self.client.get_last_response_meta().get("finish_reason"),
-            usage=self.client.get_last_usage(),
+            usage=usage,
             error=error if content is None else None,
         )
 
     def chat_json(self, system_prompt: str, user_prompt: str, **kwargs: Any) -> ProviderResponse:
-        model = str(kwargs.pop("model", None) or self.model)
-        content = self.client.chat_json(system_prompt, user_prompt, model=model, **kwargs)
+        requested_model = str(kwargs.pop("model", None) or self.model)
+        content = self.client.chat_json(system_prompt, user_prompt, model=requested_model, **kwargs)
         error = self._normalized_error()
+        usage = self.client.get_last_usage()
+        actual_model = str(usage.get("model") or requested_model)
         return ProviderResponse(
             provider=self.spec.provider,
-            model=model,
+            model=actual_model,
+            requested_model=requested_model,
             content=content,
             finish_reason=self.client.get_last_response_meta().get("finish_reason"),
-            usage=self.client.get_last_usage(),
+            usage=usage,
             error=error if content is None else None,
         )
 
@@ -300,6 +316,12 @@ class ProviderClientFacade:
     def vision_json(self, *args: Any, **kwargs: Any) -> Optional[Dict[str, Any]]:
         if not self.adapter.spec.capabilities.vision:
             return None
+        if not validate_model_route(
+            self.provider,
+            self.model,
+            capability="vision",
+        ).get("ok"):
+            return None
         return self.adapter.client.vision_json(*args, **kwargs)
 
     def transcribe_audio(self, *args: Any, **kwargs: Any) -> str:
@@ -327,6 +349,8 @@ class AIProviderRouter:
             model=model,
             base_url=base_url,
         )
+        self.privacy_route = "protected_default"
+        self.privacy_reason = "기본 보호 경로"
 
     @classmethod
     def from_settings(
@@ -334,11 +358,8 @@ class AIProviderRouter:
         settings: Dict[str, Any],
         *,
         workload: str = "analyst",
+        privacy_class: str = "private",
     ) -> "AIProviderRouter":
-        original_credentials = settings.get("ai_credentials")
-        has_structured_credentials = bool(
-            isinstance(original_credentials, dict) and original_credentials
-        )
         runtime = hydrate_ai_credentials(settings)
         profiles = runtime.get("ai_provider_profiles", {})
         profile = profiles.get(workload, {}) if isinstance(profiles, dict) else {}
@@ -366,9 +387,22 @@ class AIProviderRouter:
             or runtime.get("ai_provider")
             or "openai"
         ).lower()
+        requested_privacy = str(privacy_class or "private").strip().lower()
+        public_cfg = runtime.get("ai_data_routing")
+        public_cfg = public_cfg if isinstance(public_cfg, dict) else {}
+        shared_credentials = (runtime.get("ai_credentials") or {}).get("openai_shared", {})
+        shared_credentials = shared_credentials if isinstance(shared_credentials, dict) else {}
+        use_shared_openai = (
+            requested_privacy == "public_general"
+            and bool(public_cfg.get("public_general_sharing_enabled", False))
+            and bool(str(shared_credentials.get("api_key") or "").strip())
+        )
+        if use_shared_openai:
+            provider = "openai"
         spec = PROVIDER_SPECS.get(provider, PROVIDER_SPECS["openai"])
         credentials = runtime.get("ai_credentials", {})
-        credential_cfg = credentials.get(provider, {}) if isinstance(credentials, dict) else {}
+        credential_key = "openai_shared" if use_shared_openai else provider
+        credential_cfg = credentials.get(credential_key, {}) if isinstance(credentials, dict) else {}
         if not isinstance(credential_cfg, dict):
             credential_cfg = {}
         models = runtime.get("ai_models", {})
@@ -377,22 +411,26 @@ class AIProviderRouter:
             model = str(profile.get("model") or "")
         if not model and isinstance(models, dict):
             model = str(models.get(workload) or "")
+        if use_shared_openai:
+            model = str(public_cfg.get("public_openai_model") or PROVIDER_SPECS["openai"].default_model)
         if not model:
             legacy_key = "assistant_ai_model" if workload == "assistant" else "openai_model"
             model = str(runtime.get(legacy_key) or spec.default_model)
-        active_provider = str(runtime.get("ai_provider") or "openai").lower()
-        legacy_route_key = ""
-        if provider == "openai":
-            legacy_route_key = str(runtime.get("openai_api_key") or "")
-        elif provider == active_provider and not has_structured_credentials:
-            # 구버전은 선택 Provider 키도 openai_api_key 한 칸에 저장했다.
-            # 새 ai_credentials가 존재하면 다른 Provider 키를 빌려 쓰지 않는다.
-            legacy_route_key = str(runtime.get("openai_api_key") or "")
-        api_key = str(credential_cfg.get("api_key") or legacy_route_key or "")
+        # hydrate_ai_credentials가 레거시 공통 키를 실제 소유 Provider의
+        # 구조화 항목으로 옮긴다. 여기서 openai_api_key를 다시 fallback하면
+        # DeepSeek 키가 OpenAI workload로 전달되는 교차 Provider 버그가 난다.
+        api_key = str(credential_cfg.get("api_key") or "")
         base_url = credential_cfg.get("base_url")
         if base_url is None:
             base_url = spec.base_url if provider != "openai" else runtime.get("openai_base_url")
-        return cls(provider, api_key=api_key, model=model, base_url=base_url)
+        router = cls(provider, api_key=api_key, model=model, base_url=base_url)
+        if use_shared_openai:
+            router.privacy_route = "openai_shared_public_general"
+            router.privacy_reason = "사용자가 공개 일반 질문으로 명시하고 공유용 OpenAI Project를 활성화했습니다."
+        elif requested_privacy == "public_general":
+            router.privacy_route = "protected_default_fallback"
+            router.privacy_reason = "공유용 경로가 꺼져 있거나 키가 없어 기본 보호 경로를 사용했습니다."
+        return router
 
     def client_facade(self) -> ProviderClientFacade:
         return ProviderClientFacade(self.adapter)
@@ -450,3 +488,51 @@ class AIProviderRouter:
             capability=capability,
             account_models=account_models,
         )
+
+    def probe_model(self, *, capability: str = "chat_text") -> Dict[str, Any]:
+        """Call the selected model with a fixed, non-sensitive diagnostic prompt.
+
+        Listing models proves that the credential can read the provider catalog;
+        it does not prove that the selected model can generate a response.  This
+        explicit probe is only used after the user presses the diagnostic button.
+        """
+        requested_model = str(self.adapter.model or "")
+        if capability not in {"chat_text", "chat_json"}:
+            return {
+                "attempted": False,
+                "ok": False,
+                "requested_model": requested_model,
+                "actual_model": "",
+                "usage": {},
+                "error": {
+                    "code": "diagnostic_probe_unsupported",
+                    "message": f"{capability} 기능은 고정 텍스트 진단으로 확인할 수 없습니다.",
+                },
+            }
+        kwargs: Dict[str, Any] = {"model": requested_model, "max_tokens": 64}
+        if self.spec.provider == "openai" and requested_model.lower().startswith("gpt-6"):
+            kwargs["reasoning_effort"] = "low"
+        if capability == "chat_json":
+            response = self.adapter.chat_json(
+                "Return one valid JSON object and do not use external data.",
+                '{"diagnostic":"reply with ok=true"}',
+                **kwargs,
+            )
+        else:
+            response = self.adapter.chat_text(
+                "This is a provider connection diagnostic. Reply with only OK.",
+                "OK",
+                **kwargs,
+            )
+        error = asdict(response.error) if response.error else None
+        response_meta = self.adapter.client.get_last_response_meta()
+        return {
+            "attempted": True,
+            "ok": bool(response.ok),
+            "requested_model": response.requested_model or requested_model,
+            "actual_model": response.model,
+            "usage": dict(response.usage or {}),
+            "finish_reason": response.finish_reason,
+            "response_id": str(response_meta.get("response_id") or ""),
+            "error": error,
+        }

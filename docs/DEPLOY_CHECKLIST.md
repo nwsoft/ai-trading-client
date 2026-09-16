@@ -1,40 +1,345 @@
-# 배포 체크리스트 (2026-08-13 · v3.9.0.10 AI Custom Management & Runtime Integrity Update 기준)
+## v3.9.1.37 키움 조회 대기·실패 상태 수정 (소스 후보)
 
-운영 환경 배포 전/후 점검해야 할 항목을 정리했습니다. 이 문서는 `noahai_client/build_safe.py`의 현재 PyInstaller 스펙을 기준으로 작성되었습니다.
+- [x] 전체 Python 2,491 passed / 8 skipped / 3 subtests, 집중 135 passed, Web Node 22.23.1 빌드·문서·매뉴얼 정합.
+- [ ] Windows x64/x86 새 설치본·사용자 로그인/PAPER/조회 회복·업데이트·장시간 검증.
+- [ ] v3.9.1.37 새 자산 게시·원격 해시·자동업데이트 확인. 현재 공개 자산은 v3.9.1.36 유지.
+
+현재 소스 후보 버전: **v3.9.1.37** · updater 3.9.137.
+현재 공개 버전: **v3.9.1.36** · 현재 공개 기반: v3.9.1.36 stable/latest.
+3.9.1.37은 키움 조회 대기·요청 간격·실패 상태 보존 수정 후보입니다. Windows 새 설치본 검증은 미완료입니다.
+
+- 로그인 후 종목 조회 중단 로그를 반영해 TR 즉시 오류·응답 제한·요청 간격·늦은 응답을 처리합니다.
+- 조회 실패를 정상 분석으로 넘기지 않고 최초 원인을 보존합니다. 계좌 목록·잔고·보유종목·미체결·ETF/거래내역 조회 계약을 수정합니다.
+- 공개 v3.9.1.36 자산은 보존합니다. 실제 통신 단절·주문 불명확 상태의 안전 차단은 유지합니다.
+- [검증 계획](V39137_KIWOOM_BOUNDED_QUERIES_TEST_PLAN.md) · [사용자 로그 분석](V39137_KIWOOM_USER_LOG_ANALYSIS.md).
+
+## 이전 버전 기록 (이하 후보·공개·검증 상태는 당시 기록)
+
+## v3.9.1.36 키움 세션·증권 PAPER·전략검증 정합 (2026-09-16 소스 후보)
+
+현재 소스 후보 버전: **v3.9.1.36** · updater **3.9.136**. 현재 공개 기반: v3.9.1.35 stable/latest. 공개 자산을 교체하지 않고 새 버전으로만 배포합니다.
+
+- [x] 키움 timeout 뒤 자동 호스트 재시작 차단·수동 재연결 latch 소스 회귀.
+- [x] 네 증권사 PAPER 주식/ETF 원장·비용·재시작 보존 소스 회귀.
+- [x] 네 증권사 주식/ETF 전략 일봉·기관 범위·비용 계약 소스 회귀.
+- [x] 전체 Python 2,466 passed / 8 skipped / 3 subtests, Web 52 modules, 매뉴얼/문서 정합, 개발 릴리스 게이트, 격리 브라우저 fixture, npm production audit.
+- [ ] Windows x64/x86 새 빌드·PE/버전/SHA·v3.9.1.35 업데이트.
+- [ ] 키움 실로그인 단절/중복 로그인, 네 증권사 PAPER·전략검증, 24시간 운용.
+- 검증 정본: [v3.9.1.36 검증 계획](V39136_KIWOOM_SESSION_STOCK_PAPER_VALIDATION_TEST_PLAN.md).
+
+
+## 이전 버전 기록 (아래 현재·공개 표기는 당시 기록이며 현행 판단에 사용하지 않음)
+
+# 배포 체크리스트 (2026-09-16 · v3.9.1.34 키움 x86·릴리즈 무결성 후보 기준)
+
+
+## 현재 버전 기준 · v3.9.1.34 검증 후보
+
+현재 소스 후보 버전: **v3.9.1.34** · 현재 공개 안정판: **v3.9.1.33**. 제품 3.9.1.34 / updater 3.9.134, 설치 파일 `NoahAI-3.9.1.34-Setup.exe`입니다. x64 엔진과 x86 키움 호스트가 모두 포함되어야 합니다.
+
+[v3.9.1.34 필수 게이트](V39134_KIWOOM_X86_RELEASE_INTEGRITY_TEST_PLAN.md). 미완료 행이 있으면 prerelease만 허용하며 공개 안정판 v3.9.1.33은 유지합니다.
+
+## v3.9.1.32 소스 후보 · 공개 v3.9.1.31
+
+v3.9.1.32는 국면 재선정 대기를 실제 변경 알림과 분리하고, 저장한 업데이트 확인 주기를 앱 공통 타이머로 실행합니다. Coinone의 미제공 활성 상태를 중단으로 오해하던 후보 수집을 수정하고, KIS·미래에셋의 주식/ETF 목록을 공식 공개 마스터로 분리합니다. 네 증권사 워커의 후보 없음·분석 완료·오류를 해당 기관 로그로 전달합니다. 주문 권한·TP/SL·점수 없는 진입 차단은 유지합니다.
+
+제품 버전 3.9.1.32 / updater 3.9.132. 새 Windows 설치본의 설정창 미방문 주기 확인, 상태 5분 요약, Coinone 후보 점수·PAPER, KIS 장중 주기 로그를 확인해야 합니다. 사용자 공유 데이터는 읽기 전용입니다.
+
+[근본 원인과 필수 검증](V39132_RUNTIME_RECOVERY_TEST_PLAN.md)
+
+## 이전 문서 기록 (아래 현재·후보 표기는 당시 기준)
+
+운영 환경 배포 전/후 점검해야 할 항목을 정리했습니다. 내부 통합 후보는 기존 `build_safe.py`와 Web UI/Electron bundle을 분리해 검증합니다.
+
+## v3.9.1.31 패치 필수 게이트
+
+> 현재 공개 Windows 기준은 v3.9.1.30입니다. v3.9.1.31은 같은 번호의 기존 자산을 덮어쓰지 않고 새 설치기·blockmap·`latest.yml`·manifest로만 공개합니다.
+
+- 제품 버전 `3.9.1.31`, updater SemVer `3.9.131`, 설치 파일 `NoahAI-3.9.1.31-Setup.exe`, blockmap과 `latest.yml`의 크기·SHA-512가 manifest와 일치해야 한다.
+- 메뉴얼 정본을 다시 생성했을 때 `docs/USER_MANUAL_SECTIONS.json`과 완전히 같고, 11개 고유 탭·UTF-8 무손실·현행 7개 코인 거래소·4개 증권사·Coinone LIVE 차단·v3.9.1.31 최신 항목 검사를 통과해야 한다.
+- 소개부터 업데이트까지 모든 탭에서 요약 카드와 전체 본문이 기본 노출되고, 전역 검색이 탭 제목뿐 아니라 본문 전체 일치 항목을 순서대로 이동하는지 확인한다.
+- Windows 100/125/150/175% DPI와 최소 지원 창 너비에서 제목·표·목록·주의 카드·긴 영문 모델명·기관명이 잘리거나 겹치지 않는지 확인한다.
+- AlphaArena는 v3.9.1.31에서 PAPER 전용이며 LIVE 모드 시작이 `alpha_arena_live_blocked_pending_external_gate`로 실패 폐쇄되는지 확인한다.
+- v3.9.1.30의 거래 수량·신호·가드레일·PAPER/LIVE 원장·기관별 통계·Strategy Studio 시간봉 계약이 메뉴얼 UI 변경으로 달라지지 않았는지 집중 회귀한다.
+- v3.9.1.30→v3.9.1.31 자동 업데이트와 재시작에서 설정·자격증명·거래/PAPER 원장·전략 버전·검증 시도·사용자 초안이 보존되는지 확인한다.
+- 각 결과는 [v3.9.1.31 검증·배포 계약](V39131_READABLE_MANUAL_RELEASE_TEST_PLAN.md)에 기록하고, 필수 미완료 항목이 있으면 stable 게시를 중단한다.
+
+## v3.9.1.30 공개 기준
+
+> v3.9.1.30 Windows 자산은 공개 기준입니다. PAPER 범위·전략 시간봉·증권 연결 진단 계약은 후속 버전에서도 유지합니다.
+
+- 세부 소스·운영 경계는 [v3.9.1.30 테스트 계획](V39130_STRATEGY_VENUE_CONSISTENCY_TEST_PLAN.md)을 따른다.
+- Windows 설치·업데이트/롤백·실계정 KIS/키움·장시간 PAPER는 소스 테스트와 별개의 환경 게이트로 계속 기록한다.
+
+## v3.9.1.27 패치 필수 게이트
+
+> 직전 공개 v3.9.1.26 자산은 변경하거나 같은 번호로 다시 게시하지 않습니다. 후속 수정은 v3.9.1.27 새 산출물로만 배포합니다.
+
+- 제품 버전 `3.9.1.27`, updater SemVer `3.9.127`, 설치 파일 `NoahAI-3.9.1.27-Setup.exe`, blockmap과 `latest.yml`이 일치해야 한다.
+- [v3.9.1.27 검증 원장](V39127_STRATEGY_ASSISTANT_CONTINUITY_TEST_PLAN.md)의 소스·Windows 항목을 완료해야 한다.
+- 공개 v3.9.1.26→v3.9.1.27 자동 업데이트에서 다운로드·안전 종료·재시작·설정/원장/전략 초안 보존을 확인한다.
+- 실제 Provider에서 30/30 429를 만들고 텍스트·Pine 로컬 분석은 계속되며 이미지·영상은 정확한 안내를 내는지 확인한다.
+- 실제 사용자 DeepSeek 계정의 모델 조회에서 `deepseek-v4-flash`·`deepseek-v4-pro`를 확인하고, 계정에 노출된 경우에만 `deepseek-v4-flash-vision-exp` 이미지 분석을 시험한다. 확인되지 않은 `deepseek-v4.1-flash` 문자열을 수동 저장하지 않는다.
+- 일반 `deepseek-v4-flash`를 선택한 차트 분석은 Provider 호출 전에 모델 capability 오류로 차단되고, 텍스트·JSON 요청은 정상 동작하는지 확인한다.
+- AI 비용 카드는 실제 토큰·등록 단가가 있는 사용자 요청형 호출만 증가하고, 캐시 재사용·실패·토큰 미제공·단가 미등록은 0원 성공으로 오인되지 않는지 확인한다. Provider 콘솔 청구와 자동매매 백그라운드 비용은 별도 대조한다.
+- YouTube 입력은 자막이 있으면 전사 모델을 호출하지 않고, 자막이 없을 때만 사용자가 선택한 OpenAI 전사 경로와 비용 안내를 사용하는지 확인한다.
+- 암호화폐와 주식·ETF에서 확인창·생성 시각·AI 답변 검토 전달·재분석을 각각 확인한다.
+- 레버리지 선택지는 암호화폐 최대 5배, 주식·ETF 1배로 유지되는지 확인한다.
+
+## v3.9.1.26 공개 기준
+
+> v3.9.1.26은 공개됐습니다. 위험예산 입력·질문형 확인 계약은 후속 버전에서도 유지합니다.
+
+- 제품 버전 `3.9.1.26`, updater SemVer `3.9.126`, 설치 파일 `NoahAI-3.9.1.26-Setup.exe`, blockmap과 `latest.yml`이 일치해야 한다.
+- [v3.9.1.26 검증 원장](archive/release/V39126_STRATEGY_RISK_INPUT_RECOVERY_TEST_PLAN.md)의 소스·Windows 항목을 완료해야 한다.
+- 공개 v3.9.1.25→v3.9.1.26 자동 업데이트에서 다운로드·안전 종료·재시작·설정/원장 보존을 확인한다.
+- 암호화폐 원문에서 `거래당 계좌 손실 0.5%, 증거금 사용은 최대 10%`가 위험예산으로 인식되고 최종 저장값과 같은지 확인한다.
+- 주식·ETF 원문에서 `거래당 계좌 손실 0.5%, 종목당 투자 비중은 최대 10%`가 1배 LONG 현물 계약으로 유지되는지 확인한다.
+- `%` 없는 위험값은 추측되지 않고 차단되는지, 현재 선택값 추가 뒤 재분석이 필요한지 확인한다.
+- 원클릭 보완이 진입·청산·방향·지표·임계값을 생성하지 않는지 확인한다.
+- 아래 v3.9.1.25 및 누적 게이트를 계속 적용한다.
+
+## v3.9.1.25 공개 기준
+
+> v3.9.1.25는 공개됐습니다. Strategy Studio 입력 보존·AI 문맥·따라 만들기 복구 계약은 후속 버전에서도 유지합니다.
+
+## v3.9.1.24 공개 기준
+
+> v3.9.1.24는 공개됐습니다. Strategy Studio 가독성·허브 접근 계약은 후속 버전에서도 유지합니다.
+
+## v3.9.1.23 공개 기준
+
+> v3.9.1.23은 공개됐습니다. 통계·PAPER 생명주기 계약은 후속 버전에서도 유지합니다.
+
+- 제품 버전 `3.9.1.23`, updater SemVer `3.9.123`, 설치 파일 `NoahAI-3.9.1.23-Setup.exe`, blockmap과 `latest.yml`이 일치해야 한다.
+- [v3.9.1.23 검증 원장](archive/release/V39123_CANONICAL_LIVE_STATISTICS_TEST_PLAN.md)의 소스·Windows·실사용 항목을 완료해야 한다.
+- 기관 등록부, 런타임·통계 집합, Web UI inventory 드리프트 테스트를 통과해야 한다. 향후 기관 추가 시 자격증명·주문·수명주기·원장·통계·PAPER·Strategy Studio·문서 중 하나라도 누락되면 지원 완료로 표시하지 않는다.
+- 거래 통계에서 오늘·7일·30일·전체·사용자 지정의 `exit_time` 경계를 한국시간/UTC 혼합 계정으로 대조한다.
+- 표시 기준을 설정해도 거래·체결·학습·Strategy Studio PAPER·위험 원장·열린 포지션이 변하지 않고, 기준 뒤 청산부터 포함되는지 확인한다.
+- 6개 거래소와 4개 증권사에서 거래 통계·운영 KPI·AI 리포트의 같은 기간 체크섬과 KRW/USDT 분리를 대조한다.
+- 현재 포지션은 모든 활성 기관 계좌 조회 성공 시에만 최신 합계를 사용하고 일부 실패에서는 저장 원장 참고 상태를 표시하는지 확인한다.
+- `data/Teayu` 등 실제 사용자·테스터 폴더를 테스트 fixture나 자동 실계정 대상으로 사용하지 않는다. 개발·prekey 게이트는 offline으로 실행하고, release 실증권 점검은 승인된 QA 계정을 `--readiness-account`로 명시한다.
+- 기관별 `통계 표시 기준 새로 시작`은 선택한 거래소/증권사 LIVE 화면만 바꾸고 다른 기관·다른 자산군·PAPER·학습·위험 원장에는 영향을 주지 않는지 확인한다. `전체` 선택은 현재 자산군 전체 표시 범위임을 확인한다.
+- 전체 PAPER에서는 메인 운영 KPI가 현재 가상 포지션과 오늘 PAPER 청산으로 자동 전환되고, 거래 통계의 LIVE/PAPER 선택이 서로 다른 원장을 표시하는지 확인한다.
+- Strategy Studio에서 최소 조건 전 일시정지가 `미통과`가 아닌 `PAPER 일시정지`이며, 재개 후 거래소별 근거와 활성 검증일수가 이어지는지 확인한다.
+- `새 검증 시작`의 2회 확인 뒤 현재 진행률만 0으로 바뀌고 이전 attempt·패키지 여권·가상 청산 원장은 보존되는지 확인한다.
+- 아래 v3.9.1.22 및 누적 게이트도 계속 적용한다.
+
+## v3.9.1.22 패치 필수 게이트
+
+> 공개 v3.9.1.21 자산은 변경하지 않습니다. 아래 수정은 v3.9.1.22 새 산출물로만 배포합니다.
+
+- 제품 버전 `3.9.1.22`, updater SemVer `3.9.122`, 설치 파일 `NoahAI-3.9.1.22-Setup.exe`, blockmap과 `latest.yml`이 일치해야 한다.
+- [v3.9.1.22 검증 원장](archive/release/V39122_UNIFIED_SIZING_PARALLEL_PAPER_TEST_PLAN.md)의 소스·Windows·실사용 항목을 완료해야 한다.
+- 기존 v3.9.1.21 설정은 고정 Notional로 유지되고 계좌 위험 모드를 명시적으로 켠 경우만 수량이 변하는지 확인한다.
+- 6개 거래소와 4개 증권사에서 평가금·SL·위험률·위험배수·Notional·증거금·수량·레버리지 XAI를 실제 주문값과 대조한다.
+- LIVE 전략과 PAPER 관찰 전략이 서로의 신호·포지션·자금·주문 권한을 공유하지 않는지 확인한다.
+- 아래 v3.9.1.21 및 누적 게이트도 계속 적용한다.
+
+## v3.9.1.21 누적 게이트
+
+> v3.9.1.21은 공개됐습니다. PAPER PnL·비용·로그·성과회복 귀속 계약은 후속 버전에서도 유지합니다.
+
+- 제품 버전 `3.9.1.21`, updater SemVer `3.9.121`, 설치 파일 `NoahAI-3.9.1.21-Setup.exe`, blockmap과 `latest.yml`이 일치해야 한다.
+- [v3.9.1.21 검증 원장](archive/release/V39121_PAPER_PNL_COST_VENUE_ATTRIBUTION_TEST_PLAN.md)의 소스·Windows·실사용 항목을 완료해야 한다.
+- 6개 거래소 PAPER 활성 포지션의 청산 전 미실현 PnL과 예상 비용을 런타임·화면에서 대조한다.
+- v3.9.1.19 Binance 비용 0 행의 추정 복구·미확정 분리 건수와 전략 스튜디오 비용 합계를 대조한다.
+- 6개 거래소 동시 실행에서 로그 탭 교차 혼입이 없고 성과회복 제한이 거래소별 최신 표본으로 적용되는지 확인한다.
+- 키움·신한·미래에셋·한국투자의 주식/ETF PAPER 포지션에서 현재가 기준 미실현 순손익, KRW gross/net PnL, 수수료·예상 세금·슬리피지를 대조한다.
+- 주식과 ETF의 세금 계약, 부분청산 비용 배분, 보유량 초과 매도 차단 및 열린 포지션의 비용 계약 보존을 확인한다.
+- 증권 PAPER 성과회복이 해당 증권사 PAPER 원장만 읽고 LIVE 체결 또는 다른 증권사 표본과 섞이지 않는지 확인한다.
+- 4개 증권사 동시 조회·PAPER 운용에서 XAI·거래 로그의 소유 증권사와 화면 탭이 일치하는지 확인한다.
+- v3.9.1.20→v3.9.1.21 업데이트 후 설정·자격증명·전략·PAPER 원장과 열린 PAPER 상태가 보존되는지 확인한다.
+- Windows 산출물과 6개 거래소·4개 증권사 실제 환경 게이트 전에는 `pending_windows_rebuild`, `publish_ready=false`를 유지한다.
+- 아래 v3.9.1.20 및 누적 게이트도 계속 적용한다.
+
+## v3.9.1.20 누적 게이트
+
+> v3.9.1.20은 공개됐습니다. PAPER 중지 권한·재시작 복구·멱등 청산·다중 전략 순환 계약은 후속 버전에서도 유지합니다.
+
+- [v3.9.1.20 검증 원장](archive/release/V39120_PAPER_LIFECYCLE_EXECUTION_INTEGRITY_TEST_PLAN.md)의 누적 항목을 유지한다.
+- PAPER 일시정지→늦은 청산→동기화만으로 실행 권한이 되살아나지 않는지 확인한다. 사용자가 명시적으로 `PAPER 검증 재개`한 경우에만 같은 attempt의 실행 권한이 다시 생기고 기존 근거가 이어져야 한다.
+- 열린 Binance·Upbit·Bithumb·Bybit·Bitget·OKX PAPER 포지션을 만든 뒤 정상/강제 종료와 재시작에서 전략 버전·TP/SL·수량·진입가가 복구되는지 확인한다.
+- 같은 position ID의 청산 재처리가 PAPER 이력·승률·전략 검증에 한 번만 집계되는지 확인한다.
+- Binance PAPER에서 gross PnL, 왕복 추정 fee, 추정 slippage, net PnL의 산식과 화면 합계가 일치하는지 확인한다.
+- 같은 거래소·종목에서 관찰 전략 2개 이상이 공유 슬롯을 공정 순환하고 LIVE 적용 전략의 충돌 HOLD 계약은 유지되는지 확인한다.
+- UPBIT 다중 분석에서 public ticker 429가 폭증하지 않고 cache/backoff 뒤 복구되는지 확인한다.
+- 100MB 이상 학습 데이터에서 이벤트 기록이 매번 전체 JSON 재작성으로 변하지 않고 journal 복구·checkpoint·archive가 중복/누락 없이 동작하는지 확인한다.
+- Binance 일반 오픈 주문과 Algo Order 양쪽의 TP/SL을 감사해 실제 보호 주문을 누락 경고하지 않는지 확인한다.
+- v3.9.1.19→v3.9.1.20 업데이트 후 설정·자격증명·전략·PAPER 원장과 열린 PAPER 상태가 보존되는지 확인한다.
+- v3.9.1.19 및 누적 게이트도 계속 적용한다.
+
+## v3.9.1.19 누적 게이트
+
+> v3.9.1.19는 공개됐습니다. UNIFIED Binance 귀속·패키지 무결성·검증 대상 분리 계약은 후속 버전에서도 유지합니다.
+
+- 제품 버전 `3.9.1.19`, updater SemVer `3.9.119`, 설치 파일 `NoahAI-3.9.1.19-Setup.exe`, blockmap과 `latest.yml`이 일치해야 한다.
+- `archive/release/V39119_STRATEGY_PASSPORT_INTEGRITY_TEST_PLAN.md`의 소스·Windows·실사용 항목을 완료해야 한다.
+- Binance 전용 전략과 UNIFIED 전략의 Binance PAPER 진입·청산이 각각 정확한 저장 버전에 귀속되는지 확인한다.
+- `.noahstrategy` 내보내기→파일 저장→가져오기 후 IR/content hash가 같고, v3.9.1.18 구형 파일 복구가 해시 일치 파일에만 허용되는지 확인한다.
+- 화면의 검증 대상이 원문 구조화 규칙과 NoahAI 기본 진입 오버레이를 구분하며 여권·랭킹에서 혼합되지 않는지 확인한다.
+- 기존 미구조화 PAPER 후보를 보존하되 기본 NoahAI 분석·진입이 6개 거래소에서 계속되는지 확인한다.
+- 최종 적용 전략의 조건 미충족은 기본 신호로 우회하지 않고 HOLD를 유지하는지 확인한다.
+- 전략 문서 저장 → 실행 준비 → 사용자 승인 → PAPER 전진검증의 네 게이트가 UI와 API에서 분리되고, 실행 준비 실패 전략의 승인·자동검증·PAPER·적용이 모두 거부되는지 확인한다.
+- 독립 전략의 LONG/SHORT별 방향·선언형 진입조건·전략 소유 TP/SL 단위와 안전 범위가 부족하면 실행 준비가 거부되고 UI에 정확한 이유가 표시되는지 확인한다.
+- `confirm` 전략의 `inherit_noah_base`는 NoahAI 스마트 청산을 사용하고, `strategy_owned`는 승인된 고정 TP/SL을 유지하며, 독립 전략은 상속을 선택할 수 없는지 확인한다.
+- 오늘·주간·월간·최근 1시간 AI 리포트 요약과 상세가 같은 청산 원장·거래소 필터·기간 하한·현재시각 상한을 사용하고 KRW/USDT를 합산하지 않는지 확인한다.
+- 100건이 넘는 상세 원장을 페이지 이동해도 누락·중복이 없고, 전체 기간 체크섬과 통화별 손익·수수료가 요약과 일치하며 미래 시각 행이 제외되는지 확인한다.
+- Upbit·Bithumb PAPER의 LONG/관리 LONG 청산과 Binance·Bybit·Bitget·OKX PAPER의 LONG/SHORT가 v3.9.1.16 거래소 계약을 유지하는지 확인한다.
+- 6개 거래소 LEARNING·PAPER에서 LIVE 손실 판정·잔고 조회·외부 손실 알림이 0건인지 확인한다.
+- LIVE에서만 거래소별 실현·미실현 손익으로 일일 손실을 판정하고, 빈/무효 잔고·포지션 응답을 100% 손실로 표시하지 않는지 확인한다.
+- Telegram·Discord 실제 수신에서 `[LIVE]`·거래소·KRW/USDT를 대조하고, 6개 거래소별 ON/OFF·저장·재시작 보존을 확인한다.
+- OKX 실제 파생 ticker가 `quoteVolume`을 생략해도 원문 `volCcy24h×last` USDT 거래대금으로 후보가 숫자 점수를 만들고, `vol24h`/CCXT `baseVolume` 계약 수를 기초자산 수량으로 오인하지 않는지 확인한다.
+- OKX 정상 국면에서 `코인 선택 데이터 저장 완료`가 약 1분마다 반복되지 않고, 확정 국면 변경 또는 기본 3시간 주기에서만 정상 선정 세션이 추가되는지 확인한다.
+- 강제 `fallback_unscored`에서 복구 간격이 60초부터 최대 15분으로 증가하고 동일 실패 원장은 기본 15분보다 자주 저장되지 않으며, 복구 성공 뒤 단계가 초기화되는지 확인한다.
+- Strategy Studio의 Validation Lab과 거래소·기준통화별 PAPER 근거가 API 값과 일치하고 KRW/USDT가 합산되지 않는지 확인한다.
+- 자연어/Pine 정답 코퍼스의 지원 입력은 의미가 보존되고 미지원 기능·단위 없는 TP/SL은 저장·승인 전에 차단되는지 확인한다.
+- v3.9.1.18→v3.9.1.19 업데이트 후 설정·자격증명·전략·PAPER 원장이 보존되고 종료·재시작·롤백이 동작하는지 확인한다.
+- Windows 산출물과 실제 계정 게이트 전에는 `pending_windows_rebuild`, `publish_ready=false`를 유지한다.
+- 아래 v3.9.1.17 및 v3.9.1.16 누적 게이트도 계속 적용한다.
+
+## v3.9.1.16 누적 게이트
+
+> v3.9.1.15 자산은 변경하지 않습니다. 국내 KRW 현물 주문단위, 현물/선물/PAPER 실행 계약과 국면 요청 안정화는 v3.9.1.16 새 자산에서만 배포합니다.
+
+- 제품 버전 `3.9.1.16`, updater SemVer `3.9.116`, 설치 파일 `NoahAI-3.9.1.16-Setup.exe`, blockmap과 새 `latest.yml`이 일치해야 한다.
+- `archive/release/V39116_VENUE_EXECUTION_CONTRACT_TEST_PLAN.md`의 소스·PAPER·LIVE·업데이트 항목을 완료해야 한다.
+- Upbit 시장가 매수 요청이 base 수량이 아니라 승인된 KRW 총액이고, 시장가 매도는 NoahAI 관리 base 수량인지 거래소 원장과 대조한다.
+- Bithumb에 Upbit의 KRW cost 파라미터가 전달되지 않고 종목별 주문·체결 조회가 동작하는지 확인한다.
+- Upbit·Bithumb에서 신규 SHORT·레버리지·수동/에어드롭 보유분 자동 매도가 0건인지 PAPER와 승인된 최소 LIVE에서 확인한다.
+- Binance·Bybit·OKX·Bitget에서 LONG/SHORT와 reduce-only 청산이 유지되는지 확인한다. Bybit·OKX·Bitget은 단방향/헤지 계정 모드를 각각 검증한다.
+- LEARNING 주문·가상체결 0건, PAPER 외부주문 0건, KRW/USDT 성과 원장 분리를 확인한다.
+- 6개 거래소 동시 운용에서 15분봉 국면 요청이 기본 5분 동안 거래소별 1회이고 동일 분석 로그가 10초마다 반복되지 않는지 확인한다.
+- v3.9.1.15→v3.9.1.16 업데이트 후 설정·자격증명·전략·PAPER 원장을 보존하고 설치·재시작·롤백을 확인한다.
+- Windows 산출물과 실제 계정 게이트 전에는 `pending_windows_rebuild`, `publish_ready=false`를 유지한다.
+- 아래 v3.9.1.15 누적 게이트도 계속 적용한다.
+
+## v3.9.1.15 누적 게이트
+
+> v3.9.1.14 자산은 이미 게시되었습니다. 주문규격 정합, Strategy Studio Level 4, Binance 후보 선정 복구, 단일 사이클과 상태 보존형 포지션 정합화는 v3.9.1.15 새 자산으로만 배포합니다.
+
+- 제품 버전 `3.9.1.15`, updater SemVer `3.9.115`, 설치 파일 `NoahAI-3.9.1.15-Setup.exe`, blockmap과 새 `latest.yml`이 일치해야 한다.
+- `archive/release/V39115_BINANCE_CYCLE_RECONCILIATION_TEST_PLAN.md`의 Windows 항목이 모두 완료돼야 한다.
+- `archive/release/V39115_ORDER_CONTRACT_LEVEL4_STRATEGY_HUB.md`의 Windows 주문·Level 4 항목이 모두 완료돼야 한다.
+- 기존 `min_trade_amount=20` 계정에서 초기 위험배수 0.10의 Binance PAPER 주문이 거래소 최소 규격 안에서 5.10 USDT로 검증되고, 설정 목표 20 USDT와의 잘못된 재비교가 없는지 확인한다.
+- Opportunity 승인 상한이 최소 주문보다 작을 때 수량을 올리지 않고 주문 0건과 명시 가드레일 사유를 확인한다. SPLIT/PARALLEL/BEST의 승인 수량과 실제 제출 수량도 대조한다.
+- Level 4 안정형·표준형·적극형 저장·재시작·IR/XAI·PAPER를 확인하고 승인·LIVE·손실중단·주문규격·TP/SL·중복방지·포지션 대조·긴급정지 해제 시도가 저장 단계에서 거부되는지 확인한다.
+- Windows 신규·기존 사용자 각각에서 Binance 후보가 20초 안에 숫자 점수로 선정되고, 현재 사용자 캐시에만 상품·티커·백업 파일이 생성되는지 확인한다.
+- 미산출 폴백을 재현한 뒤 실패 캐시 무효화·60초 쿨다운 재선정·복구 후 자동 `scored` 전환과 경고 비폭증을 확인한다.
+- 설정/API 갱신 뒤 Evaluator와 Trader가 같은 최신 Binance 연결을 사용하는지 확인한다.
+- 시작 버튼 1회 뒤 즉시 Binance 사이클이 1회만 실행되고 다음 사이클이 설정 간격 전에 시작되지 않는지 확인한다.
+- 정상 포지션·정상 무포지션·네트워크 실패·시간 오차에서 포지션과 거래 플래그가 올바르게 유지 또는 정리되는지 확인한다.
+- 계정 상태를 확인하지 못한 사이클에서 신규 주문이 0건이고 기존 TP/SL 보호 상태가 유지되는지 확인한다.
+- 공개 v3.9.1.14 자산은 변경하지 않으며 Windows 산출물과 외부 게이트 전에는 `pending_windows_rebuild`, `publish_ready=false`를 유지한다.
+- 아래 v3.9.1.14 누적 게이트도 계속 적용한다.
+
+## v3.9.1.14 누적 게이트
+
+- `archive/release/V39114_SELECTION_RECOVERY_BROKER_LIFECYCLE_TEST_PLAN.md`의 6개 거래소 후보 복구와 4개 증권사 조회 후 종료 계약을 유지한다.
+- `archive/release/V39113_OKX_UI_ACCESSIBILITY_TEST_PLAN.md`의 OKX 지연 종료, 화면 3개 프리셋, 업데이트 알림과 PAPER 안내를 유지한다.
+- Binance·Bybit 시간 복구, KIS 토큰 single-flight, LEARNING 명시 시작과 사용자 데이터 보존을 다시 확인한다.
+- 아래 v3.9.1.12 누적 게이트도 계속 적용한다.
+
+## v3.9.1.12 누적 게이트
+
+- 제품 버전 `3.9.1.12`, updater SemVer `3.9.112`, 설치 파일 `NoahAI-3.9.1.12-Setup.exe`, blockmap과 새 `latest.yml`이 일치해야 한다.
+- 공개 v3.9.1.11에서 업데이트한 뒤 사용자 설정·자격증명·전략 버전·PAPER 원장과 전략 패키지 저장소가 보존되는지 확인한다.
+- AI 커스텀 상단 `무료 전략 허브 열기`·`제출·다운로드 안내`, 전략 목록 상단 `내 전략 제출`, 버전별 `허브에 제출` 링크가 공식 HTTPS 주소를 여는지 확인한다.
+- `.noahstrategy` 내보내기 → daltrading 로그인 → 수동 제출 → 검토 상태 → 승인 전략 다운로드 → 비활성 가져오기 → 사용자 승인·자동검증·PAPER 재검증을 확인한다.
+- API 키·계좌·잔고·개인 거래내역·승인/활성 상태와 로컬 절대경로가 제출 패키지와 공개 검증 여권에 포함되지 않는지 확인한다.
+- 인앱 메뉴얼, `USER_MANUAL_SECTIONS.json`, 사용자 가이드와 AI 어시스턴트가 저장 위치·자동 업로드 금지·백테스트 한계·무료 베타 경계를 같은 의미로 안내하는지 확인한다.
+- `docs/archive/release/V39112_STRATEGY_HUB_MANUAL_TRUST_TEST_PLAN.md`에 미완료 항목이 있으면 `publish_ready=false`를 유지하고 GitHub Release를 만들지 않는다.
+- 아래 v3.9.1.11 누적 게이트도 계속 적용한다.
+
+## v3.9.1.11 누적 게이트
+
+- 제품 버전 `3.9.1.11`, updater SemVer `3.9.111`, 설치 파일 `NoahAI-3.9.1.11-Setup.exe`와 새 `latest.yml`이 일치해야 한다.
+- 공개 v3.9.1.10에서 업데이트 후 6개 거래소에 먼저 중지 신호가 전달되고 60초 안에 잔류 프로세스 없이 종료되는지 확인한다.
+- PAPER TP/SL 구형 단위, 활성 포지션 재시작 복구, 전략별 관찰 일수·청산 수, Upbit 현물 LONG 진입/청산을 `archive/release/V39111_SAFE_SHUTDOWN_PAPER_VALIDATION_TEST_PLAN.md`로 확인한다.
+- 공통 SmartExitPolicy의 종목/거래소 표본 범위, 비용·변동성·ATR·RR 결정 추적과 AI 커스텀 불변 계약을 PAPER/LIVE dry-run에서 대조한다.
+- 통합 5개 거래소의 새 PAPER 청산이 0원으로 저장되지 않고 KRW/USDT별 승률·손익·수수료와 개별 원장 합계가 일치하는지 확인한다.
+- 아래 v3.9.1.10 누적 게이트도 계속 적용한다.
+
+## v3.9.1.10 누적 게이트
+
+- 제품 버전 `3.9.1.10`, updater SemVer `3.9.110`, 설치 파일 `NoahAI-3.9.1.10-Setup.exe`, 새로 생성한 `latest.yml` 참조가 모두 일치해야 한다.
+- 공개 v3.9.1.9에서 업데이트 감지 → 안전 종료 → 설치 → 재시작과 잔류 `NoahAIEngine.exe` 0개를 확인한다.
+- 집중 운용 1개·다중 운용 기본 3개·고급 상한 2개가 저장·재시작 뒤 Binance와 통합 거래소의 LIVE/PAPER에 동일하게 적용되는지 확인한다.
+- PAPER 카드가 실계정 포지션이 아니라 런타임 가상 포지션을 표시하고 4개 이상 내부 스크롤, 가상 통계와 종료 이력 분리를 확인한다.
+- 100MB 이상 PAPER 원장에서 반복 workspace 갱신 시간이 파일 전체 크기에 비례하지 않는지 확인한다.
+- 적용 중 AI 커스텀 V1이 전역 PAPER에서 별도 재적용 없이 가상 실행되고 후보의 PAPER 전진검증 상태와 혼동되지 않는지 확인한다.
+- 과거 자동검증 통과 전략이 명시적 PAPER 시작 전에는 실행 풀에 들어가지 않고, 시작 뒤에는 LIVE 활성 전략과 분리된 PAPER 풀에서만 실행되는지 확인한다.
+- PAPER 최소 3건·7일 진행률, 일시정지/재개/새 검증 시도, 기본 전략과 AI 커스텀 전략의 최근 모의 청산 이력 및 실거래 통계 분리를 확인한다.
+- 일반 안내의 포지션 답변이 관리 포지션·TP/SL·전략 버전·최근 신호에 근거하고, 심층분석에도 동일한 구조화 근거가 전달되는지 실제 Provider로 확인한다.
+- Discord Webhook과 Telegram Bot Token/Chat ID를 저장·테스트하고 앱 재시작 뒤 등록 상태가 유지되며, 자격증명 원문은 설정 API·로그·지원 번들에 노출되지 않는지 확인한다.
+- Telegram 개인/그룹 대화방 자동 찾기, 가드레일 중단·손실 경고·시장국면·런타임 이벤트, AI 리포트 수동 발송을 실제 수신 메시지와 대조한다.
+- Discord/Telegram timeout·429·5xx·네트워크 단절을 강제로 만들어도 거래 루프·설정·AI 커스텀 응답이 대기하지 않고 제한 큐·재시도·cooldown이 상한대로 동작하는지 확인한다.
+- WebUI 키움이 AnyIO worker에서 COM을 직접 만들지 않고 QAx 별도 프로세스로 연결·종료·재시작되는지 Windows에서 확인한다.
+- Upbit·Bithumb 현물 SELL이 신규 SHORT 주문을 만들지 않고 보유자산만 줄이는지 PAPER/소액 승인 환경에서 확인한다.
+- Binance·Bybit·OKX·Bitget LONG/SHORT와 거래소별 심볼 정규화·기준통화를 확인한다.
+- 거래소 확인 체결, NoahAI 청산, 연결/미연결/레거시 상태와 오늘·주간·월간 SQL 전체 집계가 실제 API/DB와 일치하는지 확인한다.
+- Bithumb 다종목 미체결, KIS ETF/ETN 현재가, 키움 별도 프로세스 QAx/COM 연결·종료·재시작을 Windows 실계정 읽기로 확인한다.
+- 100MB 이상 학습 파일에서 최근 50개 초기 표시·50개 더보기·현재 운영 파일의 정확한 전체 학습 수와 UI 응답성을 확인한다.
+- 메인 최근 100줄·거래소별 최근 200줄과 파일/세션 병합, 거래소·레벨·카테고리·숨김 필터를 확인한다.
+- 6개 거래소 각각의 로그 분리와 독립 시작·정지, PAPER 일괄 시작/정지, 대시보드 KPI·실행 상태 갱신을 확인한다.
+- 상세 로그·로그 레벨 저장 뒤 Trader·통합 Trader·Analyzer·connector의 즉시 반영과 재시작 유지를 확인한다.
+- Windows cp949 로캘에서 기존 `🔧` 예외를 재현하고 새 sidecar가 UTF-8로 시작되어 API 요청 전에 중단되지 않는지 확인한다.
+- Binance·Upbit·Bithumb·Bybit·OKX·Bitget 각각에서 기존 키 인식과 새 키 저장 → 재조회 → 앱 재시작 → 실제 읽기 계정 점검을 확인한다.
+- HTTP 200이라도 거래소별 응답 `status`가 `success`가 아니면 연결 성공으로 표시하지 않는지 확인한다.
+- 일반/고급 설정과 거래소/AI 자격증명을 저장한 뒤 검증 영수증, 닫기·재열기·앱 재시작 값 유지까지 확인한다.
+- 기존 공통 AI 키 설정과 Provider별 신형 설정을 각각 복사해 OpenAI·DeepSeek 모델 조회를 확인하고, `NoahAIEngine.exe` TOC에 `openai`·`httpx`·`jiter`가 모두 포함돼야 한다.
+- 키/SDK가 없어 네트워크를 호출하지 않은 경우와 실제 외부 API 요청 후 인증·권한·모델 오류가 난 경우를 화면 문구와 지원 로그에서 구분한다.
+- 코인 선정·분석·최적화 중에도 내부 `.backup` 자동 복구와 사용자 미요청 복구가 발생하지 않아야 한다.
+- `docs/archive/release/V39110_PAPER_POSITION_POLICY_STATISTICS_TEST_PLAN.md`에 미완료 항목이 있으면 `publish_ready=false`를 유지하고 GitHub Release를 만들지 않는다.
+
+## v3.9.1.0 Web UI 내부 통합 후보 게이트
+
+- 현재 검증 수치는 `docs/TEST_STATUS.md`의 최신 실행만 사용한다. 과거 `1,507 passed` 표시는 현재 Windows bundle 검증이 아니다.
+- Web UI는 새 디자인이 아니라 기존 v3.9.0.10 `AITrading.exe`/`python3 main.py` UI의 기술 이전이다. 로그인창, 상단 사용자·거래소 표시, 서비스 버튼, 기능 탭 순서, 설정창, 하단 상태바가 기존 화면과 동등하지 않으면 빌드 성공과 무관하게 배포 금지다.
+- 기존 CTk 기준 화면은 `ui/login_modern.py`, `ui/dashboard_modern.py`, `ui/settings_modern.py`이며, React/Electron 구현은 이 구조를 따라야 한다. “React 화면이 열린다”는 UI parity가 아니다.
+- 화면별 최종 판정은 `docs/WEB_UI_1_TO_1_PARITY_EXECUTION_PLAN_v3.9.1.0.md`에 `SOURCE / MAC RENDER / LEGACY COMPARE / WINDOWS E2E`를 분리해 기록한다. `docs/WEB_UI_LEGACY_PARITY_MATRIX_v3.9.1.0.md`는 과거 부분 비교 참고자료일 뿐 완료 원장이 아니다. SOURCE PASS를 사용자 UI 완료로 승격하지 않는다.
+- 위 실행 원장의 필수 행에 `OPEN`, `SOURCE`, `MAC`이 하나라도 남으면 Setup.exe 생성 여부와 무관하게 테스터·공개 배포를 금지한다.
+- 게시 스크립트도 같은 원장을 읽어 미완료 상태에서는 `ConfirmExternalGates`가 전달돼도 실패해야 한다. 사람의 체크 실수로 이 차단을 우회하지 않는다.
+- `config/web_ui_feature_inventory.json`에 `source_connected_parity_open`, `source_connected_external_e2e_open`, `legacy_parity_in_progress`, `read_first`가 하나라도 남으면 전체 기능 동등성 완료로 승인하지 않는다.
+- Windows에서 `scripts/build_web_ui_windows.ps1`로 engine sidecar + Web assets + Electron NSIS를 한 번에 생성하고 산출물 SHA-256을 기록한다.
+- `scripts/verify_web_engine_bundle.py`가 완성 `Analysis-00.toc`에서 `main`, `ui.*`, `tkinter`, `customtkinter` 0개를 확인해야 한다.
+- Gateway는 loopback에만 bind하고 실행 token·Origin 제한·CSP·명시 intent를 유지하며 엔진 미연결 명령이 fail-closed인지 확인한다.
+- Electron/engine sidecar의 단일 설치 bundle, 코드서명 정책, health, 원자 교체, 실패 롤백, 사용자 데이터 보존을 Windows에서 검증한다.
+- 2026-08-20 Windows 후보는 `built_windows_unverified`, `publish_ready=false`다. 설치기 SHA-256은 `0f6888f0ef61ea1d815284048795196d1a481ec36d3e4778b6e3eb486197ac14`, source fingerprint는 `2e09b62a567af466ba54bd40efcce6a8b323c88cc72acfd8e4d39a46902ee950`이며 게시 시점에도 일치해야 한다. 로컬 설치·실행·engine health·메뉴 제거·안전 종료·제거는 PASS지만 원장의 OPEN/부분 항목 때문에 게시 스크립트가 차단됐다.
 
 ## 운영 정책 (2026-06-26 반영)
 
 - SaaS 구축 완료 전까지 배포 지원 범위는 Windows 전용으로 고정한다.
-- 개발 작업은 macOS/Linux에서도 가능하나, 최종 고객 배포 산출물은 Windows 빌드에서 생성한 `AITrading.exe`만 사용한다.
-- GitHub Release 업로드 기준 산출물도 Windows 자산(`AITrading.exe`, `version.txt`, `release_notes.md`, `release-manifest.json`)으로 통일한다.
+- 개발 작업은 macOS/Linux에서도 가능하나, v3.9.1.0 최종 고객 배포 산출물은 Windows에서 생성한 `NoahAI-3.9.1.0-Setup.exe` 설치 bundle이다. 사용자는 설치 뒤 시작 메뉴/바탕화면의 NoahAI 앱을 실행하며 Node·Python을 별도로 설치하지 않는다.
+- GitHub Release에는 `NoahAI-3.9.1.0-Setup.exe`, `latest.yml`, 동일 설치기의 `.blockmap`을 항상 함께 게시한다. `AITrading.exe + release-manifest.json` 단일 파일 교체는 v3.9.0.10에서 종료된 레거시 업데이트 계약이다.
 
-## 0) 패키징 스펙 요약(build_safe.py)
-- 소스 게이트: `.venv/bin/python scripts/active_source_audit.py`, `.venv/bin/python verify_build_includes.py`, `.venv/bin/python scripts/doc_consistency_check.py`, 전체 pytest를 먼저 통과
+## 0) v3.9.1.0 패키징 스펙 요약
+- 소스 게이트: `.venv/bin/python scripts/active_source_audit.py`, `.venv/bin/python verify_build_includes.py`, `.venv/bin/python scripts/doc_consistency_check.py`, `.venv/bin/python scripts/verify_web_engine_bundle.py --spec-only`, 전체 pytest를 먼저 통과
 - 격리 경계: `docs/SOURCE_QUARANTINE_MANIFEST_20260801.md`의 16개 아티팩트와 레거시 `theme_system`은 빌드 입력에 포함 금지
-- 배포 상태: v3.9.0.10은 `pending_windows_rebuild`. 신규 EXE 해시 확정 전에 manifest를 배포 완료로 변경하지 않음
-- 직전 자산: v3.9.0.9 EXE SHA-256 `857ee230a60f...`는 `deploy/previous/AITrading-v3.9.0.9-AI-Custom-Stability-Update.exe`에 보존
-- UI 반복 게이트: 설정 50회, BINANCE→UPBIT→BITHUMB→BYBIT→OKX→BITGET 왕복 100회와 급속 전환 200회 후 분리 native 창·빈 본문·예기치 않은 종료 0건
+- 배포 상태: v3.9.1.0은 `built_windows_unverified`, `publish_ready=false`. 외부 게이트 확인 전 배포 완료로 변경하지 않음
+- 직전 자산: v3.9.0.10 EXE SHA-256 `6aaa66787666...`는 `deploy/previous/AITrading-v3.9.0.10-AI-Custom-Management-Runtime-Integrity-Update.exe`에 보존
+- UI 반복 게이트: 기존 CTk 기준 화면과 Web UI 화면을 먼저 대조한 뒤 Web UI 설정 100회, 5개 서비스·6개 거래소·4개 증권사 왕복 200회 후 잔류 dialog·빈 본문·가로 overflow·예기치 않은 종료 0건. Legacy CustomTkinter USER/GDI/TK_MENU 카운트는 fallback 비교 자료로만 기록한다.
 - AI 커스텀 관리 게이트: 수정본이 다음 버전으로 저장되고 기존 승인본 불변, 활성 삭제 차단, 해제 후 삭제와 런타임 풀 제거 확인
 - 레퍼럴 배포 게이트: daltrading 마이그레이션·관리자 설정의 암호화 Affiliate 조회 키·자동/예외 판정·주기 재검증·공식 HTTPS 링크·클라이언트 승인 전 API 검증/실행 차단을 테스트한 뒤 거래소별로 활성화
-- **단일 스펙 정책**: `build_safe.py`가 참고용 `aiautotrade.spec`과 실제 빌드용 `aiautotrade_safe.spec`을 같은 생성기로 작성한다. 둘 다 직접 수정하지 않는다.
-- UI 정책: CustomTkinter-only. Windows 빌드에서만 PyQt5 포함 허용(키움증권 OpenAPI+ 필수)
-- VC 정책: 빌드 Python과 같은 x86/x64의 공식 VC143 CRT 단일 세트만 EXE 루트에 수집하고 PyQt5·pandas 하위 VC DLL은 0개여야 함
+- **Web 스펙 정책**: v3.9.1.0은 독립 `noahai_web_engine.spec`만 사용한다. 레거시 `aiautotrade*.spec`을 읽거나 상속하면 빌드를 실패시킨다.
+- UI 정책: v3.9.1.0 이상 설치 bundle은 React/Electron만 사용자 UI로 포함하고 CustomTkinter/Tkinter를 x64 sidecar에서 제외한다. Windows 키움 OpenAPI+의 PyQt5는 별도 x86 호스트에만 유지한다.
+- VC 정책: x64 엔진과 x86 키움 호스트는 각 아키텍처의 공식 VC143 CRT를 사용하며 서로의 Qt/VC DLL을 섞지 않는다.
 - datas 포함
   - config: `config/settings_template.json`, `config/token_template.json`, `config/theme_config.json`
   - Python 코드: PyInstaller Analysis/hiddenimports로 수집하며 소스 폴더를 `datas`로 이중 번들하지 않음
   - 루트 리소스: `README.md`, `requirements*.txt`, `icon.ico`, `icon.png`
   - 포함 안 함: data 폴더(런타임에 `path_utils`가 사용자 Documents 하위에 생성)
 - hiddenimports(발췌)
-  - GUI: `tkinter`, `tkinter.ttk`, `tkinter.messagebox`, `customtkinter`
+  - 사용자 GUI: Electron bundle에 포함. `tkinter`, `customtkinter`, `main`, `ui`는 sidecar 포함 금지
   - 거래/네트워크: `websockets`, `websocket`, `websocket_client`, `binance`, `ccxt`, `ccxt.binance`, `ccxt.upbit`, `ccxt.bithumb`
   - 증권 어댑터(hidden import): `trading.exchanges.exchange_factory`, `trading.exchanges.adapters.kiwoom_stock_adapter`, `trading.exchanges.adapters.stock_mock_adapter`, `trading.exchanges.adapters.shinhan_stock_adapter`, `trading.exchanges.adapters.mirae_asset_stock_adapter`, `trading.exchanges.adapters.korea_investment_stock_adapter` (실브로커 4개 + mock 1개)
-  - 키움 전용(Windows 빌드 시 자동 추가): `pykiwoom`, `pykiwoom.kiwoom`, `PyQt5`, `PyQt5.QtWidgets`, `PyQt5.QtCore`, `PyQt5.QtGui`, `PyQt5.QAxContainer`
+  - 키움 x86 호스트 전용: `pykiwoom`, `pykiwoom.kiwoom`, `PyQt5`, `PyQt5.QtWidgets`, `PyQt5.QtCore`, `PyQt5.QtGui`, `PyQt5.QAxContainer`
   - 유틸: `openai`, `numpy`, `pandas`, `loguru`, `aiohttp`, `ujson`, `dateparser`, `colorama`, `dotenv`, `psutil` 등
   - AI 자격증명: v3.9.0.5는 필수 `keyring`·Windows 보안 저장소 hidden import 없음
   - 플랫폼 주의: `win32_setctime`는 Windows 전용. macOS/Linux 빌드 시 제거/무시 필요
 - excludes
   - macOS/Linux: `PyQt5`, `PySide6`, `qt4`, `qt6`, `wx`, `gtk` 등
-  - Windows: `PySide6`, `qt4`, `qt6`, `wx`, `gtk` (PyQt5는 키움 때문에 제외하지 않음)
+  - Windows x64 엔진: `PyQt5`, `pykiwoom`, `PySide6`, `qt4`, `qt6`, `wx`, `gtk`; PyQt5·pykiwoom은 x86 키움 호스트에서만 수집
   - 과학/노트북 대형 패키지: `matplotlib`, `scipy`, `scikit-learn`, `tensorflow`, `torch`, `jupyter`, `ipython`, `pytest`, `unittest` 등
 
 권장 Python 버전: 3.11+ (개발/테스트는 3.11-3.13에서 확인)
@@ -54,10 +359,10 @@
 
 ## 1-A) 사용자 동선/매뉴얼 동기화 (배포 게이트)
 - 새 EXE를 캐시의 `AITrading.new.exe`가 아니라 정상 설치 경로에서 실행하고 자동 업데이트 진단의 설치 대상도 같은 정상 EXE인지 확인
-- `release-manifest.json`에 `sha256_required=true`, `authenticode_required=false`가 있고 EXE SHA-256이 실제 파일과 일치하지 않으면 업로드하지 않음
-- 릴리스 자산 재생성 뒤에도 `release_label=v3.9.0.10 AI Custom Management & Runtime Integrity Update`가 유지되고, EXE가 있으면 `build_status=built`, `size>0`, SHA-256 비어 있지 않음을 확인
-- EXE 아카이브에 `PyQt5/Qt5/bin` 또는 `pandas` 하위 `MSVCP140*.dll`/`VCRUNTIME140*.dll`이 없고 루트 단일 세트가 빌드에 사용한 공식 VC143 원본 SHA-256과 일치하는지 확인
-- 키움 로그인/진단과 실제 차트 OCR을 각각 실행해 PyQt5와 ONNX가 모두 보존됐는지 확인
+- `release-manifest.json`의 installer·`latest.yml`·blockmap·engine sidecar SHA-256이 실제 빌드와 일치하지 않으면 업로드하지 않는다. 빌드 직후 상태는 `built_windows_unverified`, `publish_ready=false`이며 외부 게이트 통과 전 이를 배포 완료로 바꾸지 않는다.
+- 릴리스 자산 재생성 뒤에도 `release_label=v3.9.1.0 Web UI Internal Integration Candidate`가 유지되고, bundle이 있으면 `build_status=built_windows_unverified`, `publish_ready=false`, 모든 자산의 `size>0`, SHA-256 비어 있지 않음을 확인
+- x64 엔진에 PyQt5·pykiwoom이 없고, x86 키움 호스트가 PE `0x14c`이며 패키지 manifest SHA-256과 일치하는지 확인
+- 키움 OCX 등록 환경에서 호스트 로그인/진단을 실행하고 x64 엔진의 실제 차트 OCR도 별도로 확인
 - 승인된 레퍼럴 계정으로 Binance PAPER를 60분 이상 실행하고 제보 PC에서도 APPCRASH 재발 여부와 새 덤프를 확인
 - Windows에서 로그인 성공 로그에 이메일·세션 ID·토큰·UID·레퍼럴 코드/URL이 남지 않고, 열린 로그가 25MB 회전 중 파일 잠금 오류를 만들지 않는지 확인
 - Windows 이전 실행 PID 진단이 `<built-in function kill>` 오류 없이 초기화되는지 확인
@@ -82,6 +387,10 @@
 - Binance 진입 직후 실제 포지션 확인 뒤 TP/SL 1:1이 생성되고, 이미 청산된 포지션에는 `-4509` 보호주문을 반복하지 않는지 확인
 - `trade_enabled_exchanges=[]` 저장 시 모든 실제 주문이 차단되고, 활성 거래소 일괄 선택 후 저장할 때만 선택 거래소 주문이 허용되는지 확인
 - Binance/Bybit/OKX/Bitget/Upbit/Bithumb을 최소 위험으로 각각 주문 제출·체결·취소/청산 E2E 확인
+- 코인 선정 정상 상태는 숫자 점수(`scored`), 목표 미달은 유효 후보만 `scored_partial`, 평가 전면 실패는 `fallback_unscored`·미산출로 표시되는지 확인
+- `fallback_unscored`에서 Binance와 통합 거래소의 PAPER/LIVE 신규 진입은 0건이고 기존 포지션 TP/SL·감시·청산은 유지되는지 확인
+- Binance의 거래 가능한 USDT 무기한 선물 전체 티커 중 거래대금 상위 후보가 실제 평가되며 거래소 정보 배열의 앞 100개 순서에 좌우되지 않는지 확인
+- 정상 점수 후보가 있어도 후속 HOLD·AI 커스텀·가드레일 차단 시 주문하지 않는다는 설명이 Web UI와 내장 메뉴얼에 동일하게 표시되는지 확인
 - AI 커스텀 고급모드에서 EMA 17·63, 15분·1시간 조건과 미지원 기간 501 차단, 런타임 실제 계산값 메타데이터를 확인
 - AI 커스텀의 `AI 멘토 인터뷰`가 8개 프로필 질문 뒤 2~3개 후보를 설명하고, 후보 불러오기가 저장·승인·적용을 자동 실행하지 않는지 확인
 - 같은 전략의 새 버전에서 `변경점 N개`를 열어 이전/변경 값을 확인하고 승인 전 활성 버전이 바뀌지 않는지 확인
@@ -90,7 +399,7 @@
 - 인증 개인 체결 스트림을 연결한 거래소는 공개 시세 WS와 별개로 건강 상태가 표시되고, 끊김 뒤 마지막 커서 이후 REST 증분 복구가 중복 없이 이어지는지 확인
 - 전략 검증 연구소의 미사용 구간·워크포워드·비용/파라미터 민감도·몬테카를로·과최적화·PAPER 결과를 확인하고 `auto_promoted=false`인지 확인
 - `.noahstrategy` 6단계 구현 시 API 키·계좌·잔고·개인 거래·로컬 절대경로·승인/활성 상태가 포함되면 내보내기/가져오기가 모두 실패 폐쇄되는지 확인
-- 대시보드 하단에 `v3.9.0.10 AI Custom Management & Runtime Integrity Update` 식별과 `업데이트·사용법` 버튼이 노출되는지 확인
+- 대시보드 하단에 `v3.9.1.0 Web UI Internal Integration Candidate` 식별과 `업데이트·사용법` 버튼이 노출되는지 확인
 - 1500×980과 배포 최소 지원 해상도에서 하단 3영역이 한 줄로 유지되고 거래소·분석 탭의 마지막 카드·버튼이 잘리지 않는지 확인
 - macOS와 Windows에서 상단 서비스·매뉴얼·설정·종료 아이콘의 모양·크기·정렬이 동일한지 확인
 - 현재 서비스의 고유 선택 색상·테두리와 비선택 탭의 배경 구분이 명확한지 확인
@@ -161,8 +470,8 @@ OS별 권한/경로 팁
 - requirements 설치 (플랫폼별 파일 구분)
   - 개발/macOS: `pip install -r requirements.txt`
   - Windows 배포: `pip install -r requirements_windows.txt`
-- **키움증권 사용 시 Windows 빌드 PC 1회 필수**: `pip install pykiwoom PyQt5`
-  - pykiwoom은 PyQt5.QAxWidget 기반으로 PyQt5 없이는 import 불가
+- **키움증권 Windows 빌드 PC 1회 필수**: `py -3.11-32 -m pip install -r requirements_kiwoom_x86.txt`
+  - pykiwoom은 PyQt5.QAxWidget 기반이므로 전용 32비트 Python 환경에서 고정 의존성을 설치한다.
   - pyaudio 설치 실패 시: `pip install pipwin && pipwin install pyaudio`
 - 음성 사용 시 STT 의존성 설치 확인
   - `SpeechRecognition>=3.10.0`
@@ -211,22 +520,21 @@ OS별 권한/경로 팁
 사전 준비
 - 가상환경 구성 및 의존성 설치(프로젝트 루트에서 실행)
 
-빌드 실행(Windows EXE 기준)
-1) 원클릭 빌드 및 릴리스
-   - `powershell -ExecutionPolicy Bypass -File scripts/build_release_windows.ps1`
-   - 로컬 빌드만 필요하면 `-BuildOnly` 추가
-2) 안전 스펙 생성 및 빌드
-   - 스크립트가 `build_safe.py`를 호출해 임시 스펙(`aiautotrade_safe.spec`) 생성 후 PyInstaller 빌드 수행
-3) 산출물 확인
-   - dist/AITrading.exe 생성 확인 → deploy/AITrading.exe로 자동 복사됨
-4) 무결성 체크
-   - `tkinter`, `customtkinter`, `_tkinter.pyd`, `_tcl_data/init.tcl`, `_tk_data/tk.tcl` 포함 확인
-   - 공식 VC143 단일 세트, EXE 버전, manifest SHA-256, GitHub 원격 asset digest 일치 확인
-   - PyInstaller 로그에 `tkinter installation is broken` 또는 `missing module named tkinter`가 있으면 빌드 실패 처리
+빌드 실행(v3.9.1.0 Web UI bundle 기준)
+1) Windows 후보 빌드
+   - `powershell -ExecutionPolicy Bypass -File scripts/build_web_ui_windows.ps1`
+2) 산출물 확인
+   - `deploy/web-release/NoahAI-3.9.1.0-Setup.exe`
+   - `deploy/web-release/latest.yml`
+   - `deploy/web-release/NoahAI-3.9.1.0-Setup.exe.blockmap`
+   - installer에 내장되는 `deploy/web-engine/NoahAIEngine.exe`
+3) 빌드 직후 manifest 확인
+   - 네 자산의 크기·SHA-256이 채워지고 `build_status=built_windows_unverified`, `publish_ready=false`여야 한다.
+4) `WEB_UI_TESTER_RUNBOOK_v3.9.1.0.md`를 완료한 뒤 게시
+   - `powershell -ExecutionPolicy Bypass -File scripts/publish_web_ui_windows_release.ps1 -ConfirmExternalGates`
+   - 로컬/원격 digest가 모두 일치해야 성공한다.
 
-플랫폼별 빌드 (build_safe.py --platform)
-- 운영 배포 기준(고정): Windows `python build_safe.py --platform windows` → dist/AITrading.exe → deploy/AITrading.exe 자동 복사
-- macOS/Linux 빌드는 개발/내부 검증 용도로만 사용하고 고객 배포 자산으로 사용하지 않는다.
+`build_safe.py`, `build_release_windows.ps1`, `release_tag_push.ps1`, `AITrading.exe` 단일 교체는 v3.9.0.x 레거시 복구용이다. v3.9.1.0 이상에서는 레거시 release 스크립트가 의도적으로 중단된다. macOS/Linux 빌드는 개발/내부 검증 용도로만 사용하고 고객 Windows 배포 자산으로 사용하지 않는다.
 
 ## 9-B) GitHub 자동 릴리즈 운영 (중요)
 
@@ -236,7 +544,7 @@ OS별 권한/경로 팁
 
 자동 릴리즈가 동작하는 조건
 - 클라이언트 코드가 Git 저장소 루트(`.git` 존재)여야 한다.
-- 태그 `v*`를 push하면 GitHub Actions가 Windows 빌드 + Release 업로드를 수행한다.
+- GitHub Actions는 수동 실행으로 Windows 내부 후보를 빌드하고 artifact로 보관한다. 단순 태그 push만으로는 공개 릴리스를 만들지 않는다.
 - 워크플로 파일: `.github/workflows/windows-release.yml`
 
 `.git`이 없는 복사본에서 해야 할 일
@@ -255,10 +563,9 @@ OS별 권한/경로 팁
   - Repository Settings > Actions > Workflow permissions: `Read and write permissions`
 3) 릴리즈 권한 확인
   - 워크플로의 `permissions: contents: write`가 유지되어야 릴리즈 업로드 가능
-4) 태그 기반 배포 실행
-  - 버전 업데이트 커밋 후 `git tag v3.9.0.5` / `git push origin v3.9.0.5`
-  - 이후 버전도 동일 패턴
-  - Windows 자동화 스크립트 사용 가능: `powershell -ExecutionPolicy Bypass -File scripts/release_tag_push.ps1 -Version 3.9.0.10 -Branch main -PushBranch`
+4) v3.9.1.0 배포 실행
+  - Actions의 `Windows Web UI Build And Release`를 먼저 `publish_release=false`로 실행해 내부 후보 artifact를 만든다.
+  - Windows 테스터 실행표가 통과한 경우에만 `publish_release=true`, `confirm_external_gates=true`로 다시 실행하거나 로컬 게시 스크립트를 사용한다.
 
 전환 운영 기준(질문 반영)
 - `v3.9.0.5`:

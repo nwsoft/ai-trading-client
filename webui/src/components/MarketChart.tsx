@@ -3,6 +3,7 @@ import {
   CandlestickSeries,
   ColorType,
   createChart,
+  createSeriesMarkers,
   HistogramSeries,
   type UTCTimestamp,
 } from "lightweight-charts";
@@ -59,10 +60,25 @@ export function MarketChart({ snapshot }: { snapshot: CandleSnapshot | null }) {
         color: candle.close >= candle.open ? "rgba(32,201,151,.35)" : "rgba(255,93,115,.35)",
       })),
     );
+    if (snapshot.markers?.length) {
+      const candleTimes = snapshot.candles.map((candle) => Math.floor(candle.open_time / 1000));
+      const firstTime = candleTimes[0];
+      const lastTime = candleTimes.at(-1) ?? firstTime;
+      const visibleMarkers = snapshot.markers.filter((marker) => marker.time >= firstTime && marker.time <= lastTime);
+      createSeriesMarkers(candleSeries, visibleMarkers.map((marker) => {
+        const exactTime = candleTimes.reduce((matched, candleTime) => candleTime <= marker.time ? candleTime : matched, firstTime);
+        return {
+        time: exactTime as UTCTimestamp,
+        position: marker.position,
+        color: marker.color,
+        shape: marker.shape,
+        text: marker.text,
+      }; }));
+    }
     chart.timeScale().fitContent();
 
     return () => chart.remove();
   }, [snapshot]);
 
-  return <div className="market-chart" ref={containerRef} aria-label="BTCUSDT 공개 시장 캔들 차트" />;
+  return <div className="market-chart" ref={containerRef} aria-label={`${snapshot?.source ?? "시장"} ${snapshot?.symbol ?? "종목"} 캔들·거래·XAI 차트`} />;
 }

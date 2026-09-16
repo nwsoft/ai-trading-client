@@ -5,6 +5,8 @@
 """
 
 import logging
+import threading
+import time
 from typing import Dict, List, Optional, Any
 from ..interfaces.spot_exchange import SpotExchange
 from ..balance_normalizer import normalize_ccxt_total_balances
@@ -25,9 +27,18 @@ class UpbitSpotAdapter(SpotExchange):
         self.log_event = lambda category, msg, level='INFO': log_event(category, msg, exchange='upbit', level=level)
         self._trade_history_notice_emitted = False
         self._last_execution_capabilities: Dict[str, Any] = {}
+        self._ticker_cache: Dict[str, tuple[float, float]] = {}
+        self._ticker_lock = threading.RLock()
+        self._last_ticker_request_monotonic = 0.0
+        self._ticker_backoff_until = 0.0
+        self._last_rate_limit_warning = 0.0
 
     def _display_symbol(self, symbol: Optional[str]) -> str:
         return self._normalize_upbit_symbol(str(symbol or "BTC/KRW"))
+
+    def _normalize_symbol(self, symbol: str) -> str:
+        """Expose the common adapter symbol contract used by shared market data."""
+        return self._normalize_upbit_symbol(symbol)
 
     def get_execution_capabilities(self) -> Dict[str, Any]:
         detected = build_execution_capabilities(self.exchange)
@@ -80,12 +91,14 @@ class UpbitSpotAdapter(SpotExchange):
                     'apiKey': str(self.api_key) if self.api_key is not None else '',
                     'secret': str(self.secret_key) if self.secret_key is not None else '',
                     'enableRateLimit': True,
+                    'timeout': 12000,
                 }
                 self.exchange = ccxt.upbit(config)  # type: ignore
                 self.log_event('system', "업비트 연결 성공 (인증 모드)")
             else:
                 config = {
                     'enableRateLimit': True,
+                    'timeout': 12000,
                 }
                 self.exchange = ccxt.upbit(config)  # type: ignore
                 self.log_event('system', "업비트 연결 성공 (공개 모드)")
@@ -134,27 +147,63 @@ class UpbitSpotAdapter(SpotExchange):
             return {}
 
     def get_current_price(self, symbol: str) -> float:
-        if not self.is_connected:
+        if not self.is_connected or not self.exchange:
             return 0.0
+        sym = self._normalize_upbit_symbol(symbol)
         try:
-            sym = self._normalize_upbit_symbol(symbol)
-            
-            # 🔥 안전한 티커 조회
-            ticker = self.exchange.fetch_ticker(sym)  # type: ignore
-            if not ticker:
-                self.log_event('system', f"업비트 티커 데이터 없음: {sym}", level='WARNING')
-                return 0.0
-                
-            # 🔥 안전한 가격 추출
-            price = ticker.get('last') or ticker.get('close') or ticker.get('price')
-            if price is None:
-                self.log_event('system', f"업비트 가격 데이터 없음: {sym}", level='WARNING')
-                return 0.0
-                
-            return float(price)
+            now = time.monotonic()
+            cached = self._ticker_cache.get(sym)
+            if cached and now - cached[0] <= 2.0:
+                return cached[1]
+
+            # CCXT's per-instance limiter does not serialize calls issued by
+            # several NoahAI analysis workers.  A shared adapter lock prevents
+            # request bursts from turning valid public-price reads into 429s.
+            with self._ticker_lock:
+                now = time.monotonic()
+                cached = self._ticker_cache.get(sym)
+                if cached and now - cached[0] <= 2.0:
+                    return cached[1]
+                if now < self._ticker_backoff_until:
+                    if cached and now - cached[0] <= 15.0:
+                        return cached[1]
+                    return 0.0
+                minimum_interval = 0.12
+                wait_for = minimum_interval - (now - self._last_ticker_request_monotonic)
+                if wait_for > 0:
+                    time.sleep(wait_for)
+                self._last_ticker_request_monotonic = time.monotonic()
+                ticker = self.exchange.fetch_ticker(sym)  # type: ignore
+                if not ticker:
+                    self.log_event('system', f"업비트 티커 데이터 없음: {sym}", level='WARNING')
+                    return cached[1] if cached and now - cached[0] <= 15.0 else 0.0
+                price = ticker.get('last') or ticker.get('close') or ticker.get('price')
+                if price is None:
+                    self.log_event('system', f"업비트 가격 데이터 없음: {sym}", level='WARNING')
+                    return cached[1] if cached and now - cached[0] <= 15.0 else 0.0
+                value = float(price)
+                self._ticker_cache[sym] = (time.monotonic(), value)
+                self._ticker_backoff_until = 0.0
+                return value
         except Exception as e:
+            now = time.monotonic()
+            message = str(e)
+            if "429" in message or "too_many_requests" in message.lower() or "rate limit" in message.lower():
+                self._ticker_backoff_until = max(self._ticker_backoff_until, now + 1.0)
+                if now - self._last_rate_limit_warning >= 30.0:
+                    self.log_event(
+                        'system',
+                        "업비트 현재가 요청 제한 감지 - 1초 백오프와 최근 정상 시세를 사용합니다.",
+                        level='WARNING',
+                    )
+                    self._last_rate_limit_warning = now
+                cached = self._ticker_cache.get(sym)
+                if cached and now - cached[0] <= 15.0:
+                    return cached[1]
+                return 0.0
             self.log_event('system', f"현재가 조회 실패 ({symbol}): {e}", level='ERROR')
-            return 0.0
+            cached = self._ticker_cache.get(sym)
+            return cached[1] if cached and now - cached[0] <= 15.0 else 0.0
 
     def get_exchange_info(self) -> Dict[str, Any]:
         if not self.is_connected:
@@ -234,9 +283,38 @@ class UpbitSpotAdapter(SpotExchange):
             type_literal = 'limit' if order_type.upper() == 'LIMIT' else 'market'
             side_literal = 'buy' if side.lower() == 'buy' else 'sell'
             params = {"identifier": client_order_id} if client_order_id else {}
+            order_price = price
+
+            # Upbit's market BUY contract is quote-currency cost (KRW), while
+            # market SELL is base-asset quantity.  CCXT accepts ``params.cost``
+            # for the former.  Reusing the base quantity for both sides causes
+            # otherwise valid Upbit buys to be rejected at submission time.
+            if type_literal == 'market' and side_literal == 'buy':
+                quote_cost = float(constraint.get('notional') or 0.0)
+                if quote_cost <= 0:
+                    msg = '업비트 시장가 매수 원화 총액을 계산하지 못했습니다'
+                    self.log_event('system', f"{symbol} 주문 규격 차단: {msg}", level='WARNING')
+                    return {'status': 'error', 'error': msg}
+                try:
+                    cost_to_precision = getattr(self.exchange, 'cost_to_precision', None)
+                    if callable(cost_to_precision):
+                        quote_cost = float(cost_to_precision(symbol, quote_cost))
+                except Exception as exc:
+                    msg = f'업비트 시장가 매수 원화 정밀도 계산 실패: {exc}'
+                    self.log_event('system', f"{symbol} 주문 규격 차단: {msg}", level='WARNING')
+                    return {'status': 'error', 'error': msg}
+                if quote_cost < float(constraint.get('min_cost') or 0.0):
+                    msg = (
+                        '업비트 시장가 매수 최소 원화금액 미달: '
+                        f'{quote_cost:g} < {float(constraint.get("min_cost") or 0.0):g}'
+                    )
+                    self.log_event('system', f"{symbol} 주문 규격 차단: {msg}", level='WARNING')
+                    return {'status': 'error', 'error': msg}
+                params['cost'] = quote_cost
+                order_price = None
             order = self.exchange.create_order(  # type: ignore
                 symbol=symbol, type=type_literal, side=side_literal,
-                amount=quantity, price=price, params=params
+                amount=quantity, price=order_price, params=params
             )
             return order
         except Exception as e:

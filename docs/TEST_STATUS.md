@@ -1,3 +1,507 @@
+## v3.9.1.37 키움 조회 대기·실패 상태 수정 (소스 후보)
+
+2026-09-17 업데이트 채널 수정 후 최종: **2,494 passed / 8 skipped / 3 subtests passed**. 실제 electron-updater Provider 회귀 **4 passed**, 관련 집중 **51 passed**, 공개 서버 stable/latest→v36/latest.yml HTTP 200·설치기 주소 선택 확인. Web 52 modules·문서·매뉴얼·Electron/PowerShell 구문 PASS. Windows 설치/업데이트는 미완료. [업데이트 원인 분석](V39137_UPDATER_CHANNEL_INCIDENT.md).
+
+최종 소스 검증: 전체 Python **2,491 passed / 8 skipped / 3 subtests passed**, 집중 회귀 **135 passed / 3 subtests passed**, Node **22.23.1** Web build **52 modules**, 개발 릴리스 게이트·문서 정합·11개 매뉴얼 추출 PASS. Windows 설치기/OCX/사용자 실제 계정 재현은 **미완료**입니다.
+
+현재 소스 후보 버전: **v3.9.1.37** · updater 3.9.137.
+현재 공개 버전: **v3.9.1.36** · 현재 공개 기반: v3.9.1.36 stable/latest.
+3.9.1.37은 키움 조회 대기·요청 간격·실패 상태 보존 수정 후보입니다. Windows 새 설치본 검증은 미완료입니다.
+
+- 로그인 후 종목 조회 중단 로그를 반영해 TR 즉시 오류·응답 제한·요청 간격·늦은 응답을 처리합니다.
+- 조회 실패를 정상 분석으로 넘기지 않고 최초 원인을 보존합니다. 계좌 목록·잔고·보유종목·미체결·ETF/거래내역 조회 계약을 수정합니다.
+- 공개 v3.9.1.36 자산은 보존합니다. 실제 통신 단절·주문 불명확 상태의 안전 차단은 유지합니다.
+- [검증 계획](V39137_KIWOOM_BOUNDED_QUERIES_TEST_PLAN.md) · [사용자 로그 분석](V39137_KIWOOM_USER_LOG_ANALYSIS.md).
+
+## 이전 버전 기록 (이하 후보·공개·검증 상태는 당시 기록)
+
+## v3.9.1.36 키움 세션·증권 PAPER·전략검증 정합 (2026-09-16 소스 후보)
+
+현재 소스 후보 버전: **v3.9.1.36** · updater **3.9.136**. 현재 공개 기반: v3.9.1.35 stable/latest. 소스 수정·자동 테스트와 Windows 설치·실계정 검증을 분리합니다.
+
+- 키움 자동 재로그인/호스트 재시작 고리 차단 소스 회귀: PASS.
+- 네 증권사 × 주식/ETF PAPER 비용·청산·재시작 복구 회귀: PASS.
+- 네 증권사 × 주식/ETF 일봉 전략검증·기관 범위·비용 계약 회귀: PASS.
+- 전체 Python **2,466 passed / 8 skipped / 3 subtests passed**, Web production **52 modules**, 문서/11개 매뉴얼 정합, 개발 릴리스 게이트, 격리 브라우저 fixture: PASS. npm production 취약점 0건.
+- 로컬 Web 빌드는 Node 20.11에서 성공했지만 요구 버전 Node 22.12보다 낮아 경고가 있었습니다. Windows 정식 빌드는 워크플로의 Node 22.12에서 다시 검증해야 합니다.
+- Windows x64 엔진/x86 키움 호스트/설치기 및 실제 네 증권사 시세·PAPER E2E: 미완료.
+- 검증 정본: [v3.9.1.36 검증 계획](V39136_KIWOOM_SESSION_STOCK_PAPER_VALIDATION_TEST_PLAN.md).
+
+
+v3.9.1.35 공개 당시 기록: 원장 전체 건수/기간, 대조 전·가져오기·외부 기록을 조회 전용으로 분리 표시했습니다. Teayu 공유 스냅샷 57,666 종료 기록(확정 0, 참고 57,666)을 확인했습니다. 추가 수정 전 macOS arm64 DMG/ZIP 및 내장 엔진·로그인 화면·압축 무결성 확인 완료. 추가 수정 포함 재빌드 및 패키지 로그인·내장 UI·DMG/ZIP 검사도 완료했습니다. 당시 fingerprint는 b64fe0ec19ec8f1a43402be8012527bf1d50ab4c2857c2e47aebc693d149be6b이며 v3.9.1.35 검증 계획의 MAC-BUILD 행을 기준으로 합니다. 기존 draft r1은 추가 수정 미포함 보존본이며 SUPERSEDED입니다. 별도 GitHub draft `v3.9.1.35-macos-candidate-r2`에 4개 파일 업로드·원격 SHA-256 대조 완료. Developer ID 서명·공증 및 실계정/업데이트 검증은 미완료였습니다.
+
+최종 자동 검증: Python **2,458 passed / 8 skipped / 3 subtests passed** (2026-09-16 macOS arm64), Web production **52 modules**, 업데이트 타이머 **4 tests**, 빌드/릴리즈 회귀 **21 tests**, 브라우저 fixture 편집·저장·대화·모드 검증 PASS. PowerShell **10개 구문 PASS**, 활성 소스 **457개 PASS**, 설치 의존성 검사 PASS, npm production 취약점 **0건**. 실제 Windows 설치·연결·장시간 운용은 미완료입니다. [원인·수정·검증 경계](../reports/v39135-release-verification.md).
+
+## 이전 버전 기록 (아래 현재·공개 표기는 당시 기록이며 현행 판단에 사용하지 않음)
+
+## v3.9.1.34 키움 x86·릴리즈 무결성 검증 후보 (2026-09-16)
+
+제품 3.9.1.34 / updater 3.9.134. 전체 Python **2,424 passed, 8 skipped**, Web production build **51 modules**, npm audit 0건, x64 엔진 bootstrap smoke, x86 키움 호스트 PE·시작/종료, 설치기와 GitHub 원격 SHA 검증을 통과했습니다. 3.9.1.34는 GitHub prerelease로 게시했고 공개 안정판 v3.9.1.33은 보존했습니다. 상세 증거는 [v3.9.1.34 검증 계획](V39134_KIWOOM_X86_RELEASE_INTEGRITY_TEST_PLAN.md)을 따릅니다. 키움 OCX·실계정, v3.9.1.33 업데이트·롤백, 24~72시간 운용은 실제 환경 전까지 미완료입니다.
+
+## v3.9.1.33 성과·증권 학습 정합 소스 후보 (2026-09-15)
+
+시세 원인 추가 수정 후: **전체 Python 2,419 통과·8 건너뜀**. Coinone 실제 공개 차트를 거래 어댑터로 재조회해 시간 오름차순을 확인했습니다. 문서·11개 매뉴얼 정본 정합 PASS. [추가 원인 및 검증 경계](V39133_MARKET_DATA_ROOT_CAUSES.md). 아래 2,392개는 추가 수정 전 결과입니다.
+
+제품 3.9.1.33 / updater 3.9.133. 공개 v3.9.1.32 자산은 변경하지 않습니다. 수정 후 전체 Python 2,392 통과·8 건너뜀, 웹 빌드 및 주요 React 브라우저 fixture 검증 통과. 버전 전환 후 정합 검사는 아래 보고서를 기준으로 재확인합니다. Windows 키움 호스트·계좌 E2E·새 설치본 업데이트는 미완료입니다.
+
+[v3.9.1.33 수정·검증 범위](V39132_USER_FEEDBACK_AUDIT.md)
+
+## 이전 v3.9.1.32 런타임 복구·주기 업데이트 소스 후보 기록 (2026-09-15)
+
+### 알림·증권 추가 감사 후 최종 소스 회귀
+
+- 전체 Python **2,400 passed, 8 skipped** (35.55초), 기존 Starlette/httpx 폐기 예정 경고 1건. 새 감사 테스트 70개와 국면 미확인 중 실제 청산 경로 회귀를 포함한다.
+- Node22.23.1 Web production build **51 modules PASS**. 기존 500KB chunk 크기 경고는 잔존한다. updater 타이머 **4 tests PASS**.
+- 문서/버전 정합, 메뉴얼11개 재추출, Web 표면 **11기관·9설정·11메뉴얼 PASS**, 설정 정본 검사 PASS.
+- 검증 항목: 계정 전환 발송 경합/채널 중간 전환, 0초·0회, 첫 알림, 11기관 설정·별칭, 7거래소 시세 누락, 4증권사 실패·복구/빈 후보/오류 이벤트, LIVE와 PAPER 위험 분리, 미확정·NaN 손익 차단, 미래에셋 candles 라우팅, Discord 긴 메시지·Telegram 조회 실패.
+- 주의: 미확정 증권 PnL은 신규 진입 보류 대상이다. 실제 일일 손익 계약 없는 어댑터의 거래 건수 요약은 위험 근거로 승격하지 않는다. Windows 실계정·실제 채널 수신·장시간 운용은 여전히 외부 게이트이며 이 기록은 배포 완료가 아니다.
+
+### 1차 후보 점검 이력
+
+- 공개 v3.9.1.31 매니페스트/Windows 자산은 보존한다. 현재 제품 소스 v3.9.1.32 / updater 3.9.132.
+- 전체 Python `2,329 passed, 8 skipped` (35.49초). 이번 피드백 재현 테스트29개를 포함하며 기존 제휴 ETF 목록·NAV·추적오차·KIS 지정 ETF 계약도 회귀 통과했다.
+- Node 타이머4개 통과. Node22.14.0 + lockfile 재설치 기준 Web production build `51 modules` 통과. React19.2.8/Rollup4.62.4 설치값과 lockfile 일치. npm 의존성 감사0건. 큰 JS 청크 및 Starlette/httpx deprecation 경고는 남는다.
+- 문서/버전 정합 PASS, 메뉴얼11개 정본 재추출·무손실 검사 PASS, Web 표면 계약 PASS(5서비스·35기능·11기관·9설정·11메뉴얼). 이는 Windows 실제 화면·설치 완료 증거가 아니다.
+- 공개 Coinone CCXT 4.5.50 시장363개·ticker363개 및 상위5개 후보, 공식 KOSPI/KOSDAQ 마스터 파싱을 사용자 키 없이 확인했다. 주문·PAPER 장시간 성공을 뜻하지 않는다.
+- [검증·외부 게이트](V39132_RUNTIME_RECOVERY_TEST_PLAN.md): Windows 새 빌드/업데이트 주기/기관 실계정/24~72시간은 미완료다.
+
+## v3.9.1.31 사용자 메뉴얼 정본·검색 소스 후보 (당시 기록 · 2026-09-14)
+
+- 제품 3.9.1.31 / updater 3.9.131. 현재 공개 Windows 자산과 `deploy/release-manifest.json`은 v3.9.1.30이다.
+- 11개 메뉴얼 정본을 다시 생성해 JSON과 완전 일치함을 확인했고 고유 탭 11개, 전체 본문 184,233자, U+FFFD/깨진 로그인 문구 0건을 확인했다.
+- 현행 기관 등록부의 7개 코인 거래소·4개 증권사, Coinone LIVE 차단, Strategy Studio의 동적 기관 필터·과거 시세 재생 용어, AlphaArena PAPER 전용/LIVE 실패 폐쇄를 현재 사용법과 대조했다.
+- 메뉴얼·Web UI·고급 기능 집중 회귀 `68 passed`, 전체 Python 회귀 `2,300 passed, 8 skipped`, 전체 Web 표면 계약 감사 `PASS`(5개 서비스·35기능·11기관·9설정·11메뉴얼), 문서/버전 정합 검사 `PASS`, 로컬 Node 20.11.0 production build `51 modules`와 production 의존성 취약점 `0건`을 확인했다. 릴리스 요구 Node 22.12+ Windows 빌드는 외부 게이트다.
+- 로컬 정적 preview는 Gateway token이 없는 개발 셸에서 메뉴얼 API를 불러오지 못하므로 실제 전체 렌더 증거로 사용하지 않았다. Windows 설치기·업데이트/재시작·DPI·검색 이동은 새 산출물의 외부 게이트다.
+- 외부 게이트와 배포 판정은 [v3.9.1.31 검증·배포 계약](V39131_READABLE_MANUAL_RELEASE_TEST_PLAN.md)에 기록한다.
+
+## v3.9.1.30 통계·시간봉·증권 연결 공개 기준 (2026-09-14)
+
+- 제품 3.9.1.30 / updater 3.9.130 Windows 자산이 공개됐으며 `deploy/release-manifest.json`의 설치기·blockmap·`latest.yml` 해시가 공개 기준이다. 실계정 증권사·장시간 PAPER는 게시와 별도의 운영 게이트다.
+- 추가 회귀는 `tests/test_v39130_contracts.py`. 7개 코인/4개 증권사 기관 분리·기간 전 제한·캐시 무효화·선언 시간봉·상위봉 미래 데이터 차단·Coinone·키움 timeout을 검사한다.
+- 실제 React 컴포넌트 QA fixture: `webui/qa/strategy-feedback.html`. 브라우저에서 암호화폐/주식 1280·1440·1920, 배율 125%, 날짜·상태·v1 비교·보완 포커스 및 예제→보완→승인→과거재생→PAPER 완료 동선을 확인했다. 브라우저 서비스 호출은 합성 fixture이며 실계정 증거가 아니다.
+- 최종 전체 회귀 `2,296 passed, 8 skipped` (36초), Node 22 production build `51 modules`, Web 표면 계약 감사 PASS(11기관)를 확인했다. Starlette/httpx deprecation 및 큰 JS 청크 경고는 남는다.
+- SourceWorkspace는 연결/미연결 × 코인/주식 × 800/1280/1440/1920의 16개 조합을 추가 확인했다. 계정 거래 권한 차단 2개 조합에서는 승인 안내와 409 사용자 문구 변환을 확인했다. StrategyStudio 6개와 합쳐 브라우저 24개 조합이 통과했다.
+- 7개 코인 공개 15m 시세 조회·시간순 정렬을 확인했으며 빗썸 공식 15m/4h는 각각 완료 199봉을 확인했다. 인증·주문·장시간 운용 증거가 아니다. [v3.9.1.30 검증 계획](V39130_STRATEGY_VENUE_CONSISTENCY_TEST_PLAN.md)의 미완료 환경 게이트를 소스 테스트로 대체하지 않는다.
+
+## v3.9.1.29 전략 공용계층·운용용량·Coinone 소스 후보 (2026-09-12)
+
+- 현재 소스 제품 버전은 v3.9.1.29, updater SemVer는 3.9.129입니다.
+- 전략 제작·PAPER 검증은 회원등급과 분리하고, 실제 계정 관리형 다중포지션만 무료 최대 3개/코인 유료 최대 5개로 분리했습니다. 집중운용은 1개이며 위험계층은 언제든 더 작게 제한합니다.
+- Coinone은 PAPER·공개시세 준비 상태이며 LIVE는 실계좌 주문·부분체결·비용·복구 E2E 전까지 실패 폐쇄합니다. 자동 회귀 통과를 LIVE 준비 완료로 승격하지 않습니다.
+- NoahAI 전체 Python 회귀 `2,251 passed, 8 skipped`, AI Provider·Web 설정 집중 회귀 `180 passed`, 추가 국내 현물·PAPER·Web 집중 회귀 `172 passed`, Node Web production build `51 modules`와 Web 표면 정합 감사를 통과했습니다. 8개 skip은 별도 OS·외부기관 환경 항목입니다.
+- AI 진단 회귀는 모델 목록과 실제 호출의 분리, 요청 모델과 Provider 응답 모델 기록, GPT-6 reasoning 파라미터, 토큰·비용 원장과 저장 전 초안 표시를 포함합니다. 실제 사용자 Project의 권한·청구·Usage 대조는 Windows 설치본에서 별도 외부 게이트입니다.
+- 공개 v3.9.1.28 installer·blockmap·`latest.yml`과 manifest는 변경하지 않습니다. v3.9.1.29 Windows 산출물과 외부기관 게이트는 미완료입니다.
+
+## v3.9.1.28 체결 정합성·통계 화면·처음 사용 빠른 시작 공개판 (2026-09-12)
+
+- 현재 소스 제품 버전은 v3.9.1.28, updater SemVer는 3.9.128입니다. 창 제목은 Electron 런타임 `43.4.0`이 아니라 제품 버전을 사용하고, 사용자 제목에서 구현 방식인 `Web UI`를 제거했습니다.
+- 정확한 청산 주문 ID와 체결수량으로 원장을 대조하고 거래소 실현손익과 비용 반영 순손익을 분리합니다. 대조할 수 없는 과거 자료는 임의 보정하지 않고 `대조 미확정`으로 유지합니다. 코인 6개 거래소와 주식·ETF 4개 증권사는 각 기관의 체결 계약에 맞춰 같은 통계 의미를 사용합니다.
+- 통계 표의 스크롤 소유자와 메시지 영역을 분리해 체결 동기화 뒤에도 헤더가 유지됩니다. 다른 주요 탭의 조건부 메시지도 같은 레이아웃 회귀를 적용했습니다.
+- 설정의 `처음 사용 · 빠른 시작`은 자산군과 기관 하나를 선택해 기존 설정의 안전한 PAPER 시작값만 대기 상태로 구성합니다. 새 모드·새 위험 정책을 만들지 않으며 `전체 설정 저장`, 자격증명 확인, 서비스 시작은 각각 사용자 확인을 요구합니다. 9개 고급 설정 탭과 Strategy Studio Level 1~4는 그대로 유지됩니다.
+- NoahAI 전체 Python 회귀 `2,235 passed, 8 skipped`, v3.9.1.28 관련 집중 회귀 `103 passed`, Node Web production build `51 modules`를 통과했습니다. daltrading 전략 허브·초보자·설정 가이드 포함 전체 회귀는 `100 passed`이며 신규 기관의 LIVE 온보딩 실패 폐쇄도 포함합니다.
+- v3.9.1.28 installer·blockmap·`latest.yml`과 manifest가 게시됐습니다. 실제 거래소·증권사 계정 대조, Windows DPI/해상도와 초보 사용자 동선은 공개 사실과 별도인 환경별 검증 범위입니다.
+
+## v3.9.1.27 Strategy Assistant 연속성·AI 비용·모델 라우팅 공개판 (2026-09-11)
+
+- 현재 제품 버전은 v3.9.1.27, updater SemVer는 3.9.127입니다. `deploy/release-manifest.json`은 `windows_verified_release_candidate`, `publish_ready=true`이며 v3.9.1.27 installer·blockmap·`latest.yml` 공개 URL의 HTTP 200을 확인했습니다. v3.9.1.26은 직전 공개·롤백 기준 자산으로 보존합니다.
+- 단일 확인창, 전략 버전 생성 시각, 외부 AI 429의 로컬 규칙 컴파일 fallback, 설명 수준별 프롬프트·캐시, AI 답변의 검토 후 재분석 전달을 전용 회귀로 고정했습니다.
+- 사용자 요청형 성공 호출만 실제 토큰·기준일 단가로 예상 비용을 계산하고, 토큰·단가가 없으면 0원이 아닌 `비용 미산출`로 분리합니다. 자동매매 백그라운드 AI와 Provider 전체 청구액은 이 카드의 범위가 아닙니다.
+- 역할별 Provider·모델 구성을 한 화면에서 확인하고, DeepSeek 공식 `deepseek-v4-flash` 자동 최신 별칭·`deepseek-v4-pro`·별도 비전 실험 모델을 구분합니다. 일반 Flash의 이미지 입력은 호출 전에 차단합니다.
+- 암호화폐와 주식·ETF의 공통 분석 경로를 합성 입력으로 검증했습니다. 실제 Provider 429, Windows DPI, 패키지 업데이트/재시작, 거래소·증권사 실환경은 공개 후에도 별도 외부 게이트입니다.
+- 최신 기록은 OpenAI Project 직접 회귀 `8 passed`, 관련 AI·설정·차트 집중 회귀 `56 passed`, 전체 Python 회귀 `2,208 passed, 8 skipped`, Node 22 Web production build `50 modules`, production 의존성 취약점 `0건`, 문서·사용자 노출 동기화와 Web UI 전체 표면 계약 `PASS`입니다. 경고 1건은 기존 Starlette/httpx 호환성 폐기 예정 경고입니다.
+- 실제 사용자 키·계정·네트워크를 사용하지 않는 `release_gate --profile prekey`도 PASS입니다. Windows 설치본은 공개됐지만 Provider 계정 권한·실청구, 업데이트/재시작, 거래소·증권사 실연동과 장시간 운용은 아래 외부 게이트로 남깁니다.
+
+## v3.9.1.26 Strategy Studio 위험 입력·질문형 사용자 확인 당시 소스 회귀 (2026-09-10 · 이력)
+
+- 당시 소스 제품 버전은 v3.9.1.26, updater SemVer는 3.9.126이었습니다. 공개 v3.9.1.25 installer와 manifest를 직전 자산으로 보존했고, 이 섹션의 `pending_windows_rebuild`·`publish_ready=false`는 v3.9.1.26 빌드 전 판정 이력입니다. 현행 판정은 문서 최상단 v3.9.1.27 섹션을 따릅니다.
+- 거래당 계좌 손실·1회 위험·risk per trade와 증거금/종목당 투자 비중의 명시적 퍼센트 구조화, 단위 없는 숫자 실패 폐쇄, 분석 위험값의 UI 동기화, 사용자 확인 보완의 허용 필드를 회귀로 고정했습니다.
+- `원문 그대로 구조화 / 질문으로 함께 완성 / 기본 NoahAI에 맡기기`를 구분하고, AI 예시 비실행·사용자 답변 별도 해시·원본 파일 불변·기존 원문 충돌 차단을 고정했습니다. 기본 NoahAI/confirm과 사용자 독립 전략의 책임·성과 근거도 계속 분리합니다.
+- v3.9.1.26 전용 회귀 15건, 전체 Python 회귀 `2,179 passed, 8 skipped`, Web production build `50 modules`, 문서/버전 정합과 Web UI 전체 표면 계약 `PASS`를 확인했습니다. 위험률 변경 무결성, 원문-보완 충돌 차단과 `webui/src/` 사용자 문서 동기화 게이트도 포함합니다. Windows 암호화폐/주식 실제 화면과 v3.9.1.25→v3.9.1.26 업데이트는 새 산출물에서 확인해야 합니다.
+
+## v3.9.1.25 Strategy Studio 안내·AI 문맥 복구 소스 회귀 (2026-09-09)
+
+- 현재 소스 제품 버전은 v3.9.1.25, updater SemVer는 3.9.125입니다. 공개 v3.9.1.24 installer와 manifest는 직전 공개 자산으로 보존하며 v3.9.1.25 Windows 빌드·업데이트 전에는 `pending_windows_rebuild`, `publish_ready=false`입니다.
+- `AI에게 묻기`의 AI 커스텀 문맥 라우팅, 빈 Provider 응답 실패 처리·비캐시, Provider 실패 로컬 정본 대체, Strategy Studio keep-alive, 5분 안내의 기본 NoahAI/전략 제작 분리와 차단 상세를 집중 회귀로 고정했습니다.
+- v3.9.1.25 단독 회귀 `8 passed`, Web 플랫폼·과거재생·전략 의미·PAPER·AI 어시스턴트 집중 회귀 `199 passed`, 전체 Python 회귀 `2,148 passed, 8 skipped`, Web production build `50 modules`, 문서/버전 및 전체 Web 표면 계약 `PASS`를 확인했습니다. 양방향 `independent_entries` 재생, 방향 충돌 HOLD, NoahAI 기본 진입 confirm 전략의 과거재생 비대상·PAPER 직접 연결 계약을 포함합니다.
+- Windows 입력/파일 보존·실제 Provider·DPI E2E는 설치본 생성 뒤 확인합니다.
+
+## v3.9.1.24 Strategy Studio·Strategy Hub UX 소스 회귀 (2026-09-09)
+
+- daltrading 회원 전용 라이선스 브라우저 화면은 로그인 후 원래 주소로 복귀하고, API는 UTF-8 JSON 401을 유지하도록 계약을 분리했습니다. 제출은 1단계 서버 패키지 분석과 2단계 추출 범위·권리 확인으로 분리하며 수동 태그 누락·불일치를 차단합니다. E0 신규 공개본은 E2~E5 검증 랭킹과 분리합니다. 달트레이딩 운영 배포와 NoahAI 클라이언트의 운영 브라우저 왕복은 v3.9.1.24 E2E에서 확인해야 합니다.
+- v3.9.1.24 installer와 manifest가 이후 공개됐으며 v3.9.1.25의 직전 공개 자산으로 보존합니다.
+- Strategy Studio 반응형 기관 탭, 실행 풀 안내, 고급 JSON 확인, 최종 재검증 세부 설명을 v3.9.1.24 회귀 범위로 분리했습니다.
+- sibling 버전 PAPER 실행 권한 보호, 버전별 저장 파라미터 표시와 계정 로컬 PAPER 상세 근거 내보내기를 추가했습니다. 개인 세부 거래는 `.noahstrategy`와 허브 자동 전송에 포함하지 않습니다.
+- Strategy Hub E0 카드는 E2~E5 검증 랭킹과 분리하고 순위·0.0점 대신 성과 점수 없음·검증 시작 전으로 표시하며 제작자 자기설명과 서버 검증 근거를 분리합니다.
+- NoahAI 전체 Python 회귀 `2,136 passed, 8 skipped`, 변경 집중 회귀 `66 passed`, daltrading 전체 회귀 `93 passed`를 확인했습니다.
+- Web production build는 `50 modules`로 통과했습니다. `js-yaml` 4.3.2 보안 고정 뒤 npm 전체/production audit는 취약점 `0건`입니다. 로컬 Node 20.11.0은 빌드에는 성공했지만 프로젝트 릴리스 요구 `22.12+`보다 낮으므로 Windows 빌드는 요구 버전에서 수행해야 합니다.
+- 문서/버전 정합, Web UI 전체 표면 계약과 활성 Python 소스 감사도 `PASS`입니다.
+- source fingerprint 참고값은 `59c67cc3a82a4e67222d2be30cfb19672f4d290c0f317520a94c9957fadb9c74`이며 Windows 빌드 직전 현재 소스에서 다시 산출합니다.
+
+## v3.9.1.23 LIVE 통계 정본·기간·비파괴 기준 공개 회귀 (2026-09-08)
+
+- 기관 등록부에서 Python 런타임·통계 집합을 파생하고, Web UI inventory/공통 `venueSources.ts` 목록과 서비스별 통계 allowlist가 어긋나면 실패하는 회귀를 추가했습니다. 미등록·교차 서비스 기관은 실패 폐쇄합니다.
+- LIVE 청산 원장 우선, PAPER/LEARNING 제외, 구형 `optimized/manual` LIVE 마이그레이션, KRW/USDT 분리, 오늘·7일·30일·전체·사용자 지정 경계와 비파괴 기준시각 설정/해제를 회귀로 고정했습니다.
+- 전체 Python 회귀 `2,129 passed, 8 skipped`, v3.9.1.23 기관 등록부·통계·PAPER 생명주기 집중 회귀 `38 passed`, Web TypeScript/Vite production build `50 modules`를 통과했습니다.
+- Windows 설치기·업데이트·현재 계좌 대조, 6개 거래소·4개 증권사 실환경 테스트는 아래 검증 원장에 따라 계속 확인해야 합니다.
+- 개발 release gate는 증권 계약 회귀 `175 passed, 6 skipped`, 8개 지원 모드 매트릭스와 4개 증권사 mock hardening을 통과했습니다. dev/prekey는 이제 실제 사용자 폴더를 자동 탐색하거나 브로커 네트워크를 호출하지 않는 offline readiness만 실행합니다. 실연동은 승인된 QA 계정을 명시한 release 게이트로 분리했습니다.
+- 소스 fingerprint 참고값: `974bfc37b4d35f8b055bbe5a05f744779a69d003c3e1377eb64d8d2879c45eff` (Windows 빌드에서 최종 재산출).
+- Windows 자산은 공개됐습니다. 자세한 범위와 남은 운영 관찰은 [v3.9.1.23 검증 원장](archive/release/V39123_CANONICAL_LIVE_STATISTICS_TEST_PLAN.md)을 따릅니다.
+
+## v3.9.1.22 공통 투자금·성과회복·병행 PAPER 소스 회귀 (2026-09-06)
+
+- 기존 사용자 fixed Notional 보존과 선택형 account-risk 계산, SL 거리·평가금·성과 위험배수·마진/노출 상한을 순수 계약으로 검증했습니다.
+- Binance와 Unified 5개 거래소, 키움·신한·미래에셋·한국투자 공통 경로 연결 및 CCXT contractSize 최소주문 산식을 검증했습니다.
+- PAPER/LEARNING에서 실계좌 잔고를 읽지 않고 LIVE 활성 전략과 PAPER 관찰 전략을 별도 풀·가상 포지션으로 유지하는 집중 회귀를 추가했습니다.
+- 성과회복 KPI는 거래별 순수익률을 사용하며 KRW/USDT 현금 손익 합계와 분리하고 구간 안정률을 실제 OOS 워크포워드로 오인하지 않도록 명칭·방법을 기록합니다.
+- v3.9.1.22 전체 Python 회귀 `2,097 passed, 8 skipped`, 투자금·전략·기관 집중 회귀 `176 passed`, 증권 개발 게이트 `169 passed, 6 skipped`, Web TypeScript/Vite production build `49 modules`를 통과했습니다.
+- daltrading 전략 허브 전체 회귀 `85 passed`, NoahAI Labs production build `225 pages`, lint 오류 `0건`, info/ip 통합 사이트 production build `45 pages`를 확인했습니다. 공개 URL 검증은 실제 배포 뒤 별도 수행합니다.
+- 통합 거래소의 percent-point 변동성을 fraction으로 명시 변환하고 Binance의 결측 변동성을 임의 2%로 추정하지 않는 시장 위험배수 회귀를 추가했습니다. 기존 계정 `legacy_venue` 상태도 Web 설정에서 빈 값이 아니라 전환 사유와 저장 전 초안으로 표시합니다.
+- Strategy Studio Level 4는 전략 요청값·계좌 정책·시장/성과 적용 전 허용값을 비교하며, 암호화폐 6개 거래소와 국내 증권 4개 경로는 주문 직전 예상손실·Notional·증거금·레버리지·수량과 제한 사유를 XAI에 기록합니다.
+- 활성 소스·설정 정본·AI 설정 소유권·문서/버전·Web UI source contract·dev release gate가 PASS입니다. 로컬 Node `20.11.0`은 프로젝트 요구 `22.12+`보다 낮지만 번들은 성공했으며, Rollup macOS ARM 선택 의존성을 복구한 `npm audit` 결과는 취약점 0건입니다.
+- 소스 fingerprint: `7b6e0e9ad64f59689d9830d1adc6c62c61f569597fa8d328bcb9ab4474311df4`.
+- 개발 게이트의 한국투자 읽기 연결은 성공했지만 주문 드릴은 `EGW00133` 1분 토큰 제한으로 실패했고, 키움은 macOS라 건너뛰었습니다. Windows v3.9.1.22 설치기·자동 업데이트·승인 최소 LIVE 주문·6개 거래소/4개 증권사 24~72시간 병행 PAPER는 **PENDING**입니다.
+
+## v3.9.1.21 PAPER 손익·비용·거래소 귀속 소스 회귀 (2026-09-04)
+
+- 사용자 피드백·주식/ETF 정합 집중 회귀 `205 passed, 6 skipped`, 전체 Python 회귀 `2,052 passed, 8 skipped`를 통과했습니다.
+- 공개 v3.9.1.20의 중지 권한·열린 포지션 복구·멱등 청산·다중 전략 순환·UPBIT cache·학습 journal·Algo TP/SL 회귀를 유지했습니다.
+- Teayu v3.9.1.19 원장의 Binance 184행 중 근거가 충분한 177행만 기본 비용 계약 추정 대상으로 판정하고 근거 부족 7행은 `비용 미확정·과거 손익 미확정`으로 승패·순손익 확정 통계에서 제외했습니다.
+- Upbit·Bithumb·Bybit·Bitget·OKX 각각의 활성 PAPER 포지션이 청산 전에 비용 차감 후 미실현 PnL을 갱신하고, Recorder가 거래소별 최신 표본과 실제 로그 소유 거래소를 사용하는지 검증했습니다.
+- Teayu `trading_binance.log`에서 타 거래소 소유 결정 3,245행이 과거에 `(ex=binance)`로 잘못 기록된 것을 확인했습니다. 신규 기록은 실제 실행 거래소로 라우팅하고 구형 행은 Binance 화면에서 실패 폐쇄합니다.
+- 성과회복 제한은 6개 거래소별 최근 완료 거래를 독립 조회하고 순손익 비용을 이중 차감하지 않으며, 위험배수·포지션·레버리지 제한에 전달되는 공통 실행 경로를 확인했습니다.
+- 키움·신한·미래에셋·한국투자 공통 경로에서 주식/ETF 활성 PAPER 포지션의 현재가 기준 KRW 순손익, 수수료·예상 세금·슬리피지, 부분청산 비용 배분, 보유량 초과 매도 차단을 검증했습니다.
+- 증권 PAPER 성과 표본은 해당 증권사의 유효한 PAPER 원장만 사용하고 LIVE 체결을 호출하지 않으며, XAI 로그는 명시한 실행 증권사에 귀속되는지 검증했습니다.
+- 다중 PAPER 관찰 전략 공유 슬롯 round-robin, UPBIT ticker cache, append-only 학습 journal 복구, Binance Algo TP/SL 감사를 검증했습니다.
+- v3.9.1.19 UNIFIED Binance 귀속·`.noahstrategy` 이중 해시·검증 대상 분리 누적 회귀를 통과했습니다.
+- Web UI는 Node `22.23.1`에서 TypeScript/Vite production build 49 modules, npm audit 취약점 0건을 통과했습니다. chunk 크기 권고 경고는 있으나 빌드 실패는 아닙니다.
+- 문서/버전 정합 검사, Web UI parity source contract, dev release gate를 통과했습니다. dev gate의 실주문은 비활성이고 키움은 macOS에서 OS 차단됩니다.
+- 소스 fingerprint: `1553a72723c3a5fe9503fe056065399e7887f1008356d407a3b5eeed9c11c1f0` (Windows 빌드가 생성하는 release manifest와 대조).
+- 공개판은 v3.9.1.20입니다. v3.9.1.21 Windows 엔진·설치기·blockmap·`latest.yml`, 자동 업데이트와 6개 거래소·4개 증권사 24~72시간 PAPER E2E는 **PENDING**입니다.
+
+## v3.9.1.18 OKX 후보 복구·전략 검증 근거 소스 회귀 (2026-09-03)
+
+- 첨부 피드백의 약 1분 간격 `코인 선택 데이터 저장 완료`를 Teayu 원장과 대조해 OKX 정상 재선정이 아니라 `candidate_evaluation_unavailable / fallback_unscored` 10개가 반복 저장된 사실을 확인했습니다.
+- OKX CCXT ticker가 `quoteVolume=None`인 실제 파생 입력에서 원문 `volCcy24h`(기초자산 수량)×현재가로 USDT 거래대금을 복원하고, `vol24h`/CCXT `baseVolume` 계약 수를 수량으로 오인하지 않는지 검증했습니다. Bybit·Bitget의 명시적 quote 거래대금과 국내 현물의 base 수량×현재가 계약도 함께 회귀 고정했습니다.
+- 동일 실패 스냅샷은 기본 15분에 한 번만 저장하고, 미산출 복구는 즉시 1회 뒤 60초→120초→240초·최대 15분으로 늘어나는 거래소별 backoff를 검증했습니다.
+- 거래소별 거래대금 단위 회귀를 보강한 집중 회귀 `44 passed`를 유지하고, v3.9.1.18 전략/PAPER 추가 회귀와 전체 Python 회귀 `1,992 passed, 8 skipped`를 통과했습니다.
+- Web UI TypeScript/Vite production build(49 modules), Web UI parity, 활성 소스, 문서/버전 정합, Web engine spec, dev release gate를 통과했습니다. 로컬 Node `20.11.0`은 릴리스 요구 `22.12+`보다 낮으므로 Windows 패키징은 요구 버전에서 다시 수행해야 합니다.
+- 공개 v3.9.1.17 manifest fingerprint `0d9c8a...`와 현재 v3.9.1.18 소스 fingerprint `f977adea6f98...`는 다릅니다. 공개 자산에 이 수정이 포함됐다고 판단하거나 같은 버전으로 덮어쓰면 안 됩니다.
+- 다음 불변 버전 Windows 빌드·OKX 실제 ticker 콜드/웜 선정·장시간 PAPER·업데이트 E2E는 **PENDING**입니다.
+- Strategy Studio API가 PAPER를 거래소·기준통화별로 분리하고 과거 미확정 행을 승패에서 제외하는 회귀를 추가했습니다.
+- Web UI에 Validation Lab 상세·거래소별 PAPER 근거·현물/선물 호환성 안내를 추가했으며, 대표 자연어/Pine 의미 코퍼스는 지원 사례와 실패 폐쇄 사례를 함께 포함합니다.
+
+## v3.9.1.17 전략 의미 보존·PAPER 격리·AI 리포트 정산 회귀 (2026-09-01)
+
+- Teayu 원장을 읽기 전용으로 조사해 마지막 NoahAI 청산 직후 PAPER 관찰 전략이 등록됐고, 그 뒤 `no_strategy_matched_current_scope_regime_and_entry` 전역 차단이 25,201건 누적된 순서를 확인했습니다. 분석·학습은 계속됐으므로 worker 정지나 시장 무신호가 아닌 PAPER 권한 혼입 오류입니다.
+- PAPER 후보만 평가하고 일치하지 않을 때 기본 NoahAI 신호로 위임하고, 사용자가 최종 적용한 전략은 조건 미충족 시 HOLD하는 계약을 분리했습니다.
+- Binance·Upbit·Bithumb·Bybit·Bitget·OKX 6개 거래소 PAPER 불일치 위임, 적용 전략 실패 폐쇄, 독립 전략 방향·진입조건·TP/SL 단위 준비도를 집중 회귀로 고정했습니다.
+- Teayu의 PAPER 관찰 6개를 재평가한 결과 실행 준비 완료는 0개였습니다. 독립 전략 5개는 방향과 선언형 진입조건이, confirm 전략 1개는 TP/SL 실행 단위가 부족했으며 사용자 파일은 변경하지 않았습니다.
+- 전략 문서 저장, 실행 준비, 사용자 승인, PAPER 전진검증을 서로 다른 게이트로 분리했습니다. 독립 전략은 LONG/SHORT별 선언형 진입 규칙과 전략 소유 TP/SL이 필요하며, `confirm` 전략만 명시적으로 NoahAI 스마트 청산을 상속할 수 있습니다. 단위 누락·비정상 수치·위험 범위 초과는 승인 전에 거부합니다.
+- AI 리포트 요약과 상세를 같은 `trade_log` 청산 원장과 동일한 기간 하한·현재시각 상한에 연결했습니다. 100건 페이지 이동, 전체 기간 체크섬, 거래소·종목·방향·실현손익·손익률·수수료·진입가·청산가 표시와 미래 시각 행 제외를 회귀로 확인했습니다.
+- confirm 방향 보존, 자연어 양방향 분리, Pine RSI 별칭·지원 가능한 AND 복합조건 해석, 미해석 별칭 실패 폐쇄, TP/SL 명시 단위와 공통 주문 범위, 무음 보정 금지, 저장 직전 서버 재검증을 회귀로 고정했습니다.
+- Web AI 멘토를 일반 어시스턴트 호출이 아닌 8문항 구조화 후보 생성에 연결했습니다. 관리 프리셋은 선언형 LONG/SHORT·TP/SL·위험예산을 가진 실행 초안이며 공통 준비 계약 통과 여부를 표시합니다. 불러오기는 저장·승인·과거검증·PAPER·LIVE를 자동 실행하지 않습니다.
+- 외부 LLM이 원문과 다른 실행 조건·방향·TP/SL·비중을 제안해도 로컬 결정형 컴파일 결과만 주문 정본으로 사용하고 거절 경로를 XAI에 남깁니다. 분석 뒤 실행값이 바뀌면 source-grounding 해시 불일치로 저장을 차단합니다.
+- `request.security`·동적 `input.*`·사용자 함수·컬렉션·rolling state·position price 기반 동적 청산 Pine은 단순 규칙으로 축소하지 않고 구체적인 미지원 사유로 차단합니다.
+- 과거검증은 Upbit·Bithumb KRW 현물과 Binance·Bybit·OKX·Bitget USDT 선물의 실제 venue·시장유형·시간봉·기준통화를 기록합니다. PAPER 및 리포트의 KRW와 USDT는 환율 근거 없이 합산하지 않습니다.
+- LIVE 일일 손실 판정을 거래소·실행모드·기준통화별로 격리했습니다. 6개 거래소 LEARNING/PAPER는 실계좌 잔고 조회와 손실 알림을 생성하지 않고, LIVE 빈/무효 응답은 100% 손실이 아닌 `risk_data_unavailable`로 분리합니다.
+- 거래소×모드 알림 격리, 실제 LIVE 손실, 빈 잔고, 출금 오인 방지, 거래소별 ON/OFF, LIVE 메시지 표시 집중 회귀 `41 passed`를 통과했습니다.
+- v3.9.1.17 전체 Python 회귀 `1,974 passed, 8 skipped`, 내장/Web 매뉴얼 스냅샷 정합, Web UI TypeScript/Vite production build를 통과했습니다.
+- Web UI TypeScript/Vite production build는 49 modules로 통과했습니다. 로컬 Node `20.11.0`은 프로젝트 요구 `22.12+`보다 낮아 Windows 릴리스 빌드는 요구 버전으로 다시 수행해야 합니다.
+- daltrading은 전략 제작 멘토를 앱 내부 기능으로, 웹 허브를 회원 제출·검토·탐색·다운로드 기능으로 분리한 안내를 `c12cac8`로 운영 배포했고 공개 가이드 경로를 확인했습니다.
+- NoahAI Labs는 v3.9.1.16을 현재 공개 Windows판으로 유지하면서 v3.9.1.17을 소스 후보로 분리한 Strategy Studio·LLM 정본을 `c21cfb1`로 Cloudflare Pages에 배포했고 공개 제품·source 경로를 확인했습니다.
+- 공개 v3.9.1.16 `latest.yml`과 Windows 자산은 변경하지 않았습니다. v3.9.1.17 Windows 설치기·업데이트·실계정·6개 거래소 PAPER 24~72시간 E2E는 **PENDING**입니다.
+- 배포 상태: `pending_windows_rebuild`, `publish_ready=false`.
+
+## v3.9.1.16 거래소 실행 계약·KRW 현물 주문 정합 회귀 (2026-08-29)
+
+- Upbit·Bithumb KRW 현물과 Binance·Bybit·OKX·Bitget USDT 선물을 상품·방향·기준통화·주문단위로 분리했습니다. 국내 현물 `SHORT`는 신규 공매도가 아니라 NoahAI 관리 LONG의 청산 신호이며, 관리 원장이 없으면 실행하지 않습니다.
+- Upbit 시장가 매수는 승인된 KRW 총액, 시장가 매도는 base 코인 수량을 제출합니다. Bithumb은 기존 base 수량 계약을 유지해 거래소별 주문 규격이 서로 전파되지 않도록 했습니다.
+- 포지션 원장 단계에 국내 현물 SHORT 실패 폐쇄 방어를 추가하고, Upbit BUY/SELL·Bithumb 분리·국내 현물 방향·Bybit/Bitget/OKX 선물 청산 파라미터·PAPER 원장 경계를 결정적 회귀로 고정했습니다.
+- 10초 거래 루프마다 반복되던 거래소별 15분봉 시장국면 요청과 성과 DB 조회를 기본 5분 TTL single-flight 캐시로 합쳤습니다. Upbit·Bithumb 대표 국면 심볼은 `BTC/KRW`입니다.
+- v3.9.1.16 집중 회귀 `29 passed`, 전체 Python 회귀 `1,911 passed, 8 skipped`, Python compile, Web UI 소스 parity 감사, release gate dev 프로필을 통과했습니다.
+- Web UI TypeScript/Vite production build는 49 modules로 통과했습니다. 로컬 Node `20.11.0`은 프로젝트 요구 `22.12+`보다 낮아 엔진 경고가 있었으므로 Windows 릴리스 빌드는 요구 Node 버전으로 다시 수행해야 합니다.
+- Windows 설치기·blockmap·`latest.yml`, v3.9.1.15→v3.9.1.16 업데이트, Upbit/Bithumb 승인된 최소 LIVE, 해외 선물 one-way/hedge, 6개 거래소 PAPER 24~72시간 E2E는 **PENDING**입니다.
+- 배포 상태: `pending_windows_rebuild`, `publish_ready=false`.
+
+## v3.9.1.15 주문규격·Level 4 집중 회귀 (2026-08-28)
+
+- NoahAI Strategy Studio의 정식 명칭, Level 1~4 설명, `.noahstrategy` 호환, 무료 Verified Strategy Hub 범위를 클라이언트·내장 메뉴얼·제품 문서에 맞췄습니다.
+- daltrading의 회원 제출→운영자 승인→인증 다운로드→제작자 공개 중지 요청→즉시 신규 다운로드 차단→운영자 확정/반려 흐름을 추가했습니다. 운영 서버 DB 스키마 적용·서비스 재시작과 공개 Hub/가이드/제출 안내 경로를 확인했으며, 실제 회원·운영자 계정 왕복 E2E는 별도 게이트입니다.
+- daltrading 무료 다운로드를 `FREE` 취득 거래와 계정별 영구·비독점 실행 라이선스로 원자 기록하고, 반복 다운로드 멱등성, 내 라이선스 화면·API, 공개 중지 뒤 기존 취득자 재다운로드/미취득자 차단, 기존 다운로드 감사의 1회 마이그레이션을 추가했습니다. daltrading 전체 회귀는 `81 passed`입니다.
+- NoahAI Labs Strategy Studio 4개 언어 제품 페이지는 production build 225 pages, ip.noahai.net 기술·IR 설명은 production build 45 pages를 통과했습니다. `noahailabs.com`의 제품 페이지·LLM 정본·사이트맵과 `ip.noahai.net` 공개 문구를 배포 후 운영 URL에서 확인했습니다.
+- `min_trade_amount=20`, 초기 위험배수 `0.10`, Binance 최소 주문 `5`인 결정적 케이스에서 수량 `0.51`, 주문금액 `5.10`이 거래소 규격을 통과함을 확인했습니다.
+- 사용자 목표금액·Opportunity 승인 수량 상한·거래소 최소 주문규격을 분리하고, 승인 상한이 거래소 최소보다 작으면 수량을 상향하지 않고 차단하는 회귀를 추가했습니다.
+- `SPLIT`의 `authorized_quantity`에 이미 반영된 비율을 후단에서 다시 곱하지 않는 회귀를 추가했습니다.
+- 구형 `risk_budget`의 `risk_model` 정규화, Level 4 IR 투영, 하드 가드레일 해제 필드 저장 거부를 검증했습니다.
+- 주문·IR·AI 커스텀 집중 회귀는 `PYTHONPATH=. pytest -q tests/test_v39115_order_contract_and_level4.py tests/test_noah_strategy_ir_v1.py tests/test_ai_custom_p1_p3_features.py` 기준 `26 passed`입니다.
+- 전체 Python 회귀 `1,898 passed, 8 skipped`, Web UI TypeScript/Vite production build 49 modules와 문서 정합 검사를 통과했습니다. Windows 패키지·PAPER/LIVE E2E는 별도 게이트입니다.
+- 배포 상태: `pending_windows_rebuild`, `publish_ready=false`.
+
+## v3.9.1.15 Binance 후보 선정 복구·사이클 정합성 회귀 (2026-08-28)
+
+- Teayu 로그의 10개 `fallback_unscored` 반복은 거래 부적합 판단이 아니라 실행 가능한 후보 0개의 복구 실패임을 확인했습니다.
+- Binance 상품·티커·백업 캐시를 현재 계정의 쓰기 가능한 폴더로 격리하고, 미산출 결과의 single-flight 캐시를 즉시 무효화하며 폴백→폴백 재선정을 완료로 기록하지 않도록 수정했습니다.
+- 미산출 후보만 있는 동안 반복 시장국면·상세 분석을 생략하고, 기본 60초 쿨다운의 단일 백그라운드 재선정만 수행하도록 검증했습니다.
+- 설정/API 런타임 교체 시 Evaluator의 Binance 클라이언트도 Trader와 같은 새 객체로 갱신함을 회귀로 고정했습니다.
+- Teayu 계정 범위의 공개 읽기 전용 Binance 스모크에서 약 4.2초에 10개 모두 숫자 점수·실행 가능 후보로 선정했습니다. 비밀키와 주문은 사용하지 않았습니다.
+- 시작 버튼 1회당 즉시 Binance 사이클 1회와 다음 실행 전 설정 간격 대기를 결정적 worker 회귀로 고정했습니다.
+- 상태형 포지션 API 우선, 조회 실패 시 플래그·포지션·모니터 보존, 성공한 빈 스냅샷에서만 오래된 상태 정리를 검증했습니다.
+- 같은 LIVE 사이클의 포지션 스냅샷을 좀비 정리와 메모리 동기화가 공유하며, 조회 불확정 사이클은 신규 주문을 보류하도록 수정했습니다.
+- 후보 선정·사이클·문서 집중 회귀 `52 passed`, 전체 Python 회귀 `1,893 passed, 8 skipped`를 통과했습니다.
+- Web UI TypeScript/Vite production build 49 modules, npm audit 취약점 0, 활성 소스·설정·AI 어시스턴트·Web parity·문서 정합 감사를 통과했습니다.
+- 로컬 Web build는 성공했지만 Node `20.11.0`에서 프로젝트 권장 `22.12+` engine 경고가 있었으므로 Windows 릴리스 빌드는 요구 Node 버전으로 수행해야 합니다.
+- Windows `NoahAIEngine.exe`, `NoahAI-3.9.1.15-Setup.exe`, blockmap, 새 `latest.yml`, 1.14→1.15 업데이트, Binance 정상/무포지션/장애 복구와 12시간 다중 거래소 E2E는 **PENDING**입니다.
+- 배포 상태: `pending_windows_rebuild`, `publish_ready=false`.
+
+## v3.9.1.14 후보 선정 복구·증권 조회 종료 회귀 (2026-08-27)
+
+- 후보 전체 미산출 판정, 거래소별 60초 재시도 쿨다운, 기존 정상 후보 보존, 신한·미래/KIS REST 세션 해제 회귀를 추가했습니다.
+- Binance·Upbit·Bithumb·Bybit·Bitget·OKX 30개 후보가 네트워크 없는 스냅샷 점수로 모두 산출되는 매개변수 회귀를 통과했습니다.
+- 키움·신한·미래에셋·KIS 조회용 어댑터가 거래 worker 없이도 종료 대상에 포함되는 회귀와 Binance·Bybit 시간 오차 재측정, KIS 토큰 single-flight·60초 쿨다운, LEARNING 명시 시작 계약을 함께 검증했습니다.
+- 집중 회귀 `50 passed`, 전체 Python 회귀 `1,883 passed, 8 skipped`, Web UI TypeScript/Vite production build 49 modules, npm audit 취약점 0, 활성 소스 감사와 문서·버전 정합 검사를 통과했습니다.
+- 현재 소스 fingerprint는 `9290246ea58d1d79abe8d19a3f90dc55db52c70d9d19399a3d6c2ba65a2f16bd`입니다. Windows 빌드가 생성하는 manifest fingerprint와 일치해야 게시할 수 있습니다.
+- Windows `NoahAIEngine.exe`, `NoahAI-3.9.1.14-Setup.exe`, blockmap, `latest.yml`, 1.13→1.14 업데이트, 6개 거래소/4개 증권사 실환경 종료, Binance·Bybit 시간 복구, KIS 실제 토큰 제한, LEARNING 실행 E2E는 **PENDING**입니다.
+- 배포 상태: `pending_windows_rebuild`, `publish_ready=false`.
+
+## v3.9.1.13 OKX 안전 종료·가독성·PAPER 안내 회귀 (2026-08-27)
+
+- CCXT 5개 거래소의 12초 요청 경계, 분석 호출 후 중지 소비, API 배지 카드 포함, PAPER 이력 접기/펼치기, 3개 화면 프리셋, 업데이트 외부 알림, LIVE/PAPER 검증 안내 회귀를 추가했습니다.
+- 후속 수정 집중 회귀 `41 passed`, 전체 Python 회귀 `1,866 passed, 8 skipped`, Web UI TypeScript/Vite production build 49 modules, Python compile·문서 정합성·Web source parity 감사를 통과했습니다.
+- 일괄 ticker 1회, 상세 후보 30개 제한, 8개 제한 병렬, 캔들 60초 재사용, 거래소 single-flight, 120초 stale 차단, 국면 확인·유지시간, 주식 5거래일 국면과 서비스·유니버스 재사용 회귀를 추가했습니다.
+- 거래소 미기록 `selected_coins`가 source-strict 조회에서 사라지던 문제, 폴백 10개를 0점으로 오표시하던 문제와 거래소별 최신 세션 혼입 방지 회귀를 추가했습니다.
+- 정상 후보 부족은 유효 후보만 `scored_partial`로 유지하고, 점수 없는 심볼에 임의 30·50점을 생성하지 않습니다. 평가 후보가 0개인 `fallback_unscored`는 Binance·통합 Trader 모두 PAPER/LIVE 신규 진입을 차단하고 기존 포지션 보호는 계속합니다.
+- Binance 후보는 거래 가능한 USDT 무기한 선물 전체 티커를 거래대금으로 정렬합니다. 결정적 101번째 고거래대금 심볼 회귀와 공통 메이저 분류 회귀를 통과했습니다.
+- 2026-08-27 읽기 전용 Binance 공개 API 스모크에서 거래 가능한 USDT 무기한 선물 524개와 24시간 티커 524개를 일치시켰고, 거래대금 상위 5개 모두 1시간봉 50개를 확보했습니다. 주문 제출은 0건입니다.
+- v3.9.1.13 Windows 자산은 게시됐습니다. 다만 이번 Binance·OKX 후보 점수와 조회 전용 증권 어댑터 종료 수정은 해당 설치기 이후 소스이므로 v3.9.1.13에 포함됐다고 판정하지 않습니다.
+- 기존 v3.9.1.13을 덮어쓰지 않는 후속 버전 Windows Setup·업데이트, 6개 거래소 콜드/웜 선정 p95, 키움 조회 전용 COM 종료, 4개 증권사 조회 후 종료 E2E는 **PENDING**입니다.
+
+## v3.9.1.12 전략 허브·메뉴얼·검증 신뢰 회귀 (2026-08-27)
+
+- AI 커스텀의 무료 전략 허브·회원 제출·전략별 제출 링크와 패키지 내보내기 경계를 소스 계약으로 확인했습니다.
+- 제출은 자동 업로드가 아니며 회원 로그인 뒤 파일·공개 설명·시장·위험·권리를 직접 확인하고 비공개 검토로 접수하는 흐름을 문서와 UI에 일치시켰습니다.
+- 공개 랭킹은 자기신고 성과가 아니라 서버 검증 여권을 사용하고, 다운로드 전략은 비활성 검토 버전으로 가져와 승인·자동검증·PAPER를 다시 거치는 계약을 검증했습니다.
+- 인앱 메뉴얼, Web 메뉴얼 JSON, 사용자 가이드, AI 어시스턴트 지식과 릴리스 문서의 v3.9.1.12 표기를 정합화했습니다.
+- 전체 Python 회귀 `1,825 passed, 8 skipped`, React/TypeScript production build 49 modules, 문서 정합 검사를 통과했습니다.
+- 사용자 배포판은 v3.9.1.11입니다. Windows Setup·v3.9.1.11→v3.9.1.12 업데이트·전략 내보내기/회원 제출/관리자 승인/다운로드/가져오기·누적 6개 거래소/증권 외부 E2E는 **PENDING**입니다.
+- 배포 상태: `pending_windows_rebuild`, `publish_ready=false`.
+
+## v3.9.1.11 안전 종료·PAPER 검증 정합 회귀 (2026-08-26)
+
+- 종료 요청을 비차단 방식으로 전체 거래소에 먼저 전달하고 하나의 45초 예산으로 Binance·통합 worker·모니터 정리를 기다리는 계약을 추가했습니다.
+- 거래 사이 3초 대기를 중지 이벤트로 해제하며, 실제 종료 중인 worker를 5초 만에 실패로 확정하지 않는 회귀를 검증했습니다.
+- PAPER 구형 TP/SL 백분율 단위 변환과 PAPER/LIVE 유효 범위 차단을 검증했습니다.
+- AI 커스텀 PAPER 관찰 일수, 정확한 전략 키·버전의 관찰 시작 이후 청산 합산, 재시작 시 이전 검증 보존을 검증했습니다.
+- Binance·통합 5개 거래소 공통 SmartExitPolicy, 종목 표본 부족 시 거래소 보조 표본 축소 적용, AI 커스텀 선언값 불변·RR 미달 진입 차단을 검증했습니다.
+- 통합 PAPER 손익 필드·KRW/USDT 분리·구버전 미확정 행 제외와 WebUI 표시 계약을 검증했습니다.
+- 전체 Python 회귀 `1,824 passed, 8 skipped`, React/TypeScript production build 49 modules를 통과했습니다. Windows 외부 계정·설치본 검증은 아래와 같이 별도입니다.
+- Windows Setup·v3.9.1.10→v3.9.1.11 업데이트·6개 거래소 실제 종료·PAPER 재시작 복구·Upbit PAPER LONG E2E는 **PENDING**입니다.
+- 배포 상태: `pending_windows_rebuild`, `publish_ready=false`.
+
+## v3.9.1.10 PAPER 포지션·가상 통계·외부 알림 회귀 (2026-08-25)
+
+- 집중 운용이 stale `max_positions=3`과 거래소 override보다 우선해 1개로 제한되고, 다중/고급 2개 설정이 6개 거래소에 일관되게 저장되는지 검증했습니다.
+- Binance PAPER와 통합 거래소 LIVE/PAPER가 같은 제한 함수를 사용하며, 계좌 스냅샷이 실계정 포지션과 런타임 가상 포지션을 분리하는지 확인했습니다.
+- PAPER/LEARNING 상한에서 과거 LIVE 수동·외부 포지션을 제외하고, 거래소별 실행 모드와 메모리 전용 가상 포지션이 기존 workspace 폴링으로 전달되는지 확인했습니다.
+- 실제 로컬 Web 렌더 중 런타임의 `execution_modes`를 엄격한 Gateway 계약이 추가 필드로 거부해 `/api/v1/runtime/snapshot`이 500이 되는 문제를 재현했습니다. DTO에 거래소별 LEARNING/PAPER/LIVE 계약을 추가하고 Gateway TestClient 회귀로 Web 전달을 고정했습니다.
+- PAPER 원장 tail-read, 최근 PAPER 통계 집계, `가상 포지션`·`가상 거래 통계`·스크롤 UI와 적용 중 전략의 PAPER 자동 실행 안내를 검증했습니다.
+- 100MiB 초과 합성 PAPER 원장에서 최근 500건 조회를 20회 반복해도 회당 최대 128KiB만 읽고 정확한 최근 범위를 반환하는 결정적 I/O 상한 회귀를 통과했습니다. 이는 24~72시간 실제 6개 거래소 soak를 대체하지 않습니다.
+- 일반 안내의 High vol·AI 커스텀·시장·성과 빠른 질문이 서로 다른 정본 근거와 답변으로 분기되고 외부 Provider를 호출하지 않는지 검증했습니다.
+- 암호화폐·증권 PAPER 포지션 질문이 stale LIVE 저장소 대신 현재 가상 포지션과 최근 사이클 메트릭을 사용하는지 검증했습니다.
+- 질문에 명시한 거래소·증권사 우선 선택과 포지션 없는 추세 질문의 시장 신호 분류를 검증했습니다.
+- Windows 빌드·게시가 같은 릴리스 지문 계산기를 사용하고 `trading/trader.py`, 통합 Trader, 공통 포지션 정책, AI 커스텀, Gateway, WebUI와 패키지 매뉴얼 변경을 모두 감지하는 회귀를 추가했습니다. 거래 엔진 파일 한 줄 변경으로 지문이 실제 달라지는 변이 검사도 통과했습니다.
+- 장시간 검증 모니터를 Windows/Electron·one-file engine 프로세스 트리 합산, 런타임/workspace/설정/AI 커스텀 P95, 거래소별 실행·PAPER 모드·가상 포지션 상태 확인으로 확장했습니다. 기존 포지션은 강제 청산하지 않는 계약과 새 계정의 엄격한 상한 검사를 별도 옵션으로 분리했습니다.
+- 실제 로컬 Gateway와 추가 프로세스 루트 단기 스모크는 런타임 6.08ms, Binance workspace 6.54ms, 설정 6.35ms, AI 커스텀 1.59ms, 합산 RSS 88.20MB로 PASS했고 결과 JSON에 Gateway 토큰이 포함되지 않았습니다. 이는 Windows 6개 거래소 24~72시간 실행 증거를 대체하지 않습니다.
+- 압축 부하에서 6개 거래소 workspace 반복 조회가 `trading.db`/WAL/SHM 파일 디스크립터를 누적하는 실제 문제를 발견했습니다. Python `sqlite3.Connection`의 `with`가 연결을 닫지 않는 경로를 Web query와 거래 이력 helper에서 모두 명시적 `closing()`으로 변경했습니다.
+- 수정 전 200주기 파일 디스크립터 증가는 `181`, 1차 수정 뒤 `63`, 최종 수정 뒤 `0`이었습니다. 최종 720주기·5,328 HTTP 요청은 실패 0, RSS 증가 5.51MB, 스레드·디스크립터 증가 0, 런타임 P95 1.71ms, workspace 최대 6.20ms, 설정 6.41ms, AI 커스텀 1.77ms였습니다. 압축 반복은 실제 Windows 24~72시간 경과 검증을 대체하지 않습니다.
+- 외부 알림은 Discord/Telegram 연결 저장·상태·테스트·대화방 자동 찾기, 공식 HTTPS 대상 제한, write-only 비밀값, 제한 큐·timeout·재시도·cooldown·계정 전환 격리와 가드레일/손실/시장국면/런타임/수동 리포트 이벤트 연결을 자동 회귀로 확인했습니다.
+- 로컬 실제 Web 설정 모달에서 `알림·리포트` 9번째 탭과 Discord/Telegram 단계형 연결 UI를 확인했고, 1440px에서는 2열, 900px에서는 1열로 배치되며 내부 가로 넘침이 없음을 확인했습니다. 실제 외부 계정 발송은 수행하지 않았습니다.
+- 2026-08-25 재검증에서 전체 Python 회귀 `1,804 passed, 8 skipped`, React/TypeScript production build 49 modules, 문서·Web parity·설정/어시스턴트 계약 감사를 통과했습니다.
+- 활성 V1 PAPER 귀속 회귀를 추가해 가상 진입 포지션의 전략 이름·키·버전 `v1` 보존과 TP/SL 가상 청산 원장의 동일 버전 기록을 확인했습니다. 전역 PAPER 실행 풀은 적용 중 V1과 `paper_validation` 후보를 함께 전달하지만 상태를 구분합니다.
+- 로컬 실제 Web fixture에서 Binance PAPER의 가상 포지션 6개와 PAPER 이력 6건이 카드 내부에서 스크롤되고, `가상 거래 통계`만 자동 표시되며 실거래 통계가 숨겨지는 것을 확인했습니다. 활성 `추세 따라가기 V1`은 `앱 PAPER에서는 가상 실행`·`적용 해제`를 표시하고 중복 `PAPER 전진검증 시작`은 표시하지 않았습니다. 이 6개 fixture는 스크롤 렌더 검증용 합성값이며 실제 포지션 상한 증거는 아닙니다.
+- 별도 Binance PAPER 거래소 화면 렌더에서 `AI 커스텀 적용: 추세 따라가기 V1`, `적용 중 버전은 PAPER에서 자동 실행 · 재적용 불필요`, `PAPER · 3개 활성 / 다중 상한 3`, `가상 거래 통계`, `종료 이력 2건 · 활성 수와 무관`을 한 화면 계약으로 확인했습니다. 후보 V2는 적용 버전과 섞지 않고 `전진검증 후보 1개 별도`로 표시했습니다. 이는 UI·Gateway 전달 증거이며 실제 거래소 주문·상한 집행 E2E는 아닙니다.
+- 별도 초과 fixture에서 `PAPER · 6개 활성 / 상한 3 · 신규 진입 차단`, `종료 이력 6건 · 활성 수와 무관`과 두 카드의 실제 내부 스크롤을 확인했습니다. 새 계좌·네트워크 폴링은 추가하지 않았고 기존 workspace 응답의 설정 상한만 함께 표시합니다.
+- 제품 버전 `3.9.1.10`, updater SemVer `3.9.110`; Windows Setup·v3.9.1.9→v3.9.1.10 업데이트·6개 거래소 장시간 PAPER 실화면·실제 Discord/Telegram 발송과 비밀값 비노출 검증은 **PENDING**입니다.
+- 배포 상태: `pending_windows_rebuild`, `publish_ready=false`.
+
+## v3.9.1.9 PAPER 전진검증·근거형 AI 어시스턴트 회귀 (2026-08-24)
+
+- 사용자 승인 뒤 과거 구간 유무와 무관한 PAPER 전용 풀 시작/중지 → 진행 중 조건 미달 비실패 → 버전 귀속 가상 청산 자동 집계 계약을 회귀 검증합니다.
+- 전략 키가 없는 기본 PAPER 청산도 사용자 이력에 보존하되 AI 커스텀 버전 성과에는 잘못 합산하지 않습니다.
+- 일반 안내의 포지션 질문과 심층분석 컨텍스트가 런타임 관리 포지션·TP/SL·전략 버전·최근 신호를 사용하는지 검증합니다.
+- 전체 Python 회귀 `1,751 passed, 8 skipped`, React/TypeScript production build 49 modules, npm audit 취약점 0, 문서·버전·활성 소스·Web parity 계약 감사를 통과했습니다.
+- 제품 버전 `3.9.1.9`, updater SemVer `3.9.109`; Windows Setup·업데이트·키움/KIS 실계정·7일 PAPER·실제 Provider 검증은 **PENDING**입니다.
+- 배포 상태: `pending_windows_rebuild`, `publish_ready=false`.
+
+## v3.9.1.8 체결 원장 정합·증권 API 안정화 회귀 (2026-08-24)
+
+- 집중 소스 회귀: 현물/선물 기능 계약, Bithumb DB/설정 종목 재주입과 20종목 고정 절단 제거, KIS ETF 공식 현재가 경로와 설정 감시목록, 키움 Web 프로세스 프록시의 소유 자식 정리를 검증했습니다. 제한/증분 체결 조회는 계정 전체 이력으로 표시하지 않고 저장 범위로 표시합니다.
+- 종료 회귀는 실행 플래그가 이미 꺼졌어도 실제 스레드가 살아 있으면 다음 종료 시도에서 다시 발견하며, CCXT·증권 worker를 선신호/공통 제한시간으로 정리하고 잔존 worker·키움 자식 프로세스가 있으면 안전 종료 성공으로 처리하지 않음을 검증했습니다.
+- React/TypeScript production build 49 modules를 확인했습니다.
+- 전체 Python 회귀 `1,744 passed, 8 skipped`, 문서/버전 정합성 PASS를 확인했습니다. Windows Setup/업데이트·6개 거래소 안전 종료, 실제 키움 OpenAPI+ COM, KIS·Bithumb·Upbit 외부 계정, 다중 거래소 PAPER는 최종 게이트 결과를 별도 기록합니다.
+- 배포 상태: `pending_windows_rebuild`, `publish_ready=false`.
+
+## v3.9.1.7 장시간 성능·요청 격리 회귀 (2026-08-23)
+
+- 소스 상태: 전체 Python 회귀 `1,722 passed, 8 skipped`, 문서/버전 정합성 PASS
+- 확인 결과: 완료 후 다음 폴링, 계좌/멤버십 single-flight, 설정·AI 커스텀 잠금 비차단, 200건 초과 KPI 전체 집계, 3,002행 로그 tail을 자동 회귀로 확인
+- Teayu 지원 DB 실측: 메인 운영 workspace P95 `63.0ms`, Binance 상세 통계 P95 `129.9ms` (각 목표 150ms/300ms 이하)
+- 외부 게이트: Windows 설치본, v3.9.1.6→v3.9.1.7 업데이트, 6개 거래소 24시간 PAPER soak는 미완료
+- 배포 상태: `pending_windows_rebuild`, `publish_ready=false`
+
+## v3.9.1.6 학습 데이터·거래소 로그·런타임 안정화 회귀 (2026-08-23)
+
+- AI 학습은 최근 50개부터 표시하고 더보기마다 50개를 추가합니다. 100MB 이상 운영 파일도 최근 레코드 tail과 별도 전체 계수 캐시를 사용해 초기 화면에서 전체 JSON을 매번 역직렬화하지 않습니다.
+- Web sidecar 로그인 후 계정별 `trading.log`와 `trading_<source>.log` sink를 원본과 동일하게 재구성하고, 거래소 탭은 현재 계정 세션의 메모리 스트림과 영속 파일을 병합해 1초마다 갱신합니다. 이전 계정의 메모리 로그는 세션 경계 이전 이벤트로 차단합니다.
+- 잔고 조회와 거래 시작의 UI 잠금을 분리하고, 서버의 전역 런타임 명령 잠금을 짧은 멱등성·감사 구간으로 축소해 서로 다른 거래소 시작이 병렬 진행됩니다. 개별 시작/정지 외에 설정·자격증명 준비 대상을 동시에 시작하거나 실행 중 대상을 모두 정지하는 명시 확인 UI를 추가했습니다.
+- 최상위 런타임 상태를 2초마다 재조회하며, 플래그만 남고 실제 스레드가 종료된 거래소는 실행 중으로 집계하지 않습니다. 메인 KPI의 자동 거래 상태와 실시간 운영 알림은 같은 실제 워커 목록을 사용합니다.
+- 메인 최근 100줄·거래소별 최근 200줄 tail, 구조화된 거래소·레벨·카테고리 필터, 상세 로그 설정의 Trader·통합 Trader·Analyzer·connector 반영을 자동 회귀로 확인합니다.
+- 전체 Python 회귀 `1,716 passed, 8 skipped`, React production build 48 modules, npm audit 취약점 0, 활성 Python 389개, 문서/버전·Web engine spec 감사 **PASS**. 경고 1건은 FastAPI TestClient의 향후 `httpx2` 전환 안내이며 제품 실패가 아닙니다.
+- 현재 결과는 소스 후보입니다. 새 Windows Setup/업데이트, 사용자 제공 설치 환경의 6개 거래소 동시 PAPER 시작·정지·로그·KPI, 실제 외부 계정과 장시간 운전은 **PENDING**입니다.
+- manifest는 `3.9.1.6`, `pending_windows_rebuild`, `publish_ready=false`이며 설치기·engine·latest.yml·blockmap SHA는 비어 있습니다.
+
+## v3.9.1.5 거래소 API cp949·자격증명 검증 회귀 (2026-08-22)
+
+- 제보된 `'cp949' codec can't encode character '\U0001f527'`는 거래소 응답이 아니라 headless runtime 구성 중 설정 마이그레이션 상태 출력에서 발생하며, 외부 API 호출 전 로컬 예외임을 확인했다.
+- Windows sidecar UTF-8 환경·launcher 스트림 재설정·설정 진단 출력 비차단·`local_runtime_encoding_error` 분류를 추가했다.
+- UTF-8 BOM·UTF-16·CP949 설정의 값/자격증명 보존과 UTF-8 정규화, 손상 설정 덮어쓰기 차단, 잘못된 백업 복구 거부, 한글 사용자 경로 저장을 자동 회귀로 확인했다.
+- 저장소의 `data` 아래 설정·백업 38개를 비밀값 출력 없이 검사했으며 모두 BOM 없는 UTF-8 객체 JSON이고 해독 불가 파일은 0개였다. Teayu 설정과 백업 3개도 이 정상 UTF-8 집합에 포함된다.
+- Binance·Upbit·Bithumb·Bybit·OKX·Bitget 자격증명 저장 → fresh disk reread → runtime refresh → account snapshot 라우팅과 `status=success` 단독 성공 판정 집중 회귀 **PASS**.
+- 집중 회귀 `209 passed`, 전체 Python 회귀 `1,702 passed, 8 skipped`, React production build 47 modules, npm audit 취약점 0, 활성 Python 388개, 문서/버전·Web engine spec 감사 **PASS**. 경고 1건은 FastAPI TestClient의 향후 `httpx2` 전환 안내이며 제품 실패가 아니다.
+- Windows 새 Setup, v3.9.1.4→v3.9.1.5 자동업데이트, cp949 실환경 재현, 실제 6개 거래소 외부 계정 조회는 **PENDING**이다.
+- manifest는 `3.9.1.5`, `pending_windows_rebuild`, `publish_ready=false`이며 설치기·engine·latest.yml·blockmap SHA는 비어 있다.
+
+## v3.9.1.4 Windows 설정 잠금·업데이터 표시 회귀 (2026-08-22)
+
+- 공개 v3.9.1.3 설치본에서도 설정 저장 실패가 재현됐다는 사용자 제보를 반영해 v3.9.1.3의 해결 완료 판정을 철회하고 새 updater SemVer `3.9.104` 후보로 분리했다.
+- 계정별 프로세스 간 설정 잠금의 실제 다중 프로세스 대기, Windows 공유 위반 분류, 원자 교체 실패의 기존 정본 보존, 저장 실패 `code/stage/winerror` 영수증을 자동 회귀로 검증했다. Windows `os.replace()`에만 필요한 삭제 공유가 차단된 경우 원본의 제자리 쓰기 형태로 폴백하고 완전한 임시 JSON과 기록 바이트를 재검증하는 회귀도 통과했다.
+- Electron 단일 인스턴스 비소유 프로세스의 sidecar startup 차단과 `latest.yml 3.9.104 + stale releaseName 3.9.0.10 → 표시 3.9.1.4` 순수 함수 회귀를 추가했다.
+- Teayu 원본은 수정하지 않고 임시 복제본으로 ApplicationServices 저장 → 2.2초 대기 → 재조회했으며 검증 영수증, 값 유지, 런타임 갱신이 모두 **PASS**였다.
+- 설정 정본 감사: 117개 최상위/646개 leaf, 직접 편집 132, 전문가 JSON 261, 전용 관리 171, 보호 82, 미분류 0, Web 활성 runtime 전체 writer 0, 명시 복구 호출 1 **PASS**.
+- 전체 Python 회귀 `1,686 passed, 8 skipped`, React production build 47 modules, npm audit 취약점 0, 활성 Python 387개, 문서/버전·Web engine spec 감사 **PASS**.
+- 인앱 Browser 연결이 없어 설정 하단 실제 렌더는 검증하지 못했다. Windows 100%·125%·150% DPI, 새 Setup, v3.9.1.3→v3.9.1.4 자동업데이트, 실제 사용자 저장→재시작은 **PENDING**이다.
+- manifest는 `3.9.1.4`, `pending_windows_rebuild`, `publish_ready=false`, 설치기·engine·latest.yml·blockmap SHA는 비어 있다.
+
+## v3.9.1.3 설정 저장 재검증 회귀 (2026-08-21)
+
+- 2026-08-22 설정·AI 어시스턴트 전수 감사: 정본 117개 최상위/646개 leaf, 직접 편집 132, 전문가 JSON 261, 전용 관리 171, 보호 82, 미분류 0, Web 활성 runtime 전체 writer 0, 명시 복구 호출 1 **PASS**.
+- 원본 사용자 설정 55개와 8개 탭, 잘못된 Web enum 마이그레이션, 탭별·전체 기본값 staging, AI 최근 문맥·저장 비용 프리셋, AI 커스텀 Level 3 프로필 게이트 집중 회귀 `196 passed` **PASS**.
+- 전체 Python 회귀 `1,677 passed, 8 skipped`, React production build 47 modules, npm audit 0, 활성 소스 386개, 문서/버전·설정 정본·전체 서비스·sidecar 레거시 UI 0개 감사 **PASS**.
+- Teayu 원본 설정은 읽기 전용 계약 감사에서 스키마 `3.9.0.5`, LEARNING, 모순 0건이며 원본 파일을 수정하지 않았다.
+- 공개 v3.9.1.2 실사용 화면에서 `저장 중…` 직후 원복과 API 연결확인 실패가 재현됐다는 제보를 반영했다.
+- 설정 경로 병합 후 fresh read 값 검증과 Web 검증 영수증을 추가하고, Evaluator의 settings.json 직접 쓰기·내부 `.backup` 자동 복구를 제거했다.
+- 입력 중인 API 자격증명을 저장·검증한 뒤 연결 점검하고 Provider 전환 시 이전 모델을 교차 적용하지 않으며, Windows 잔류 sidecar를 시작 전에 정리한다.
+- 기존 공통 AI 키와 빈 Provider별 템플릿의 호환 판별, Provider 간 키 비차용, Provider별 등록 상태, 키/SDK 준비 실패의 네트워크 미실행 표시와 Windows sidecar의 AI SDK 필수 모듈 감사를 추가했다.
+- AI/설정 집중 회귀 `179 passed`, 전체 Python 회귀 `1,672 passed, 8 skipped`, React production build 47 modules, 활성 소스 384개·문서/버전·설정 계약·Web sidecar AI 모듈 감사·npm audit 0 vulnerabilities **PASS**.
+- Windows v3.9.1.3 Setup 생성, v3.9.1.2→v3.9.1.3 업데이트, 실제 사용자 계정의 저장→닫기→재시작 값 유지와 API 연결확인은 아직 **PENDING**이다.
+- manifest는 `3.9.1.3`, `pending_windows_rebuild`, `publish_ready=false`다.
+
+## v3.9.1.2 Teayu 설정 저장·런타임 정본 회귀 (2026-08-21)
+
+- 지원 폴더 `data/260821_Teayu`는 원본을 수정하지 않고 점검했다. `config/settings.json`과 3개 백업의 연속 기록에서 설정 변경 뒤 일부 값이 다시 이전 값으로 기록된 정황을 확인했다. 첨부 화면은 제목 표시 기준 v3.9.1.0이며 상태 503을 표시한다.
+- 디스크 저장 완료 뒤 런타임 갱신 예외를 저장 실패 503으로 바꾸지 않는 계약, Headless runtime의 장기 설정 보유 객체 동기화, 백그라운드 임계값의 경로 단위 병합 저장과 사용자 설정 구조 메모리 복사 회귀를 추가했다. 자격증명 값은 출력하지 않았다.
+- Web AI 어시스턴트의 차트분석 버튼이 자산정보 화면으로만 이동하던 누락을 수정하고 이미지 업로드·OCR·명시적 비전 호출·비용/예산·근거/위험/참고 플랜·주문 0건·임시 파일 삭제 계약을 추가했다.
+- 전체 Python 회귀 `1,665 passed, 8 skipped`, React production build 47 modules, 활성 소스 감사 384개와 설정 계약 감사 **PASS**.
+- 소스 수정은 완료했지만 Windows v3.9.1.2 Setup·blockmap·`latest.yml`은 아직 생성·검증되지 않았다. manifest는 `pending_windows_rebuild`, `publish_ready=false`이며 실제 설치본의 저장→닫기→재시작→값 유지 확인 전 배포 완료가 아니다.
+
+## v3.9.1.0 Windows 최종 로컬 후보 재빌드 (2026-08-20)
+
+- 옵션 없는 공식 전체 빌드 `scripts/build_web_ui_windows.ps1` **PASS**. Web 집중 회귀 `120 passed`, 전체 Python 회귀 `1,652 passed, 8 skipped`, 활성 소스 381개, 문서/버전, engine TOC와 packaged desktop bootstrap API smoke를 통과했다.
+- React production build 47 modules, CSS `117.33 kB`(gzip `22.01 kB`), JS `482.90 kB`(gzip `142.03 kB`), npm audit 취약점 0 **PASS**.
+- 설치기: `deploy/web-release/NoahAI-3.9.1.0-Setup.exe`, 412,711,100 bytes, SHA-256 `0354c712e7d5be7bf7ef87e0d9901cb9a8f301267d82cb24a31190d6096abc5e`.
+- engine: `deploy/web-engine/NoahAIEngine.exe`, 314,794,502 bytes, SHA-256 `facd11ab897bcf9f73e3519a39fc6dee20158497f22f91536ba65b0a2f744f7e`.
+- 기존 설치본은 `config/web_ui_feature_inventory.json` 누락으로 `/api/v1/features`가 500을 반환했다. 수정본은 격리 설치 exit 0, 내장 engine SHA 일치, `/api/v1/health`, `/platform`, `/session`, `/features`, `/runtime/snapshot`과 `noahai://app` CORS 응답 **PASS**.
+- 설치기 Authenticode는 `NotSigned`다. 자동업데이트·이전 Electron bundle 롤백·유효 자격증명 10개 기관 E2E·다중 모니터·24~72시간 PAPER는 실행 원장에서 완료되지 않았다.
+- 사용자 설치본 확인 후 `v3.9.1.0` 정식 GitHub Release를 공개했다. Setup, `latest.yml`, blockmap, manifest 4개 자산의 원격 크기와 SHA-256 digest 일치를 재검증했다.
+
+## v3.9.1.0 Windows 최종 소스 재빌드 후보 (2026-08-19)
+
+- 공식 전체 빌드 `scripts/build_web_ui_windows.ps1` **PASS**. 집중 회귀 `101 passed`, 전체 Python 회귀 `1,620 passed, 8 skipped`, 활성 소스 379개·문서/버전·완성 engine TOC 감사와 packaged health smoke를 통과했다.
+- React production build 46 modules, CSS `64.35 kB`(gzip `13.11 kB`), JS `380.97 kB`(gzip `113.37 kB), npm audit 취약점 0 **PASS**.
+- 설치기: `deploy/web-release/NoahAI-3.9.1.0-Setup.exe`, 412,632,744 bytes, SHA-256 `af1f35e123901166f66d37a24dfb64953b5eec4efcbfe479d66f6ad568a82446`.
+- engine: `deploy/web-engine/NoahAIEngine.exe`, 314,745,599 bytes, SHA-256 `59269707a1e01f7609800e0b1ef11f0216a56d019b653912542c214293838c44`.
+- 격리 설치 exit 0, 설치본 `NoahAI.exe` 3.9.1.0과 내장 engine SHA 일치, `noahai://app/index.html` 로그인 페이지와 Electron/engine 프로세스 정상 응답, silent 제거 exit 0 및 설치 디렉터리 제거 **PASS**.
+- Authenticode는 설치기와 engine 모두 `NotSigned`다. 인앱 Browser runtime이 제공되지 않아 자동 클릭·화면 캡처는 수행하지 못했고, 자동업데이트·이전 Electron bundle 롤백·실계정·다중 모니터·24~72시간 PAPER는 **PENDING**이다.
+- manifest 상태는 `built_windows_unverified`, `publish_ready=false`다. 실행 원장의 OPEN 항목과 외부 게이트가 남아 있으므로 이 후보 생성은 공개 배포 승인이 아니다.
+
+## v3.9.1.0 Web UI 1:1 전환 현재 검증 (2026-08-16)
+
+- 정본: [Web UI 1:1 전환 실행 원장](WEB_UI_1_TO_1_PARITY_EXECUTION_PLAN_v3.9.1.0.md). 소스·테스트·빌드 성공과 화면/동작/Windows 완료를 분리한다.
+- 데이터·자격증명·서비스 문맥·라우팅·설정·매뉴얼 집중 회귀: `147 passed, 1 warning` **PASS**.
+- 전체 Python 회귀: `1,620 passed, 8 skipped, 0 failed`, 경고 1건 **PASS**. 경고는 FastAPI TestClient의 `httpx2` 전환 deprecation이며 제품 실패가 아니다.
+- React production build: `46 modules`, CSS `64.35 kB`(gzip `13.11 kB`), JS `380.97 kB`(gzip `113.37 kB`) **PASS**.
+- npm audit: 취약점 `0` **PASS**.
+- Web 고급 기능·문서 동기화를 포함한 확대 집중 회귀: `92 passed, 1 warning` **PASS**.
+- 5개 서비스 전체 소스 계약 감사: 서비스 5개, 상위 기능 35개, 거래소·증권사 10개, 생활금융 내부 7개, 설정 8개, 매뉴얼 11개, AI애널리스트 카드 6개 **PASS**. 이 감사는 시각 1:1이나 Windows E2E를 의미하지 않는다.
+- 활성 소스 감사: Python `379`개 파일, 구문 실패·금지 활성 소스·증권사 계약 오류 `0` **PASS**.
+- Web engine spec 감사: `main`, `ui.*`, `tkinter`, `customtkinter` 포함 `0` **PASS**. 완성 Windows EXE TOC 검증은 별도다.
+- 문서/버전 정합성: 현재의 `1:1 전환 진행 중 · 배포 불가` 판정 기준 **PASS**.
+- 현재 검증된 핵심 계약: 서비스·source별 로그/통계 실패 폐쇄, 미설정·마스킹·부분 자격증명의 런타임/잔고 조회 0회, 35개 기능 ID의 정본 라우팅, 서비스와 다른 기능 ID 요청 거부, 자산 통합·생활금융·AI애널리스트의 AI 질문 문맥 분리, 생활금융의 전용 저장소 사용, AI애널리스트의 암호화폐·주식 전체 자산 집계, 서버 소유 설정 영역, 레거시 매뉴얼 11개 탭 원문 계약.
+- 미검증: 로그인부터 모든 서비스·하위 탭·거래소/증권사·설정·매뉴얼의 동일 조건 나란히 렌더, 기존 사용자 데이터 업그레이드, Windows Setup/자동업데이트/롤백, 실제 계정 및 24~72시간 PAPER. 따라서 **전체 1:1 완료 및 배포 가능 판정은 아니다.**
+
+## v3.9.1.0 Web UI 기존 화면 동등성 재검증 (과거 기록 · 2026-08-15)
+
+- 공유된 CTk/WebUI 좌우 화면을 정본으로 재감사해 실시간 로그의 임의 XAI 중복 탭 제거, 주식 AI 4개 독립 탭 복원, 시장 트렌드 5개 영역 복원, 최신 로그 시간 정렬을 소스에 반영했다. 저장된 로컬 로그인 정보로 실제 Electron 대시보드까지 열어 기본 로그·BINANCE·주식/증권 화면을 확인했지만 전체 탭/설정/매뉴얼의 나란히 대조는 남아 있다. **SOURCE + AUTHENTICATED MAC SUBSET PASS / FULL LEGACY COMPARE OPEN**
+- 현재 Windows Setup 후보는 위 소스보다 오래되고 source fingerprint가 없어 게시 스크립트가 차단한다. manifest는 `pending_windows_rebuild`, `publish_ready=false`다. **STALE CANDIDATE BLOCKED / WINDOWS REBUILD PENDING**
+- 오후 기능 재감사에서 블록체인/증권 전역 선택 source, 공통 로그와 `selected_coins` 재사용을 분리했다. 증권 화면은 증권 source·로그만 사용하고 증권 후보 저장소가 없으면 암호화폐 후보를 재표시하지 않는다. **SOURCE + FOCUSED PASS / REAL BROKER E2E PENDING**
+- AI 어시스턴트 FAQ를 블록체인/증권/애널리스트별로 분리하고, 초보자·일반·고급은 설명 밀도만 바꾸며 `일반 안내`는 외부 호출 0, `외부 AI 심층분석`은 명시 호출·예산 표시로 구분했다. **SOURCE + FOCUSED PASS / PROVIDER FLOW PENDING**
+- 앱 내부 매뉴얼의 축약 사본을 제거하고 레거시 `show_manual()`이 실제 여는 11개 탭과 본문 전체를 빌드 시 JSON으로 추출해 Gateway·Web client·PyInstaller data 계약으로 연결했다. **EXACT SOURCE CONTRACT / RENDER·FLOW COMPARE OPEN**
+- 메뉴얼 정본·Web 플랫폼·고급 기능·동등성 집중 회귀 `61 passed`, React production build `43 modules`, CSS `50.90 kB`(gzip `10.68 kB`), JS `329.07 kB`(gzip `98.09 kB`) **PASS**. 저장소 전체 `1,536 passed, 8 skipped`, npm audit 취약점 `0`, 활성 소스 375개와 Web engine 레거시 UI 모듈 0 감사는 직전 전체 기준선이며 이번 메뉴얼 계약 변경 뒤 전체 회귀/감사는 별도 재실행 대상이다.
+- macOS Electron 개발 실행은 `ELECTRON_RUN_AS_NODE` 환경을 제거한 실제 Electron 런타임에서 450×708 로그인 창과 저장된 로컬 로그인 정보로 1500×980 대시보드를 열었다. LIVE 명령은 실행하지 않았다. 기본 실시간 로그는 2026-08-15 최신 행까지, BINANCE 전용 로그도 최신 행까지 자동 이동하며, 주식/증권은 AI 4개 독립 탭과 증권 전용 로그를 사용하는 것을 확인했다. 실제 계좌 잔고·주문·Provider 호출 E2E는 **PENDING**이다.
+
+- 2026-08-15 정오 사용자 캡처 재감사에서 Electron 기본 아이콘, 로그인 여백, 로그 전체 문서 확장, 코인 정보/BINANCE 동시 선택, 공용 차트·원시 DB 화면 대체, AI 어시스턴트·AI 커스텀 흐름 차이를 확인했다. 이전 화면 완료 주장을 철회하고 `legacy_visual_parity`/`legacy_flow_parity` 미완료로 고정했다.
+- 제품 아이콘을 Electron 창·macOS Dock·Windows/macOS 패키지 계약에 연결하고, 로그인 카드 위치를 실제 레거시 450×708 창과 나란히 맞췄다. 로그인 도움말은 별도 창·3탭·조정된 글자 크기로 macOS에서 다시 열어 확인했다. **LOGIN MAC RENDER + LEGACY COMPARE PASS / PACKAGED ICON PENDING**
+- 로그인 정보 저장은 Electron OS 암호화 저장소와 권한 제한 파일을 사용하며 renderer/localStorage에 비밀번호를 남기지 않는다. 저장소 실패는 성공한 계정 로그인을 실패로 되돌리지 않는다. **SOURCE + FOCUSED PASS / PACKAGED KEYCHAIN E2E PENDING**
+- 실시간 로그는 고정 앱 viewport와 내부 스크롤을 사용한다. 잘못 추가된 XAI 중복 보기는 제거하고 기능 탭과 거래소/증권사 source 탭 활성 상태를 분리했으며 코인·종목 정보 및 거래소·증권사 전용 워크스페이스를 복원했다. 기본 로그와 거래소 전용 로그 모두 최신 행으로 자동 이동하는 실제 로그인 렌더를 확인했다. **SOURCE + AUTHENTICATED MAC SUBSET PASS / FULL LEGACY COMPARE OPEN**
+- AI 어시스턴트는 대화·FAQ·복사/TXT·입력·음성·설정·차트분석 구조, AI 커스텀은 철학·처음 사용법·멘토·설정·안전 흐름을 복원했다. 실제 음성 입력, 멘토 인터뷰, 심층분석, 설정 영향·매뉴얼 본문까지는 기존 흐름 전수 대조가 남아 있다. **SOURCE PARTIAL / FLOW PENDING**
+- 최신 React production build `49 modules`, CSS `45.89 kB`(gzip `9.82 kB`), JS `501.02 kB`(gzip `154.95 kB`) **PASS**. 500 kB 청크 경고는 남아 있으며 기능 오류는 아니지만 배포 전 code splitting 검토 대상이다. npm audit 취약점 `0` **PASS**.
+- 이전의 “기존 기능 Web 소스 이전 완료”는 API/컴포넌트 연결 판정이었으며 화면·동작 동등성 완료 판정이 아니었다. `legacy_visual_parity`와 `legacy_flow_parity`가 없었던 완료 표현을 철회한다.
+- 로그인 450×708, 실제 로고, 로그인 전 별도 도움말 3탭을 macOS Electron에서 직접 열어 기존 화면과 대조했다. 로그인 뒤 기본 로그·BINANCE source·주식/증권 내비게이션을 실제 렌더로 재검증했다. **LOGIN + AUTHENTICATED MAC SUBSET PASS / FULL TAB PARITY OPEN / WINDOWS PENDING**
+- 설정은 세로형 외형과 8개 기능 영역, 영역별 AI 질문, write-only 거래소·증권·AI 연결, 변경분 저장 소스가 있다. 매뉴얼은 레거시 실제 11개 탭의 상세 본문을 자동 추출해 동일 콘텐츠를 사용하지만 렌더·검색·딥링크 흐름 대조는 남아 있다. **CONTENT CONTRACT PASS / LEGACY RENDER·FLOW OPEN**
+- 거래소 상단 표기는 암호화폐 6개만 집계하고 증권 4개를 분리했다. 비활성 AlphaArena와 내부 통합 source 메뉴는 사용자 탭에서 숨겼다. **SOURCE PASS / FINAL RENDER RECHECK**
+- 하단 AI 실행 기록은 고정 문구가 아니라 계정 감사 원장의 최근 assistant/strategy/AlphaArena 이벤트를 사용한다. 종료 버튼은 Electron safe-shutdown IPC에 연결했다. **SOURCE + FOCUSED TEST PASS / WINDOWS E2E PENDING**
+- 이전 React production build `48 modules`, CSS `36.26 kB`, JS `485.57 kB`와 Web UI 동등성/platform 집중 회귀 `41 passed`는 과거 기준선이며, 현재 재작업 빌드 수치는 위 최신 항목을 따른다.
+- 현재 선택한 Web UI 플랫폼/고급 기능/동등성 집중 회귀 `61 passed` **PASS**. 경고 1건은 FastAPI TestClient의 `httpx2` 전환 deprecation이며 제품 실패가 아니다. 저장소 전체 회귀 `1,536 passed, 8 skipped, 0 failed`는 직전 전체 기준선이다.
+- 활성 소스 감사 `433`개 Python 파일, 구문 실패·금지 활성 소스 0 **PASS**. Web engine spec의 레거시 desktop UI 모듈 0 **PASS**. npm audit 취약점 0 **PASS**. 문서/버전 정합성 **PASS**.
+- 세부 증거: `docs/WEB_UI_LEGACY_PARITY_MATRIX_v3.9.1.0.md`. 전체 기능 탭과 Windows E2E 전에는 **배포 불가**다.
+
+## v3.9.1.0 Web UI Internal Integration Candidate 검증 (2026-08-14)
+
+- 2026-08-15 패키지 재검증: 최초 후보의 engine 상대 import 실패를 수정하고 빌드 단계 packaged health smoke를 추가했다. 교체 후보는 격리 설치·덮어쓰기 업그레이드·설치 파일 계약·engine SHA·Electron page load·Gateway health·사용자 데이터 보존을 통과했다. silent uninstaller는 exit 0 뒤 파일이 남아 **FAIL**, 자동업데이트·이전 Electron bundle 롤백·실계정·다중 모니터·24~72시간 PAPER는 **PENDING**이다.
+- 2026-08-14 당시 소스 연결 판정: **UI-neutral 런타임·패키징 구조와 기존 기능 Web 컴포넌트 연결, Windows/실계정 외부 E2E 진행 전**이었다. 이 기록은 화면·동작 동등성 완료를 뜻하지 않으며 현재 판정은 문서 맨 위 재검증 항목을 따른다. `config/web_ui_feature_inventory.json` 40개 중 `source_complete` 34, `source_complete_external_e2e` 4, `integrated_in_ai_custom` 1, `server_later` 1이며 `read_first`는 0개였다.
+- 런타임 경계: `runtime_bridge.py`는 `main.NoahAIClient`를 더 이상 사용하지 않고 `HeadlessTradingRuntime`을 지연 생성하며, shutdown은 신규 명령 차단→crypto/stock worker 정지→signal/optimizer 정지→Recorder/log flush→완료 응답 순서로 실패 폐쇄한다. **FOCUSED SOURCE PASS / EXTERNAL E2E PENDING**
+- Web sidecar: 독립 `noahai_web_engine.spec`과 `verify_web_engine_bundle.py`가 `main`, `ui.*`, `tkinter`, `customtkinter`, 레거시 updater를 금지한다. 실제 Windows `Analysis-00.toc`에서 레거시 UI 모듈 0개를 확인했다. **SPEC PASS / WINDOWS TOC PASS**
+- 설치 계약: `NoahAI-3.9.1.0-Setup.exe` → 사용자 실행 `NoahAI.exe` → 내부 `resources/engine/NoahAIEngine.exe`. 설치기 SHA-256 `a0ecd5bee659cc7bf84bab849493046f8bd870fba09a803cf9c8518d17c0c4bb`, engine SHA-256 `933905e7fddbae4897091cb4e14c5b080fd70554f4f52ac3ba2f7d2d2ff1673c`; Authenticode는 미서명이다. **BUILT / LOCAL INSTALL-RUN-UPGRADE PASS / EXTERNAL GATES PENDING**
+- 계정 정본 Application Services: 템플릿 설정·증권사 안전 필드, revision/diff, write-only 거래소·증권·AI 자격증명, 실시간 계좌 snapshot, AI 커스텀, 생활금융·마스킹 로그 **SOURCE PASS**
+- Gateway: Bearer+Origin+명시 intent, stale revision `409`, 엔진 미연결 명령·증권 차트 fail-closed, 엄격 DTO **FOCUSED PASS**
+- AI 커스텀: 다중 원본 추출, 제한 IR/XAI, 상태머신·삭제·diff/rollback, `.noahstrategy`, 자동 과거재생, 암호화폐·주식 PAPER 전략 버전 귀속 **FOCUSED PASS**
+- AI 가이드/분석: 로컬 무과금 제품 가이드와 명시 외부 Provider 분석을 분리하고 일/월 예산·캐시·토큰/비용 상태 확인 **FOCUSED PASS**
+- 고급 12개 Web 기능: 금융 인텔리전스, AlphaArena, 자산 인사이트·배분·리스크·성과, 생활금융 분석·상품·세금, AI 요약/허브를 전용 Application Service·엄격 DTO·Gateway·React 화면으로 이전 **SOURCE PASS / EXTERNAL DATA E2E PENDING**
+- AlphaArena: PAPER 판단은 위험 게이트를 적용하되 거래소 주문 호출 0, `order_submitted=false`; LIVE는 `alpha_arena_live_blocked_pending_external_gate`로 실패 폐쇄 **FOCUSED PASS / PACKAGED PAPER PENDING**
+- 차트: 6개 암호화폐 venue parser와 4개 증권사 일봉 계약, 진입·청산·XAI marker, 오류 재시도 **FOCUSED PASS**
+- Electron/업데이터: 임의 loopback port, 실행별 token, `--gateway-only` sidecar, 단일 인스턴스, 명시 다운로드, 안전 종료 handshake 성공 후에만 설치·재시작, NSIS 빌드 체인 **SOURCE PASS / PACKAGED E2E PENDING**
+- 고급 기능·동기화 충돌 집중 회귀: `8 passed`; 전체 Web/빌드 회귀는 전체 Python 회귀에 포함, TestClient deprecation 경고 1건 **PASS**
+- 최신 Web production build: 48 modules, JS 458.95 kB(gzip 141.96 kB), CSS 20.49 kB(gzip 5.29 kB), npm audit `0 vulnerabilities` **PASS**
+- Web 배포 계약: NSIS installer·`latest.yml`·blockmap·embedded engine sidecar를 하나의 GitHub release로 다루고, Windows 빌드 스크립트가 각 SHA-256과 `built_windows_unverified`/`publish_ready=false` manifest를 생성 **SOURCE PASS**
+- 최신 브라우저 확인: 1920×1080 viewport 요청 세션에서 매뉴얼·설정 노출, 전용 금융 인텔리전스 렌더, 실제 DOM `scrollWidth == clientWidth`, 콘솔 error 0 **PASS**. 브라우저 호스트 유효 viewport는 1731×1214로 보고됐다.
+- 동기화 충돌 재현: Synology Drive가 `FinancialIntelligenceWorkspace.tsx`를 `*_Conflict.tsx`로 변경해 Vite import 실패·빈 화면을 만든 사실을 실브라우저에서 확인했다. 정본 파일 복원 뒤 Python뿐 아니라 TS/TSX/JS/JSX/JSON 충돌 파일도 활성 소스 감사에서 차단 **PASS**
+- 최신 전체 Python 회귀: `1,517 passed, 8 skipped, 0 failed`, 경고 2건 **PASS**. Binance TP/SL 실계정 2건은 `INTEGRATION_TEST=1` 명시 실행으로 격리했다.
+- 활성 소스 감사: 활성 Python 374개, 구문 실패·금지 Python/Web 활성 소스·정의 전용 대시보드 메서드 0, broker 계약 **PASS**
+- 문서/버전 정합성 **PASS**
+- 당시 소스 판정: 구조 분리와 AI 커스텀·12개 고급 읽기 기능의 API/컴포넌트 연결 및 Windows bundle 생성은 확인했다. 이는 UI/UX·사용 흐름 동등성 완료가 아니며, 현재 재작업과 외부 게이트가 남아 `built_windows_unverified`, `publish_ready=false`다.
+
+### Stage 0 기준선 기록
+
+- 기능 inventory·엄격 DTO·read-only API·인증/Origin·시장 데이터 정규화·Electron 보안 설정 집중 회귀: `8 passed` **PASS**
+- 전체 Python 회귀: `1,483 passed, 6 skipped, 0 failed` **PASS**
+- React/TypeScript production build: Vite 6.4.3, 37 modules, JS 370.78 kB, gzip 118.14 kB **PASS**
+- Electron 셸: 43.4.0 설치 확인, context isolation·sandbox·navigation 차단 구성 **SOURCE PASS**
+- npm 보안 감사: production/전체 `0 vulnerabilities` **PASS**
+- 브라우저 실렌더: Binance BTCUSDT 캔들·거래량, 5개 서비스, 블록체인 11개/주식 7개 기능, 15분→1시간 전환, 오류 배너 0, 콘솔 오류 0 **PASS**
+- 당시 레거시 엔진 영향: 기존 설정·전략·주문 코드는 변경하지 않았고 Gateway command endpoint는 0개 **PASS BY SCOPE (HISTORICAL)**
+- 아직 미검증: 실제 runtime snapshot adapter, Windows bundle/설치/자동업데이트/롤백, 다중 모니터, 장시간 PAPER/LIVE **PENDING**
+- 배포 상태: `pending_windows_rebuild`; 직전 v3.9.0.10 EXE SHA `6aaa66787666...`는 이전 자산으로 보존
+- 비차단 경고: FastAPI 0.141.1/Starlette 1.6.0 TestClient의 `httpx` 호환 deprecation 1건. 제품 런타임 실패는 아니며 테스트 의존성 전환 때 제거한다.
+
 ## 2026-08-13 UI 플랫폼 전환 설계·기준선 (배포 버전 변경 없음)
 
 - 현행 구조 분석: CustomTkinter 대형 화면 클래스, 동적 탭/콜백/Toplevel 소유권, UI의 거래·설정 직접 결합을 전환 대상 경계로 식별 **DOCUMENTED**
@@ -883,12 +1387,12 @@
 
 아래 이미지는 캡처 완료 후 추가됩니다. 파일은 `docs/images/`에 저장됩니다. 상세 목록은 `SCREENSHOTS_CHECKLIST.md`를 참고하세요.
 
-- ModernDashboard 메인: ![placeholder](images/modern_dashboard_main_dark.png)
-- Classic View ON 설정: ![placeholder](images/settings_general_classic_view_on.png)
-- Classic View 시작 후 AI 탭 자동 생성: ![placeholder](images/classic_view_ai_tabs_auto_created.png)
-- 거래소 필터/Trend Summary: ![placeholder](images/blockchain_exchange_filter_trend_summary.png)
-- 멀티 거래소 탭 라이프사이클: ![placeholder](images/multi_exchange_tabs_lifecycle.png)
-- 커뮤니티 탭(플레이스홀더): ![placeholder](images/community_tab_placeholder.png)
+- ModernDashboard 메인: `images/modern_dashboard_main_dark.png` (현재 미보관)
+- Classic View ON 설정: `images/settings_general_classic_view_on.png` (현재 미보관)
+- Classic View 시작 후 AI 탭 자동 생성: `images/classic_view_ai_tabs_auto_created.png` (현재 미보관)
+- 거래소 필터/Trend Summary: `images/blockchain_exchange_filter_trend_summary.png` (현재 미보관)
+- 멀티 거래소 탭 라이프사이클: `images/multi_exchange_tabs_lifecycle.png` (현재 미보관)
+- 커뮤니티 탭(플레이스홀더): `images/community_tab_placeholder.png` (현재 미보관)
 
 ## AI 어시스턴트/설정 흐름
 - 어시스턴트가 설정 변경 → 대시보드/매니저에 반영: 코드 경로 준비됨, 런타임 검증 미수행 (다음 단계)
@@ -916,3 +1420,22 @@
 - Python 구문 검증: `main.py`, 설정/대시보드, Binance/Unified/증권 실행 경로 통과
 - 경고 3건은 기존 `scripts/test_coin_selection*.py` 테스트가 `None` 대신 리스트를 반환하는 `PytestReturnNotNoneWarning`
 - Windows EXE 빌드는 사용자 수행 범위로 남겼고 `deploy/release-manifest.json`은 `pending_windows_rebuild` 상태로 표시
+## v3.9.1.9 PAPER 전진검증·근거형 AI 어시스턴트 회귀 (2026-08-24)
+
+- 집중 회귀: PAPER 전용 전략 풀 등록/중지, 진행 상태 유지, 7일·최소 3체결 통과, 기본 전략 가상 청산 기록, 명시적 Web 런타임 키움 프로세스 프록시, 일반/심층 AI 포지션 근거 전달을 검증했습니다.
+- 기존 v3.9.1.8 관련 집중 회귀와 합쳐 `148 passed`; React/TypeScript production build 49 modules를 확인했습니다.
+- 전체 Python 회귀, Node 22 Windows production build, 새 Setup/업데이트, 키움/KIS 실계정, 7일 PAPER 및 실제 AI Provider 응답은 아래 테스트 계획의 외부 게이트입니다.
+- 배포 상태: `pending_windows_rebuild`, `publish_ready=false`.
+## v3.9.1.19 전략 검증 여권·패키지 무결성 소스 회귀 (2026-09-03)
+
+- 실제 사용자 `01_STRUCTURE.noahstrategy`에서 브라우저가 소수형을 정수형으로 바꾼 두 위험 필드를 확인했고, IR·전체 패키지 해시를 모두 재검증하는 제한 복구를 통과했습니다.
+- Binance 실행 범위로 저장된 구형 PAPER 행이 고유 UNIFIED key/version으로 귀속되고 Binance 거래소 근거에 나타나는 회귀를 추가했습니다.
+- 컴파일러가 만든 실행 노드 없는 원문은 차단되고, 사용자가 명시적으로 재선언한 NoahAI 기본 진입 오버레이만 별도 검증 대상으로 허용되는 회귀를 추가했습니다.
+- 집중 회귀 현황과 전체 빌드 결과는 [v3.9.1.19 검증 원장](archive/release/V39119_STRATEGY_PASSPORT_INTEGRITY_TEST_PLAN.md)에 최종 기록합니다.
+- 집중 회귀 `35 passed`, 전체 Python 회귀 `1,995 passed, 8 skipped`, Web UI TypeScript/Vite production build를 통과했습니다.
+- `세계 최초의 전략 검증 여권 생태계`라는 한정된 범주 비전을 daltrading 허브·가이드, NoahAI Labs 제품·LLM 안내, 클라이언트 대시보드 메뉴얼·AI 어시스턴트 지식에 동기화했습니다. 기존 백테스트의 발명이나 수익 보장을 뜻하지 않으며 현재 공개판·소스 후보·향후 마켓 기능을 구분합니다.
+- daltrading 전략 허브 전체 회귀 `83 passed, 3 subtests passed`, NoahAI Labs production build `225 pages`, 클라이언트 관련 집중 회귀 `46 passed`와 Web UI TypeScript/Vite production build를 통과했습니다.
+- daltrading `2628b73`은 EC2 운영 서버에 배포해 서비스 재시작·DB 마이그레이션·공개 전략 경로와 인증 경계를 확인했습니다. GitHub Actions 자동 배포는 저장소의 `EC2_HOST`, `EC2_USER`, `EC2_SSH_PRIVATE_KEY` 미설정 때문에 별도로 실패 중입니다.
+- NoahAI Labs `39e45d1`은 Cloudflare Pages 운영 배포와 `noahailabs.com`의 전략 스튜디오·`llms.txt` 실제 응답을 확인했습니다.
+- NoahAI 정보/IP 사이트 `e176de7`은 production build `45 pages`를 통과하고 EC2/PM2에 배포했으며 `info.noahai.net`·`ip.noahai.net`·기술 위키·`llms.txt`의 실제 응답을 확인했습니다.
+- Windows v3.9.1.19 설치기·blockmap·`latest.yml`은 게시됐습니다. 6개 거래소 장시간 PAPER/실환경 E2E는 소급 완료로 표시하지 않고 후속 운영 관찰로 유지합니다.

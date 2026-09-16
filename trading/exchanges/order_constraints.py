@@ -23,9 +23,14 @@ def resolve_ccxt_order_limits(exchange: Any, symbol: str) -> Dict[str, float]:
         normalized = str(symbol or "").upper().split(":", 1)[0]
         quote = normalized.rsplit("/", 1)[-1] if "/" in normalized else ""
     fallback_cost = {"KRW": 5000.0, "USDT": 5.0}.get(quote, 0.0)
+    try:
+        contract_size = max(1e-12, float(market.get("contractSize") or 1.0))
+    except (TypeError, ValueError):
+        contract_size = 1.0
     return {
         "min_amount": min_amount,
         "min_cost": max(min_cost, fallback_cost),
+        "contract_size": contract_size,
     }
 
 
@@ -101,6 +106,7 @@ def prepare_ccxt_order_quantity(
 
     min_amount = resolved_limits["min_amount"]
     min_cost = resolved_limits["min_cost"]
+    contract_size = resolved_limits.get("contract_size", 1.0)
     try:
         price = float(reference_price or 0.0)
     except (TypeError, ValueError):
@@ -125,7 +131,7 @@ def prepare_ccxt_order_quantity(
             "quantity": precise,
             "reason": "reference price required for minimum notional validation",
         }
-    notional = precise * price if price > 0 else 0.0
+    notional = precise * price * contract_size if price > 0 else 0.0
     if min_cost > 0 and notional < min_cost:
         return {
             "allowed": False,
@@ -139,4 +145,5 @@ def prepare_ccxt_order_quantity(
         "notional": notional,
         "min_amount": min_amount,
         "min_cost": min_cost,
+        "contract_size": contract_size,
     }

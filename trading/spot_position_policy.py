@@ -5,8 +5,9 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Mapping, Set
 
+from trading.exchanges.venue_capabilities import KRW_SPOT_VENUES
 
-SPOT_EXCHANGES = frozenset({"upbit", "bithumb"})
+SPOT_EXCHANGES = KRW_SPOT_VENUES
 DEFAULT_KRW_MIN_NOTIONAL = 5_000.0
 
 

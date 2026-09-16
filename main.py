@@ -21,6 +21,23 @@ import warnings
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional, Mapping, Sequence, Union
 
+
+def _configure_unicode_console_output() -> None:
+    """Prevent Windows locale output from changing application control flow."""
+    os.environ.setdefault('PYTHONUTF8', '1')
+    os.environ.setdefault('PYTHONIOENCODING', 'utf-8')
+    for stream_name in ('stdout', 'stderr'):
+        stream = getattr(sys, stream_name, None)
+        reconfigure = getattr(stream, 'reconfigure', None)
+        if callable(reconfigure):
+            try:
+                reconfigure(encoding='utf-8', errors='backslashreplace')
+            except (OSError, ValueError):
+                pass
+
+
+_configure_unicode_console_output()
+
 # CustomTkinter가 각 선택 위젯마다 Windows HMENU를 영구 보유하지 않게 한다.
 # UI 모듈/위젯 인스턴스가 생성되기 전에 설치해야 한다.
 try:
@@ -100,7 +117,9 @@ from membership_policy import (
     ALLOWED_USER_GRADES as MEMBERSHIP_ALLOWED_USER_GRADES,
     REFERRAL_SAFE_EXCHANGES as MEMBERSHIP_REFERRAL_SAFE_EXCHANGES,
     is_exchange_allowed,
+    membership_position_cap,
     normalize_user_grade,
+    referral_allowed_exchanges,
     referral_exchange_entitlement,
 )
 from utils.log_safety import (
@@ -616,7 +635,7 @@ class NoahAIClient:
                 return
 
             import json
-            import shutil
+            from config.settings import read_settings_json_file
             from path_utils import get_app_base_dir, get_config_dir
 
             base_data_dir = os.path.join(get_app_base_dir(), 'data')
@@ -643,7 +662,10 @@ class NoahAIClient:
 
             # 1) 타깃 설정 파일이 없으면 소스 settings를 그대로 복사
             if not os.path.exists(target_settings_path):
-                shutil.copy2(source_settings_path, target_settings_path)
+                initial_settings, _ = read_settings_json_file(source_settings_path)
+                from config.settings import save_settings
+                if not save_settings(initial_settings):
+                    return
                 logger = self._get_main_logger()
                 if logger:
                     logger.info(f"adminjung 초기 설정 복사 완료: {source_settings_path} -> {target_settings_path}")
@@ -652,27 +674,25 @@ class NoahAIClient:
 
             # 2) 이미 존재하면 API 관련 필드만 비어있는 값 보강
             try:
-                with open(source_settings_path, 'r', encoding='utf-8') as f:
-                    source_settings = json.load(f)
-                with open(target_settings_path, 'r', encoding='utf-8') as f:
-                    target_settings = json.load(f)
+                source_settings, _ = read_settings_json_file(source_settings_path)
+                target_settings, _ = read_settings_json_file(target_settings_path)
             except Exception:
                 return
 
             api_source_settings = {}
             if api_source_settings_path:
                 try:
-                    with open(api_source_settings_path, 'r', encoding='utf-8') as f:
-                        api_source_settings = json.load(f)
+                    api_source_settings, _ = read_settings_json_file(api_source_settings_path)
                 except Exception:
                     api_source_settings = {}
 
-            changed = False
+            changes_to_persist = {}
 
             api_keys = [
                 'binance_api_key', 'binance_secret_key',
                 'upbit_api_key', 'upbit_secret_key',
                 'bithumb_api_key', 'bithumb_secret_key',
+                'coinone_api_key', 'coinone_secret_key',
                 'bitget_api_key', 'bitget_secret_key', 'bitget_password',
                 'okx_api_key', 'okx_secret_key', 'okx_passphrase',
                 'bybit_api_key', 'bybit_secret_key',
@@ -684,14 +704,14 @@ class NoahAIClient:
                 target_val = target_settings.get(key)
                 if (target_val is None or str(target_val).strip() == '') and source_val not in (None, ''):
                     target_settings[key] = source_val
-                    changed = True
+                    changes_to_persist[key] = source_val
 
             # 바이낸스 API는 별도 소스(nwsoft) 값으로 우선 반영
             for key in ('binance_api_key', 'binance_secret_key'):
                 api_val = api_source_settings.get(key) if isinstance(api_source_settings, dict) else None
                 if api_val not in (None, '') and target_settings.get(key) != api_val:
                     target_settings[key] = api_val
-                    changed = True
+                    changes_to_persist[key] = api_val
 
             # 증권사 설정 내 API/계정 필드 보강
             source_brokers = source_settings.get('stock_broker_configs', {})
@@ -711,15 +731,16 @@ class NoahAIClient:
                         t_val = t_cfg.get(field)
                         if (t_val is None or str(t_val).strip() == '') and s_val not in (None, ''):
                             t_cfg[field] = s_val
-                            changed = True
+                            changes_to_persist[f'stock_broker_configs.{broker}.{field}'] = s_val
 
                     target_brokers[broker] = t_cfg
 
                 target_settings['stock_broker_configs'] = target_brokers
 
-            if changed:
-                with open(target_settings_path, 'w', encoding='utf-8') as f:
-                    json.dump(target_settings, f, ensure_ascii=False, indent=2)
+            if changes_to_persist:
+                from config.settings import patch_settings_paths
+                if not patch_settings_paths(changes_to_persist):
+                    return
                 logger = self._get_main_logger()
                 if logger:
                     logger.info(f"adminjung 설정/API 보강 완료: {target_settings_path} (source={source_account})")
@@ -786,15 +807,7 @@ class NoahAIClient:
                 changed = True
 
         if grade == 'referral':
-            allowed_exchanges = {
-                exchange
-                for exchange in self.REFERRAL_SAFE_EXCHANGES
-                if referral_exchange_entitlement(
-                    grade,
-                    exchange,
-                    self.current_membership_policy,
-                ).get("allowed")
-            }
+            allowed_exchanges = referral_allowed_exchanges(self.current_membership_policy)
             # 서버 정책이 없거나 비정상이면 공식 레퍼럴 거래소 전체 허용이 아니라 fail-closed 한다.
             for key in ('enabled_exchanges', 'trade_enabled_exchanges', 'learning_enabled_exchanges'):
                 raw_values = self.settings.get(key, [])
@@ -813,6 +826,13 @@ class NoahAIClient:
             if selected not in allowed_exchanges and self.settings.get('selected_exchange') != fallback:
                 self.settings['selected_exchange'] = fallback
                 changed = True
+
+        # 등급 상한은 사용자 설정을 파괴하지 않는다. 실행 직전 공통 계산이
+        # 이 값을 hard ceiling으로 사용하므로 업그레이드 후 이전 선택값을
+        # 복원할 수 있고, 등급 축소 중 열린 포지션도 강제 청산하지 않는다.
+        self.membership_position_limit = membership_position_cap(
+            grade, self.current_membership_policy
+        )
 
         if grade == 'pro_stock':
             raw_enabled_exchanges = self.settings.get('enabled_exchanges', [])
@@ -1438,6 +1458,7 @@ class NoahAIClient:
                     (s.get('binance_api_key', ''), s.get('binance_secret_key', '')),
                     (s.get('upbit_api_key', ''), s.get('upbit_secret_key', '')),
                     (s.get('bithumb_api_key', ''), s.get('bithumb_secret_key', '')),
+                    (s.get('coinone_api_key', ''), s.get('coinone_secret_key', '')),
                     (s.get('bybit_api_key', ''), s.get('bybit_secret_key', '')),
                     (s.get('okx_api_key', ''), s.get('okx_secret_key', '')),
                     (s.get('bitget_api_key', ''), s.get('bitget_secret_key', '')),
@@ -1550,6 +1571,7 @@ class NoahAIClient:
                     (s.get('binance_api_key', ''), s.get('binance_secret_key', '')),
                     (s.get('upbit_api_key', ''), s.get('upbit_secret_key', '')),
                     (s.get('bithumb_api_key', ''), s.get('bithumb_secret_key', '')),
+                    (s.get('coinone_api_key', ''), s.get('coinone_secret_key', '')),
                     (s.get('bybit_api_key', ''), s.get('bybit_secret_key', '')),
                     (s.get('okx_api_key', ''), s.get('okx_secret_key', '')),
                     (s.get('bitget_api_key', ''), s.get('bitget_secret_key', '')),
@@ -2149,7 +2171,12 @@ class NoahAIClient:
                             pass
 
             # Risk Manager 초기화 (binance_client와 database_manager 필요)
-            self.risk_manager = RiskManager(self.binance_client, self.recorder)
+            self.risk_manager = RiskManager(
+                self.binance_client,
+                self.recorder,
+                settings=self.settings,
+                exchange_manager=self.exchange_manager,
+            )
 
             # 🔥 UnifiedTrader 초기화 (다중 거래소 지원)
             if hasattr(self, 'unified_manager') and self.unified_manager:
@@ -3331,7 +3358,7 @@ class NoahAIClient:
             flags = getattr(getattr(self, "unified_trader", None), "monitoring_flags", {}) or {}
             for exchange, is_running in flags.items():
                 normalized = str(exchange or "").strip().lower()
-                if is_running and normalized in {"bybit", "okx", "bitget", "upbit", "bithumb"}:
+                if is_running and normalized in {"bybit", "okx", "bitget", "upbit", "bithumb", "coinone"}:
                     running.append(normalized)
         except Exception:
             pass
@@ -3347,7 +3374,7 @@ class NoahAIClient:
                 str(exchange or "").strip().lower()
                 for exchange in (raw_configured if isinstance(raw_configured, list) else [])
                 if str(exchange or "").strip().lower()
-                in {"binance", "bybit", "okx", "bitget", "upbit", "bithumb"}
+                in {"binance", "bybit", "okx", "bitget", "upbit", "bithumb", "coinone"}
             ]
             configured = list(dict.fromkeys(configured))
             configured = list(dict.fromkeys(configured + active))
@@ -3818,9 +3845,19 @@ class NoahAIClient:
             logger = self._get_main_logger()
             # 거래 시작 전 손실 한도 체크
             if hasattr(self, 'risk_manager') and self.risk_manager:
-                if self.risk_manager.check_daily_loss_limit():
+                daily_loss = self.risk_manager.evaluate_daily_loss_limit(
+                    # This method owns the native Binance worker. Other
+                    # venues enter through UnifiedTrader and evaluate their
+                    # own venue ledger there.
+                    source='binance',
+                )
+                if daily_loss.blocked:
                     if logger:
-                        logger.error("일일 손실 한도 초과 - 거래 시작 불가")
+                        logger.error(
+                            "LIVE 위험 데이터 확인 실패 - 신규 진입 보류"
+                            if daily_loss.status == 'risk_data_unavailable'
+                            else "LIVE 일일 손실 한도 초과 - 거래 시작 불가"
+                        )
                     return False
             else:
                 if logger:

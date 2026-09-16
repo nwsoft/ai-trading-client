@@ -69,6 +69,20 @@ class FinancialIntelligenceService:
         for feature_id, status in self.FEATURES.items():
             self.store.set_feature_status(feature_id, status, "financial_intelligence package")
 
+    def refresh_settings(self, settings: Optional[Mapping[str, Any]] = None) -> None:
+        """Apply mutable provider settings without replacing live services."""
+        updated = dict(settings or {})
+        self.settings.clear()
+        self.settings.update(updated)
+        self.provider.timeout = max(1.0, float(updated.get("timeout", 8.0) or 8.0))
+        self.regulatory.timeout = max(1.0, float(updated.get("timeout", 12.0) or 12.0))
+        refreshed_news = NewsPipeline(
+            entity_aliases=updated.get("entity_aliases"),
+            source_scores=updated.get("source_scores"),
+        )
+        self.news.entity_aliases = refreshed_news.entity_aliases
+        self.news.source_scores = refreshed_news.source_scores
+
     @staticmethod
     def _run_id(kind: str, inputs: Any) -> str:
         encoded = json.dumps(inputs, ensure_ascii=False, sort_keys=True, default=str)

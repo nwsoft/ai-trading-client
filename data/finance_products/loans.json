@@ -1,0 +1,182 @@
+[
+  {
+    "name": "KB 주택담보대출 안심",
+    "provider": "KB국민은행",
+    "annual_rate": 3.85,
+    "max_amount": 900000000,
+    "term_months": 360,
+    "fee_rate": 0.2,
+    "loan_type": "주택담보"
+  },
+  {
+    "name": "신한 그린 주담대",
+    "provider": "신한은행",
+    "annual_rate": 4.05,
+    "max_amount": 800000000,
+    "term_months": 360,
+    "fee_rate": 0.15,
+    "loan_type": "주택담보"
+  },
+  {
+    "name": "하나 우리집 담보대출",
+    "provider": "하나은행",
+    "annual_rate": 4.15,
+    "max_amount": 700000000,
+    "term_months": 240,
+    "fee_rate": 0.18,
+    "loan_type": "주택담보"
+  },
+  {
+    "name": "우리 주담대 고정금리",
+    "provider": "우리은행",
+    "annual_rate": 3.95,
+    "max_amount": 800000000,
+    "term_months": 360,
+    "fee_rate": 0.15,
+    "loan_type": "주택담보"
+  },
+  {
+    "name": "NH 보금자리론",
+    "provider": "NH농협은행",
+    "annual_rate": 3.7,
+    "max_amount": 800000000,
+    "term_months": 360,
+    "fee_rate": 0.1,
+    "loan_type": "주택담보"
+  },
+  {
+    "name": "IBK 기업은행 주담대",
+    "provider": "IBK기업은행",
+    "annual_rate": 4.2,
+    "max_amount": 600000000,
+    "term_months": 300,
+    "fee_rate": 0.2,
+    "loan_type": "주택담보"
+  },
+  {
+    "name": "카카오 마이너스 통장",
+    "provider": "카카오뱅크",
+    "annual_rate": 4.9,
+    "max_amount": 150000000,
+    "term_months": 12,
+    "fee_rate": 0.0,
+    "loan_type": "마이너스통장"
+  },
+  {
+    "name": "토스 비상금 대출",
+    "provider": "토스뱅크",
+    "annual_rate": 5.5,
+    "max_amount": 50000000,
+    "term_months": 12,
+    "fee_rate": 0.0,
+    "loan_type": "신용"
+  },
+  {
+    "name": "우리 스마트 신용대출",
+    "provider": "우리은행",
+    "annual_rate": 5.2,
+    "max_amount": 130000000,
+    "term_months": 84,
+    "fee_rate": 0.2,
+    "loan_type": "신용"
+  },
+  {
+    "name": "SC 직장인 플러스",
+    "provider": "SC제일은행",
+    "annual_rate": 5.1,
+    "max_amount": 100000000,
+    "term_months": 120,
+    "fee_rate": 0.25,
+    "loan_type": "신용"
+  },
+  {
+    "name": "신한 쏠편한 신용대출",
+    "provider": "신한은행",
+    "annual_rate": 4.85,
+    "max_amount": 120000000,
+    "term_months": 60,
+    "fee_rate": 0.1,
+    "loan_type": "신용"
+  },
+  {
+    "name": "KB 직장인 신용대출",
+    "provider": "KB국민은행",
+    "annual_rate": 4.95,
+    "max_amount": 150000000,
+    "term_months": 84,
+    "fee_rate": 0.15,
+    "loan_type": "신용"
+  },
+  {
+    "name": "카카오 신용대출",
+    "provider": "카카오뱅크",
+    "annual_rate": 5.3,
+    "max_amount": 80000000,
+    "term_months": 60,
+    "fee_rate": 0.0,
+    "loan_type": "신용"
+  },
+  {
+    "name": "NH 전세자금대출",
+    "provider": "NH농협은행",
+    "annual_rate": 3.8,
+    "max_amount": 500000000,
+    "term_months": 24,
+    "fee_rate": 0.1,
+    "loan_type": "전세자금"
+  },
+  {
+    "name": "우리 전세 안심 대출",
+    "provider": "우리은행",
+    "annual_rate": 3.9,
+    "max_amount": 400000000,
+    "term_months": 24,
+    "fee_rate": 0.15,
+    "loan_type": "전세자금"
+  },
+  {
+    "name": "하나 전세자금 대출",
+    "provider": "하나은행",
+    "annual_rate": 4.0,
+    "max_amount": 450000000,
+    "term_months": 24,
+    "fee_rate": 0.2,
+    "loan_type": "전세자금"
+  },
+  {
+    "name": "신한 전세론",
+    "provider": "신한은행",
+    "annual_rate": 3.95,
+    "max_amount": 500000000,
+    "term_months": 24,
+    "fee_rate": 0.1,
+    "loan_type": "전세자금"
+  },
+  {
+    "name": "IBK 사업자 운전자금",
+    "provider": "IBK기업은행",
+    "annual_rate": 5.6,
+    "max_amount": 300000000,
+    "term_months": 36,
+    "fee_rate": 0.3,
+    "loan_type": "사업자"
+  },
+  {
+    "name": "기업 소상공인 대출",
+    "provider": "중소벤처기업부",
+    "annual_rate": 3.5,
+    "max_amount": 100000000,
+    "term_months": 60,
+    "fee_rate": 0.0,
+    "loan_type": "사업자"
+  },
+  {
+    "name": "새희망홀씨 대출",
+    "provider": "KB국민은행",
+    "annual_rate": 6.5,
+    "max_amount": 30000000,
+    "term_months": 60,
+    "fee_rate": 0.0,
+    "loan_type": "신용"
+  }
+]

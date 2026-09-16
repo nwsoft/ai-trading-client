@@ -1406,34 +1406,52 @@ class Optimizer:
             return 0.0
             
     def get_recent_trades(self, symbol: str) -> List[Dict]:
-        """최근 거래 데이터 가져오기"""
+        """Binance의 동일 심볼 최근 청산 표본을 공통 recorder 계약으로 조회한다."""
         try:
-            query = """
-                SELECT symbol, entry_price, exit_price, quantity, leverage,
-                       pnl, pnl_percent, entry_time, exit_time, reason
-                FROM trade_log 
-                WHERE symbol = ? 
-                AND exit_time > datetime('now', '-7 days')
-                ORDER BY exit_time DESC
-            """
-            
-            trades = self.recorder.execute_query(query, (symbol,))
-            
+            if hasattr(self.recorder, 'get_recent_trades'):
+                trades = self.recorder.get_recent_trades(
+                    symbol=symbol, exchange='binance', days=30,
+                ) or []
+            else:
+                query = """
+                    SELECT symbol, entry_price, exit_price, quantity, leverage,
+                           pnl, pnl_percent, entry_time, exit_time, reason
+                    FROM trade_log
+                    WHERE symbol = ?
+                    AND LOWER(COALESCE(exchange, 'binance')) = 'binance'
+                    AND exit_time > datetime('now', '-30 days')
+                    ORDER BY exit_time ASC
+                """
+                trades = self.recorder.execute_query(query, (symbol,)) or []
             trade_data = []
             for trade in trades:
+                if isinstance(trade, (list, tuple)) and len(trade) >= 10:
+                    trade = {
+                        'symbol': trade[0], 'entry_price': trade[1], 'exit_price': trade[2],
+                        'quantity': trade[3], 'leverage': trade[4], 'pnl': trade[5],
+                        'pnl_percent': trade[6], 'entry_time': trade[7],
+                        'exit_time': trade[8], 'reason': trade[9],
+                    }
+                if not isinstance(trade, dict):
+                    continue
+                try:
+                    entry_time = datetime.fromisoformat(str(trade.get('entry_time') or ''))
+                    exit_time = datetime.fromisoformat(str(trade.get('exit_time') or ''))
+                except (TypeError, ValueError):
+                    continue
                 trade_data.append({
-                    'symbol': trade[0],
-                    'entry_price': trade[1],
-                    'exit_price': trade[2],
-                    'quantity': trade[3],
-                    'leverage': trade[4],
-                    'pnl': trade[5],
-                    'pnl_percent': trade[6],
-                    'entry_time': datetime.fromisoformat(trade[7]),
-                    'exit_time': datetime.fromisoformat(trade[8]),
-                    'reason': trade[9]
+                    'symbol': trade.get('symbol', symbol),
+                    'entry_price': float(trade.get('entry_price', 0.0) or 0.0),
+                    'exit_price': float(trade.get('exit_price', 0.0) or 0.0),
+                    'quantity': float(trade.get('quantity', 0.0) or 0.0),
+                    'leverage': float(trade.get('leverage', 1.0) or 1.0),
+                    'pnl': float(trade.get('pnl', 0.0) or 0.0),
+                    'pnl_percent': float(trade.get('pnl_percent', 0.0) or 0.0),
+                    'entry_time': entry_time,
+                    'exit_time': exit_time,
+                    'reason': trade.get('reason', ''),
                 })
-                
+            trade_data.sort(key=lambda row: row['exit_time'])
             return trade_data
             
         except Exception as e:

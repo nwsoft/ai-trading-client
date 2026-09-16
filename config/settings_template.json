@@ -95,7 +95,10 @@
     "position_sizing_max_cache_entries": 100,
     "pattern_similarity_cache_sec": 900,
     "pattern_similarity_retry_cooldown_sec": 120,
-    "pattern_similarity_max_cache_entries": 300
+    "pattern_similarity_max_cache_entries": 300,
+    "max_daily_interactive_calls": 30,
+    "max_monthly_interactive_calls": 500,
+    "interactive_cache_sec": 900
   },
   "binance_api_key": "",
   "binance_secret_key": "",
@@ -104,10 +107,15 @@
   "ai_provider": "openai",
   "ai_credentials": {
     "openai": {"api_key": "", "base_url": ""},
+    "openai_shared": {"api_key": "", "base_url": ""},
     "deepseek": {"api_key": "", "base_url": "https://api.deepseek.com"},
     "kimi": {"api_key": "", "base_url": "https://api.moonshot.ai/v1"},
     "anthropic": {"api_key": "", "base_url": "https://api.anthropic.com"},
     "gemini": {"api_key": "", "base_url": "https://generativelanguage.googleapis.com/v1beta/openai/"}
+  },
+  "ai_data_routing": {
+    "public_general_sharing_enabled": false,
+    "public_openai_model": "gpt-5.6-luna"
   },
   "ai_provider_profiles": {
     "analyst": {"provider": "openai", "model": ""},
@@ -123,6 +131,9 @@
   "upbit_secret_key": "",
   "bithumb_api_key": "",
   "bithumb_secret_key": "",
+  "coinone_api_key": "",
+  "coinone_secret_key": "",
+  "coinone_live_e2e_verified": false,
   "bitget_api_key": "",
   "bitget_secret_key": "",
   "bitget_password": "",
@@ -293,6 +304,7 @@
     "auto_start": false,
     "enabled": false,
     "interval_sec": 60,
+    "universe_cache_ttl_sec": 300,
     "buy_threshold": 70.0,
     "sell_threshold": 30.0,
     "order_type": "MARKET",
@@ -309,6 +321,14 @@
     "monthly_max_loss": 4000000.0,
     "max_symbol_weight_percent": 35.0,
     "broker_overrides": {},
+    "paper_costs": {
+      "buy_commission_rate": 0.00015,
+      "sell_commission_rate": 0.00015,
+      "stock_sell_tax_rate": 0.002,
+      "etf_sell_tax_rate": 0.0,
+      "buy_slippage_rate": 0.0003,
+      "sell_slippage_rate": 0.0003
+    },
     "enable_exit_policy": true,
     "take_profit_percent": 5.0,
     "stop_loss_percent": 8.0,
@@ -322,6 +342,7 @@
     "favorites": []
   },
   "enabled_stock_brokers": [],
+  "asset_stop_position_policy": "keep_with_tp_sl",
   "stock_broker_configs": {
     "kiwoom": {
       "enabled": false,
@@ -411,7 +432,7 @@
     "limited_max_position_size": 0.01
   },
   "ai_custom_features": {
-    "_comment": "초보자/일반/고급/실험실 화면 기본값과 개별 기능 재정의. 결제·법무 게이트는 여기서 열리지 않음",
+    "_comment": "초보자 Level 1/일반 Level 2/고급 Level 3/실험실 Level 4 화면 기본값과 개별 기능 재정의. Level 4도 계좌·주문·손실·승인 가드레일과 결제·법무 게이트를 열지 않음",
     "profile": "standard",
     "overrides": {}
   },
@@ -458,6 +479,45 @@
       "model_marketplace": false
     }
   },
+  "notification_integrations": {
+    "enabled": false,
+    "channels": {
+      "discord": {
+        "enabled": false,
+        "webhook_url": ""
+      },
+      "telegram": {
+        "enabled": false,
+        "bot_token": "",
+        "chat_id": ""
+      }
+    },
+    "events": {
+      "guardrail_stop": true,
+      "loss_warning": true,
+      "risk_data_unavailable": true,
+      "market_regime_change": true,
+      "runtime_failure": true,
+      "update_available": true
+    },
+    "exchanges": {
+      "binance": true,
+      "upbit": true,
+      "bithumb": true,
+      "coinone": true,
+      "bybit": true,
+      "bitget": true,
+      "okx": true,
+      "kiwoom": true,
+      "shinhan": true,
+      "mirae": true,
+      "kis": true
+    },
+    "loss_warning_percent": 5.0,
+    "cooldown_seconds": 300,
+    "timeout_seconds": 5,
+    "retry_count": 2
+  },
   "log_level": "DEBUG",
   "verbose_trade_logging": false,
   "detailed_logs_enabled": true,
@@ -466,6 +526,19 @@
   "max_positions": 3,
   "position_mode": "multi",
   "min_trade_amount": 20,
+  "position_sizing_policy": {
+    "mode": "account_risk",
+    "risk_per_trade_percent": 0.5,
+    "max_margin_usage_percent": 10.0,
+    "max_notional_percent": 50.0,
+    "paper_equity_usdt": 1000.0,
+    "paper_equity_krw": 1000000.0
+  },
+  "parallel_strategy_paper_validation": {
+    "enabled": false,
+    "max_strategies_per_venue": 3,
+    "max_positions_per_strategy": 1
+  },
   "slippage_tolerance": 0.08,
   "include_fees": true,
   "taker_fee_percent_per_side": 0.02,
@@ -477,6 +550,20 @@
   "num_major_coins": 5,
   "min_total_coins": 10,
   "max_total_coins": 20,
+  "coin_selection_cache_ttl_seconds": 30,
+  "market_ticker_cache_ttl_seconds": 30,
+  "market_kline_cache_ttl_seconds": 60,
+  "coin_selection_detail_candidate_limit": 30,
+  "coin_selection_max_workers": 8,
+  "coin_selection_stage_timeout_seconds": 10,
+  "coin_selection_total_timeout_seconds": 20,
+  "coin_selection_max_snapshot_age_seconds": 120,
+  "coin_selection_failure_retry_seconds": 60,
+  "coin_selection_failure_retry_max_seconds": 900,
+  "coin_selection_failure_persist_interval_seconds": 900,
+  "market_regime_check_interval_seconds": 300,
+  "market_regime_confirmations": 2,
+  "market_regime_min_dwell_seconds": 600,
   "market_regime_coins": {
     "bear": {
       "min": 10,
@@ -683,6 +770,14 @@
       "rsi_extreme_overbought": 85,
       "momentum_threshold": 0.00035,
       "trend_momentum_threshold": 0.0012
+    },
+    "coinone": {
+      "rsi_extreme_oversold": 22,
+      "rsi_oversold": 30,
+      "rsi_overbought": 70,
+      "rsi_extreme_overbought": 78,
+      "momentum_threshold": 0.002,
+      "trend_momentum_threshold": 0.004
     }
   },
   "analyzer_settings": {
@@ -783,7 +878,8 @@
     "okx": 0.8,
     "bitget": 0.85,
     "upbit": 0.7,
-    "bithumb": 0.7
+    "bithumb": 0.7,
+    "coinone": 0.7
   },
   "dynamic_thresholds_enabled": true,
   "dynamic_thresholds_profile": {
@@ -843,6 +939,11 @@
       "min_position_size": 0.001
     },
     "bithumb": {
+      "max_positions": 3,
+      "max_position_size": 0.005,
+      "min_position_size": 0.001
+    },
+    "coinone": {
       "max_positions": 3,
       "max_position_size": 0.005,
       "min_position_size": 0.001
@@ -949,6 +1050,7 @@
   },
   "ui_settings": {
     "always_on_top": false,
+    "display_preset": "display_standard",
     "auto_show_stock_broker_diagnosis_after_save": false,
     "stock_broker_diagnosis_opt_in_confirmed": false,
     "window_geometry": "1400x900",
@@ -957,6 +1059,7 @@
     "auto_update_check_interval_hours": 6,
     "auto_update_auto_download": true,
     "auto_update_auto_apply_on_exit": true,
+    "auto_update_open_position_action": "defer",
     "auto_update_release_repo": "nwsoft/ai-trading-client"
   }
 }

@@ -340,7 +340,18 @@ class AITradingChatbot:
     @staticmethod
     def _to_runtime_trade_settings(parameters: Dict[str, Any]) -> Dict[str, Any]:
         """표시용 퍼센트 포인트를 주문 엔진의 fraction 단위로 한 번만 변환한다."""
-        normalized = normalize_engine_settings(parameters)
+        # signal_threshold is an analyzer score (legacy presets use 0~100), not
+        # an order-engine rate.  Do not send it through the TP/SL contract where
+        # 0~1 means an explicitly normalized strategy value.
+        order_parameters = {
+            key: value
+            for key, value in dict(parameters or {}).items()
+            if key in {
+                "_unit", "unit", "leverage", "position_size",
+                "tp_percent", "sl_percent",
+            }
+        }
+        normalized = normalize_engine_settings(order_parameters)
         runtime_settings: Dict[str, Any] = {}
         if "leverage" in normalized:
             runtime_settings["default_leverage"] = normalized["leverage"]

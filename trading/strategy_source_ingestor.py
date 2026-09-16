@@ -10,10 +10,12 @@ YouTube 링크(자막 우선), TradingView 공개 스크립트 링크. 추출 �
 from __future__ import annotations
 
 import html
+import hashlib
 import json
 import logging
 import re
 import tempfile
+from copy import deepcopy
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -597,6 +599,63 @@ class StrategySourceIngestor:
         return float(match.group(1)) if match else None
 
     @staticmethod
+    def _explicit_percent(label_pattern: str, text: str) -> tuple[Optional[float], bool]:
+        """Return a percent only when the source explicitly contains `%`.
+
+        A unitless TP/SL number may be a price, ATR multiple, fraction, or percent.
+        Guessing here changes the strategy, so the second return value records an
+        ambiguous unit that must be clarified by the user.
+        """
+        explicit = re.search(
+            rf"(?:{label_pattern})[^\d]{{0,16}}(\d+(?:\.\d+)?)\s*%",
+            text,
+            flags=re.I,
+        )
+        if explicit:
+            return float(explicit.group(1)), False
+        ambiguous = re.search(
+            rf"(?:{label_pattern})[^\d]{{0,16}}(\d+(?:\.\d+)?)",
+            text,
+            flags=re.I,
+        )
+        return None, bool(ambiguous)
+
+    @staticmethod
+    def _risk_budget_percent(text: str) -> Optional[float]:
+        """Read an explicitly stated per-trade account-loss budget.
+
+        The number must carry a percent sign and be tied to both one trade and
+        account loss/risk.  This deliberately does not infer a budget from TP,
+        SL, leverage, or a generic position percentage.
+        """
+        patterns = (
+            r"(?:거래\s*(?:당|한\s*번(?:에서)?)|1\s*회)[^\n%]{0,48}?"
+            r"(?:계좌(?:의)?\s*)?(?:최대\s*)?(?:손실|위험|허용\s*손실)[^\d%]{0,12}"
+            r"(\d+(?:\.\d+)?)\s*%",
+            r"(?:거래\s*(?:당|한\s*번(?:에서)?)|1\s*회)[^\n%]{0,48}?"
+            r"(\d+(?:\.\d+)?)\s*%\s*(?:까지\s*)?(?:의\s*)?(?:손실|위험)",
+            r"(?:risk\s*per\s*trade|per[\s_-]*trade\s*(?:account\s*)?(?:loss|risk))"
+            r"[^\d%]{0,16}(\d+(?:\.\d+)?)\s*%",
+        )
+        for pattern in patterns:
+            match = re.search(pattern, text, flags=re.I)
+            if match:
+                return float(match.group(1))
+        return None
+
+    @staticmethod
+    def _margin_budget_percent(text: str) -> Optional[float]:
+        """Read an explicit maximum margin/position allocation percentage."""
+        match = re.search(
+            r"(?:증거금(?:\s*사용(?:률|은|을)?)?|최대\s*증거금|"
+            r"포지션\s*(?:크기|비중)|자산\s*(?:사용|비중)?|종목당\s*투자\s*비중)"
+            r"[^\d%]{0,20}(\d+(?:\.\d+)?)\s*%",
+            text,
+            flags=re.I,
+        )
+        return float(match.group(1)) if match else None
+
+    @staticmethod
     def _pine_operand_field(value: str) -> str:
         normalized = re.sub(r"\s+", "", str(value or "").lower())
         if normalized == "close":
@@ -616,9 +675,13 @@ class StrategySourceIngestor:
             item for item in sentences
             if re.search(r"strategy\.exit|strategy\.close|청산|매도|종료|\bexit\b|\bclose\b|exitcondition", item, flags=re.I)
         ]
-        sl = self._number(r"(?:stop[_\s-]*loss|손절|sl)[^\d]{0,12}(\d+(?:\.\d+)?)\s*%?", text)
-        tp = self._number(r"(?:take[_\s-]*profit|익절|tp)[^\d]{0,12}(\d+(?:\.\d+)?)\s*%?", text)
+        sl, sl_unit_ambiguous = self._explicit_percent(r"stop[_\s-]*loss|손절|\bsl\b", text)
+        tp, tp_unit_ambiguous = self._explicit_percent(r"take[_\s-]*profit|익절|\btp\b", text)
         position = self._number(r"(?:position[_\s-]*size|포지션\s*크기|자산)[^\d]{0,14}(\d+(?:\.\d+)?)\s*%", text)
+        risk_per_trade = self._risk_budget_percent(text)
+        margin_budget = self._margin_budget_percent(text)
+        if margin_budget is not None:
+            position = margin_budget
         leverage = self._number(r"(?:leverage|레버리지)[^\d]{0,10}(\d+(?:\.\d+)?)", text)
         indicators = sorted(set(re.findall(r"\b(RSI|MACD|EMA|SMA|ATR|ADX|VWAP|BOLLINGER|SUPERTREND)\b", text, flags=re.I)))
         rules: Dict[str, Any] = {
@@ -627,12 +690,13 @@ class StrategySourceIngestor:
             "stop_loss": f"{sl}%" if sl is not None else "",
             "take_profit": f"{tp}%" if tp is not None else "",
             "position_size": f"{position}%" if position is not None else "",
-            "market_conditions": f"사용 지표: {', '.join(indicators)}" if indicators else "",
+            "market_conditions": "",
             "engine_settings": {},
             "executable_entry": {"all": [], "any": []},
             "executable_exit": {"all": [], "any": []},
             "signal_mode": "confirm",
             "entry_signal": "",
+            "compiler_issues": [],
             "source_evidence": asdict(source),
         }
         engine = rules["engine_settings"]
@@ -682,7 +746,8 @@ class StrategySourceIngestor:
                 }
             return None
 
-        for sentence in re.split(r"[\n;.!?]+", text):
+        natural_branches: Dict[str, List[Dict[str, Any]]] = {"LONG": [], "SHORT": []}
+        for sentence in re.split(r"[,\n;.!?]+", text):
             condition = natural_rsi_condition(sentence)
             if not condition:
                 continue
@@ -696,6 +761,15 @@ class StrategySourceIngestor:
             )
             if target is not None and condition not in target["all"]:
                 target["all"].append(condition)
+            if target is executable:
+                sentence_lower = sentence.lower()
+                direction = (
+                    "LONG" if ("long" in sentence_lower or "롱" in sentence or "매수" in sentence)
+                    else "SHORT" if ("short" in sentence_lower or "숏" in sentence or "공매도" in sentence)
+                    else ""
+                )
+                if direction and condition not in natural_branches[direction]:
+                    natural_branches[direction].append(condition)
 
         rsi_match = re.search(r"(?:ta\.)?rsi\([^\)]*\)\s*(<=|>=|<|>)\s*(\d+(?:\.\d+)?)", text, flags=re.I)
         if rsi_match:
@@ -747,24 +821,162 @@ class StrategySourceIngestor:
                     ),
                     "value_field": right_field,
                 })
-        if "strategy.long" in lower:
+        # Resolve the common Pine alias shape instead of treating `if alias` as
+        # an unconditional direction. Unknown data-flow remains fail-closed.
+        pine_rsi_aliases = {
+            name: "rsi"
+            for name in re.findall(
+                r"(?m)^\s*([A-Za-z_]\w*)\s*=\s*(?:ta\.)?rsi\s*\([^\)]*\)\s*$",
+                text,
+                flags=re.I,
+            )
+        }
+        pine_conditions: Dict[str, List[Dict[str, Any]]] = {}
+        for alias, operand, operator, threshold in re.findall(
+            r"\b([A-Za-z_]\w*)\s*=\s*([A-Za-z_]\w*)\s*(<=|>=|<|>)\s*(\d+(?:\.\d+)?)",
+            text,
+            flags=re.I,
+        ):
+            field = pine_rsi_aliases.get(operand)
+            if field:
+                pine_conditions[alias] = [{
+                    "field": field,
+                    "operator": {"<": "lt", "<=": "lte", ">": "gt", ">=": "gte"}[operator],
+                    "value": float(threshold),
+                }]
+        # Compile a common Pine boolean alias when every AND term is supported.
+        # A partially understood expression must never be marked executable.
+        for alias, expression in re.findall(
+            r"(?m)^\s*([A-Za-z_]\w*)\s*=\s*(.+?)\s*$", text,
+        ):
+            if alias in pine_rsi_aliases or alias in pine_conditions:
+                continue
+            if re.search(r"\bor\b|\|\|", expression, flags=re.I):
+                continue
+            compiled_terms: List[Dict[str, Any]] = []
+            terms = [item.strip() for item in re.split(r"\band\b|&&", expression, flags=re.I) if item.strip()]
+            for term in terms:
+                condition: Optional[Dict[str, Any]] = None
+                direct_rsi = re.fullmatch(
+                    r"(?:ta\.)?rsi\s*\([^\)]*\)\s*(<=|>=|<|>)\s*(\d+(?:\.\d+)?)",
+                    term,
+                    flags=re.I,
+                )
+                alias_rsi = re.fullmatch(
+                    r"([A-Za-z_]\w*)\s*(<=|>=|<|>)\s*(\d+(?:\.\d+)?)",
+                    term,
+                    flags=re.I,
+                )
+                price_average = re.fullmatch(
+                    r"close\s*(<=|>=|<|>)\s*(?:ta\.)?(ema|sma)\s*\(\s*close\s*,\s*(20|50|200)\s*\)",
+                    term,
+                    flags=re.I,
+                )
+                if direct_rsi:
+                    operator, threshold = direct_rsi.groups()
+                    condition = {
+                        "field": "rsi",
+                        "operator": {"<": "lt", "<=": "lte", ">": "gt", ">=": "gte"}[operator],
+                        "value": float(threshold),
+                    }
+                elif alias_rsi and alias_rsi.group(1) in pine_rsi_aliases:
+                    operand, operator, threshold = alias_rsi.groups()
+                    condition = {
+                        "field": pine_rsi_aliases[operand],
+                        "operator": {"<": "lt", "<=": "lte", ">": "gt", ">=": "gte"}[operator],
+                        "value": float(threshold),
+                    }
+                elif price_average:
+                    operator, average_type, period = price_average.groups()
+                    condition = {
+                        "field": "current_price",
+                        "operator": "lt_field" if operator.startswith("<") else "gt_field",
+                        "value_field": f"{average_type.lower()}{period}",
+                    }
+                if condition is None:
+                    compiled_terms = []
+                    break
+                compiled_terms.append(condition)
+            if compiled_terms and len(compiled_terms) == len(terms):
+                pine_conditions[alias] = compiled_terms
+        for alias in re.findall(r"\bif\s+([A-Za-z_]\w*)\s*\n\s*strategy\.entry", text, flags=re.I):
+            conditions = pine_conditions.get(alias)
+            if conditions:
+                for condition in conditions:
+                    if condition not in executable["all"]:
+                        executable["all"].append(condition)
+            else:
+                rules["compiler_issues"].append(f"pine_entry_condition_unresolved:{alias}")
+
+        has_long_entry = "strategy.long" in lower or bool(natural_branches["LONG"])
+        has_short_entry = "strategy.short" in lower or bool(natural_branches["SHORT"])
+        if has_long_entry and has_short_entry:
+            if natural_branches["LONG"] and natural_branches["SHORT"]:
+                rules["signal_mode"] = "independent"
+                rules["independent_entries"] = {
+                    direction: {"all": conditions, "any": []}
+                    for direction, conditions in natural_branches.items()
+                }
+                rules["entry_signal"] = ""
+                executable["all"] = []
+            else:
+                # 양방향 Pine 조건이 분리되지 않으면 한 방향으로 축소하지 않는다.
+                rules["entry_signal"] = ""
+                rules["compiler_issues"].append("dual_direction_conditions_not_separated")
+        elif has_long_entry:
             rules["entry_signal"] = "LONG"
-            executable["all"].append({"field": "signal", "operator": "eq", "value": "LONG"})
-        elif "strategy.short" in lower:
+            signal_condition = {"field": "signal", "operator": "eq", "value": "LONG"}
+            if signal_condition not in executable["all"]:
+                executable["all"].append(signal_condition)
+        elif has_short_entry:
             rules["entry_signal"] = "SHORT"
-            executable["all"].append({"field": "signal", "operator": "eq", "value": "SHORT"})
+            signal_condition = {"field": "signal", "operator": "eq", "value": "SHORT"}
+            if signal_condition not in executable["all"]:
+                executable["all"].append(signal_condition)
         elif any("long" in item.lower() or "롱" in item for item in entry_lines):
             rules["entry_signal"] = "LONG"
         elif any("short" in item.lower() or "숏" in item for item in entry_lines):
             rules["entry_signal"] = "SHORT"
+        if sl_unit_ambiguous:
+            rules["compiler_issues"].append("stop_loss_unit_missing")
+        if tp_unit_ambiguous:
+            rules["compiler_issues"].append("take_profit_unit_missing")
         if sl is not None:
-            engine["sl_percent"] = max(0.05, min(sl, 20.0))
+            engine["sl_percent"] = sl
         if tp is not None:
-            engine["tp_percent"] = max(0.05, min(tp, 50.0))
+            engine["tp_percent"] = tp
         if position is not None:
-            engine["position_size"] = max(0.01, min(position / 100.0, 0.5))
+            engine["position_size"] = position / 100.0
+        effective_margin_budget = margin_budget if margin_budget is not None else position
+        if risk_per_trade is not None or effective_margin_budget is not None or leverage is not None:
+            risk_model: Dict[str, Any] = {}
+            if risk_per_trade is not None:
+                risk_model["risk_per_trade_percent"] = risk_per_trade
+            if effective_margin_budget is not None:
+                risk_model["max_margin_usage_percent"] = effective_margin_budget
+            if leverage is not None:
+                risk_model["max_leverage"] = int(leverage) if float(leverage).is_integer() else leverage
+            rules["risk_model"] = risk_model
         if leverage is not None:
-            engine["leverage"] = int(max(1, min(leverage, 10)))
+            engine["leverage"] = int(leverage) if float(leverage).is_integer() else leverage
+            if not float(leverage).is_integer() or not 1 <= leverage <= 10:
+                rules["compiler_issues"].append("leverage_out_of_supported_range")
+        regime_hint = self.infer_market_regimes(text)
+        if regime_hint.get("auto_select"):
+            rules["market_conditions"] = list(regime_hint.get("labels") or [])
+        is_pine = source.kind == "pine" or "//@version" in lower or "strategy(" in lower
+        if is_pine:
+            unsupported_pine = (
+                (r"\brequest\.security\s*\(", "pine_multitimeframe_request_not_supported"),
+                (r"\binput\.(?:int|float|string|bool|timeframe|source)\s*\(", "pine_dynamic_input_requires_user_confirmation"),
+                (r"\b(?:array|matrix|map)\.", "pine_collection_not_supported"),
+                (r"(?m)^\s*[A-Za-z_]\w*\s*\([^\n]*\)\s*=>", "pine_custom_function_not_supported"),
+                (r"\bta\.(?:highest|lowest|valuewhen|barssince)\s*\(", "pine_rolling_state_not_supported"),
+                (r"\bstrategy\.position_avg_price\b", "pine_position_price_exit_not_supported"),
+            )
+            for pattern, issue in unsupported_pine:
+                if re.search(pattern, text, flags=re.I) and issue not in rules["compiler_issues"]:
+                    rules["compiler_issues"].append(issue)
         # 텍스트 자체가 충분한 경우에도 근거 문장을 보존한다.
         if not rules["entry"] and any(token in lower for token in ("cross", "돌파", "다이버전스")):
             rules["entry"] = "소스에 진입 단서가 있으나 정확한 AND/OR 조건은 사용자 확인 필요"
@@ -806,10 +1018,9 @@ class StrategySourceIngestor:
             "exit": ("청산", "매도", "exit", "close"),
             "stop_loss": ("손절", "stop", "sl"),
             "take_profit": ("익절", "take profit", "tp"),
-            "position_size": ("포지션", "position", "수량", "자산"),
+            "position_size": ("포지션", "position", "수량", "자산", "위험예산", "계좌 손실", "증거금"),
             "market_conditions": ("상승", "하락", "횡보", "변동", "trend", "range", "volatility"),
         }
-        fallback = text[:500]
         trace: Dict[str, Any] = {}
         for field, keywords in keyword_map.items():
             value = rules.get(field)
@@ -818,13 +1029,108 @@ class StrategySourceIngestor:
                 if any(keyword in line.lower() for keyword in keywords)
             ][:3]
             trace[field] = {
-                "status": "matched" if value and (matches or fallback) else "missing",
+                "status": "matched" if value and matches else "missing",
                 "rule_value": value,
-                "evidence": matches or ([fallback] if value and fallback else []),
+                "evidence": matches,
                 "source_kind": source.kind,
                 "source_reference": source.reference,
             }
         return trace
+
+    @staticmethod
+    def _execution_contract_digest(rules: Dict[str, Any]) -> str:
+        """Hash only fields that can change signal direction or order risk."""
+        engine = dict(rules.get("engine_settings") or {})
+        payload = {
+            "entry": rules.get("entry"),
+            "exit": rules.get("exit"),
+            "stop_loss": rules.get("stop_loss"),
+            "take_profit": rules.get("take_profit"),
+            "position_size": rules.get("position_size"),
+            "market_conditions": rules.get("market_conditions"),
+            "signal_mode": rules.get("signal_mode"),
+            "entry_signal": rules.get("entry_signal"),
+            "executable_entry": rules.get("executable_entry"),
+            "executable_exit": rules.get("executable_exit"),
+            "independent_entries": rules.get("independent_entries"),
+            "exit_policy": rules.get("exit_policy"),
+            "risk_model": rules.get("risk_model"),
+            "engine_settings": {
+                key: engine.get(key)
+                for key in ("_unit", "tp_percent", "sl_percent", "position_size", "leverage", "signal_threshold")
+                if key in engine
+            },
+        }
+        encoded = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+        return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
+
+    @classmethod
+    def _ai_execution_diff(cls, proposed: Dict[str, Any], compiled: Dict[str, Any]) -> List[str]:
+        """Report AI-proposed execution fields that the deterministic compiler did not prove.
+
+        The proposal is never copied into the executable draft.  This comparison is
+        retained for XAI so a user can see that a fluent model response was rejected.
+        """
+        proposed_engine = dict(proposed.get("engine_settings") or {})
+        compiled_engine = dict(compiled.get("engine_settings") or {})
+        paths = (
+            "signal_mode", "entry_signal", "executable_entry", "executable_exit",
+            "independent_entries", "exit_policy", "risk_model",
+        )
+        rejected = [path for path in paths if proposed.get(path) not in (None, "", {}, []) and proposed.get(path) != compiled.get(path)]
+        for key in ("tp_percent", "sl_percent", "position_size", "leverage", "signal_threshold"):
+            if key in proposed_engine and proposed_engine.get(key) != compiled_engine.get(key):
+                rejected.append(f"engine_settings.{key}")
+        return rejected
+
+    @staticmethod
+    def _user_supplement_conflicts(
+        original: Dict[str, Any],
+        supplement: Dict[str, Any],
+    ) -> List[str]:
+        """Reject a confirmation overlay that changes an already-declared rule.
+
+        Guided clarification may fill a missing field.  It is not a hidden edit
+        channel for replacing source-owned direction, entry/exit semantics, or
+        risk.  A user who wants to change an existing value must edit the source
+        (or create a declared override version) and run analysis again.
+        """
+        def meaningful(path: str, value: Any) -> bool:
+            if value in (None, "", [], {}):
+                return False
+            if path in {"executable_entry", "executable_exit"} and isinstance(value, dict):
+                return bool(value.get("all") or value.get("any") or value.get("expression"))
+            if path == "independent_entries" and isinstance(value, dict):
+                return any(
+                    meaningful("executable_entry", branch)
+                    for branch in value.values()
+                    if isinstance(branch, dict)
+                )
+            return True
+
+        conflicts: List[str] = []
+        for key in (
+            "entry", "exit", "stop_loss", "take_profit", "position_size",
+            "market_conditions", "entry_signal", "executable_entry",
+            "executable_exit", "independent_entries", "risk_model",
+        ):
+            original_value = original.get(key)
+            supplement_value = supplement.get(key)
+            if not meaningful(key, original_value):
+                continue
+            if not meaningful(key, supplement_value):
+                continue
+            if supplement_value != original_value:
+                conflicts.append(key)
+
+        original_engine = dict(original.get("engine_settings") or {})
+        supplement_engine = dict(supplement.get("engine_settings") or {})
+        for key in ("tp_percent", "sl_percent", "position_size", "leverage", "signal_threshold"):
+            if key not in original_engine or key not in supplement_engine:
+                continue
+            if original_engine.get(key) != supplement_engine.get(key):
+                conflicts.append(f"engine_settings.{key}")
+        return sorted(set(conflicts))
 
     @staticmethod
     def infer_market_regimes(text: str, market_conditions: Any = "") -> Dict[str, Any]:
@@ -834,6 +1140,11 @@ class StrategySourceIngestor:
         명시되면 모두 보존하고, 근거가 없으면 사용자 확인이 필요한 all을 반환한다.
         """
         combined = f"{text or ''}\n{market_conditions or ''}".lower()
+        explicit_all_market = bool(re.search(
+            r"사용\s*시장상황\s*:\s*(?:모든|전체)\s*시장(?:상황)?",
+            combined,
+            flags=re.I,
+        ))
         definitions = (
             ("bull", "상승장", (r"상승장", r"강세장", r"상승\s*추세", r"\bbull(?:ish)?(?:\s+market|\s+regime)?\b", r"\buptrend\b")),
             ("bear", "하락장", (r"하락장", r"약세장", r"하락\s*추세", r"\bbear(?:ish)?(?:\s+market|\s+regime)?\b", r"\bdowntrend\b")),
@@ -900,6 +1211,16 @@ class StrategySourceIngestor:
             regimes.append(regime)
             labels.append(label)
             evidence.append(label)
+        if not regimes and explicit_all_market:
+            return {
+                "regimes": ["all"],
+                "labels": ["모든 시장상황"],
+                "confidence": "explicit_text_match",
+                "evidence": "소스의 포함 표현: 모든 시장상황 (실행 시 NoahAI 국면 적합성 재검사)",
+                "auto_select": True,
+                "excluded_regimes": excluded_regimes,
+                "excluded_labels": excluded_labels,
+            }
         if not regimes:
             return {
                 "regimes": ["all"],
@@ -926,12 +1247,55 @@ class StrategySourceIngestor:
             "excluded_labels": excluded_labels,
         }
 
-    def analyze(self, value: str, kind: str = "auto") -> Dict[str, Any]:
-        from .custom_strategy_advisor import build_strategy_guidance
+    def analyze(
+        self,
+        value: str,
+        kind: str = "auto",
+        *,
+        supplemental_text: str = "",
+        authoring_mode: str = "source_faithful",
+    ) -> Dict[str, Any]:
+        from .custom_strategy_advisor import (
+            build_clarification_questions,
+            build_strategy_guidance,
+            build_validation_issue_details,
+        )
 
         source = self.extract(value, kind)
+        original_source = deepcopy(source)
+        normalized_authoring_mode = str(authoring_mode or "source_faithful").strip().lower()
+        if normalized_authoring_mode not in {
+            "source_faithful", "guided_clarification", "noah_delegate",
+        }:
+            normalized_authoring_mode = "source_faithful"
+        confirmed_supplement = str(supplemental_text or "").strip()
+        if len(confirmed_supplement) > 20_000:
+            raise ValueError("사용자 확인 보완 답변은 20,000자 이하여야 합니다.")
+        if confirmed_supplement:
+            original_text = str(source.text or "")
+            source.evidence = dict(source.evidence or {})
+            source.evidence.update({
+                "original_content_sha256": hashlib.sha256(original_text.encode("utf-8")).hexdigest(),
+                "user_confirmation_present": True,
+                "user_confirmation_sha256": hashlib.sha256(
+                    confirmed_supplement.encode("utf-8")
+                ).hexdigest(),
+                "authoring_mode": normalized_authoring_mode,
+            })
+            source.text = (
+                f"{original_text.rstrip()}\n\n"
+                "[사용자가 직접 확인한 보완 답변]\n"
+                f"{confirmed_supplement}"
+            ).strip()
+            source.warnings.append(
+                "원본 파일은 변경하지 않고 사용자가 확인한 보완 답변을 별도 근거로 함께 분석했습니다."
+            )
+        else:
+            source.evidence = dict(source.evidence or {})
+            source.evidence["authoring_mode"] = normalized_authoring_mode
         evidence_available = (
             bool((source.evidence or {}).get("strategy_evidence_available"))
+            or bool(confirmed_supplement)
             if source.kind == "youtube" else bool((source.text or "").strip())
         )
         if len(source.text or "") > self.AI_CONTENT_CHAR_LIMIT:
@@ -941,14 +1305,31 @@ class StrategySourceIngestor:
             if limit_warning not in source.warnings:
                 source.warnings.append(limit_warning)
         heuristic = self._heuristic_rules(source)
+        if confirmed_supplement:
+            supplement_rules = self._heuristic_rules(ExtractedStrategySource(
+                kind="text",
+                reference="user-confirmation",
+                title="사용자 확인 보완 답변",
+                text=confirmed_supplement,
+                warnings=[],
+                evidence={"user_confirmation_present": True},
+            ))
+            original_rules = self._heuristic_rules(original_source)
+            for path in self._user_supplement_conflicts(original_rules, supplement_rules):
+                issue = f"user_confirmation_conflicts_with_original:{path}"
+                if issue not in heuristic["compiler_issues"]:
+                    heuristic["compiler_issues"].append(issue)
         result: Optional[Dict[str, Any]] = None
+        ai_budget_fallback = False
         if self.ai_client and self.ai_client.is_ready() and source.text.strip() and evidence_available:
             system_prompt = (
-                "You convert user-owned trading material into explicit rules. Return JSON only. "
+                "You explain and propose a structured reading of user-owned trading material. Return JSON only. "
                 "Never invent missing conditions. Required keys: name, summary, rules, engine_settings, "
-                "missing_conditions, risks, scenarios. rules must contain entry, exit, stop_loss, "
+                "missing_conditions, clarification_questions, risks, scenarios. rules must contain entry, exit, stop_loss, "
                 "take_profit, position_size, market_conditions. engine_settings may only contain "
-                "leverage(1-10), tp_percent, sl_percent, position_size(0.01-0.5), signal_threshold(0-1). "
+                "_unit='percent_points', leverage(1-5), tp_percent, sl_percent, "
+                "position_size(0.01-0.5), signal_threshold(0-1). tp_percent and sl_percent are "
+                "percentage points: source TP 0.3% must be JSON 0.3, never 0.003. "
                 "Also return rules.executable_entry and, only when explicitly present, rules.executable_exit "
                 "with all/any arrays. Each condition may use fields signal, confidence, open, high, low, close, "
                 "current_price, rsi, macd, macd_signal, macd_histogram, bb_position, bb_width, "
@@ -957,14 +1338,19 @@ class StrategySourceIngestor:
                 "and operators eq, ne, gt, gte, lt, lte, gt_field, lt_field, "
                 "crosses_above, crosses_below. Cross operators must use value_field and only when "
                 "the source explicitly defines crossover/crossunder. "
-                "Also return rules.entry_signal as LONG, SHORT, or empty when direction is not explicit, and "
+                "Also return rules.entry_signal as LONG, SHORT, or empty when direction is not explicit. "
+                "If the source explicitly defines separate LONG and SHORT conditions, return "
+                "rules.independent_entries={LONG:{all/any/expression},SHORT:{all/any/expression}} instead "
+                "of mixing both directions into one executable_entry. "
                 "rules.signal_mode as confirm unless the material explicitly defines a standalone entry signal. "
                 "When explicitly present, rules.risk_model may contain risk_per_trade_percent, "
                 "max_margin_usage_percent, max_leverage, max_notional_percent, stop_mode, and volatility_multiplier. "
                 "rules.regime_transition must be delegate_to_noah or pause and must reflect the user's material; "
-                "use delegate_to_noah when it is not specified. Ask concise clarification questions for every "
-                "missing condition and explain why it matters. "
-                "Do not include withdrawal or transfer instructions. Explain AND/OR logic and evidence."
+                "use delegate_to_noah when it is not specified. clarification_questions may only ask concise "
+                "questions for missing conditions and explain why they matter; never answer those questions, "
+                "invent defaults, or mark an AI proposal as user-confirmed. "
+                "Do not include withdrawal or transfer instructions. Explain AND/OR logic and evidence. "
+                "Your execution proposal is advisory: NoahAI's deterministic source compiler is the only authority."
             )
             payload = {
                 "source_kind": source.kind,
@@ -974,35 +1360,87 @@ class StrategySourceIngestor:
                 "heuristic": heuristic,
                 "content": source.text[:self.AI_CONTENT_CHAR_LIMIT],
             }
-            result = self.ai_client.chat_json(system_prompt, json.dumps(payload, ensure_ascii=False), max_tokens=2400)
+            try:
+                result = self.ai_client.chat_json(
+                    system_prompt,
+                    json.dumps(payload, ensure_ascii=False),
+                    max_tokens=2400,
+                )
+            except RuntimeError as exc:
+                # The deterministic compiler is the execution authority.  An
+                # exhausted *interactive* AI budget must therefore remove only
+                # the optional explanation layer, never block text/Pine source
+                # analysis or the five-minute guided authoring flow.
+                if str(exc).strip() != "interactive_ai_budget_exceeded":
+                    raise
+                ai_budget_fallback = True
+                source.warnings.append(
+                    "오늘의 외부 AI 심층분석 사용 한도에 도달해 앱 내부 규칙 분석으로 계속했습니다. "
+                    "실행 가능 여부와 누락 조건은 동일한 결정형 컴파일러가 판정합니다."
+                )
 
         result = dict(result or {})
-        rules = dict(result.get("rules") or heuristic)
-        engine = dict(result.get("engine_settings") or rules.get("engine_settings") or heuristic.get("engine_settings") or {})
+        proposed_rules = dict(result.get("rules") or {})
+        if isinstance(result.get("engine_settings"), dict):
+            proposed_rules["engine_settings"] = dict(result["engine_settings"])
+        # Order-affecting values always come from the deterministic compiler.
+        # External AI may explain the source, but it cannot silently add a rule,
+        # direction, TP/SL, leverage, or position size that the source parser did
+        # not prove.
+        rules = deepcopy(heuristic)
+        engine = dict(rules.get("engine_settings") or {})
         if "leverage" in engine:
-            engine["leverage"] = int(max(1, min(float(engine["leverage"]), 10)))
+            engine["leverage"] = int(float(engine["leverage"]))
         if "position_size" in engine:
-            engine["position_size"] = max(0.01, min(float(engine["position_size"]), 0.5))
+            engine["position_size"] = float(engine["position_size"])
         for key in ("tp_percent", "sl_percent"):
             if key in engine:
-                engine[key] = max(0.05, min(float(engine[key]), 50.0 if key == "tp_percent" else 20.0))
+                engine[key] = float(engine[key])
         if "signal_threshold" in engine:
-            engine["signal_threshold"] = max(0.0, min(float(engine["signal_threshold"]), 1.0))
+            engine["signal_threshold"] = float(engine["signal_threshold"])
         engine["_unit"] = "percent_points"
-        rules["signal_mode"] = str(result.get("signal_mode") or rules.get("signal_mode") or "confirm").lower()
-        rules["entry_signal"] = str(result.get("entry_signal") or rules.get("entry_signal") or "").upper()
+        rules["signal_mode"] = str(rules.get("signal_mode") or "confirm").lower()
+        rules["entry_signal"] = str(rules.get("entry_signal") or "").upper()
         rules["regime_transition"] = str(
-            result.get("regime_transition") or rules.get("regime_transition") or "delegate_to_noah"
+            rules.get("regime_transition") or "delegate_to_noah"
         ).lower()
         if rules["regime_transition"] not in {"delegate_to_noah", "pause"}:
             rules["regime_transition"] = "delegate_to_noah"
-        if isinstance(result.get("risk_model"), dict) and not isinstance(rules.get("risk_model"), dict):
-            rules["risk_model"] = dict(result["risk_model"])
         rules["engine_settings"] = engine
+        has_declared_exit_rates = any(engine.get(key) is not None for key in ("tp_percent", "sl_percent"))
+        rules["exit_policy"] = {
+            "mode": (
+                "strategy_owned"
+                if rules["signal_mode"] == "independent" or has_declared_exit_rates
+                else "inherit_noah_base"
+            )
+        }
         rules["source_evidence"] = asdict(source)
         rules["source_rule_trace"] = self._build_source_rule_trace(source, rules)
+        rejected_ai_paths = self._ai_execution_diff(proposed_rules, rules) if proposed_rules else []
+        rules["source_grounding"] = {
+            "status": "compiler_authoritative",
+            "compiler_contract_sha256": self._execution_contract_digest(rules),
+            "ai_execution_rules_accepted": bool(proposed_rules and not rejected_ai_paths),
+            "rejected_ai_paths": rejected_ai_paths,
+            "authoring_mode": normalized_authoring_mode,
+            "user_confirmation_present": bool(confirmed_supplement),
+            "user_confirmation_sha256": (
+                hashlib.sha256(confirmed_supplement.encode("utf-8")).hexdigest()
+                if confirmed_supplement else ""
+            ),
+        }
+        if rejected_ai_paths:
+            source.warnings.append(
+                "외부 AI가 제안했지만 원문 컴파일러가 증명하지 못해 실행 규칙에서 제외한 항목: "
+                + ", ".join(rejected_ai_paths)
+            )
         missing = [key for key in self.REQUIRED_RULES if not rules.get(key)]
-        missing.extend(item for item in (result.get("missing_conditions") or []) if item not in missing)
+        for issue in list(rules.get("compiler_issues") or []):
+            if issue not in missing:
+                missing.append(issue)
+        # AI의 누락 제안은 설명용이다. 모델 응답이 실행 가능 여부를 임의로
+        # 바꾸지 않도록 실제 차단 사유는 컴파일러와 공통 계약에서만 만든다.
         from .declarative_strategy_engine import DeclarativeStrategyEngine
         executable_validation = DeclarativeStrategyEngine.validate_rule_spec(rules)
         unsupported_conditions = list(executable_validation.get("errors", []) or [])
@@ -1012,6 +1450,13 @@ class StrategySourceIngestor:
                 "실행 엔진이 지원하지 않는 조건이 있어 승인할 수 없습니다: "
                 + ", ".join(unsupported_conditions)
             )
+        from .custom_strategy_runtime import ExitRateContractError, validate_stored_exit_rates
+        try:
+            validate_stored_exit_rates(engine)
+        except ExitRateContractError as exc:
+            if "exit_rate_contract_missing_or_invalid" not in missing:
+                missing.append("exit_rate_contract_missing_or_invalid")
+            source.warnings.append(str(exc))
         if not evidence_available:
             missing.extend(key for key in self.REQUIRED_RULES if key not in missing)
         guidance = build_strategy_guidance(rules, self.REQUIRED_RULES)
@@ -1033,6 +1478,18 @@ class StrategySourceIngestor:
             source_reference=source.reference,
             missing_conditions=missing,
         )
+        # 문서/IR 완성과 실제 실행 가능성은 별도 게이트다. 여기서 미리
+        # 표시해 사용자가 승인 또는 PAPER 시작 후에야 실패를 알지 않게 한다.
+        from .custom_strategy_pipeline import CustomStrategyPipeline
+        execution_readiness = CustomStrategyPipeline.paper_execution_readiness({
+            "rules": rules,
+            "missing_conditions": missing,
+        })
+        blocking_details = build_validation_issue_details(
+            [*missing, *list(execution_readiness.get("reasons") or [])],
+            unsupported_conditions,
+        )
+        clarification_questions = build_clarification_questions(blocking_details)
         return {
             "name": str(result.get("name") or source.title or "사용자 전략"),
             "summary": str(result.get("summary") or "소스에서 확인 가능한 조건만 추출했습니다."),
@@ -1044,9 +1501,28 @@ class StrategySourceIngestor:
             "unsupported_conditions": unsupported_conditions,
             "risks": list(result.get("risks") or ["체결 비용과 유동성에 따라 결과가 달라질 수 있습니다."]),
             "scenarios": list(result.get("scenarios") or []),
+            "ai_advisory_missing_conditions": list(result.get("missing_conditions") or []),
+            "ai_execution_suggestion_rejected": bool(rejected_ai_paths),
             "market_regime_suggestion": regime_suggestion,
             "ai_analyzed": bool(result),
+            "ai_budget_fallback": ai_budget_fallback,
             "ready_for_review": bool(evidence_available and not missing),
+            "ready_for_execution": bool(
+                evidence_available and not missing and execution_readiness.get("ready")
+            ),
+            "execution_readiness": execution_readiness,
+            "blocking_details": blocking_details,
+            "clarification_questions": clarification_questions,
+            "authoring_contract": {
+                "mode": normalized_authoring_mode,
+                "source_faithful": True,
+                "user_confirmation_present": bool(confirmed_supplement),
+                "ai_proposals_are_executable": False,
+                "auto_saved": False,
+                "auto_approved": False,
+                "auto_paper_started": False,
+                "auto_live_started": False,
+            },
             "strategy_ir": strategy_ir,
             "ir_level_1": NoahStrategyIR.project(strategy_ir, 1),
             "ir_level_2": NoahStrategyIR.project(strategy_ir, 2),

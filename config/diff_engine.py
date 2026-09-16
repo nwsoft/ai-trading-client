@@ -42,7 +42,7 @@ def compute_settings_diff(old: Dict[str, Any], new: Dict[str, Any]) -> Dict[str,
     )
     enabled_exchanges_changed = 'enabled_exchanges' in changed
     # 넓게: 각 거래소의 key/secret/passphrase 변경
-    exchange_key_prefixes = ['binance', 'bybit', 'okx', 'bitget', 'upbit', 'bithumb']
+    exchange_key_prefixes = ['binance', 'bybit', 'okx', 'bitget', 'upbit', 'bithumb', 'coinone']
     exchange_key_suffixes = ['api_key', 'secret_key', 'passphrase', 'password']
     exchanges_changed = enabled_exchanges_changed or any(
         f"{p}_{s}" in changed for p in exchange_key_prefixes for s in exchange_key_suffixes

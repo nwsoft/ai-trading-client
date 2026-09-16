@@ -13,8 +13,10 @@ import threading
 
 try:
     from openai import OpenAI
-except Exception:  # 패키지 미설치 시에도 임포트 에러 방지
+    _OPENAI_IMPORT_ERROR_TYPE = ""
+except Exception as exc:  # 패키지 미설치/패키징 누락 시에도 임포트 에러 방지
     OpenAI = None  # type: ignore
+    _OPENAI_IMPORT_ERROR_TYPE = type(exc).__name__
 
 
 class OpenAIClient:
@@ -34,18 +36,49 @@ class OpenAIClient:
         self._usage_local = threading.local()
         self._error_local = threading.local()
         self._response_local = threading.local()
+        self._initialization_error: Dict[str, Any] = {}
         if OpenAI and self.api_key:
             # base_url이 있으면 사용 (DeepSeek 등)
             client_kwargs = {'api_key': self.api_key}
             if self.base_url:
                 client_kwargs['base_url'] = self.base_url
-            self._client = OpenAI(**client_kwargs)
+            try:
+                self._client = OpenAI(**client_kwargs)
+            except Exception as exc:
+                self._initialization_error = {
+                    "provider": self.provider,
+                    "code": "client_initialization_failed",
+                    "message": "AI 클라이언트 초기화에 실패했습니다. 설치 패키지와 네트워크/프록시 환경을 확인하세요.",
+                    "status_code": None,
+                    "retryable": False,
+                    "error_type": type(exc).__name__,
+                }
             # 모델 정보 로깅 (환경변수 NOAHAI_VERBOSE_AI=1 일 때만)
             if os.getenv('NOAHAI_VERBOSE_AI') == '1':
                 print(f"OpenAI Client 초기화: 모델={self.model}, base_url={self.base_url}")
+        elif not self.api_key:
+            self._initialization_error = {
+                "provider": self.provider,
+                "code": "credential_missing",
+                "message": f"{self.provider.upper()}에 저장된 API 키가 없습니다.",
+                "status_code": None,
+                "retryable": False,
+            }
+        else:
+            self._initialization_error = {
+                "provider": self.provider,
+                "code": "provider_sdk_unavailable",
+                "message": "설치된 NoahAI 엔진에서 AI Provider SDK를 불러오지 못했습니다. 앱 업데이트가 필요합니다.",
+                "status_code": None,
+                "retryable": False,
+                "error_type": _OPENAI_IMPORT_ERROR_TYPE or "ImportError",
+            }
 
     def is_ready(self) -> bool:
         return self._client is not None
+
+    def get_initialization_error(self) -> Dict[str, Any]:
+        return dict(self._initialization_error)
 
     def _record_contract_error(self, code: str, message: str) -> None:
         self._error_local.value = {
@@ -104,7 +137,7 @@ class OpenAIClient:
     def _completion_limits(self, model: str, max_tokens: int) -> Dict[str, Any]:
         """신형 reasoning 모델과 구형 Chat Completions 파라미터 차이를 흡수한다."""
         lower = str(model or '').lower()
-        if lower.startswith(('gpt-5', 'o1', 'o3', 'o4', 'kimi-k3')):
+        if lower.startswith(('gpt-5', 'gpt-6', 'o1', 'o3', 'o4', 'kimi-k3')):
             return {'max_completion_tokens': max_tokens}
         return {'max_tokens': max_tokens}
 
@@ -114,7 +147,26 @@ class OpenAIClient:
             return False
         if self.provider == "gemini" and lower.startswith(("gemini-3.5", "gemini-3.6")):
             return False
-        return not lower.startswith(('gpt-5', 'o1', 'o3', 'o4'))
+        return not lower.startswith(('gpt-5', 'gpt-6', 'o1', 'o3', 'o4'))
+
+    def _sanitize_completion_options(self, model: str, options: Dict[str, Any]) -> Dict[str, Any]:
+        """Remove parameters that the selected reasoning model rejects.
+
+        GPT-6 reasoning models do not accept sampling controls such as
+        temperature/top_p.  Keeping this at the provider boundary prevents an
+        older caller from turning a valid model selection into a false 400.
+        """
+        sanitized = dict(options)
+        lower = str(model or "").lower()
+        if not self._supports_temperature(model):
+            if "max_tokens" in sanitized and "max_completion_tokens" not in sanitized:
+                sanitized["max_completion_tokens"] = sanitized.pop("max_tokens")
+            sanitized.pop("temperature", None)
+        if lower.startswith("gpt-6"):
+            sanitized.pop("top_p", None)
+            sanitized.pop("top_logprobs", None)
+            sanitized.pop("logprobs", None)
+        return sanitized
 
     def chat_json(self,
                   system_prompt: str,
@@ -140,6 +192,8 @@ class OpenAIClient:
                 request_kwargs["response_format"] = {"type": "json_object"}
             if self._supports_temperature(use_model):
                 request_kwargs['temperature'] = temperature
+            if self.provider == "openai":
+                request_kwargs["store"] = False
             completion = self._client.chat.completions.create(
                 **request_kwargs,
             )
@@ -166,9 +220,12 @@ class OpenAIClient:
             cached_tokens = 0
         if not cached_tokens:
             cached_tokens = int(getattr(usage, "cached_tokens", 0) or 0)
+        requested_model = str(model or self.model)
+        actual_model = str(getattr(completion, "model", None) or requested_model)
         self._usage_local.value = {
             "provider": self.provider,
-            "model": str(model or self.model),
+            "model": actual_model,
+            "requested_model": requested_model,
             "input_tokens": prompt_tokens,
             "cached_input_tokens": cached_tokens,
             "output_tokens": completion_tokens,
@@ -178,6 +235,9 @@ class OpenAIClient:
         first_choice = choices[0] if choices else None
         self._response_local.value = {
             "finish_reason": getattr(first_choice, "finish_reason", None),
+            "response_id": str(getattr(completion, "id", None) or ""),
+            "actual_model": actual_model,
+            "requested_model": requested_model,
         }
 
     def get_last_usage(self) -> Dict[str, Any]:
@@ -247,6 +307,8 @@ class OpenAIClient:
             }
             if self._supports_temperature(use_model):
                 request_kwargs["temperature"] = 0.1
+            if self.provider == "openai":
+                request_kwargs["store"] = False
             completion = self._client.chat.completions.create(**request_kwargs)
             self._record_usage(completion, use_model)
             text = str(completion.choices[0].message.content or "").strip()
@@ -304,11 +366,9 @@ class OpenAIClient:
             self._clear_error()
             # 사용할 모델 결정
             use_model = model or self.model
-            request_options = dict(kwargs)
-            if not self._supports_temperature(use_model):
-                if 'max_tokens' in request_options and 'max_completion_tokens' not in request_options:
-                    request_options['max_completion_tokens'] = request_options.pop('max_tokens')
-                request_options.pop('temperature', None)
+            request_options = self._sanitize_completion_options(use_model, kwargs)
+            if self.provider == "openai":
+                request_options["store"] = False
             
             import logging
             logger = logging.getLogger(__name__)

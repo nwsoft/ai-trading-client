@@ -24,6 +24,44 @@ def _symbol(value: Any) -> str:
     return str(value or "").strip().upper()
 
 
+NON_EXECUTABLE_SELECTION_STATUSES = {
+    "fallback_unscored",
+    "data_unavailable",
+    "exchange_unavailable",
+    "selection_error",
+    "stale_unscored",
+    "stale_data",
+}
+
+
+def candidate_execution_eligible(value: Any) -> bool:
+    """Return whether a selected candidate may create a new order.
+
+    Candidate discovery failures may expose well-known symbols so the UI can
+    explain and retry the problem.  They are not market-ranked candidates and
+    must never become PAPER/LIVE entries merely because a later signal engine
+    returns LONG or SHORT.  Existing position monitoring is outside this gate.
+    """
+
+    if not isinstance(value, Mapping):
+        return True
+    if value.get("execution_eligible") is False:
+        return False
+    status = str(value.get("selection_status") or "scored").strip().lower()
+    return status not in NON_EXECUTABLE_SELECTION_STATUSES
+
+
+def has_executable_candidates(values: Sequence[Any] | None) -> bool:
+    """Return whether a candidate collection contains a new-entry candidate.
+
+    A fallback list is useful for explaining data outages in the UI, but it
+    must not keep an automatic trading cycle busy with candle/AI analysis or
+    postpone a real selection retry for the normal three-hour refresh window.
+    """
+
+    return any(candidate_execution_eligible(value) for value in (values or []))
+
+
 @dataclass(frozen=True)
 class SelectionPolicy:
     """수동 고정 종목 우선 + 자동 후보 보충이라는 공통 선정 계약."""
@@ -93,18 +131,8 @@ def _candidate_value(item: Mapping[str, Any], *keys: str) -> float:
 
 
 def _scope_matches(scope: Any, *, asset_class: str, target: str) -> bool:
-    normalized = str(scope or "asset:crypto").strip().lower()
-    asset = str(asset_class or "").strip().lower()
-    current = str(target or "").strip().lower()
-    if normalized == "asset:all":
-        return True
-    if normalized == f"asset:{asset}":
-        return True
-    if normalized.startswith("exchange:"):
-        return asset == "crypto" and normalized.split(":", 1)[1] == current
-    if normalized.startswith("broker:"):
-        return asset == "stock" and normalized.split(":", 1)[1] == current
-    return False
+    from .strategy_scope import scope_matches
+    return scope_matches(scope, asset_class=asset_class, target=target)
 
 
 @dataclass(frozen=True)

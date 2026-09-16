@@ -303,7 +303,7 @@ class DemoTrader:
         """데모 거래 로그 출력"""
         status_emoji = "🟢" if trade_result['is_winning'] else "🔴"
         profit_sign = "+" if trade_result['profit_amount'] >= 0 else ""
-        quote_asset = 'KRW' if exchange_name in {'upbit', 'bithumb'} else 'USDT'
+        quote_asset = 'KRW' if exchange_name in {'upbit', 'bithumb', 'coinone'} else 'USDT'
         quote_balance = float(
             (self.virtual_balances.get(exchange_name) or {}).get(quote_asset, 0.0)
         )

@@ -1,0 +1,162 @@
+[
+  {
+    "name": "KB 국민 정기예금",
+    "provider": "KB국민은행",
+    "annual_rate": 3.45,
+    "term_months": 12,
+    "tax_free": false,
+    "min_amount": 1000000
+  },
+  {
+    "name": "신한 청년 희망적금",
+    "provider": "신한은행",
+    "annual_rate": 4.2,
+    "term_months": 24,
+    "tax_free": true,
+    "min_amount": 100000
+  },
+  {
+    "name": "케이뱅크 코드포코 정기예금",
+    "provider": "케이뱅크",
+    "annual_rate": 4.1,
+    "term_months": 12,
+    "tax_free": false,
+    "min_amount": 100000
+  },
+  {
+    "name": "카카오 세이프 박스",
+    "provider": "카카오뱅크",
+    "annual_rate": 3.9,
+    "term_months": 12,
+    "tax_free": false,
+    "min_amount": 10000
+  },
+  {
+    "name": "토스 자유적금 플러스",
+    "provider": "토스뱅크",
+    "annual_rate": 4.0,
+    "term_months": 6,
+    "tax_free": false,
+    "min_amount": 10000
+  },
+  {
+    "name": "우리 WON 정기예금",
+    "provider": "우리은행",
+    "annual_rate": 3.6,
+    "term_months": 12,
+    "tax_free": false,
+    "min_amount": 500000
+  },
+  {
+    "name": "NH 올원 e-적금",
+    "provider": "NH농협은행",
+    "annual_rate": 3.8,
+    "term_months": 12,
+    "tax_free": false,
+    "min_amount": 100000
+  },
+  {
+    "name": "하나 주거래 적금",
+    "provider": "하나은행",
+    "annual_rate": 3.7,
+    "term_months": 24,
+    "tax_free": false,
+    "min_amount": 100000
+  },
+  {
+    "name": "신한 마이링크 정기예금",
+    "provider": "신한은행",
+    "annual_rate": 3.75,
+    "term_months": 12,
+    "tax_free": false,
+    "min_amount": 500000
+  },
+  {
+    "name": "IBK D더하이 적금",
+    "provider": "IBK기업은행",
+    "annual_rate": 4.15,
+    "term_months": 12,
+    "tax_free": false,
+    "min_amount": 10000
+  },
+  {
+    "name": "대구은행 iM 정기예금",
+    "provider": "iM대구은행",
+    "annual_rate": 4.25,
+    "term_months": 12,
+    "tax_free": false,
+    "min_amount": 100000
+  },
+  {
+    "name": "부산은행 온라인 정기예금",
+    "provider": "BNK부산은행",
+    "annual_rate": 4.05,
+    "term_months": 12,
+    "tax_free": false,
+    "min_amount": 100000
+  },
+  {
+    "name": "신협 절세 자유적금",
+    "provider": "신협은행",
+    "annual_rate": 3.95,
+    "term_months": 12,
+    "tax_free": true,
+    "min_amount": 100000
+  },
+  {
+    "name": "MG새마을금고 e-자유적금",
+    "provider": "MG새마을금고",
+    "annual_rate": 4.3,
+    "term_months": 12,
+    "tax_free": false,
+    "min_amount": 10000
+  },
+  {
+    "name": "SC제일은행 e-정기예금",
+    "provider": "SC제일은행",
+    "annual_rate": 3.85,
+    "term_months": 12,
+    "tax_free": false,
+    "min_amount": 100000
+  },
+  {
+    "name": "KB ISA제형 적금",
+    "provider": "KB국민은행",
+    "annual_rate": 4.5,
+    "term_months": 36,
+    "tax_free": true,
+    "min_amount": 100000
+  },
+  {
+    "name": "우리 청년 ISA적금",
+    "provider": "우리은행",
+    "annual_rate": 4.4,
+    "term_months": 36,
+    "tax_free": true,
+    "min_amount": 100000
+  },
+  {
+    "name": "NH 블리스 정기예금",
+    "provider": "NH농협은행",
+    "annual_rate": 3.65,
+    "term_months": 6,
+    "tax_free": false,
+    "min_amount": 100000
+  },
+  {
+    "name": "동양저축은행 e플러스 자유적금",
+    "provider": "동양저축은행",
+    "annual_rate": 4.35,
+    "term_months": 12,
+    "tax_free": false,
+    "min_amount": 10000
+  },
+  {
+    "name": "지역농협 보라비 적금",
+    "provider": "지역농협",
+    "annual_rate": 4.55,
+    "term_months": 12,
+    "tax_free": false,
+    "min_amount": 10000
+  }
+]

@@ -5,6 +5,53 @@
 from __future__ import annotations
 
 from typing import Any
+import math
+
+
+class CandleRows(list):
+    """List-compatible query result retaining a sanitized failure cause."""
+    def __init__(self, rows=(), *, reason="", error_type="", status_code=None):
+        super().__init__(rows)
+        self.reason = reason
+        self.error_type = error_type
+        self.status_code = status_code
+
+
+def failed_candles(reason: str, error=None) -> CandleRows:
+    status = getattr(error, 'status_code', None)
+    if status is None:
+        status = getattr(getattr(error, 'response', None), 'status_code', None)
+    return CandleRows(reason=reason, error_type=type(error).__name__ if error else '',
+                      status_code=status if isinstance(status, int) else None)
+
+
+def optional_market_number(*values):
+    """Missing/invalid is None; an explicitly reported zero stays zero."""
+    for value in values:
+        if value is None or value == '' or isinstance(value, bool):
+            continue
+        try:
+            number = float(str(value).strip().replace(',', '').rstrip('%'))
+            if math.isfinite(number):
+                return number
+        except (ValueError, TypeError):
+            continue
+    return None
+
+
+def chronological_candles(rows):
+    """Canonical ascending OHLCV; never synthesize gaps or pick conflicting bars."""
+    by_time = {}
+    for row in rows:
+        if not isinstance(row, (list, tuple)) or len(row) < 6:
+            raise ValueError('invalid_candle_shape')
+        values = [float(value) for value in row[:6]]
+        if not all(math.isfinite(v) for v in values) or min(values[:5]) <= 0 or values[5] < 0:
+            raise ValueError('invalid_candle_values')
+        if values[0] in by_time and by_time[values[0]] != values:
+            raise ValueError('conflicting_candle_timestamp')
+        by_time[values[0]] = values
+    return [by_time[key] for key in sorted(by_time)]
 
 
 _KLINE_INDEX = {

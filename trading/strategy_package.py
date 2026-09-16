@@ -48,6 +48,36 @@ def _contains_prohibited(value: Any, path: str = "") -> Optional[str]:
     return None
 
 
+_LEGACY_WEB_FLOAT_KEYS = {
+    "risk_per_trade_percent", "max_margin_usage_percent", "max_notional_percent",
+    "volatility_multiplier",
+}
+
+
+def _restore_legacy_web_numeric_types(value: Any) -> Any:
+    """Restore schema-defined decimals lost by JSON.parse/stringify.
+
+    JavaScript represents both ``2`` and ``2.0`` as one Number and serializes
+    the latter as ``2``. The recovery is accepted only when the original IR and
+    package hashes both verify afterwards, so this never weakens integrity.
+    """
+    if isinstance(value, Mapping):
+        restored: Dict[str, Any] = {}
+        for key, nested in value.items():
+            item = _restore_legacy_web_numeric_types(nested)
+            if (
+                str(key) in _LEGACY_WEB_FLOAT_KEYS
+                and isinstance(item, int)
+                and not isinstance(item, bool)
+            ):
+                item = float(item)
+            restored[str(key)] = item
+        return restored
+    if isinstance(value, list):
+        return [_restore_legacy_web_numeric_types(item) for item in value]
+    return deepcopy(value)
+
+
 def build_strategy_package(
     version: Mapping[str, Any], *, passport: Optional[Mapping[str, Any]] = None,
     access_policy: Optional[Mapping[str, Any]] = None, signing_key: str = "",
@@ -105,7 +135,10 @@ def build_strategy_package(
     return payload
 
 
-def verify_strategy_package(package: Mapping[str, Any], *, signing_key: str = "", allow_unsigned_local: bool = True) -> Dict[str, Any]:
+def _verify_strategy_package_once(
+    package: Mapping[str, Any], *, signing_key: str = "",
+    allow_unsigned_local: bool = True,
+) -> Dict[str, Any]:
     payload = deepcopy(dict(package or {}))
     errors = []
     if payload.get("format") != FORMAT or payload.get("schema_version") != SCHEMA_VERSION:
@@ -144,6 +177,38 @@ def verify_strategy_package(package: Mapping[str, Any], *, signing_key: str = ""
     return {"valid": not errors, "errors": sorted(set(errors)), "review_only": True, "auto_applied": False}
 
 
+def verify_strategy_package(package: Mapping[str, Any], *, signing_key: str = "", allow_unsigned_local: bool = True) -> Dict[str, Any]:
+    strict = _verify_strategy_package_once(
+        package, signing_key=signing_key,
+        allow_unsigned_local=allow_unsigned_local,
+    )
+    if strict["valid"]:
+        return strict
+    if not {"content_hash_mismatch", "invalid_strategy_ir"}.intersection(strict["errors"]):
+        return strict
+    restored = _restore_legacy_web_numeric_types(package)
+    recovered = _verify_strategy_package_once(
+        restored, signing_key=signing_key,
+        allow_unsigned_local=allow_unsigned_local,
+    )
+    if not recovered["valid"]:
+        return strict
+    return {
+        **recovered,
+        "legacy_web_serialized": True,
+        "normalized_package": restored,
+    }
+
+
+def serialize_strategy_package(package: Mapping[str, Any]) -> str:
+    """Serialize once in Python so browser downloads preserve signed bytes."""
+    verification = verify_strategy_package(package)
+    if not verification["valid"]:
+        raise ValueError("패키지 검증 실패: " + ", ".join(verification["errors"]))
+    normalized = verification.get("normalized_package") or package
+    return json.dumps(normalized, ensure_ascii=False, indent=2)
+
+
 def export_strategy_package(path: str, package: Mapping[str, Any]) -> str:
     target = Path(path)
     if target.suffix.lower() != ".noahstrategy":
@@ -151,7 +216,7 @@ def export_strategy_package(path: str, package: Mapping[str, Any]) -> str:
     verification = verify_strategy_package(package)
     if not verification["valid"]:
         raise ValueError("패키지 검증 실패: " + ", ".join(verification["errors"]))
-    target.write_text(json.dumps(package, ensure_ascii=False, indent=2), encoding="utf-8")
+    target.write_text(serialize_strategy_package(package), encoding="utf-8")
     return str(target)
 
 
@@ -163,6 +228,7 @@ def import_strategy_package(path: str, *, signing_key: str = "", allow_unsigned_
     verification = verify_strategy_package(package, signing_key=signing_key, allow_unsigned_local=allow_unsigned_local)
     if not verification["valid"]:
         raise ValueError("패키지 검증 실패: " + ", ".join(verification["errors"]))
+    package = verification.get("normalized_package") or package
     strategy = deepcopy(dict(package.get("strategy") or {}))
     return {
         "name": strategy.get("name"),

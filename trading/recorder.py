@@ -47,6 +47,15 @@ class TradeLog:
     position_owner: str = "legacy_unknown"
     execution_mode: str = "live"
     spot_baseline_quantity: float = 0.0
+    gross_pnl: Optional[float] = None
+    net_pnl: Optional[float] = None
+    entry_fee: Optional[float] = None
+    exit_fee: Optional[float] = None
+    entry_fee_asset: Optional[str] = None
+    exit_fee_asset: Optional[str] = None
+    settlement_currency: Optional[str] = None
+    pnl_source: str = "legacy_unverified"
+    reconciliation_status: str = "legacy_unverified"
 
 
 @dataclass
@@ -311,6 +320,15 @@ class Recorder:
                         position_owner TEXT NOT NULL DEFAULT 'legacy_unknown',
                         execution_mode TEXT NOT NULL DEFAULT 'live',
                         spot_baseline_quantity REAL NOT NULL DEFAULT 0.0,
+                        gross_pnl REAL,
+                        net_pnl REAL,
+                        entry_fee REAL,
+                        exit_fee REAL,
+                        entry_fee_asset TEXT,
+                        exit_fee_asset TEXT,
+                        settlement_currency TEXT,
+                        pnl_source TEXT NOT NULL DEFAULT 'legacy_unverified',
+                        reconciliation_status TEXT NOT NULL DEFAULT 'legacy_unverified',
                         created_at DATETIME DEFAULT CURRENT_TIMESTAMP
                     )
                 """)
@@ -386,11 +404,13 @@ class Recorder:
                     CREATE TABLE IF NOT EXISTS coin_selection_sessions (
                         id INTEGER PRIMARY KEY AUTOINCREMENT,
                         timestamp DATETIME NOT NULL,
+                        exchange TEXT NOT NULL DEFAULT 'legacy_unscoped',
                         market_regime TEXT NOT NULL,
                         total_coins INTEGER NOT NULL,
                         major_coins_count INTEGER NOT NULL,
                         alt_coins_count INTEGER NOT NULL,
                         selection_reason TEXT,
+                        selection_status TEXT NOT NULL DEFAULT 'scored',
                         adjustment_factor REAL,
                         created_at DATETIME DEFAULT CURRENT_TIMESTAMP
                     )
@@ -401,8 +421,11 @@ class Recorder:
                     CREATE TABLE IF NOT EXISTS selected_coins (
                         id INTEGER PRIMARY KEY AUTOINCREMENT,
                         session_id INTEGER NOT NULL,
+                        exchange TEXT NOT NULL DEFAULT 'legacy_unscoped',
                         symbol TEXT NOT NULL,
                         is_major BOOLEAN NOT NULL,
+                        selection_status TEXT NOT NULL DEFAULT 'scored',
+                        selection_reason TEXT,
                         overall_score REAL,
                         technical_score REAL,
                         volatility_score REAL,
@@ -416,6 +439,31 @@ class Recorder:
                         FOREIGN KEY(session_id) REFERENCES coin_selection_sessions(id)
                     )
                 """)
+                # v3.9.1.12 이하 selected_coins에는 거래소 범위가 없어 Web UI가
+                # source-strict 조회를 수행하면 항상 빈 목록이 되었다. 기존 행을
+                # 임의로 Binance로 귀속하지 않고 legacy_unscoped로 보존한 뒤,
+                # 새 선정부터 거래소와 산출 상태를 명시한다.
+                for table_name, columns_to_add in {
+                    'coin_selection_sessions': (
+                        "exchange TEXT NOT NULL DEFAULT 'legacy_unscoped'",
+                        "selection_status TEXT NOT NULL DEFAULT 'scored'",
+                    ),
+                    'selected_coins': (
+                        "exchange TEXT NOT NULL DEFAULT 'legacy_unscoped'",
+                        "selection_status TEXT NOT NULL DEFAULT 'scored'",
+                        "selection_reason TEXT",
+                    ),
+                }.items():
+                    existing = set(self._get_table_columns(cursor, table_name))
+                    for column_sql in columns_to_add:
+                        column_name = column_sql.split()[0].lower()
+                        if column_name not in existing:
+                            cursor.execute(f"ALTER TABLE {table_name} ADD COLUMN {column_sql}")
+                            existing.add(column_name)
+                cursor.execute(
+                    "CREATE INDEX IF NOT EXISTS idx_selected_coins_exchange_session "
+                    "ON selected_coins(exchange, session_id, id)"
+                )
                 cursor.execute("""
                     CREATE TABLE IF NOT EXISTS coin_evaluation (
                         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -500,6 +548,7 @@ class Recorder:
                         cost REAL DEFAULT 0.0,
                         fee REAL DEFAULT 0.0,
                         realized_pnl REAL DEFAULT 0.0,
+                        realized_pnl_present INTEGER NOT NULL DEFAULT 0,
                         fee_currency TEXT,
                         executed_at DATETIME,
                         raw_status TEXT,
@@ -526,6 +575,33 @@ class Recorder:
                         UNIQUE(exchange, order_id)
                     )
                 """)
+                cursor.execute("""
+                    CREATE TABLE IF NOT EXISTS exchange_execution_capability (
+                        exchange TEXT PRIMARY KEY,
+                        history_available INTEGER NOT NULL DEFAULT 0,
+                        history_reason TEXT NOT NULL DEFAULT 'not_checked',
+                        historical_trades INTEGER NOT NULL DEFAULT 0,
+                        closed_orders_fallback INTEGER NOT NULL DEFAULT 0,
+                        history_complete INTEGER NOT NULL DEFAULT 0,
+                        coverage_start DATETIME,
+                        coverage_end DATETIME,
+                        coverage_reason TEXT NOT NULL DEFAULT 'bounded_or_incremental_history',
+                        checked_at DATETIME DEFAULT CURRENT_TIMESTAMP
+                    )
+                """)
+                for column_sql in (
+                    "history_complete INTEGER NOT NULL DEFAULT 0",
+                    "coverage_start DATETIME",
+                    "coverage_end DATETIME",
+                    "coverage_reason TEXT NOT NULL DEFAULT 'bounded_or_incremental_history'",
+                ):
+                    try:
+                        cursor.execute(
+                            f"ALTER TABLE exchange_execution_capability ADD COLUMN {column_sql}"
+                        )
+                    except sqlite3.OperationalError as exc:
+                        if "duplicate column" not in str(exc).lower():
+                            raise
                 try:
                     cursor.execute(
                         "ALTER TABLE exchange_execution_log ADD COLUMN "
@@ -538,6 +614,14 @@ class Recorder:
                     cursor.execute(
                         "ALTER TABLE exchange_execution_log ADD COLUMN "
                         "realized_pnl REAL DEFAULT 0.0"
+                    )
+                except sqlite3.OperationalError as exc:
+                    if "duplicate column" not in str(exc).lower():
+                        raise
+                try:
+                    cursor.execute(
+                        "ALTER TABLE exchange_execution_log ADD COLUMN "
+                        "realized_pnl_present INTEGER NOT NULL DEFAULT 0"
                     )
                 except sqlite3.OperationalError as exc:
                     if "duplicate column" not in str(exc).lower():
@@ -647,6 +731,15 @@ class Recorder:
                         'position_owner': "TEXT NOT NULL DEFAULT 'legacy_unknown'",
                         'execution_mode': "TEXT NOT NULL DEFAULT 'live'",
                         'spot_baseline_quantity': 'REAL NOT NULL DEFAULT 0.0',
+                        'gross_pnl': 'REAL',
+                        'net_pnl': 'REAL',
+                        'entry_fee': 'REAL',
+                        'exit_fee': 'REAL',
+                        'entry_fee_asset': 'TEXT',
+                        'exit_fee_asset': 'TEXT',
+                        'settlement_currency': 'TEXT',
+                        'pnl_source': "TEXT NOT NULL DEFAULT 'legacy_unverified'",
+                        'reconciliation_status': "TEXT NOT NULL DEFAULT 'legacy_unverified'",
                     }
                     for column, column_type in required_columns.items():
                         if column not in cols:
@@ -658,9 +751,22 @@ class Recorder:
                 # 성능 인덱스: 거래소/청산시간 조합 조회 최적화
                 try:
                     cursor.execute("CREATE INDEX IF NOT EXISTS idx_trade_exchange_exit_time ON trade_log(exchange, exit_time)")
+                    cursor.execute("CREATE INDEX IF NOT EXISTS idx_trade_exit_time ON trade_log(exit_time DESC)")
+                    cursor.execute(
+                        "CREATE INDEX IF NOT EXISTS idx_trade_exchange_normalized_exit_time "
+                        "ON trade_log(LOWER(REPLACE(REPLACE(REPLACE(COALESCE(exchange, ''), '_', ''), '-', ''), ' ', '')), exit_time DESC)"
+                    )
                     cursor.execute(
                         "CREATE INDEX IF NOT EXISTS idx_exchange_execution_venue_time "
                         "ON exchange_execution_log(exchange, executed_at)"
+                    )
+                    cursor.execute(
+                        "CREATE INDEX IF NOT EXISTS idx_exchange_execution_confirmed_time "
+                        "ON exchange_execution_log(confirmation_status, executed_at DESC)"
+                    )
+                    cursor.execute(
+                        "CREATE INDEX IF NOT EXISTS idx_exchange_execution_order_id "
+                        "ON exchange_execution_log(exchange, order_id)"
                     )
                     conn.commit()
                 except Exception:
@@ -725,10 +831,12 @@ class Recorder:
                 side=position.side.value,
                 tp_price=position.tp_price,
                 sl_price=position.sl_price,
-                fees=0.0,
+                fees=max(0.0, float(trade_params.get('entry_fee', 0.0) or 0.0)),
                 slippage=0.0,
                 exchange=exchange,
                 order_id=order_id,
+                fee_asset=str(trade_params.get('entry_fee_asset') or '').strip().upper() or None,
+                fee_source=str(trade_params.get('fee_source') or 'exchange_order'),
                 position_owner='noahai',
                 execution_mode=str(trade_params.get('execution_mode', 'live') or 'live'),
                 spot_baseline_quantity=float(
@@ -737,6 +845,14 @@ class Recorder:
                         getattr(position, 'spot_baseline_quantity', 0.0),
                     ) or 0.0
                 ),
+                entry_fee=max(0.0, float(trade_params.get('entry_fee', 0.0) or 0.0)),
+                entry_fee_asset=str(trade_params.get('entry_fee_asset') or '').strip().upper() or None,
+                settlement_currency=(
+                    str(trade_params.get('settlement_currency') or '').strip().upper()
+                    or self._settlement_currency(position.symbol, exchange or self.exchange)
+                ),
+                pnl_source='pending_exchange_close',
+                reconciliation_status='open',
             )
 
             inserted_id = self.insert_trade_log(trade_log)
@@ -762,14 +878,20 @@ class Recorder:
     ) -> bool:
         """거래 청산 로그 - 실제 체결 정보(있으면) 기반 정확한 계산
         - actual_trade_info가 제공되면 그 값을 우선 사용
-        - 미제공 시 Binance 전용 get_actual_trade_info() → 폴백 추정 순으로 처리
+        - 미제공 시 exit_order_id로만 Binance 체결을 조회한다.
+        - 주문 ID가 없으면 거래소 확정값을 추측하지 않고 대조 대기로 남긴다.
         """
         try:
             # 1. 실제 거래 정보 준비
             #    - 호출자가 제공한 actual_trade_info 우선
             #    - 없으면 바이낸스 API에서 조회 시도
             if actual_trade_info is None:
-                actual_trade_info = self.get_actual_trade_info(position.symbol, position.entry_time, position.side.value)
+                actual_trade_info = self.get_actual_trade_info(
+                    position.symbol,
+                    position.entry_time,
+                    position.side.value,
+                    exit_order_id=exit_order_id,
+                )
 
             if actual_trade_info:
                 # 실제 거래소 데이터 사용
@@ -846,20 +968,37 @@ class Recorder:
                 exchange=self.exchange,
             )
 
-            # 기존 거래 레코드 업데이트 (INSERT 대신 UPDATE)
-            success = self.update_trade_on_exit(
+            # 기존 거래 레코드 업데이트 (INSERT 대신 UPDATE).  모든 신규
+            # 청산은 gross/net/fee 출처를 같은 계약으로 기록한다.
+            success = self.update_trade_log(
                 symbol=position.symbol,
-                entry_time=position.entry_time,
-                side=position.side.value,
                 exit_price=actual_exit_price,
-                pnl=net_pnl,
+                exit_time=datetime.now(),
                 pnl_percent=net_pnl_percent,
-                fees=actual_fees,
-                slippage=actual_slippage,
-                reason=reason,
+                pnl_usdt=net_pnl,
+                exit_reason=reason,
+                position=position,
+                additional_fees=actual_fees,
                 exchange=exchange,
                 entry_order_id=getattr(position, 'entry_order_id', None),
                 exit_order_id=exit_order_id,
+                fee_asset=(
+                    (actual_trade_info or {}).get('fee_asset')
+                    or (
+                        self._settlement_currency(position.symbol, exchange or self.exchange)
+                        if str(exchange or self.exchange or '').strip().lower()
+                        in {'upbit', 'bithumb', 'coinone', 'kiwoom', 'shinhan', 'mirae', 'miraeasset', 'koreainvestment', 'kis'}
+                        else None
+                    )
+                ),
+                fee_source='exchange_fill' if actual_trade_info else 'estimated',
+                gross_pnl=(actual_trade_info or {}).get('gross_pnl', gross_pnl_ccy),
+                net_pnl=(actual_trade_info or {}).get('net_pnl'),
+                pnl_source=(actual_trade_info or {}).get('pnl_source', 'estimated_close_price'),
+                reconciliation_status=(actual_trade_info or {}).get(
+                    'reconciliation_status', 'pending_exchange_reconciliation'
+                ),
+                settlement_currency=self._settlement_currency(position.symbol, exchange or self.exchange),
             )
 
             if success:
@@ -993,27 +1132,40 @@ class Recorder:
             )
             return []
 
-    def get_actual_trade_info(self, symbol: str, entry_time: datetime, side: str):
-        """바이낸스 API에서 실제 거래 정보 가져오기"""
+    def get_actual_trade_info(
+        self,
+        symbol: str,
+        entry_time: datetime,
+        side: str,
+        *,
+        exit_order_id: Optional[str] = None,
+    ):
+        """Return fills for one exact exit order only.
+
+        A same-symbol/time-window scan can absorb a manual trade, a re-entry or
+        another partial close.  Older callers without an exit order id now get
+        an unresolved result instead of fabricated "actual" execution data.
+        """
         try:
             # binance_client가 주입되어 있는지 확인
             if not hasattr(self, 'binance_client') or not self.binance_client:
                 return None
 
-            # 해당 심볼의 최근 거래 내역 조회
-            recent_trades = self.binance_client.get_recent_trades(symbol=symbol, limit=50)
+            if not exit_order_id:
+                return None
+            recent_trades = self.binance_client.get_recent_trades(symbol=symbol, limit=200)
             if not recent_trades:
                 return None
 
-            # entry_time 이후의 청산 거래 찾기 (반대 방향 체결만 집계)
             exit_trades = []
             total_fees = 0.0
             total_quantity = 0.0
             weighted_exit_price = 0.0
+            gross_pnl = 0.0
+            fee_assets = set()
 
             for trade in recent_trades:
-                trade_time = datetime.fromtimestamp(trade['time'] / 1000)
-                if trade_time > entry_time:
+                if str(trade.get('order_id') or trade.get('order') or '') == str(exit_order_id):
                     # 청산 거래 (반대 방향)
                     try:
                         t_side = str(trade.get('side', '')).upper()
@@ -1030,6 +1182,9 @@ class Recorder:
                     total_fees += commission
                     total_quantity += quantity
                     weighted_exit_price += price * quantity
+                    gross_pnl += float(trade.get('realized_pnl', trade.get('realizedPnl', 0.0)) or 0.0)
+                    if trade.get('commission_asset') or trade.get('commissionAsset'):
+                        fee_assets.add(str(trade.get('commission_asset') or trade.get('commissionAsset')).upper())
 
             if not exit_trades:
                 return None
@@ -1041,7 +1196,11 @@ class Recorder:
                 'exit_price': avg_exit_price,
                 'fees': total_fees,
                 'slippage': 0.0,  # 바이낸스 API에서 직접 제공하지 않음
-                'quantity': total_quantity
+                'quantity': total_quantity,
+                'gross_pnl': gross_pnl,
+                'fee_asset': next(iter(fee_assets)) if len(fee_assets) == 1 else ('MIXED' if fee_assets else None),
+                'pnl_source': 'exchange_order_fills',
+                'reconciliation_status': 'exchange_confirmed',
             }
 
         except Exception as e:
@@ -1141,20 +1300,23 @@ class Recorder:
 
     def insert_trade_log(self, trade_log: TradeLog) -> Optional[int]:
         """거래 로그 삽입"""
+        event_exchange = str(
+            getattr(trade_log, 'exchange', None) or self.exchange or ''
+        ).strip().lower()
         try:
             logger = self._logger
             with sqlite3.connect(self.db_path) as conn:
                 cursor = conn.cursor()
 
                 # 🔥 디버깅: 삽입할 데이터 출력
-                log_event('trade', f"[DEBUG] insert_trade_log 호출:", exchange=self.exchange, level='INFO')
-                log_event('trade', f"  - symbol: {trade_log.symbol}", exchange=self.exchange, level='INFO')
-                log_event('trade', f"  - entry_price: {trade_log.entry_price}", exchange=self.exchange, level='INFO')
-                log_event('trade', f"  - exit_price: {trade_log.exit_price}", exchange=self.exchange, level='INFO')
-                log_event('trade', f"  - quantity: {trade_log.quantity}", exchange=self.exchange, level='INFO')
-                log_event('trade', f"  - leverage: {trade_log.leverage}", exchange=self.exchange, level='INFO')
-                log_event('trade', f"  - side: {trade_log.side}", exchange=self.exchange, level='INFO')
-                log_event('trade', f"  - exchange: {getattr(trade_log, 'exchange', None)}", exchange=self.exchange, level='INFO')
+                log_event('trade', f"[DEBUG] insert_trade_log 호출:", exchange=event_exchange, level='INFO')
+                log_event('trade', f"  - symbol: {trade_log.symbol}", exchange=event_exchange, level='INFO')
+                log_event('trade', f"  - entry_price: {trade_log.entry_price}", exchange=event_exchange, level='INFO')
+                log_event('trade', f"  - exit_price: {trade_log.exit_price}", exchange=event_exchange, level='INFO')
+                log_event('trade', f"  - quantity: {trade_log.quantity}", exchange=event_exchange, level='INFO')
+                log_event('trade', f"  - leverage: {trade_log.leverage}", exchange=event_exchange, level='INFO')
+                log_event('trade', f"  - side: {trade_log.side}", exchange=event_exchange, level='INFO')
+                log_event('trade', f"  - exchange: {getattr(trade_log, 'exchange', None)}", exchange=event_exchange, level='INFO')
 
                 cursor.execute("""
                     INSERT INTO trade_log (
@@ -1163,8 +1325,11 @@ class Recorder:
                         side, tp_price, sl_price, fees, slippage, exchange,
                         order_id, exit_order_id, model_version, strategy_variant,
                         fee_asset, fee_source, position_owner, execution_mode,
-                        spot_baseline_quantity
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        spot_baseline_quantity, gross_pnl, net_pnl, entry_fee,
+                        exit_fee, entry_fee_asset, exit_fee_asset,
+                        settlement_currency, pnl_source,
+                        reconciliation_status
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """, (
                     trade_log.symbol, trade_log.entry_price, trade_log.exit_price,
                     trade_log.quantity, trade_log.leverage, trade_log.pnl,
@@ -1181,22 +1346,31 @@ class Recorder:
                     str(getattr(trade_log, 'position_owner', 'legacy_unknown') or 'legacy_unknown'),
                     str(getattr(trade_log, 'execution_mode', 'live') or 'live'),
                     float(getattr(trade_log, 'spot_baseline_quantity', 0.0) or 0.0),
+                    getattr(trade_log, 'gross_pnl', None),
+                    getattr(trade_log, 'net_pnl', None),
+                    getattr(trade_log, 'entry_fee', None),
+                    getattr(trade_log, 'exit_fee', None),
+                    getattr(trade_log, 'entry_fee_asset', None),
+                    getattr(trade_log, 'exit_fee_asset', None),
+                    getattr(trade_log, 'settlement_currency', None),
+                    str(getattr(trade_log, 'pnl_source', 'legacy_unverified') or 'legacy_unverified'),
+                    str(getattr(trade_log, 'reconciliation_status', 'legacy_unverified') or 'legacy_unverified'),
                 ))
                 conn.commit()
 
                 inserted_id = cursor.lastrowid
-                log_event('trade', f"✅ 거래 로그 삽입 완료: ID={inserted_id}", exchange=self.exchange, level='INFO')
+                log_event('trade', f"✅ 거래 로그 삽입 완료: ID={inserted_id}", exchange=event_exchange, level='INFO')
 
                 # 🔥 삽입 후 확인
                 cursor.execute("SELECT * FROM trade_log WHERE id = ?", (inserted_id,))
                 saved_row = cursor.fetchone()
-                log_event('trade', f"[DEBUG] 저장된 행: {saved_row}", exchange=self.exchange, level='INFO')
+                log_event('trade', f"[DEBUG] 저장된 행: {saved_row}", exchange=event_exchange, level='INFO')
 
                 return inserted_id
 
         except Exception as e:
             # 스키마 불일치의 경우 즉시 보정 후 1회 재시도
-            log_event('trade', f"거래 로그 삽입 오류: {e}", exchange=self.exchange, level='ERROR')
+            log_event('trade', f"거래 로그 삽입 오류: {e}", exchange=event_exchange, level='ERROR')
             msg = str(e)
             try:
                 if 'no column named exchange' in msg or 'has no column named exchange' in msg:
@@ -1228,11 +1402,11 @@ class Recorder:
                             conn.commit()
                             return c2.lastrowid
                         except Exception as e2:
-                            log_event('trade', f"거래 로그 재삽입 실패(보정 후): {e2}", exchange=self.exchange, level='ERROR')
+                            log_event('trade', f"거래 로그 재삽입 실패(보정 후): {e2}", exchange=event_exchange, level='ERROR')
                             return None
             except Exception:
                 pass
-            log_event('trade', f"거래 로그 삽입 오류: {e}", exchange=self.exchange, level='ERROR')
+            log_event('trade', f"거래 로그 삽입 오류: {e}", exchange=event_exchange, level='ERROR')
             return None
 
     def save_ai_trade_analysis(self, trade_log_id: Optional[int], symbol: str, analysis: Dict, analysis_type: str):
@@ -1599,9 +1773,15 @@ class Recorder:
                         cost = price * quantity
 
                     fee_value = 0.0
+                    raw_info = trade.get('info') if isinstance(trade.get('info'), dict) else {}
+                    realized_candidates = (
+                        trade.get('realized_pnl'), trade.get('realizedPnl'),
+                        trade.get('pnl'), trade.get('profit'),
+                        raw_info.get('realizedPnl'), raw_info.get('realized_pnl'),
+                    )
+                    realized_present = any(value not in (None, '') for value in realized_candidates)
                     realized_pnl = self._execution_number(
-                        trade.get('realized_pnl') or trade.get('realizedPnl')
-                        or trade.get('pnl') or trade.get('profit')
+                        next((value for value in realized_candidates if value not in (None, '')), 0.0)
                     )
                     fee_currency = ''
                     fee_obj = trade.get('fee')
@@ -1642,23 +1822,39 @@ class Recorder:
                             """
                             SELECT id FROM exchange_execution_log
                             WHERE exchange = ? AND order_id = ? AND symbol = ?
+                              AND COALESCE(trade_id, '') = ''
                             ORDER BY id DESC LIMIT 1
                             """,
                             (venue, order_id, symbol),
                         )
                         found = cursor.fetchone()
                         existing_id = int(found[0]) if found else None
+                        if existing_id is None:
+                            detailed = cursor.execute(
+                                """
+                                SELECT 1 FROM exchange_execution_log
+                                WHERE exchange = ? AND order_id = ? AND symbol = ?
+                                  AND COALESCE(trade_id, '') <> ''
+                                LIMIT 1
+                                """,
+                                (venue, order_id, symbol),
+                            ).fetchone()
+                            if detailed:
+                                result['skipped'] += 1
+                                continue
                     if existing_id is not None:
                         cursor.execute(
                             """
                             UPDATE exchange_execution_log
                             SET side = ?, price = ?, quantity = ?, cost = ?, fee = ?, realized_pnl = ?,
+                                realized_pnl_present = ?,
                                 fee_currency = ?, executed_at = COALESCE(?, executed_at),
                                 raw_status = ?, confirmation_status = 'confirmed', source = ?
                             WHERE id = ?
                             """,
                             (
                                 side, price, quantity, cost, fee_value, realized_pnl,
+                                1 if realized_present else 0,
                                 fee_currency or None, executed_at or None,
                                 str(trade.get('status') or '').strip() or None,
                                 str(source or 'exchange_api'), existing_id,
@@ -1667,17 +1863,32 @@ class Recorder:
                         result['inserted'] += 1
                         continue
 
+                    # A previously stored order-level receipt must not remain
+                    # beside the newly downloaded per-fill rows. Otherwise one
+                    # fill is counted twice and fee/notional totals drift.
+                    if order_id and distinct_trade_id:
+                        cursor.execute(
+                            """
+                            DELETE FROM exchange_execution_log
+                            WHERE exchange = ? AND order_id = ? AND symbol = ?
+                              AND COALESCE(trade_id, '') = ''
+                            """,
+                            (venue, order_id, symbol),
+                        )
+
                     cursor.execute(
                         """
                         INSERT OR IGNORE INTO exchange_execution_log (
                             execution_key, exchange, trade_id, order_id, symbol, side,
-                            price, quantity, cost, fee, realized_pnl, fee_currency, executed_at,
+                            price, quantity, cost, fee, realized_pnl, realized_pnl_present,
+                            fee_currency, executed_at,
                             raw_status, confirmation_status, source
-                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                         """,
                         (
                             execution_key, venue, distinct_trade_id or None, order_id or None,
                             symbol, side, price, quantity, cost, fee_value, realized_pnl,
+                            1 if realized_present else 0,
                             fee_currency or None, executed_at or None,
                             str(trade.get('status') or '').strip() or None,
                             'confirmed',
@@ -1689,6 +1900,7 @@ class Recorder:
                     else:
                         result['skipped'] += 1
                 conn.commit()
+            self.reconcile_trade_log_with_executions(venue)
         except Exception as exc:
             log_event(
                 'trade',
@@ -1697,6 +1909,147 @@ class Recorder:
                 level='ERROR',
             )
         return result
+
+    @staticmethod
+    def _settlement_currency(symbol: str, exchange: str) -> str:
+        normalized = str(symbol or '').upper().replace('/', '').replace(':', '').replace('-', '')
+        venue = str(exchange or '').lower()
+        if venue in {'upbit', 'bithumb', 'coinone', 'kiwoom', 'shinhan', 'mirae', 'miraeasset', 'kis', 'koreainvestment'}:
+            return 'KRW'
+        for quote in ('USDT', 'USDC', 'USD', 'BTC', 'ETH'):
+            if normalized.endswith(quote) or normalized.endswith(f'{quote}SWAP') or normalized.endswith(f'{quote}PERP'):
+                return quote
+        return ''
+
+    def reconcile_trade_log_with_executions(self, exchange: str) -> int:
+        """Reconcile NoahAI closes only when an exact exit-order match is safe.
+
+        Unknown legacy rows, manual fills, quantity mismatches and mixed fee
+        currencies are preserved and labelled; they are never silently rewritten.
+        """
+        venue = str(exchange or '').strip().lower()
+        if not venue:
+            return 0
+        reconciled = 0
+        try:
+            with sqlite3.connect(self.db_path, timeout=20.0) as conn:
+                conn.row_factory = sqlite3.Row
+                rows = conn.execute(
+                    """
+                    SELECT id, symbol, quantity, entry_price, pnl, fees, entry_fee,
+                           fee_asset, entry_fee_asset, exit_fee_asset,
+                           settlement_currency, exit_order_id, gross_pnl, net_pnl,
+                           reconciliation_status
+                    FROM trade_log
+                    WHERE LOWER(COALESCE(exchange, '')) = ?
+                      AND exit_time IS NOT NULL
+                      AND COALESCE(exit_order_id, '') <> ''
+                      AND (
+                        LOWER(COALESCE(position_owner, '')) = 'noahai'
+                        OR LOWER(COALESCE(reason, '')) LIKE 'ai %'
+                        OR LOWER(COALESCE(reason, '')) LIKE 'stock_auto_%'
+                      )
+                    """,
+                    (venue,),
+                ).fetchall()
+                for row in rows:
+                    existing_status = str(row['reconciliation_status'] or '')
+                    final_status = (
+                        existing_status.startswith('exchange_confirmed')
+                        or existing_status == 'broker_order_linked'
+                    )
+                    fills = conn.execute(
+                        """
+                        SELECT price, quantity, fee, fee_currency, realized_pnl,
+                               COALESCE(realized_pnl_present, 0) AS pnl_present
+                        FROM exchange_execution_log
+                        WHERE exchange = ? AND order_id = ? AND UPPER(symbol) = UPPER(?)
+                          AND confirmation_status = 'confirmed'
+                        ORDER BY id
+                        """,
+                        (venue, str(row['exit_order_id']), str(row['symbol'])),
+                    ).fetchall()
+                    if not fills:
+                        if final_status:
+                            continue
+                        conn.execute(
+                            "UPDATE trade_log SET reconciliation_status = ? WHERE id = ?",
+                            ('exchange_fill_not_found', int(row['id'])),
+                        )
+                        continue
+                    fill_qty = sum(max(0.0, float(fill['quantity'] or 0.0)) for fill in fills)
+                    expected_qty = max(0.0, float(row['quantity'] or 0.0))
+                    tolerance = max(1e-8, expected_qty * 0.001)
+                    if expected_qty <= 0 or abs(fill_qty - expected_qty) > tolerance:
+                        if final_status:
+                            continue
+                        conn.execute(
+                            "UPDATE trade_log SET reconciliation_status = ? WHERE id = ?",
+                            ('partial_or_quantity_mismatch', int(row['id'])),
+                        )
+                        continue
+                    quote = sum(float(fill['price'] or 0.0) * float(fill['quantity'] or 0.0) for fill in fills)
+                    exit_price = quote / fill_qty if fill_qty > 0 else 0.0
+                    pnl_complete = all(int(fill['pnl_present'] or 0) == 1 for fill in fills)
+                    gross = sum(float(fill['realized_pnl'] or 0.0) for fill in fills) if pnl_complete else None
+                    currencies = {str(fill['fee_currency'] or '').upper() for fill in fills if fill['fee_currency']}
+                    exit_fee = sum(max(0.0, float(fill['fee'] or 0.0)) for fill in fills)
+                    settlement = str(row['settlement_currency'] or '').upper() or self._settlement_currency(row['symbol'], venue)
+                    exit_fee_asset = next(iter(currencies)) if len(currencies) == 1 else (
+                        'MIXED' if currencies else str(row['exit_fee_asset'] or row['fee_asset'] or '').upper()
+                    )
+                    entry_fee = max(0.0, float(row['entry_fee'] if row['entry_fee'] is not None else row['fees'] or 0.0))
+                    entry_fee_asset = str(row['entry_fee_asset'] or row['fee_asset'] or '').upper()
+                    entry_fee_convertible = entry_fee <= 0 or (
+                        bool(settlement) and bool(entry_fee_asset) and entry_fee_asset == settlement
+                    )
+                    exit_fee_convertible = exit_fee <= 0 or (
+                        bool(settlement) and bool(exit_fee_asset) and exit_fee_asset == settlement
+                    )
+                    fee_convertible = entry_fee_convertible and exit_fee_convertible
+                    if gross is None:
+                        if final_status:
+                            continue
+                        conn.execute(
+                            """
+                            UPDATE trade_log SET exit_price = ?, exit_fee = ?, fees = ?,
+                                fee_asset = COALESCE(NULLIF(?, ''), fee_asset),
+                                entry_fee_asset = COALESCE(NULLIF(?, ''), entry_fee_asset),
+                                exit_fee_asset = COALESCE(NULLIF(?, ''), exit_fee_asset),
+                                settlement_currency = COALESCE(NULLIF(?, ''), settlement_currency),
+                                pnl_source = 'exact_fill_price_no_provider_pnl',
+                                reconciliation_status = 'provider_realized_pnl_unavailable'
+                            WHERE id = ?
+                            """,
+                            (exit_price, exit_fee, entry_fee + exit_fee, exit_fee_asset,
+                             entry_fee_asset, exit_fee_asset, settlement, int(row['id'])),
+                        )
+                        continue
+                    net = gross - entry_fee - exit_fee if fee_convertible else None
+                    display_pnl = gross if net is None else net
+                    notional = max(0.0, float(row['entry_price'] or 0.0) * expected_qty)
+                    pnl_percent = display_pnl / notional * 100.0 if notional > 0 else 0.0
+                    status = 'exchange_confirmed' if fee_convertible else 'exchange_confirmed_fee_conversion_required'
+                    conn.execute(
+                        """
+                        UPDATE trade_log
+                        SET exit_price = ?, pnl = ?, pnl_percent = ?, gross_pnl = ?, net_pnl = ?,
+                            entry_fee = ?, exit_fee = ?, fees = ?, fee_asset = ?,
+                            entry_fee_asset = ?, exit_fee_asset = ?,
+                            settlement_currency = ?, pnl_source = 'exchange_realized_pnl',
+                            reconciliation_status = ?
+                        WHERE id = ?
+                        """,
+                        (exit_price, display_pnl, pnl_percent, gross, net, entry_fee, exit_fee,
+                         entry_fee + exit_fee, exit_fee_asset or None,
+                         entry_fee_asset or None, exit_fee_asset or None,
+                         settlement or None, status, int(row['id'])),
+                    )
+                    reconciled += 1
+                conn.commit()
+        except sqlite3.Error as exc:
+            log_event('trade', f"체결-청산 원장 대조 오류({venue}): {exc}", exchange=venue, level='ERROR')
+        return reconciled
 
     def get_recent_exchange_executions(
         self,
@@ -1798,6 +2151,49 @@ class Recorder:
                 level='ERROR',
             )
             return {}
+
+    def save_exchange_execution_capability(self, exchange: str, capability: Dict[str, Any]) -> bool:
+        """Persist an explicit supported/unsupported verdict; empty is not zero."""
+        venue = str(exchange or '').strip().lower()
+        if not venue or not isinstance(capability, dict):
+            return False
+        try:
+            with sqlite3.connect(self.db_path, timeout=20.0) as conn:
+                conn.execute(
+                    """
+                    INSERT INTO exchange_execution_capability (
+                        exchange, history_available, history_reason,
+                        historical_trades, closed_orders_fallback, history_complete,
+                        coverage_start, coverage_end, coverage_reason, checked_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                    ON CONFLICT(exchange) DO UPDATE SET
+                        history_available = excluded.history_available,
+                        history_reason = excluded.history_reason,
+                        historical_trades = excluded.historical_trades,
+                        closed_orders_fallback = excluded.closed_orders_fallback,
+                        history_complete = excluded.history_complete,
+                        coverage_start = COALESCE(excluded.coverage_start, coverage_start),
+                        coverage_end = COALESCE(excluded.coverage_end, coverage_end),
+                        coverage_reason = excluded.coverage_reason,
+                        checked_at = CURRENT_TIMESTAMP
+                    """,
+                    (
+                        venue,
+                        1 if bool(capability.get('history_available')) else 0,
+                        str(capability.get('history_reason') or 'not_checked'),
+                        1 if bool(capability.get('historical_trades')) else 0,
+                        1 if bool(capability.get('closed_orders_fallback')) else 0,
+                        1 if bool(capability.get('history_complete')) else 0,
+                        capability.get('coverage_start'),
+                        capability.get('coverage_end'),
+                        str(capability.get('coverage_reason') or 'bounded_or_incremental_history'),
+                    ),
+                )
+                conn.commit()
+            return True
+        except Exception as exc:
+            log_event('trade', f"체결 API 기능 상태 저장 오류({venue}): {exc}", exchange=venue, level='WARNING')
+            return False
 
     def save_exchange_order_receipt(
         self,
@@ -1965,6 +2361,7 @@ class Recorder:
                     'fees': row[14],
                     'slippage': row[15],
                     'exchange': row[16] if len(row) > 16 else None,
+                    'pnl_is_net': True,
                 })
 
             return trade_history
@@ -2053,41 +2450,66 @@ class Recorder:
             log_event('trade', f"성과 통계 조회 오류: {e}", exchange=self.exchange, level='ERROR')
             return {}
 
-    def get_daily_actual_trades(self, date: datetime) -> List[Dict]:
-        """특정 날짜의 실제 거래 조회"""
+    def get_daily_actual_trades(
+        self,
+        date: datetime,
+        *,
+        exchange: Optional[str] = None,
+        execution_mode: str = 'live',
+    ) -> List[Dict]:
+        """특정 날짜의 청산 거래를 거래소·실행모드별로 조회한다.
+
+        일일 LIVE 손실 가드레일이 다른 거래소나 PAPER 행을 합산하지 않도록
+        명시 열만 읽는다. 과거 스키마의 빈 실행모드는 LIVE로 취급한다.
+        """
         try:
             start_date = date.replace(hour=0, minute=0, second=0, microsecond=0)
             end_date = start_date + timedelta(days=1)
 
             query = """
-                SELECT * FROM trade_log
+                SELECT id, symbol, side, entry_price, exit_price, quantity,
+                       leverage, pnl, pnl_percent, reason, entry_time, exit_time,
+                       tp_price, sl_price, fees, slippage,
+                       COALESCE(exchange, 'binance') AS exchange,
+                       COALESCE(execution_mode, 'live') AS execution_mode
+                FROM trade_log
                 WHERE exit_time >= ? AND exit_time < ?
                   AND LOWER(COALESCE(reason, '')) != 'binance_import'
-                ORDER BY exit_time DESC
             """
-            params = (start_date.isoformat(), end_date.isoformat())
+            params: List[Any] = [start_date.isoformat(), end_date.isoformat()]
+            if exchange:
+                query += " AND LOWER(COALESCE(NULLIF(exchange, ''), 'binance')) = LOWER(?)"
+                params.append(str(exchange).strip().lower())
+            normalized_mode = str(execution_mode or '').strip().lower()
+            if normalized_mode:
+                query += " AND LOWER(COALESCE(NULLIF(execution_mode, ''), 'live')) = LOWER(?)"
+                params.append(normalized_mode)
+            query += " ORDER BY exit_time DESC"
 
-            results = self.execute_query(query, params)
+            results = self.execute_query(query, tuple(params))
 
             daily_trades = []
             for row in results:
                 daily_trades.append({
                     'id': row[0],
                     'symbol': row[1],
-                    'entry_price': row[2],
-                    'exit_price': row[3],
-                    'quantity': row[4],
-                    'leverage': row[5],
-                    'pnl': row[6],
-                    'pnl_percent': row[7],
-                    'entry_time': row[8],
-                    'exit_time': row[9],
-                    'reason': row[10],
-                    'side': row[11],
+                    'side': row[2],
+                    'entry_price': row[3],
+                    'exit_price': row[4],
+                    'quantity': row[5],
+                    'leverage': row[6],
+                    'pnl': row[7],
+                    'realized_pnl': row[7],
+                    'pnl_percent': row[8],
+                    'reason': row[9],
+                    'entry_time': row[10],
+                    'exit_time': row[11],
                     'tp_price': row[12],
                     'sl_price': row[13],
                     'fees': row[14],
-                    'slippage': row[15]
+                    'slippage': row[15],
+                    'exchange': row[16],
+                    'execution_mode': row[17],
                 })
 
             return daily_trades
@@ -2280,7 +2702,7 @@ class Recorder:
                 log_event('trade', f"🔍 [DEBUG] 저장된 데이터: {saved_data}", exchange=self.exchange, level='INFO')
 
                 log_event('trade', f"✅ {exchange} 거래 통계 저장 완료", exchange=self.exchange, level='INFO')
-                return True
+                return inserted_id
 
         except Exception as e:
             log_event('trade', f"❌ {exchange} 거래 통계 저장 실패: {e}", exchange=self.exchange, level='ERROR')
@@ -2299,6 +2721,13 @@ class Recorder:
         exit_order_id: Optional[str] = None,
         fee_asset: Optional[str] = None,
         fee_source: Optional[str] = None,
+        exchange: Optional[str] = None,
+        entry_order_id: Optional[str] = None,
+        gross_pnl: Optional[float] = None,
+        net_pnl: Optional[float] = None,
+        pnl_source: str = 'estimated_close_price',
+        reconciliation_status: str = 'pending_exchange_reconciliation',
+        settlement_currency: Optional[str] = None,
     ):
         """개별 거래 로그 업데이트 (종료 정보)"""
         try:
@@ -2308,16 +2737,37 @@ class Recorder:
             with sqlite3.connect(self.db_path) as conn:
                 cursor = conn.cursor()
 
-                # 🔥 해당 심볼의 가장 최근 미종료 거래 찾기 (tp_price, sl_price 포함) - 문제 1 해결
-                cursor.execute("""
-                    SELECT id, entry_price, quantity, side, tp_price, sl_price, fees FROM trade_log
-                    WHERE symbol = ? AND exit_time IS NULL
+                # Symbol-only matching can close another venue's row or a
+                # same-symbol re-entry.  Prefer the exact entry order id and
+                # always apply the venue boundary when the caller has it.
+                lookup_order_id = str(
+                    entry_order_id
+                    or getattr(position, 'entry_order_id', '')
+                    or ''
+                ).strip()
+                where = ["symbol = ?", "exit_time IS NULL"]
+                params: List[Any] = [symbol]
+                if exchange:
+                    where.append("LOWER(COALESCE(exchange, '')) = ?")
+                    params.append(str(exchange).strip().lower())
+                if lookup_order_id:
+                    where.append("order_id = ?")
+                    params.append(lookup_order_id)
+                cursor.execute(f"""
+                    SELECT id, entry_price, quantity, side, tp_price, sl_price,
+                           fees, entry_fee, fee_asset, entry_fee_asset
+                    FROM trade_log
+                    WHERE {' AND '.join(where)}
                     ORDER BY entry_time DESC LIMIT 1
-                """, (symbol,))
+                """, tuple(params))
 
                 trade_data = cursor.fetchone()
                 if trade_data:
-                    trade_id, entry_price, quantity, side, stored_tp_price, stored_sl_price, stored_fees = trade_data
+                    (
+                        trade_id, entry_price, quantity, side, stored_tp_price,
+                        stored_sl_price, stored_fees, stored_entry_fee,
+                        stored_fee_asset, stored_entry_fee_asset,
+                    ) = trade_data
                     log_event('trade', f"[DEBUG] 찾은 거래: id={trade_id}, entry_price={entry_price}, quantity={quantity}, side={side}, tp_price={stored_tp_price}, sl_price={stored_sl_price}", exchange=self.exchange, level='INFO')
 
                     # 🔥 TP/SL 판단 로직 (문제 1 해결)
@@ -2370,25 +2820,66 @@ class Recorder:
                                 # 기타 청산 (수동 등) - 둘 다 유지
                                 log_event('trade', f"[DEBUG] {symbol} 기타 청산: exit_price={exit_price}, tp_price={final_tp_price}, sl_price={final_sl_price}", exchange=self.exchange, level='INFO')
 
-                    # 🔥 종료 정보 업데이트 (tp_price, sl_price 포함) - 문제 1 해결
+                    entry_fee_value = max(0.0, float(
+                        stored_entry_fee if stored_entry_fee is not None else stored_fees or 0.0
+                    ))
+                    exit_fee_value = max(0.0, float(additional_fees or 0.0))
+                    total_fees = entry_fee_value + exit_fee_value
+                    gross_value = float(gross_pnl if gross_pnl is not None else pnl_usdt)
+                    resolved_net = net_pnl
+                    settlement = str(settlement_currency or '').strip().upper() or None
+                    entry_fee_ccy = str(
+                        stored_entry_fee_asset or stored_fee_asset or ''
+                    ).strip().upper() or None
+                    exit_fee_ccy = str(fee_asset or '').strip().upper() or None
+                    entry_fee_convertible = entry_fee_value <= 0 or (
+                        bool(settlement) and bool(entry_fee_ccy) and entry_fee_ccy == settlement
+                    )
+                    exit_fee_convertible = exit_fee_value <= 0 or (
+                        bool(settlement) and bool(exit_fee_ccy) and exit_fee_ccy == settlement
+                    )
+                    fee_convertible = entry_fee_convertible and exit_fee_convertible
+                    if resolved_net is None and fee_convertible:
+                        resolved_net = gross_value - total_fees
+                    display_pnl = float(resolved_net) if resolved_net is not None else gross_value
+                    notional = max(0.0, float(entry_price or 0.0) * float(quantity or 0.0))
+                    resolved_percent = (display_pnl / notional * 100.0) if notional > 0 else float(pnl_percent or 0.0)
+                    resolved_status = str(reconciliation_status or 'pending_exchange_reconciliation')
+                    if not fee_convertible and resolved_status == 'exchange_confirmed':
+                        resolved_status = 'exchange_confirmed_fee_conversion_required'
+
                     cursor.execute("""
                         UPDATE trade_log
                         SET exit_price = ?, exit_time = ?, pnl = ?, pnl_percent = ?, reason = ?,
                             tp_price = ?, sl_price = ?, fees = ?, exit_order_id = ?,
-                            fee_asset = COALESCE(?, fee_asset), fee_source = COALESCE(?, fee_source)
+                            fee_asset = COALESCE(?, fee_asset), fee_source = COALESCE(?, fee_source),
+                            gross_pnl = ?, net_pnl = ?, entry_fee = ?, exit_fee = ?,
+                            entry_fee_asset = COALESCE(?, entry_fee_asset),
+                            exit_fee_asset = COALESCE(?, exit_fee_asset),
+                            settlement_currency = COALESCE(?, settlement_currency),
+                            pnl_source = ?, reconciliation_status = ?
                         WHERE id = ?
                     """, (
                         exit_price,
                         self._to_db_datetime(exit_time),
-                        pnl_usdt,
-                        pnl_percent,
+                        display_pnl,
+                        resolved_percent,
                         exit_reason,
                         final_tp_price,
                         final_sl_price,
-                        max(0.0, float(stored_fees or 0.0)) + max(0.0, float(additional_fees or 0.0)),
+                        total_fees,
                         str(exit_order_id) if exit_order_id is not None else None,
                         fee_asset,
                         fee_source,
+                        gross_value,
+                        resolved_net,
+                        entry_fee_value,
+                        exit_fee_value,
+                        entry_fee_ccy,
+                        exit_fee_ccy,
+                        settlement,
+                        str(pnl_source or 'estimated_close_price'),
+                        resolved_status,
                         trade_id,
                     ))
 
@@ -2415,6 +2906,95 @@ class Recorder:
             log_event('trade', f"❌ {symbol} 거래 로그 업데이트 실패: {e}", exchange=self.exchange, level='ERROR')
             import traceback
             log_event('trade', f"❌ 상세 오류: {traceback.format_exc()}", exchange=self.exchange, level='ERROR')
+            return False
+
+    def record_partial_trade_close(
+        self,
+        *,
+        symbol: str,
+        exchange: str,
+        entry_order_id: Optional[str],
+        exit_order_id: Optional[str],
+        closed_quantity: float,
+        exit_price: float,
+        gross_pnl: float,
+        exit_fee: float,
+        fee_asset: Optional[str],
+        reason: str,
+        pnl_source: str,
+        reconciliation_status: str,
+    ) -> bool:
+        """Split one verified partial close from its still-open entry lot."""
+        venue = str(exchange or '').strip().lower()
+        qty = max(0.0, float(closed_quantity or 0.0))
+        if not venue or qty <= 0 or not entry_order_id:
+            return False
+        try:
+            with sqlite3.connect(self.db_path, timeout=20.0) as conn:
+                conn.row_factory = sqlite3.Row
+                row = conn.execute(
+                    """
+                    SELECT * FROM trade_log
+                    WHERE symbol = ? AND LOWER(COALESCE(exchange, '')) = ?
+                      AND order_id = ? AND exit_time IS NULL
+                    ORDER BY entry_time DESC, id DESC LIMIT 1
+                    """,
+                    (symbol, venue, str(entry_order_id)),
+                ).fetchone()
+                if row is None:
+                    return False
+                open_qty = max(0.0, float(row['quantity'] or 0.0))
+                if qty >= open_qty - max(1e-8, open_qty * 0.001):
+                    return False
+                ratio = qty / open_qty
+                entry_fee_total = max(0.0, float(row['entry_fee'] if row['entry_fee'] is not None else row['fees'] or 0.0))
+                allocated_entry_fee = entry_fee_total * ratio
+                remaining_entry_fee = entry_fee_total - allocated_entry_fee
+                settlement = str(row['settlement_currency'] or '').upper() or self._settlement_currency(symbol, venue)
+                entry_fee_ccy = str(row['entry_fee_asset'] or row['fee_asset'] or '').upper()
+                exit_fee_ccy = str(fee_asset or '').upper()
+                fee_convertible = (
+                    (allocated_entry_fee <= 0 or (settlement and entry_fee_ccy == settlement))
+                    and (float(exit_fee or 0.0) <= 0 or (settlement and exit_fee_ccy == settlement))
+                )
+                net_pnl = (
+                    float(gross_pnl) - allocated_entry_fee - max(0.0, float(exit_fee or 0.0))
+                    if fee_convertible else None
+                )
+                display_pnl = float(gross_pnl) if net_pnl is None else net_pnl
+                notional = max(0.0, float(row['entry_price'] or 0.0) * qty)
+                pnl_percent = display_pnl / notional * 100.0 if notional else 0.0
+                conn.execute(
+                    "UPDATE trade_log SET quantity = ?, fees = ?, entry_fee = ? WHERE id = ?",
+                    (open_qty - qty, remaining_entry_fee, remaining_entry_fee, int(row['id'])),
+                )
+                columns = [
+                    'symbol','entry_price','exit_price','quantity','leverage','pnl','pnl_percent',
+                    'entry_time','exit_time','reason','side','tp_price','sl_price','fees','slippage',
+                    'exchange','order_id','exit_order_id','model_version','strategy_variant','fee_asset',
+                    'fee_source','position_owner','execution_mode','spot_baseline_quantity','gross_pnl',
+                    'net_pnl','entry_fee','exit_fee','entry_fee_asset','exit_fee_asset',
+                    'settlement_currency','pnl_source','reconciliation_status',
+                ]
+                values = [
+                    row['symbol'], row['entry_price'], float(exit_price), qty, row['leverage'], display_pnl,
+                    pnl_percent, row['entry_time'], self._to_db_datetime(datetime.now()), reason, row['side'],
+                    row['tp_price'], row['sl_price'], allocated_entry_fee + float(exit_fee or 0.0),
+                    row['slippage'], row['exchange'], row['order_id'], str(exit_order_id or '') or None,
+                    row['model_version'], row['strategy_variant'], fee_asset or row['fee_asset'],
+                    'exchange_fill', row['position_owner'], row['execution_mode'], row['spot_baseline_quantity'],
+                    float(gross_pnl), net_pnl, allocated_entry_fee, float(exit_fee or 0.0),
+                    entry_fee_ccy or None, exit_fee_ccy or None, settlement or None,
+                    pnl_source, reconciliation_status,
+                ]
+                conn.execute(
+                    f"INSERT INTO trade_log ({', '.join(columns)}) VALUES ({', '.join('?' for _ in values)})",
+                    tuple(values),
+                )
+                conn.commit()
+            return True
+        except sqlite3.Error as exc:
+            log_event('trade', f"부분청산 원장 기록 오류({venue}/{symbol}): {exc}", exchange=venue, level='ERROR')
             return False
 
     def load_exchange_trade_stats(self, exchange: Optional[str] = None) -> Dict[str, Any]:
@@ -2831,7 +3411,10 @@ class Recorder:
             log_event('trade', f"데이터베이스 정보 조회 오류: {e}", exchange=self.exchange, level='ERROR')
             return {}
 
-    def save_ai_decision(self, symbol: str, decision_type: str, decision_data: dict, user_feedback: Optional[str] = None):
+    def save_ai_decision(
+        self, symbol: str, decision_type: str, decision_data: dict,
+        user_feedback: Optional[str] = None, *, exchange: Optional[str] = None,
+    ):
         """AI 결정 내역을 데이터베이스에 저장"""
         try:
             with sqlite3.connect(self.db_path) as conn:
@@ -2842,10 +3425,17 @@ class Recorder:
                 """, (symbol, decision_type, json.dumps(decision_data, ensure_ascii=False), user_feedback))
                 conn.commit()
 
-                log_event('trade', f"[{symbol}] AI 결정 내역 저장 완료: {decision_type}", exchange=self.exchange, level='INFO')
+                event_exchange = str(
+                    exchange or decision_data.get('exchange') or self.exchange or ''
+                ).strip().lower()
+                log_event(
+                    'trade', f"[{symbol}] AI 결정 내역 저장 완료: {decision_type}",
+                    exchange=event_exchange, level='INFO',
+                )
 
         except Exception as e:
-            log_event('trade', f"AI 결정 내역 저장 오류: {e}", exchange=self.exchange, level='ERROR')
+            event_exchange = str(exchange or self.exchange or '').strip().lower()
+            log_event('trade', f"AI 결정 내역 저장 오류: {e}", exchange=event_exchange, level='ERROR')
 
     def get_ai_decisions(self, symbol: Optional[str] = None, limit: int = 50) -> List[dict]:
         """AI 결정 내역 조회"""
@@ -2909,25 +3499,40 @@ class Recorder:
         except Exception as e:
             log_event('trade', f"코인 교체 기록 저장 오류: {e}", exchange=self.exchange, level='ERROR')
 
-    def save_coin_selection(self, selected_coins: List[Dict], num_alt: int, num_major: int, market_regime: str, selection_reason: str = "initial_selection", adjustment_factor: float = 1.0) -> int:
+    def save_coin_selection(
+        self,
+        selected_coins: List[Dict],
+        num_alt: int,
+        num_major: int,
+        market_regime: str,
+        selection_reason: str = "initial_selection",
+        adjustment_factor: float = 1.0,
+        *,
+        exchange: Optional[str] = None,
+        selection_status: str = "scored",
+    ) -> int:
         """🔥 코인 선택 데이터를 데이터베이스에 저장"""
         try:
+            exchange_key = str(exchange or self.exchange or 'binance').strip().lower()
+            status_key = str(selection_status or 'scored').strip().lower()
             with sqlite3.connect(self.db_path) as conn:
                 cursor = conn.cursor()
 
                 # 1. 코인 선택 세션 정보 저장
                 cursor.execute("""
                     INSERT INTO coin_selection_sessions
-                    (timestamp, market_regime, total_coins, major_coins_count, alt_coins_count,
-                    selection_reason, adjustment_factor)
-                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                    (timestamp, exchange, market_regime, total_coins, major_coins_count, alt_coins_count,
+                    selection_reason, selection_status, adjustment_factor)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """, (
                     self._to_db_datetime(datetime.now()),
+                    exchange_key,
                     market_regime,
                     len(selected_coins),
                     num_major,
                     num_alt,
                     selection_reason,
+                    status_key,
                     adjustment_factor
                 ))
 
@@ -2937,33 +3542,38 @@ class Recorder:
                 for coin in selected_coins:
                     cursor.execute("""
                         INSERT INTO selected_coins
-                        (session_id, symbol, is_major, overall_score, technical_score,
+                        (session_id, exchange, symbol, is_major, selection_status, selection_reason,
+                        overall_score, technical_score,
                         volatility_score, volume_score, trend_score, risk_score,
                         volume, price_change_percent, orderbook_depth)
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """, (
                         session_id,
+                        exchange_key,
                         coin.get('symbol', ''),
                         coin.get('is_major', False),
-                        coin.get('overall_score', 0.0),
-                        coin.get('technical_score', 0.0),
-                        coin.get('volatility_score', 0.0),
-                        coin.get('volume_score', 0.0),
-                        coin.get('trend_score', 0.0),
-                        coin.get('risk_score', 0.0),
+                        str(coin.get('selection_status') or status_key),
+                        str(coin.get('selection_reason') or selection_reason),
+                        coin.get('overall_score'),
+                        coin.get('technical_score'),
+                        coin.get('volatility_score'),
+                        coin.get('volume_score'),
+                        coin.get('trend_score'),
+                        coin.get('risk_score'),
                         coin.get('volume', 0.0),
                         coin.get('priceChangePercent', 0.0),
                         coin.get('orderbook_depth', 0)
                     ))
 
                 conn.commit()
-                log_event('trade', f"✅ 코인 선택 데이터 저장 완료: 세션 ID {session_id}, 코인 {len(selected_coins)}개", exchange=self.exchange, level='INFO')
+                log_event('trade', f"✅ 코인 선택 데이터 저장 완료: 세션 ID {session_id}, 코인 {len(selected_coins)}개", exchange=exchange_key, level='INFO')
                 return session_id
 
         except Exception as e:
-            log_event('trade', f"❌ 코인 선택 데이터 저장 오류: {e}", exchange=self.exchange, level='ERROR')
+            exchange_key = str(exchange or self.exchange or 'binance').strip().lower()
+            log_event('trade', f"❌ 코인 선택 데이터 저장 오류: {e}", exchange=exchange_key, level='ERROR')
             import traceback
-            log_event('trade', traceback.format_exc(), exchange=self.exchange, level='ERROR')
+            log_event('trade', traceback.format_exc(), exchange=exchange_key, level='ERROR')
             return -1
 
     def migrate_database_schema(self):
@@ -2998,6 +3608,15 @@ class Recorder:
                     'position_owner': "TEXT NOT NULL DEFAULT 'legacy_unknown'",
                     'execution_mode': "TEXT NOT NULL DEFAULT 'live'",
                     'spot_baseline_quantity': 'REAL NOT NULL DEFAULT 0.0',
+                    'gross_pnl': 'REAL',
+                    'net_pnl': 'REAL',
+                    'entry_fee': 'REAL',
+                    'exit_fee': 'REAL',
+                    'entry_fee_asset': 'TEXT',
+                    'exit_fee_asset': 'TEXT',
+                    'settlement_currency': 'TEXT',
+                    'pnl_source': "TEXT NOT NULL DEFAULT 'legacy_unverified'",
+                    'reconciliation_status': "TEXT NOT NULL DEFAULT 'legacy_unverified'",
                 }
                 existing_columns = set(self._get_table_columns(cursor, 'trade_log'))
                 added_columns = []
@@ -3016,6 +3635,11 @@ class Recorder:
                     CREATE INDEX IF NOT EXISTS idx_trade_exchange_exit_time
                     ON trade_log(exchange, exit_time)
                 """)
+                cursor.execute("CREATE INDEX IF NOT EXISTS idx_trade_exit_time ON trade_log(exit_time DESC)")
+                cursor.execute(
+                    "CREATE INDEX IF NOT EXISTS idx_trade_exchange_normalized_exit_time "
+                    "ON trade_log(LOWER(REPLACE(REPLACE(REPLACE(COALESCE(exchange, ''), '_', ''), '-', ''), ' ', '')), exit_time DESC)"
+                )
 
                 # exchange_trade_stats fee 컬럼/백필/검증
                 self._run_exchange_trade_stats_fee_migration(conn, cursor)
@@ -3206,7 +3830,9 @@ class Recorder:
                 safe_days = 30
 
             query = (
-                "SELECT symbol, COALESCE(exchange, ''), pnl, pnl_percent, entry_time, exit_time "
+                "SELECT symbol, COALESCE(exchange, ''), entry_price, exit_price, quantity, leverage, "
+                "pnl, pnl_percent, entry_time, exit_time, COALESCE(reason, ''), "
+                "COALESCE(fees, 0), COALESCE(slippage, 0) "
                 "FROM trade_log "
                 f"WHERE exit_time > datetime('now', '-{safe_days} days') "
                 "AND LOWER(COALESCE(reason, '')) != 'binance_import' "
@@ -3223,7 +3849,8 @@ class Recorder:
             if exchange:
                 query += "AND LOWER(COALESCE(exchange, '')) = LOWER(?) "
                 params.append(exchange)
-            query += "ORDER BY exit_time DESC"
+            # Consumers consistently use ``rows[-N:]`` as the newest window.
+            query += "ORDER BY exit_time ASC"
 
             rows = self.execute_query(query, tuple(params))
             results: List[Dict[str, Any]] = []
@@ -3231,10 +3858,18 @@ class Recorder:
                 results.append({
                     'symbol': r[0],
                     'exchange': r[1] or None,
-                    'pnl': r[2],
-                    'pnl_percent': r[3],
-                    'entry_time': r[4],
-                    'exit_time': r[5],
+                    'entry_price': r[2],
+                    'exit_price': r[3],
+                    'quantity': r[4],
+                    'leverage': r[5],
+                    'pnl': r[6],
+                    'pnl_percent': r[7],
+                    'entry_time': r[8],
+                    'exit_time': r[9],
+                    'reason': r[10],
+                    'fees': r[11],
+                    'slippage': r[12],
+                    'pnl_is_net': True,
                 })
             return results
         except Exception as e:

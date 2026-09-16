@@ -11,7 +11,7 @@ from __future__ import annotations
 from typing import Any, Dict, Iterable, List, Optional
 
 
-CATALOG_AS_OF = "2026-07-28"
+CATALOG_AS_OF = "2026-09-11"
 
 STATUS_LABELS = {
     "recommended": "권장",
@@ -43,6 +43,12 @@ def _entry(
 
 MODEL_REGISTRY: Dict[str, List[Dict[str, Any]]] = {
     "openai": [
+        _entry(
+            "gpt-6-astra",
+            "recommended",
+            capabilities=("chat_text", "chat_json", "vision"),
+            note="가장 복잡한 추론·전략 검토용 · 비용이 높아 빈번 호출에는 비권장",
+        ),
         _entry("gpt-5.6-luna", "recommended", capabilities=("chat_text", "chat_json", "vision")),
         _entry("gpt-5.6-terra", "recommended", capabilities=("chat_text", "chat_json", "vision")),
         _entry("gpt-5.6-sol", "recommended", capabilities=("chat_text", "chat_json", "vision")),
@@ -62,8 +68,18 @@ MODEL_REGISTRY: Dict[str, List[Dict[str, Any]]] = {
         _entry("gpt-4o-transcribe-diarize", "available", capabilities=("transcribe",), note="다중 화자 구분"),
     ],
     "deepseek": [
-        _entry("deepseek-v4-flash", "recommended"),
-        _entry("deepseek-v4-pro", "recommended"),
+        _entry(
+            "deepseek-v4-flash",
+            "recommended",
+            note="DeepSeek 서버가 최신 Flash 버전으로 자동 갱신하는 정식 API 별칭",
+        ),
+        _entry("deepseek-v4-pro", "recommended", note="정밀·복합 분석용 정식 API 별칭"),
+        _entry(
+            "deepseek-v4-flash-vision-exp",
+            "preview",
+            capabilities=("chat_text", "chat_json", "vision"),
+            note="이미지 입력 실험형 · 계정 모델 목록과 실제 연결 확인 필요",
+        ),
         _entry("deepseek-chat", "retired", replacement="deepseek-v4-flash"),
         _entry("deepseek-reasoner", "retired", replacement="deepseek-v4-flash"),
     ],
@@ -89,14 +105,18 @@ MODEL_REGISTRY: Dict[str, List[Dict[str, Any]]] = {
         _entry("claude-haiku-4-5", "recommended", capabilities=("chat_text", "chat_json")),
         _entry("claude-sonnet-5", "recommended", capabilities=("chat_text", "chat_json")),
         _entry("claude-opus-5", "recommended", capabilities=("chat_text", "chat_json")),
-        _entry("claude-fable-5", "available", capabilities=("chat_text", "chat_json")),
+        _entry("claude-fable-5-1", "recommended", capabilities=("chat_text", "chat_json")),
+        _entry("claude-fable-5", "deprecated", capabilities=("chat_text", "chat_json"), replacement="claude-fable-5-1"),
         _entry("claude-sonnet-4-6", "available", capabilities=("chat_text", "chat_json")),
         _entry("claude-opus-4-8", "available", capabilities=("chat_text", "chat_json")),
         _entry("claude-opus-4-7", "available", capabilities=("chat_text", "chat_json")),
     ],
     "gemini": [
         _entry("gemini-3.5-flash-lite", "recommended", capabilities=("chat_text", "chat_json", "vision")),
-        _entry("gemini-3.6-flash", "recommended", capabilities=("chat_text", "chat_json", "vision")),
+        _entry("gemini-3.8-flash", "recommended", capabilities=("chat_text", "chat_json", "vision")),
+        _entry("gemini-3.7-flash", "available", capabilities=("chat_text", "chat_json", "vision")),
+        _entry("gemini-3.6-flash", "available", capabilities=("chat_text", "chat_json", "vision")),
+        _entry("gemini-3.5-flash", "available", capabilities=("chat_text", "chat_json", "vision")),
         _entry("gemini-3.1-pro-preview", "preview", capabilities=("chat_text", "chat_json", "vision")),
         _entry(
             "gemini-3.1-flash-lite",

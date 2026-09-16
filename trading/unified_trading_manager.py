@@ -54,7 +54,7 @@ class UnifiedTradingManager:
                     self.logger.error(f"{exchange_name} 선물 거래소 초기화 실패: {e}")
         
         # 현물 거래소들
-        spot_exchanges = ['upbit', 'bithumb']
+        spot_exchanges = ['upbit', 'bithumb', 'coinone']
         for exchange_name in spot_exchanges:
             if (not enabled or exchange_name in enabled) and self._has_valid_api_keys(exchange_name):
                 try:
@@ -71,7 +71,7 @@ class UnifiedTradingManager:
         if ttype == 'futures':
             return name in ['binance', 'bybit', 'okx', 'bitget']
         if ttype == 'spot':
-            return name in ['upbit', 'bithumb']
+            return name in ['upbit', 'bithumb', 'coinone']
         return False
 
     def _create_and_connect_exchange(self, exchange_name: str, trading_type: str) -> Optional[ExchangeInterface]:
@@ -81,7 +81,12 @@ class UnifiedTradingManager:
         if not self._is_supported_pair(name, ttype):
             return None
 
-        if not self._has_valid_api_keys(name):
+        public_paper_spot = (
+            ttype == 'spot'
+            and name in {'upbit', 'bithumb', 'coinone'}
+            and bool(self.settings.get('paper_trading', True))
+        )
+        if not self._has_valid_api_keys(name) and not public_paper_spot:
             return None
 
         try:
@@ -91,7 +96,8 @@ class UnifiedTradingManager:
                 exchange = ExchangeFactory.create_spot_exchange(name, self.settings)
 
             if exchange and exchange.connect():
-                self.logger.info(f"{name} {ttype} 거래소 지연 초기화 완료")
+                mode = "공개 PAPER 시세" if public_paper_spot and not self._has_valid_api_keys(name) else "인증"
+                self.logger.info(f"{name} {ttype} 거래소 지연 초기화 완료 ({mode})")
                 return exchange
         except Exception as e:
             self.logger.error(f"{name} {ttype} 거래소 지연 초기화 실패: {e}")
@@ -406,7 +412,7 @@ class UnifiedTradingManager:
                     # 기존 것을 제거하고 재생성
                     self.exchanges.pop(key, None)
                 if (t == 'futures' and exchange_name in ['binance', 'bybit', 'okx', 'bitget']) \
-                or (t == 'spot' and exchange_name in ['upbit', 'bithumb']):
+                or (t == 'spot' and exchange_name in ['upbit', 'bithumb', 'coinone']):
                     if self._has_valid_api_keys(exchange_name):
                         try:
                             if t == 'futures':

@@ -26,6 +26,29 @@ class BithumbSpotAdapter(SpotExchange):
         # 거래내역 조회 경로 캐시: my_trades | orders_fallback | unsupported
         self._trade_history_mode: Optional[str] = None
         self._trade_history_notice_emitted = set()
+        # CCXT Bithumb requires a symbol for fetchOpenOrders.  Keep a bounded
+        # set discovered from balances/orders instead of issuing an invalid
+        # account-wide request every refresh cycle.
+        self._known_order_symbols: set[str] = set()
+        self._order_symbol_query_limit = max(1, min(int(kwargs.get('order_symbol_query_limit', 100) or 100), 500))
+        self._last_open_order_coverage: Dict[str, Any] = {
+            'status': 'not_checked', 'known_symbols': 0, 'queried_symbols': 0,
+            'truncated': False,
+        }
+        self._open_order_notice_emitted = False
+
+    def seed_order_symbols(self, symbols: Any) -> int:
+        """Seed symbol-required private APIs from durable/configured sources."""
+        before = len(self._known_order_symbols)
+        for item in symbols or []:
+            raw = item.get('symbol') if isinstance(item, dict) else item
+            if not str(raw or '').strip():
+                continue
+            self._known_order_symbols.add(self._normalize_bithumb_symbol(str(raw)))
+        return len(self._known_order_symbols) - before
+
+    def get_open_order_coverage(self) -> Dict[str, Any]:
+        return dict(self._last_open_order_coverage)
 
     def get_execution_capabilities(self) -> Dict[str, Any]:
         detected = build_execution_capabilities(self.exchange)
@@ -87,6 +110,10 @@ class BithumbSpotAdapter(SpotExchange):
         if s.endswith('KRW') and len(s) > 3:
             return f"{s[:-3]}/KRW"
         return f'{s}/KRW'
+
+    def _normalize_symbol(self, symbol: str) -> str:
+        """Expose the common adapter symbol contract used by shared market data."""
+        return self._normalize_bithumb_symbol(symbol)
 
     def _display_symbol(self, symbol: Optional[str]) -> str:
         if not symbol:
@@ -161,6 +188,91 @@ class BithumbSpotAdapter(SpotExchange):
             'datetime': item.get('datetime'),
             'fee': item.get('fee'),
         }
+
+    @staticmethod
+    def _history_requires_symbol(exc: Exception) -> bool:
+        message = str(exc).lower()
+        return any(token in message for token in (
+            'requires a symbol', 'symbol argument', 'symbol is required',
+            'missing symbol', '종목',
+        ))
+
+    @staticmethod
+    def _call_history_fetcher(
+        fetcher: Any,
+        symbol: Optional[str],
+        *,
+        limit: int,
+        since_ms: Optional[int],
+    ) -> List[Dict[str, Any]]:
+        """Call a CCXT history method across supported signature variants."""
+        if since_ms is not None:
+            try:
+                return list(fetcher(symbol, since=since_ms, limit=limit) or [])
+            except TypeError:
+                try:
+                    return list(fetcher(symbol, since_ms, limit) or [])
+                except TypeError:
+                    return list(fetcher(symbol, limit=limit) or [])
+        try:
+            return list(fetcher(symbol, limit=limit) or [])
+        except TypeError:
+            return list(fetcher(symbol) or [])
+
+    def _fetch_history_account_or_known_symbols(
+        self,
+        fetcher: Any,
+        symbol: Optional[str],
+        *,
+        limit: int,
+        since_ms: Optional[int],
+    ) -> List[Dict[str, Any]]:
+        """Use an account-wide call when supported, otherwise query known symbols.
+
+        Bithumb private-history support varies by API/CCXT generation.  Some
+        versions accept an account-wide request while others require a symbol.
+        A symbol-required response must not be interpreted as zero executions.
+        """
+        try:
+            return self._call_history_fetcher(
+                fetcher, symbol, limit=limit, since_ms=since_ms,
+            )
+        except Exception as exc:
+            if symbol is not None or not self._history_requires_symbol(exc):
+                raise
+            known_symbols = sorted(self._known_order_symbols)[:self._order_symbol_query_limit]
+            if not known_symbols:
+                raise
+
+        rows: List[Dict[str, Any]] = []
+        failures: List[Exception] = []
+        seen: set[tuple[str, str, str, str]] = set()
+        for known_symbol in known_symbols:
+            try:
+                fetched = self._call_history_fetcher(
+                    fetcher, known_symbol, limit=limit, since_ms=since_ms,
+                )
+            except Exception as exc:
+                failures.append(exc)
+                continue
+            for row in fetched:
+                if not isinstance(row, dict):
+                    continue
+                key = (
+                    str(row.get('id') or row.get('trade_id') or ''),
+                    str(row.get('order') or row.get('order_id') or ''),
+                    str(row.get('symbol') or known_symbol),
+                    str(row.get('timestamp') or row.get('datetime') or ''),
+                )
+                if key in seen:
+                    continue
+                seen.add(key)
+                item = dict(row)
+                item.setdefault('symbol', known_symbol)
+                rows.append(item)
+        if not rows and failures and len(failures) == len(known_symbols):
+            raise failures[0]
+        return rows[:max(1, int(limit))]
     
     def connect(self) -> bool:
         try:
@@ -171,11 +283,13 @@ class BithumbSpotAdapter(SpotExchange):
                     'apiKey': str(self.api_key) if self.api_key is not None else '',
                     'secret': str(self.secret_key) if self.secret_key is not None else '',
                     'enableRateLimit': True,
+                    'timeout': 12000,
                 }
                 mode = "인증 모드"
             else:
                 config = {
                     'enableRateLimit': True,
+                    'timeout': 12000,
                 }
                 mode = "공개 모드"
             self.exchange = ccxt.bithumb(config)  # type: ignore
@@ -199,7 +313,13 @@ class BithumbSpotAdapter(SpotExchange):
 
         try:
             balance = self.exchange.fetch_balance()
-            return normalize_ccxt_total_balances(balance, quote_asset='KRW')
+            normalized = normalize_ccxt_total_balances(balance, quote_asset='KRW')
+            self._known_order_symbols.update(
+                f"{currency.upper()}/KRW"
+                for currency, amount in normalized.items()
+                if currency.upper() != "KRW" and float(amount or 0) > 0
+            )
+            return normalized
         except Exception as e:
             self.last_error = str(e)
             self.log_event('system', f"잔고 조회 실패: {e}", level='ERROR')
@@ -234,6 +354,7 @@ class BithumbSpotAdapter(SpotExchange):
             }
         try:
             symbol = self._normalize_bithumb_symbol(symbol)
+            self._known_order_symbols.add(symbol)
 
             from trading.exchanges.order_constraints import prepare_ccxt_order_quantity
             constraint = prepare_ccxt_order_quantity(
@@ -275,17 +396,45 @@ class BithumbSpotAdapter(SpotExchange):
     def get_open_orders(self, symbol: Optional[str] = None) -> List[Dict[str, Any]]:
         if not self.is_connected:
             return []
-        try:
-            orders = self.exchange.fetch_open_orders(symbol)  # type: ignore
-            normalized_orders = []
-            for o in orders:
-                item = dict(o)
-                item['symbol'] = self._display_symbol(item.get('symbol'))
-                normalized_orders.append(item)
-            return normalized_orders
-        except Exception as e:
-            self.log_event('system', f"오픈 주문 조회 실패: {e}", level='ERROR')
+        all_known = sorted(self._known_order_symbols)
+        symbols = [self._normalize_bithumb_symbol(symbol)] if symbol else all_known[:self._order_symbol_query_limit]
+        truncated = symbol is None and len(all_known) > len(symbols)
+        self._last_open_order_coverage = {
+            'status': 'partial' if truncated else ('covered_known_symbols' if symbols else 'unknown'),
+            'known_symbols': len(all_known), 'queried_symbols': len(symbols),
+            'truncated': truncated,
+        }
+        if not symbols:
+            if not self._open_order_notice_emitted:
+                self._open_order_notice_emitted = True
+                self.log_event(
+                    'system',
+                    '빗썸 미체결 조회 대기: API가 종목을 요구하므로 보유/주문 종목을 확인한 뒤 종목별로 조회합니다.',
+                )
             return []
+        normalized_orders: List[Dict[str, Any]] = []
+        seen: set[tuple[str, str]] = set()
+        failures: List[str] = []
+        for requested_symbol in symbols:
+            try:
+                orders = self.exchange.fetch_open_orders(requested_symbol)  # type: ignore
+            except Exception as exc:
+                failures.append(f"{requested_symbol}: {exc}")
+                continue
+            for order in orders or []:
+                item = dict(order)
+                item['symbol'] = self._display_symbol(item.get('symbol') or requested_symbol)
+                key = (str(item.get('id') or ''), str(item['symbol']))
+                if key in seen:
+                    continue
+                seen.add(key)
+                normalized_orders.append(item)
+        if failures:
+            self._last_open_order_coverage['status'] = 'partial_error'
+            self._last_open_order_coverage['failed_symbols'] = len(failures)
+            self.last_error = '; '.join(failures[:3])
+            self.log_event('system', f"빗썸 일부 종목 미체결 조회 실패: {self.last_error}", level='WARNING')
+        return normalized_orders
     
     def get_trade_history(
         self,
@@ -310,15 +459,12 @@ class BithumbSpotAdapter(SpotExchange):
 
             if mode == 'my_trades':
                 try:
-                    if since_ms is not None:
-                        try:
-                            trades = self.exchange.fetch_my_trades(  # type: ignore
-                                normalized, since=since_ms, limit=limit
-                            )
-                        except TypeError:
-                            trades = self.exchange.fetch_my_trades(normalized, limit=limit)  # type: ignore
-                    else:
-                        trades = self.exchange.fetch_my_trades(normalized, limit=limit)  # type: ignore
+                    trades = self._fetch_history_account_or_known_symbols(
+                        self.exchange.fetch_my_trades,  # type: ignore
+                        normalized,
+                        limit=limit,
+                        since_ms=since_ms,
+                    )
                     return [
                         self._normalize_execution_trade(dict(t), symbol_hint=normalized)
                         for t in trades
@@ -326,6 +472,12 @@ class BithumbSpotAdapter(SpotExchange):
                     ]
                 except Exception as fetch_err:
                     fetch_err_text = str(fetch_err).lower()
+                    if self._history_requires_symbol(fetch_err) and not self._known_order_symbols:
+                        self._log_trade_history_notice_once(
+                            'trade_history_waiting_for_symbols',
+                            '빗썸 거래 내역 조회 대기: API가 종목을 요구하므로 보유/주문 종목 확인 후 종목별로 조회합니다.',
+                        )
+                        return []
                     unsupported_tokens = ('not supported', 'unsupported', 'fetchmytrades', 'fetch_my_trades')
                     if not any(token in fetch_err_text for token in unsupported_tokens):
                         raise
@@ -347,19 +499,19 @@ class BithumbSpotAdapter(SpotExchange):
                         continue
                     fallback_available = True
                     try:
-                        try:
-                            if since_ms is not None:
-                                try:
-                                    orders = fetcher(  # type: ignore[misc]
-                                        normalized, since=since_ms, limit=limit
-                                    )
-                                except TypeError:
-                                    orders = fetcher(normalized, limit=limit)  # type: ignore[misc]
-                            else:
-                                orders = fetcher(normalized, limit=limit)  # type: ignore[misc]
-                        except TypeError:
-                            orders = fetcher(normalized)  # type: ignore[misc]
+                        orders = self._fetch_history_account_or_known_symbols(
+                            fetcher,
+                            normalized,
+                            limit=limit,
+                            since_ms=since_ms,
+                        )
                     except Exception as fallback_err:
+                        if self._history_requires_symbol(fallback_err) and not self._known_order_symbols:
+                            self._log_trade_history_notice_once(
+                                'trade_history_waiting_for_symbols',
+                                '빗썸 거래 내역 조회 대기: API가 종목을 요구하므로 보유/주문 종목 확인 후 종목별로 조회합니다.',
+                            )
+                            return []
                         fallback_text = str(fallback_err).lower()
                         unsupported_tokens = (
                             'not supported', 'unsupported',

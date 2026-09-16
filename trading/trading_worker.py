@@ -36,30 +36,19 @@ class TradingWorker:
         from log_system.log_adapter import log_event
         log_event('system', '🔥 트레이딩 워커 시작')
         
-        # 🔥 즉시 첫 실행 (60초 대기 없이)
-        try:
-            selected_exchange = "binance"
-            if hasattr(self.main_app, "settings") and self.main_app.settings:
-                selected_exchange = self.main_app.settings.get("selected_exchange", "binance")
-            
-            log_event('system', f'🔥 첫 거래 실행 시작: {selected_exchange}')
-            
-            if selected_exchange == "binance":
-                log_event('system', '🔥 바이낸스 거래 실행 호출')
-                self._run_binance_trading()
-            else:
-                log_event('system', f'🔥 통합 거래소 거래 실행 호출: {selected_exchange}')
-                self._run_unified_trading(selected_exchange)
-                
-            log_event('system', '🔥 첫 거래 실행 완료')
-                
-        except Exception as e:
-            log_event('system', f'❌ 첫 거래 실행 오류: {e}')
-            import traceback
-            log_event('system', f'❌ 상세 오류: {traceback.format_exc()}')
-        
-        # 🔥 이후 60초 간격으로 실행
+        # 첫 사이클은 즉시 실행하되, 성공한 사이클 뒤에는 반드시 interval을
+        # 기다린다. 기존 구현은 첫 사이클 직후 while 본문을 다시 실행해서
+        # 한 번의 시작 요청이 두 개의 Binance 사이클을 연속 호출할 수 있었다.
+        cycle_number = 0
+        wait_before_next_cycle = 0.0
         while self.running:
+            if wait_before_next_cycle > 0:
+                if self.stop_event.wait(timeout=wait_before_next_cycle):
+                    log_event('system', '🔥 즉시 종료 신호 수신 - 루프 중단')
+                    break
+                if not self.running:
+                    break
+
             try:
                 current_time = time.time()
                 if current_time - last_cleanup_time >= 3600:
@@ -70,28 +59,21 @@ class TradingWorker:
                 if hasattr(self.main_app, "settings") and self.main_app.settings:
                     selected_exchange = self.main_app.settings.get("selected_exchange", "binance")
                 
-                from log_system.log_adapter import log_event
-                log_event('system', f'🔥 정기 거래 실행: {selected_exchange}')
+                cycle_number += 1
+                cycle_label = '첫 거래 실행' if cycle_number == 1 else '정기 거래 실행'
+                log_event('system', f'🔥 {cycle_label}: {selected_exchange}')
                 
                 if selected_exchange == "binance":
                     self._run_binance_trading()
                 else:
                     self._run_unified_trading(selected_exchange)
                 
-                # 🔥 즉시 종료를 위한 인터럽트 가능한 sleep
-                if self.stop_event.wait(timeout=self.interval):
-                    # stop_event가 설정되면 즉시 종료
-                    from log_system.log_adapter import log_event
-                    log_event('system', '🔥 즉시 종료 신호 수신 - 루프 중단')
-                    break
+                wait_before_next_cycle = max(0.0, float(self.interval))
                 
             except Exception as e:
-                from log_system.log_adapter import log_event
                 log_event('system', f'❌ 트레이딩 루프 오류: {e}')
-                # 🔥 오류 발생 시에도 즉시 종료 가능하도록
-                if self.stop_event.wait(timeout=5):
-                    log_event('system', '🔥 오류 복구 중 즉시 종료 신호 수신')
-                    break
+                # 오류 시에는 5초 뒤 재시도하되 이 대기도 stop_event로 중단한다.
+                wait_before_next_cycle = 5.0
                 
         from log_system.log_adapter import log_event
         log_event('system', '🔥 트레이딩 루프 종료')
@@ -164,8 +146,14 @@ class TradingWorker:
             from log_system.log_adapter import log_event
             log_event('system', f'❌ 메모리 정리 오류: {e}')
             
-    def stop(self):
-        """트레이딩 워커 중지 (즉시 종료)"""
+    def stop(self, *, stop_unified: bool = True):
+        """트레이딩 워커 중지 (즉시 종료).
+
+        The legacy desktop may still use this worker as the owner of every
+        exchange loop.  The Web runtime owns CCXT exchanges in independent
+        threads, so it passes ``stop_unified=False`` and coordinates those
+        workers as one broadcast-and-wait shutdown batch.
+        """
         self.running = False
         self.stop_event.set()  # 🔥 즉시 종료 신호 전송
         from log_system.log_adapter import log_event
@@ -201,7 +189,7 @@ class TradingWorker:
                 log_event('system', f'❌ Binance 거래 중단 오류: {e}')
 
         # CCXT(unified_trader) 거래소도 동일 정책 적용
-        if hasattr(self.main_app, 'unified_trader') and self.main_app.unified_trader:
+        if stop_unified and hasattr(self.main_app, 'unified_trader') and self.main_app.unified_trader:
             try:
                 ut = self.main_app.unified_trader
                 if hasattr(ut, 'monitoring_flags'):
@@ -211,5 +199,22 @@ class TradingWorker:
                             log_event('system', f'🔥 CCXT {exchange_name} 거래 중단 (close_all={_coin_policy == "close_all"})')
             except Exception as e:
                 log_event('system', f'❌ CCXT 거래 중단 오류: {e}')
+
+    def request_stop(self, *, stop_unified: bool = True) -> None:
+        """Non-blocking stop broadcast used by the Web safe-shutdown coordinator."""
+        self.running = False
+        self.stop_event.set()
+        from log_system.log_adapter import log_event
+        log_event('system', '🔥 트레이딩 워커 즉시 중지 요청됨')
+        trader = getattr(self.main_app, 'trader', None)
+        request_native = getattr(trader, 'request_stop_trading', None)
+        if callable(request_native):
+            request_native()
+        if stop_unified:
+            unified = getattr(self.main_app, 'unified_trader', None)
+            request_unified = getattr(unified, 'request_trading_stop', None)
+            if callable(request_unified):
+                for exchange_name in list(getattr(unified, 'monitoring_flags', {})):
+                    request_unified(exchange_name)
     
     # 🔥 중복 제거: stop_trading() 메서드 삭제 (stop() 메서드로 통합)

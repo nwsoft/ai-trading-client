@@ -25,6 +25,10 @@ SETTINGS_TABS: Dict[str, Dict[str, Any]] = {
         "aliases": ("ai 엔진", "provider", "모델", "openai", "deepseek", "claude", "gemini", "kimi", "kimi k3", "전사", "캐시", "비용", "호출예산", "ai 커스텀", "ai커스텀", "사용 난이도", "웹훅", "webhook"),
         "summary": "분석·대화·빈번/표준/정밀 역할별 Provider와 모델을 정합니다. Kimi K3는 Kimi Open Platform API 키와 계정 모델 권한을 확인해야 하며 일반 Kimi 서비스의 멤버십·잔액과 API 과금은 별도입니다. AI 커스텀 사용 난이도는 전략 엔진이 아니라 화면 복잡도·기능 노출 프로필이며 처음에는 일반(권장)을 사용합니다.",
     },
+    "알림·리포트": {
+        "aliases": ("알림", "리포트 전송", "discord", "디스코드", "telegram", "텔레그램", "웹훅", "가드레일 메시지"),
+        "summary": "Discord 웹훅 또는 Telegram 봇으로 가드레일 중단·손실 경고·시장국면 변화·실행 오류와 사용자가 선택한 리포트 요약을 보냅니다. 발송은 거래 엔진과 분리되며 PC가 꺼져 있으면 보내지 않습니다.",
+    },
     "고급 매매 계층": {
         "aliases": ("고급 매매", "전략 엔진", "합의 임계값", "쿨다운", "고변동", "수익성 검증"),
         "summary": "표준 자동매매의 후보 뒤에서 수익성·포트폴리오·국면/합의·슬리피지·운영 상태를 검사하는 5개 후행 계층입니다. 처음에는 safe와 PAPER 7~14일 관찰을 권장합니다.",
@@ -97,6 +101,8 @@ def _safe_current_summary(settings: Dict[str, Any]) -> str:
     alpha_arena = dict(settings.get("alpha_arena", {}) or {})
     stock = dict(settings.get("stock_auto_trading", {}) or {})
     ui_settings = dict(settings.get("ui_settings", {}) or {})
+    notifications = dict(settings.get("notification_integrations", {}) or {})
+    notification_channels = dict(notifications.get("channels", {}) or {})
     lines = [
         f"- 현재 모드: {'PAPER' if settings.get('paper_trading') else ('LIVE/LEARNING 혼합' if live else 'LEARNING')}",
         f"- 관찰·분석 거래소: {', '.join(enabled) if enabled else '없음'}",
@@ -106,6 +112,11 @@ def _safe_current_summary(settings: Dict[str, Any]) -> str:
         f"- 대시보드 최상단: {'ON' if ui_settings.get('always_on_top') else 'OFF'}",
         f"- AI 커스텀 런타임: {'ON' if ai_runtime.get('enabled') else 'OFF'}",
         f"- AI 커스텀 사용 난이도: {ai_features.get('profile', 'standard')}",
+        f"- 외부 알림: {'ON' if notifications.get('enabled') else 'OFF'} / Discord {'ON' if dict(notification_channels.get('discord', {}) or {}).get('enabled') else 'OFF'} / Telegram {'ON' if dict(notification_channels.get('telegram', {}) or {}).get('enabled') else 'OFF'}",
+        "- 알림 수신은 전체 스위치·채널·이벤트·기관 선택을 모두 따릅니다. 7개 코인 거래소와 4개 증권사에서 선택하며 API 인증과 별도입니다.",
+        "- 국면 확인 불가는 정상/횡보로 바꾸지 않으며 신규 진입을 보류합니다. 같은 국면 재확인은 변화 알림이 아닙니다.",
+        "- 반복 방지 0초는 시간 제한 해제입니다. 큐 접수는 메신저 수신 완료가 아니며 연결 테스트와 앱 로그로 확인하세요.",
+        "- LIVE 손실 알림은 실제 위험 판정 근거가 필요합니다. 증권사 거래 건수 요약의 임시 0원을 손익으로 인정하지 않고 확인 불가로 안내합니다. PAPER 손익과 섞지 않습니다.",
         f"- 고변동장 처리/합의/쿨다운: {strategy.get('high_vol_action', 'evaluate')} / {strategy.get('consensus_threshold', 0.60)} / {strategy.get('cooldown_sec', 60)}초",
         f"- 고급 매매 5계층: " + ", ".join(
             f"{key}={'ON' if dict(advanced.get(key, {}) or {}).get('enabled') else 'OFF'}"

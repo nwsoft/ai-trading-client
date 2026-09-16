@@ -7,12 +7,252 @@
 import json
 import os
 import sys
+import builtins
 import copy
 import shutil
 import math
+import tempfile
+import time
+import threading
+from contextlib import contextmanager
 from typing import Dict, Any, List
 
 from config.settings_contract import normalize_settings_contract
+
+
+def _safe_console_print(*values: Any, **kwargs: Any) -> None:
+    """Keep optional console output from changing settings I/O control flow."""
+    try:
+        builtins.print(*values, **kwargs)
+    except Exception:
+        pass
+
+
+# The packaged Windows process can expose a legacy console encoding that does
+# not represent status glyphs used by this module.  All settings console output
+# is diagnostic-only and must never make a read or committed write fail.
+print = _safe_console_print
+
+
+_LAST_SETTINGS_SAVE_ERROR = ''
+_LAST_SETTINGS_SAVE_DIAGNOSTICS: Dict[str, Any] = {}
+_LAST_SETTINGS_SAVE_METHOD = ''
+_LAST_SETTINGS_LOAD_DIAGNOSTICS: Dict[str, Any] = {}
+_SETTINGS_IO_LOCK = threading.RLock()
+
+
+class SettingsLockTimeoutError(TimeoutError):
+    """Another NoahAI process held the canonical settings lock too long."""
+
+
+class SettingsFileUnreadableError(ValueError):
+    """The canonical settings document cannot be decoded as supported JSON."""
+
+
+def read_settings_json_file(path: str | os.PathLike[str]) -> tuple[Dict[str, Any], str]:
+    """Read a settings document without depending on the Windows locale.
+
+    NoahAI writes canonical UTF-8 without a BOM.  Older/manual Windows files
+    may nevertheless contain an UTF-8 BOM, Windows Unicode (UTF-16 BOM), or
+    CP949 Korean text.  Accept those legacy representations, then let the next
+    verified save normalize the document to canonical UTF-8.  Invalid bytes and
+    non-object JSON fail closed so callers cannot silently replace credentials
+    with defaults.
+    """
+    try:
+        with open(path, 'rb') as file_handle:
+            raw = file_handle.read()
+        if raw.startswith(b'\xef\xbb\xbf'):
+            text = raw.decode('utf-8-sig')
+            source_encoding = 'utf-8-sig'
+        elif raw.startswith((b'\xff\xfe', b'\xfe\xff')):
+            text = raw.decode('utf-16')
+            source_encoding = 'utf-16'
+        else:
+            try:
+                text = raw.decode('utf-8')
+                source_encoding = 'utf-8'
+            except UnicodeDecodeError:
+                text = raw.decode('cp949')
+                source_encoding = 'cp949'
+        payload = json.loads(text)
+        if not isinstance(payload, dict):
+            raise TypeError('settings_root_must_be_object')
+        return payload, source_encoding
+    except SettingsFileUnreadableError:
+        raise
+    except (OSError, UnicodeError, json.JSONDecodeError, TypeError, ValueError) as error:
+        raise SettingsFileUnreadableError('settings_file_unreadable') from error
+
+
+def get_last_settings_save_error() -> str:
+    """Return a secret-free reason code for the latest failed settings write."""
+    return _LAST_SETTINGS_SAVE_ERROR
+
+
+def get_last_settings_save_diagnostics() -> Dict[str, Any]:
+    """Return a secret-free failure receipt suitable for support logs."""
+    return copy.deepcopy(_LAST_SETTINGS_SAVE_DIAGNOSTICS)
+
+
+def get_last_settings_save_method() -> str:
+    """Return the latest successful persistence method for support receipts."""
+    return _LAST_SETTINGS_SAVE_METHOD
+
+
+def get_last_settings_load_diagnostics() -> Dict[str, Any]:
+    """Return secret-free encoding/parse state for the canonical document."""
+    return copy.deepcopy(_LAST_SETTINGS_LOAD_DIAGNOSTICS)
+
+
+def _settings_save_error_code(error: Exception) -> str:
+    if isinstance(error, SettingsLockTimeoutError):
+        return 'concurrent_writer_timeout'
+    if isinstance(error, SettingsFileUnreadableError):
+        return 'settings_file_unreadable'
+    # Console/file-system encoding failures are I/O failures, not evidence that
+    # the settings payload has an invalid shape.  UnicodeEncodeError inherits
+    # from ValueError, so it must be classified before the generic value check.
+    if isinstance(error, UnicodeError):
+        return 'write_failed'
+    if isinstance(error, PermissionError) or getattr(error, 'winerror', None) == 5:
+        return 'permission_denied'
+    if isinstance(error, (FileNotFoundError, NotADirectoryError, IsADirectoryError)):
+        return 'path_unavailable'
+    if isinstance(error, (TypeError, ValueError)):
+        return 'invalid_settings_data'
+    if isinstance(error, OSError):
+        if getattr(error, 'winerror', None) in {32, 33}:
+            return 'file_locked'
+        if getattr(error, 'winerror', None) == 206:
+            return 'path_too_long'
+        if getattr(error, 'errno', None) == 28:
+            return 'disk_full'
+        if getattr(error, 'errno', None) == 30:
+            return 'read_only'
+    return 'write_failed'
+
+
+def _record_settings_save_failure(error: Exception, *, stage: str) -> None:
+    global _LAST_SETTINGS_SAVE_ERROR, _LAST_SETTINGS_SAVE_DIAGNOSTICS, _LAST_SETTINGS_SAVE_METHOD
+    _LAST_SETTINGS_SAVE_ERROR = _settings_save_error_code(error)
+    _LAST_SETTINGS_SAVE_METHOD = ''
+    _LAST_SETTINGS_SAVE_DIAGNOSTICS = {
+        'code': _LAST_SETTINGS_SAVE_ERROR,
+        'stage': str(stage or 'unknown'),
+        'error_type': type(error).__name__,
+        'errno': getattr(error, 'errno', None),
+        'winerror': getattr(error, 'winerror', None),
+    }
+    print(
+        '설정 파일 저장 오류: '
+        f"{_LAST_SETTINGS_SAVE_ERROR} stage={stage} type={type(error).__name__} "
+        f"errno={getattr(error, 'errno', None)} winerror={getattr(error, 'winerror', None)}"
+    )
+
+
+def _report_settings_save_success(config_path: str, method: str) -> None:
+    """Best-effort success receipt that can never invalidate a committed save.
+
+    Some Windows packaged processes still expose a legacy console encoding.
+    Keep this message ASCII-only (including the escaped path), and treat output
+    as observability rather than part of the persistence transaction.
+    """
+    try:
+        print(f"Settings file saved: path={ascii(config_path)} method={method}")
+    except Exception:
+        pass
+
+
+def _windows_replace_compatibility_error(error: OSError) -> bool:
+    """Return whether legacy in-place writing can bypass Windows replace rules.
+
+    Windows may allow an existing file handle to be opened for writing while
+    refusing rename/delete sharing required by ``os.replace``.  The legacy UI
+    wrote through the existing file and therefore did not hit that distinction.
+    """
+    return os.name == 'nt' and getattr(error, 'winerror', None) in {5, 32, 33}
+
+
+def _write_settings_in_place_compat(config_path: str, temp_path: str) -> None:
+    """Use the legacy write shape after an atomic Windows replace is blocked.
+
+    The complete candidate already exists in ``temp_path`` and the account
+    writer lock is held.  Preserve the original bytes in memory so a partial
+    write can be rolled back through the same writable handle.
+    """
+    with open(temp_path, 'rb') as candidate_file:
+        candidate = candidate_file.read()
+    # Prove the temporary payload is complete JSON before touching the current
+    # canonical file.  This also prevents truncation on serializer defects.
+    json.loads(candidate.decode('utf-8'))
+
+    with open(config_path, 'r+b') as canonical_file:
+        original = canonical_file.read()
+        try:
+            canonical_file.seek(0)
+            canonical_file.write(candidate)
+            canonical_file.truncate()
+            canonical_file.flush()
+            os.fsync(canonical_file.fileno())
+            canonical_file.seek(0)
+            if canonical_file.read() != candidate:
+                raise OSError('settings_in_place_verification_failed')
+        except Exception:
+            try:
+                canonical_file.seek(0)
+                canonical_file.write(original)
+                canonical_file.truncate()
+                canonical_file.flush()
+                os.fsync(canonical_file.fileno())
+            except Exception:
+                pass
+            raise
+
+
+@contextmanager
+def _settings_interprocess_lock(timeout_seconds: float = 10.0):
+    """Serialize settings writers across Electron sidecars and legacy clients."""
+    config_path, _ = _get_settings_paths()
+    lock_path = f'{config_path}.lock'
+    os.makedirs(os.path.dirname(config_path), exist_ok=True)
+    handle = open(lock_path, 'a+b')
+    locked = False
+    try:
+        handle.seek(0, os.SEEK_END)
+        if handle.tell() == 0:
+            handle.write(b'0')
+            handle.flush()
+        deadline = time.monotonic() + max(0.1, float(timeout_seconds))
+        while True:
+            try:
+                handle.seek(0)
+                if os.name == 'nt':
+                    import msvcrt
+                    msvcrt.locking(handle.fileno(), msvcrt.LK_NBLCK, 1)
+                else:
+                    import fcntl
+                    fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+                locked = True
+                break
+            except (BlockingIOError, OSError):
+                if time.monotonic() >= deadline:
+                    raise SettingsLockTimeoutError('settings_interprocess_lock_timeout')
+                time.sleep(0.05)
+        yield
+    finally:
+        if locked:
+            try:
+                handle.seek(0)
+                if os.name == 'nt':
+                    import msvcrt
+                    msvcrt.locking(handle.fileno(), msvcrt.LK_UNLCK, 1)
+                else:
+                    import fcntl
+                    fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+            except OSError:
+                pass
+        handle.close()
 
 # 🔒 보호할 설정 항목 리스트 (템플릿 병합 시 덮어쓰지 않음)
 PROTECTED_SETTINGS = [
@@ -102,8 +342,8 @@ def load_settings_template() -> Dict[str, Any]:
         template_path = os.path.join(getattr(sys, '_MEIPASS', os.path.dirname(sys.executable)), 'config', 'settings_template.json')
         if not os.path.exists(template_path):
             template_path = os.path.join(os.path.dirname(__file__), 'settings_template.json')
-        with open(template_path, 'r', encoding='utf-8') as f:
-            return json.load(f)
+        template, _ = read_settings_json_file(template_path)
+        return template
     except Exception:
         return {}
 
@@ -125,8 +365,7 @@ def update_settings_from_template(settings: Dict[str, Any]) -> Dict[str, Any]:
             return settings
 
         # 템플릿 로드
-        with open(template_path, 'r', encoding='utf-8') as f:
-            template_settings = json.load(f)
+        template_settings, _ = read_settings_json_file(template_path)
 
         print(f"✅ 템플릿 파일 로드: {template_path}")
 
@@ -141,6 +380,7 @@ def update_settings_from_template(settings: Dict[str, Any]) -> Dict[str, Any]:
         if 'ui_settings' not in updated_settings:
             updated_settings['ui_settings'] = {
                 'always_on_top': False,
+                'display_preset': 'display_standard',
                 'window_geometry': '1400x900',
                 'remember_window_position': True,
                 'auto_update_enabled': True,
@@ -203,6 +443,32 @@ def normalize_profitability_validation_policy(settings: Dict[str, Any]) -> Dict[
         pass
 
     return settings
+
+
+def migrate_webui_enum_contracts(settings: Dict[str, Any]) -> tuple[Dict[str, Any], bool]:
+    """Repair enum values written by early Web UI settings screens.
+
+    The legacy/runtime contract uses saver/standard/premium for the assistant
+    cost-context preset and lab for the AI Custom laboratory profile.  Early
+    Web UI builds accidentally exposed explanation-level/display labels as
+    persisted values.  Those values were accepted but then silently fell back
+    to standard at runtime.
+    """
+    if not isinstance(settings, dict):
+        return settings, False
+    changed = False
+    response_aliases = {"beginner": "saver", "advanced": "premium"}
+    response_mode = str(settings.get("assistant_response_mode") or "standard").strip().lower()
+    if response_mode in response_aliases:
+        settings["assistant_response_mode"] = response_aliases[response_mode]
+        changed = True
+    feature_settings = settings.get("ai_custom_features")
+    if isinstance(feature_settings, dict):
+        profile = str(feature_settings.get("profile") or "standard").strip().lower()
+        if profile == "laboratory":
+            feature_settings["profile"] = "lab"
+            changed = True
+    return settings, changed
 
 
 def migrate_stock_broker_api_contracts(settings: Dict[str, Any]) -> tuple[Dict[str, Any], bool]:
@@ -317,7 +583,7 @@ def deep_merge_settings(existing: Dict[str, Any], template: Dict[str, Any], pare
                 continue
             
             if key in ['binance_api_key', 'binance_secret_key', 'upbit_api_key', 'upbit_secret_key',
-                       'bithumb_api_key', 'bithumb_secret_key', 'bitget_api_key', 'bitget_secret_key', 'bitget_password',
+                       'bithumb_api_key', 'bithumb_secret_key', 'coinone_api_key', 'coinone_secret_key', 'bitget_api_key', 'bitget_secret_key', 'bitget_password',
                        'okx_api_key', 'okx_secret_key', 'okx_passphrase', 'bybit_api_key', 'bybit_secret_key',
                        'openai_api_key', 'backend_url', 'selected_exchange', 'enabled_exchanges',
                       'default_margin_type', 'paper_trading', 'demo_mode',
@@ -387,6 +653,7 @@ def load_settings(*, persist_migrations: bool = True) -> Dict[str, Any]:
     진단 도구는 ``persist_migrations=False``로 호출해 현재 파일을 변경하지
     않고 마이그레이션 결과만 메모리에서 검증할 수 있다.
     """
+    global _LAST_SETTINGS_LOAD_DIAGNOSTICS
     try:
         # PyInstaller 환경 감지
         if getattr(sys, 'frozen', False):
@@ -405,10 +672,19 @@ def load_settings(*, persist_migrations: bool = True) -> Dict[str, Any]:
         # 설정 파일이 존재하면 로드
         if os.path.exists(config_path):
             try:
-                with open(config_path, 'r', encoding='utf-8') as f:
-                    settings = json.load(f)
+                settings, source_encoding = read_settings_json_file(config_path)
+                _LAST_SETTINGS_LOAD_DIAGNOSTICS = {
+                    'ok': True,
+                    'encoding': source_encoding,
+                    'needs_normalization': source_encoding != 'utf-8',
+                }
                 print(f"✅ 설정 파일 로드: {config_path}")
             except Exception as e:
+                _LAST_SETTINGS_LOAD_DIAGNOSTICS = {
+                    'ok': False,
+                    'code': 'settings_file_unreadable',
+                    'error_type': type(e).__name__,
+                }
                 print(f"⚠️ 설정 파일 읽기 오류: {e}")
                 import traceback
                 print(traceback.format_exc())
@@ -419,7 +695,27 @@ def load_settings(*, persist_migrations: bool = True) -> Dict[str, Any]:
                 return get_default_settings()
 
             loaded_settings_snapshot = copy.deepcopy(settings)
-            needs_save = False
+            # UTF-8 BOM/UTF-16/CP949 legacy documents are readable, but the canonical
+            # store is always rewritten as plain UTF-8 on the next migration
+            # save.  Read-only checks preserve the original bytes.
+            needs_save = source_encoding != 'utf-8'
+            if needs_save:
+                print(f"설정 파일 인코딩 정규화 예정: {source_encoding} -> utf-8")
+
+            # v3.9.1.22 sizing migration.  Older installations had no common
+            # sizing contract and each venue calculated quantity differently.
+            # Stamp that historical behaviour *before* template merge.  New
+            # installations receive the template's account_risk default, while
+            # an upgrade never changes live exposure without user approval.
+            if not isinstance(loaded_settings_snapshot.get('position_sizing_policy'), dict):
+                settings['position_sizing_policy'] = {'mode': 'legacy_venue'}
+                settings['_position_sizing_policy_migration'] = {
+                    'version': 1,
+                    'source': 'pre_v39122_missing_policy',
+                    'requires_user_review': True,
+                }
+                print("🔒 기존 계정 투자금 계산을 거래소별 호환 모드로 보존했습니다.")
+                needs_save = True
 
             # 🔄 템플릿에서 새로운 설정 업데이트
             settings = update_settings_from_template(settings)
@@ -646,6 +942,7 @@ def load_settings(*, persist_migrations: bool = True) -> Dict[str, Any]:
             if 'ui_settings' not in settings:
                 settings['ui_settings'] = {
                     'always_on_top': False,
+                    'display_preset': 'display_standard',
                     'window_geometry': '1400x900',
                     'remember_window_position': True,
                     'auto_update_enabled': True,
@@ -670,6 +967,11 @@ def load_settings(*, persist_migrations: bool = True) -> Dict[str, Any]:
                 needs_save = True
 
             # v3.9.0.4: 실행 설정을 하나의 정본으로 정리한다.
+            settings, webui_enum_changed = migrate_webui_enum_contracts(settings)
+            if webui_enum_changed:
+                print("🧭 초기 Web UI 열거형 설정을 런타임 정본 값으로 복구했습니다")
+                needs_save = True
+
             settings, contract_report, contract_changed = normalize_settings_contract(settings)
             if contract_changed:
                 print(
@@ -693,12 +995,16 @@ def load_settings(*, persist_migrations: bool = True) -> Dict[str, Any]:
             return hydrate_ai_credentials(settings)
 
         # 설정 파일이 없으면 템플릿에서 생성
+        _LAST_SETTINGS_LOAD_DIAGNOSTICS = {
+            'ok': True,
+            'encoding': 'new',
+            'needs_normalization': False,
+        }
         print(f"⚠️ 설정 파일 없음, 템플릿에서 생성: {config_path}")
 
         # 템플릿 파일 로드
         if os.path.exists(template_path):
-            with open(template_path, 'r', encoding='utf-8') as f:
-                settings = json.load(f)
+            settings, _ = read_settings_json_file(template_path)
             print(f"✅ 템플릿에서 로드: {template_path}")
         else:
             # 템플릿도 없으면 기본 설정 사용
@@ -707,6 +1013,7 @@ def load_settings(*, persist_migrations: bool = True) -> Dict[str, Any]:
 
         # adminjung 계정 최초 1회 방송 리플레이 기본값 자동 초기화
         settings, _ = _apply_adminjung_broadcast_replay_defaults(settings)
+        settings, _ = migrate_webui_enum_contracts(settings)
         settings, _, _ = normalize_settings_contract(settings)
         settings, _ = migrate_stock_broker_api_contracts(settings)
 
@@ -721,6 +1028,11 @@ def load_settings(*, persist_migrations: bool = True) -> Dict[str, Any]:
         return hydrate_ai_credentials(settings)
 
     except Exception as e:
+        _LAST_SETTINGS_LOAD_DIAGNOSTICS = {
+            'ok': False,
+            'code': 'settings_file_unreadable',
+            'error_type': type(e).__name__,
+        }
         print(f"설정 파일 로드 오류: {e}")
         return get_default_settings()
 
@@ -828,53 +1140,208 @@ def restore_settings_from_backup(backup_path: str) -> bool:
             print("⚠️ 복구할 백업 파일이 없습니다.")
             return False
 
-        # 복구 직전 현재 설정을 한번 더 백업해 롤백 여지 확보
-        create_settings_backup(retention=3)
-
-        config_path, _ = _get_settings_paths()
-        os.makedirs(os.path.dirname(config_path), exist_ok=True)
-        shutil.copy2(backup_path, config_path)
         try:
-            os.chmod(config_path, 0o600)
-        except OSError:
-            pass
-        print(f"✅ 설정 복구 완료: {backup_path} -> {config_path}")
-        return True
+            restored, _ = read_settings_json_file(backup_path)
+        except SettingsFileUnreadableError as error:
+            _record_settings_save_failure(error, stage='validate_backup')
+            return False
+
+        with _SETTINGS_IO_LOCK, _settings_interprocess_lock():
+            # _save_settings_unlocked가 현재 정본을 먼저 백업하고, 검증된
+            # 복구 문서를 UTF-8 정본으로 기록한다. 명시적 복구만 손상된
+            # 현재 파일을 교체할 수 있다.
+            if not _save_settings_unlocked(restored, allow_unreadable_existing=True):
+                return False
+            config_path, _ = _get_settings_paths()
+            print(f"✅ 설정 복구 완료: {backup_path} -> {config_path}")
+            return True
     except Exception as e:
         print(f"설정 복구 오류: {e}")
         return False
 
 
-def save_settings(settings: Dict[str, Any]) -> bool:
+def _save_settings_unlocked(
+    settings: Dict[str, Any],
+    *,
+    allow_unreadable_existing: bool = False,
+) -> bool:
     """설정 파일 저장 (PyInstaller 배포 환경 대응)"""
+    global _LAST_SETTINGS_SAVE_ERROR, _LAST_SETTINGS_SAVE_DIAGNOSTICS, _LAST_SETTINGS_SAVE_METHOD
+    temp_path = ''
+    stage = 'resolve_paths'
     try:
         config_path, _ = _get_settings_paths()
         from trading.ai.credentials import prepare_ai_credentials_for_storage
 
+        # An unreadable existing document may still contain the user's API
+        # keys.  Never replace it with defaults merely because a permissive UI
+        # load fell back.  Only the explicit, validated backup restore path may
+        # replace such a file.
+        stage = 'validate_existing'
+        if os.path.exists(config_path) and not allow_unreadable_existing:
+            read_settings_json_file(config_path)
+
+        stage = 'prepare_credentials'
         settings_to_save, _ = prepare_ai_credentials_for_storage(settings)
+        stage = 'normalize_contract'
         settings_to_save, _, _ = normalize_settings_contract(settings_to_save)
         if _repair_tp_sl_settings(settings_to_save):
             print("🔧 저장 전 비정상 TP/SL 설정을 복구했습니다.")
 
         # 디렉토리 생성
+        stage = 'ensure_directory'
         os.makedirs(os.path.dirname(config_path), exist_ok=True)
 
         # 기존 설정 파일이 있으면 자동 백업 (최신 3개 유지)
+        stage = 'create_backup'
         if os.path.exists(config_path):
             create_settings_backup(retention=3)
 
-        with open(config_path, 'w', encoding='utf-8') as f:
+        # Windows 백신·동기화 도구가 settings.json을 짧게 점유하더라도 기존
+        # 정본을 잘라 쓰지 않도록 같은 디렉터리의 임시 파일에 먼저 완전 기록한다.
+        stage = 'write_temporary'
+        with tempfile.NamedTemporaryFile(
+            mode='w', encoding='utf-8', dir=os.path.dirname(config_path),
+            prefix='.settings-', suffix='.tmp', delete=False,
+        ) as f:
+            temp_path = f.name
             json.dump(settings_to_save, f, ensure_ascii=False, indent=2)
+            f.flush()
+            os.fsync(f.fileno())
+
+        stage = 'replace_canonical'
+        replace_error = None
+        used_in_place_compat = False
+        replace_deadline = time.monotonic() + 5.0
+        attempt = 0
+        while True:
+            try:
+                os.replace(temp_path, config_path)
+                temp_path = ''
+                replace_error = None
+                break
+            except OSError as error:
+                replace_error = error
+                if time.monotonic() >= replace_deadline:
+                    if _windows_replace_compatibility_error(error):
+                        # Legacy AITrading.exe wrote through the existing file.
+                        # Keep atomic replace as the default, but recover that
+                        # proven Windows behavior when delete-sharing alone is
+                        # what prevents replacement.
+                        stage = 'write_canonical_in_place_compat'
+                        _write_settings_in_place_compat(config_path, temp_path)
+                        used_in_place_compat = True
+                        replace_error = None
+                        break
+                    raise
+                time.sleep(min(0.5, 0.05 * (2 ** min(attempt, 4))))
+                attempt += 1
+        if replace_error is not None:
+            raise replace_error
+        if used_in_place_compat:
+            try:
+                os.remove(temp_path)
+                temp_path = ''
+            except OSError:
+                pass
+        stage = 'finalize_permissions'
         try:
             os.chmod(config_path, 0o600)
         except OSError:
             pass
-        print(f"✅ 설정 파일 저장: {config_path}")
+        _LAST_SETTINGS_SAVE_ERROR = ''
+        _LAST_SETTINGS_SAVE_DIAGNOSTICS = {}
+        _LAST_SETTINGS_SAVE_METHOD = (
+            'in_place_compat' if used_in_place_compat else 'atomic_replace'
+        )
+        _report_settings_save_success(config_path, _LAST_SETTINGS_SAVE_METHOD)
         return True
 
     except Exception as e:
-        print(f"설정 파일 저장 오류: {e}")
+        _record_settings_save_failure(e, stage=stage)
         return False
+    finally:
+        if temp_path:
+            try:
+                os.remove(temp_path)
+            except OSError:
+                pass
+
+
+def save_settings(settings: Dict[str, Any]) -> bool:
+    """Serialize in-process full-settings writes through the canonical store."""
+    with _SETTINGS_IO_LOCK:
+        try:
+            with _settings_interprocess_lock():
+                return _save_settings_unlocked(settings)
+        except Exception as error:
+            _record_settings_save_failure(error, stage='acquire_interprocess_lock')
+            return False
+
+
+def patch_settings_paths(changes: Dict[str, Any]) -> bool:
+    """Persist only the caller-owned paths on top of the latest disk revision.
+
+    Background optimizers must not write an old full settings snapshot because
+    it can revert a user save made by the Web or legacy settings window.
+    """
+    global _LAST_SETTINGS_SAVE_ERROR, _LAST_SETTINGS_SAVE_DIAGNOSTICS
+    if not isinstance(changes, dict) or not changes:
+        return False
+    with _SETTINGS_IO_LOCK:
+        try:
+            lock_context = _settings_interprocess_lock()
+            lock_context.__enter__()
+        except Exception as error:
+            _record_settings_save_failure(error, stage='acquire_interprocess_lock')
+            return False
+        try:
+            current = copy.deepcopy(load_settings(persist_migrations=False) or {})
+            for raw_path, value in changes.items():
+                parts = [part for part in str(raw_path or '').split('.') if part]
+                if not parts:
+                    return False
+                target = current
+                for part in parts[:-1]:
+                    nested = target.get(part)
+                    if not isinstance(nested, dict):
+                        nested = {}
+                        target[part] = nested
+                    target = nested
+                target[parts[-1]] = copy.deepcopy(value)
+            if not _save_settings_unlocked(current):
+                return False
+
+            # Do not report success merely because os.replace() completed.  The
+            # Web UI must receive the exact canonical values that a fresh process
+            # will load.  This also catches a second writer replacing the file in
+            # the narrow interval immediately after our atomic write.
+            persisted = load_settings(persist_migrations=False) or {}
+            for raw_path, value in changes.items():
+                target: Any = persisted
+                for part in [part for part in str(raw_path).split('.') if part]:
+                    if not isinstance(target, dict) or part not in target:
+                        _LAST_SETTINGS_SAVE_ERROR = 'verification_failed'
+                        _LAST_SETTINGS_SAVE_DIAGNOSTICS = {
+                            'code': 'verification_failed',
+                            'stage': 'verify_canonical',
+                        }
+                        return False
+                    target = target[part]
+                if target != value:
+                    _LAST_SETTINGS_SAVE_ERROR = 'verification_failed'
+                    _LAST_SETTINGS_SAVE_DIAGNOSTICS = {
+                        'code': 'verification_failed',
+                        'stage': 'verify_canonical',
+                    }
+                    return False
+            _LAST_SETTINGS_SAVE_DIAGNOSTICS = {}
+            return True
+        except Exception as error:
+            _record_settings_save_failure(error, stage='patch_settings_paths')
+            return False
+        finally:
+            lock_context.__exit__(None, None, None)
 
 
 def get_default_settings() -> Dict[str, Any]:
@@ -1010,13 +1477,18 @@ def get_default_settings() -> Dict[str, Any]:
         'openai_api_key': '',
         'openai_base_url': '',
         'ai_provider': 'openai',
-            'ai_credentials': {
-                'openai': {'api_key': '', 'base_url': ''},
-                'deepseek': {'api_key': '', 'base_url': 'https://api.deepseek.com'},
-                'kimi': {'api_key': '', 'base_url': 'https://api.moonshot.ai/v1'},
-                'anthropic': {'api_key': '', 'base_url': 'https://api.anthropic.com'},
-                'gemini': {'api_key': '', 'base_url': 'https://generativelanguage.googleapis.com/v1beta/openai/'},
-            },
+        'ai_credentials': {
+            'openai': {'api_key': '', 'base_url': ''},
+            'openai_shared': {'api_key': '', 'base_url': ''},
+            'deepseek': {'api_key': '', 'base_url': 'https://api.deepseek.com'},
+            'kimi': {'api_key': '', 'base_url': 'https://api.moonshot.ai/v1'},
+            'anthropic': {'api_key': '', 'base_url': 'https://api.anthropic.com'},
+            'gemini': {'api_key': '', 'base_url': 'https://generativelanguage.googleapis.com/v1beta/openai/'},
+        },
+        'ai_data_routing': {
+            'public_general_sharing_enabled': False,
+            'public_openai_model': 'gpt-5.6-luna',
+        },
         'ai_provider_profiles': {
             'analyst': {'provider': 'openai', 'model': ''},
             'assistant': {'provider': 'openai', 'model': ''},
@@ -1031,6 +1503,10 @@ def get_default_settings() -> Dict[str, Any]:
         'upbit_secret_key': '',
         'bithumb_api_key': '',
         'bithumb_secret_key': '',
+        'coinone_api_key': '',
+        'coinone_secret_key': '',
+        # 운영자 실계좌 검증 산출물로만 승격한다. 일반 설정 화면에서는 변경하지 않는다.
+        'coinone_live_e2e_verified': False,
         'bitget_api_key': '',
         'bitget_secret_key': '',
         'bitget_password': '',
@@ -1118,6 +1594,7 @@ def get_default_settings() -> Dict[str, Any]:
             'auto_start': False,
             'enabled': False,
             'interval_sec': 60,
+            'universe_cache_ttl_sec': 300,
             'buy_threshold': 70.0,
             'sell_threshold': 30.0,
             'order_type': 'MARKET',
@@ -1134,6 +1611,14 @@ def get_default_settings() -> Dict[str, Any]:
             'monthly_max_loss': 4000000.0,
             'max_symbol_weight_percent': 35.0,
             'broker_overrides': {},
+            'paper_costs': {
+                'buy_commission_rate': 0.00015,
+                'sell_commission_rate': 0.00015,
+                'stock_sell_tax_rate': 0.002,
+                'etf_sell_tax_rate': 0.0,
+                'buy_slippage_rate': 0.0003,
+                'sell_slippage_rate': 0.0003,
+            },
             'enable_exit_policy': True,
             'take_profit_percent': 5.0,
             'stop_loss_percent': 8.0,
@@ -1252,6 +1737,20 @@ def get_default_settings() -> Dict[str, Any]:
         'num_major_coins': 5,
         'min_total_coins': 10,
         'max_total_coins': 20,
+        # Public market discovery runtime.  These limits keep six venue
+        # workers bounded and are intentionally independent of order loops.
+        'coin_selection_cache_ttl_seconds': 30,
+        'market_ticker_cache_ttl_seconds': 30,
+        'market_kline_cache_ttl_seconds': 60,
+        'coin_selection_detail_candidate_limit': 30,
+        'coin_selection_max_workers': 8,
+        'coin_selection_stage_timeout_seconds': 10,
+        'coin_selection_total_timeout_seconds': 20,
+        'coin_selection_max_snapshot_age_seconds': 120,
+        'coin_selection_failure_retry_seconds': 60,
+        'market_regime_check_interval_seconds': 300,
+        'market_regime_confirmations': 2,
+        'market_regime_min_dwell_seconds': 600,
 
         'market_regime_coins': {
             'bear': {'min': 10, 'max': 10},
@@ -1418,6 +1917,14 @@ def get_default_settings() -> Dict[str, Any]:
                 'rsi_extreme_overbought': 78,
                 'momentum_threshold': 0.00035,
                 'trend_momentum_threshold': 0.0012
+            },
+            'coinone': {
+                'rsi_extreme_oversold': 22,
+                'rsi_oversold': 30,
+                'rsi_overbought': 70,
+                'rsi_extreme_overbought': 78,
+                'momentum_threshold': 0.002,
+                'trend_momentum_threshold': 0.004
             }
         },
 
@@ -1521,7 +2028,8 @@ def get_default_settings() -> Dict[str, Any]:
             'okx': 0.8,
             'bitget': 0.85,
             'upbit': 0.7,
-            'bithumb': 0.7
+            'bithumb': 0.7,
+            'coinone': 0.7
         },
         'dynamic_thresholds_enabled': True,
         'dynamic_thresholds_profile': {
@@ -1563,7 +2071,8 @@ def get_default_settings() -> Dict[str, Any]:
             'okx': {'max_positions': 3, 'max_position_size': 0.006, 'min_position_size': 0.001, 'max_leverage': 20},
             'bitget': {'max_positions': 3, 'max_position_size': 0.007, 'min_position_size': 0.001, 'max_leverage': 20},
             'upbit': {'max_positions': 3, 'max_position_size': 0.005, 'min_position_size': 0.001},
-            'bithumb': {'max_positions': 3, 'max_position_size': 0.005, 'min_position_size': 0.001}
+            'bithumb': {'max_positions': 3, 'max_position_size': 0.005, 'min_position_size': 0.001},
+            'coinone': {'max_positions': 3, 'max_position_size': 0.005, 'min_position_size': 0.001}
         },
         'strategy_config': {
             'volatility_thresholds': [1.0, 3.0, 5.0, 7.0, 10.0],
@@ -1692,6 +2201,8 @@ def _is_sensitive_setting_key(key: str) -> bool:
         'cert_password',
         'credential_ref',
         'user_id',
+        'webhook_url',
+        'chat_id',
     )
     sensitive_exact = {
         'backend_url',

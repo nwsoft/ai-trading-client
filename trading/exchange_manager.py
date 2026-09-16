@@ -13,6 +13,7 @@ from .exchanges.exchange_factory import ExchangeFactory
 from .exchanges.interfaces.exchange_interface import ExchangeInterface
 from .exchanges.base_exchange import BaseExchange
 from .unified_trading_manager import UnifiedTradingManager
+from .exchanges.venue_capabilities import CRYPTO_VENUE_ORDER
 
 
 class ExchangeManager:
@@ -75,6 +76,35 @@ class ExchangeManager:
         except Exception:
             return False
 
+    @staticmethod
+    def _is_clock_error_message(message: str) -> bool:
+        msg = str(message or '').lower()
+        return any(token in msg for token in (
+            'timestamp for this request',
+            'outside of the recvwindow',
+            'outside of the recv_window',
+            'server timestamp',
+            'recv_window param',
+            'recvwindow param',
+            'retcode":10002',
+            'retcode=10002',
+            'code=-1021',
+            '"code":-1021',
+        ))
+
+    @staticmethod
+    def _clock_error_result(exchange_name: str, error: str) -> Dict[str, Any]:
+        return {
+            'exchange': exchange_name,
+            'status': 'clock_skew',
+            'error': str(error or 'provider timestamp rejected'),
+            'message': (
+                f'{exchange_name.upper()}가 PC 시각과 거래소 서버 시각의 차이로 요청을 거부했습니다. '
+                'Windows 날짜/시간 자동 설정과 지금 동기화를 실행한 뒤 다시 확인하세요. '
+                '이 상태만으로 API 키 오류로 판단하지 않습니다.'
+            ),
+        }
+
     def _get_enabled_exchange_set(self) -> set:
         enabled_set = set()
         try:
@@ -99,9 +129,23 @@ class ExchangeManager:
     def update_settings(self, new_settings: Dict[str, Any], unified_manager: Optional[UnifiedTradingManager] = None):
         """설정 변경 반영 및 현재 클라이언트 재구성"""
         try:
+            previous = dict(self.settings or {}) if isinstance(self.settings, dict) else {}
             self.settings = new_settings
             if unified_manager:
                 self.unified_manager = unified_manager
+            credential_fields = {
+                'binance': ('binance_api_key', 'binance_secret_key'),
+                'upbit': ('upbit_api_key', 'upbit_secret_key'),
+                'bithumb': ('bithumb_api_key', 'bithumb_secret_key'),
+                'coinone': ('coinone_api_key', 'coinone_secret_key'),
+                'bybit': ('bybit_api_key', 'bybit_secret_key'),
+                'okx': ('okx_api_key', 'okx_secret_key', 'okx_passphrase'),
+                'bitget': ('bitget_api_key', 'bitget_secret_key', 'bitget_password'),
+            }
+            for source, fields in credential_fields.items():
+                if any(previous.get(field) != new_settings.get(field) for field in fields):
+                    self.invalid_api_keys.discard(source)
+                    self.exchange_clients.pop(source, None)
             # 캐시 초기화
             self.clear_cache()
             # 현재 거래소 클라이언트 재생성
@@ -185,9 +229,9 @@ class ExchangeManager:
                         return shared_client
 
             # API 키 없으면 기본적으로 생성 생략.
-            # 단, 업비트/빗썸은 공개모드 시세/분석이 가능하므로 생성 허용.
+            # 단, 국내 현물은 공개모드 시세/분석이 가능하므로 생성 허용.
             if not self._has_valid_api_keys(normalized_name):
-                if normalized_name not in ('upbit', 'bithumb'):
+                if normalized_name not in ('upbit', 'bithumb', 'coinone'):
                     self.logger.debug(f"{exchange_name} API 키가 없어 클라이언트를 생성하지 않습니다 (요청시 None 반환)")
                     return None
                 self.logger.info(f"{exchange_name} 공개모드 클라이언트 생성 시도 (API 키 없음)")
@@ -327,6 +371,10 @@ class ExchangeManager:
                 # Binance 전용 클라이언트도 계정 API를 두 번 호출하지 않는다.
                 # 신형 클라이언트는 한 응답에서 잔고·계정 요약을 만들고,
                 # 구형 주입 클라이언트만 호환 경로를 사용한다.
+                if hasattr(self.binance_client, 'last_error'):
+                    self.binance_client.last_error = ''
+                if hasattr(self.binance_client, 'last_error_category'):
+                    self.binance_client.last_error_category = ''
                 if hasattr(self.binance_client, 'get_balance_snapshot'):
                     snapshot = self.binance_client.get_balance_snapshot()
                     balance = snapshot.get('balance', {}) if isinstance(snapshot, dict) else {}
@@ -335,6 +383,23 @@ class ExchangeManager:
                     account_info = self.binance_client.get_account_info()
                     balance = self.binance_client.get_balance()
 
+                raw_error = str(getattr(self.binance_client, 'last_error', '') or '').strip()
+                error_category = str(getattr(self.binance_client, 'last_error_category', '') or '').strip()
+                if error_category == 'clock_skew' or self._is_clock_error_message(raw_error):
+                    return self._clock_error_result('binance', raw_error)
+                if raw_error and self._is_auth_error_message(raw_error):
+                    self.invalid_api_keys.add('binance')
+                    return {
+                        'exchange': 'binance', 'status': 'invalid_api_keys',
+                        'error': raw_error,
+                        'message': '바이낸스가 저장된 API 자격증명을 거부했습니다.',
+                    }
+                if raw_error:
+                    return {
+                        'exchange': 'binance', 'status': 'error',
+                        'error': raw_error,
+                        'message': '바이낸스 계정 조회 중 거래소 오류가 발생했습니다.',
+                    }
                 if not isinstance(balance, dict) or not isinstance(account_info, dict) or not account_info:
                     return {
                         'exchange': 'binance',
@@ -384,7 +449,9 @@ class ExchangeManager:
                     auth_guidance = str(
                         getattr(client, 'last_auth_guidance', '') or ''
                     ).strip()
-                    if self._is_auth_error_message(raw_error) or auth_guidance:
+                    if self._is_clock_error_message(raw_error):
+                        return self._clock_error_result(exchange_name, raw_error)
+                    if self._is_auth_error_message(raw_error):
                         normalized = self._normalize_exchange_name(exchange_name)
                         self.invalid_api_keys.add(normalized)
                         return {
@@ -418,7 +485,9 @@ class ExchangeManager:
                 getattr(client, 'last_auth_guidance', '') or ''
             ).strip()
             if raw_error or auth_guidance:
-                if self._is_auth_error_message(raw_error) or auth_guidance:
+                if self._is_clock_error_message(raw_error):
+                    return self._clock_error_result(exchange_name, raw_error)
+                if self._is_auth_error_message(raw_error):
                     normalized = self._normalize_exchange_name(exchange_name)
                     self.invalid_api_keys.add(normalized)
                     return {
@@ -439,7 +508,7 @@ class ExchangeManager:
                     'error': '거래소가 유효한 잔고/계정 정보를 반환하지 않았습니다.',
                 }
 
-            quote_asset = 'KRW' if exchange_name in {'upbit', 'bithumb'} else 'USDT'
+            quote_asset = 'KRW' if exchange_name in {'upbit', 'bithumb', 'coinone'} else 'USDT'
             account_info = {
                 'balances': dict(balance),
                 'quote_asset': quote_asset,
@@ -464,6 +533,8 @@ class ExchangeManager:
             
         except Exception as e:
             self.logger.error(f"{exchange_name} CCXT 잔고 조회 오류: {e}")
+            if self._is_clock_error_message(str(e)):
+                return self._clock_error_result(exchange_name, str(e))
             if self._is_auth_error_message(str(e)):
                 self.invalid_api_keys.add(self._normalize_exchange_name(exchange_name))
                 return {
@@ -477,7 +548,7 @@ class ExchangeManager:
     def get_all_exchange_balances(self) -> Dict[str, Dict[str, Any]]:
         """모든 거래소 잔고 조회"""
         results = {}
-        supported_exchanges = ['binance', 'upbit', 'bithumb', 'bybit', 'okx', 'bitget']
+        supported_exchanges = CRYPTO_VENUE_ORDER
 
         for exchange_name in supported_exchanges:
             normalized = self._normalize_exchange_name(exchange_name)
@@ -511,6 +582,8 @@ class ExchangeManager:
             return bool(self.settings.get('upbit_api_key') and self.settings.get('upbit_secret_key'))
         elif normalized == 'bithumb':
             return bool(self.settings.get('bithumb_api_key') and self.settings.get('bithumb_secret_key'))
+        elif normalized == 'coinone':
+            return bool(self.settings.get('coinone_api_key') and self.settings.get('coinone_secret_key'))
         elif normalized == 'bybit':
             return bool(self.settings.get('bybit_api_key') and self.settings.get('bybit_secret_key'))
         elif normalized == 'okx':
@@ -561,7 +634,7 @@ class ExchangeManager:
             if not ccxt_symbol:
                 ccxt_symbol = self._to_ccxt_symbol(symbol)
             try:
-                if ex_name in ("upbit", "bithumb") and isinstance(ccxt_symbol, str) and ccxt_symbol.upper().endswith('/USDT'):
+                if ex_name in ("upbit", "bithumb", "coinone") and isinstance(ccxt_symbol, str) and ccxt_symbol.upper().endswith('/USDT'):
                     base = ccxt_symbol.split('/')[0]
                     ccxt_symbol = f"{base}/KRW"
             except Exception:
@@ -646,7 +719,7 @@ class ExchangeManager:
             if not ccxt_symbol:
                 ccxt_symbol = self._to_ccxt_symbol(symbol)
             try:
-                if ex_name in ("upbit", "bithumb") and isinstance(ccxt_symbol, str) and ccxt_symbol.upper().endswith('/USDT'):
+                if ex_name in ("upbit", "bithumb", "coinone") and isinstance(ccxt_symbol, str) and ccxt_symbol.upper().endswith('/USDT'):
                     base = ccxt_symbol.split('/')[0]
                     ccxt_symbol = f"{base}/KRW"
             except Exception:
@@ -703,13 +776,14 @@ class ExchangeManager:
     # ---- OHLCV/Klines 통합 조회 (Analyzer 연동용) ----
     def get_klines(self, symbol: str, interval: str = '1m', limit: int = 100, exchange_name: Optional[str] = None) -> List[List]:
         """거래소별 캔들 데이터 조회. Binance 포맷(list[list])로 반환"""
+        from .market_data_utils import failed_candles
         try:
             if exchange_name is None:
                 exchange_name = self.settings.get('selected_exchange', 'binance')
             ex_name: str = self._normalize_exchange_name(exchange_name if isinstance(exchange_name, str) else self.settings.get('selected_exchange', 'binance'))
 
             if not self._is_exchange_enabled(ex_name):
-                return []
+                return failed_candles('venue_disabled')
 
             # 1) Binance: 기존 클라이언트 경로 사용
             if ex_name == 'binance' and self.binance_client and hasattr(self.binance_client, 'get_klines'):
@@ -718,7 +792,7 @@ class ExchangeManager:
             # 2) CCXT 어댑터 경유: fetch_ohlcv 사용 (심볼 변환 필요)
             client = self._get_or_create_exchange_client(ex_name)
             if not client:
-                return []
+                return failed_candles('client_unavailable')
 
             # 심볼 정규화: 어댑터의 _normalize_symbol 우선 사용(있을 때)
             ccxt_symbol = None
@@ -733,7 +807,7 @@ class ExchangeManager:
 
             # 한국 거래소(업비트/빗썸) 전용 규칙: USDT 마켓 미지원 → KRW로 매핑 시도
             try:
-                if ex_name in ("upbit", "bithumb") and isinstance(ccxt_symbol, str):
+                if ex_name in ("upbit", "bithumb", "coinone") and isinstance(ccxt_symbol, str):
                     if ccxt_symbol.upper().endswith("/USDT"):
                         base = ccxt_symbol.split("/")[0]
                         # 우선 KRW 시도로 교체
@@ -742,6 +816,15 @@ class ExchangeManager:
                 pass
 
             ccxt_timeframe = interval  # 기본 동일 표기
+
+            # Coinone은 설치된 CCXT 버전에 따라 fetchOHLCV가 없을 수 있다.
+            # 어댑터의 공식 공개 차트 폴백을 먼저 사용한다.
+            adapter_klines = getattr(client, 'get_klines', None)
+            if callable(adapter_klines) and ex_name == 'coinone':
+                rows = adapter_klines(ccxt_symbol, interval=ccxt_timeframe, limit=limit)
+                # Preserve the original failure, rather than issuing another
+                # unsupported CCXT request and replacing its cause.
+                return rows if rows is not None else failed_candles('empty_response')
 
             # 타입 안정성: 런타임 속성 접근은 getattr로 안전하게
             ccxt_exchange = getattr(client, 'exchange', None)
@@ -752,8 +835,8 @@ class ExchangeManager:
                         # markets 미로딩 시 로드
                         if hasattr(ccxt_exchange, 'load_markets'):
                             ccxt_exchange.load_markets()
-                except Exception:
-                    pass
+                except Exception as exc:
+                    return failed_candles('market_catalog_query_failed', exc)
 
                 try:
                     markets = getattr(ccxt_exchange, 'markets', {}) or {}
@@ -763,22 +846,22 @@ class ExchangeManager:
                             self.logger.info(f"{ex_name} 미지원 심볼 스킵: {ccxt_symbol}")
                         except Exception:
                             pass
-                        return []
+                        return failed_candles('unsupported_symbol')
                 except Exception:
                     # 마켓 검증 실패 시에도 안전하게 진행
                     pass
 
                 ohlcv = ccxt_exchange.fetch_ohlcv(ccxt_symbol, timeframe=ccxt_timeframe, limit=limit)
                 # ccxt 포맷은 이미 [ts, o,h,l,c,v]
-                return ohlcv or []
+                return ohlcv if ohlcv else failed_candles('empty_response')
 
             # 3) 마지막 폴백: 지원 없음
             self.logger.warning(f"{ex_name} 어댑터가 OHLCV를 지원하지 않습니다")
-            return []
+            return failed_candles('ohlcv_unsupported')
         except Exception as e:
             safe_name = exchange_name or 'unknown'
             self.logger.error(f"{safe_name} klines 조회 오류: {e}")
-            return []
+            return failed_candles('candle_query_failed', e)
 
     def _to_ccxt_symbol(self, symbol: str) -> str:
         """간단한 심볼 변환: 'BTCUSDT' -> 'BTC/USDT' (기본 규칙)"""
@@ -886,7 +969,7 @@ class ExchangeManager:
     def _get_available_exchanges(self) -> List[str]:
         """사용 가능한 거래소 목록 반환"""
         available = []
-        for exchange_name in ['binance', 'upbit', 'bithumb', 'bybit', 'okx', 'bitget']:
+        for exchange_name in CRYPTO_VENUE_ORDER:
             if self._has_valid_api_keys(exchange_name):
                 available.append(exchange_name)
         return available

@@ -4,8 +4,9 @@ from __future__ import annotations
 
 from typing import Any, Mapping
 
+from trading.exchanges.venue_capabilities import KRW_SPOT_VENUES
 
-SPOT_EXCHANGES = frozenset({"upbit", "bithumb"})
+SPOT_EXCHANGES = KRW_SPOT_VENUES
 
 
 def resolve_effective_leverage(

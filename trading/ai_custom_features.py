@@ -58,7 +58,10 @@ PROFILE_FEATURES: Dict[str, Dict[str, bool]] = {
     },
 }
 
-PROFILE_VIEW_LEVEL = {"beginner": 1, "standard": 2, "advanced": 3, "lab": 3}
+# Level is presentation/operation-policy depth, never an execution entitlement.
+# The lab profile exposes Level 4 bounded policy controls while all hard account,
+# order, approval and loss guardrails remain owned by the runtime.
+PROFILE_VIEW_LEVEL = {"beginner": 1, "standard": 2, "advanced": 3, "lab": 4}
 PROFILE_LABELS = {
     "beginner": "초보자",
     "standard": "일반",

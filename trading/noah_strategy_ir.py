@@ -506,8 +506,8 @@ class NoahStrategyIR:
                 "Noah Strategy IR 표시 불가: " + ", ".join(validation["errors"])
             )
         normalized_level = int(level)
-        if normalized_level not in {1, 2, 3}:
-            raise ValueError("Progressive Strategy UI level은 1, 2, 3만 허용합니다.")
+        if normalized_level not in {1, 2, 3, 4}:
+            raise ValueError("Progressive Strategy UI level은 1, 2, 3, 4만 허용합니다.")
         rules = dict(ir.get("canonical_rules") or {})
         support = dict(ir.get("support") or {})
         contract = dict(ir.get("strategy_contract") or {})
@@ -556,6 +556,32 @@ class NoahStrategyIR:
         base["nodes"] = deepcopy(list(ir.get("nodes") or []))
         base["capability_profile"] = deepcopy(dict(ir.get("capability_profile") or {}))
         base["canonical_rules"] = deepcopy(rules)
+        if normalized_level == 4:
+            base["expert_operation_policy"] = {
+                "risk_policy_preset": str(
+                    rules.get("risk_policy_preset") or "custom"
+                ),
+                "risk_model": deepcopy(dict(rules.get("risk_model") or {})),
+                "regime_transition": str(
+                    rules.get("regime_transition") or "delegate_to_noah"
+                ),
+                "adjustable": [
+                    "risk_per_trade_percent",
+                    "max_margin_usage_percent",
+                    "max_leverage",
+                    "regime_transition",
+                ],
+                "immutable_guardrails": [
+                    "user_approval_and_live_permission",
+                    "daily_loss_stop",
+                    "position_and_concentration_limit",
+                    "exchange_order_constraints",
+                    "tp_sl_protection",
+                    "duplicate_order_prevention",
+                    "position_reconciliation",
+                    "emergency_stop",
+                ],
+            }
         return base
 
     @classmethod

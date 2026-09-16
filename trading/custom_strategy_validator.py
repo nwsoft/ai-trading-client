@@ -124,17 +124,23 @@ def _candle_rows(klines: Iterable[Any]) -> List[Dict[str, Any]]:
     rows: List[Dict[str, Any]] = []
     for item in klines or []:
         timestamp: Optional[float] = None
+        close_timestamp: Optional[float] = None
         if isinstance(item, dict):
+            if item.get("closed") is False:
+                continue
             row = {key: _float(item.get(key)) for key in ("open", "high", "low", "close", "volume")}
             timestamp = _timestamp_value(
                 item.get("timestamp", item.get("time", item.get("open_time", item.get("date"))))
             )
+            close_timestamp = _timestamp_value(item.get("close_timestamp", item.get("close_time")))
         elif isinstance(item, (list, tuple)) and len(item) >= 6:
             row = {
                 "open": _float(item[1]), "high": _float(item[2]), "low": _float(item[3]),
                 "close": _float(item[4]), "volume": _float(item[5]),
             }
             timestamp = _timestamp_value(item[0])
+            if len(item) > 6:
+                close_timestamp = _timestamp_value(item[6])
         elif isinstance(item, (int, float)):
             close = _float(item)
             row = {"open": close, "high": close, "low": close, "close": close, "volume": 0.0}
@@ -142,6 +148,7 @@ def _candle_rows(klines: Iterable[Any]) -> List[Dict[str, Any]]:
             continue
         if row["close"] > 0:
             row["timestamp"] = timestamp
+            row["close_timestamp"] = close_timestamp
             rows.append(row)
     return rows
 
@@ -217,7 +224,7 @@ def collect_advanced_indicator_references(rules_or_pool: Any) -> List[Dict[str, 
                 collect_value(nested)
 
     for rules in rules_list:
-        for section in ("executable_entry", "executable_exit"):
+        for section in ("executable_entry", "executable_exit", "independent_entries"):
             collect_value(dict(rules.get(section, {}) or {}))
         try:
             from .user_indicator_language import UserIndicatorLanguage
@@ -244,14 +251,30 @@ def enrich_advanced_indicator_context(
     grouped: Dict[str, List[Dict[str, Any]]] = {}
     for reference in references:
         grouped.setdefault(str(reference.get("timeframe") or "5m").lower(), []).append(reference)
+    pool = rules_or_pool if isinstance(rules_or_pool, list) else [rules_or_pool]
+    declared = {
+        str(rules.get("decision_timeframe") or rules.get("timeframe") or "").lower()
+        for item in pool if isinstance(item, dict)
+        for rules in [dict(item.get("rules") or item)]
+    } - {""}
+    for timeframe in declared:
+        grouped.setdefault(timeframe, [])
+    contexts: Dict[str, Any] = {}
 
     compared: List[Dict[str, Any]] = []
     for timeframe, items in grouped.items():
-        limit = min(600, max(int(item.get("period") or 0) for item in items) + 5)
+        limit = min(600, max([int(item.get("period") or 0) + 5 for item in items] + [205 if timeframe in declared else 5]))
         try:
             rows = _candle_rows(candle_fetcher(timeframe, limit) or [])
+            from trading.strategy_timeframes import timeframe_ms
+            now = datetime.now(timezone.utc).timestamp()
+            rows = [row for row in rows if row.get("timestamp") is not None and
+                    float(row.get("close_timestamp") or (row["timestamp"] + timeframe_ms(timeframe) / 1000)) <= now]
+            rows = sorted({row["timestamp"]: row for row in rows}.values(), key=lambda row: row["timestamp"])
         except Exception:
             rows = []
+        if timeframe in declared and len(rows) >= 80:
+            contexts[timeframe] = _context(rows, len(rows) - 1, str(context.get("signal") or "HOLD"))
         for reference in items:
             key = DeclarativeStrategyEngine.indicator_field_key(reference)
             runtime_value = _indicator_value(rows, reference) if rows else None
@@ -267,6 +290,7 @@ def enrich_advanced_indicator_context(
     if previous:
         enriched["_previous"] = previous
     enriched["_advanced_indicator_values"] = compared
+    enriched["_strategy_timeframe_contexts"] = contexts
     return enriched
 
 
@@ -279,6 +303,7 @@ def _enrich_replay_context(
     cutoff_timestamp: Optional[float] = None,
 ) -> Dict[str, Any]:
     def _fetch(timeframe: str, limit: int):
+        from trading.strategy_timeframes import timeframe_ms
         source_rows = rows
         if timeframe_rows is not None:
             source_rows = timeframe_rows.get(timeframe, [])
@@ -286,7 +311,7 @@ def _enrich_replay_context(
             source_rows = [
                 row for row in source_rows
                 if row.get("timestamp") is not None
-                and float(row["timestamp"]) <= cutoff_timestamp
+                and float(row.get("close_timestamp") or (row["timestamp"] + timeframe_ms(timeframe) / 1000)) <= cutoff_timestamp
             ]
         return source_rows[-limit:]
 
@@ -420,6 +445,7 @@ def run_historical_replay(
     slippage_bps: float = 2.0,
     spread_bps: float = 1.0,
     horizon: int = 12,
+    base_timeframe: str = "15m",
 ) -> Dict[str, Any]:
     """단일 포지션 방식의 조건 재생. 실전 수익 보장이 아닌 실행 가능성 보조 검증이다."""
     rows = _candle_rows(klines)
@@ -427,8 +453,7 @@ def run_historical_replay(
         str(timeframe).lower(): _candle_rows(values)
         for timeframe, values in (timeframe_klines or {}).items()
     }
-    if "15m" not in replay_timeframes:
-        replay_timeframes["15m"] = rows
+    replay_timeframes.setdefault(base_timeframe, rows)
     requested_timeframes = {
         str(item.get("timeframe") or "5m").lower()
         for item in collect_advanced_indicator_references(rules)
@@ -439,12 +464,29 @@ def run_historical_replay(
             "다중 시간봉 과거 데이터가 필요합니다: " + ", ".join(missing_timeframes)
         )
     spec = dict((rules or {}).get("executable_entry", {}) or {})
+    independent_entries = dict((rules or {}).get("independent_entries", {}) or {})
+
+    def _has_entry_spec(value: Any) -> bool:
+        if not isinstance(value, dict):
+            return False
+        return isinstance(value.get("expression"), dict) or any(
+            isinstance(condition, dict)
+            for group in ("all", "any")
+            for condition in (value.get(group) or [])
+        )
+
+    branch_specs = {
+        direction: dict(branch)
+        for direction in ("LONG", "SHORT")
+        for branch in [independent_entries.get(direction) or independent_entries.get(direction.lower())]
+        if _has_entry_spec(branch)
+    }
     validation = DeclarativeStrategyEngine.validate_rule_spec(rules)
     if not validation["valid"]:
         raise ValueError("미지원 선언형 조건: " + ", ".join(validation["errors"]))
     if len(rows) < 80:
         raise ValueError("과거 재생에는 최소 80개 캔들이 필요합니다.")
-    if not (spec.get("all") or spec.get("any") or spec.get("expression")):
+    if not (_has_entry_spec(spec) or branch_specs):
         raise ValueError("실행 가능한 진입 조건이 없어 과거 재생할 수 없습니다.")
     warmup = _required_history(rules)
     if len(rows) <= warmup + max(1, horizon):
@@ -463,27 +505,52 @@ def run_historical_replay(
     gross_outcomes: List[float] = []
     trades: List[Dict[str, Any]] = []
     evaluated = 0
+    direction_conflicts = 0
     next_available = warmup
     last_entry_index = len(rows) - max(1, horizon) - 1
 
     for index in range(warmup - 1, last_entry_index + 1):
         if index < next_available:
             continue
-        base_context = _context(rows, index, "HOLD")
-        ma20 = base_context.get("ma20") or rows[index]["close"]
-        ma50 = base_context.get("ma50") or rows[index]["close"]
-        proxy_signal = "LONG" if ma20 >= ma50 else "SHORT"
-        entry_signal = configured_signal if signal_mode == "independent" else proxy_signal
-        current_context = _enrich_replay_context(
-            _context(rows, index, entry_signal),
-            rules,
-            rows[:index + 1],
-            timeframe_rows=replay_timeframes,
-            cutoff_timestamp=rows[index].get("timestamp"),
-        )
-        evaluated += 1
-        if not DeclarativeStrategyEngine.evaluate_entry(rules, current_context).get("allowed", False):
-            continue
+        if signal_mode == "independent" and branch_specs:
+            matched_directions: List[str] = []
+            branch_contexts: Dict[str, Dict[str, Any]] = {}
+            for direction, branch_spec in branch_specs.items():
+                branch_context = _enrich_replay_context(
+                    _context(rows, index, direction),
+                    rules,
+                    rows[:index + 1],
+                    timeframe_rows=replay_timeframes,
+                    cutoff_timestamp=rows[index].get("close_timestamp") or rows[index].get("timestamp"),
+                )
+                branch_rules = dict(rules)
+                branch_rules["executable_entry"] = branch_spec
+                branch_contexts[direction] = branch_context
+                if DeclarativeStrategyEngine.evaluate_entry(branch_rules, branch_context).get("allowed", False):
+                    matched_directions.append(direction)
+            evaluated += 1
+            if len(matched_directions) != 1:
+                if len(matched_directions) > 1:
+                    direction_conflicts += 1
+                continue
+            entry_signal = matched_directions[0]
+            current_context = branch_contexts[entry_signal]
+        else:
+            base_context = _context(rows, index, "HOLD")
+            ma20 = base_context.get("ma20") or rows[index]["close"]
+            ma50 = base_context.get("ma50") or rows[index]["close"]
+            proxy_signal = "LONG" if ma20 >= ma50 else "SHORT"
+            entry_signal = configured_signal if signal_mode == "independent" else proxy_signal
+            current_context = _enrich_replay_context(
+                _context(rows, index, entry_signal),
+                rules,
+                rows[:index + 1],
+                timeframe_rows=replay_timeframes,
+                cutoff_timestamp=rows[index].get("close_timestamp") or rows[index].get("timestamp"),
+            )
+            evaluated += 1
+            if not DeclarativeStrategyEngine.evaluate_entry(rules, current_context).get("allowed", False):
+                continue
 
         entry_price = rows[index]["close"]
         exit_index = min(index + max(1, horizon), len(rows) - 1)
@@ -520,7 +587,7 @@ def run_historical_replay(
                     rules,
                     rows[:future_index + 1],
                     timeframe_rows=replay_timeframes,
-                    cutoff_timestamp=rows[future_index].get("timestamp"),
+                    cutoff_timestamp=rows[future_index].get("close_timestamp") or rows[future_index].get("timestamp"),
                 ),
             )
             if not explicit_exit.get("bypassed", False) and explicit_exit.get("allowed", False):
@@ -580,6 +647,7 @@ def run_historical_replay(
         "candles": len(rows),
         "warmup_candles": warmup,
         "evaluated_windows": evaluated,
+        "direction_conflicts": direction_conflicts,
         "decisions": len(outcomes),
         "wins": wins,
         "losses": len(outcomes) - wins,

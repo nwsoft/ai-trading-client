@@ -73,6 +73,10 @@ class OkxFuturesAdapter(FuturesExchange):
                     'defaultType': 'swap',
                 },
                 'enableRateLimit': True,
+                # CCXT의 동기 HTTP 호출이 OS 소켓 기본값에 맡겨지면 네트워크
+                # 단절 중 안전 종료가 worker_shutdown_timeout으로 끝날 수 있다.
+                # 한 요청의 상한을 종료 공유 기한보다 짧게 고정한다.
+                'timeout': 12000,
             }
             self.exchange = ccxt.okx(config)  # type: ignore
             self.exchange.load_markets()

@@ -12,7 +12,7 @@ from __future__ import annotations
 import math
 import statistics
 from dataclasses import dataclass
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 
 @dataclass
@@ -81,23 +81,105 @@ class ProfitabilityValidator:
         except Exception:
             return default
 
-    def _extract_trade_return(self, trade: Dict[str, Any]) -> float:
-        pnl = self._to_float(trade.get("pnl", trade.get("realized_pnl", trade.get("profit", 0.0))), 0.0)
+    def _extract_trade_return(self, trade: Dict[str, Any]) -> Optional[float]:
+        """Return one closed trade as a unitless net return fraction.
+
+        Recovery decisions must not compare KRW and USDT cash PnL as if they
+        were returns.  Prefer the recorder's already-normalized percentage and
+        only derive a return from cash PnL when entry notional is available.
+        A cash-only row without an entry capital base is excluded; a KRW or
+        USDT amount cannot safely be interpreted as a percentage return.
+        """
+        for key in ("net_pnl_fraction", "pnl_fraction", "return_fraction"):
+            if trade.get(key) is not None:
+                return self._to_float(trade.get(key), 0.0)
+        for key in ("net_pnl_percent", "pnl_percent", "return_percent"):
+            if trade.get(key) is not None:
+                return self._to_float(trade.get(key), 0.0) / 100.0
+
+        pnl = self._to_float(
+            trade.get("net_pnl", trade.get("pnl", trade.get("realized_pnl", trade.get("profit", 0.0)))),
+            0.0,
+        )
+        # NoahAI trade_log의 pnl은 log_trade_exit 단계에서 이미 수수료와
+        # 슬리피지를 뺀 순손익이다. 이 표본에 비용을 다시 빼면 성과회복
+        # 판단이 거래소별로 과도하게 나빠진다. 외부/raw 표본은 기존처럼
+        # 비용을 계산한다.
+        fee = self._to_float(trade.get("fee", trade.get("fees", 0.0)), 0.0)
+        slippage_bps = self._to_float(trade.get("slippage_bps", 0.0), 0.0)
+        qty = self._to_float(trade.get("quantity", trade.get("filled_quantity", 0.0)), 0.0)
+        price = self._to_float(
+            trade.get(
+                "entry_price",
+                trade.get("filled_price", trade.get("price", trade.get("exit_price", 0.0))),
+            ),
+            0.0,
+        )
+
+        explicit_notional = self._to_float(
+            trade.get("entry_notional", trade.get("notional", 0.0)), 0.0
+        )
+        notional = explicit_notional if explicit_notional > 0 else qty * price
+        if notional <= 0:
+            return None
+        slippage_cost = notional * (abs(slippage_bps) / 10000.0)
+        net = (
+            pnl
+            if bool(trade.get("pnl_is_net", False)) or trade.get("net_pnl") is not None
+            else pnl - fee - slippage_cost
+        )
+        return net / notional
+
+    def _extract_net_pnl_ccy(self, trade: Dict[str, Any]) -> float:
+        """Return cash PnL once, preserving the row's quote currency."""
+        pnl = self._to_float(
+            trade.get("net_pnl", trade.get("pnl", trade.get("realized_pnl", trade.get("profit", 0.0)))),
+            0.0,
+        )
+        if bool(trade.get("pnl_is_net", False)) or trade.get("net_pnl") is not None:
+            return pnl
         fee = self._to_float(trade.get("fee", trade.get("fees", 0.0)), 0.0)
         slippage_bps = self._to_float(trade.get("slippage_bps", 0.0), 0.0)
         qty = max(self._to_float(trade.get("quantity", trade.get("filled_quantity", 1.0)), 1.0), 1e-8)
         price = max(
-            self._to_float(
-                trade.get("filled_price", trade.get("entry_price", trade.get("price", 1.0))),
-                1.0,
-            ),
+            self._to_float(trade.get("filled_price", trade.get("entry_price", trade.get("price", 1.0))), 1.0),
             1e-8,
         )
+        notional = self._to_float(trade.get("entry_notional", trade.get("notional", 0.0)), 0.0)
+        if notional <= 0:
+            notional = qty * price
+        return pnl - fee - (notional * abs(slippage_bps) / 10000.0)
 
-        notional = qty * price
-        slippage_cost = notional * (abs(slippage_bps) / 10000.0)
-        net = pnl - fee - slippage_cost
-        return net
+    @staticmethod
+    def _return_basis(trades: List[Dict[str, Any]]) -> str:
+        if all(
+            any((trade or {}).get(key) is not None for key in (
+                "net_pnl_fraction", "pnl_fraction", "return_fraction",
+                "net_pnl_percent", "pnl_percent", "return_percent",
+            ))
+            for trade in trades
+        ):
+            return "normalized_return"
+        if all(
+            self_notional > 0
+            for self_notional in (
+                ProfitabilityValidator._to_float(
+                    (trade or {}).get("entry_notional", (trade or {}).get("notional", 0.0)), 0.0
+                ) or (
+                    ProfitabilityValidator._to_float((trade or {}).get("quantity", 0.0), 0.0)
+                    * ProfitabilityValidator._to_float(
+                        (trade or {}).get(
+                            "entry_price",
+                            (trade or {}).get("price", (trade or {}).get("exit_price", 0.0)),
+                        ),
+                        0.0,
+                    )
+                )
+                for trade in trades
+            )
+        ):
+            return "cash_pnl_divided_by_entry_notional"
+        return "legacy_cash_fallback"
 
     @staticmethod
     def _max_drawdown_from_equity(equity_curve: List[float]) -> float:
@@ -152,19 +234,25 @@ class ProfitabilityValidator:
                 "reason": "profitability_validation_disabled",
             }
 
-        returns = [self._extract_trade_return(t or {}) for t in (recent_trades or [])]
+        trade_rows = [dict(t or {}) for t in (recent_trades or [])]
+        extracted_returns = [self._extract_trade_return(t) for t in trade_rows]
+        returns = [value for value in extracted_returns if value is not None]
         total_trades = len(returns)
-        gross_pnl = sum(self._to_float((t or {}).get("pnl", (t or {}).get("realized_pnl", (t or {}).get("profit", 0.0))), 0.0) for t in (recent_trades or []))
-        net_pnl = sum(returns)
+        excluded_return_rows = len(trade_rows) - total_trades
+        gross_pnl = sum(self._to_float(t.get("pnl", t.get("realized_pnl", t.get("profit", 0.0))), 0.0) for t in trade_rows)
+        net_pnl = sum(self._extract_net_pnl_ccy(t) for t in trade_rows)
+        return_basis = self._return_basis(trade_rows)
 
         wins = sum(1 for r in returns if r > 0)
         win_rate = (wins / total_trades) if total_trades > 0 else 0.0
         expectancy = statistics.mean(returns) if returns else 0.0
 
-        equity = [100.0]
-        running = 100.0
+        # Unitless compounded equity curve.  A KRW row and a USDT row now have
+        # the same meaning when their net percentage return is the same.
+        equity = [1.0]
+        running = 1.0
         for r in returns:
-            running += r
+            running *= max(1e-9, 1.0 + r)
             equity.append(running)
 
         sharpe = self._safe_sharpe(returns)
@@ -184,13 +272,27 @@ class ProfitabilityValidator:
                 "bypassed": True,
                 "reason": "insufficient_trades",
                 "total_trades": total_trades,
+                "gross_pnl": round(gross_pnl, 4),
+                "net_pnl": round(net_pnl, 4),
+                "win_rate": round(win_rate, 4),
+                "sharpe": round(sharpe, 4),
+                "mdd": round(mdd, 4),
+                "expectancy": round(expectancy, 6),
+                "walkforward_pass_rate": round(walkforward, 4),
                 "stage": "limited_live_learning" if bool(effective.get("cold_start_enabled", True)) else "legacy_bypass",
                 "learning_progress": round(progress, 4),
                 "risk_multiplier": round(risk_multiplier, 4),
                 "max_positions": max(1, int(effective.get("cold_start_max_positions", 1) or 1)),
                 "max_leverage": max(1, int(effective.get("cold_start_max_leverage", 1) or 1)),
                 "next_review_at_trades": min_trades,
+                "recheck_policy": "each_closed_trade",
                 "note": "시장데이터와 공통 가드레일 통과 시 최소 단위 제한 운용 후 거래소별 PnL로 재평가",
+                "return_basis": return_basis,
+                "expectancy_percent": round(expectancy * 100.0, 6),
+                "window_stability_rate": round(walkforward, 4),
+                "walkforward_method": "closed_trade_window_stability_not_retrained_oos",
+                "raw_trade_rows": len(trade_rows),
+                "excluded_return_rows": excluded_return_rows,
             }
         if win_rate < self._to_float(effective.get("min_win_rate", 0.48), 0.48):
             reasons.append("win_rate_below_threshold")
@@ -239,8 +341,15 @@ class ProfitabilityValidator:
                 "max_positions": max(1, int(effective.get("recovery_max_positions", 1) or 1)),
                 "max_leverage": max(1, int(effective.get("recovery_max_leverage", 1) or 1)),
                 "next_review_at_trades": total_trades + review_interval,
+                "recheck_policy": "each_closed_trade",
                 "recent_expectancy": round(recent_expectancy, 4),
                 "note": "수수료 차감 후 성과 회복 표본을 최소 위험으로 계속 수집",
+                "return_basis": return_basis,
+                "expectancy_percent": round(expectancy * 100.0, 6),
+                "window_stability_rate": round(walkforward, 4),
+                "walkforward_method": "closed_trade_window_stability_not_retrained_oos",
+                "raw_trade_rows": len(trade_rows),
+                "excluded_return_rows": excluded_return_rows,
             }
 
         report = ProfitabilityReport(
@@ -255,4 +364,46 @@ class ProfitabilityValidator:
             enabled=(len(reasons) == 0),
             reasons=reasons,
         )
-        return report.to_dict()
+        result = report.to_dict()
+        if not reasons:
+            # Crossing a KPI threshold is not permission to jump from recovery
+            # sizing directly to 100%.  The distance from all KPI boundaries
+            # becomes one continuous, auditable recovery factor.
+            min_win = self._to_float(effective.get("min_win_rate", 0.42), 0.42)
+            min_sharpe = self._to_float(effective.get("min_sharpe", 0.20), 0.20)
+            max_mdd = max(1e-9, self._to_float(effective.get("max_mdd", 0.30), 0.30))
+            min_walk = self._to_float(effective.get("min_walkforward_pass_rate", 0.40), 0.40)
+            quality_parts = [
+                max(0.0, min(1.0, (win_rate - min_win) / max(1e-9, 0.70 - min_win))),
+                max(0.0, min(1.0, (sharpe - min_sharpe) / max(1.0, abs(min_sharpe)))),
+                max(0.0, min(1.0, (max_mdd - mdd) / max_mdd)),
+                max(0.0, min(1.0, (walkforward - min_walk) / max(1e-9, 1.0 - min_walk))),
+            ]
+            quality = sum(quality_parts) / len(quality_parts)
+            adaptive_multiplier = min(1.0, 0.50 + (0.50 * quality))
+            if adaptive_multiplier < 0.60:
+                adaptive_positions, adaptive_leverage = 1, 1
+            elif adaptive_multiplier < 0.80:
+                adaptive_positions, adaptive_leverage = 3, 3
+            elif adaptive_multiplier < 0.90:
+                adaptive_positions, adaptive_leverage = 5, 5
+            else:
+                adaptive_positions, adaptive_leverage = 10, 10
+            result.update({
+                "stage": "validated_adaptive",
+                "risk_multiplier": round(adaptive_multiplier, 4),
+                "performance_quality": round(quality, 4),
+                "max_positions": adaptive_positions,
+                "max_leverage": adaptive_leverage,
+                "recheck_policy": "each_closed_trade",
+                "note": "KPI 통과 폭에 따라 위험을 점진 복구하며 계좌 마스터 한도를 넘지 않음",
+            })
+        result.update({
+            "return_basis": return_basis,
+            "expectancy_percent": round(expectancy * 100.0, 6),
+            "window_stability_rate": round(walkforward, 4),
+            "walkforward_method": "closed_trade_window_stability_not_retrained_oos",
+            "raw_trade_rows": len(trade_rows),
+            "excluded_return_rows": excluded_return_rows,
+        })
+        return result

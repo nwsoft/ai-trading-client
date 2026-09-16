@@ -9,6 +9,7 @@
 
 import importlib
 import logging
+from trading.market_data_utils import optional_market_number
 import time
 from datetime import datetime
 from typing import Dict, List, Optional, Any
@@ -17,7 +18,7 @@ from ..interfaces.stock_exchange import StockExchange
 _OPERATION_BY_LEGACY_PATH = {
     '/uapi/domestic-stock/v1/trading/inquire-account-balance': 'accounts',
     '/uapi/domestic-stock/v1/trading/inquire-balance': 'positions',
-    '/uapi/domestic-stock/v1/quotations/inquire-daily-itemchartprice': 'stock_list',
+    '/uapi/domestic-stock/v1/quotations/inquire-daily-itemchartprice': 'candles',
     '/uapi/domestic-stock/v1/quotations/inquire-etf-daily': 'etf_info',
     '/uapi/domestic-stock/v1/quotations/inquire-price': 'price',
     '/uapi/domestic-stock/v1/trading/order-cash': 'order',
@@ -396,6 +397,26 @@ class MiraeAssetStockAdapter(StockExchange):
             self.log_event('system', f'{self._broker_label()} 연결 실패: {e}', level='ERROR')
             return False
 
+    def disconnect(self) -> bool:
+        """Release Mirae/KIS REST resources created by dashboard reads."""
+
+        http, self._http = self._http, None
+        try:
+            close = getattr(http, 'close', None)
+            if callable(close):
+                close()
+        except Exception as exc:
+            self.log_event(
+                'system',
+                f'{self._broker_label()} HTTP 세션 정리 경고: {exc}',
+                level='WARNING',
+            )
+        self._access_token = ''
+        self._token_expires_at = 0.0
+        self.is_connected = False
+        self.mark_execution_stream_disconnected('adapter_disconnect')
+        return True
+
     def health_check(self) -> Dict[str, Any]:
         """연결 상태 경량 확인 (토큰 유효 여부 + 실제 API 호출).
 
@@ -432,71 +453,94 @@ class MiraeAssetStockAdapter(StockExchange):
             return {'ok': False, 'latency_ms': round(elapsed_ms, 1), 'reason': str(exc)}
 
     def get_stock_list(self, market: str = 'KOSPI') -> List[Dict[str, Any]]:
-        """주식 목록 조회."""
-        try:
-            if not self.is_connected:
-                return []
-            market_cd = {'KOSPI': 'J', 'KOSDAQ': 'Q'}.get((market or 'KOSPI').upper(), 'J')
-            data = self._get(
-                '/uapi/domestic-stock/v1/quotations/inquire-daily-itemchartprice',
-                params={'MRKT_DIV_CD': market_cd},
-            )
+        """KRX listed stocks from public metadata, not a per-symbol quote API."""
+        if not self.is_connected:
+            return []
+        if self.exchange_name == 'miraeAsset' and self._resolve_path('stock_list'):
+            data = self._get('stock_list', params={'MRKT_DIV_CD': {'KOSPI': 'J', 'KOSDAQ': 'Q'}.get(str(market).upper(), 'J')})
             items = data.get('output') or data.get('output2') or []
             if isinstance(items, dict):
                 items = [items]
-            results = []
+            rows = []
             for item in items:
                 code = self._normalize_symbol(item.get('stck_shrt_cd') or item.get('pdno') or item.get('code', ''))
-                if not code or self.is_etf(code):
+                if not code or code == '000000' or self.is_etf(code):
                     continue
-                results.append({
-                    'code': code,
-                    'name': item.get('prdt_name') or item.get('name', code),
-                    'market': market,
-                    'current_price': abs(self._to_float(item.get('stck_prpr') or item.get('current_price'))),
-                    'volume': self._to_int(item.get('acml_vol') or item.get('volume')),
-                    'is_etf': False,
-                    'status': 'ok',
-                })
-            return results
-        except Exception as e:
-            self.log_event('system', f'{self._broker_label()} 주식목록 조회 실패: {e}', level='ERROR')
+                rows.append({'code': code, 'name': item.get('prdt_name') or item.get('name', code),
+                             'market': market, 'is_etf': False, 'status': 'ok',
+                             'current_price': abs(self._to_float(item.get('stck_prpr') or item.get('current_price'))),
+                             'volume': self._to_int(item.get('acml_vol') or item.get('volume'))})
+            return rows
+        from ..kis_market_master import market_master
+        markets = ('KOSPI', 'KOSDAQ') if str(market).upper() == 'ALL' else (str(market).upper(),)
+        rows = [row for name in markets for row in market_master(name)]
+        self._master_asset_types = {**getattr(self, '_master_asset_types', {}), **{row['code']: row['is_etf'] for row in rows}}
+        return [row for row in rows if not row['is_etf']]
+
+    def get_daily_candles(self, symbol: str, limit: int = 100) -> List[Dict[str, Any]]:
+        """국내주식 일봉을 공통 OHLCV 계약으로 반환한다."""
+        if not self.is_connected:
             return []
+        symbol = self._normalize_symbol(symbol)
+        today = datetime.now().strftime('%Y%m%d')
+        data = self._get('/uapi/domestic-stock/v1/quotations/inquire-daily-itemchartprice', params={
+            'FID_COND_MRKT_DIV_CODE': 'J', 'FID_INPUT_ISCD': symbol,
+            'FID_INPUT_DATE_1': '20000101', 'FID_INPUT_DATE_2': today,
+            'FID_PERIOD_DIV_CODE': 'D', 'FID_ORG_ADJ_PRC': '0',
+        })
+        items = data.get('output2') or data.get('output') or data.get('candles') or []
+        if isinstance(items, dict): items = [items]
+        rows = []
+        for item in items[:max(1, min(int(limit), 500))]:
+            if not isinstance(item, dict): continue
+            date_value = str(item.get('stck_bsop_date') or item.get('date') or '').replace('-', '')
+            if len(date_value) != 8: continue
+            rows.append({
+                'date': date_value, 'open': abs(self._to_float(item.get('stck_oprc') or item.get('open'))),
+                'high': abs(self._to_float(item.get('stck_hgpr') or item.get('high'))),
+                'low': abs(self._to_float(item.get('stck_lwpr') or item.get('low'))),
+                'close': abs(self._to_float(item.get('stck_clpr') or item.get('close'))),
+                'volume': self._to_float(item.get('acml_vol') or item.get('volume')),
+            })
+        return sorted(rows, key=lambda row: row['date'])
 
     def get_etf_list(self) -> List[Dict[str, Any]]:
-        """ETF 목록 조회."""
-        try:
-            if not self.is_connected:
-                return []
-            data = self._get('/uapi/domestic-stock/v1/quotations/inquire-etf-daily')
+        """ETF classification comes from the official EF group, not code ranges."""
+        if not self.is_connected:
+            return []
+        # Preserve contracted partner catalogues and their NAV metadata.
+        # KIS bypasses partner routing and must not use this legacy operation.
+        if self.exchange_name == 'miraeAsset' and self._resolve_path('etf_info'):
+            data = self._get('etf_info')
             items = data.get('output') or data.get('etfList') or []
             if isinstance(items, dict):
                 items = [items]
-            results = []
+            result = []
             for item in items:
                 code = self._normalize_symbol(item.get('stck_shrt_cd') or item.get('pdno') or item.get('code', ''))
-                if not code:
+                if not code or code == '000000':
                     continue
-                results.append({
-                    'code': code,
-                    'name': item.get('prdt_name') or item.get('name', code),
-                    'market': 'ETF',
+                result.append({
+                    'code': code, 'name': item.get('prdt_name') or item.get('name', code),
+                    'market': 'ETF', 'is_etf': True, 'status': 'ok',
                     'current_price': abs(self._to_float(item.get('stck_prpr') or item.get('current_price'))),
                     'nav': self._to_float(item.get('nav') or item.get('etf_nav')),
                     'tracking_error': self._to_float_or_none(item.get('trc_errt') or item.get('tracking_error')),
                     'base_index': item.get('bchm_nm') or item.get('base_index', ''),
-                    'trade_value': self._to_float(item.get('acml_tr_pbmn') or item.get('trade_value') or 0),
+                    'trade_value': self._to_float(item.get('acml_tr_pbmn') or item.get('trade_value')),
                     'expense_ratio': self._to_float_or_none(item.get('etf_fee_rt') or item.get('expense_ratio')),
-                    'is_etf': True,
-                    'status': 'ok',
                 })
-            return results
-        except Exception as e:
-            self.log_event('system', f'{self._broker_label()} ETF목록 조회 실패: {e}', level='ERROR')
-            return []
+            return result
+        from ..kis_market_master import market_master
+        rows = market_master('KOSPI')
+        self._master_asset_types = {**getattr(self, '_master_asset_types', {}), **{row['code']: row['is_etf'] for row in rows}}
+        return [row for row in rows if row['is_etf']]
 
     def is_etf(self, symbol: str) -> bool:
         """ETF 여부 확인."""
+        known = getattr(self, '_master_asset_types', {})
+        if str(symbol) in known:
+            return known[str(symbol)]
         try:
             code_int = int(symbol)
             for start, end in self.etf_code_ranges:
@@ -527,7 +571,7 @@ class MiraeAssetStockAdapter(StockExchange):
                 'market': item.get('rprs_mrkt_kor_name') or item.get('market', ''),
                 'current_price': abs(self._to_float(item.get('stck_prpr') or item.get('current_price'))),
                 'prev_close': abs(self._to_float(item.get('stck_sdpr') or item.get('prev_close'))),
-                'change_rate': self._to_float(item.get('prdy_ctrt') or item.get('change_rate')),
+                'change_rate': optional_market_number(item.get('prdy_ctrt'), item.get('change_rate')),
                 'volume': self._to_int(item.get('acml_vol') or item.get('volume')),
                 'is_etf': self.is_etf(symbol),
                 'status': 'ok',
@@ -554,7 +598,7 @@ class MiraeAssetStockAdapter(StockExchange):
             return {
                 'code': symbol,
                 'current_price': abs(self._to_float(item.get('stck_prpr') or item.get('current_price'))),
-                'change_rate': self._to_float(item.get('prdy_ctrt') or item.get('change_rate')),
+                'change_rate': optional_market_number(item.get('prdy_ctrt'), item.get('change_rate')),
                 'volume': self._to_int(item.get('acml_vol') or item.get('volume')),
                 'bid_price': abs(self._to_float(item.get('stck_shpr') or item.get('bid_price'))),
                 'ask_price': abs(self._to_float(item.get('stck_mxpr') or item.get('ask_price'))),
@@ -846,5 +890,6 @@ class MiraeAssetStockAdapter(StockExchange):
             'today_trades': len(self.get_today_trades()),
             'open_orders': len(self.get_open_orders()),
             'realized_pnl': 0.0,
+            'pnl_verified': False,  # count summary is not a daily closed-lot PnL ledger
             'status': 'ok',
         }

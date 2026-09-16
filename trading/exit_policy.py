@@ -46,6 +46,7 @@ def build_exit_policy(
     asset_class: str = "crypto",
     target: str = "",
     symbol: str = "",
+    decision_trace: Mapping[str, Any] | None = None,
 ) -> Dict[str, Any]:
     """기본 폴백·현재 적용값·보험 주문값을 서로 덮어쓰지 않고 만든다."""
 
@@ -64,6 +65,8 @@ def build_exit_policy(
     strategy_owned = bool(intent.get("strategy_owned", False))
     source = str(intent.get("source") or "noah_dynamic")
     advanced_order_plan = dict(intent.get("advanced_order_plan") or {})
+    trace = deepcopy(dict(decision_trace or {}))
+    trace_source = str((trace.get("final") or {}).get("source") or "smart_exit_policy")
 
     return {
         "schema_version": 1,
@@ -80,10 +83,11 @@ def build_exit_policy(
         "effective": {
             "tp_fraction": effective_tp,
             "sl_fraction": effective_sl,
-            "source": source if strategy_owned else "noah_dynamic",
+            "source": source if strategy_owned else trace_source,
             "reason": str(effective_reason or source),
         },
         "advanced_order_plan": advanced_order_plan,
+        "decision_trace": trace,
         "insurance": {
             "requested_tp_price": requested_tp,
             "requested_sl_price": requested_sl,
@@ -118,6 +122,9 @@ def format_exit_policy(policy: Mapping[str, Any] | None) -> str:
     fallback = dict(values.get("fallback") or {})
     effective = dict(values.get("effective") or {})
     insurance = dict(values.get("insurance") or {})
+    trace = dict(values.get("decision_trace") or {})
+    sample = dict(trace.get("sample_scope") or {})
+    rr = dict(trace.get("rr_guardrail") or {})
     return (
         "청산정책[단위=fraction] "
         f"기본폴백 TP={_fraction(fallback.get('tp_fraction')):.6f} "
@@ -125,6 +132,8 @@ def format_exit_policy(policy: Mapping[str, Any] | None) -> str:
         f"현재적용 TP={_fraction(effective.get('tp_fraction')):.6f} "
         f"SL={_fraction(effective.get('sl_fraction')):.6f} "
         f"근거={effective.get('reason') or '-'} | "
+        f"표본={sample.get('closed_count', '-')} / {sample.get('minimum_required', '-')} "
+        f"RR={_fraction(rr.get('before')):.3f}->{_fraction(rr.get('after')):.3f} | "
         f"보험제출 TP={_fraction(insurance.get('submitted_tp_price')):.8f} "
         f"SL={_fraction(insurance.get('submitted_sl_price')):.8f} "
         f"상태={insurance.get('status') or '-'}"

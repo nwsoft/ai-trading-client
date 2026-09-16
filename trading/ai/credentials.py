@@ -48,17 +48,28 @@ def hydrate_ai_credentials(settings: Dict[str, Any]) -> Dict[str, Any]:
         credentials = {}
         hydrated["ai_credentials"] = credentials
 
-    legacy_key = str(hydrated.get("openai_api_key") or "").strip()
-    openai_cfg = credentials.get("openai")
-    if not isinstance(openai_cfg, dict):
-        openai_cfg = {}
-        credentials["openai"] = openai_cfg
-    if legacy_key and not str(openai_cfg.get("api_key") or "").strip():
-        openai_cfg["api_key"] = legacy_key
-        openai_cfg.setdefault("base_url", str(hydrated.get("openai_base_url") or ""))
-
     active_provider = str(hydrated.get("ai_provider") or "openai").strip().lower()
-    active_cfg = credentials.get(active_provider, {})
+    active_cfg = credentials.get(active_provider)
+    if not isinstance(active_cfg, dict):
+        active_cfg = {}
+        credentials[active_provider] = active_cfg
+
+    # 구버전은 OpenAI뿐 아니라 당시 선택한 OpenAI-compatible Provider의
+    # 키도 ``openai_api_key`` 한 칸에 저장했다. 새 템플릿이 빈
+    # ``ai_credentials`` 항목을 미리 만들었다는 이유만으로 이 키를
+    # 무시하면 기존 사용자의 DeepSeek/Kimi/Gemini 연결이 모두 끊긴다.
+    # 반대로 이미 특정 Provider가 같은 키를 소유하면 다른 Provider에
+    # 빌려 주지 않아 Provider 간 자격증명 혼용을 막는다.
+    legacy_key = str(hydrated.get("openai_api_key") or "").strip()
+    known_owner = any(
+        isinstance(raw_cfg, dict)
+        and str(raw_cfg.get("api_key") or "").strip() == legacy_key
+        for raw_cfg in credentials.values()
+    ) if legacy_key else False
+    if legacy_key and not str(active_cfg.get("api_key") or "").strip() and not known_owner:
+        active_cfg["api_key"] = legacy_key
+        active_cfg.setdefault("base_url", str(hydrated.get("openai_base_url") or ""))
+
     if isinstance(active_cfg, dict):
         active_key = str(active_cfg.get("api_key") or "").strip()
         if active_key:
@@ -90,7 +101,16 @@ def prepare_ai_credentials_for_storage(
     legacy_key = str(stored.get("openai_api_key") or "").strip()
     if legacy_key:
         active_cfg = credentials.setdefault(active_provider, {})
-        if isinstance(active_cfg, dict) and not str(active_cfg.get("api_key") or "").strip():
+        known_owner = any(
+            isinstance(raw_cfg, dict)
+            and str(raw_cfg.get("api_key") or "").strip() == legacy_key
+            for raw_cfg in credentials.values()
+        )
+        if (
+            isinstance(active_cfg, dict)
+            and not str(active_cfg.get("api_key") or "").strip()
+            and not known_owner
+        ):
             active_cfg["api_key"] = legacy_key
             if active_provider == "openai":
                 active_cfg.setdefault("base_url", str(stored.get("openai_base_url") or ""))

@@ -72,8 +72,8 @@ class APIChecker:
             return None, None
         
         try:
-            with open(settings_path, 'r', encoding='utf-8') as f:
-                settings = json.load(f)
+            from config.settings import read_settings_json_file
+            settings, _ = read_settings_json_file(settings_path)
             
             api_key = settings.get('binance_api_key', '')
             secret_key = settings.get('binance_secret_key', '')

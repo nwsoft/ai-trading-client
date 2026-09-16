@@ -178,8 +178,8 @@ class BinanceWebSocketManager:
             settings_path = os.path.join(config_dir, 'settings.json')
 
             if os.path.exists(settings_path):
-                with open(settings_path, 'r', encoding='utf-8') as f:
-                    settings = json.load(f)
+                from config.settings import read_settings_json_file
+                settings, _ = read_settings_json_file(settings_path)
 
                 # 상세로그 설정 확인
                 self.verbose_trade_logging = settings.get('verbose_trade_logging', False)
@@ -997,6 +997,11 @@ class BinanceClient:
     def __init__(self, config: BinanceConfig):
         self.config = config
         self.logger = logging.getLogger(__name__)
+        # Account diagnostics must preserve the provider error.  Returning an
+        # empty mapping alone made timestamp drift look like an invalid key or
+        # an unexplained empty Binance account in the Web UI.
+        self.last_error: str = ""
+        self.last_error_category: str = ""
 
         # 🔥 로그 시스템 통일을 위한 헬퍼 메서드
         from log_system.log_adapter import log_event
@@ -1081,6 +1086,20 @@ class BinanceClient:
             return bool(self.config.api_key and self.config.secret_key)
         except Exception:
             return False
+
+    @staticmethod
+    def _is_timestamp_error(error: Any) -> bool:
+        message = str(error or "").lower()
+        return any(token in message for token in (
+            "timestamp for this request",
+            "outside of the recvwindow",
+            "outside of the recv_window",
+            "server timestamp",
+            "recv_window param",
+            "recvwindow param",
+            "code=-1021",
+            '"code":-1021',
+        ))
 
     def _sync_server_time(self):
         """서버 시간과 로컬 시간 동기화 (autotrade.py와 동일)"""
@@ -1336,10 +1355,27 @@ class BinanceClient:
             self.logger.debug("잔고 스냅샷 조회 건너뜀: API 키 없음")
             return {}
         try:
-            ts = self.get_synced_timestamp()
+            self.last_error = ""
+            self.last_error_category = ""
             rw = self.config.recv_window
-            raw = self.client.futures_account(timestamp=ts, recvWindow=rw)
+            try:
+                raw = self.client.futures_account(
+                    timestamp=self.get_synced_timestamp(), recvWindow=rw,
+                )
+            except Exception as first_error:
+                if not self._is_timestamp_error(first_error):
+                    raise
+                # The Windows clock may have been corrected after startup.
+                # Refresh the provider offset and retry the idempotent account
+                # read once; order submission has its own separate safeguards.
+                self.logger.warning("바이낸스 계정 조회 시간 오차 감지 - 서버 시간 재동기화 후 1회 재시도")
+                self._sync_server_time()
+                raw = self.client.futures_account(
+                    timestamp=self.get_synced_timestamp(), recvWindow=rw,
+                )
             if not isinstance(raw, dict) or 'assets' not in raw:
+                self.last_error = "invalid Binance futures account response"
+                self.last_error_category = "response"
                 return {}
 
             balances: Dict[str, Dict[str, float]] = {}
@@ -1372,6 +1408,8 @@ class BinanceClient:
             }
             return {'balance': balances, 'account_info': account_info}
         except Exception as e:
+            self.last_error = str(e)
+            self.last_error_category = "clock_skew" if self._is_timestamp_error(e) else "provider_error"
             self.logger.error(f"잔고 스냅샷 조회 오류: {e}")
             return {}
 
@@ -1485,11 +1523,12 @@ class BinanceClient:
 
     def get_klines(self, symbol: str, interval: str, limit: int) -> List[List]:
         """K라인 데이터 조회 (analyzer.py 호환용)"""
+        from trading.market_data_utils import failed_candles
         try:
             # 🔥 방어적 심볼 정규화 적용
             symbol = self._normalize_symbol_safe(symbol)
             if not self.is_valid_symbol(symbol):
-                return []
+                return failed_candles('unsupported_symbol')
 
             klines = self.client.futures_klines(
                 symbol=symbol,
@@ -1499,17 +1538,17 @@ class BinanceClient:
 
             # 형식 보정: 리스트가 아니거나 내부가 리스트가 아니면 빈 리스트 반환
             if not isinstance(klines, list):
-                return []
+                return failed_candles('invalid_response')
             if klines and not isinstance(klines[0], list):
-                return []
-            return klines  # type: ignore[return-value]
+                return failed_candles('invalid_response')
+            return klines if klines else failed_candles('empty_response')
 
         except Exception as e:
             if "Invalid symbol" in str(e):
                 self.logger.debug(f"🚨 {symbol}: 유효하지 않은 심볼 - K라인 데이터 조회 불가")
             else:
                 self.logger.error(f"K라인 데이터 조회 오류: {e}")
-            return []
+            return failed_candles('candle_query_failed', e)
 
     def get_multiple_klines(self, symbols: List[str], interval: str, limit: int) -> Dict[str, List[List]]:
         """여러 심볼의 K라인 데이터를 일괄 조회 (API 최적화)"""

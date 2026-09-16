@@ -226,16 +226,24 @@ def is_frozen():
 def find_noahai_dir():
     """NoahAI 디렉토리 찾기 (동적 스캔)"""
     base_docs_dir = os.path.join(os.path.expanduser('~'), 'Documents')
-    
-    # NoahAI 폴더 찾기
-    for item in os.listdir(base_docs_dir):
+    canonical_dir = os.path.join(base_docs_dir, 'NoahAI')
+
+    # v3.9.0.x와 v3.9.1.x의 정본 경로를 항상 먼저 사용한다. 백업/복사
+    # 폴더(NoahAI_old 등)가 함께 있을 때 os.listdir 순서로 잘못 선택하지 않는다.
+    if os.path.isdir(canonical_dir):
+        return canonical_dir
+
+    # 과거에 이름이 달라진 NoahAI 폴더만 있는 경우에는 결정적인 순서로 승계한다.
+    if not os.path.isdir(base_docs_dir):
+        return canonical_dir
+    for item in sorted(os.listdir(base_docs_dir)):
         if item.startswith('NoahAI'):
             item_path = os.path.join(base_docs_dir, item)
             if os.path.isdir(item_path):
                 return item_path
-    
+
     # NoahAI 폴더가 없으면 기본 폴더 반환
-    return os.path.join(base_docs_dir, 'NoahAI')
+    return canonical_dir
 
 def find_available_account_dir():
     """사용 가능한 계정 디렉토리 찾기 (순차 번호 방식)"""
@@ -404,27 +412,24 @@ def update_settings_with_template():
             print("[WARNING] 템플릿 파일이 없어 업데이트 불가")
             return False
         
-        # 현재 설정 로드
-        with open(current_settings_path, 'r', encoding='utf-8') as f:
-            current_settings = json.load(f)
+        from config.settings import read_settings_json_file
+
+        # 현재 설정과 템플릿을 Windows locale과 무관하게 로드
+        current_settings, _ = read_settings_json_file(current_settings_path)
+        template_settings, _ = read_settings_json_file(template_settings_path)
         
-        # 템플릿 설정 로드
-        with open(template_settings_path, 'r', encoding='utf-8') as f:
-            template_settings = json.load(f)
-        
-        # 누락된 항목들 추가
-        updated = False
+        # 누락된 항목만 최신 설정 정본 위에 경로 단위로 추가한다. 이
+        # 호환 함수가 오래된 전체 settings snapshot을 다시 쓰지 못하게 한다.
+        changes = {}
         
         # signal_thresholds 섹션 추가
         if 'signal_thresholds' not in current_settings:
-            current_settings['signal_thresholds'] = template_settings.get('signal_thresholds', {})
-            updated = True
+            changes['signal_thresholds'] = template_settings.get('signal_thresholds', {})
             print("[OK] signal_thresholds 섹션 추가됨")
         
         # analyzer_settings 섹션 추가
         if 'analyzer_settings' not in current_settings:
-            current_settings['analyzer_settings'] = template_settings.get('analyzer_settings', {})
-            updated = True
+            changes['analyzer_settings'] = template_settings.get('analyzer_settings', {})
             print("[OK] analyzer_settings 섹션 추가됨")
         
         # 기존 섹션 내 누락된 항목들 추가
@@ -432,14 +437,15 @@ def update_settings_with_template():
             if section in current_settings and section in template_settings:
                 for key, value in template_settings[section].items():
                     if key not in current_settings[section]:
-                        current_settings[section][key] = value
-                        updated = True
+                        changes[f'{section}.{key}'] = value
                         print(f"[OK] {section}.{key} 추가됨")
         
         # 업데이트된 설정 저장
-        if updated:
-            with open(current_settings_path, 'w', encoding='utf-8') as f:
-                json.dump(current_settings, f, ensure_ascii=False, indent=2)
+        if changes:
+            from config.settings import patch_settings_paths
+            if not patch_settings_paths(changes):
+                print("[ERROR] 설정 경로 병합 저장 실패")
+                return False
             print(f"[OK] 설정 파일 업데이트 완료: {current_settings_path}")
             return True
         else:

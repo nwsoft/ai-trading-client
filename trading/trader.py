@@ -17,6 +17,7 @@ from enum import Enum
 import re, math, json, os
 
 from trading.tp_sl_manager import TpSlManager
+from trading.market_observation import track_market_observation, observation_problem
 from .execution_optimizer import ExecutionOptimizer
 from .ops_automation import OpsAutomationEngine
 from .portfolio_orchestrator import PortfolioOrchestrator
@@ -25,21 +26,43 @@ from .opportunity_coordinator import (
     policy_from_settings,
 )
 from .profitability_validation import ProfitabilityValidator
+from .position_sizing_policy import (
+    LEGACY_VENUE,
+    MANUAL_NOTIONAL,
+    calculate_position_sizing,
+    derive_market_risk_multiplier,
+    effective_position_limit,
+    normalize_position_sizing_policy,
+)
 from .strategy_engine import StrategyEngine
-from .custom_strategy_runtime import apply_engine_settings_to_trade_config
+from .custom_strategy_runtime import (
+    EXIT_RATE_SOURCE_KEY,
+    EXIT_RATE_UNIT_KEY,
+    ExitRateContractError,
+    apply_engine_settings_to_trade_config,
+    stamp_trade_exit_rates,
+    validate_trade_exit_rates,
+)
 from .custom_strategy_order_plan import (
     confirm_order_plan_action,
     evaluate_order_plan,
 )
 from .trade_candidate import apply_trade_candidate, evaluate_trade_candidate
+from .selection_policy import candidate_execution_eligible, has_executable_candidates
 from .exit_policy import (
     build_exit_policy,
     format_exit_policy,
     record_insurance_submission,
 )
+from .smart_exit_policy import (
+    evaluate_runtime_smart_exit,
+    record_runtime_exit_decision,
+    resolve_smart_exit_policy,
+)
 from .execution_mode import ExecutionMode, resolve_crypto_execution_mode
 from .leverage_policy import exchange_leverage_cap, resolve_effective_leverage
 from .market_data_utils import kline_number
+from .market_selection_runtime import RegimeStabilizer
 from .position_ownership import (
     NOAH_POSITION_OWNER,
     is_noah_managed_position,
@@ -48,7 +71,9 @@ from .position_ownership import (
     parse_entry_time,
 )
 from api.kpi_client import emit_kpi_event, flush_kpi_events
-from api.position_kpi import emit_position_closed, emit_position_opened, utc_now
+from api.position_kpi import emit_position_closed, emit_position_opened, emit_position_reduced, utc_now
+from trading.position_limit_policy import effective_crypto_position_limit, effective_position_count
+from trading.paper_position_store import load_positions, position_store_path, save_positions
 
 
 class PositionSide(Enum):
@@ -80,7 +105,11 @@ class Position:
     custom_strategy_id: Optional[str] = None
     custom_strategy_name: Optional[str] = None
     custom_strategy_rules: Dict[str, Any] = field(default_factory=dict)
+    custom_strategy_key: Optional[str] = None
+    custom_strategy_version_id: Optional[str] = None
+    custom_strategy_scope: Optional[str] = None
     exit_policy: Dict[str, Any] = field(default_factory=dict)
+    entry_evidence: Dict[str, Any] = field(default_factory=dict)
     custom_order_plan_state: Dict[str, Any] = field(default_factory=dict)
     # 현물 자동매매가 시작되기 전부터 있던 잔고. 청산 시 이 수량은 절대
     # 매도하지 않고 앱이 체결한 증가분만 관리한다.
@@ -162,6 +191,14 @@ class Trader:
     selected_coins: List[Any]
     tp_sl_watchdog_state: Dict[str, Dict]
 
+    def _get_ai_max_positions(self) -> int:
+        """Clamp Binance capacity by the authenticated membership contract."""
+        plan_cap = getattr(getattr(self, "main_app", None), "membership_position_limit", None)
+        hard_max = int(plan_cap) if isinstance(plan_cap, int) and plan_cap > 0 else 10
+        return effective_crypto_position_limit(
+            self.settings, "binance", hard_max=hard_max
+        )
+
     def __init__(self, binance_client: Any, analyzer: Any, optimizer: Any, recorder: Any, ai_manager: Optional[Any] = None,
                  risk_manager: Optional[Any] = None, websocket_manager: Any = None, dashboard: Any = None, logger: Any = None, settings: Optional[Dict] = None, main_app: Any = None):
         # 🔥 바이낸스는 자체 API 사용 (CCXT 사용 안함)
@@ -204,6 +241,7 @@ class Trader:
         # 활성 포지션 관리
         self.active_positions = {}
         self.paper_active_positions = {}
+        self._paper_position_persistence_enabled = True
 
         # 🔥 autotrade.py와 동일: 거래 진입 여부 추적
         self.trade_entered = {}
@@ -221,6 +259,12 @@ class Trader:
         # settings.json의 auto_trade_interval을 사용 (기본 10초)
         self.monitoring_interval = int(self.settings.get("auto_trade_interval", 10))
         self.price_data_points = {}  # 실시간 가격 데이터 저장
+        self._regime_stabilizer = RegimeStabilizer()
+        self.last_coin_selection_time = time.time()
+        self._coin_reselection_lock = threading.RLock()
+        self._coin_reselection_thread = None
+        self._last_unscored_reselection_request = 0.0
+        self._unscored_reselection_attempts = 0
 
         # AI 최적화 캐시 (기존 시스템 스타일)
         self.pattern_analysis_cache = {}
@@ -281,7 +325,7 @@ class Trader:
         if self._execution_mode() == ExecutionMode.LIVE:
             self._restore_positions_from_exchange()
         elif self._execution_mode() == ExecutionMode.PAPER:
-            self.log_event('system', "🧪 BINANCE PAPER 초기화 - 실제 포지션 복구 생략")
+            self._restore_paper_positions()
 
         # 현재 거래 코인 목록
         self.current_trading_coins = []
@@ -319,6 +363,32 @@ class Trader:
         except Exception as e:
             self.log_event('system', f"⚠️ TP/SL watchdog 백업 경로 설정 실패: {e}", level='WARNING')
             self.tp_sl_watchdog_backup_path = None
+
+    def _paper_position_path(self):
+        return position_store_path(self.settings, "binance")
+
+    def _persist_paper_positions(self) -> None:
+        if (
+            not getattr(self, '_paper_position_persistence_enabled', False)
+            or self._execution_mode() != ExecutionMode.PAPER
+        ):
+            return
+        try:
+            save_positions(self._paper_position_path(), {"binance": self.paper_active_positions})
+        except Exception as exc:
+            self.log_event('system', f"BINANCE PAPER 포지션 저장 실패: {exc}", level='ERROR')
+
+    def _restore_paper_positions(self) -> None:
+        try:
+            restored = load_positions(self._paper_position_path(), Position, PositionSide)
+            self.paper_active_positions = dict(restored.get("binance") or {})
+            self.log_event(
+                'system',
+                f"🧪 BINANCE PAPER 초기화 - 가상 포지션 {len(self.paper_active_positions)}개 복구",
+            )
+        except Exception as exc:
+            self.paper_active_positions = {}
+            self.log_event('system', f"BINANCE PAPER 포지션 복구 실패: {exc}", level='WARNING')
 
     def _schedule_delayed_balance_update(self, delay_seconds: float = 2.0) -> None:
         """거래 직후 거래소 반영을 기다린 뒤 대시보드 잔고를 한 번 더 갱신한다.
@@ -372,14 +442,19 @@ class Trader:
             return
         previous_mode = self._execution_mode()
         self.settings.update(new_settings)
+        current_mode = self._execution_mode()
+        if previous_mode != ExecutionMode.PAPER and current_mode == ExecutionMode.PAPER:
+            # 앱이 LIVE/LEARNING 설정으로 시작했다가 PAPER로 전환된 경우에도
+            # 디스크에 남은 열린 가상 포지션을 놓치지 않는다.
+            self._restore_paper_positions()
         self.log_event('settings', f"전략 런타임 설정 업데이트: {new_settings}")
-        if previous_mode != self._execution_mode():
+        if previous_mode != current_mode:
             for flag in self.monitoring_flags.values():
                 if hasattr(flag, 'set'):
                     flag.set()
             self.log_event(
                 'settings',
-                f"실행 모드 변경: {previous_mode.value} → {self._execution_mode().value}; 기존 모니터링 안전 중지",
+                f"실행 모드 변경: {previous_mode.value} → {current_mode.value}; 기존 모니터링 안전 중지",
             )
 
     def _apply_connected_strategy_runtime(self):
@@ -400,11 +475,11 @@ class Trader:
                     self._runtime_profile_applied = ''
 
             if mode == 'adaptive' and self.strategy_customizer:
-                market_regime = 'NORMAL'
+                market_regime = 'UNKNOWN'
                 try:
-                    market_regime = str(self._analyze_market_regime_binance_fast() or 'NORMAL').upper()
+                    market_regime = str(self._analyze_market_regime_binance_fast() or 'UNKNOWN').upper()
                 except Exception:
-                    market_regime = 'NORMAL'
+                    market_regime = 'UNKNOWN'
 
                 performance = {
                     'recent_win_rate': 0.5,
@@ -991,53 +1066,79 @@ class Trader:
             self.trade_entered[symbol] = False
             self.log_event('trade', f"[{symbol}] 거래 집중 모드 완료")
 
-    def _cleanup_zombie_flags(self):
-        """좀비 플래그 정리 (포지션 없는데 trade_entered=True인 경우)"""
-        try:
-            self.log_event('trade', "🔍 좀비 플래그 정리 시작")
-            zombie_symbols = []
+    def _get_binance_position_snapshot(self) -> Dict[str, Any]:
+        """빈 포지션과 조회 실패를 구분하는 Binance 스냅샷을 반환한다."""
+        client = getattr(self, 'binance_client', None)
+        if client is None:
+            return {'status': 'unavailable', 'positions': [], 'error': 'binance_client 없음'}
 
-            # 1. 포지션 없는데 거래 플래그가 True인 경우
-            for symbol, is_trading in self.trade_entered.items():
-                if is_trading and symbol not in self.active_positions:
-                    # 모니터링 스레드도 확인
-                    has_monitoring_thread = symbol in self.monitoring_threads
-                    if has_monitoring_thread:
-                        thread = self.monitoring_threads[symbol]
-                        if not thread.is_alive():
-                            zombie_symbols.append(symbol)
-                            self.log_event('trade', f"[{symbol}] 좀비 플래그 감지 - 자동 정리 (포지션 없음, 스레드 종료됨)", level='WARNING')
-                    else:
-                        zombie_symbols.append(symbol)
-                        self.log_event('trade', f"[{symbol}] 좀비 플래그 감지 - 자동 정리 (포지션 없음, 스레드 없음)", level='WARNING')
-
-            self.log_event('trade', f"🔍 1차 좀비 플래그 발견: {len(zombie_symbols)}개 - {zombie_symbols}")
-
-            # 2. 실제 거래소에서 포지션 조회해서 확인
+        status_getter = getattr(client, 'get_positions_result', None)
+        if callable(status_getter):
             try:
-                if hasattr(self, 'binance_client') and self.binance_client:
-                    actual_positions = self.binance_client.get_positions()
-                    # BinanceClient.get_positions()는 Position 객체 리스트를 반환함
-                    # 혹시 dict 형태가 섞여 오더라도 안전하게 symbol을 추출하도록 처리
-                    actual_symbols = {
-                        (pos['symbol'] if isinstance(pos, dict) else getattr(pos, 'symbol', None))
-                        for pos in actual_positions
-                        if (isinstance(pos, dict) and 'symbol' in pos) or hasattr(pos, 'symbol')
-                    }
+                result = status_getter()
+            except Exception as exc:
+                return {'status': 'error', 'positions': [], 'error': str(exc)}
+            if not isinstance(result, dict):
+                return {'status': 'error', 'positions': [], 'error': '잘못된 포지션 응답 형식'}
+            return {
+                **result,
+                'status': str(result.get('status') or 'error').lower(),
+                'positions': list(result.get('positions') or []),
+            }
 
-                    for symbol, is_trading in self.trade_entered.items():
-                        if is_trading and symbol not in actual_symbols and symbol not in zombie_symbols:
-                            zombie_symbols.append(symbol)
-                            self.log_event('trade', f"[{symbol}] 좀비 플래그 감지 - 자동 정리 (실제 거래소에 포지션 없음)", level='WARNING')
-            except Exception as e:
-                self.log_event('trade', f"⚠️ 실제 포지션 조회 실패: {e}", level='WARNING')
+        # 오래된 테스트/주입 클라이언트만 상태 없는 API를 호환한다.
+        legacy_getter = getattr(client, 'get_positions', None)
+        if callable(legacy_getter):
+            try:
+                return {
+                    'status': 'success',
+                    'positions': list(legacy_getter() or []),
+                    'compatibility_fallback': True,
+                }
+            except Exception as exc:
+                return {'status': 'error', 'positions': [], 'error': str(exc)}
+        return {'status': 'unavailable', 'positions': [], 'error': '포지션 조회 API 없음'}
 
-            self.log_event('trade', f"🔍 2차 검증 후 좀비 플래그: {len(zombie_symbols)}개 - {zombie_symbols}")
+    @staticmethod
+    def _position_symbol(position: Any) -> Optional[str]:
+        value = position.get('symbol') if isinstance(position, dict) else getattr(position, 'symbol', None)
+        return str(value) if value else None
 
-            # 3. 좀비 플래그 정리
+    def _cleanup_zombie_flags(self, position_snapshot: Optional[Dict[str, Any]] = None):
+        """거래소가 무포지션을 확정했을 때만 오래된 LIVE 플래그를 정리한다."""
+        try:
+            flagged_symbols = [
+                symbol for symbol, is_trading in list(getattr(self, 'trade_entered', {}).items())
+                if is_trading
+            ]
+            if not flagged_symbols:
+                return
+
+            snapshot = position_snapshot or self._get_binance_position_snapshot()
+            if str(snapshot.get('status') or '').lower() != 'success':
+                self.log_event(
+                    'trade',
+                    "⚠️ Binance 포지션 확인 실패 - 거래 플래그와 모니터링 상태를 보존합니다: "
+                    f"{snapshot.get('error') or snapshot.get('status') or 'unknown'}",
+                    level='WARNING',
+                )
+                return
+
+            actual_symbols = {
+                symbol for symbol in (
+                    self._position_symbol(position)
+                    for position in list(snapshot.get('positions') or [])
+                ) if symbol
+            }
+            zombie_symbols = [symbol for symbol in flagged_symbols if symbol not in actual_symbols]
+
             for symbol in zombie_symbols:
+                self.log_event(
+                    'trade',
+                    f"[{symbol}] 거래소 무포지션 확인 - 오래된 거래 플래그 정리",
+                    level='WARNING',
+                )
                 self._reset_trade_flag(symbol)
-                # 모니터링 스레드 핸들도 정리
                 if symbol in self.monitoring_threads:
                     del self.monitoring_threads[symbol]
                 if symbol in self.monitoring_flags:
@@ -1045,8 +1146,6 @@ class Trader:
 
             if zombie_symbols:
                 self.log_event('trade', f"✅ 좀비 플래그 정리 완료: {len(zombie_symbols)}개 심볼 - {zombie_symbols}")
-            else:
-                self.log_event('trade', "✅ 좀비 플래그 없음 - 정리 작업 완료")
 
         except Exception as e:
             self.log_event('trade', f"❌ 좀비 플래그 정리 중 오류: {e}", level='ERROR')
@@ -1129,7 +1228,10 @@ class Trader:
 
     def _is_verbose_logging(self) -> bool:
         try:
-            return bool(self.settings.get('verbose_trade_logging', False))
+            return bool(
+                self.settings.get('verbose_trade_logging', False)
+                or self.settings.get('detailed_logs_enabled', False)
+            )
         except Exception:
             return False
 
@@ -1220,7 +1322,15 @@ class Trader:
                 fee_asset=fee_asset,
                 fee_source=fee_source,
                 position_owner=NOAH_POSITION_OWNER,
-                execution_mode=str(mode or 'live'),
+                # ``mode`` is the strategy/optimizer style, not the account
+                # execution boundary. Mixing them made LIVE rows look like a
+                # fourth execution mode named ``optimized``.
+                execution_mode=self._execution_mode().value,
+                entry_fee=max(0.0, float(fees or 0.0)),
+                entry_fee_asset=str(fee_asset or '').strip().upper() or None,
+                settlement_currency='USDT',
+                pnl_source='pending_exchange_close',
+                reconciliation_status='open',
             )
 
             self.recorder.insert_trade_log(trade_log)
@@ -1247,6 +1357,7 @@ class Trader:
         fallback_price: float = 0.0,
         fee: float = 0.0,
         fee_asset: Optional[str] = None,
+        realized_pnl: Optional[float] = None,
     ) -> bool:
         """Binance 네이티브 체결도 공통 실제 체결 원장에 기록한다.
 
@@ -1305,6 +1416,8 @@ class Trader:
                 'fee': {'cost': max(0.0, float(fee or 0.0)), 'currency': fee_asset or 'USDT'},
                 '_execution_confirmed': confirmed,
             })
+            if realized_pnl is not None:
+                payload['realized_pnl'] = float(realized_pnl)
             if callable(receipt_saver):
                 receipt_saver('binance', payload, source=source)
             if confirmed and callable(execution_saver):
@@ -1326,6 +1439,56 @@ class Trader:
             )
             return False
 
+    def _get_binance_order_fill_summary(
+        self,
+        symbol: str,
+        order_id: Optional[Any],
+        *,
+        attempts: int = 2,
+    ) -> Dict[str, Any]:
+        """Return only fills belonging to one Binance order.
+
+        A symbol/time-window scan is not sufficient: a user can close, reopen,
+        or trade the same symbol manually while NoahAI is running.  The order
+        id is therefore the mandatory reconciliation key.
+        """
+        if order_id in (None, "") or not self.binance_client:
+            return {"confirmed": False, "reason": "exit_order_id_missing"}
+        target = str(order_id)
+        for attempt in range(max(1, attempts)):
+            try:
+                rows = self.binance_client.get_recent_trades(symbol=symbol, limit=200) or []
+                fills = [row for row in rows if str(row.get("order_id", "")) == target]
+                if fills:
+                    quantity = sum(max(0.0, float(row.get("quantity", 0.0) or 0.0)) for row in fills)
+                    quote = sum(
+                        max(0.0, float(row.get("quantity", 0.0) or 0.0))
+                        * max(0.0, float(row.get("price", 0.0) or 0.0))
+                        for row in fills
+                    )
+                    assets = {
+                        str(row.get("commission_asset", "") or "").upper()
+                        for row in fills if row.get("commission_asset")
+                    }
+                    return {
+                        "confirmed": quantity > 0 and quote > 0,
+                        "order_id": target,
+                        "fill_count": len(fills),
+                        "quantity": quantity,
+                        "exit_price": quote / quantity if quantity > 0 else 0.0,
+                        "gross_pnl": sum(float(row.get("realized_pnl", 0.0) or 0.0) for row in fills),
+                        "fees": sum(max(0.0, float(row.get("commission", 0.0) or 0.0)) for row in fills),
+                        "fee_asset": next(iter(assets)) if len(assets) == 1 else ("MIXED" if assets else None),
+                        "reason": "exchange_order_fills",
+                    }
+            except Exception as exc:
+                last_error = str(exc)
+            else:
+                last_error = "fills_not_yet_available"
+            if attempt + 1 < attempts:
+                time.sleep(0.25)
+        return {"confirmed": False, "order_id": target, "reason": last_error}
+
     def _get_order_commission(
         self,
         symbol: str,
@@ -1336,27 +1499,13 @@ class Trader:
         """거래소 체결내역에서 주문 수수료를 조회한다. 추정값은 저장하지 않는다."""
         if order_id in (None, "") or not self.binance_client:
             return 0.0, None, "unavailable"
-        target = str(order_id)
-        for attempt in range(max(1, attempts)):
-            try:
-                rows = self.binance_client.get_trade_history(symbol, limit=200) or []
-                fills = [row for row in rows if str(row.get("order_id", "")) == target]
-                if fills:
-                    assets = {
-                        str(row.get("commission_asset", "") or "").upper()
-                        for row in fills
-                        if row.get("commission_asset")
-                    }
-                    asset = next(iter(assets)) if len(assets) == 1 else ("MIXED" if assets else None)
-                    return (
-                        sum(max(0.0, float(row.get("commission", 0.0) or 0.0)) for row in fills),
-                        asset,
-                        "exchange_fill",
-                    )
-            except Exception:
-                pass
-            if attempt + 1 < attempts:
-                time.sleep(0.25)
+        summary = self._get_binance_order_fill_summary(symbol, order_id, attempts=attempts)
+        if summary.get("confirmed"):
+            return (
+                max(0.0, float(summary.get("fees", 0.0) or 0.0)),
+                summary.get("fee_asset"),
+                "exchange_fill",
+            )
         return 0.0, None, "unavailable"
 
     def _normalize_tp_sl_settings(self):
@@ -1504,73 +1653,194 @@ class Trader:
 
             self.log_event('coin_selection', f"선택된 코인 수: {len(selected_coins)}")
 
-            # 2. 시장 상황 변화 체크 (1시간마다) - 최적화
+            # A non-empty fallback list is not a completed selection.  Do not
+            # spend every trading cycle recalculating the market regime for a
+            # universe that cannot be analysed or traded.  Position
+            # reconciliation still runs later in the cycle; the execution
+            # gate owns the throttled background retry and its one-time user
+            # warning.
+            if not has_executable_candidates(selected_coins):
+                self.log_event(
+                    'debug',
+                    "점수 미산출 후보만 존재 - 시장국면 재평가를 생략하고 후보 복구 단계로 이동",
+                    exchange='binance',
+                    level='DEBUG',
+                )
+                return
+
+            # 시장국면은 짧은 주기로 관찰하되 일시적 흔들림은 확정하지 않는다.
             import time
             current_time = time.time()
+            check_interval = max(
+                60,
+                int(self.settings.get("market_regime_check_interval_seconds", 300) or 300),
+            )
+            confirmations = max(
+                1,
+                int(self.settings.get("market_regime_confirmations", 2) or 2),
+            )
+            min_dwell = max(
+                0,
+                int(self.settings.get("market_regime_min_dwell_seconds", 600) or 600),
+            )
 
             if not hasattr(self, 'last_market_analysis_time'):
                 # 첫 실행 시 시간 기록 (거래 시작 시점) - 정상 시장 분석 수행
                 self.last_market_analysis_time = current_time
-                regime = self._analyze_market_regime_binance_fast()
+                observed = self._analyze_market_regime_binance_fast()
+                if observed == 'unknown':
+                    return
+                regime, _ = self._regime_stabilizer.observe(
+                    "binance",
+                    observed,
+                    confirmations=confirmations,
+                    min_dwell_seconds=min_dwell,
+                )
                 self.last_market_regime = regime
                 self.log_event('analysis', f"시장 분석 시작 - 기준 시간: {time.strftime('%H:%M:%S', time.localtime(current_time))}")
                 self.log_event('analysis', f"시장 상황 분석 결과: {regime}")
                 return
 
-            # 1시간 경과 체크 (거래 시작 시점 기준)
+            # 관찰 주기 경과 체크
             time_elapsed = current_time - self.last_market_analysis_time
-            if time_elapsed > 3600:  # 1시간
-                self.log_event('analysis', f"1시간 경과 - 시장 재분석 시작 (경과: {time_elapsed/3600:.1f}시간)")
+            if time_elapsed >= check_interval:
+                self.log_event('analysis', f"시장국면 재확인 시작 (경과: {time_elapsed:.0f}초)")
 
-                current_regime = self._analyze_market_regime_binance_fast()
+                observed_regime = self._analyze_market_regime_binance_fast()
+                if observed_regime == 'unknown':
+                    self.last_market_analysis_time = current_time
+                    return
+                current_regime, regime_changed = self._regime_stabilizer.observe(
+                    "binance",
+                    observed_regime,
+                    confirmations=confirmations,
+                    min_dwell_seconds=min_dwell,
+                )
 
                 # 🔥 시간 업데이트 플래그: 재선택 실행/연기 여부에 따라 결정
                 should_update_time = False
 
-                if hasattr(self, 'last_market_regime') and current_regime != self.last_market_regime:
-                    self.logger.info(f"시장 상황 변경 감지: {self.last_market_regime} → {current_regime}")
+                pending_regime = str(getattr(self, '_pending_regime_reselection', '') or '')
+                if (
+                    (regime_changed and hasattr(self, 'last_market_regime') and current_regime != self.last_market_regime)
+                    or pending_regime == current_regime
+                ):
+                    transition = bool(regime_changed and self.last_market_regime != current_regime)
+                    self.logger.info(f"시장 상황 변경 감지: {self.last_market_regime} → {current_regime}" if transition else "시장국면 유지 · 대기 중인 코인 재선정 재확인")
+                    try:
+                        from trading.notifications import publish_market_regime_change
+                        if transition:
+                            publish_market_regime_change("binance", self.last_market_regime, current_regime)
+                    except Exception:
+                        pass
 
                     # 3. 거래 진행 중인지 확인
                     active_positions = self.get_active_positions()
-                    max_positions = self.settings.get('max_positions', 3)
+                    max_positions = self._get_ai_max_positions()
                     
                     # 🔥 개선: 활성 포지션이 있어도 최대 포지션 수의 50% 이하일 때는 재선택 허용
                     if active_positions and len(active_positions) >= max_positions * 0.5:
                         # 활성 포지션이 많으면 재선택 연기
                         self.logger.warning(f"거래 진행 중 - 코인 재선택 연기 (활성 포지션: {len(active_positions)}개 >= {max_positions * 0.5:.1f}개)")
                         self.logger.info("활성 포지션이 많아 재선택 연기 - 다음 사이클에서 재선택 예정")
+                        self._pending_regime_reselection = current_regime
                         should_update_time = True  # 재선택 연기 시 시간 업데이트 (다음 사이클에서 재체크)
                     else:
                         # 활성 포지션이 적거나 없으면 재선택 실행
                         self.logger.info(f"거래 없음 또는 적음 - 코인 재선택 실행 (활성 포지션: {len(active_positions)}개 < {max_positions * 0.5:.1f}개)")
-                        self._reselect_coins()
+                        self._schedule_reselect_coins()
                         should_update_time = True  # 재선택 실행 시 시간 업데이트
                 else:
                     # 🔥 시장 상황이 유지되어도 3시간마다 강제 재선택 (코인 다양성 확보)
-                    if time_elapsed > 10800:  # 3시간
+                    selection_age = current_time - float(getattr(self, 'last_coin_selection_time', current_time))
+                    if selection_age > 10800:  # 3시간
                         active_positions = self.get_active_positions()
-                        max_positions = self.settings.get('max_positions', 3)
+                        max_positions = self._get_ai_max_positions()
                         if len(active_positions) < max_positions * 0.7:  # 70% 미만일 때만 재선택
                             self.logger.info(f"3시간 경과 - 코인 다양성 확보를 위한 강제 재선택 (활성 포지션: {len(active_positions)}개)")
-                            self._reselect_coins()
+                            self._schedule_reselect_coins()
                             should_update_time = True  # 재선택 실행 시 시간 업데이트
                         else:
                             self.logger.info(f"3시간 경과했으나 활성 포지션 많음 - 재선택 연기 (활성 포지션: {len(active_positions)}개 >= {max_positions * 0.7:.1f}개)")
                             should_update_time = True  # 재선택 연기 시 시간 업데이트
                     else:
-                        # 🔥 시장 상황 유지 + 1시간 < 경과 < 3시간: 시간 업데이트 안 함 (다음 사이클에서 계속 1시간 체크)
-                        self.logger.info(f"시장 상황 유지: {current_regime} (1시간 경과, 3시간 미만 - 재선택 대기)")
-                        should_update_time = False  # 시간 업데이트 안 함
+                        self.logger.info(
+                            f"시장 상황 유지: {current_regime} "
+                            f"(후보 선정 경과 {selection_age/60:.1f}분)"
+                        )
 
-                # 🔥 조건부 시간 업데이트: 재선택 실행/연기한 경우에만 시간 업데이트
-                if should_update_time:
-                    self.last_market_regime = current_regime
-                    self.last_market_analysis_time = current_time
+                # 관찰 시간은 매 확인마다 갱신한다. 선정 시각은 실제 후보를
+                # 교체했을 때만 갱신해 3시간 강제 재선정 기준과 섞지 않는다.
+                self.last_market_regime = current_regime
+                self.last_market_analysis_time = current_time
 
         except Exception as e:
             self.logger.error(f"코인 재선택 체크 오류: {e}")
 
-    def _reselect_coins(self):
+    def _schedule_reselect_coins(self) -> bool:
+        """Run discovery off the trading cycle and atomically publish on finish."""
+        with self._coin_reselection_lock:
+            thread = self._coin_reselection_thread
+            if thread is not None and thread.is_alive():
+                self.logger.info("코인 재선정이 이미 실행 중 - 중복 요청 합류")
+                return False
+
+            def worker():
+                completed = self._reselect_coins()
+                if completed:
+                    self.last_coin_selection_time = time.time()
+                    self._pending_regime_reselection = ''
+                    self._unscored_reselection_attempts = 0
+                    self._last_unscored_reselection_request = 0.0
+
+            thread = threading.Thread(
+                target=worker,
+                daemon=True,
+                name="noahai-binance-coin-selection",
+            )
+            self._coin_reselection_thread = thread
+            thread.start()
+            return True
+
+    def _schedule_unscored_reselection(self) -> bool:
+        """Retry a failed market ranking without waiting three hours.
+
+        The visible fallback symbols are explicitly non-executable.  Repeating
+        their full signal analysis wastes API budget and can make the dashboard
+        look frozen, so only position monitoring continues while discovery is
+        retried in the existing single-flight background path.
+        """
+
+        now = time.time()
+        base_retry_seconds = max(
+            30.0,
+            float(self.settings.get("coin_selection_failure_retry_seconds", 60) or 60),
+        )
+        max_retry_seconds = max(
+            base_retry_seconds,
+            float(
+                self.settings.get(
+                    "coin_selection_failure_retry_max_seconds",
+                    900,
+                )
+                or 900
+            ),
+        )
+        attempt = max(0, int(getattr(self, '_unscored_reselection_attempts', 0) or 0))
+        retry_seconds = min(max_retry_seconds, base_retry_seconds * (2 ** attempt))
+        if now - float(self._last_unscored_reselection_request or 0.0) < retry_seconds:
+            return False
+        self._last_unscored_reselection_request = now
+        evaluator = getattr(getattr(self, 'main_app', None), 'evaluator', None)
+        invalidate = getattr(evaluator, 'invalidate_selection_cache', None)
+        if callable(invalidate):
+            invalidate('binance')
+        scheduled = self._schedule_reselect_coins()
+        if scheduled:
+            self._unscored_reselection_attempts = min(attempt + 1, 30)
+        return scheduled
+
+    def _reselect_coins(self) -> bool:
         """실제 코인 재선택 실행"""
         try:
             self.logger.info("🔄 코인 재선택 시작...")
@@ -1591,6 +1861,28 @@ class Trader:
                 self.main_app.select_trading_coins()
                 new_coins = self.main_app.selected_coins if hasattr(self.main_app, 'selected_coins') else []
 
+                # A transient ticker/cache timeout must not replace a previous
+                # scored universe with a visible-only fallback list.
+                if (
+                    not has_executable_candidates(new_coins)
+                    and has_executable_candidates(old_coins)
+                ):
+                    self.main_app.selected_coins = list(old_coins)
+                    self.log_event(
+                        'coin_selection',
+                        "재선정 점수 산출 실패 - 기존 정상 후보 유지",
+                        level='WARNING',
+                    )
+                    return False
+
+                if not has_executable_candidates(new_coins):
+                    self.log_event(
+                        'coin_selection',
+                        "재선정 결과도 점수 미산출 상태 - 실패 결과를 완료로 처리하지 않음",
+                        level='WARNING',
+                    )
+                    return False
+
                 # 4. 코인 변경 로그
                 if new_coins != old_coins:
                     self.logger.info(f"코인 변경 완료: {len(old_coins)}개 → {len(new_coins)}개")
@@ -1601,14 +1893,18 @@ class Trader:
                     self.log_event('coin_selection', "API 기반 코인 분석으로 변경 - WebSocket 구독 제거")
                 else:
                     self.log_event('coin_selection', "코인 변경 없음 - 동일한 코인 유지")
+                return True
             else:
                 self.log_event('coin_selection', "main_app 객체 없음 - 코인 재선택 불가", level='WARNING')
+                return False
 
         except Exception as e:
             self.log_event('coin_selection', f"코인 재선택 실행 오류: {e}", level='ERROR')
             import traceback
             self.log_event('coin_selection', f"코인 재선택 상세 오류: {traceback.format_exc()}", level='ERROR')
+            return False
 
+    @track_market_observation('binance')
     def _analyze_market_regime_binance_fast(self):
         """빠른 바이낸스 시장 상황 분석 (BTC+ETH 가중 멀티 심볼, 최적화+캐싱)"""
         try:
@@ -1617,7 +1913,8 @@ class Trader:
             REGIME_SYMBOLS = [('BTCUSDT', 0.70), ('ETHUSDT', 0.30)]
 
             if not self.binance_client:
-                return 'normal'
+                observation_problem(self, 'binance', 'client_unavailable')
+                return 'unknown'
 
             # 🔥 캐싱 체크 (5분간 유효)
             import time
@@ -1637,12 +1934,21 @@ class Trader:
             symbol_change_30m: list = []
 
             for symbol, weight in REGIME_SYMBOLS:
-                klines = self.binance_client.get_klines(symbol, '15m', 10)
-                if not klines or len(klines) < 5:
+                try:
+                    klines = self.binance_client.get_klines(symbol, '15m', 10)
+                except Exception as exc:
+                    observation_problem(self, 'binance', 'candle_query_failed', error=exc, symbol=symbol)
+                    continue
+                if not klines or len(klines) < 6:
+                    observation_problem(self, 'binance', 'insufficient_candles', rows=klines,
+                                        symbol=symbol, interval='15m', received=len(klines or []), required=6)
                     continue
 
                 prices = [kline_number(k, "close") for k in klines]
                 volumes = [kline_number(k, "volume") for k in klines]
+                if not all(math.isfinite(p) and p > 0 for p in prices) or not all(math.isfinite(v) and v >= 0 for v in volumes):
+                    observation_problem(self, 'binance', 'invalid_candle_values', symbol=symbol)
+                    continue
 
                 # RSI(5)
                 gains, losses = [], []
@@ -1664,7 +1970,7 @@ class Trader:
                 vol_ratio = (volumes[-1] / (sum(volumes[-5:]) / 5)) if len(volumes) >= 5 and sum(volumes[-5:]) > 0 else 1.0
 
                 # 30분 가격변화
-                change_30m = ((prices[-1] - prices[-2]) / prices[-2] * 100) if len(prices) >= 2 else 0.0
+                change_30m = ((prices[-1] - prices[-3]) / prices[-3] * 100) if len(prices) >= 3 else 0.0
 
                 symbol_rsi.append((rsi, weight))
                 symbol_trend.append((slope, weight))
@@ -1672,7 +1978,7 @@ class Trader:
                 symbol_change_30m.append((change_30m, weight))
 
             if not symbol_rsi:
-                return 'normal'
+                return 'unknown'
 
             # 가중 평균 계산
             total_w = sum(w for _, w in symbol_rsi)
@@ -1734,7 +2040,8 @@ class Trader:
 
         except Exception as e:
             self.logger.error(f"빠른 시장 분석 오류: {e}")
-            return 'normal'
+            observation_problem(self, 'binance', 'regime_calculation_failed', error=e)
+            return 'unknown'
 
     def _analyze_market_regime_binance(self):
         """바이낸스용 시장 상황 분석 (기술적 지표 기반)"""
@@ -1998,6 +2305,7 @@ class Trader:
             live_orders_enabled = execution_mode == ExecutionMode.LIVE
             paper_mode = execution_mode == ExecutionMode.PAPER
             decision_execution_enabled = live_orders_enabled or paper_mode
+            cycle_position_snapshot: Optional[Dict[str, Any]] = None
             self.log_event('trade', "🔄 거래 사이클 시작...")
             if paper_mode:
                 self.log_event(
@@ -2013,21 +2321,38 @@ class Trader:
                     exchange='binance',
                 )
 
-            # 🔥 좀비 플래그만 정리 (오픈오더는 진입 직전에 정리)
-            if live_orders_enabled:
-                self._cleanup_zombie_flags()
-                self.log_event('trade', "✅ 거래 사이클 시작 - 좀비 플래그 정리 완료")
-
             # 0. 코인 재선택 로직 (시장 상황 변화 체크) - 최적화
             self.log_event('analysis', "시장 분석 시작...")
             self._check_and_reselect_coins_optimized()
             self.log_event('analysis', "시장 분석 완료")
 
             # 1. 일일 손실 한도 체크
-            if live_orders_enabled and self.risk_manager and self.risk_manager.check_daily_loss_limit():
-                self.log_event('trade', "🛑 일일 손실 한도 초과 - 거래 중단", level='ERROR')
+            if live_orders_enabled and self.risk_manager:
+                daily_loss = self.risk_manager.evaluate_daily_loss_limit(
+                    source='binance',
+                    execution_mode='live',
+                )
+            else:
+                daily_loss = None
+            if daily_loss is not None and daily_loss.blocked:
+                message = (
+                    "⚠️ LIVE 위험 데이터 확인 실패 - 손실률을 추정하지 않고 신규 진입 보류"
+                    if daily_loss.status == 'risk_data_unavailable'
+                    else "🛑 LIVE 일일 손실 한도 초과 - 거래 중단"
+                )
+                self.log_event(
+                    'trade',
+                    message,
+                    level='WARNING' if daily_loss.status == 'risk_data_unavailable' else 'ERROR',
+                )
                 try:
-                    log_exception('trade', '일일 손실 한도 초과 - 거래 중단', exchange='binance')
+                    log_exception(
+                        'trade',
+                        '위험 데이터 확인 실패 - 신규 진입 보류'
+                        if daily_loss.status == 'risk_data_unavailable'
+                        else '일일 손실 한도 초과 - 거래 중단',
+                        exchange='binance',
+                    )
                 except Exception:
                     pass
                 return
@@ -2069,19 +2394,18 @@ class Trader:
                     return
             cold_start_profile = (
                 dict(profitability_report)
-                if profitability_report.get('stage') in {'limited_live_learning', 'recovery_learning'}
+                if profitability_report.get('stage') in {'limited_live_learning', 'recovery_learning', 'validated_adaptive'}
                 else {}
             )
             if cold_start_profile:
-                stage_label = (
-                    '성과회복 제한 운용'
-                    if cold_start_profile.get('stage') == 'recovery_learning'
-                    else '신규/데이터부족 제한 운용'
-                )
+                stage_label = {
+                    'recovery_learning': '성과회복 제한 운용',
+                    'validated_adaptive': '성과기반 점진 운용',
+                }.get(cold_start_profile.get('stage'), '신규/데이터부족 제한 운용')
                 self.log_event(
                     'trade',
-                    f"🌱 바이낸스 {stage_label}: 거래 "
-                    f"{cold_start_profile.get('total_trades', 0)}/{cold_start_profile.get('next_review_at_trades')} · "
+                    f"🌱 BINANCE {stage_label}: "
+                    f"최근표본 {cold_start_profile.get('total_trades', 0)}건 · 다음 체결 후 재평가 · "
                     f"위험배수 {cold_start_profile.get('risk_multiplier', 0.1):.2f} · "
                     f"최대포지션 {cold_start_profile.get('max_positions', 1)} · "
                     f"최대레버리지 {cold_start_profile.get('max_leverage', 1)}x",
@@ -2095,13 +2419,29 @@ class Trader:
             # 1. 현재 포지션 상태 확인 (실시간 모니터링은 별도 스레드에서 처리)
             # 🔥 실제 거래소에서 포지션 조회하여 동기화 (메모리와 실제 상태 불일치 방지)
             # 문제: close_position에서 포지션을 제거했지만, 실제 거래소에서는 이미 청산되어 메모리와 불일치 발생
+            # 시장 분석 뒤의 최신 스냅샷 하나를 좀비 정리와 메모리 동기화가
+            # 공유한다. 분석 전에 가져온 오래된 스냅샷은 사용하지 않는다.
+            if live_orders_enabled:
+                cycle_position_snapshot = self._get_binance_position_snapshot()
+                self._cleanup_zombie_flags(cycle_position_snapshot)
             memory_positions_before = len(self.get_active_positions())
             memory_symbols_before = set(self.get_active_positions().keys())
             
             try:
                 if live_orders_enabled and hasattr(self, 'binance_client') and self.binance_client:
-                    self.log_event('trade', f"🔍 실제 거래소에서 포지션 조회 시작 (메모리: {memory_positions_before}개)")
-                    actual_positions = self.binance_client.get_positions()
+                    snapshot = cycle_position_snapshot or self._get_binance_position_snapshot()
+                    if str(snapshot.get('status') or '').lower() != 'success':
+                        self.log_event(
+                            'trade',
+                            "⚠️ Binance 포지션 동기화 보류 - 조회 실패를 무포지션으로 처리하지 않고 "
+                            f"기존 상태를 보존합니다: {snapshot.get('error') or snapshot.get('status') or 'unknown'}",
+                            level='WARNING',
+                        )
+                        # 현재 보유 상태를 확정하지 못한 사이클에서는 신규 주문도
+                        # 만들지 않는다. 기존 메모리·모니터링·보호 주문은 보존한다.
+                        return
+                    self.log_event('trade', f"🔍 실제 거래소 포지션 스냅샷 적용 (메모리: {memory_positions_before}개)")
+                    actual_positions = list(snapshot.get('positions') or [])
                     actual_symbols = {pos.symbol for pos in actual_positions}
                     getter = getattr(self.recorder, 'get_open_managed_trades', None)
                     managed_rows = getter('binance') if callable(getter) else []
@@ -2128,7 +2468,7 @@ class Trader:
                         self.log_event('trade', f"✅ 포지션 동기화 완료: {len(removed_symbols)}개 제거 (메모리 {memory_positions_before}개 → {len(self.active_positions)}개)")
                     
                     # 실제 포지션이 있으면 메모리에 추가/업데이트 (복구된 포지션) - max_positions 제한 적용
-                    max_positions = self.settings.get('max_positions', 3)
+                    max_positions = self._get_ai_max_positions()
                     added_symbols = []
                     skipped_count = 0
                     for pos in actual_positions:
@@ -2192,18 +2532,24 @@ class Trader:
             active_positions = self.get_active_positions()
             memory_positions_after = len(active_positions)
             self.logger.info(f"현재 활성 포지션: {memory_positions_after}개 (동기화 전: {memory_positions_before}개, ex=binance)")
+            if getattr(self, '_market_data_unavailable', {}).get('binance', False):
+                # PAPER monitoring and LIVE reconciliation above still run.
+                return
 
             # 2. 스킵 로직 보강 (단일모드/다중모드 구분 처리)
             # 직후 사용될 설정 파싱
-            position_mode = self.settings.get('position_mode', 'multi')
-            max_positions = int(self.settings.get('max_positions', 3))
+            max_positions = self._get_ai_max_positions()
             if cold_start_profile:
                 max_positions = min(max_positions, int(cold_start_profile.get('max_positions', 1) or 1))
 
             # 단일모드(집중모드)일 때: 포지션이 있으면 전체 스킵
-            effective_position_count = len(active_positions) + len(getattr(self, 'external_position_symbols', set()))
-            if decision_execution_enabled and (position_mode == 'single' or max_positions == 1) and effective_position_count > 0:
-                self.log_event('trade', f"집중모드 - 포지션 모니터링 중 (관리+수동/외부: {effective_position_count}개)")
+            effective_position_count_value = effective_position_count(
+                active_positions,
+                getattr(self, 'external_position_symbols', set()),
+                execution_mode,
+            )
+            if decision_execution_enabled and max_positions == 1 and effective_position_count_value > 0:
+                self.log_event('trade', f"집중모드 - 포지션 모니터링 중 (유효 포지션: {effective_position_count_value}개)")
                 return
 
             # 🔥 필터링 먼저 실행 (보유 심볼 제외)
@@ -2228,12 +2574,31 @@ class Trader:
                 return
 
             # 🔥 필터링 후 최대 포지션 수 확인
-            if decision_execution_enabled and effective_position_count >= max_positions:
-                self.log_event('trade', f"최대 포지션 수 도달 - 신규 대상 없음 (관리+수동/외부: {effective_position_count}개 >= 최대: {max_positions}개)", level='INFO')
+            if decision_execution_enabled and effective_position_count_value >= max_positions:
+                self.log_event('trade', f"최대 포지션 수 도달 - 신규 대상 없음 (유효 포지션: {effective_position_count_value}개 >= 최대: {max_positions}개)", level='INFO')
                 return
 
             # 이후 로직은 filtered를 사용
             selected_coins = filtered
+
+            if not has_executable_candidates(selected_coins):
+                scheduled = self._schedule_unscored_reselection()
+                if scheduled:
+                    self.log_event(
+                        'trade',
+                        "⛔ 점수 산출이 완료된 코인 후보가 없어 신규 분석·진입을 생략합니다. "
+                        "기존 포지션 관리는 계속하며 캐시를 비우고 백그라운드 재선정을 시작했습니다.",
+                        exchange='binance',
+                        level='WARNING',
+                    )
+                else:
+                    self.log_event(
+                        'debug',
+                        "점수 후보 복구 재선정이 실행 중이거나 재시도 대기 중입니다.",
+                        exchange='binance',
+                        level='DEBUG',
+                    )
+                return
 
             # 🔍 디버깅: selected_coins 상태 확인
             self.log_event('debug', f"selected_coins type: {type(selected_coins)}", exchange='binance', level='DEBUG')
@@ -2249,10 +2614,21 @@ class Trader:
                 for coin in selected_coins:
                     if isinstance(coin, dict):
                         symbol = coin.get('symbol', 'N/A')
-                        overall_score = coin.get('overall_score', 0)
                         is_major = coin.get('is_major', False)
                         coin_type = "메이저" if is_major else "알트"
-                        self.log_event('system', f'   • {symbol} ({coin_type}: {is_major}, 종합점수: {overall_score:.2f})')
+                        overall_score = coin.get('overall_score')
+                        try:
+                            score_text = f"{float(overall_score):.2f}" if overall_score is not None else "미산출"
+                        except (TypeError, ValueError):
+                            score_text = "미산출"
+                        selection_status = str(coin.get('selection_status') or 'scored')
+                        if selection_status == 'fallback_unscored':
+                            fallback_text = ", 안전 폴백"
+                        elif selection_status == 'stale_unscored':
+                            fallback_text = ", 스냅샷 만료·신규 진입 차단"
+                        else:
+                            fallback_text = ""
+                        self.log_event('system', f'   • {symbol} ({coin_type}: {is_major}, 종합점수: {score_text}{fallback_text})')
                     else:
                         # 🔥 coin이 딕셔너리가 아닌 경우에도 안전하게 처리
                         if isinstance(coin, str):
@@ -2263,10 +2639,23 @@ class Trader:
                             self.logger.info(f"   • {coin_summary}")
 
                 for i, coin in enumerate(selected_coins):
+                    # Stop before the inter-coin throttle.  The old order slept
+                    # three seconds first, so a requested shutdown could still
+                    # enter another analysis boundary.
+                    if hasattr(self.main_app, 'trading_worker') and self.main_app.trading_worker:
+                        if not self.main_app.trading_worker.running:
+                            self.log_event('system', '🔥 중지 신호 감지 - 코인 분석 중단', exchange='binance')
+                            break
                     # 🔥 분석 사이 딜레이 (과도한 API 호출 방지) - 첫 번째 코인 제외
                     if i > 0:  # 첫 번째 코인이 아닐 때만 딜레이 적용
                         self.log_event('system', f'⏱️ 코인 분석 사이 딜레이 적용: 3초 대기 중... ({i}/{len(selected_coins)})')
-                        time.sleep(3)  # 3초 딜레이
+                        worker = getattr(self.main_app, 'trading_worker', None)
+                        stop_event = getattr(worker, 'stop_event', None)
+                        if stop_event is not None and stop_event.wait(3.0):
+                            self.log_event('system', '🔥 중지 신호 감지 - 분석 대기 중단', exchange='binance')
+                            break
+                        if stop_event is None:
+                            time.sleep(3)
 
                     # 🔥 중지 신호 확인 (각 코인 처리 전)
                     if hasattr(self.main_app, 'trading_worker') and self.main_app.trading_worker:
@@ -2315,6 +2704,15 @@ class Trader:
                                 config=analysis_config,
                             )
                             if isinstance(signal_data, dict) and isinstance(coin, dict):
+                                signal_data["_selection_status"] = str(
+                                    coin.get("selection_status") or "scored"
+                                )
+                                signal_data["_selection_reason"] = str(
+                                    coin.get("selection_reason") or ""
+                                )
+                                signal_data["_candidate_execution_eligible"] = bool(
+                                    candidate_execution_eligible(coin)
+                                )
                                 signal_data["_selection_pipeline"] = str(
                                     coin.get("_selection_pipeline") or "general"
                                 )
@@ -2410,11 +2808,26 @@ class Trader:
                         self.log_event('analysis', f"📊 {symbol} 분석 완료 - 시그널: {signal}", exchange='binance')
                         self._log_trade_event('analysis', f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━", exchange='binance', verbose_only=True)
 
+                        if not candidate_execution_eligible(coin):
+                            self.log_event(
+                                'trade',
+                                f"⛔ {symbol} 신규 진입 차단 - 코인 후보 데이터 평가 미완료 "
+                                "(참조 분석만 수행, 기존 포지션 관리는 계속)",
+                                exchange='binance',
+                                level='WARNING',
+                            )
+                            continue
+
                         from .custom_strategy_validator import enrich_advanced_indicator_context
                         strategy_pool = getattr(self, 'active_custom_strategy_pool', []) or []
+                        paper_strategy_pool = getattr(self, 'paper_validation_strategy_pool', []) or []
+                        indicator_pool = list(strategy_pool) + [
+                            item for item in paper_strategy_pool
+                            if item not in strategy_pool
+                        ]
                         signal_data = enrich_advanced_indicator_context(
                             signal_data,
-                            strategy_pool,
+                            indicator_pool,
                             lambda timeframe, limit: self.binance_client.get_klines(
                                 symbol, timeframe, limit
                             ),
@@ -2425,6 +2838,25 @@ class Trader:
                         signal_data['_strategy_performance'] = dict(
                             runtime_strategy_context.get('performance', {}) or {}
                         )
+                        observer = getattr(self, 'parallel_paper_observer', None)
+                        if observer is not None:
+                            try:
+                                observer.observe(
+                                    target='binance', symbol=symbol,
+                                    asset_class='crypto',
+                                    primary_execution_mode=self._execution_mode().value,
+                                    context=signal_data,
+                                    strategy_pool=paper_strategy_pool,
+                                    market_regime=str(
+                                        getattr(self, 'last_market_regime', 'range') or 'range'
+                                    ),
+                                )
+                            except Exception as paper_exc:
+                                self.log_event(
+                                    'strategy',
+                                    f'병행 PAPER 관찰 실패(실주문 영향 없음): {paper_exc}',
+                                    exchange='binance', level='WARNING',
+                                )
                         candidate = evaluate_trade_candidate(
                             symbol=symbol,
                             context=signal_data,
@@ -2829,6 +3261,8 @@ class Trader:
 
         except Exception as e:
             self.logger.error(f"거래 사이클 실행 오류: {e}")
+            from trading.notifications import publish_runtime_failure
+            publish_runtime_failure('binance', e)
             import traceback
             self.logger.error(f"상세 오류: {traceback.format_exc()}")
             try:
@@ -2864,22 +3298,26 @@ class Trader:
                    trade_config.get('tp') is None or trade_config.get('sl') is None:
                     self.log_event('trade', f"[{symbol}] ❌ trade_config에 tp/sl 누락 - Optimizer 출력 불완전. 거래 스킵", level='ERROR')
                     continue
-                # 숫자 타입 보장
-                if not isinstance(trade_config.get('tp'), (int, float)) or not isinstance(trade_config.get('sl'), (int, float)):
-                    self.log_event('trade', f"[{symbol}] ❌ tp/sl 타입 오류 - 숫자 아님: tp={type(trade_config.get('tp'))}, sl={type(trade_config.get('sl'))}", level='ERROR')
-                    continue
-                raw_tp = float(trade_config.get('tp'))
-                raw_sl = float(trade_config.get('sl'))
-                if not (0.0005 <= raw_tp <= 0.05 and 0.0005 <= raw_sl <= 0.03):
+                try:
+                    raw_tp, raw_sl = validate_trade_exit_rates(trade_config)
+                except ExitRateContractError as exc:
                     self.log_event(
                         'trade',
-                        f"[{symbol}] ❌ TP/SL 실행 범위 위반 - tp={raw_tp}, sl={raw_sl}. 거래 스킵",
+                        f"[{symbol}] ❌ TP/SL 단일 권위 검증 실패 - {exc}. 거래 스킵",
                         level='ERROR',
                     )
                     continue
 
                 # ✅ 통일된 로그 출력 (trade_config 기준) - 거래 실행 전에 출력
                 if trade_config:
+                    if trade_config.get('_entry_policy_allowed') is False:
+                        self.log_event(
+                            'trade',
+                            f"[{symbol}] SmartExitPolicy 진입 차단: "
+                            f"{(trade_config.get('_smart_exit_policy') or {}).get('rejection_reason', '위험 계약 위반')}",
+                            level='WARNING', exchange='binance',
+                        )
+                        continue
                     final_lev = trade_config.get('leverage', 1)
                     final_tp = float(trade_config.get('tp') or 0.0)
                     final_sl = float(trade_config.get('sl') or 0.0)
@@ -2936,6 +3374,7 @@ class Trader:
                         asset_class='crypto',
                         target='binance',
                         symbol=symbol,
+                        decision_trace=trade_config.get('_smart_exit_policy'),
                     )
                     trade_params = {
                         'symbol': symbol,
@@ -2946,7 +3385,14 @@ class Trader:
                         'tp': float(trade_config.get('tp') or 0.0),
                         'sl': float(trade_config.get('sl') or 0.0),
                         'confidence': float(trade_config.get('confidence', 0.0) or 0.0),
-                        'volatility': float(trade_config.get('volatility', 0.02) or 0.02),
+                        # Analyzer/optimizer가 명시적으로 정규화한 fraction만 사용한다.
+                        # 결측값을 2%로 추측하면 모든 주문에 시장 위험 축소가 걸린다.
+                        'volatility': float(trade_config.get('volatility', 0.0) or 0.0),
+                        'market_regime': str(
+                            trade_config.get('market_regime')
+                            or getattr(self, 'last_market_regime', 'NORMAL')
+                            or 'NORMAL'
+                        ),
                         'mode': trade_config.get('mode', 'optimized'),
                         'orderType': trade_config.get('orderType', 'MARKET'),
                         'filters': trade_config.get('filters'),  # ✅ 추가
@@ -2957,12 +3403,35 @@ class Trader:
                         '_selected_custom_strategy_id': trade_config.get('_selected_custom_strategy_id'),
                         '_selected_custom_strategy_key': trade_config.get('_selected_custom_strategy_key'),
                         '_selected_custom_strategy_version_id': trade_config.get('_selected_custom_strategy_version_id'),
+                        '_selected_custom_strategy_scope': trade_config.get('_selected_custom_strategy_scope'),
                         '_custom_signal_mode': trade_config.get('_custom_signal_mode'),
                         '_custom_operation_mode': trade_config.get('_custom_operation_mode'),
+                        EXIT_RATE_UNIT_KEY: trade_config.get(EXIT_RATE_UNIT_KEY),
+                        EXIT_RATE_SOURCE_KEY: trade_config.get(EXIT_RATE_SOURCE_KEY),
                         '_exit_plan': dict(trade_config.get('_exit_plan') or {}),
                         '_exit_policy': exit_policy,
+                        '_smart_exit_policy': dict(trade_config.get('_smart_exit_policy') or {}),
                         '_custom_strategy_rules': dict(trade_config.get('_custom_strategy_rules') or {}),
+                        '_trade_candidate': dict(trade_config.get('_trade_candidate') or {}),
                     }
+
+                    # Account-risk sizing must run before the cross-venue
+                    # opportunity authorization.  Otherwise the coordinator
+                    # would authorize the optimizer's legacy fixed quantity
+                    # and silently clamp the later risk-based quantity back to
+                    # that stale value.
+                    preliminary_plan = self._prepare_binance_pre_authorization_sizing(
+                        trade_params, dry_run=dry_run
+                    )
+                    if preliminary_plan and not bool(preliminary_plan.get('allowed')):
+                        self.log_event(
+                            'trade',
+                            f"[{symbol}] 계좌 위험 사전 수량 계산 차단: "
+                            f"{preliminary_plan.get('reason')}",
+                            exchange='binance',
+                            level='WARNING',
+                        )
+                        continue
 
                     self.log_event(
                         'trade',
@@ -3143,7 +3612,9 @@ class Trader:
                 # 🔥 1단계: Optimizer에서 전달받은 필터 정보 우선 사용 (재조회 방지)
                 step_size = 1.0  # 기본값 (보수적)
                 quantity_precision = 8  # 기본값
-                min_notional = self.settings.get('min_trade_amount', 5.0)  # 🔥 설정값 사용
+                # 거래소 최소 주문규격과 사용자 목표 주문금액은 다른 계약이다.
+                # 여기서는 주문 유효성을 위한 거래소 규격만 검사한다.
+                min_notional = 0.0
 
                 # 🔥 Optimizer의 filters 정보 확인 (snake_case 키 사용)
                 if 'filters' in trade_params and trade_params['filters']:
@@ -3152,14 +3623,13 @@ class Trader:
                     quantity_precision = filters.get('quantity_precision', 8)
                     min_qty = filters.get('min_qty', 0.01)
 
-                    # 🔥 바이낸스 API의 min_notional과 설정값 중 더 큰 값 사용 (안전성)
+                    # API가 반환한 실제 주문 규격만 사용한다.
                     api_min_notional = None
                     if isinstance(filters, dict):
                         api_min_notional = filters.get('min_notional', filters.get('minNotional'))
                     if api_min_notional is None:
                         api_min_notional = 0.0
-                    config_min_notional = float(self.settings.get('min_trade_amount', 5.0))
-                    min_notional = max(float(api_min_notional), config_min_notional)
+                    min_notional = max(0.0, float(api_min_notional))
 
                     self.log_event('trade', f"[{symbol}] 🔍 Optimizer 필터 사용: step_size={step_size}, precision={quantity_precision}, min_notional={min_notional}")
 
@@ -3167,7 +3637,11 @@ class Trader:
                     leverage = trade_params.get('leverage', int(self.settings.get('default_leverage', 1)))
                     min_cost = price * min_qty / leverage
                     try:
-                        if hasattr(self, 'binance_client') and self.binance_client:
+                        if (
+                            hasattr(self, 'binance_client')
+                            and self.binance_client
+                            and self._execution_mode() == ExecutionMode.LIVE
+                        ):
                             account_info = self.binance_client.get_account_info()
                             if account_info:
                                 available_balance = float(account_info.get('available_balance', 0))
@@ -3185,12 +3659,10 @@ class Trader:
                             if hasattr(self.binance_client, 'get_symbol_info_direct'):
                                 symbol_info = self.binance_client.get_symbol_info_direct(symbol)
                                 if symbol_info:
-                                    step_size = symbol_info.get('step_size', 1.0)
-                                    quantity_precision = symbol_info.get('quantity_precision', 8)
-                                    # 🔥 바이낸스 API의 min_notional과 설정값 중 더 큰 값 사용 (안전성)
-                                    api_min_notional = symbol_info.get('min_notional', 5.0)
-                                    config_min_notional = self.settings.get('min_trade_amount', 5.0)
-                                    min_notional = max(api_min_notional, config_min_notional)
+                                    step_size = symbol_info.get('step_size') or symbol_info.get('stepSize') or 1.0
+                                    quantity_precision = symbol_info.get('quantity_precision') or symbol_info.get('quantityPrecision') or 8
+                                    api_min_notional = symbol_info.get('min_notional') or symbol_info.get('minNotional') or 0.0
+                                    min_notional = max(0.0, float(api_min_notional))
 
                                     self.log_event('trade', f"[{symbol}] 🔍 재조회 심볼 정보: step_size={step_size}, precision={quantity_precision}, min_notional={min_notional}")
                     except Exception as e:
@@ -3219,27 +3691,43 @@ class Trader:
                 return False
 
             # 최대 포지션 수 확인
-            effective_position_count = len(self.active_positions) + len(
-                getattr(self, 'external_position_symbols', set())
+            effective_position_count_value = effective_position_count(
+                self.active_positions,
+                getattr(self, 'external_position_symbols', set()),
+                self._execution_mode(),
             )
-            if effective_position_count >= self.settings['max_positions']:
+            max_positions = self._get_ai_max_positions()
+            position_limit = effective_position_limit(
+                max_positions,
+                strategy_risk_model=dict(
+                    (trade_params.get('_custom_strategy_rules') or {}).get('risk_model') or {}
+                ),
+            )
+            max_positions = int(position_limit['effective_max_positions'])
+            trade_params['_position_limit'] = position_limit
+            if effective_position_count_value >= max_positions:
                 self.log_event(
                     'trade',
                     f"[{symbol}] ✅ 최대 포지션 수 도달로 거래 제한 - 정상 동작 "
-                    f"(관리+수동/외부: {effective_position_count}개, 최대: {self.settings['max_positions']}개)"
+                    f"(유효 포지션: {effective_position_count_value}개, 최대: {max_positions}개)"
                 )
                 return False
 
             # 🔥 잔고 확인 (거래 실행 전에 미리 체크)
             try:
-                if hasattr(self, 'binance_client') and self.binance_client:
+                if (
+                    hasattr(self, 'binance_client')
+                    and self.binance_client
+                    and self._execution_mode() == ExecutionMode.LIVE
+                ):
                     account_info = self.binance_client.get_account_info()
                     if account_info:
                         available_balance = float(account_info.get('available_balance', 0))
-                        required_amount = qty * price
+                        leverage = max(1, int(trade_params.get('leverage', 1) or 1))
+                        required_amount = (qty * price / leverage) * 1.002
 
                         if available_balance < required_amount:
-                            self.log_event('trade', f"[{symbol}] ❌ 거래 차단 사유: 잔고 부족 (필요: {required_amount:.2f} USDT, 보유: {available_balance:.2f} USDT)", level='WARNING')
+                            self.log_event('trade', f"[{symbol}] ❌ 거래 차단 사유: 증거금 부족 (필요: {required_amount:.2f} USDT, 보유: {available_balance:.2f} USDT, 레버리지: {leverage}x)", level='WARNING')
                             return False
                         else:
                             self.log_event('trade', f"[{symbol}] 💰 잔고 확인 완료: {available_balance:.2f} USDT (필요: {required_amount:.2f} USDT)")
@@ -3392,7 +3880,7 @@ class Trader:
                 pass
 
             # 리스크 분석 로그 (verbose)
-            if self.settings.get('verbose_trade_logging', False):
+            if self._is_verbose_logging():
                 try:
                     # 포지션 크기 비율 계산
                     balance_info = self.binance_client.get_balance()
@@ -3452,15 +3940,13 @@ class Trader:
             # 🔥 거래 실행 전 잔고 검증 추가
             self.log_event('trade', f"[{symbol}] 🔍 잔고 검증 시작")
             current_price = 0.0  # 초기화 (타입 안전성)
+            available_usdt = 0.0
+            account_equity_usdt = 0.0
+            account_equity_source = 'unavailable'
             try:
-                balance = self.binance_client.get_balance()
-                usdt_info = balance.get('USDT') if isinstance(balance, dict) else None
-                available_usdt = 0.0
-
-                if isinstance(usdt_info, dict):
-                    available_usdt = float(usdt_info.get('available_balance', 0))
-                elif isinstance(balance, (int, float)):
-                    available_usdt = float(balance)
+                available_usdt, account_equity_usdt, account_equity_source = (
+                    self._binance_live_balance_basis()
+                )
 
                 self.log_event('trade', f"[{symbol}] 🔍 사용 가능한 USDT: {available_usdt}")
 
@@ -3522,9 +4008,21 @@ class Trader:
                 # _compute_quantity_once가 min_notional을 고려하여 수량을 조정하므로
                 # 슬리피지 적용 후에도 min_notional을 만족하는 수량을 보장함
                 self.log_event('trade', f"[{symbol}] 🔍 _compute_quantity_once 호출 시작 (symbol={symbol}, side={side}, leverage={leverage}, ref_price={ref_price:.6f})")
-                computed_qty, computed_price = self._compute_quantity_once(
+                computed_qty, computed_price, quantity_constraints = self._compute_quantity_once(
                     symbol, side, leverage, ref_price,
                     risk_multiplier=float(trade_params.get('risk_multiplier', 1.0) or 1.0),
+                    sizing_context={
+                        'account_equity': account_equity_usdt,
+                        'account_equity_source': account_equity_source,
+                        'stop_fraction': float(trade_params.get('sl_percent', trade_params.get('sl', 0.0)) or 0.0),
+                        'strategy_risk_model': dict(
+                            (trade_params.get('_custom_strategy_rules') or {}).get('risk_model') or {}
+                        ),
+                        'market_risk_multiplier': derive_market_risk_multiplier(
+                            market_regime=trade_params.get('market_regime'),
+                            volatility_fraction=trade_params.get('volatility', 0.0),
+                        ),
+                    },
                 )
 
                 if computed_qty is None or computed_price is None:
@@ -3534,7 +4032,10 @@ class Trader:
 
                 self.log_event('trade', f"[{symbol}] ✅ _compute_quantity_once 완료: qty={computed_qty}, price={computed_price:.6f}")
 
-                # 계산된 수량으로 업데이트
+                # 계산된 수량을 다중 거래소 권한 상한 안에서 최종 정규화한다.
+                # 사용자 목표 주문금액(min_trade_amount)과 거래소 최소 주문규격은
+                # 서로 다른 계약이다. 위험배수로 축소된 주문은 거래소 최소값만
+                # 충족하면 유효하며, 권한 상한을 넘어 최소값까지 억지로 키우지 않는다.
                 opportunity_factor = max(
                     0.0,
                     min(
@@ -3549,40 +4050,98 @@ class Trader:
                     0.0,
                     float(trade_params.get("qty", 0.0) or 0.0),
                 )
-                quantity = computed_qty * opportunity_factor
-                if authorized_quantity_cap > 0.0:
-                    quantity = min(quantity, authorized_quantity_cap)
+                quantity_result = self._reconcile_authorized_quantity(
+                    computed_quantity=computed_qty,
+                    opportunity_factor=opportunity_factor,
+                    authorized_quantity_cap=authorized_quantity_cap,
+                    reference_price=computed_price,
+                    exchange_min_notional=float(
+                        quantity_constraints.get('exchange_min_notional', 0.0) or 0.0
+                    ),
+                    step_size=float(quantity_constraints.get('step_size', 0.0) or 0.0),
+                    quantity_precision=int(quantity_constraints.get('quantity_precision', 8) or 8),
+                )
+                quantity = float(quantity_result.get('quantity', 0.0) or 0.0)
                 ref_price = computed_price
                 if opportunity_factor < 1.0:
                     self.log_event(
                         "trade",
-                        f"[{symbol}] 다중 거래소 총위험 분할 적용: "
-                        f"qty {computed_qty} × {opportunity_factor:.4f} = {quantity}",
+                        f"[{symbol}] 다중 거래소 총위험 분할 상한 적용: "
+                        f"computed_qty={computed_qty}, authorization_factor={opportunity_factor:.4f}, "
+                        f"authorized_cap={authorized_quantity_cap}, final_qty={quantity}",
                     )
                 
-                # 🔥 최종 검증: _compute_quantity_once 결과로 min_notional 재확인
-                min_notional = self.settings.get('min_trade_amount', 5.0)
+                # 🔥 최종 검증: 사용자 목표금액이 아닌 거래소 주문 규격을 재확인
+                min_notional = float(
+                    quantity_constraints.get('exchange_min_notional', 0.0) or 0.0
+                )
                 final_amount = quantity * ref_price
-                self.log_event('trade', f"[{symbol}] 🔍 최종 거래금액 검증: qty={quantity}, ref_price={ref_price:.6f}, final_amount={final_amount:.2f}, min_notional={min_notional}")
+                sizing_plan = dict(quantity_constraints.get('position_sizing') or {})
+                trade_params['_position_sizing'] = sizing_plan
+                if sizing_plan:
+                    leverage = int(sizing_plan.get('effective_leverage', leverage) or leverage)
+                    trade_params['leverage'] = leverage
+                effective_snapshot = getattr(self, 'last_effective_trade_params', {}).get(symbol)
+                if isinstance(effective_snapshot, dict):
+                    effective_snapshot['position_sizing'] = sizing_plan
+                    effective_snapshot['final_notional'] = final_amount
+                    effective_snapshot['final_quantity'] = quantity
+                configured_target = float(self.settings.get('min_trade_amount', 5.0) or 5.0)
+                risk_multiplier = float(trade_params.get('risk_multiplier', 1.0) or 1.0)
+                self.log_event(
+                    'trade',
+                    f"[{symbol}] 🔍 최종 주문규격 검증: qty={quantity}, "
+                    f"ref_price={ref_price:.6f}, final_amount={final_amount:.2f}, "
+                    f"exchange_min_notional={min_notional:.2f}, "
+                    f"configured_target={configured_target:.2f}, risk_multiplier={risk_multiplier:.4f}"
+                )
                 
-                if final_amount < min_notional:
-                    self.log_event('trade', f"[{symbol}] ❌ 최종 검증 실패: {final_amount:.2f} USDT < {min_notional} USDT (이론적으로 발생하지 않아야 함)", level='ERROR')
+                if not bool(quantity_result.get('allowed', False)):
+                    self.log_event(
+                        'trade',
+                        f"[{symbol}] 🛡️ 주문 가드레일 차단: "
+                        f"{quantity_result.get('reason', 'exchange_min_notional_not_met')}",
+                        level='WARNING',
+                    )
+                    self._reset_trade_flag(symbol)
+                    return False
+
+                final_required_margin = (
+                    final_amount / max(int(leverage or 1), 1)
+                ) * 1.002
+                if available_usdt + 1e-9 < final_required_margin:
+                    self.log_event(
+                        'trade',
+                        f"[{symbol}] 🛡️ 최종 수량 증거금 부족: "
+                        f"available={available_usdt:.4f}, "
+                        f"required={final_required_margin:.4f}, leverage={leverage}x",
+                        level='WARNING',
+                    )
                     self._reset_trade_flag(symbol)
                     return False
 
                 self.log_event('trade', f"[{symbol}] 🔍 최종 주문 파라미터: qty={quantity}, amount={final_amount:.2f} USDT (참조가: {ref_price:.6f})")
+                if sizing_plan:
+                    self.log_event(
+                        'trade',
+                        f"[{symbol}] 💰 자금관리 XAI: mode={sizing_plan.get('mode')}, "
+                        f"equity={sizing_plan.get('account_equity')} {sizing_plan.get('quote_currency')}, "
+                        f"risk={sizing_plan.get('target_risk_amount')}, "
+                        f"target_notional={sizing_plan.get('target_notional')}, "
+                        f"final_notional={final_amount:.4f}, "
+                        f"margin={sizing_plan.get('estimated_margin')}, "
+                        f"leverage={sizing_plan.get('effective_leverage')}x, "
+                        f"limits={sizing_plan.get('limiting_reasons', [])}",
+                    )
 
             except Exception as e:
                 self.log_event('trade', f"[{symbol}] ❌ 참조가격 계산 예외 발생: {e}", level='ERROR')
                 import traceback
                 self.log_event('trade', f"[{symbol}] 🔍 예외 상세: {traceback.format_exc()}", level='ERROR')
-                # 폴백: 기본 검증
-                min_notional = self.settings.get('min_trade_amount', 5.0)
-                final_amount = quantity * current_price
-                if final_amount < min_notional:
-                    self.log_event('trade', f"[{symbol}] ❌ 폴백 검증 실패: {final_amount:.2f} USDT < {min_notional} USDT", level='ERROR')
-                    self._reset_trade_flag(symbol)
-                    return False
+                # 주문 규격을 확정하지 못한 예외 상태에서 구형 설정값으로
+                # 폴백하여 주문하지 않는다. 실행 가드레일은 실패 폐쇄다.
+                self._reset_trade_flag(symbol)
+                return False
 
             # 🔥 포지션 진입 전 최종 검증
             self.log_event('trade', f"[{symbol}] 🔍 포지션 진입 전 최종 검증:")
@@ -4283,11 +4842,14 @@ class Trader:
                             sl_price=final_sl_price,  # 🔥 실제 거래소에서 조회한 값 또는 계산된 값
                             position_id=None,
                             entry_order_id=str(entry_order_id or '') or None,
-                            execution_mode=str(mode or 'live'),
+                            execution_mode=self._execution_mode().value,
                             position_owner=NOAH_POSITION_OWNER,
                             custom_strategy_id=trade_params.get('_selected_custom_strategy_id'),
                             custom_strategy_name=trade_params.get('_selected_custom_strategy'),
                             custom_strategy_rules=dict(trade_params.get('_custom_strategy_rules') or {}),
+                            custom_strategy_key=trade_params.get('_selected_custom_strategy_key'),
+                            custom_strategy_version_id=trade_params.get('_selected_custom_strategy_version_id'),
+                            custom_strategy_scope=trade_params.get('_selected_custom_strategy_scope'),
                             exit_policy=record_insurance_submission(
                                 trade_params.get('_exit_policy'),
                                 submitted_tp_price=final_tp_price,
@@ -4302,6 +4864,12 @@ class Trader:
                                     'sl': sl_order_id,
                                 },
                             ),
+                            entry_evidence={
+                                'reason': str((trade_params.get('_trade_candidate') or {}).get('reason') or ''),
+                                'signal_source': str((trade_params.get('_trade_candidate') or {}).get('signal_source') or ''),
+                                'trade_candidate': dict(trade_params.get('_trade_candidate') or {}),
+                                'position_sizing': dict(trade_params.get('_position_sizing') or {}),
+                            },
                         )
 
                         self.active_positions[symbol] = position
@@ -4321,7 +4889,7 @@ class Trader:
                             quantity=position.quantity,
                             position_id=position.position_id,
                             entry_order_id=entry_order_id,
-                            execution_mode=str(mode or 'live'),
+                            execution_mode=self._execution_mode().value,
                             source='noahai_client_trader_position',
                             extra={'leverage': int(leverage or 1)},
                         )
@@ -4760,7 +5328,7 @@ class Trader:
 
                 # 청산 조건 확인
                 if self.should_close_position(position):
-                    self.close_position(position, "자동청산")
+                    self.close_position(position, self._determine_exit_reason(position))
 
         except Exception as e:
             self.logger.error(f"포지션 모니터링 중 오류: {e}")
@@ -4836,6 +5404,11 @@ class Trader:
                     f"[{position.symbol}] AI 커스텀 명시 청산 조건 충족: "
                     f"{position.custom_strategy_name or position.custom_strategy_id or '사용자 전략'}",
                 )
+                record_runtime_exit_decision(position, {
+                    'should_exit': True,
+                    'reason': 'AI 커스텀 명시 청산 조건',
+                    'source': 'ai_custom_explicit_exit',
+                })
                 return True
         except Exception as exc:
             self.logger.warning(f"{position.symbol} AI 커스텀 청산 조건 평가 실패(기존 TP/SL 유지): {exc}")
@@ -4848,16 +5421,29 @@ class Trader:
             if self._custom_strategy_exit_triggered(position):
                 return True
 
-            # 🔥 1. AI 모니터링 중심 청산 판단 (주력)
-            ai_exit_decision = self._get_ai_exit_decision(position)
+            strategy_owned = bool(
+                (getattr(position, 'exit_policy', {}) or {}).get('strategy_owned')
+                or position.custom_strategy_version_id
+            )
+
+            # 공통 스마트 정책은 설명 가능한 결정만 수행한다. AI 커스텀
+            # 포지션은 선언된 청산 계약을 임의로 덮어쓰지 않는다.
+            ai_exit_decision = evaluate_runtime_smart_exit(
+                position=position,
+                net_pnl_percent=self._net_pnl_percent(
+                    position.unrealized_pnl_percent, position.leverage,
+                ),
+                policy=position.exit_policy,
+            )
             if ai_exit_decision.get('should_exit', False):
-                reason = ai_exit_decision.get('reason', 'AI 분석 기반 청산')
-                confidence = ai_exit_decision.get('confidence', 0.0)
-                self.logger.info(f"{position.symbol} AI 모니터링 청산: {reason} (신뢰도: {confidence:.2f})")
+                reason = ai_exit_decision.get('reason', '스마트 청산')
+                source = ai_exit_decision.get('source', 'smart_exit_policy')
+                self.logger.info(f"{position.symbol} 스마트 모니터링 청산: {reason} (근거: {source})")
                 try:
-                    self._log_trade_event('exit', f"{position.symbol} AI 모니터링 청산: {reason} (신뢰도: {confidence:.2f})")
+                    self._log_trade_event('exit', f"{position.symbol} 스마트 모니터링 청산: {reason} (근거: {source})")
                 except Exception:
                     pass
+                record_runtime_exit_decision(position, ai_exit_decision)
                 return True
 
             # 🔥 2. 동적 임계값 기반 실시간 모니터링 청산
@@ -4869,26 +5455,44 @@ class Trader:
             partial_plan_active = bool(advanced_plan.get('partial_take_profits'))
 
             # 동적 임계값 계산 (시장 변동성 기반)
-            dynamic_thresholds = self._calculate_dynamic_thresholds(position.symbol)
+            effective_entry_policy = dict((position.exit_policy or {}).get('effective') or {})
+            if effective_entry_policy:
+                dynamic_thresholds = {
+                    'profit_threshold': float(effective_entry_policy.get('tp_fraction', 0.0018) or 0.0018),
+                    'loss_threshold': float(effective_entry_policy.get('sl_fraction', 0.0020) or 0.0020),
+                    'source': 'entry_smart_exit_policy',
+                }
+            else:
+                # Recovered legacy positions without an entry snapshot retain a
+                # conservative fallback until their protection orders reconcile.
+                dynamic_thresholds = self._calculate_dynamic_thresholds(position.symbol)
 
             # 수익 청산 (동적 임계값) - 소수 단위로 통일
             profit_threshold_percent = dynamic_thresholds['profit_threshold'] * 100  # 소수를 퍼센트로 변환
-            if not partial_plan_active and net_pnl_percent >= profit_threshold_percent:
+            if not strategy_owned and not partial_plan_active and net_pnl_percent >= profit_threshold_percent:
                 self.logger.info(f"{position.symbol} 동적 수익 청산: {net_pnl_percent:.4f}% >= {profit_threshold_percent:.4f}%")
                 try:
                     self._log_trade_event('exit', f"{position.symbol} 동적 수익 청산: {net_pnl_percent:.4f}% >= {profit_threshold_percent:.4f}%")
                 except Exception:
                     pass
+                record_runtime_exit_decision(position, {
+                    'should_exit': True, 'reason': 'SmartExitPolicy 수익 임계값',
+                    'source': dynamic_thresholds.get('source', 'legacy_recovery'),
+                })
                 return True
 
             # 손실 청산 (동적 임계값) - 소수 단위로 통일
             loss_threshold_percent = dynamic_thresholds['loss_threshold'] * 100  # 소수를 퍼센트로 변환
-            if net_pnl_percent <= -loss_threshold_percent:  # 손실은 음수로 비교
+            if not strategy_owned and net_pnl_percent <= -loss_threshold_percent:  # 손실은 음수로 비교
                 self.logger.info(f"{position.symbol} 동적 손실 청산: {net_pnl_percent:.4f}% <= -{loss_threshold_percent:.4f}%")
                 try:
                     self._log_trade_event('exit', f"{position.symbol} 동적 손실 청산: {net_pnl_percent:.4f}% <= -{loss_threshold_percent:.4f}%")
                 except Exception:
                     pass
+                record_runtime_exit_decision(position, {
+                    'should_exit': True, 'reason': 'SmartExitPolicy 손실 임계값',
+                    'source': dynamic_thresholds.get('source', 'legacy_recovery'),
+                })
                 return True
 
             # 🔥 3. TP/SL 안전장치 (최후의 보호막)
@@ -4900,6 +5504,11 @@ class Trader:
                             self._log_trade_event('exit', f"{position.symbol} TP 안전장치 발동: {position.current_price} >= {position.tp_price}")
                         except Exception:
                             pass
+                        record_runtime_exit_decision(position, {
+                            'should_exit': True,
+                            'reason': '거래소 보험 TP 도달',
+                            'source': 'entry_exit_policy_tp',
+                        })
                         return True
                 else:  # SHORT
                     if position.current_price <= position.tp_price:
@@ -4908,6 +5517,11 @@ class Trader:
                             self._log_trade_event('exit', f"{position.symbol} TP 안전장치 발동: {position.current_price} <= {position.tp_price}")
                         except Exception:
                             pass
+                        record_runtime_exit_decision(position, {
+                            'should_exit': True,
+                            'reason': '거래소 보험 TP 도달',
+                            'source': 'entry_exit_policy_tp',
+                        })
                         return True
 
             if position.sl_price:
@@ -4918,6 +5532,11 @@ class Trader:
                             self._log_trade_event('exit', f"{position.symbol} SL 안전장치 발동: {position.current_price} <= {position.sl_price}")
                         except Exception:
                             pass
+                        record_runtime_exit_decision(position, {
+                            'should_exit': True,
+                            'reason': '거래소 보험 SL 도달',
+                            'source': 'entry_exit_policy_sl',
+                        })
                         return True
                 else:  # SHORT
                     if position.current_price >= position.sl_price:
@@ -4926,6 +5545,11 @@ class Trader:
                             self._log_trade_event('exit', f"{position.symbol} SL 안전장치 발동: {position.current_price} >= {position.sl_price}")
                         except Exception:
                             pass
+                        record_runtime_exit_decision(position, {
+                            'should_exit': True,
+                            'reason': '거래소 보험 SL 도달',
+                            'source': 'entry_exit_policy_sl',
+                        })
                         return True
 
             return False
@@ -5132,49 +5756,18 @@ class Trader:
             return 0.20  # 기본값
 
     def _get_ai_exit_decision(self, position: Position) -> Dict:
-        """AI 기반 청산 결정"""
+        """Backward-compatible wrapper for the auditable smart exit policy."""
         try:
-            if not self.ai_manager:
-                return {'should_exit': False}
-
-            # 현재 시장 상황과 포지션 정보를 AI에 전달
-            position_data = {
-                'symbol': position.symbol,
-                'side': position.side.value,
-                'entry_price': position.entry_price,
-                'current_price': position.current_price,
-                'unrealized_pnl_percent': position.unrealized_pnl_percent,
-                'holding_time_minutes': _elapsed_minutes(position.entry_time),
-                'leverage': position.leverage
-            }
-
-            # AI 분석 요청 (간단한 구현)
-            # 실제로는 ai_manager의 analyze_exit_conditions 메서드 호출
-            holding_time = position_data['holding_time_minutes']
-            pnl_percent = position_data['unrealized_pnl_percent']
-
-            # 기본 AI 로직 (추후 OpenAI API 연동 가능)
-            should_exit = False
-            reason = ""
-
-            # 장기 보유 + 작은 수익 → 청산 권장
-            if holding_time > 25 and pnl_percent > 0.08:
-                should_exit = True
-                reason = f"장기보유({holding_time:.1f}분) + 작은수익({pnl_percent:.3f}%) → 이익실현 권장"
-
-            # 급격한 손실 → 청산 권장
-            elif pnl_percent < -1.0:
-                should_exit = True
-                reason = f"급격한 손실({pnl_percent:.3f}%) → 손절 권장"
-
-            return {
-                'should_exit': should_exit,
-                'reason': reason,
-                'confidence': 0.8 if should_exit else 0.2
-            }
+            return evaluate_runtime_smart_exit(
+                position=position,
+                net_pnl_percent=self._net_pnl_percent(
+                    position.unrealized_pnl_percent, position.leverage,
+                ),
+                policy=position.exit_policy,
+            )
 
         except Exception as e:
-            self.logger.error(f"AI 청산 결정 오류: {e}")
+            self.logger.error(f"스마트 청산 결정 오류: {e}")
             return {'should_exit': False}
 
     def _perform_pre_entry_analysis(self, symbol: str, signal_data: Dict) -> Dict:
@@ -5189,7 +5782,7 @@ class Trader:
             market_conditions = self._evaluate_current_market_conditions(symbol)
 
             # WebSocket 데이터 체크 (verbose)
-            if self.settings.get('verbose_trade_logging', False):
+            if self._is_verbose_logging():
                 depth_available = hasattr(self.binance_client, 'websocket_manager') and hasattr(self.binance_client.websocket_manager, 'orderbooks') and symbol in self.binance_client.websocket_manager.orderbooks
                 ticker_available = hasattr(self.binance_client, 'websocket_manager') and hasattr(self.binance_client.websocket_manager, 'tickers') and symbol in self.binance_client.websocket_manager.tickers
                 self._log_trade_event('analysis', f"{symbol} WebSocket data check: depth={'✓' if depth_available else '✗'}, ticker={'✓' if ticker_available else '✗'}")
@@ -5756,7 +6349,12 @@ class Trader:
                 base_params = dict(optimizer_result or {})
 
             # AI 기반 강화 적용
-            enhanced_params = base_params.copy()
+            enhanced_params = stamp_trade_exit_rates(
+                base_params,
+                tp_fraction=base_params.get('tp', base_params.get('tp_percent')),
+                sl_fraction=base_params.get('sl', base_params.get('sl_percent')),
+                source='optimizer',
+            )
             selected_custom = dict(signal_data.get('_custom_engine_settings', {}) or {})
 
             # 1. 모든 파생 거래소가 공유하는 실효 레버리지 정책.
@@ -5825,21 +6423,68 @@ class Trader:
                         else:
                             tp_factor, sl_factor = 1.0, 1.0
 
-                        enhanced_params['tp_percent'] = dynamic_tp * tp_factor
-                        enhanced_params['sl_percent'] = dynamic_sl * sl_factor
+                        enhanced_params = stamp_trade_exit_rates(
+                            enhanced_params,
+                            tp_fraction=dynamic_tp * tp_factor,
+                            sl_fraction=dynamic_sl * sl_factor,
+                            source='noah_dynamic_market',
+                        )
                     except Exception:
                         pass
 
             # 상황 매칭으로 선택된 승인 전략의 설정값을 최종 사용자 전략 오버레이로 적용한다.
             enhanced_params = apply_engine_settings_to_trade_config(enhanced_params, selected_custom)
+            exit_plan = dict(signal_data.get('_exit_plan') or {})
+            closed_rows = []
+            exchange_rows = []
+            try:
+                closed_rows = self.recorder.get_recent_trades(
+                    symbol=symbol, exchange='binance', days=30,
+                ) or []
+                exchange_rows = self.recorder.get_recent_trades(
+                    coin='', exchange='binance', days=30,
+                ) or []
+            except Exception:
+                closed_rows = []
+                exchange_rows = []
+            market_metrics = dict((pre_entry_analysis or {}).get('market_conditions', {}).get('metrics', {}) or {})
+            smart_policy = resolve_smart_exit_policy(
+                baseline_tp=enhanced_params.get('tp_percent', 0.0018),
+                baseline_sl=enhanced_params.get('sl_percent', 0.0020),
+                closed_trades=closed_rows[-50:],
+                fallback_closed_trades=[
+                    row for row in exchange_rows[-200:]
+                    if str(row.get('symbol') or '').upper() != symbol.upper()
+                ],
+                volatility=signal_data.get('market_volatility', market_metrics.get('avg_return', 0.0)),
+                atr_fraction=signal_data.get('atr_fraction', 0.0),
+                market_regime=market_level,
+                fee_rate=self.settings.get('estimated_round_trip_fee_rate', 0.0004),
+                slippage_rate=self.settings.get('estimated_slippage_rate', 0.0002),
+                minimum_rr=self.settings.get('min_rr_ratio', 1.0),
+                minimum_samples=self.settings.get('min_trades_for_analysis', 10),
+                strategy_owned=bool(exit_plan.get('strategy_owned')),
+                strategy_source=str(signal_data.get('_selected_custom_strategy_version_id') or ''),
+            )
+            smart_final = dict(smart_policy.get('final') or {})
+            enhanced_params = stamp_trade_exit_rates(
+                enhanced_params,
+                tp_fraction=smart_final.get('tp', enhanced_params.get('tp_percent')),
+                sl_fraction=smart_final.get('sl', enhanced_params.get('sl_percent')),
+                source=str(smart_final.get('source') or 'smart_exit_policy'),
+            )
+            enhanced_params['_smart_exit_policy'] = smart_policy
+            enhanced_params['_entry_policy_allowed'] = bool(smart_policy.get('entry_allowed', False))
             enhanced_params['_selected_custom_strategy'] = signal_data.get('_selected_custom_strategy')
             enhanced_params['_selected_custom_strategy_id'] = signal_data.get('_selected_custom_strategy_id')
             enhanced_params['_selected_custom_strategy_key'] = signal_data.get('_selected_custom_strategy_key')
             enhanced_params['_selected_custom_strategy_version_id'] = signal_data.get('_selected_custom_strategy_version_id')
+            enhanced_params['_selected_custom_strategy_scope'] = signal_data.get('_selected_custom_strategy_scope')
             enhanced_params['_custom_signal_mode'] = signal_data.get('_custom_signal_mode')
             enhanced_params['_custom_operation_mode'] = signal_data.get('_custom_operation_mode')
-            enhanced_params['_exit_plan'] = dict(signal_data.get('_exit_plan') or {})
+            enhanced_params['_exit_plan'] = exit_plan
             enhanced_params['_custom_strategy_rules'] = dict(signal_data.get('_custom_strategy_rules') or {})
+            enhanced_params['_trade_candidate'] = dict(signal_data.get('_trade_candidate') or {})
             self.logger.info(f"{symbol} AI 강화 파라미터: 레버리지={enhanced_params.get('leverage', 1)}x, "
                             f"포지션={format_percent(enhanced_params.get('position_size', 0.1), 1)}, "
                             f"TP={format_percent(enhanced_params.get('tp_percent', 0.0018), 3)}, "
@@ -5849,7 +6494,21 @@ class Trader:
 
         except Exception as e:
             self.logger.error(f"AI 강화 파라미터 생성 오류: {e}")
-            return self.optimizer.optimize_parameters(symbol, signal_data)
+            fallback_result = self.optimizer.optimize_parameters(symbol, signal_data)
+            if isinstance(fallback_result, dict) and isinstance(fallback_result.get(symbol), dict):
+                fallback_result = dict(fallback_result[symbol])
+            else:
+                fallback_result = dict(fallback_result or {})
+            try:
+                return stamp_trade_exit_rates(
+                    fallback_result,
+                    tp_fraction=fallback_result.get('tp', fallback_result.get('tp_percent')),
+                    sl_fraction=fallback_result.get('sl', fallback_result.get('sl_percent')),
+                    source='optimizer_fallback',
+                )
+            except ExitRateContractError as contract_error:
+                self.logger.error(f"{symbol} TP/SL 폴백 계약 오류: {contract_error}")
+                return {}
 
     # execute_enhanced_trade 메서드 제거됨 - execute_trades가 모든 기능을 포함
 
@@ -6065,11 +6724,11 @@ class Trader:
                         except Exception:
                             pass
 
-                        # AI 기반 조기 청산 체크 (기존 시스템 스타일)
+                        # 공통 스마트 정책 기반 조기 청산 체크
                         ai_exit_decision = self._check_ai_early_exit(position, holding_time)
                         if ai_exit_decision['should_exit']:
                             self.log_event('monitor', f"[{symbol}] {ai_exit_decision['reason']}")
-                            self.close_position(position, "AI 조기 청산")
+                            self.close_position(position, str(ai_exit_decision['reason']))
                             break
 
                         # 일반 청산 조건 확인 (10개마다만 체크 - optimizer 호출 최적화)
@@ -6101,61 +6760,70 @@ class Trader:
             # 🔥 모니터링 예외 발생 시에도 플래그 해제 (모니터링 시작 시점에 이미 해제됨)
 
     def _check_ai_early_exit(self, position: Position, holding_time: float) -> Dict:
-        """AI 기반 조기 청산 체크 (기존 시스템 스타일)"""
+        """공통 스마트 정책과 실제 가격 반전 근거로 조기 청산을 판단한다."""
         try:
             symbol = position.symbol
             current_pnl = position.unrealized_pnl_percent
+            decision = evaluate_runtime_smart_exit(
+                position=position,
+                net_pnl_percent=self._net_pnl_percent(current_pnl, position.leverage),
+                policy=position.exit_policy,
+            )
+            if decision.get('should_exit'):
+                record_runtime_exit_decision(position, decision)
+                return {**decision, 'holding_time': holding_time, 'current_pnl': current_pnl}
 
-            # AI 설정에서 값 가져오기
-            ai_settings = self.settings.get('ai_exit_settings', {})
-            # 바이낸스 선물 수수료: 진입 0.02% + 청산 0.02% = 총 0.04%
-            # 최소 수익: 0.20% (수수료 0.04% 제외 시 실제 수익 0.16%)
-            # 설정은 비율(0.0020=0.20%), Position 값은 퍼센트 포인트
-            # (0.20=0.20%)이므로 비교 전에 단위를 명시적으로 통일한다.
-            min_profit = float(ai_settings.get('min_profit_for_exit', 0.0020)) * 100.0
-            max_profit = float(ai_settings.get('max_profit_for_exit', 0.0030)) * 100.0
-            min_loss = float(ai_settings.get('min_loss_for_exit', -0.01)) * 100.0
-            max_loss = float(ai_settings.get('max_loss_for_exit', -0.0005)) * 100.0
-
-            # 기존 시스템 스타일: AI 리스크 관리
-            should_exit = False
-            reason = ""
-
-            # 1. 작은 손실이지만 추가 손실 방지
-            if min_loss <= current_pnl <= max_loss and holding_time >= 2:  # 2분 이상 보유
-                prevented_loss = abs(current_pnl) * 2  # 추가 손실 예상
-                should_exit = True
-                reason = f"AI risk management: early exit at {current_pnl:.4f}% " \
-                        f"(prevented {prevented_loss:.4f}% additional loss), " \
-                        f"PnL: {position.unrealized_pnl:.2f} USDT"
-
-            # 2. 작은 수익 확보 (수수료 고려하여 최소 수익 보장)
-            # 최소 보유 시간: 2분 (수수료 회수 시간 고려)
-            elif min_profit <= current_pnl <= max_profit and holding_time >= 2:  # 2분 이상 보유
-                should_exit = True
-                reason = f"AI profit securing: quick profit at {current_pnl:.4f}% " \
-                        f"(holding: {holding_time:.1f}min), " \
-                        f"PnL: {position.unrealized_pnl:.2f} USDT"
-
-            # 3. 트렌드 반전 감지 (가격 데이터 기반)
-            elif len(self.price_data_points.get(symbol, [])) >= 5:
+            strategy_owned = bool(
+                (position.exit_policy or {}).get('strategy_owned')
+                or position.custom_strategy_version_id
+            )
+            if not strategy_owned and holding_time >= 2.0:
+                configured = dict(self.settings.get('ai_exit_settings', {}) or {})
+                # Legacy setting names are retained for file compatibility;
+                # this is a deterministic configured profit/risk lock, not an
+                # LLM decision. Fractions are converted to percent points.
+                min_profit = float(configured.get('min_profit_for_exit', 0.0020)) * 100.0
+                max_profit = float(configured.get('max_profit_for_exit', 0.0030)) * 100.0
+                min_loss = float(configured.get('min_loss_for_exit', -0.01)) * 100.0
+                max_loss = float(configured.get('max_loss_for_exit', -0.0005)) * 100.0
+                if min_profit <= current_pnl <= max_profit:
+                    decision = {
+                        'should_exit': True,
+                        'reason': f"configured quick profit lock · {current_pnl:.4f}% · 보유 {holding_time:.1f}분",
+                        'source': 'configured_profit_lock',
+                    }
+                    record_runtime_exit_decision(position, decision)
+                    return {**decision, 'holding_time': holding_time, 'current_pnl': current_pnl}
+                if min_loss <= current_pnl <= max_loss:
+                    decision = {
+                        'should_exit': True,
+                        'reason': f"설정형 조기 위험 축소 {current_pnl:.4f}% · 보유 {holding_time:.1f}분",
+                        'source': 'configured_risk_reduction',
+                    }
+                    record_runtime_exit_decision(position, decision)
+                    return {**decision, 'holding_time': holding_time, 'current_pnl': current_pnl}
+            if not strategy_owned and len(self.price_data_points.get(symbol, [])) >= 5:
                 recent_prices = [p['price'] for p in self.price_data_points[symbol][-5:]]
                 price_trend = self._analyze_price_trend(recent_prices, position.side)
-
                 if price_trend['reversal_detected'] and abs(current_pnl) > 0.03:
-                    should_exit = True
-                    reason = f"AI trend reversal: {price_trend['direction']} detected, " \
-                            f"PnL: {position.unrealized_pnl:.2f} USDT"
+                    decision = {
+                        'should_exit': True,
+                        'reason': f"가격 추세 반전 {price_trend['direction']} · PnL {current_pnl:.4f}%",
+                        'source': 'observed_price_reversal',
+                    }
+                    record_runtime_exit_decision(position, decision)
+                    return {**decision, 'holding_time': holding_time, 'current_pnl': current_pnl}
 
             return {
-                'should_exit': should_exit,
-                'reason': reason,
+                'should_exit': False,
+                'reason': '유지',
+                'source': 'smart_exit_policy',
                 'holding_time': holding_time,
                 'current_pnl': current_pnl
             }
 
         except Exception as e:
-            self.logger.error(f"AI 조기 청산 체크 오류: {e}")
+            self.logger.error(f"스마트 조기 청산 체크 오류: {e}")
             return {'should_exit': False, 'reason': ''}
 
     def _analyze_price_trend(self, prices: List[float], position_side: PositionSide) -> Dict:
@@ -6186,11 +6854,20 @@ class Trader:
     def _determine_exit_reason(self, position: Position) -> str:
         """청산 이유 결정"""
         try:
-            if position.tp_price and position.current_price >= position.tp_price:
-                return "이익 목표 달성"
-            elif position.sl_price and position.current_price <= position.sl_price:
-                return "손실 제한 도달"
-            elif position.unrealized_pnl_percent >= 0.15:
+            recorded = dict((position.exit_policy or {}).get('last_exit_decision') or {})
+            if recorded.get('reason'):
+                return str(recorded['reason'])
+            if position.side == PositionSide.LONG:
+                if position.tp_price and position.current_price >= position.tp_price:
+                    return "이익 목표 달성"
+                if position.sl_price and position.current_price <= position.sl_price:
+                    return "손실 제한 도달"
+            else:
+                if position.tp_price and position.current_price <= position.tp_price:
+                    return "이익 목표 달성"
+                if position.sl_price and position.current_price >= position.sl_price:
+                    return "손실 제한 도달"
+            if position.unrealized_pnl_percent >= 0.15:
                 return "수익률 기반 청산"
             elif position.unrealized_pnl_percent <= -0.20:
                 return "손실률 기반 청산"
@@ -6201,77 +6878,55 @@ class Trader:
             self.logger.error(f"청산 이유 결정 오류: {e}")
             return "시스템 청산"
     def _calculate_dynamic_thresholds(self, symbol: str) -> Dict:
-        """AI 기반 동적 임계값 계산 (프로그램 취지에 맞는 실시간 최적화)"""
+        """복구 포지션에도 공통 SmartExitPolicy를 적용한다 (fraction 단위)."""
         try:
-            # 🔥 캐시 확인 (10분간 유효)
             import time
             current_time = time.time()
             cached = self.dynamic_thresholds_cache.get(symbol)
-            if cached and (current_time - cached.get('timestamp', 0)) < 600:  # 10분
+            if cached and (current_time - cached.get('timestamp', 0)) < 600:
                 return cached.get('thresholds', {})
-            # 캐시 miss - optimizer 호출됨
-            self.log_event('monitor', f"[{symbol}] 동적 임계값 계산: 캐시 미스 - optimizer 호출", level='INFO')
-
-            # 🔥 AI 기반 최적화 (프로그램의 핵심 취지)
-            # optimizer.py의 AI 캐싱 시스템을 활용한 실시간 최적화
-            signal_data = {'symbol': symbol, 'confidence': 0.5}  # 기본 신호 데이터
-            ai_result = self.optimizer.optimize_parameters(symbol, signal_data)
-
-            # Optimizer는 {symbol: trade_cfg} 형태를 반환하며, trade_cfg에 'tp'/'sl' (소수)가 포함됨
-            profit_threshold = float(self.settings.get('default_tp', 0.0018))
-            loss_threshold = float(self.settings.get('default_sl', 0.002))
-            if isinstance(ai_result, dict) and symbol in ai_result:
-                trade_cfg = ai_result.get(symbol) or {}
-                tp_val = trade_cfg.get('tp')
-                sl_val = trade_cfg.get('sl')
-                if isinstance(tp_val, (int, float)):
-                    profit_threshold = float(tp_val)
-                if isinstance(sl_val, (int, float)):
-                    loss_threshold = float(sl_val)
-
-            # 시장 변동성 계산 (AI 분석 보조 정보)
             volatility = self._calculate_market_volatility(symbol)
-
-            # 최근 거래 패턴 기반 AI 보정
-            pattern_adjustment = self._get_pattern_based_adjustment(symbol)
-            tp_multiplier = pattern_adjustment.get('tp_multiplier', 1.0)
-            sl_multiplier = pattern_adjustment.get('sl_multiplier', 1.0)
-
-            # AI 최적화 결과에 패턴 보정 적용
-            profit_threshold *= tp_multiplier
-            loss_threshold *= sl_multiplier
-
-            # 안전 범위 제한 (AI 결과 보호)
-            profit_threshold = max(0.0005, min(profit_threshold, 0.01))  # 0.05% ~ 1%
-            loss_threshold = max(0.0005, min(loss_threshold, 0.02))      # 0.05% ~ 2%
-
+            exact_rows = self.recorder.get_recent_trades(
+                symbol=symbol, exchange='binance', days=30,
+            ) if self.recorder else []
+            pool_rows = self.recorder.get_recent_trades(
+                coin='', exchange='binance', days=30,
+            ) if self.recorder else []
+            policy = resolve_smart_exit_policy(
+                baseline_tp=self.settings.get('default_tp', 0.0018),
+                baseline_sl=self.settings.get('default_sl', 0.0020),
+                closed_trades=(exact_rows or [])[-50:],
+                fallback_closed_trades=[
+                    row for row in (pool_rows or [])[-200:]
+                    if str(row.get('symbol') or '').upper() != symbol.upper()
+                ],
+                volatility=volatility,
+                fee_rate=self.settings.get('estimated_round_trip_fee_rate', 0.0004),
+                slippage_rate=self.settings.get('estimated_slippage_rate', 0.0002),
+                minimum_rr=self.settings.get('min_rr_ratio', 1.0),
+                minimum_samples=self.settings.get('min_trades_for_analysis', 10),
+            )
+            final = dict(policy.get('final') or {})
             thresholds = {
-                'profit_threshold': profit_threshold,  # AI 최적화된 소수 단위
-                'loss_threshold': loss_threshold,      # AI 최적화된 소수 단위
+                'profit_threshold': float(final.get('tp', 0.0018)),
+                'loss_threshold': float(final.get('sl', 0.0020)),
                 'volatility': volatility,
-                'tp_multiplier': tp_multiplier,
-                'sl_multiplier': sl_multiplier,
-                'ai_optimized': True  # AI 최적화 사용 표시
+                'source': 'smart_exit_policy_recovered_position',
+                'decision_trace': policy,
             }
-
-            # 🔥 캐시에 저장
             self.dynamic_thresholds_cache[symbol] = {
                 'thresholds': thresholds,
                 'timestamp': current_time
             }
-
             return thresholds
 
         except Exception as e:
-            self.logger.error(f"AI 동적 임계값 계산 오류: {e}")
-            # 오류 시 기본값 반환 (소수 단위)
+            self.logger.error(f"SmartExitPolicy 복구 임계값 계산 오류: {e}")
             return {
                 'profit_threshold': self.settings.get('default_tp', 0.0018),
                 'loss_threshold': self.settings.get('default_sl', 0.002),
-                'volatility': 0.01,
-                'tp_multiplier': 1.0,
-                'sl_multiplier': 1.0,
-                'ai_optimized': False  # AI 최적화 실패 표시
+                'volatility': 0.0,
+                'source': 'settings_recovery_fallback',
             }
 
     def close_position(self, position: Position, reason: str):
@@ -6368,25 +7023,50 @@ class Trader:
 
             if order_success:
                 exit_order_id = order_result.get('order_id') if isinstance(order_result, dict) else None
-                exit_fee, exit_fee_asset, exit_fee_source = self._get_order_commission(
-                    symbol, exit_order_id
+                fill_summary = self._get_binance_order_fill_summary(symbol, exit_order_id)
+                fill_confirmed = bool(fill_summary.get('confirmed'))
+                actual_exit_price = float(
+                    fill_summary.get('exit_price')
+                    or (order_result.get('avg_price') if isinstance(order_result, dict) else 0.0)
+                    or current_price
+                    or 0.0
                 )
+                actual_quantity = float(
+                    fill_summary.get('quantity')
+                    or (order_result.get('executed_qty') if isinstance(order_result, dict) else 0.0)
+                    or position.quantity
+                    or 0.0
+                )
+                quantity_tolerance = max(1e-8, float(position.quantity or 0.0) * 0.001)
+                fully_closed = actual_quantity >= float(position.quantity or 0.0) - quantity_tolerance
+                exit_fee = max(0.0, float(fill_summary.get('fees', 0.0) or 0.0))
+                exit_fee_asset = fill_summary.get('fee_asset')
+                exit_fee_source = 'exchange_fill' if fill_confirmed else 'unavailable'
                 self._record_binance_execution(
                     symbol,
                     'SELL' if position.side == PositionSide.LONG else 'BUY',
                     order_result,
                     source='noahai_exit_order',
-                    fallback_quantity=position.quantity,
-                    fallback_price=float(current_price or 0.0),
+                    fallback_quantity=actual_quantity,
+                    fallback_price=actual_exit_price,
                     fee=exit_fee,
                     fee_asset=exit_fee_asset,
+                    realized_pnl=(fill_summary.get('gross_pnl') if fill_confirmed else None),
                 )
-                # PnL 계산
-                pnl_percent = self._calc_pnl_percent(position, current_price)
+                side_sign = 1.0 if position.side == PositionSide.LONG else -1.0
+                calculated_gross_pnl = (
+                    actual_exit_price - float(position.entry_price or 0.0)
+                ) * actual_quantity * side_sign
+                gross_pnl = float(
+                    fill_summary.get('gross_pnl')
+                    if fill_confirmed and fill_summary.get('gross_pnl') is not None
+                    else calculated_gross_pnl
+                )
+                notional = max(0.0, float(position.entry_price or 0.0) * actual_quantity)
+                pnl_percent = (gross_pnl / notional * 100.0) if notional > 0 else 0.0
                 closed_at = utc_now()
 
-                # 🔥 PnL USDT 계산 (통계용)
-                pnl_usdt = (pnl_percent / 100.0) * position.quantity * position.entry_price
+                pnl_usdt = gross_pnl
 
                 # 거래 통계 업데이트
                 self.trade_stats['total_trades'] += 1
@@ -6398,7 +7078,7 @@ class Trader:
                     asset_class='crypto',
                     status='success',
                     source='noahai_client_trader_close',
-                    metric_value=float(position.quantity),
+                    metric_value=actual_quantity,
                     metadata={
                         'exchange': 'binance',
                         'symbol': symbol,
@@ -6406,11 +7086,12 @@ class Trader:
                         'side': 'CLOSE',
                         'close': True,
                         'reason': reason,
-                        'executed_price': float(current_price or 0.0),
-                        'notional_estimate': float(position.quantity) * float(current_price or 0.0),
+                        'executed_price': actual_exit_price,
+                        'notional_estimate': actual_quantity * actual_exit_price,
+                        'execution_evidence': 'order_fills' if fill_confirmed else 'order_result_or_market_fallback',
                     },
                 )
-                if getattr(position, 'entry_time_source', 'execution') == 'execution':
+                if getattr(position, 'entry_time_source', 'execution') == 'execution' and fully_closed:
                     emit_position_closed(
                         asset_class='crypto',
                         venue='binance',
@@ -6419,21 +7100,30 @@ class Trader:
                         opened_at=position.entry_time,
                         closed_at=closed_at,
                         entry_price=position.entry_price,
-                        exit_price=float(current_price or 0.0),
-                        closed_quantity=position.quantity,
+                        exit_price=actual_exit_price,
+                        closed_quantity=actual_quantity,
                         close_reason=str(reason or 'auto_close'),
                         position_id=position.position_id,
                         exit_order_id=exit_order_id,
                         execution_mode='live',
                         source='noahai_client_trader_position',
-                        gross_pnl=pnl_usdt,
-                        net_pnl=pnl_usdt - float(exit_fee or 0.0),
+                        gross_pnl=gross_pnl,
+                        net_pnl=gross_pnl - float(exit_fee or 0.0),
                         fees=float(exit_fee or 0.0),
                         extra={
                             'leverage': int(position.leverage or 1),
                             'fee_asset': exit_fee_asset,
                             'fee_source': exit_fee_source,
                         },
+                    )
+                elif getattr(position, 'entry_time_source', 'execution') == 'execution':
+                    emit_position_reduced(
+                        asset_class='crypto', venue='binance', symbol=symbol,
+                        side=position.side.value, opened_at=position.entry_time,
+                        event_at=closed_at, closed_quantity=actual_quantity,
+                        remaining_quantity=max(0.0, float(position.quantity) - actual_quantity),
+                        position_id=position.position_id, exit_order_id=exit_order_id,
+                        execution_mode='live', source='noahai_client_trader_position',
                     )
 
                 if pnl_percent > 0:
@@ -6449,11 +7139,11 @@ class Trader:
                     try:
                         # datetime은 이미 모듈 레벨에서 임포트되어 있음 (Line 13)
                         exit_time = datetime.now()
-                        pnl_usdt = pnl_percent * position.quantity * position.entry_price / 100  # 대략적 계산
+                        pnl_usdt = gross_pnl
 
                         self.log_event('debug', f"🔍 [DEBUG] close_position에서 update_trade_log 호출 전:")
                         self.log_event('debug', f"  - symbol: {symbol}")
-                        self.log_event('debug', f"  - current_price: {current_price}")
+                        self.log_event('debug', f"  - actual_exit_price: {actual_exit_price}")
                         self.log_event('debug', f"  - exit_time: {exit_time}")
                         self.log_event('debug', f"  - pnl_percent: {pnl_percent}")
                         self.log_event('debug', f"  - pnl_usdt: {pnl_usdt}")
@@ -6462,9 +7152,11 @@ class Trader:
                         self.log_event('debug', f"  - position.quantity: {position.quantity}")
                         self.log_event('debug', f"  - position.side: {position.side}")
 
-                        result = self.recorder.update_trade_log(
+                        update_method = self.recorder.update_trade_log if fully_closed else self.recorder.record_partial_trade_close
+                        if fully_closed:
+                            result = update_method(
                             symbol=symbol,
-                            exit_price=current_price,
+                            exit_price=actual_exit_price,
                             exit_time=exit_time,
                             pnl_percent=pnl_percent,
                             pnl_usdt=pnl_usdt,
@@ -6474,7 +7166,24 @@ class Trader:
                             exit_order_id=str(exit_order_id) if exit_order_id is not None else None,
                             fee_asset=exit_fee_asset,
                             fee_source=exit_fee_source,
-                        )
+                            exchange='binance',
+                            entry_order_id=getattr(position, 'entry_order_id', None),
+                            gross_pnl=gross_pnl,
+                            pnl_source='exchange_realized_pnl' if fill_confirmed else 'estimated_close_price',
+                            reconciliation_status='exchange_confirmed' if fill_confirmed else 'pending_exchange_reconciliation',
+                            settlement_currency='USDT',
+                            )
+                        else:
+                            result = update_method(
+                                symbol=symbol, exchange='binance',
+                                entry_order_id=getattr(position, 'entry_order_id', None),
+                                exit_order_id=str(exit_order_id) if exit_order_id is not None else None,
+                                closed_quantity=actual_quantity, exit_price=actual_exit_price,
+                                gross_pnl=gross_pnl, exit_fee=exit_fee,
+                                fee_asset=exit_fee_asset, reason=reason,
+                                pnl_source='exchange_realized_pnl' if fill_confirmed else 'order_linked_calculated',
+                                reconciliation_status='exchange_confirmed_partial' if fill_confirmed else 'partial_pending_reconciliation',
+                            )
 
                         self.log_event('debug', f"🔍 [DEBUG] update_trade_log 결과: {result}")
 
@@ -6500,6 +7209,15 @@ class Trader:
                             self._schedule_delayed_balance_update()
                     except Exception as e:
                         self.log_event('trade', f"대시보드 업데이트 실패: {e}", level='WARNING')
+
+                if not fully_closed:
+                    position.quantity = max(0.0, float(position.quantity) - actual_quantity)
+                    self.log_event(
+                        'trade',
+                        f"[{symbol}] 부분청산 {actual_quantity} 반영 · 잔여 관리수량 {position.quantity}",
+                        level='WARNING',
+                    )
+                    return True
 
                 # 포지션 제거
                 if symbol in self.active_positions:
@@ -6848,7 +7566,14 @@ class Trader:
                 return False
             if symbol in self.paper_active_positions:
                 return False
-            if len(self.paper_active_positions) >= int(self.settings.get('max_positions', 3) or 3):
+            paper_position_limit = effective_position_limit(
+                self._get_ai_max_positions(),
+                strategy_risk_model=dict(
+                    (trade_params.get('_custom_strategy_rules') or {}).get('risk_model') or {}
+                ),
+            )
+            trade_params['_position_limit'] = paper_position_limit
+            if len(self.paper_active_positions) >= int(paper_position_limit['effective_max_positions']):
                 return False
 
             price = float(
@@ -6858,14 +7583,55 @@ class Trader:
                 or 0.0
             )
             quantity = float(trade_params.get('qty', 0.0) or 0.0)
+            sizing_policy = normalize_position_sizing_policy(
+                self.settings, quote_currency='USDT'
+            )
+            if sizing_policy.get('mode') != LEGACY_VENUE:
+                computed_qty, _, sizing_constraints = self._compute_quantity_once(
+                    symbol,
+                    str(trade_params.get('side') or trade_params.get('signal') or 'BUY'),
+                    float(trade_params.get('leverage', 1) or 1),
+                    price,
+                    risk_multiplier=float(trade_params.get('risk_multiplier', 1.0) or 1.0),
+                    sizing_context={
+                        'account_equity': float(sizing_policy.get('paper_equity', 0.0) or 0.0),
+                        'account_equity_source': 'paper_virtual_equity',
+                        'stop_fraction': float(trade_params.get('sl_percent', trade_params.get('sl', 0.0)) or 0.0),
+                        'strategy_risk_model': dict(
+                            (trade_params.get('_custom_strategy_rules') or {}).get('risk_model') or {}
+                        ),
+                        'market_risk_multiplier': derive_market_risk_multiplier(
+                            market_regime=trade_params.get('market_regime'),
+                            volatility_fraction=trade_params.get('volatility', 0.0),
+                        ),
+                    },
+                )
+                if computed_qty is None:
+                    self.log_event(
+                        'trade',
+                        f"[{symbol}] PAPER 진입 실패 - 계좌 위험 기반 수량 계약 불충족",
+                        level='WARNING',
+                    )
+                    return False
+                quantity = float(computed_qty)
+                trade_params['_position_sizing'] = dict(
+                    sizing_constraints.get('position_sizing') or {}
+                )
             if price <= 0 or quantity <= 0:
                 self.log_event('trade', f"[{symbol}] PAPER 진입 실패 - 가격/수량 없음", level='WARNING')
                 return False
 
             signal = str(trade_params.get('side') or trade_params.get('signal') or 'BUY').upper()
             side = PositionSide.SHORT if signal in {'SELL', 'SHORT'} else PositionSide.LONG
-            tp = float(trade_params.get('tp', self.settings.get('default_tp', 0.0018)) or 0.0018)
-            sl = float(trade_params.get('sl', self.settings.get('default_sl', 0.0020)) or 0.0020)
+            try:
+                tp, sl = validate_trade_exit_rates(trade_params)
+            except ExitRateContractError as exc:
+                self.log_event(
+                    'trade',
+                    f"[{symbol}] PAPER TP/SL 단일 권위 검증 실패 - {exc}",
+                    level='ERROR',
+                )
+                return False
             tp_price = price * (1 + tp) if side == PositionSide.LONG else price * (1 - tp)
             sl_price = price * (1 - sl) if side == PositionSide.LONG else price * (1 + sl)
             opened_at = datetime.now(timezone.utc)
@@ -6886,6 +7652,16 @@ class Trader:
                 custom_strategy_id=trade_params.get('_selected_custom_strategy_id'),
                 custom_strategy_name=trade_params.get('_selected_custom_strategy'),
                 custom_strategy_rules=dict(trade_params.get('_custom_strategy_rules') or {}),
+                custom_strategy_key=trade_params.get('_selected_custom_strategy_key'),
+                custom_strategy_version_id=trade_params.get('_selected_custom_strategy_version_id'),
+                custom_strategy_scope=trade_params.get('_selected_custom_strategy_scope'),
+                exit_policy=dict(trade_params.get('_exit_policy') or {}),
+                entry_evidence={
+                    'reason': str((trade_params.get('_trade_candidate') or {}).get('reason') or ''),
+                    'signal_source': str((trade_params.get('_trade_candidate') or {}).get('signal_source') or ''),
+                    'trade_candidate': dict(trade_params.get('_trade_candidate') or {}),
+                    'position_sizing': dict(trade_params.get('_position_sizing') or {}),
+                },
             )
             self.paper_active_positions[symbol] = position
             _, position.position_id = emit_position_opened(
@@ -6898,8 +7674,13 @@ class Trader:
                 quantity=quantity,
                 execution_mode='paper',
                 source='noahai_client_binance_paper',
-                extra={'leverage': position.leverage, 'simulated': True},
+                extra={
+                    'leverage': position.leverage,
+                    'simulated': True,
+                    'position_sizing': dict(trade_params.get('_position_sizing') or {}),
+                },
             )
+            self._persist_paper_positions()
             self.log_event(
                 'trade',
                 f"🧪 [PAPER] {symbol} {position.side.value} 가상 진입: {quantity} @ {price:.8f} "
@@ -6920,9 +7701,16 @@ class Trader:
                 position.current_price = current_price
                 direction = 1.0 if position.side == PositionSide.LONG else -1.0
                 raw_return = ((current_price - position.entry_price) / position.entry_price) * direction
-                pnl_usdt = (current_price - position.entry_price) * position.quantity * direction
-                position.unrealized_pnl = pnl_usdt
-                position.unrealized_pnl_percent = raw_return * 100.0 * max(1, position.leverage)
+                gross_pnl_usdt = (current_price - position.entry_price) * position.quantity * direction
+                notional = float(position.entry_price or 0.0) * float(position.quantity or 0.0)
+                include_fees = bool(self.settings.get('include_fees', True))
+                fee_per_side_pct = max(0.0, float(self.settings.get('taker_fee_percent_per_side', 0.02) or 0.0))
+                slippage_pct = max(0.0, float(self.settings.get('slippage_estimate_percent', 0.03) or 0.0))
+                estimated_fees = notional * (fee_per_side_pct * 2.0 / 100.0) if include_fees else 0.0
+                estimated_slippage = notional * (slippage_pct / 100.0)
+                net_pnl_usdt = gross_pnl_usdt - estimated_fees - estimated_slippage
+                position.unrealized_pnl = net_pnl_usdt
+                position.unrealized_pnl_percent = (net_pnl_usdt / notional * 100.0) if notional > 0 else 0.0
                 tp_hit = current_price >= float(position.tp_price or 0.0) if position.side == PositionSide.LONG else current_price <= float(position.tp_price or 0.0)
                 sl_hit = current_price <= float(position.sl_price or 0.0) if position.side == PositionSide.LONG else current_price >= float(position.sl_price or 0.0)
                 if not (tp_hit or sl_hit):
@@ -6930,8 +7718,8 @@ class Trader:
 
                 self.paper_active_positions.pop(symbol, None)
                 self.paper_trade_stats['total_trades'] += 1
-                self.paper_trade_stats['total_pnl'] += pnl_usdt
-                result_key = 'winning_trades' if pnl_usdt > 0 else 'losing_trades'
+                self.paper_trade_stats['total_pnl'] += net_pnl_usdt
+                result_key = 'winning_trades' if net_pnl_usdt > 0 else 'losing_trades'
                 self.paper_trade_stats[result_key] += 1
                 emit_position_closed(
                     asset_class='crypto',
@@ -6947,14 +7735,46 @@ class Trader:
                     position_id=position.position_id,
                     execution_mode='paper',
                     source='noahai_client_binance_paper',
-                    gross_pnl=pnl_usdt,
-                    net_pnl=pnl_usdt,
-                    extra={'simulated': True, 'leverage': position.leverage},
+                    gross_pnl=gross_pnl_usdt,
+                    fees=estimated_fees,
+                    net_pnl=net_pnl_usdt,
+                    extra={
+                        'simulated': True, 'leverage': position.leverage,
+                        'estimated_slippage': estimated_slippage,
+                    },
                 )
+                from trading.paper_strategy_ledger import (
+                    paper_position_execution_evidence,
+                    record_paper_strategy_outcome,
+                )
+                record_paper_strategy_outcome(
+                    scope="binance", exchange="binance", symbol=symbol,
+                    strategy_key=str(position.custom_strategy_key or ""),
+                    version_id=str(position.custom_strategy_version_id or ""),
+                    strategy_scope=str(position.custom_strategy_scope or ""),
+                    opened_at=position.entry_time, closed_at=utc_now(),
+                    net_pnl=net_pnl_usdt, fees=estimated_fees, gross_pnl=gross_pnl_usdt,
+                    net_pnl_percent=float(position.unrealized_pnl_percent or 0.0),
+                    entry_price=float(position.entry_price or 0.0),
+                    exit_price=float(current_price or 0.0),
+                    quantity=float(position.quantity or 0.0),
+                    side=str(getattr(position.side, 'value', position.side) or ''),
+                    quote_currency='USDT', estimated_slippage=estimated_slippage,
+                    fee_rate=(fee_per_side_pct * 2.0 / 100.0) if include_fees else 0.0,
+                    slippage_rate=slippage_pct / 100.0,
+                    calculation_status='valid',
+                    position_id=str(position.position_id or ""),
+                    **paper_position_execution_evidence(
+                        position,
+                        exit_reason='paper_tp' if tp_hit else 'paper_sl',
+                    ),
+                )
+                self._persist_paper_positions()
                 self.log_event(
                     'trade',
                     f"🧪 [PAPER] {symbol} 가상 청산 ({'TP' if tp_hit else 'SL'}): "
-                    f"{current_price:.8f}, PnL {pnl_usdt:.4f} USDT",
+                    f"{current_price:.8f}, 순손익 {net_pnl_usdt:.4f} USDT "
+                    f"(총손익 {gross_pnl_usdt:.4f}, 비용 {estimated_fees + estimated_slippage:.4f})",
                 )
             except Exception as exc:
                 self.log_event('trade', f"[{symbol}] PAPER 모니터링 오류: {exc}", level='WARNING')
@@ -6990,6 +7810,12 @@ class Trader:
                 self.logger.error(f"❌ 바이낸스 거래 중지 실패: {e}")
             else:
                 print(f"❌ 바이낸스 거래 중지 실패: {e}")
+
+    def request_stop_trading(self) -> None:
+        """Signal Binance monitors without joining them on the UI shutdown thread."""
+        for flag in list(getattr(self, 'monitoring_flags', {}).values()):
+            if hasattr(flag, 'set'):
+                flag.set()
 
     def stop_trading_gracefully(self):
         """
@@ -7177,24 +8003,238 @@ class Trader:
         except Exception as e:
             self.logger.warning(f"⚠️ KPI 이벤트 큐 flush 실패 (무시됨): {e}")
 
-    def _compute_quantity_once(self, symbol: str, side: str, leverage: float, ref_price: float, risk_multiplier: float = 1.0):
+    @staticmethod
+    def _reconcile_authorized_quantity(
+        *,
+        computed_quantity: float,
+        opportunity_factor: float,
+        authorized_quantity_cap: float,
+        reference_price: float,
+        exchange_min_notional: float,
+        step_size: float,
+        quantity_precision: int,
+    ) -> Dict[str, Any]:
+        """Apply portfolio authorization without confusing it with user target size.
+
+        The exchange minimum is a hard order-validity constraint.  The configured
+        trade amount is a sizing target and may be reduced by cold-start or
+        portfolio policy.  If an authorization cap falls below the exchange
+        minimum we fail closed instead of silently increasing risk.
+        """
+        factor = max(0.0, min(float(opportunity_factor or 0.0), 1.0))
+        # OpportunityCoordinator.authorized_quantity에는 이미 quantity_factor가
+        # 반영되어 있다. 여기서 factor를 다시 곱하면 SPLIT 모드의
+        # 위험이 이중 축소된다. 재계산 수량은 승인 수량을 상한으로만
+        # 사용하고 상한 미만이면 그대로 보존한다.
+        quantity = max(0.0, float(computed_quantity or 0.0))
+        cap = max(0.0, float(authorized_quantity_cap or 0.0))
+        # 이 함수는 Opportunity 승인 뒤 호출된다. 0 상한은 "상한 없음"이
+        # 아니라 승인 수량 없음이므로 반드시 주문을 0으로 만든다.
+        quantity = min(quantity, cap)
+        step = max(0.0, float(step_size or 0.0))
+        if step > 0.0 and quantity > 0.0:
+            quantity = math.floor((quantity + step * 1e-12) / step) * step
+        precision = max(0, min(int(quantity_precision or 0), 16))
+        quantity = float(f"{quantity:.{precision}f}")
+        notional = quantity * max(0.0, float(reference_price or 0.0))
+        minimum = max(0.0, float(exchange_min_notional or 0.0))
+        allowed = (
+            factor > 0.0
+            and cap > 0.0
+            and quantity > 0.0
+            and reference_price > 0.0
+            and minimum > 0.0
+            and notional + 1e-9 >= minimum
+        )
+        return {
+            'allowed': allowed,
+            'quantity': quantity,
+            'notional': notional,
+            'exchange_min_notional': minimum,
+            'authorization_factor': factor,
+            'authorized_quantity_cap': cap,
+            'reason': (
+                'exchange_order_constraints_satisfied'
+                if allowed else
+                f'위험 분할·수량 상한 적용 후 {notional:.2f} USDT가 '
+                f'거래소 최소 주문 {minimum:.2f} USDT보다 작음'
+            ),
+        }
+
+    def _prepare_binance_pre_authorization_sizing(
+        self,
+        trade_params: Dict[str, Any],
+        *,
+        dry_run: bool,
+    ) -> Dict[str, Any]:
+        """Stamp account-risk quantity before portfolio authorization."""
+        sizing_policy = normalize_position_sizing_policy(
+            self.settings, quote_currency='USDT'
+        )
+        if sizing_policy.get('mode') == LEGACY_VENUE:
+            return {}
+        symbol = str(trade_params.get('symbol') or '')
+        price = float(trade_params.get('price') or 0.0)
+        if price <= 0:
+            price = float(self.binance_client.get_current_price(symbol) or 0.0)
+        if dry_run:
+            equity = float(sizing_policy.get('paper_equity', 0.0) or 0.0)
+            equity_source = 'learning_virtual_equity'
+        else:
+            _, equity, equity_source = self._binance_live_balance_basis()
+        plan = calculate_position_sizing(
+            policy=dict(self.settings.get('position_sizing_policy') or {}),
+            asset_class='crypto_futures',
+            quote_currency='USDT',
+            account_equity=equity,
+            account_equity_source=equity_source,
+            price=price,
+            stop_fraction=float(
+                trade_params.get('sl_percent', trade_params.get('sl', 0.0)) or 0.0
+            ),
+            requested_leverage=int(trade_params.get('leverage') or 1),
+            leverage_cap=exchange_leverage_cap(self.settings, 'binance'),
+            fixed_notional=float(self.settings.get('min_trade_amount', 5.0) or 5.0),
+            risk_multiplier=float(trade_params.get('risk_multiplier', 1.0) or 1.0),
+            market_risk_multiplier=derive_market_risk_multiplier(
+                market_regime=trade_params.get('market_regime'),
+                volatility_fraction=trade_params.get('volatility', 0.0),
+            ),
+            strategy_risk_model=dict(
+                (trade_params.get('_custom_strategy_rules') or {}).get('risk_model')
+                or {}
+            ),
+        )
+        if bool(plan.get('allowed')):
+            trade_params['qty'] = float(plan.get('target_quantity') or 0.0)
+            trade_params['price'] = price
+            trade_params['leverage'] = int(plan.get('effective_leverage') or 1)
+            trade_params['_position_sizing'] = dict(plan)
+        return plan
+
+    def _binance_live_balance_basis(self) -> tuple[float, float, str]:
+        """Return (available margin, total equity, audited source) once.
+
+        Position risk is based on total margin equity.  Order affordability is
+        separately based on available margin so existing positions and open
+        orders cannot make the risk budget and the spendable balance mean the
+        same thing.
+        """
+        snapshot_getter = getattr(self.binance_client, 'get_balance_snapshot', None)
+        snapshot = snapshot_getter() if callable(snapshot_getter) else {}
+        snapshot_info = (
+            dict(snapshot.get('account_info') or {})
+            if isinstance(snapshot, dict) else {}
+        )
+        snapshot_balances = (
+            dict(snapshot.get('balance') or {})
+            if isinstance(snapshot, dict) else {}
+        )
+        balance = snapshot_balances or self.binance_client.get_balance()
+        usdt_info = balance.get('USDT') if isinstance(balance, dict) else None
+        if isinstance(usdt_info, dict):
+            available = float(
+                usdt_info.get('available_balance', usdt_info.get('free', 0.0))
+                or 0.0
+            )
+        elif isinstance(balance, (int, float)):
+            available = float(balance)
+        else:
+            available = 0.0
+
+        total_margin = float(snapshot_info.get('total_margin_balance') or 0.0)
+        total_wallet = float(snapshot_info.get('total_wallet_balance') or 0.0)
+        nested_margin = float(
+            usdt_info.get('margin_balance', 0.0) or 0.0
+        ) if isinstance(usdt_info, dict) else 0.0
+        nested_wallet = float(
+            usdt_info.get('wallet_balance', 0.0) or 0.0
+        ) if isinstance(usdt_info, dict) else 0.0
+        if total_margin > 0:
+            return available, total_margin, 'live_total_margin_balance'
+        if total_wallet > 0:
+            return available, total_wallet, 'live_total_wallet_balance'
+        if nested_margin > 0:
+            return available, nested_margin, 'live_usdt_margin_balance'
+        if nested_wallet > 0:
+            return available, nested_wallet, 'live_usdt_wallet_balance'
+        return available, available, 'live_available_balance_fallback'
+
+    def _compute_quantity_once(
+        self,
+        symbol: str,
+        side: str,
+        leverage: float,
+        ref_price: float,
+        risk_multiplier: float = 1.0,
+        sizing_context: Optional[Dict[str, Any]] = None,
+    ):
         """수량 계산 단일화 (한 번만 계산하고 하위로 전달) - 정밀도 규칙 강화"""
         try:
             # 기존 로직 그대로 오지만, 이 함수만이 "단일 권위"
             # step_size 반올림 포함
-            target_value = float(self.settings.get('min_trade_amount', 5.0) or 5.0)
-            target_value *= max(0.01, min(float(risk_multiplier or 1.0), 1.0))
+            context = dict(sizing_context or {})
+            effective_policy = dict(self.settings.get('position_sizing_policy') or {})
+            if normalize_position_sizing_policy(
+                self.settings, quote_currency='USDT'
+            ).get('mode') == LEGACY_VENUE:
+                # Binance's pre-contract legacy behaviour was a fixed quote
+                # amount.  Unified venues and brokers keep their own legacy
+                # adapter path; the migration state is never interpreted as
+                # account-risk sizing.
+                effective_policy['mode'] = MANUAL_NOTIONAL
+            sizing_plan = calculate_position_sizing(
+                policy=effective_policy,
+                asset_class='crypto_futures',
+                quote_currency='USDT',
+                account_equity=float(context.get('account_equity', 0.0) or 0.0),
+                account_equity_source=str(context.get('account_equity_source') or 'unavailable'),
+                price=ref_price,
+                stop_fraction=float(context.get('stop_fraction', 0.0) or 0.0),
+                requested_leverage=int(max(1, round(float(leverage or 1)))),
+                leverage_cap=exchange_leverage_cap(self.settings, 'binance'),
+                fixed_notional=float(self.settings.get('min_trade_amount', 5.0) or 5.0),
+                risk_multiplier=risk_multiplier,
+                market_risk_multiplier=float(context.get('market_risk_multiplier', 1.0) or 1.0),
+                strategy_risk_model=dict(context.get('strategy_risk_model') or {}),
+            )
+            if not bool(sizing_plan.get('allowed')):
+                self.log_event(
+                    'trade',
+                    f"[{symbol}] ❌ 포지션 크기 계약 실패: {sizing_plan.get('reason')}",
+                    level='ERROR',
+                )
+                return None, None, {'position_sizing': sizing_plan}
+            target_value = float(sizing_plan.get('target_notional', 0.0) or 0.0)
+            leverage = int(sizing_plan.get('effective_leverage', leverage) or leverage)
 
             # 심볼 정보 조회
             symbol_info = self.binance_client.get_symbol_info_direct(symbol)
             if not symbol_info:
                 # 🔥 log_event로 통일 (일관성) - self.log_event는 클래스 내부에서 사용 가능
                 self.log_event('trade', f"[{symbol}] ❌ _compute_quantity_once: 심볼 정보 조회 실패", level='ERROR')
-                return None, None
+                return None, None, {}
 
-            step_size = float(symbol_info.get('step_size', 0.001))
-            qty_precision = int(symbol_info.get('qty_precision', 3))
-            min_qty = float(symbol_info.get('min_qty', 0.001))
+            step_size = float(
+                symbol_info.get('step_size') or symbol_info.get('stepSize') or 0.0
+            )
+            qty_precision = int(
+                symbol_info.get('qty_precision')
+                or symbol_info.get('quantity_precision')
+                or symbol_info.get('quantityPrecision')
+                or 0
+            )
+            min_qty = float(
+                symbol_info.get('min_qty') or symbol_info.get('minQty') or 0.0
+            )
+            if step_size <= 0 or min_qty <= 0:
+                self.log_event(
+                    'trade',
+                    f"[{symbol}] ❌ 거래소 수량 규격 누락: "
+                    f"step_size={step_size}, min_qty={min_qty}",
+                    level='ERROR',
+                )
+                return None, None, {}
 
             # 목표 USDT 값으로 수량 계산
             quantity = target_value / ref_price
@@ -7202,12 +8242,29 @@ class Trader:
             # 🔥 min_notional 검증 및 보정 (2% 버퍼 적용)
             # get_symbol_info_direct는 'minNotional' (camelCase)로 반환하므로 둘 다 확인
             min_notional = symbol_info.get('minNotional') or symbol_info.get('min_notional')
-            if min_notional is None or min_notional <= 0:
-                # 🔥 Binance 선물 거래소는 대부분 20 USDT를 요구하므로 안전한 기본값 사용
-                min_notional = 20.0
-                self.logger.warning(f"[{symbol}] ⚠️ MIN_NOTIONAL API 조회 실패 - 안전한 기본값 사용: {min_notional} USDT")
+            if min_notional is None or float(min_notional) <= 0:
+                # 사용자 목표 주문금액을 거래소 최소값으로 추정하지 않는다.
+                # 주문 규격을 확정할 수 없는 상태에서는 실행을 중단한다.
+                self.log_event(
+                    'trade',
+                    f"[{symbol}] ❌ 거래소 MIN_NOTIONAL 규격을 확인하지 못함",
+                    level='ERROR',
+                )
+                return None, None, {}
             min_notional = float(min_notional)
             target_notional = min_notional * 1.02  # 2% 버퍼 (시장가 변동성 대응)
+
+            authorized_notional_cap = float(
+                sizing_plan.get('authorized_notional_cap', target_value) or target_value
+            )
+            if target_notional > authorized_notional_cap * (1.0 + 1e-9):
+                self.log_event(
+                    'trade',
+                    f"[{symbol}] 🛡️ 거래소 최소 주문이 승인 노출 상한을 초과: "
+                    f"minimum={target_notional:.4f}, authorized_cap={authorized_notional_cap:.4f}",
+                    level='WARNING',
+                )
+                return None, None, {'position_sizing': sizing_plan}
 
             actual_notional = quantity * ref_price
 
@@ -7242,14 +8299,22 @@ class Trader:
                 self.logger.warning(f"[{symbol}] 🔥 최종 수량 재보정: {final_notional:.2f} < {min_notional} → {quantity * ref_price:.2f} USDT")
 
             self.logger.info(f"[{symbol}] 수량 계산 단일화: {target_value:.2f} USDT → {quantity} (stepSize: {step_size}, precision: {qty_precision}, minQty: {min_qty}, minNotional: {min_notional})")
-            return quantity, ref_price
+            return quantity, ref_price, {
+                'exchange_min_notional': min_notional,
+                'configured_target_notional': float(self.settings.get('min_trade_amount', 5.0) or 5.0),
+                'risk_multiplier': max(0.01, min(float(risk_multiplier or 1.0), 1.0)),
+                'step_size': step_size,
+                'quantity_precision': qty_precision,
+                'min_quantity': min_qty,
+                'position_sizing': sizing_plan,
+            }
 
         except Exception as e:
             # 🔥 log_event로 통일 (일관성) + 상세 정보 추가
             import traceback
             self.log_event('trade', f"[{symbol}] ❌ _compute_quantity_once 예외 발생: {e}", level='ERROR')
             self.log_event('trade', f"[{symbol}] 🔍 _compute_quantity_once 예외 상세: {traceback.format_exc()}", level='ERROR')
-            return None, None
+            return None, None, {}
 
     def _calc_pnl_percent(self, position: Position, exit_price: float) -> float:
         """PnL 퍼센트 계산"""
@@ -7292,7 +8357,16 @@ class Trader:
                 return
             if hasattr(self, 'binance_client') and self.binance_client:
                 # 실제 거래소에서 포지션 조회
-                actual_positions = self.binance_client.get_positions()
+                snapshot = self._get_binance_position_snapshot()
+                if str(snapshot.get('status') or '').lower() != 'success':
+                    self.log_event(
+                        'trade',
+                        "⚠️ 시작 포지션 복구 보류 - 조회 실패를 무포지션으로 처리하지 않습니다: "
+                        f"{snapshot.get('error') or snapshot.get('status') or 'unknown'}",
+                        level='WARNING',
+                    )
+                    return
+                actual_positions = list(snapshot.get('positions') or [])
 
                 getter = getattr(self.recorder, 'get_open_managed_trades', None)
                 rows = getter('binance') if callable(getter) else []
@@ -7582,6 +8656,8 @@ Response in JSON format:
                 'trend_momentum_threshold': (0.001, 0.02)
             }
             changed = False
+            runtime_indicators = {}
+            expires_at = time.time() + 86400.0
             for key in keys:
                 new_val = ai_result.get(key)
                 if new_val is not None:
@@ -7603,24 +8679,33 @@ Response in JSON format:
                     if key == 'user_signal_threshold':
                         cur_val = context.get('user_signal_threshold')
                         if new_val != cur_val:
-                            self.analyzer.set_user_signal_threshold(new_val)
-                            # analyzer_settings 안에 저장
-                            if 'analyzer_settings' not in self.settings:
-                                self.settings['analyzer_settings'] = {}
-                            self.settings['analyzer_settings']['user_signal_threshold'] = new_val
+                            self.analyzer.set_runtime_signal_threshold(
+                                new_val,
+                                exchange_name='binance',
+                                expires_at=expires_at,
+                                evidence={'total_trades': context.get('total_trades'), 'source': 'ai_performance'},
+                            )
                             changed = True
                     else:
-                        # signal_thresholds dict에 반영
-                        if 'signal_thresholds' not in self.settings:
-                            self.settings['signal_thresholds'] = {}
-                        cur_val = self.settings['signal_thresholds'].get(key)
+                        cur_val = (self.settings.get('signal_thresholds') or {}).get(key)
                         if new_val != cur_val:
-                            self.settings['signal_thresholds'][key] = new_val
+                            runtime_indicators[key] = new_val
                             changed = True
 
+            if runtime_indicators:
+                self.analyzer.set_runtime_indicator_thresholds(
+                    runtime_indicators,
+                    exchange_name='binance',
+                    expires_at=expires_at,
+                    evidence={'total_trades': context.get('total_trades'), 'source': 'ai_performance'},
+                )
             if changed:
-                from config.settings import save_settings
-                save_settings(self.settings)
+                self._runtime_ai_threshold_overlay = {
+                    'exchange': 'binance', 'expires_at': expires_at,
+                    'sample_count': context.get('total_trades', 0),
+                    'values': {key: ai_result.get(key) for key in keys if ai_result.get(key) is not None},
+                }
+                self.logger.info("AI 임계값은 24시간 런타임 오버레이로만 적용되며 사용자 저장 설정은 변경하지 않습니다.")
 
             # context 안전 접근
             c = context or {}
@@ -7683,6 +8768,7 @@ Response in JSON format:
                 'selected_custom_strategy_id': signal_data.get('_selected_custom_strategy_id'),
                 'selected_custom_strategy_key': signal_data.get('_selected_custom_strategy_key'),
                 'selected_custom_strategy_version_id': signal_data.get('_selected_custom_strategy_version_id'),
+                'selected_custom_strategy_scope': signal_data.get('_selected_custom_strategy_scope'),
                 'trade_candidate': dict(signal_data.get('_trade_candidate') or {}),
                 'recent_win_rate': perf.get('recent_win_rate', 0.0),
                 'recent_loss_rate': perf.get('recent_loss_rate', 0.0),

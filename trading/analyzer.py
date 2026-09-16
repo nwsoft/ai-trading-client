@@ -169,6 +169,11 @@ class Analyzer:
             for key, value in dict(analyzer_settings.get('exchange_signal_thresholds', {}) or {}).items()
             if isinstance(value, (int, float)) and 30 <= int(value) <= 90
         }
+        # AI adaptations are process-local overlays.  They never rewrite the
+        # user's saved base settings and expire unless a fresh evidence window
+        # renews them.
+        self.runtime_signal_threshold_overlays = {}
+        self.runtime_user_signal_thresholds = {}
 
         self.logger.info("Analyzer 초기화 완료")
 
@@ -284,9 +289,49 @@ class Analyzer:
     def get_user_signal_threshold(self, exchange_name: Optional[str] = None) -> int:
         """현재 신호 점수 기준 반환. 거래소별 값이 없으면 공통 기준을 사용한다."""
         exchange = str(exchange_name or self._exchange_context or '').lower().strip()
+        overlay_key = exchange or 'binance'
+        runtime_user = getattr(self, 'runtime_user_signal_thresholds', {}) or {}
+        overlay = dict(runtime_user.get(overlay_key) or {})
+        if overlay and float(overlay.get('expires_at', 0.0) or 0.0) > time.time():
+            return int(overlay['value'])
+        if overlay:
+            runtime_user.pop(overlay_key, None)
         if exchange:
             return int(self.exchange_signal_thresholds.get(exchange, self.user_signal_threshold))
         return int(self.user_signal_threshold)
+
+    def set_runtime_signal_threshold(
+        self,
+        threshold: int,
+        *,
+        exchange_name: Optional[str] = None,
+        expires_at: float,
+        evidence: Optional[Dict] = None,
+    ) -> None:
+        """Apply a bounded, expiring AI overlay without changing user settings."""
+        if not 30 <= int(threshold) <= 90:
+            raise ValueError("runtime signal threshold must be 30..90")
+        key = str(exchange_name or "binance").strip().lower()
+        self.runtime_user_signal_thresholds[key] = {
+            "value": int(threshold),
+            "expires_at": float(expires_at),
+            "evidence": dict(evidence or {}),
+        }
+
+    def set_runtime_indicator_thresholds(
+        self,
+        values: Dict,
+        *,
+        exchange_name: Optional[str] = None,
+        expires_at: float,
+        evidence: Optional[Dict] = None,
+    ) -> None:
+        key = str(exchange_name or "binance").strip().lower()
+        self.runtime_signal_threshold_overlays[key] = {
+            "values": dict(values or {}),
+            "expires_at": float(expires_at),
+            "evidence": dict(evidence or {}),
+        }
 
     def get_ai_learning_insights(self, symbol: str, market_state: MarketState) -> Dict:
         """AI 학습 데이터에서 인사이트 조회"""
@@ -817,16 +862,6 @@ class Analyzer:
                 'entry_confidence',
                 ai_analysis.get('confidence', 0.5),
             )
-            # 학습 표본 수가 부족할 때 과도한 보수화(HOLD)로 치우치지 않도록 완화
-            try:
-                ai_samples = int(ai_analysis.get('samples_count', 0))
-            except Exception:
-                ai_samples = 0
-            try:
-                min_samples = int(self.settings.get('ai_learning_min_samples', 20)) if isinstance(self.settings, dict) else 20
-            except Exception:
-                min_samples = 20
-
             # 기술적 지표 신호
             tech_signal = self._determine_basic_signal(indicators, market_state)
 
@@ -838,10 +873,9 @@ class Analyzer:
                 if ai_signal == tech_signal:
                     return ai_signal
                 else:
-                    # 학습 표본이 충분하지 않으면 보수적 관망 대신 기술 신호를 따름
-                    if ai_samples < min_samples:
-                        return tech_signal
-                    return "HOLD"  # 불일치 + 표본 충분 시 관망
+                    # 완료 거래 수를 시작 조건으로 사용하지 않는다. 중간 신뢰도의
+                    # AI와 기술 신호가 다르면 검증 가능한 로컬 기술 신호를 따른다.
+                    return tech_signal
             else:
                 return tech_signal  # AI 신뢰도 낮으면 기술적 지표 사용
 
@@ -1017,7 +1051,21 @@ class Analyzer:
                 # shallow merge: overrides on top of base
                 merged = base.copy()
                 merged.update(overrides)
+                runtime_overlays = getattr(self, 'runtime_signal_threshold_overlays', {}) or {}
+                runtime = dict(runtime_overlays.get(str(exch).lower()) or {})
+                if runtime and float(runtime.get('expires_at', 0.0) or 0.0) > time.time():
+                    merged.update(dict(runtime.get('values') or {}))
+                elif runtime:
+                    runtime_overlays.pop(str(exch).lower(), None)
                 return merged
+            runtime_overlays = getattr(self, 'runtime_signal_threshold_overlays', {}) or {}
+            runtime = dict(runtime_overlays.get('binance') or {})
+            if runtime and float(runtime.get('expires_at', 0.0) or 0.0) > time.time():
+                merged = base.copy()
+                merged.update(dict(runtime.get('values') or {}))
+                return merged
+            if runtime:
+                runtime_overlays.pop('binance', None)
             return base
         except Exception as e:
             try:
@@ -1822,7 +1870,7 @@ class Analyzer:
             rsi = self.calculate_rsi(df['close'], rsi_period)
 
             # 멀티타임프레임 RSI 계산 (verbose 로깅)
-            if self.settings.get('verbose_trade_logging', False):
+            if self.settings.get('verbose_trade_logging', False) or self.settings.get('detailed_logs_enabled', False):
                 from log_system.log_adapter import log_event
 
                 # 다양한 기간의 RSI 계산 (이미 float 값 반환)
@@ -1834,7 +1882,7 @@ class Analyzer:
                     level='INFO',
                     category='analysis',
                     message=f"{symbol} Multi-timeframe RSI: 5m={rsi_5:.2f}, 10m={rsi_10:.2f}, 14m={rsi:.2f}, 21m={rsi_21:.2f}",
-                    exchange='binance'
+                    exchange=str(self._exchange_context or 'binance')
                 )
 
             # MACD 계산
@@ -2191,14 +2239,14 @@ class Analyzer:
             trend_score_15m = (slope_15m + strength_15m) / 2
 
             # 상세 트렌드 분석 로그 (verbose)
-            if self.settings.get('verbose_trade_logging', False):
+            if self.settings.get('verbose_trade_logging', False) or self.settings.get('detailed_logs_enabled', False):
                 from log_system.log_adapter import log_event
 
                 log_event(
                     level='INFO',
                     category='analysis',
                     message=f"{symbol} Detailed trend analysis (15m): slope={slope_15m:.3f}, strength={strength_15m:.3f}, confirmed={trend_confirmed_15m}, volume_confirmed={volume_confirmed_15m}",
-                    exchange='binance'
+                    exchange=str(self._exchange_context or 'binance')
                 )
 
             # 1시간 트렌드 분석
@@ -2376,7 +2424,7 @@ class Analyzer:
             # 국내 현물 거래소에 BNBUSDT를 반복 요청하면 지원 심볼이 없어
             # 매 분석마다 불필요한 캔들 조회 경고가 발생한다.
             exchange_context = str(self._exchange_context or 'binance').lower().strip()
-            if exchange_context in {'upbit', 'bithumb'}:
+            if exchange_context in {'upbit', 'bithumb', 'coinone'}:
                 representative_symbols = ['BTC/KRW', 'ETH/KRW']
             elif exchange_context == 'binance':
                 representative_symbols = ['BTCUSDT', 'ETHUSDT', 'BNBUSDT']

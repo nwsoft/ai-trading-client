@@ -251,6 +251,27 @@ class StockMockAdapter(StockExchange):
             "timestamp":    datetime.now().isoformat(),
             "status":       "ok",
         }
+
+    def get_daily_candles(self, symbol: str, limit: int = 100) -> List[Dict[str, Any]]:
+        """Return deterministic daily OHLCV rows for UI and contract tests."""
+        self._delay()
+        count = max(1, min(int(limit), 500))
+        base = float(_BASE_PRICES.get(symbol, 10000))
+        rows: List[Dict[str, Any]] = []
+        start = datetime.now().date() - timedelta(days=count - 1)
+        for index in range(count):
+            day = start + timedelta(days=index)
+            close = round(base * (1 + ((index % 11) - 5) * 0.001), 2)
+            open_price = round(close * (1 - ((index % 3) - 1) * 0.001), 2)
+            rows.append({
+                "date": day.strftime("%Y%m%d"),
+                "open": open_price,
+                "high": round(max(open_price, close) * 1.006, 2),
+                "low": round(min(open_price, close) * 0.994, 2),
+                "close": close,
+                "volume": float(100_000 + index * 1_000),
+            })
+        return rows
     
     # ─── 계좌/잔고/포지션 ─────────────────────────────────────────────────────────
 

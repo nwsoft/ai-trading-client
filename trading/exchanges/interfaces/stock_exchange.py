@@ -144,6 +144,10 @@ class StockExchange(ExchangeInterface):
             return float(price_info.get("current_price", 0.0))
         except Exception:
             return 0.0
+
+    def get_daily_candles(self, symbol: str, limit: int = 100) -> List[Dict[str, Any]]:
+        """Return normalized daily OHLCV rows when the broker contract supports it."""
+        return []
     
     def place_order(self, symbol: str, side: str, quantity: float, 
                    price: Optional[float] = None, order_type: str = "MARKET") -> Dict[str, Any]:

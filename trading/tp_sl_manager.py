@@ -56,6 +56,37 @@ class TpSlManager:
 
     # --- 생성 / 검증 -----------------------------------------------------
 
+    def _protective_order_snapshot(self, symbol: str) -> Dict[str, Any]:
+        """Read normal and Binance Algo protective orders as one contract."""
+        normal = list(
+            self.binance_client.client.futures_get_open_orders(symbol=symbol) or []
+        )
+        algo_getter = getattr(self.binance_client, "get_open_algo_orders", None)
+        algo = list(algo_getter(symbol=symbol) or []) if callable(algo_getter) else []
+        tp_orders = []
+        sl_orders = []
+        for order in normal + algo:
+            order_type = str(order.get("orderType") or order.get("type") or "").upper()
+            if order_type in ("TAKE_PROFIT", "TAKE_PROFIT_MARKET"):
+                tp_orders.append(order)
+            elif order_type in ("STOP", "STOP_MARKET"):
+                sl_orders.append(order)
+        protective_ids = {
+            str(order.get("orderId") or order.get("algoId") or "")
+            for order in tp_orders + sl_orders
+        }
+        other_orders = [
+            order for order in normal
+            if str(order.get("orderId") or "") not in protective_ids
+        ]
+        return {"tp": tp_orders, "sl": sl_orders, "other": other_orders}
+
+    @staticmethod
+    def _protective_order_is_open(order: Dict[str, Any]) -> bool:
+        status = str(order.get("algoStatus") or order.get("status") or "PENDING").upper()
+        working_type = str(order.get("workingType") or "MARK_PRICE").upper()
+        return status in {"NEW", "PENDING", "WORKING"} and working_type == "MARK_PRICE"
+
     def create_tp_sl(
         self,
         symbol: str,
@@ -113,35 +144,18 @@ class TpSlManager:
                 wait_time = 2.0 + (verify_attempt * 1.0)  # 2초, 3초, 4초
                 time.sleep(wait_time)
 
-                open_orders = self.binance_client.client.futures_get_open_orders(symbol=symbol)
-
-                # 주문 타입 필터링 통일: watchdog와 동일하게 처리
-                tp_orders = [
-                    o for o in open_orders
-                    if o.get("type") in ("TAKE_PROFIT", "TAKE_PROFIT_MARKET")
-                ]
-                sl_orders = [
-                    o for o in open_orders
-                    if o.get("type") in ("STOP", "STOP_MARKET")
-                ]
-                other_orders = [
-                    o for o in open_orders
-                    if o.get("type") not in ("TAKE_PROFIT", "TAKE_PROFIT_MARKET", "STOP", "STOP_MARKET")
-                ]
+                snapshot = self._protective_order_snapshot(symbol)
+                tp_orders = snapshot["tp"]
+                sl_orders = snapshot["sl"]
+                other_orders = snapshot["other"]
 
                 # 엄격한 검증: 정확히 1:1 + 모든 옵션 확인
                 if len(tp_orders) == 1 and len(sl_orders) == 1:
                     tp_order = tp_orders[0]
                     sl_order = sl_orders[0]
 
-                    tp_valid = (
-                        tp_order.get("workingType") == "MARK_PRICE"
-                        and tp_order.get("status") == "NEW"
-                    )
-                    sl_valid = (
-                        sl_order.get("workingType") == "MARK_PRICE"
-                        and sl_order.get("status") == "NEW"
-                    )
+                    tp_valid = self._protective_order_is_open(tp_order)
+                    sl_valid = self._protective_order_is_open(sl_order)
 
                     if tp_valid and sl_valid:
                         if self.logger:
@@ -177,17 +191,9 @@ class TpSlManager:
                 if retry_success:
                     # 재설정 후 재검증 (1회)
                     time.sleep(2.0)
-                    open_orders_retry = self.binance_client.client.futures_get_open_orders(
-                        symbol=symbol
-                    )
-                    tp_orders_retry = [
-                        o for o in open_orders_retry
-                        if o.get("type") in ("TAKE_PROFIT", "TAKE_PROFIT_MARKET")
-                    ]
-                    sl_orders_retry = [
-                        o for o in open_orders_retry
-                        if o.get("type") in ("STOP", "STOP_MARKET")
-                    ]
+                    retry_snapshot = self._protective_order_snapshot(symbol)
+                    tp_orders_retry = retry_snapshot["tp"]
+                    sl_orders_retry = retry_snapshot["sl"]
                     if len(tp_orders_retry) == 1 and len(sl_orders_retry) == 1:
                         tp_sl_verified = True
                         verification_passed = True
@@ -202,19 +208,10 @@ class TpSlManager:
 
             # 기타 주문이 있으면 정리 시도 (원래 trader 코드 그대로)
             if not verification_passed:
-                open_orders = self.binance_client.client.futures_get_open_orders(symbol=symbol)
-                tp_orders = [
-                    o for o in open_orders
-                    if o.get("type") in ("TAKE_PROFIT", "TAKE_PROFIT_MARKET")
-                ]
-                sl_orders = [
-                    o for o in open_orders
-                    if o.get("type") in ("STOP", "STOP_MARKET")
-                ]
-                other_orders = [
-                    o for o in open_orders
-                    if o.get("type") not in ("TAKE_PROFIT", "TAKE_PROFIT_MARKET", "STOP", "STOP_MARKET")
-                ]
+                snapshot = self._protective_order_snapshot(symbol)
+                tp_orders = snapshot["tp"]
+                sl_orders = snapshot["sl"]
+                other_orders = snapshot["other"]
 
                 if len(other_orders) > 0:
                     if self.logger:
@@ -311,22 +308,13 @@ class TpSlManager:
             return False
 
         try:
-            open_orders = self.binance_client.client.futures_get_open_orders(symbol=symbol)
-            tp_orders = [
-                o for o in open_orders
-                if o.get("type") in ("TAKE_PROFIT", "TAKE_PROFIT_MARKET")
-            ]
-            sl_orders = [
-                o for o in open_orders
-                if o.get("type") in ("STOP", "STOP_MARKET")
-            ]
-            other_orders = [
-                o for o in open_orders
-                if o.get("type") not in ("TAKE_PROFIT", "TAKE_PROFIT_MARKET", "STOP", "STOP_MARKET")
-            ]
+            snapshot = self._protective_order_snapshot(symbol)
+            tp_orders = snapshot["tp"]
+            sl_orders = snapshot["sl"]
+            other_orders = snapshot["other"]
 
-            tp_ok = len(tp_orders) == 1 and tp_orders[0].get("status") == "NEW"
-            sl_ok = len(sl_orders) == 1 and sl_orders[0].get("status") == "NEW"
+            tp_ok = len(tp_orders) == 1 and self._protective_order_is_open(tp_orders[0])
+            sl_ok = len(sl_orders) == 1 and self._protective_order_is_open(sl_orders[0])
 
             if self.logger:
                 self.logger.info(
@@ -368,5 +356,4 @@ class TpSlManager:
         - 기존 `_tp_sl_watchdog()` 로직을 점진적으로 이관하는 용도
         """
         return True
-
 

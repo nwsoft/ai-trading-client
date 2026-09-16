@@ -7,12 +7,18 @@
 - 문서 동기화만으로는 RELEASE_VERSION을 변경하지 않는다.
 """
 
-RELEASE_VERSION = "3.9.0.10"
-RELEASE_DATE = "2026-08-13"
-RELEASE_HIGHLIGHT = "AI 커스텀 관리 · 설정 오류 차단 · 최신 탭 렌더·위젯 소유권 안정화"
-RELEASE_PATCH = "AI Custom Management & Runtime Integrity Update"
+RELEASE_VERSION = "3.9.1.37"
+RELEASE_DATE = "2026-09-16"
+RELEASE_HIGHLIGHT = "키움 조회 대기·요청 간격 제어·실패 상태 보존"
+RELEASE_PATCH = "Kiwoom Bounded Queries & Session Recovery Patch"
 RELEASE_BUILD_LABEL = f"v{RELEASE_VERSION} {RELEASE_PATCH}"
-RELEASE_NOTICE_ID = "v3.9.0.10-ai-custom-management-settings-tab-runtime-integrity-source-candidate"
+# 릴리스 자산·manifest에는 위 내부 식별자를 유지하되 일반 사용자가 보는
+# 창 제목과 인앱 메뉴얼에는 렌더러 구현명(Web UI)을 노출하지 않는다.
+RELEASE_DISPLAY_LABEL = f"v{RELEASE_VERSION}"
+# 기존 매뉴얼 추출기와 롤백 도구가 가져오는 호환 이름이다. 더 이상 UI
+# 구현명을 뜻하지 않으며 사용자에게 보여 줄 제품 버전만 제공한다.
+RELEASE_DISPLAY_PATCH = RELEASE_DISPLAY_LABEL
+RELEASE_NOTICE_ID = "v3.9.1.37-kiwoom-bounded-queries-session-recovery-patch"
 
-DASHBOARD_TITLE = f"Noah AI Client - 대시보드 Beta {RELEASE_VERSION} {RELEASE_PATCH}"
-USER_MANUAL_TITLE = f"NoahAI 사용메뉴얼 {RELEASE_BUILD_LABEL}"
+DASHBOARD_TITLE = f"Noah AI Client - 대시보드 Beta {RELEASE_DISPLAY_LABEL}"
+USER_MANUAL_TITLE = f"NoahAI 사용메뉴얼 {RELEASE_DISPLAY_LABEL}"

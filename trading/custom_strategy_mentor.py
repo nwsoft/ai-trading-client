@@ -47,7 +47,12 @@ def validate_mentor_profile(profile: Mapping[str, Any] | None) -> Dict[str, Any]
 
 
 def recommend_strategy_candidates(profile: Mapping[str, Any]) -> List[Dict[str, Any]]:
-    """수익 단정 없이 사용자 여건에 맞는 검토 후보 2~3개를 설명한다."""
+    """수익 단정 없이 사용자 여건에 맞는 실행 가능한 검토 초안을 만든다.
+
+    NoahAI가 관리하는 프리셋은 모호한 자연어를 다시 AI에게 추측시키지 않는다.
+    실행 필드는 코드로 고정된 선언형 템플릿에서 만들고, 사용자가 직접 검토한
+    뒤에만 저장·승인·PAPER로 진행한다.
+    """
     validation = validate_mentor_profile(profile)
     if not validation["valid"]:
         return []
@@ -61,9 +66,97 @@ def recommend_strategy_candidates(profile: Mapping[str, Any]) -> List[Dict[str, 
     if experience == "advanced" and review == "intraday":
         keys[-1:] = ["volume_breakout"]
     max_loss = float(values.get("max_loss_percent") or 0.5)
+    asset_class = str(values.get("asset_class") or "crypto").lower()
+    leverage_allowed = bool(values.get("leverage_allowed"))
     results = []
     for key in keys[:3]:
         preset = get_beginner_preset(key) or {}
+        rules = deepcopy(preset.get("rules_template") or {})
+        rules["decision_timeframe"] = "1d" if asset_class == "stock" else "15m"
+        rules["execution_timeframe"] = rules["decision_timeframe"]
+        engine = dict(rules.get("engine_settings") or {})
+        engine["leverage"] = min(int(engine.get("leverage", 1) or 1), 3) if leverage_allowed else 1
+        rules["engine_settings"] = engine
+        rules["risk_model"] = {
+            "risk_per_trade_percent": max_loss,
+            "max_margin_usage_percent": float(engine.get("position_size", 0.1) or 0.1) * 100.0,
+            "max_leverage": int(engine.get("leverage", 1) or 1),
+        }
+        rules["risk_policy_preset"] = "custom"
+        rules["regime_transition"] = "pause"
+        rules["compiler_issues"] = []
+        if asset_class == "stock" and isinstance(rules.get("independent_entries"), dict):
+            long_spec = deepcopy(dict(rules["independent_entries"]).get("LONG") or {})
+            rules.pop("independent_entries", None)
+            rules["entry_signal"] = "LONG"
+            rules["executable_entry"] = long_spec
+
+        source_text = str(preset.get("source_text") or "") + f"\n판단 시간봉: {rules['decision_timeframe']} (완성된 봉 기준)"
+        source_reference = f"noahai://mentor/{key}"
+        trace = {
+            field: {
+                "status": "trusted_template",
+                "rule_value": deepcopy(rules.get(field)),
+                "evidence": [source_text[:500]],
+                "source_kind": "noahai_template",
+                "source_reference": source_reference,
+            }
+            for field in ("entry", "exit", "stop_loss", "take_profit", "position_size", "market_conditions")
+        }
+        rules["source_rule_trace"] = trace
+        rules["source_evidence"] = {
+            "kind": "noahai_template", "reference": source_reference,
+            "title": str(preset.get("name") or key), "text": source_text,
+            "warnings": [], "evidence": {"trusted_template": True},
+        }
+
+        from .custom_strategy_pipeline import CustomStrategyPipeline
+        from .declarative_strategy_engine import DeclarativeStrategyEngine
+        from .noah_strategy_ir import NoahStrategyIR
+        from .strategy_source_ingestor import StrategySourceIngestor
+
+        rules["source_grounding"] = {
+            "status": "trusted_template",
+            "compiler_contract_sha256": StrategySourceIngestor._execution_contract_digest(rules),
+            "ai_execution_rules_accepted": False,
+            "rejected_ai_paths": [],
+        }
+
+        readiness = CustomStrategyPipeline.paper_execution_readiness({
+            "rules": rules, "missing_conditions": [],
+        })
+        executable = DeclarativeStrategyEngine.validate_rule_spec(rules)
+        ready = bool(readiness.get("ready") and executable.get("valid"))
+        strategy_ir = NoahStrategyIR.compile(
+            rules, source_kind="noahai_template", source_reference=source_reference,
+            missing_conditions=[] if ready else ["managed_template_validation_failed"],
+        )
+        analysis = {
+            "name": preset.get("name", key),
+            "summary": preset.get("summary", ""),
+            "source": deepcopy(rules["source_evidence"]),
+            "rules": deepcopy(rules),
+            "engine_settings": deepcopy(engine),
+            "missing_conditions": [] if ready else ["managed_template_validation_failed"],
+            "unsupported_conditions": list(executable.get("errors") or []),
+            "risks": ["연속 손실 가능", "수수료·슬리피지로 기대값 감소", "국면 전환 지연"],
+            "scenarios": [],
+            "market_regime_suggestion": {
+                "regimes": list(rules.get("market_regimes") or ["all"]),
+                "labels": list(rules.get("market_conditions") or []),
+                "confidence": "managed_template",
+                "evidence": "NoahAI 관리 템플릿에 선언된 실행 국면",
+                "auto_select": True,
+            },
+            "ai_analyzed": False,
+            "managed_template": True,
+            "ready_for_review": ready,
+            "ready_for_execution": ready,
+            "execution_readiness": readiness,
+            "strategy_ir": strategy_ir,
+            "ir_level_1": NoahStrategyIR.project(strategy_ir, 1),
+            "ir_level_2": NoahStrategyIR.project(strategy_ir, 2),
+        }
         results.append({
             "preset_key": key,
             "name": preset.get("name", key),
@@ -77,7 +170,15 @@ def recommend_strategy_candidates(profile: Mapping[str, Any]) -> List[Dict[str, 
             "failure_risks": ["연속 손실 가능", "수수료·슬리피지로 기대값 감소", "국면 전환 지연"],
             "paper_required": True,
             "auto_applied": False,
-            "source_text": preset.get("source_text", ""),
+            "executable_template": bool(preset.get("executable_template") and ready),
+            "source_text": source_text,
+            "draft_rules": deepcopy(rules),
+            "draft_analysis": analysis,
+            "venue_note": (
+                "주식·ETF 후보는 LONG 진입만 포함합니다."
+                if asset_class == "stock"
+                else "선물의 LONG/SHORT를 포함하며 KRW 현물은 거래소 능력 계약에 따라 LONG만 실행합니다."
+            ),
         })
     return results
 

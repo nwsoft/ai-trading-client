@@ -1,4 +1,4 @@
-"""NoahAI v3.9.1.0 Web UI transition platform.
+"""NoahAI v3.9.1.13 Web UI platform.
 
 The package is intentionally isolated from the legacy CustomTkinter runtime.
 Importing it must not create windows, exchange clients, or trading workers.

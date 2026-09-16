@@ -21,8 +21,20 @@ import json
 import shutil
 import concurrent.futures
 import threading
+from copy import deepcopy
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from path_utils import get_cache_dir
 from .symbol_validator import symbol_validator
+from .market_selection_runtime import SelectionSingleFlight, TTLValueCache
+from .selection_policy import has_executable_candidates
+
+
+# 메이저/알트 분류는 후보 수량 비율과 화면 설명에 사용한다. 수집 경로마다
+# 서로 다른 목록을 두면 같은 BTC가 단계별로 알트→메이저로 바뀌므로 한 곳에서
+# 관리한다. 이 분류 자체가 주문 신호나 수익 전망은 아니다.
+MAJOR_CRYPTO_BASES = frozenset({
+    'BTC', 'ETH', 'BNB', 'SOL', 'ADA', 'XRP', 'DOT', 'LINK', 'AVAX', 'MATIC',
+})
 
 
 class EvaluationCriteria(Enum):
@@ -105,7 +117,7 @@ class Evaluator:
                 self.logger.warning(f"설정 파일 로드 실패, 기본값 사용: {e}")
 
         # 폴백 메이저 코인들
-        self.FALLBACK_MAJOR_COINS = ['BTC', 'ETH', 'BNB', 'SOL', 'XRP']  # ALPACAUSDT 완전 제거
+        self.FALLBACK_MAJOR_COINS = ['BTC', 'ETH', 'BNB', 'SOL', 'XRP']
 
         # 코인 선택 캐시 및 상태
         self.selected_coins = []
@@ -136,6 +148,26 @@ class Evaluator:
         # 거래소별 워커가 동시에 선택을 실행해도 시장 데이터 출처가 섞이지
         # 않도록 명시적 컨텍스트를 스레드 로컬에 보존한다.
         self._selection_context_local = threading.local()
+        self._selection_singleflight = SelectionSingleFlight()
+        self._market_data_singleflight = SelectionSingleFlight()
+        self._market_snapshot_cache = TTLValueCache()
+        self._kline_snapshot_cache = TTLValueCache()
+        self._funding_snapshot_cache = TTLValueCache()
+        self._open_interest_cache = TTLValueCache()
+        self._open_interest_previous: Dict[str, float] = {}
+        self._open_interest_previous_lock = threading.RLock()
+        # A slow/partial refresh must never replace a recently verified
+        # universe.  Keep the last execution-eligible result per venue; the
+        # caller receives a copy so another worker cannot mutate it in place.
+        self._last_valid_selection_by_exchange: Dict[str, List[Dict[str, Any]]] = {}
+        self._last_valid_selection_lock = threading.RLock()
+        # A failed discovery is useful evidence once, but persisting the same
+        # visible-only fallback every recovery tick grows the account database
+        # and makes the log look like a successful selection loop.  Keep this
+        # separate from retry scheduling: retries may continue while identical
+        # failure snapshots are written only at a bounded audit interval.
+        self._selection_persist_state: Dict[str, Dict[str, Any]] = {}
+        self._selection_persist_lock = threading.RLock()
 
     def _set_selection_context(self, exchange: Optional[str], exchange_client=None) -> str:
         exchange_key = str(exchange or "binance").strip().lower()
@@ -153,27 +185,53 @@ class Evaluator:
 
     def _get_context_klines(self, symbol: str, interval: str, limit: int):
         exchange = self._selection_exchange()
-        if exchange == "binance":
-            if not self.binance_client:
-                return []
-            return self.binance_client.get_klines(
-                self._append_usdt_if_missing(symbol), interval, limit
-            )
+        normalized_symbol = self._context_symbol(symbol)
+        cache_key = (exchange, normalized_symbol, str(interval), int(limit))
+        cache_ttl = max(
+            1.0,
+            float((self.settings or {}).get('market_kline_cache_ttl_seconds', 60) or 60),
+        )
+        cached = self._kline_snapshot_cache.get(cache_key, cache_ttl)
+        if cached is not None:
+            return cached
 
-        manager = getattr(self.analyzer, "exchange_manager", None)
-        if manager is not None and hasattr(manager, "get_klines"):
-            # 명시된 비바이낸스 요청은 실패하더라도 Binance로 폴백하지 않는다.
-            return manager.get_klines(symbol, interval, limit, exchange) or []
+        def load():
+            if exchange == "binance":
+                if not self.binance_client:
+                    return []
+                return self.binance_client.get_klines(
+                    normalized_symbol, interval, limit
+                ) or []
 
-        adapter = getattr(self._selection_context_local, "exchange_client", None)
-        raw_exchange = getattr(adapter, "exchange", None)
-        if raw_exchange is not None and hasattr(raw_exchange, "fetch_ohlcv"):
-            normalized = symbol
-            normalizer = getattr(adapter, "_normalize_symbol", None)
-            if callable(normalizer):
-                normalized = normalizer(symbol)
-            return raw_exchange.fetch_ohlcv(normalized, timeframe=interval, limit=limit) or []
-        return []
+            manager = getattr(self.analyzer, "exchange_manager", None)
+            if manager is not None and hasattr(manager, "get_klines"):
+                # 명시된 비바이낸스 요청은 실패하더라도 Binance로 폴백하지 않는다.
+                return manager.get_klines(symbol, interval, limit, exchange) or []
+
+            adapter = getattr(self._selection_context_local, "exchange_client", None)
+            raw_exchange = getattr(adapter, "exchange", None)
+            if raw_exchange is not None and hasattr(raw_exchange, "fetch_ohlcv"):
+                venue_symbol = symbol
+                normalizer = getattr(adapter, "_normalize_symbol", None)
+                if callable(normalizer):
+                    venue_symbol = normalizer(symbol)
+                return raw_exchange.fetch_ohlcv(
+                    venue_symbol, timeframe=interval, limit=limit
+                ) or []
+            return []
+
+        value = self._market_data_singleflight.run(
+            cache_key,
+            load,
+            cache_ttl=cache_ttl,
+            wait_timeout=max(
+                1.0,
+                float((self.settings or {}).get('coin_selection_stage_timeout_seconds', 10) or 10),
+            ),
+        )
+        if value:
+            self._kline_snapshot_cache.set(cache_key, value)
+        return value or []
 
     def _get_context_ticker(self, symbol: str):
         exchange = self._selection_exchange()
@@ -190,10 +248,21 @@ class Evaluator:
         """거래소별 학습 매니저 전환"""
         try:
             from .exchange_learning_manager import get_exchange_learning_manager
-            self.ai_learning_manager = get_exchange_learning_manager(exchange)
+            manager = get_exchange_learning_manager(exchange)
+            self._selection_context_local.learning_manager = manager
+            # 레거시 단일 거래소 호출자 호환. 병렬 선정 코드는 아래
+            # _selection_learning_manager()의 thread-local 값을 사용한다.
+            self.ai_learning_manager = manager
             self.logger.info(f"학습 매니저를 {exchange.upper()}로 전환 완료")
         except Exception as e:
             self.logger.error(f"거래소 학습 매니저 전환 오류: {e}")
+
+    def _selection_learning_manager(self):
+        return getattr(
+            self._selection_context_local,
+            "learning_manager",
+            self.ai_learning_manager,
+        )
 
     def _cleanup_cache(self):
         """캐시 정리"""
@@ -253,6 +322,138 @@ class Evaluator:
             self.logger.warning(f"백업 심볼 저장 실패: {e}")
 
     def select_trading_coins(self, num_alt=15, num_major=5, regime: Optional[str] = None, exchange: Optional[str] = None, exchange_client=None):
+        """Run one bounded selection per exchange and reuse very recent results.
+
+        A Web button and an automatic trading cycle can request the same venue
+        at nearly the same time.  They must share the work instead of doubling
+        public API traffic.  The completed list is copied so callers cannot
+        mutate the cache or another exchange worker's state.
+        """
+        exchange_key = str(exchange or "binance").strip().lower()
+        cache_ttl = float((self.settings or {}).get("coin_selection_cache_ttl_seconds", 30) or 30)
+        wait_timeout = float((self.settings or {}).get("coin_selection_total_timeout_seconds", 20) or 20)
+        selected = self._selection_singleflight.run(
+            exchange_key,
+            lambda: self._select_trading_coins_impl(
+                num_alt=num_alt,
+                num_major=num_major,
+                regime=regime,
+                exchange=exchange_key,
+                exchange_client=exchange_client,
+            ),
+            cache_ttl=max(0.0, cache_ttl),
+            wait_timeout=max(1.0, wait_timeout),
+        )
+        # A visible-only fallback is a failure state, not a reusable completed
+        # selection.  Keeping it in the short single-flight cache made the
+        # Binance worker re-read the same non-executable ten symbols on every
+        # recovery request even after the public API had recovered.
+        if not has_executable_candidates(selected):
+            self._selection_singleflight.invalidate(exchange_key)
+        return selected
+
+    def invalidate_selection_cache(self, exchange: Optional[str] = None) -> None:
+        """Invalidate only completed universe results for an explicit retry."""
+        key = str(exchange or "").strip().lower()
+        self._selection_singleflight.invalidate(key or None)
+
+    def _persist_selection_snapshot(
+        self,
+        *,
+        selected_coins: List[Dict[str, Any]],
+        num_alt: int,
+        num_major: int,
+        market_regime: str,
+        selection_reason: str,
+        adjustment_factor: float,
+        exchange: str,
+        selection_status: str,
+    ) -> int:
+        """Persist selection evidence without duplicating an unchanged outage.
+
+        Scored selections are real ranking events and are always stored.  A
+        non-executable fallback is stored immediately, then only once per audit
+        interval while its venue/status/reason/symbol set remains unchanged.
+        """
+
+        if not getattr(self, "recorder", None):
+            return 0
+
+        venue = str(exchange or "binance").strip().lower()
+        status = str(selection_status or "scored").strip().lower()
+        symbols = tuple(
+            str((item or {}).get("symbol") or "").strip().upper()
+            for item in (selected_coins or [])
+            if isinstance(item, dict) and str(item.get("symbol") or "").strip()
+        )
+        executable = has_executable_candidates(selected_coins)
+        fingerprint = (
+            status,
+            str(selection_reason or ""),
+            str(market_regime or ""),
+            symbols,
+        )
+        now = time.time()
+        failure_audit_interval = max(
+            60.0,
+            float(
+                (self.settings or {}).get(
+                    "coin_selection_failure_persist_interval_seconds",
+                    900,
+                )
+                or 900
+            ),
+        )
+
+        with self._selection_persist_lock:
+            previous = self._selection_persist_state.get(venue, {})
+            if (
+                not executable
+                and previous.get("fingerprint") == fingerprint
+                and now - float(previous.get("saved_at", 0.0) or 0.0)
+                < failure_audit_interval
+            ):
+                return 0
+
+            session_id = self.recorder.save_coin_selection(
+                selected_coins=selected_coins,
+                num_alt=num_alt,
+                num_major=num_major,
+                market_regime=market_regime,
+                selection_reason=selection_reason,
+                adjustment_factor=adjustment_factor,
+                exchange=venue,
+                selection_status=status,
+            )
+            if session_id > 0:
+                if executable:
+                    self._selection_persist_state.pop(venue, None)
+                else:
+                    self._selection_persist_state[venue] = {
+                        "fingerprint": fingerprint,
+                        "saved_at": now,
+                        "session_id": session_id,
+                    }
+            return int(session_id or 0)
+
+    @staticmethod
+    def _binance_selection_cache_paths() -> tuple[str, str, str]:
+        """Return account-scoped writable cache files for Binance discovery.
+
+        The previous relative ``data/nwsoft/cache`` path depended on the
+        process working directory.  In a packaged Windows Web UI build that can
+        resolve inside the read-only installation directory or another
+        account, turning an otherwise healthy public-market query into an
+        empty candidate universe.
+        """
+        cache_dir = get_cache_dir()
+        return (
+            os.path.join(cache_dir, "exchange_info.json"),
+            os.path.join(cache_dir, "backup_symbols.json"),
+            os.path.join(cache_dir, "ticker_data.json"),
+        )
+
+    def _select_trading_coins_impl(self, num_alt=15, num_major=5, regime: Optional[str] = None, exchange: Optional[str] = None, exchange_client=None):
         """🔥 통합된 트레이딩 코인 선정 시스템"""
         self._set_selection_context(exchange, exchange_client)
         self.logger.info(f"🔍 코인 선정 시작 - 알트: {num_alt}개, 메이저: {num_major}개")
@@ -282,13 +483,22 @@ class Evaluator:
                 dict(item) if isinstance(item, dict) else {"symbol": str(item or "")}
                 for item in (valid_coins or [])
             ]
+            # Detailed candles and derivative metrics are the expensive phase.
+            # Preserve the full exchange universe for advanced AI Custom filters,
+            # but deep-score only a liquidity-ranked buffer around the final
+            # target.  This prevents hundreds of duplicate candle/OI requests.
+            detail_limit = max(
+                int(num_alt) + int(num_major),
+                int((self.settings or {}).get("coin_selection_detail_candidate_limit", 30) or 30),
+            )
+            valid_coins_for_scoring = list(valid_coins or [])[:detail_limit]
             _t_stage['analysis'] = time.perf_counter() - _t_analysis_start
             self.logger.info(f"✅ 기본 분석 완료: {len(valid_coins)}개 유효한 코인")
 
             # 🔥 항상 _select_final_coins 호출 (코인 수 부족해도)
             self.logger.info(f"🎯 _select_final_coins 호출 시작")
             _t_select_start = time.perf_counter()
-            selected_coins = self._select_final_coins(valid_coins, num_alt, num_major, regime)
+            selected_coins = self._select_final_coins(valid_coins_for_scoring, num_alt, num_major, regime)
             _t_stage['select_final'] = time.perf_counter() - _t_select_start
             self.logger.info(f"✅ _select_final_coins 완료: {len(selected_coins)}개 코인 선정")
 
@@ -298,40 +508,120 @@ class Evaluator:
                 if isinstance(coin, dict) and 'overall_score' in coin:
                     scored_coins.append(coin)
                 else:
-                    # 점수 데이터가 없는 경우 기본값 설정
-                    coin_info = {
-                        'symbol': coin if isinstance(coin, str) else str(coin),
-                        'overall_score': 50.0,
-                        'technical_score': 50.0,
-                        'volatility_score': 50.0,
-                        'volume_score': 50.0,
-                        'trend_score': 50.0,
-                        'risk_score': 50.0
-                    }
-                    scored_coins.append(coin_info)
+                    # 점수 산출에 실패한 항목을 임의의 50점 후보로 승격하지 않는다.
+                    # 숫자 점수는 실제 평가가 완료된 후보만 가질 수 있다.
+                    invalid_symbol = (
+                        coin.get('symbol')
+                        if isinstance(coin, dict)
+                        else str(coin or '')
+                    )
+                    self.logger.warning(
+                        "점수 미산출 후보 제외: %s (임의 점수 생성 안 함)",
+                        invalid_symbol or "unknown",
+                    )
 
-            # 🔥 선택된 코인 수 검증
-            if len(scored_coins) >= (num_alt + num_major):
-                self.logger.info(f"🎯 목표 달성: {len(scored_coins)}개 >= {num_alt + num_major}개")
+            # 점수가 산출된 후보는 목표 수량이 부족해도 버리지 않는다.
+            # 기존 "기준 완화" 루프는 임계값을 낮추지 않고 100→70→50→30→10개로
+            # 조사 범위만 줄여 후보 부족을 악화시켰다. 정상 평가 부분 결과와
+            # 데이터 수집 실패를 구분하기 위해 재조회 루프를 제거한다.
+            target_count = max(1, int(num_alt) + int(num_major))
+            if scored_coins:
+                selection_status = 'scored' if len(scored_coins) >= target_count else 'scored_partial'
+                selection_reason = (
+                    'initial_selection'
+                    if selection_status == 'scored'
+                    else 'partial_candidate_selection'
+                )
+                for coin in scored_coins:
+                    coin['selection_status'] = selection_status
+                    coin['selection_reason'] = selection_reason
+                    coin['execution_eligible'] = True
+                    coin['analysis_only'] = False
 
-                # 🔥 코인 선택 데이터를 데이터베이스에 저장
+                # Candidate snapshots are allowed to take a bounded amount of
+                # time, but a completed old snapshot is not suitable for an
+                # atomic runtime swap.  Preserve the prior verified universe
+                # instead of replacing it with stale data.
+                selection_elapsed = time.perf_counter() - _t_total_start
+                completed_at = time.time()
+                snapshot_times = [
+                    float(coin.get('snapshot_at') or completed_at)
+                    for coin in scored_coins
+                    if isinstance(coin, dict)
+                ]
+                oldest_snapshot = min(snapshot_times) if snapshot_times else completed_at
+                snapshot_age = max(0.0, completed_at - oldest_snapshot)
+                max_snapshot_age = max(
+                    10.0,
+                    float((self.settings or {}).get('coin_selection_max_snapshot_age_seconds', 120) or 120),
+                )
+                if snapshot_age > max_snapshot_age or selection_elapsed > max_snapshot_age:
+                    with self._last_valid_selection_lock:
+                        previous = deepcopy(
+                            self._last_valid_selection_by_exchange.get(universe_key, [])
+                        )
+                    self.logger.warning(
+                        "%s 후보 스냅샷 만료: age=%.2fs elapsed=%.2fs limit=%.2fs · "
+                        "기존 검증 후보 유지",
+                        universe_key,
+                        snapshot_age,
+                        selection_elapsed,
+                        max_snapshot_age,
+                    )
+                    if previous:
+                        return previous
+                    for coin in scored_coins:
+                        coin['selection_status'] = 'stale_unscored'
+                        coin['selection_reason'] = 'selection_snapshot_expired'
+                        coin['execution_eligible'] = False
+                        coin['analysis_only'] = True
+                    try:
+                        if hasattr(self, 'recorder') and self.recorder:
+                            self._persist_selection_snapshot(
+                                selected_coins=scored_coins,
+                                num_alt=sum(1 for coin in scored_coins if not bool(coin.get('is_major', False))),
+                                num_major=sum(1 for coin in scored_coins if bool(coin.get('is_major', False))),
+                                market_regime=regime or 'neutral',
+                                selection_reason='selection_snapshot_expired',
+                                adjustment_factor=0.0,
+                                exchange=universe_key,
+                                selection_status='stale_unscored',
+                            )
+                    except Exception as persist_error:
+                        self.logger.error(f"만료 후보 상태 저장 오류: {persist_error}")
+                    return scored_coins
+
+                for coin in scored_coins:
+                    coin['snapshot_at'] = float(coin.get('snapshot_at') or oldest_snapshot)
+                    coin['selection_completed_at'] = completed_at
+                    coin['selection_elapsed_seconds'] = round(selection_elapsed, 3)
+                    coin['snapshot_age_seconds'] = round(snapshot_age, 3)
+                with self._last_valid_selection_lock:
+                    self._last_valid_selection_by_exchange[universe_key] = deepcopy(scored_coins)
+
+                if selection_status == 'scored':
+                    self.logger.info(f"🎯 목표 달성: {len(scored_coins)}개 >= {target_count}개")
+                else:
+                    self.logger.warning(
+                        f"⚠️ 평가 완료 후보 부분 선정: {len(scored_coins)}개/{target_count}개 · "
+                        "점수 미산출 고정 목록으로 교체하지 않음"
+                    )
+
                 _t_db_start = time.perf_counter()
-                self.logger.info("🔍 DEBUG: save_coin_selection 호출 직전")
                 try:
                     if hasattr(self, 'recorder') and self.recorder:
-                        self.logger.info("🔍 DEBUG: recorder 존재 확인됨")
-                        session_id = self.recorder.save_coin_selection(
+                        session_id = self._persist_selection_snapshot(
                             selected_coins=scored_coins,
-                            num_alt=num_alt,
-                            num_major=num_major,
+                            num_alt=sum(1 for coin in scored_coins if not bool(coin.get('is_major', False))),
+                            num_major=sum(1 for coin in scored_coins if bool(coin.get('is_major', False))),
                             market_regime=regime or 'neutral',
-                            selection_reason='initial_selection',
-                            adjustment_factor=1.0
+                            selection_reason=selection_reason,
+                            adjustment_factor=1.0,
+                            exchange=universe_key,
+                            selection_status=selection_status,
                         )
                         if session_id > 0:
                             self.logger.info(f"✅ 코인 선택 데이터 저장 완료: 세션 ID {session_id}")
-                        else:
-                            self.logger.warning("⚠️ 코인 선택 데이터 저장 실패")
                     else:
                         self.logger.warning("⚠️ Recorder가 초기화되지 않음 - 데이터 저장 건너뜀")
                 except Exception as e:
@@ -339,36 +629,31 @@ class Evaluator:
                 finally:
                     _t_stage['db_save'] = time.perf_counter() - _t_db_start
 
-                # 🔥 AI 평가 단계 추가
                 _t_ai_start = time.perf_counter()
                 self.logger.info("🤖 AI 평가 단계 시작...")
                 try:
-                    # 선택된 코인 심볼 리스트 생성
                     selected_symbols = [coin['symbol'] for coin in scored_coins]
-
-                    # AI 평가 실행
                     ai_evaluated_coins = self._evaluate_coins_with_ai(
-                        valid_coins,
+                        valid_coins_for_scoring,
                         selected_symbols,
                         exchange=exchange,
                         exchange_client=exchange_client,
                     )
-
                     if ai_evaluated_coins:
                         self.logger.info(f"✅ AI 평가 완료: {len(ai_evaluated_coins)}개 코인 평가됨")
-                        # AI 평가 결과를 DB에 저장
                         self._save_coin_evaluation_to_db(ai_evaluated_coins)
                     else:
                         self.logger.warning("⚠️ AI 평가 결과 없음")
-
                 except Exception as e:
                     self.logger.error(f"❌ AI 평가 중 오류: {e}")
                 finally:
                     _t_stage['ai_eval'] = time.perf_counter() - _t_ai_start
 
-                self.logger.info("🔍 DEBUG: evaluator에서 return 직전")
                 total_elapsed = time.perf_counter() - _t_total_start
-                self.logger.info(f"⏱️ 코인 선정 전체 소요시간(기본선정 성공): {total_elapsed:.2f}s | 단계별: {_t_stage}")
+                self.logger.info(
+                    f"⏱️ 코인 선정 전체 소요시간({selection_status}): "
+                    f"{total_elapsed:.2f}s | 단계별: {_t_stage}"
+                )
                 try:
                     self.coin_selection_performance['total_selections'] += 1
                     ts = self.coin_selection_performance['total_selections']
@@ -376,59 +661,16 @@ class Evaluator:
                     self.coin_selection_performance['avg_selection_time'] = ((prev_avg * (ts-1)) + total_elapsed) / ts
                 except Exception:
                     pass
-                return selected_coins
-            else:
-                self.logger.warning(f"⚠️ 목표 미달성: {len(selected_coins)}개 < {num_alt + num_major}개 필요")
+                return scored_coins
 
-            # 🔥 2. 코인이 부족하면 기준 완화 (통합된 로직 사용)
-            self.logger.warning(f"코인 부족 ({len(selected_coins)}개), 기준 완화 시작")
-            _t_stage['before_fallback'] = time.perf_counter() - _t_total_start
-
-            # 설정에서 adjustment_factors 가져오기
-            try:
-                strategy_config = getattr(self, 'settings', {}).get('trading_strategies', {}).get('scalping', {})
-                adjustment_factors = strategy_config.get('adjustment_factors', {}).get('fallback_levels', [0.7, 0.5, 0.3, 0.1])
-            except:
-                adjustment_factors = [0.7, 0.5, 0.3, 0.1]  # 기본값
-
-            self.logger.info(f"📊 사용할 조정계수: {adjustment_factors}")
-
-            for factor in adjustment_factors:
-                self.logger.info(f"기준 {((1-factor)*100):.0f}% 완화 시도 (조정계수: {factor})...")
-                _t_fb_iter_start = time.perf_counter()
-                # 🔥 통합된 메서드 사용 (adjustment_factor로 기준 조절)
-                adjusted_coins = self._analyze_candidate_coins_by_exchange(
-                    exchange=exchange,
-                    exchange_client=exchange_client,
-                    adjustment_factor=factor,
-                )
-                if adjusted_coins:
-                    self.last_market_universe_candidates_by_exchange[universe_key] = [
-                        dict(item) if isinstance(item, dict) else {"symbol": str(item or "")}
-                        for item in adjusted_coins
-                    ]
-                self.logger.info(f"⏱️ 기준 완화 분석 소요시간: {factor:.2f} → {len(adjusted_coins) if adjusted_coins else 0}개, {(time.perf_counter()-_t_fb_iter_start):.2f}s")
-
-                if len(adjusted_coins) >= (num_alt + num_major):
-                    _t_fb_select_start = time.perf_counter()
-                    selected_coins = self._select_final_coins(adjusted_coins, num_alt, num_major, regime)
-                    self.logger.info(f"⏱️ 기준 완화 최종선정 소요시간: {(time.perf_counter()-_t_fb_select_start):.2f}s")
-                    self.logger.info(f"기준 완화로 {len(selected_coins)}개 코인 선정 (조정계수: {factor})")
-                    total_elapsed = time.perf_counter() - _t_total_start
-                    self.logger.info(f"⏱️ 코인 선정 전체 소요시간(폴백 완료): {total_elapsed:.2f}s | 단계별: {_t_stage}")
-                    try:
-                        self.coin_selection_performance['total_selections'] += 1
-                        ts = self.coin_selection_performance['total_selections']
-                        prev_avg = self.coin_selection_performance['avg_selection_time']
-                        self.coin_selection_performance['avg_selection_time'] = ((prev_avg * (ts-1)) + total_elapsed) / ts
-                    except Exception:
-                        pass
-                    return selected_coins
-
-            # 🔥 3. 모든 시도 실패 시 메이저 코인으로 폴백 (극한 상황에서만)
-            self.logger.warning("🚨 모든 기준 완화 시도 실패 → 메이저 코인으로 폴백")
+            # 평가 가능한 후보가 0개인 경우에만 참조용 고정 목록을 노출한다.
+            # 이 목록은 시장 최적화 결과가 아니며 신규 주문 대상이 아니다.
+            self.logger.warning(
+                "🚨 후보 데이터 평가 불가 → 분석 참조용 주요 심볼 표시 "
+                "(신규 주문 차단)"
+            )
             total_elapsed = time.perf_counter() - _t_total_start
-            self.logger.info(f"⏱️ 코인 선정 전체 소요시간(폴백 실패): {total_elapsed:.2f}s | 단계별: {_t_stage}")
+            self.logger.info(f"⏱️ 코인 선정 전체 소요시간(데이터 평가 불가): {total_elapsed:.2f}s | 단계별: {_t_stage}")
             try:
                 self.coin_selection_performance['total_selections'] += 1
                 ts = self.coin_selection_performance['total_selections']
@@ -437,13 +679,39 @@ class Evaluator:
             except Exception:
                 pass
             fallback_coins = self._fallback_to_major_coins(num_alt + num_major, exchange=exchange)
-            self.logger.info(f"🔄 폴백 결과: {len(fallback_coins)}개 메이저 코인 반환")
+            if hasattr(self, 'recorder') and self.recorder:
+                self._persist_selection_snapshot(
+                    selected_coins=fallback_coins,
+                    num_alt=sum(1 for coin in fallback_coins if not bool(coin.get('is_major', False))),
+                    num_major=sum(1 for coin in fallback_coins if bool(coin.get('is_major', False))),
+                    market_regime=regime or 'neutral',
+                    selection_reason='candidate_evaluation_unavailable',
+                    adjustment_factor=0.0,
+                    exchange=universe_key,
+                    selection_status='fallback_unscored',
+                )
+            self.logger.info(f"🔄 분석 참조 결과: {len(fallback_coins)}개 심볼 반환 · 신규 주문 불가")
             return fallback_coins
 
         except Exception as e:
             self.logger.error(f"코인 선정 오류: {e}")
             # 오류 시 기본 메이저 코인 반환
-            return self._fallback_to_major_coins(num_alt + num_major, exchange=exchange)
+            fallback_coins = self._fallback_to_major_coins(num_alt + num_major, exchange=exchange)
+            try:
+                if hasattr(self, 'recorder') and self.recorder:
+                    self._persist_selection_snapshot(
+                        selected_coins=fallback_coins,
+                        num_alt=sum(1 for coin in fallback_coins if not bool(coin.get('is_major', False))),
+                        num_major=sum(1 for coin in fallback_coins if bool(coin.get('is_major', False))),
+                        market_regime=regime or 'neutral',
+                        selection_reason='selection_error_fallback',
+                        adjustment_factor=0.0,
+                        exchange=str(exchange or 'binance').strip().lower(),
+                        selection_status='fallback_unscored',
+                    )
+            except Exception as persist_error:
+                self.logger.error(f"폴백 코인 선정 상태 저장 오류: {persist_error}")
+            return fallback_coins
 
     def _analyze_candidate_coins_by_exchange(
         self,
@@ -453,11 +721,11 @@ class Evaluator:
     ):
         """거래소 컨텍스트를 유지한 후보 코인 분석 디스패처.
 
-        주의: 기준 완화(fallback) 단계에서도 반드시 동일한 거래소 경로를 사용해야
-        업비트/빗썸에서 바이낸스 USDT 심볼이 혼입되지 않는다.
+        주의: 후보가 부족하거나 데이터가 실패해도 반드시 동일한 거래소 경로를
+        사용해야 업비트/빗썸에서 바이낸스 USDT 심볼이 혼입되지 않는다.
         """
         ex = str(exchange or '').strip().lower()
-        if ex in ('upbit', 'bithumb'):
+        if ex in ('upbit', 'bithumb', 'coinone'):
             self.logger.info(f"🔍 현물 거래소 코인 분석 시작: {ex.upper()}")
             if exchange_client:
                 return self._analyze_candidate_coins_spot(exchange_client, adjustment_factor=adjustment_factor)
@@ -583,8 +851,9 @@ class Evaluator:
             self.logger.info("바이낸스 거래소 정보에서 유효한 거래 심볼만 가져오는 중...")
 
             # 🔥 하이브리드 접근법: 캐싱 + 백업 심볼 목록
-            cache_file = "data/nwsoft/cache/exchange_info.json"
-            backup_symbols_file = "data/nwsoft/cache/backup_symbols.json"
+            cache_file, backup_symbols_file, ticker_cache_file = (
+                self._binance_selection_cache_paths()
+            )
             import os
             import json
 
@@ -626,7 +895,9 @@ class Evaluator:
                 self.logger.error("거래소 정보를 가져올 수 없음")
                 return []
 
-            # 🔥 1단계: 유효한 거래 심볼만 필터링 (원래 로직 복원)
+            # 🔥 1단계: 실제 거래 중인 USDT 무기한 선물만 남긴다.
+            # 기존에는 USDT 문자열만 확인해 정지/만기 상품이 후보에
+            # 남을 수 있었다. API 응답에 메타데이터가 있으면 명시적으로 검증한다.
             _t_symbol_start = time.perf_counter()
             valid_symbols = []
             for symbol_info in exchange_info['symbols']:
@@ -634,6 +905,24 @@ class Evaluator:
 
                 # 기본 필터링: USDT 페어만
                 if not symbol.endswith('USDT'):
+                    continue
+
+                status = str(symbol_info.get('status') or '').strip().upper()
+                if status and status != 'TRADING':
+                    continue
+                contract_type = str(
+                    symbol_info.get('contractType')
+                    or symbol_info.get('contract_type')
+                    or ''
+                ).strip().upper()
+                if contract_type and contract_type != 'PERPETUAL':
+                    continue
+                quote_asset = str(
+                    symbol_info.get('quoteAsset')
+                    or symbol_info.get('quote_asset')
+                    or ''
+                ).strip().upper()
+                if quote_asset and quote_asset != 'USDT':
                     continue
 
                 # 추가 필터링: _is_valid_symbol 적용
@@ -648,7 +937,11 @@ class Evaluator:
             self._save_backup_symbols(backup_symbols_file, valid_symbols)
 
             # PERPETUAL 계약만 필터링된 상태 확인
-            perpetual_count = sum(1 for s in exchange_info['symbols'] if s.get('contract_type') == 'PERPETUAL')
+            perpetual_count = sum(
+                1
+                for s in exchange_info['symbols']
+                if str(s.get('contractType') or s.get('contract_type') or '').upper() == 'PERPETUAL'
+            )
             self.logger.info(f"PERPETUAL 계약 심볼: {perpetual_count}개")
 
             if not valid_symbols:
@@ -660,19 +953,29 @@ class Evaluator:
 
             _t_ticker_start = time.perf_counter()
             try:
-                # 🔥 캐시된 티커 데이터 확인 (5분 이내)
-                ticker_cache_file = "data/nwsoft/cache/ticker_data.json"
+                # 짧은 캐시만 사용한다. 캐시를 읽은 뒤 다시 저장하면 mtime이
+                # 갱신되어 오래된 시세가 영구히 신선해 보일 수 있으므로 실제
+                # API에서 새로 받은 경우에만 파일을 교체한다.
                 valid_tickers = []
+                ticker_data_fresh = False
+                ticker_snapshot_at = time.time()
+                ticker_cache_ttl = max(
+                    1.0,
+                    float((self.settings or {}).get('market_ticker_cache_ttl_seconds', 30) or 30),
+                )
 
                 if os.path.exists(ticker_cache_file):
                     cache_age = time.time() - os.path.getmtime(ticker_cache_file)
-                    if cache_age < 300:  # 5분
+                    if cache_age < ticker_cache_ttl:
                         self.logger.info("캐시된 티커 데이터 사용 (빠른 로딩)")
+                        ticker_snapshot_at = os.path.getmtime(ticker_cache_file)
                         with open(ticker_cache_file, 'r', encoding='utf-8') as f:
                             cached_tickers = json.load(f)
 
-                        # 유효한 심볼들만 필터링
-                        valid_symbols_set = set(valid_symbols[:100])
+                        # 전체 유효 심볼 티커를 모은 후 아래에서 실제
+                        # quoteVolume으로 정렬한다. 거래소 정보의 임의 순서
+                        # 앞 100개를 먼저 잘라 거래량 상위 종목을 놓치지 않는다.
+                        valid_symbols_set = set(valid_symbols)
                         for ticker in cached_tickers:
                             if ticker and 'symbol' in ticker:
                                 symbol = ticker['symbol']
@@ -683,12 +986,16 @@ class Evaluator:
                     else:
                         self.logger.info("캐시 만료 - 새로 조회 중...")
                         valid_tickers = self._fetch_ticker_data(valid_symbols)
+                        ticker_data_fresh = bool(valid_tickers)
+                        ticker_snapshot_at = time.time()
                 else:
                     self.logger.info("캐시 없음 - 새로 조회 중...")
                     valid_tickers = self._fetch_ticker_data(valid_symbols)
+                    ticker_data_fresh = bool(valid_tickers)
+                    ticker_snapshot_at = time.time()
 
-                # 캐시 저장
-                if valid_tickers:
+                # 실제 새 스냅샷만 캐시 저장
+                if valid_tickers and ticker_data_fresh:
                     os.makedirs(os.path.dirname(ticker_cache_file), exist_ok=True)
                     with open(ticker_cache_file, 'w', encoding='utf-8') as f:
                         json.dump(valid_tickers, f, ensure_ascii=False, indent=2)
@@ -711,102 +1018,28 @@ class Evaluator:
 
             self.logger.info(f"상위 {target_count}개 거래량 코인 선택 완료")
 
-            # 3.5단계 제거됨 - 중복 제거
-            # K라인 데이터 수집은 4단계에서만 수행
-
-            # 🔥 4단계: 선택된 코인들에 대한 상세 데이터 수집 (Invalid symbol 오류 처리)
-            self.logger.info(f"{target_count}개 심볼에 대한 K라인 데이터 수집 중...")
-            symbols = [ticker['symbol'] for ticker in selected_tickers]
-
-            # 🔥 4.1단계: K라인 데이터 수집 전 추가 검증
-            self.logger.info("K라인 데이터 수집 전 추가 검증 시작...")
-            _t_verify_start = time.perf_counter()
-            verified_symbols = []
-
-            for symbol in symbols:
-                try:
-                    # 심볼 검증 먼저 수행
-                    if not symbol_validator.is_valid_symbol('binance', symbol):
-                        self.logger.warning(f"🚨 {symbol}: 심볼 포맷 검증 실패 - 제외")
-                        continue
-
-                    # 간단한 K라인 데이터 1개만 테스트
-                    test_klines = self.binance_client.get_klines(symbol, '1m', 1)
-                    if test_klines and len(test_klines) > 0:
-                        verified_symbols.append(symbol)
-                        self.logger.debug(f"✅ {symbol}: K라인 데이터 수집 가능 확인")
-                    else:
-                        self.logger.warning(f"⚠️ {symbol}: K라인 데이터 없음 - 제외")
-                except Exception as e:
-                    if "Invalid symbol" in str(e):
-                        if symbol not in self._invalid_symbol_warned:
-                            self._invalid_symbol_warned.add(symbol)
-                            self.logger.warning(f"🚨 {symbol}: Invalid symbol 확인됨 - 제외")
-                        else:
-                            self.logger.debug(f"🚫 {symbol}: Invalid symbol(중복) - 로그 억제, 제외")
-                    else:
-                        self.logger.warning(f"❌ {symbol}: 테스트 실패 - 제외: {e}")
-
-            self.logger.info(f"✅ K라인 데이터 검증 완료: {len(verified_symbols)}개")
-            _dur['verify_1m'] = time.perf_counter() - _t_verify_start
-
-            if not verified_symbols:
-                self.logger.warning("검증된 심볼이 없음")
-                return []
-
-            # 🔥 5단계: 검증된 심볼들에 대한 K라인 데이터 수집 및 분석
-            self.logger.info(f"{len(verified_symbols)}개 검증된 심볼에 대한 K라인 데이터 수집 중...")
-
-            # 병렬로 K라인 데이터 수집
-            def collect_kline_data(symbol):
-                try:
-                    # 1시간 K라인 데이터 100개 수집
-                    klines = self.binance_client.get_klines(symbol, '1h', 100)
-                    if klines and len(klines) >= 50:  # 최소 50개 데이터 필요
-                        return {
-                            'symbol': symbol,
-                            'klines': klines,
-                            'base_symbol': symbol.replace('USDT', ''),
-                            'volume': 0,
-                            'quoteVolume': 0,
-                            'count': 0,
-                            'priceChange': 0,
-                            'priceChangePercent': 0
-                        }
-                    return None
-                except Exception as e:
-                    self.logger.debug(f"❌ {symbol}: K라인 데이터 수집 실패: {e}")
-                    return None
-
-            # 병렬 처리로 K라인 데이터 수집
-            _t_klines_start = time.perf_counter()
-            with ThreadPoolExecutor(max_workers=10) as executor:
-                kline_results = list(executor.map(collect_kline_data, verified_symbols))
-            _dur['klines_1h'] = time.perf_counter() - _t_klines_start
-
-            # None 결과 제거
-            valid_coins = [k for k in kline_results if k is not None]
-            self.logger.info(f"✅ K라인 데이터 수집 완료: {len(valid_coins)}개")
-
-            # 🔥 6단계: 24h 티커 데이터와 K라인 데이터 병합
-            self.logger.info("24h 티커 데이터와 K라인 데이터 병합 중...")
+            # metadata와 활성 ticker가 이미 1차 유효성 근거다. 예전의
+            # 100개 1분봉 직렬 검증 + 100개 1시간봉 선조회는 점수 단계에서
+            # 다시 같은 캔들을 요청했으므로 제거한다. 상세 캔들은 유동성으로
+            # 줄인 후보에 한 번만 조회한다.
             _t_merge_start = time.perf_counter()
-
-            # 티커 데이터를 심볼별로 딕셔너리화
-            ticker_dict = {t['symbol']: t for t in valid_tickers}
-
-            # K라인 데이터에 티커 정보 병합
-            for coin in valid_coins:
-                symbol = coin['symbol']
-                if symbol in ticker_dict:
-                    ticker = ticker_dict[symbol]
-                    coin.update({
-                        'volume': float(ticker.get('volume', 0)),
-                        'quoteVolume': float(ticker.get('quoteVolume', 0)),
-                        'count': int(ticker.get('count', 0)),
-                        'priceChange': float(ticker.get('priceChange', 0)),
-                        'priceChangePercent': float(ticker.get('priceChangePercent', 0))
-                    })
+            valid_coins = []
+            for ticker in selected_tickers:
+                symbol = str(ticker.get('symbol') or '').strip().upper()
+                if not symbol or not symbol_validator.is_valid_symbol('binance', symbol):
+                    continue
+                base = symbol[:-4] if symbol.endswith('USDT') else symbol
+                valid_coins.append({
+                    'symbol': symbol,
+                    'base_symbol': base,
+                    'is_major': base in MAJOR_CRYPTO_BASES,
+                    'volume': float(ticker.get('volume', 0) or 0),
+                    'quoteVolume': float(ticker.get('quoteVolume', 0) or 0),
+                    'count': int(ticker.get('count', 0) or 0),
+                    'priceChange': float(ticker.get('priceChange', 0) or 0),
+                    'priceChangePercent': float(ticker.get('priceChangePercent', 0) or 0),
+                    'snapshot_at': ticker_snapshot_at,
+                })
             _dur['merge'] = time.perf_counter() - _t_merge_start
 
             # 🔥 7단계: 메이저 코인과 알트코인 분리 확인
@@ -820,8 +1053,7 @@ class Evaluator:
                              f"exchange_info={_dur['exchange_info']*1000:.0f}, "
                              f"symbol_filter={_dur['symbol_filter']*1000:.0f}, "
                              f"ticker_load={_dur['ticker_load']*1000:.0f}, "
-                             f"verify_1m={_dur['verify_1m']*1000:.0f}, "
-                             f"klines_1h={_dur['klines_1h']*1000:.0f}, "
+                             f"verify_1m=0, klines_1h=0, "
                              f"merge={_dur['merge']*1000:.0f}")
             return valid_coins
 
@@ -840,7 +1072,9 @@ class Evaluator:
 
             # 유효한 심볼들만 필터링
             valid_tickers = []
-            valid_symbols_set = set(valid_symbols[:100])  # 상위 100개로 확장
+            # 거래소 심볼 배열 순서가 아니라 실제 24h 거래량으로
+            # 후속 상위 후보를 선정하도록 전체 유효 티커를 보존한다.
+            valid_symbols_set = set(valid_symbols)
 
             for ticker in all_tickers:
                 if ticker and 'symbol' in ticker:
@@ -855,20 +1089,204 @@ class Evaluator:
             self.logger.error(f"❌ 티커 데이터 조회 실패: {e}")
             return []
 
+    def _fetch_exchange_tickers(self, exchange_client, symbols: List[str]) -> Dict[str, Dict[str, Any]]:
+        """Return one venue ticker snapshot without an unbounded serial loop."""
+        exchange_key = self._selection_exchange()
+        cache_ttl = float((self.settings or {}).get("market_ticker_cache_ttl_seconds", 30) or 30)
+        cache_key = (exchange_key, "tickers")
+        cached = self._market_snapshot_cache.get(cache_key, cache_ttl)
+        if isinstance(cached, dict) and cached:
+            return cached
+
+        raw_exchange = getattr(exchange_client, "exchange", None)
+        requested = [str(symbol or "").strip() for symbol in symbols if str(symbol or "").strip()]
+        rows: Dict[str, Dict[str, Any]] = {}
+        fetch_tickers = getattr(exchange_client, "get_24h_tickers", None)
+        if not callable(fetch_tickers):
+            fetch_tickers = getattr(raw_exchange, "fetch_tickers", None)
+        if callable(fetch_tickers):
+            try:
+                payload = fetch_tickers(requested) or {}
+            except (TypeError, ValueError):
+                payload = fetch_tickers() or {}
+            except Exception as exc:
+                self.logger.warning(f"{exchange_key} 일괄 ticker 조회 실패, 제한 병렬 fallback: {exc}")
+                payload = {}
+            if isinstance(payload, dict):
+                for key, value in payload.items():
+                    if not isinstance(value, dict):
+                        continue
+                    symbol = str(value.get("symbol") or key or "").strip()
+                    if symbol:
+                        rows[symbol] = dict(value)
+                        rows[symbol.upper()] = dict(value)
+
+        if not rows:
+            max_workers = max(1, min(8, int((self.settings or {}).get("coin_selection_max_workers", 8) or 8)))
+            timeout = max(1.0, float((self.settings or {}).get("coin_selection_stage_timeout_seconds", 10) or 10))
+            fetch_one = getattr(exchange_client, "get_24h_ticker", None)
+            if not callable(fetch_one):
+                fetch_one = getattr(exchange_client, "fetch_ticker", None)
+            if not callable(fetch_one) and raw_exchange is not None:
+                fetch_one = getattr(raw_exchange, "fetch_ticker", None)
+            if callable(fetch_one):
+                executor = ThreadPoolExecutor(max_workers=max_workers, thread_name_prefix=f"{exchange_key}-ticker")
+                futures = {executor.submit(fetch_one, symbol): symbol for symbol in requested}
+                done, pending = concurrent.futures.wait(futures, timeout=timeout)
+                for future in done:
+                    symbol = futures[future]
+                    try:
+                        value = future.result()
+                    except Exception:
+                        continue
+                    if isinstance(value, dict):
+                        rows[symbol] = dict(value)
+                        rows[symbol.upper()] = dict(value)
+                for future in pending:
+                    future.cancel()
+                executor.shutdown(wait=False, cancel_futures=True)
+                if pending:
+                    self.logger.warning(
+                        f"{exchange_key} ticker 제한시간 종료: "
+                        f"완료 {len(done)}/{len(futures)} · 미완료는 이번 선정에서 제외"
+                    )
+
+        if rows:
+            self._market_snapshot_cache.set(cache_key, rows)
+        return rows
+
+    @staticmethod
+    def _ticker_quote_volume(
+        ticker: Optional[Dict[str, Any]],
+        *,
+        exchange_name: Optional[str] = None,
+        market: Optional[Dict[str, Any]] = None,
+    ) -> float:
+        """Normalize 24h turnover to quote currency across CCXT venues.
+
+        OKX perpetual tickers omit CCXT ``quoteVolume``.  Their raw
+        ``volCcy24h`` is base-currency volume while ``vol24h``/CCXT
+        ``baseVolume`` is contract count, so the generic base-volume fallback
+        is not dimensionally valid for that venue.  Explicit quote-turnover
+        fields win.  OKX derivatives use ``volCcy24h * last``; other unified
+        venues may derive turnover from true base volume times last price.
+        """
+
+        if not isinstance(ticker, dict):
+            return 0.0
+        info = ticker.get("info") if isinstance(ticker.get("info"), dict) else {}
+
+        def positive(mapping: Dict[str, Any], *keys: str) -> float:
+            for key in keys:
+                try:
+                    value = float(mapping.get(key, 0) or 0)
+                except (TypeError, ValueError):
+                    continue
+                if value > 0:
+                    return value
+            return 0.0
+
+        venue = str(exchange_name or "").strip().lower()
+        instrument_type = str(info.get("instType") or "").strip().upper()
+        market = market if isinstance(market, dict) else {}
+        derivative = bool(
+            market.get("contract")
+            or market.get("swap")
+            or market.get("future")
+            or instrument_type in {"SWAP", "FUTURES", "OPTION"}
+        )
+
+        quote_volume = positive(
+            ticker,
+            "quoteVolume",
+            "quote_volume",
+            "turnover",
+            "turnover24h",
+            "quoteVol",
+            "volCcyQuote24h",
+        ) or positive(
+            info,
+            "quoteVolume",
+            "quote_volume",
+            "turnover",
+            "turnover24h",
+            "quoteVol",
+            "volCcyQuote24h",
+        )
+        if quote_volume > 0:
+            return quote_volume
+
+        last_price = positive(ticker, "last", "close") or positive(
+            info,
+            "last",
+            "lastPx",
+            "close",
+        )
+
+        # OKX documents volCcy24h as base-currency quantity for derivatives,
+        # but quote-currency quantity for spot.  CCXT intentionally leaves
+        # derivative quoteVolume unset and exposes vol24h as contract count.
+        if venue == "okx":
+            okx_currency_volume = positive(info, "volCcy24h")
+            if okx_currency_volume > 0:
+                if derivative:
+                    return okx_currency_volume * last_price if last_price > 0 else 0.0
+                return okx_currency_volume
+            if derivative and venue == "okx":
+                # Do not mistake OKX contract count for base-currency volume.
+                return 0.0
+
+        base_volume = positive(
+            ticker,
+            "baseVolume",
+            "base_volume",
+        ) or positive(
+            info,
+            "baseVolume",
+            "base_volume",
+            "volCcy24h",
+        )
+        if base_volume > 0 and last_price > 0:
+            return base_volume * last_price
+        return 0.0
+
+    @staticmethod
+    def _ticker_percentage(ticker: Optional[Dict[str, Any]]) -> float:
+        """Return a comparable 24h percentage even when CCXT leaves it null."""
+
+        if not isinstance(ticker, dict):
+            return 0.0
+        try:
+            explicit = ticker.get("percentage")
+            if explicit is not None:
+                return float(explicit)
+        except (TypeError, ValueError):
+            pass
+        info = ticker.get("info") if isinstance(ticker.get("info"), dict) else {}
+        try:
+            last = float(ticker.get("last") or info.get("last") or info.get("lastPx") or 0)
+            open_24h = float(ticker.get("open") or info.get("open24h") or 0)
+        except (TypeError, ValueError):
+            return 0.0
+        if last > 0 and open_24h > 0:
+            return ((last - open_24h) / open_24h) * 100.0
+        return 0.0
+
     def _analyze_candidate_coins_spot(self, exchange_client, adjustment_factor=1.0):
         """현물 거래소용 코인 분석 (업비트/빗썸)"""
         try:
             self.logger.info(f"📊 현물 거래소 코인 분석 시작 (조정계수: {adjustment_factor:.2f})")
             _t_total_start = time.perf_counter()
+            learning_manager = self._selection_learning_manager()
 
             # API 제한 확인
-            if self.ai_learning_manager.should_apply_api_delay():
-                delay = self.ai_learning_manager.get_analysis_delay()
+            if learning_manager.should_apply_api_delay():
+                delay = learning_manager.get_analysis_delay()
                 self.logger.info(f"API 제한으로 인한 딜레이 적용: {delay}초")
                 time.sleep(delay)
 
             # 최대 분석 코인 수 제한
-            max_coins = self.ai_learning_manager.get_max_coins_for_analysis()
+            max_coins = learning_manager.get_max_coins_for_analysis()
             self.logger.info(f"최대 분석 코인 수: {max_coins}개")
 
             # 거래소별 코인 목록 가져오기 (어댑터 구현 차이 호환)
@@ -922,21 +1340,19 @@ class Evaluator:
 
                 self.logger.info(f"KRW 페어 발견: {len(krw_pairs)}개")
 
-                # 모든 후보에 대해 티커 조회 → 거래량(quoteVolume) 수집
+                # CCXT 일괄 ticker를 우선 사용한다. 지원하지 않는 어댑터만
+                # 제한 병렬 fallback을 사용하며 전체 종목을 직렬 호출하지 않는다.
+                ticker_map = self._fetch_exchange_tickers(
+                    exchange_client,
+                    [pair['symbol'] for pair in krw_pairs],
+                )
                 volume_scored = []
                 for pair in krw_pairs:
                     try:
                         symbol = pair['symbol']
-                        if hasattr(exchange_client, 'fetch_ticker'):
-                            ticker = exchange_client.fetch_ticker(symbol)
-                        elif hasattr(exchange_client, 'exchange') and getattr(exchange_client, 'exchange', None) is not None:
-                            ticker = exchange_client.exchange.fetch_ticker(symbol)
-                        else:
-                            ticker = None
-                        qv = float((ticker or {}).get('quoteVolume', 0) or 0)
+                        ticker = ticker_map.get(symbol) or ticker_map.get(str(symbol).upper())
+                        qv = self._ticker_quote_volume(ticker)
                         volume_scored.append((qv, pair, ticker))
-                        if self.ai_learning_manager.should_apply_api_delay():
-                            time.sleep(self.ai_learning_manager.get_analysis_delay())
                     except Exception as e:
                         self.logger.debug(f"❌ {pair.get('symbol')}: 데이터 수집 실패: {e}")
                         continue
@@ -947,6 +1363,7 @@ class Evaluator:
                 top = volume_scored[:target_count]
 
                 valid_coins = []
+                snapshot_at = time.time()
                 for qv, pair, ticker in top:
                     if not ticker:
                         continue
@@ -955,13 +1372,14 @@ class Evaluator:
                         coin_data = {
                             'symbol': symbol,
                             'base_symbol': pair['base'],
-                            'is_major': pair['base'] in ['BTC', 'ETH', 'XRP', 'ADA', 'DOT'],
-                            'volume': float(ticker.get('quoteVolume', 0) or 0),
-                            'quoteVolume': float(ticker.get('quoteVolume', 0) or 0),
-                            'priceChangePercent': float(ticker.get('percentage', 0) or 0),
+                            'is_major': pair['base'] in MAJOR_CRYPTO_BASES,
+                            'volume': qv,
+                            'quoteVolume': qv,
+                            'priceChangePercent': self._ticker_percentage(ticker),
                             'lastPrice': float(ticker.get('last', 0) or 0),
                             'high': float(ticker.get('high', 0) or 0),
-                            'low': float(ticker.get('low', 0) or 0)
+                            'low': float(ticker.get('low', 0) or 0),
+                            'snapshot_at': snapshot_at,
                         }
                         valid_coins.append(coin_data)
                     except Exception:
@@ -991,8 +1409,9 @@ class Evaluator:
 
             # API 제한 확인(있으면 적용)
             try:
-                if hasattr(self, 'ai_learning_manager') and self.ai_learning_manager and self.ai_learning_manager.should_apply_api_delay():
-                    delay = self.ai_learning_manager.get_analysis_delay()
+                learning_manager = self._selection_learning_manager()
+                if learning_manager and learning_manager.should_apply_api_delay():
+                    delay = learning_manager.get_analysis_delay()
                     self.logger.info(f"API 제한으로 인한 딜레이 적용: {delay}초")
                     import time as _t
                     _t.sleep(delay)
@@ -1000,7 +1419,8 @@ class Evaluator:
                 pass
 
             try:
-                max_coins = self.ai_learning_manager.get_max_coins_for_analysis() if self.ai_learning_manager else 100
+                learning_manager = self._selection_learning_manager()
+                max_coins = learning_manager.get_max_coins_for_analysis() if learning_manager else 100
             except Exception:
                 max_coins = 100
 
@@ -1066,13 +1486,21 @@ class Evaluator:
                 self.logger.warning("USDT 선물 후보 없음")
                 return []
 
-            # 24h 티커 수집 → 컷오프 적용 → 가중 정렬
+            # 24h ticker는 거래소 전체를 직렬 조회하지 않는다.
+            ticker_map = self._fetch_exchange_tickers(
+                exchange_client,
+                [sym for sym, _ in candidates],
+            )
             scored = []
             for sym, m in candidates:
                 try:
-                    t = exchange_client.get_24h_ticker(sym) if hasattr(exchange_client, 'get_24h_ticker') else None
-                    qv = float((t or {}).get('quoteVolume', 0) or 0)
-                    pct = float((t or {}).get('percentage', 0) or 0)
+                    t = ticker_map.get(sym) or ticker_map.get(str(sym).upper())
+                    qv = self._ticker_quote_volume(
+                        t,
+                        exchange_name=ex_name,
+                        market=m,
+                    )
+                    pct = self._ticker_percentage(t)
                     # 컷오프 적용
                     if min_qv and qv < min_qv:
                         continue
@@ -1097,22 +1525,24 @@ class Evaluator:
             top = scored[:target_count]
 
             valid_coins = []
+            snapshot_at = time.time()
             for qv, apct, sym, m, t in top:
                 try:
                     base = m.get('base')
-                    pct = float((t or {}).get('percentage', 0) or 0)
+                    pct = self._ticker_percentage(t)
                     last = float((t or {}).get('last', 0) or 0)
                     high = float((t or {}).get('high', 0) or 0)
                     low = float((t or {}).get('low', 0) or 0)
                     valid_coins.append({
                         'symbol': sym,
                         'base_symbol': base,
-                        'is_major': base in ['BTC', 'ETH', 'BNB', 'XRP', 'ADA', 'SOL'],
+                        'is_major': base in MAJOR_CRYPTO_BASES,
                         'quoteVolume': qv,
                         'priceChangePercent': pct,
                         'lastPrice': last,
                         'high': high,
                         'low': low,
+                        'snapshot_at': snapshot_at,
                     })
                 except Exception:
                     continue
@@ -1167,15 +1597,23 @@ class Evaluator:
             return False
 
     def _calculate_trading_scores(self, valid_coins, strategy='scalping', adjustment_factor=1.0):
-        """🔥 전략별 점수 계산 (모든 코인을 알트코인으로 처리)"""
-        scored_coins = []
+        """전략별 후보 점수를 제한시간 안에 계산한다.
 
-        # 모든 코인을 알트코인으로 처리 (메이저 코인 분리는 _select_final_coins에서 처리)
+        이 단계는 이미 한 번에 수집한 24시간 ticker snapshot만 사용해야 한다.
+        종목별 candle/funding/OI 네트워크 호출을 worker 안에서 실행하면 첫
+        batch가 stage timeout을 모두 소비해, 정상 시장에서도 결과가 0건이
+        되고 안전 fallback으로 바뀐다. 추가 자료는 캐시에 있을 때만 보조
+        반영하고, 선정된 종목의 candle 검증은 후속 실시간 분석 단계에서 한다.
+        """
         self.logger.info(f"📊 점수 계산 시작: 총 {len(valid_coins)}개 코인")
+        exchange = self._selection_exchange()
+        exchange_client = getattr(self._selection_context_local, "exchange_client", None)
+        learning_manager = self._selection_learning_manager()
 
-        # 🔥 모든 코인: 스캘핑 전략 평가
-        for coin in valid_coins:
+        def score_one(coin):
             try:
+                self._set_selection_context(exchange, exchange_client)
+                self._selection_context_local.learning_manager = learning_manager
                 # 알트코인용 가중치 (스캘핑 중심)
                 alt_weights = {
                     'volatility_weight': 0.35,        # 높은 변동성 선호
@@ -1186,6 +1624,11 @@ class Evaluator:
 
                 # 스캘핑 점수 계산
                 scores = self._calculate_altcoin_scores(coin, alt_weights)
+                if not bool(scores.get('calculation_valid', True)):
+                    self.logger.warning(
+                        f"⚠️ {coin.get('symbol', 'N/A')}: 종합점수 계산 무효 - 선정 후보에서 제외"
+                    )
+                    return None
 
                 # 🔥 K-line 데이터 제외하고 필요한 정보만 추출하여 새로운 딕셔너리 생성
                 clean_coin_data = {
@@ -1198,39 +1641,56 @@ class Evaluator:
                     'volume_score': scores['volume_score'],
                     'trend_score': scores['trend_score'],
                     'risk_score': scores['risk_score'],
+                    'technical_data_available': scores.get('technical_data_available', False),
+                    'funding_data_available': scores.get('funding_data_available', False),
+                    'open_interest_data_available': scores.get('open_interest_data_available', False),
                     'volume': coin.get('volume', 0),
                     'quoteVolume': coin.get('quoteVolume', 0),
                     'count': coin.get('count', 0),
                     'priceChange': coin.get('priceChange', 0),
-                    'priceChangePercent': coin.get('priceChangePercent', 0)
+                    'priceChangePercent': coin.get('priceChangePercent', 0),
+                    'snapshot_at': coin.get('snapshot_at'),
                 }
 
                 # 🔥 메이저 코인도 알트코인과 동일하게 모든 점수 필드 포함
                 # 이제 메이저 코인도 대시보드에서 모든 점수가 정상적으로 표시됨
 
-                scored_coins.append(clean_coin_data)
                 self.logger.debug(f"✅ {coin['symbol']}: 점수 {scores['overall_score']:.2f}")
+                return clean_coin_data
 
             except Exception as e:
-                self.logger.warning(f"⚠️ {coin['symbol']}: 점수 계산 실패: {e}")
-                # 🔥 기본 점수로 깨끗한 딕셔너리 생성
-                clean_coin_data = {
-                    'symbol': coin.get('symbol', 'N/A'),
-                    'is_major': coin.get('is_major', False),
-                    'base_symbol': coin.get('base_symbol', 'N/A'),
-                    'overall_score': 30.0,  # 기본 점수
-                    'technical_score': 30.0,
-                    'volatility_score': 30.0,
-                    'volume_score': 30.0,
-                    'trend_score': 30.0,
-                    'risk_score': 30.0,
-                    'volume': coin.get('volume', 0),
-                    'quoteVolume': coin.get('quoteVolume', 0),
-                    'count': coin.get('count', 0),
-                    'priceChange': coin.get('priceChange', 0),
-                    'priceChangePercent': coin.get('priceChangePercent', 0)
-                }
-                scored_coins.append(clean_coin_data)
+                self.logger.warning(
+                    f"⚠️ {coin.get('symbol', 'N/A')}: 점수 계산 실패 - "
+                    f"임의 30점으로 대체하지 않고 제외: {e}"
+                )
+                return None
+
+        max_workers = max(1, min(8, int((self.settings or {}).get("coin_selection_max_workers", 8) or 8)))
+        timeout = max(1.0, float((self.settings or {}).get("coin_selection_stage_timeout_seconds", 10) or 10))
+        executor = ThreadPoolExecutor(max_workers=max_workers, thread_name_prefix=f"{exchange}-score")
+        prepared_coins = []
+        for coin in list(valid_coins or []):
+            prepared = dict(coin or {})
+            prepared['_selection_snapshot_only'] = True
+            prepared_coins.append(prepared)
+        futures = [executor.submit(score_one, coin) for coin in prepared_coins]
+        done, pending = concurrent.futures.wait(futures, timeout=timeout)
+        scored_coins = []
+        for future in done:
+            try:
+                value = future.result()
+            except Exception:
+                value = None
+            if value is not None:
+                scored_coins.append(value)
+        for future in pending:
+            future.cancel()
+        executor.shutdown(wait=False, cancel_futures=True)
+        if pending:
+            self.logger.warning(
+                f"{exchange} 상세 점수 제한시간 종료: "
+                f"완료 {len(done)}/{len(futures)} · 완료 후보만 부분 선정"
+            )
 
         self.logger.info(f"🎯 점수 계산 완료: 총 {len(scored_coins)}개")
 
@@ -1243,6 +1703,35 @@ class Evaluator:
             # 다른 거래소 심볼을 Binance API에 보내는 것은 데이터 오염이다.
             return None
         try:
+            snapshot = self._funding_snapshot_cache.get("binance", 300)
+            if snapshot is None:
+                def load_snapshot():
+                    result = {}
+                    try:
+                        import urllib.request, json
+                        url = "https://fapi.binance.com/fapi/v1/premiumIndex"
+                        with urllib.request.urlopen(url, timeout=3) as resp:
+                            payload = json.loads(resp.read())
+                        if isinstance(payload, list):
+                            result = {
+                                str(row.get("symbol") or "").upper(): float(row.get("lastFundingRate") or 0)
+                                for row in payload
+                                if isinstance(row, dict) and row.get("symbol")
+                            }
+                    except Exception:
+                        result = {}
+                    return result
+
+                snapshot = self._market_data_singleflight.run(
+                    ("binance", "funding_snapshot"),
+                    load_snapshot,
+                    cache_ttl=300,
+                    wait_timeout=4,
+                )
+                if snapshot:
+                    self._funding_snapshot_cache.set("binance", snapshot)
+            if isinstance(snapshot, dict) and str(symbol).upper() in snapshot:
+                return float(snapshot[str(symbol).upper()])
             # binance_client 존재 시 우선 사용
             if hasattr(self, 'binance_client') and self.binance_client:
                 bc = self.binance_client
@@ -1264,26 +1753,26 @@ class Evaluator:
         """Binance Futures 미결제약정 조회. 반환: {'open_interest': float, 'oi_change_pct': float}"""
         if self._selection_exchange() != 'binance':
             return None
+        cache_key = ("binance", str(symbol or "").upper())
+        cached = self._open_interest_cache.get(cache_key, 300)
+        if isinstance(cached, dict):
+            return cached
         try:
             import urllib.request, json
             url = f"https://fapi.binance.com/fapi/v1/openInterest?symbol={symbol}"
             with urllib.request.urlopen(url, timeout=3) as resp:
                 data = json.loads(resp.read())
                 oi = float(data.get('openInterest') or 0)
-            # 5분전 OI와 비교 (sumOpenInterest from statistics endpoint)
-            try:
-                hist_url = f"https://fapi.binance.com/futures/data/openInterestHist?symbol={symbol}&period=5m&limit=2"
-                with urllib.request.urlopen(hist_url, timeout=3) as resp2:
-                    hist = json.loads(resp2.read())
-                    if len(hist) >= 2:
-                        oi_prev = float(hist[-2].get('sumOpenInterest') or 0)
-                        oi_curr = float(hist[-1].get('sumOpenInterest') or oi)
-                        change_pct = (oi_curr - oi_prev) / max(oi_prev, 1) * 100
-                    else:
-                        change_pct = 0.0
-            except Exception:
-                change_pct = 0.0
-            return {'open_interest': oi, 'oi_change_pct': change_pct}
+            # 별도 과거 OI endpoint를 종목마다 다시 호출하지 않는다. 5분 TTL
+            # snapshot 사이의 현재 OI를 비교하며 첫 관측은 중립(0%)이다.
+            symbol_key = str(symbol or "").upper()
+            with self._open_interest_previous_lock:
+                oi_prev = float(self._open_interest_previous.get(symbol_key, 0.0) or 0.0)
+                self._open_interest_previous[symbol_key] = oi
+            change_pct = ((oi - oi_prev) / oi_prev * 100.0) if oi_prev > 0 else 0.0
+            value = {'open_interest': oi, 'oi_change_pct': change_pct}
+            self._open_interest_cache.set(cache_key, value)
+            return value
         except Exception as e:
             self.logger.debug(f"OI 조회 실패 ({symbol}): {e}")
             return None
@@ -1581,33 +2070,32 @@ class Evaluator:
 
                 self.logger.debug(f"거래 빈도 점수: {count}회 → {frequency_score} (임계값: {frequency_thresholds})")
 
-            # 5. 기술적 점수 (실제 기술적 지표 기반)
-            technical_score = base_scores.get('technical_base', 60)
+            # 5. 기술적 점수. 후보 ranking worker에서는 네트워크를 다시
+            # 호출하지 않는다. 캐시가 없는 경우 미산출(None)로 남기며,
+            # 선정된 종목의 캔들은 후속 실시간 분석 단계에서 검증한다.
+            snapshot_only = bool(coin.get('_selection_snapshot_only', False))
+            technical_score = None if snapshot_only else base_scores.get('technical_base', 60)
             try:
-                # 기술적 지표 계산 시도
                 symbol = coin.get('symbol', '')
-                if symbol:
+                technical_indicators = coin.get('_selection_technical_indicators')
+                if technical_indicators is None and symbol and not snapshot_only:
                     technical_indicators = self.calculate_technical_indicators(symbol)
-                    if technical_indicators:
-                        # RSI 기반 점수 계산
-                        rsi_15m = technical_indicators.get('rsi_15m', 50)
-                        rsi_1h = technical_indicators.get('rsi_1h', 50)
-
-                        # RSI 종합 점수 (15분과 1시간 평균)
-                        avg_rsi = (rsi_15m + rsi_1h) / 2
-
-                        if 30 <= avg_rsi <= 70:  # 정상 범위
-                            technical_score = 80
-                        elif 20 <= avg_rsi < 30 or 70 < avg_rsi <= 80:  # 과매도/과매수 경계
-                            technical_score = 70
-                        elif avg_rsi < 20 or avg_rsi > 80:  # 극단적 과매도/과매수
-                            technical_score = 50
-                        else:  # 기타
-                            technical_score = 60
-
-                        self.logger.debug(f"기술적 점수: RSI {avg_rsi:.1f} → {technical_score}")
+                if technical_indicators:
+                    rsi_15m = technical_indicators.get('rsi_15m', 50)
+                    rsi_1h = technical_indicators.get('rsi_1h', 50)
+                    avg_rsi = (rsi_15m + rsi_1h) / 2
+                    if 30 <= avg_rsi <= 70:
+                        technical_score = 80
+                    elif 20 <= avg_rsi < 30 or 70 < avg_rsi <= 80:
+                        technical_score = 70
+                    elif avg_rsi < 20 or avg_rsi > 80:
+                        technical_score = 50
+                    else:
+                        technical_score = 60
+                    self.logger.debug(f"기술적 점수: RSI {avg_rsi:.1f} → {technical_score}")
             except Exception as e:
-                self.logger.debug(f"기술적 지표 계산 실패, 기본값 사용: {e}")
+                technical_score = None if snapshot_only else base_scores.get('technical_base', 60)
+                self.logger.debug(f"기술적 지표 계산 실패: {e}")
 
             # 6. 리스크 점수 (변동성과 거래량 종합)
             risk_score = base_scores.get('risk_base', 70)
@@ -1624,9 +2112,18 @@ class Evaluator:
                 self.logger.debug(f"리스크 점수 계산 실패, 기본값 사용: {e}")
 
             # 7. 펀딩비 점수 (Binance Futures 전용, 5%)
-            funding_score = 50.0
+            funding_score = None
             try:
-                funding_rate = self._get_funding_rate(symbol)
+                if snapshot_only:
+                    funding_snapshot = self._funding_snapshot_cache.get('binance', 300)
+                    funding_rate = (
+                        funding_snapshot.get(str(symbol).upper())
+                        if self._selection_exchange() == 'binance'
+                        and isinstance(funding_snapshot, dict)
+                        else None
+                    )
+                else:
+                    funding_rate = self._get_funding_rate(symbol)
                 if funding_rate is not None:
                     rate_pct = funding_rate * 100  # 예: 0.0001 → 0.01%
                     if 0.0 <= rate_pct <= 0.01:
@@ -1642,9 +2139,16 @@ class Evaluator:
                 self.logger.debug(f"펀딩비 점수 계산 실패: {e}")
 
             # 8. 미결제약정(OI) 점수 (Binance Futures 전용, 5%)
-            oi_score = 50.0
+            oi_score = None
             try:
-                oi_data = self._get_open_interest(symbol)
+                if snapshot_only and self._selection_exchange() == 'binance':
+                    oi_data = self._open_interest_cache.get(
+                        ('binance', str(symbol or '').upper()), 300
+                    )
+                elif snapshot_only:
+                    oi_data = None
+                else:
+                    oi_data = self._get_open_interest(symbol)
                 if oi_data:
                     oi_change_pct = oi_data.get('oi_change_pct', 0.0)
                     oi_value = oi_data.get('open_interest', 0.0)
@@ -1661,23 +2165,39 @@ class Evaluator:
             except Exception as e:
                 self.logger.debug(f"OI 점수 계산 실패: {e}")
 
-            # 🔥 설정 파일의 가중치 사용 (펀딩비+OI 반영으로 기존 가중치 조정)
-            overall_score = (
-                volatility_score * weights.get('volatility_weight', 0.30) +
-                volume_stability_score * weights.get('volume_stability_weight', 0.22) +
-                trend_score * weights.get('trend_weight', 0.22) +
-                frequency_score * weights.get('frequency_weight', 0.13) +
-                funding_score * 0.08 +
-                oi_score * 0.05
-            )
+            # 설정 가중치 + Binance 파생 보조값을 합계 1.0으로
+            # 정규화한다. 기존 설정(0.30+0.25+0.25+0.10)에 0.08/0.05를
+            # 그대로 더해 총 1.03이 되던 표시 오차를 제거하며,
+            # 모든 후보에 같은 정규화를 적용하므로 순위는 변하지 않는다.
+            weighted_components = [
+                (volatility_score, max(0.0, float(weights.get('volatility_weight', 0.30)))),
+                (volume_stability_score, max(0.0, float(weights.get('volume_stability_weight', 0.22)))),
+                (trend_score, max(0.0, float(weights.get('trend_weight', 0.22)))),
+                (frequency_score, max(0.0, float(weights.get('frequency_weight', 0.13)))),
+            ]
+            if funding_score is not None:
+                weighted_components.append((funding_score, 0.08))
+            if oi_score is not None:
+                weighted_components.append((oi_score, 0.05))
+            total_weight = sum(weight for _, weight in weighted_components)
+            if total_weight <= 0:
+                raise ValueError('coin_selection_weight_sum_must_be_positive')
+            normalized_weights = [weight / total_weight for _, weight in weighted_components]
+            overall_score = sum(
+                float(score) * weight for score, weight in weighted_components
+            ) / total_weight
 
             self.logger.info(f"🔍 {coin.get('symbol', 'UNKNOWN')} 종합 점수 계산:")
-            self.logger.info(f"  - 변동성: {volatility_score} × {weights.get('volatility_weight', 0.30)} = {volatility_score * weights.get('volatility_weight', 0.30):.2f}")
-            self.logger.info(f"  - 거래량: {volume_stability_score} × {weights.get('volume_stability_weight', 0.22)} = {volume_stability_score * weights.get('volume_stability_weight', 0.22):.2f}")
-            self.logger.info(f"  - 트렌드: {trend_score} × {weights.get('trend_weight', 0.22)} = {trend_score * weights.get('trend_weight', 0.22):.2f}")
-            self.logger.info(f"  - 빈도: {frequency_score} × {weights.get('frequency_weight', 0.13)} = {frequency_score * weights.get('frequency_weight', 0.13):.2f}")
-            self.logger.info(f"  - 펀딩비: {funding_score:.1f} × 0.08 = {funding_score * 0.08:.2f}")
-            self.logger.info(f"  - OI: {oi_score:.1f} × 0.05 = {oi_score * 0.05:.2f}")
+            labels = ['변동성', '거래량', '트렌드', '빈도']
+            if funding_score is not None:
+                labels.append('펀딩비')
+            if oi_score is not None:
+                labels.append('OI')
+            for label, (score, _), normalized_weight in zip(labels, weighted_components, normalized_weights):
+                self.logger.info(
+                    f"  - {label}: {float(score):.1f} × {normalized_weight:.4f} = "
+                    f"{float(score) * normalized_weight:.2f}"
+                )
             self.logger.info(f"  - 최종 점수: {overall_score:.2f}")
 
             return {
@@ -1686,7 +2206,11 @@ class Evaluator:
                 'volatility_score': volatility_score,
                 'volume_score': volume_stability_score,
                 'trend_score': trend_score,
-                'risk_score': risk_score
+                'risk_score': risk_score,
+                'technical_data_available': technical_score is not None,
+                'funding_data_available': funding_score is not None,
+                'open_interest_data_available': oi_score is not None,
+                'calculation_valid': True,
             }
 
         except Exception as e:
@@ -1695,12 +2219,13 @@ class Evaluator:
             import traceback
             self.logger.error(f"❌ {symbol} 상세 오류: {traceback.format_exc()}")
             return {
-                'overall_score': 30.0,
-                'technical_score': 30.0,
-                'volatility_score': 30.0,
-                'volume_score': 30.0,
-                'trend_score': 30.0,
-                'risk_score': 30.0
+                'overall_score': None,
+                'technical_score': None,
+                'volatility_score': None,
+                'volume_score': None,
+                'trend_score': None,
+                'risk_score': None,
+                'calculation_valid': False,
             }
 
     def _select_final_coins(self, selected_symbols, num_alt, num_major, market_regime: Optional[str] = None):
@@ -1714,7 +2239,7 @@ class Evaluator:
             self.logger.info(f"✅ 점수 계산 완료: {len(scored_coins)}개 코인")
 
             # 거래소별 심볼 포맷(USDT/KRW/BASE-QUOTE/BASE/QUOTE)과 무관하게 메이저 분류
-            major_bases = {'BTC', 'ETH', 'BNB', 'SOL', 'ADA', 'XRP', 'DOT', 'LINK', 'AVAX', 'MATIC'}
+            major_bases = MAJOR_CRYPTO_BASES
             alt_coins = []
             major_coins = []
 
@@ -1899,14 +2424,38 @@ class Evaluator:
             return []
 
     def _fallback_to_major_coins(self, limit, exchange: Optional[str] = None):
-        """메이저 코인으로 폴백 (거래소 포맷 반영)."""
+        """점수를 만들 수 없을 때 사용하는 명시적 안전 후보 폴백."""
         fallback_coins = ['BTC', 'ETH', 'BNB', 'SOL', 'ADA', 'XRP', 'DOT', 'LINK', 'AVAX', 'MATIC']
         ex = str(exchange or '').strip().lower()
-        if ex == 'upbit':
-            return [f"KRW-{coin}" for coin in fallback_coins[:limit]]
-        if ex == 'bithumb':
-            return [f"{coin}/KRW" for coin in fallback_coins[:limit]]
-        return [f"{coin}USDT" for coin in fallback_coins[:limit]]
+        # _select_final_coins의 현행 메이저 분류와 동일한 기준을 사용한다.
+        # 폴백은 점수 기반 랭킹이 아니므로 분류까지 누락해 전부 알트로
+        # 오표시하지 않는다.
+        major_symbols = MAJOR_CRYPTO_BASES
+
+        def formatted(base: str) -> str:
+            if ex == 'upbit':
+                return f"KRW-{base}"
+            if ex in {'bithumb', 'coinone'}:
+                return f"{base}/KRW"
+            return f"{base}USDT"
+
+        return [
+            {
+                'symbol': formatted(base),
+                'is_major': base in major_symbols,
+                'overall_score': None,
+                'technical_score': None,
+                'volatility_score': None,
+                'volume_score': None,
+                'trend_score': None,
+                'risk_score': None,
+                'selection_status': 'fallback_unscored',
+                'selection_reason': 'candidate_evaluation_unavailable',
+                'execution_eligible': False,
+                'analysis_only': True,
+            }
+            for base in fallback_coins[:limit]
+        ]
 
     def _initialize_websocket_connection(self):
         """🔥 WebSocket 연결 초기화 (사용하지 않음 - API 기반 분석으로 대체)"""
@@ -2118,53 +2667,19 @@ class Evaluator:
 
             self.logger.info(f"🚀 일괄 K라인 데이터 조회 시작: {len(selected_symbols_with_usdt)}개 코인")
 
-            # 🔥 캐시된 K라인 데이터 확인 (10분 이내)
-            klines_cache_file_15m = f"data/nwsoft/cache/{exchange_key}_klines_15m.json"
-            klines_cache_file_1h = f"data/nwsoft/cache/{exchange_key}_klines_1h.json"
-
-            all_klines_15m = {}
-            all_klines_1h = {}
-
-            # 15분 데이터 캐시 확인
-            if os.path.exists(klines_cache_file_15m):
-                cache_age = time.time() - os.path.getmtime(klines_cache_file_15m)
-                if cache_age < 600:  # 10분
-                    self.logger.info("캐시된 15분 K라인 데이터 사용")
-                    with open(klines_cache_file_15m, 'r', encoding='utf-8') as f:
-                        all_klines_15m = json.load(f)
-                else:
-                    self.logger.info("15분 K라인 캐시 만료 - 새로 조회")
-                    all_klines_15m = self._get_multiple_context_klines(selected_symbols_with_usdt, "15m", 100)
-            else:
-                self.logger.info("15분 K라인 캐시 없음 - 새로 조회")
-                all_klines_15m = self._get_multiple_context_klines(selected_symbols_with_usdt, "15m", 100)
-
-            # 1시간 데이터 캐시 확인
-            if os.path.exists(klines_cache_file_1h):
-                cache_age = time.time() - os.path.getmtime(klines_cache_file_1h)
-                if cache_age < 600:  # 10분
-                    self.logger.info("캐시된 1시간 K라인 데이터 사용")
-                    with open(klines_cache_file_1h, 'r', encoding='utf-8') as f:
-                        all_klines_1h = json.load(f)
-                else:
-                    self.logger.info("1시간 K라인 캐시 만료 - 새로 조회")
-                    all_klines_1h = self._get_multiple_context_klines(selected_symbols_with_usdt, "1h", 100)
-            else:
-                self.logger.info("1시간 K라인 캐시 없음 - 새로 조회")
-                all_klines_1h = self._get_multiple_context_klines(selected_symbols_with_usdt, "1h", 100)
-
-            # 🔥 캐시 저장
-            if all_klines_15m:
-                os.makedirs(os.path.dirname(klines_cache_file_15m), exist_ok=True)
-                with open(klines_cache_file_15m, 'w', encoding='utf-8') as f:
-                    json.dump(all_klines_15m, f, ensure_ascii=False, indent=2)
-                self.logger.info("15분 K라인 데이터 캐시 저장 완료")
-
-            if all_klines_1h:
-                os.makedirs(os.path.dirname(klines_cache_file_1h), exist_ok=True)
-                with open(klines_cache_file_1h, 'w', encoding='utf-8') as f:
-                    json.dump(all_klines_1h, f, ensure_ascii=False, indent=2)
-                self.logger.info("1시간 K라인 데이터 캐시 저장 완료")
+            # 상세 점수 단계의 같은 캔들을 메모리 TTL 캐시에서 재사용한다.
+            # 과거 디스크 캐시는 읽을 때마다 다시 써서 mtime을 갱신할 수 있어
+            # 실제로는 오래된 캔들이 계속 신선해 보이는 문제가 있었다.
+            all_klines_15m = self._get_multiple_context_klines(
+                selected_symbols_with_usdt,
+                "15m",
+                100,
+            )
+            all_klines_1h = self._get_multiple_context_klines(
+                selected_symbols_with_usdt,
+                "1h",
+                100,
+            )
 
             self.logger.info(f"✅ 일괄 K라인 조회 완료: 15분({len(all_klines_15m)}개), 1시간({len(all_klines_1h)}개)")
 
@@ -2310,17 +2825,75 @@ class Evaluator:
 
     def _get_multiple_context_klines(self, symbols, interval: str, limit: int):
         """Fetch a per-exchange batch without any cross-exchange fallback."""
-        if self._selection_exchange() == 'binance':
+        exchange = self._selection_exchange()
+        cache_ttl = max(
+            1.0,
+            float((self.settings or {}).get('market_kline_cache_ttl_seconds', 60) or 60),
+        )
+        result = {}
+        pending_symbols = []
+        for symbol in list(dict.fromkeys(symbols or [])):
+            cache_key = (exchange, self._context_symbol(symbol), str(interval), int(limit))
+            cached = self._kline_snapshot_cache.get(cache_key, cache_ttl)
+            if cached is not None:
+                result[symbol] = cached
+            else:
+                pending_symbols.append(symbol)
+
+        if not pending_symbols:
+            return result
+
+        if exchange == 'binance':
             if not self.binance_client:
-                return {}
+                return result
             bulk = getattr(self.binance_client, 'get_multiple_klines', None)
             if callable(bulk):
-                return bulk(list(symbols), interval, limit) or {}
-        result = {}
-        for symbol in symbols:
-            klines = self._get_context_klines(symbol, interval, limit)
+                rows = bulk(list(pending_symbols), interval, limit) or {}
+                for symbol, klines in rows.items():
+                    if not klines:
+                        continue
+                    result[symbol] = klines
+                    self._kline_snapshot_cache.set(
+                        (exchange, self._context_symbol(symbol), str(interval), int(limit)),
+                        klines,
+                    )
+                return result
+
+        max_workers = max(
+            1,
+            min(8, int((self.settings or {}).get('coin_selection_max_workers', 8) or 8)),
+        )
+        timeout = max(
+            1.0,
+            float((self.settings or {}).get('coin_selection_stage_timeout_seconds', 10) or 10),
+        )
+        executor = ThreadPoolExecutor(
+            max_workers=max_workers,
+            thread_name_prefix=f"{exchange}-kline-{interval}",
+        )
+
+        context_client = getattr(self._selection_context_local, 'exchange_client', None)
+        def fetch_with_context(symbol):
+            self._set_selection_context(exchange, context_client)
+            return symbol, self._get_context_klines(symbol, interval, limit)
+
+        futures = [executor.submit(fetch_with_context, symbol) for symbol in pending_symbols]
+        done, pending = concurrent.futures.wait(futures, timeout=timeout)
+        for future in done:
+            try:
+                symbol, klines = future.result()
+            except Exception:
+                continue
             if klines:
                 result[symbol] = klines
+        for future in pending:
+            future.cancel()
+        executor.shutdown(wait=False, cancel_futures=True)
+        if pending:
+            self.logger.warning(
+                f"{exchange} {interval} 캔들 제한시간 종료: "
+                f"완료 {len(done)}/{len(futures)}"
+            )
         return result
 
     def _save_coin_evaluation_to_db(self, coin_scores):
@@ -2394,62 +2967,26 @@ class Evaluator:
             self.logger.error(f"상세 오류: {traceback.format_exc()}")
 
     def _update_env_coins(self, selected_coins):
-        """환경 변수 파일 업데이트 (안전한 버전)"""
-        backup_file: Optional[str] = None
-        env_file: Optional[str] = None
+        """선택 코인 경로만 설정 정본에 병합한다.
+
+        과거 구현은 settings.json 전체를 직접 다시 쓰고 예외 시 자체
+        ``.backup``을 자동 복구했다. Web 설정 저장과 겹치면 사용자가 복구
+        버튼을 누르지 않아도 직전 설정이 되살아날 수 있으므로 공통 원자
+        저장소 외의 직접 쓰기/자동 복구를 금지한다.
+        """
         try:
+            from config.settings import patch_settings_paths
 
-            # 환경 변수 파일 경로 (path_utils 사용)
-            try:
-                from path_utils import get_config_dir
-                env_file = os.path.join(get_config_dir(), 'settings.json')
-            except ImportError:
-                # path_utils 사용 실패 시 기본 경로 사용
-                from path_utils import get_config_dir
-                env_file = os.path.join(get_config_dir(), 'settings.json')
-
-            # 파일이 없으면 생성
-            if not os.path.exists(env_file):
-                self.logger.warning(f"설정 파일이 없습니다: {env_file}")
-                return
-
-            # 백업 파일 생성
-            backup_file = f"{env_file}.backup"
-            if os.path.exists(env_file):
-                shutil.copy2(env_file, backup_file)
-
-            # JSON 파일 읽기
-            import json
-            with open(env_file, 'r', encoding='utf-8') as f:
-                settings = json.load(f)
-
-            # 선택된 코인을 문자열로 변환
-            coins_str = ','.join(selected_coins)
-
-            # 설정 업데이트
-            settings['selected_coins'] = selected_coins
-            settings['coin_allocation'] = {coin: 20 for coin in selected_coins}
-
-            # 파일 저장
-            with open(env_file, 'w', encoding='utf-8') as f:
-                json.dump(settings, f, indent=2, ensure_ascii=False)
-
-            self.logger.info("✅ 환경 변수 파일 업데이트 완료")
-
-            # 백업 파일 정리
-            if backup_file and os.path.exists(backup_file):
-                os.remove(backup_file)
-
+            normalized = [str(coin).strip().upper() for coin in selected_coins if str(coin).strip()]
+            saved = patch_settings_paths({
+                'selected_coins': normalized,
+                'coin_allocation': {coin: 20 for coin in normalized},
+            })
+            if not saved:
+                raise RuntimeError('selected_coins_settings_save_failed')
+            self.logger.info("✅ 선택 코인 설정 경로 병합 완료")
         except Exception as e:
-            self.logger.error(f"환경 변수 파일 업데이트 오류: {e}")
-
-            # 백업에서 복구 시도
-            try:
-                if backup_file and env_file and os.path.exists(backup_file):
-                    shutil.copy2(backup_file, env_file)
-                    self.logger.info("파일을 백업에서 복구했습니다")
-            except Exception as restore_error:
-                self.logger.error(f"백업 복구 실패: {restore_error}")
+            self.logger.error(f"선택 코인 설정 경로 병합 오류: {type(e).__name__}")
 
     def _verify_data_consistency(self, selected_coins, initial_data):
         """데이터 일관성 검증 (원래 로그와 동일)"""

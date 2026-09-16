@@ -1,0 +1,162 @@
+[
+  {
+    "name": "삼성 생활안심 종합보험",
+    "provider": "삼성생명",
+    "monthly_premium": 58000,
+    "coverage_score": 88,
+    "deductible": 100000,
+    "category": "종합"
+  },
+  {
+    "name": "한화 가족사랑 종합보험",
+    "provider": "한화생명",
+    "monthly_premium": 79000,
+    "coverage_score": 92,
+    "deductible": 100000,
+    "category": "종합"
+  },
+  {
+    "name": "메트라이프 보장보험",
+    "provider": "메트라이프",
+    "monthly_premium": 65000,
+    "coverage_score": 90,
+    "deductible": 100000,
+    "category": "종합"
+  },
+  {
+    "name": "AIA 스마트트레이더 보험",
+    "provider": "AIA생명",
+    "monthly_premium": 60000,
+    "coverage_score": 87,
+    "deductible": 100000,
+    "category": "종합"
+  },
+  {
+    "name": "현대해상 건강보험 플래티넘",
+    "provider": "현대해상",
+    "monthly_premium": 48000,
+    "coverage_score": 82,
+    "deductible": 150000,
+    "category": "건강"
+  },
+  {
+    "name": "KB 희망플러스 건강보험",
+    "provider": "KB손해보험",
+    "monthly_premium": 55000,
+    "coverage_score": 85,
+    "deductible": 150000,
+    "category": "건강"
+  },
+  {
+    "name": "DB손보 실손의료비보험",
+    "provider": "DB손해보험",
+    "monthly_premium": 42000,
+    "coverage_score": 76,
+    "deductible": 200000,
+    "category": "건강"
+  },
+  {
+    "name": "흥국생명 간편가입 보험",
+    "provider": "흥국생명",
+    "monthly_premium": 38000,
+    "coverage_score": 70,
+    "deductible": 300000,
+    "category": "건강"
+  },
+  {
+    "name": "교보 암보험 다이렉트",
+    "provider": "교보생명",
+    "monthly_premium": 89000,
+    "coverage_score": 94,
+    "deductible": 100000,
+    "category": "암보험"
+  },
+  {
+    "name": "카카오페이 암보험 다이렉트",
+    "provider": "한화생명",
+    "monthly_premium": 72000,
+    "coverage_score": 91,
+    "deductible": 100000,
+    "category": "암보험"
+  },
+  {
+    "name": "동흥생명 암보험 플러스",
+    "provider": "동흥생명",
+    "monthly_premium": 68000,
+    "coverage_score": 89,
+    "deductible": 150000,
+    "category": "암보험"
+  },
+  {
+    "name": "삼성화재 주택화재보험",
+    "provider": "삼성화재",
+    "monthly_premium": 25000,
+    "coverage_score": 78,
+    "deductible": 50000,
+    "category": "재산"
+  },
+  {
+    "name": "DB손보 주택화재보험",
+    "provider": "DB손해보험",
+    "monthly_premium": 22000,
+    "coverage_score": 75,
+    "deductible": 50000,
+    "category": "재산"
+  },
+  {
+    "name": "KB 자동차 종합보험 플러스",
+    "provider": "KB손해보험",
+    "monthly_premium": 95000,
+    "coverage_score": 87,
+    "deductible": 300000,
+    "category": "자동차"
+  },
+  {
+    "name": "현대해상 자동차보험 하이라이카",
+    "provider": "현대해상",
+    "monthly_premium": 88000,
+    "coverage_score": 85,
+    "deductible": 300000,
+    "category": "자동차"
+  },
+  {
+    "name": "어린이 종합보험 다이렉트",
+    "provider": "삼성생명",
+    "monthly_premium": 35000,
+    "coverage_score": 84,
+    "deductible": 100000,
+    "category": "어린이"
+  },
+  {
+    "name": "한화 발달스마일 어린이보험",
+    "provider": "한화생명",
+    "monthly_premium": 32000,
+    "coverage_score": 82,
+    "deductible": 100000,
+    "category": "어린이"
+  },
+  {
+    "name": "NH농협 실손항연금 보험",
+    "provider": "NH농협생명",
+    "monthly_premium": 150000,
+    "coverage_score": 80,
+    "deductible": 0,
+    "category": "연금"
+  },
+  {
+    "name": "동흥생명 헌터리연금보험",
+    "provider": "동흥생명",
+    "monthly_premium": 200000,
+    "coverage_score": 83,
+    "deductible": 0,
+    "category": "연금"
+  },
+  {
+    "name": "교보 노랑돈 연금보험",
+    "provider": "교보생명",
+    "monthly_premium": 180000,
+    "coverage_score": 88,
+    "deductible": 0,
+    "category": "연금"
+  }
+]

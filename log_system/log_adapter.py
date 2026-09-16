@@ -23,6 +23,7 @@ from utils.log_safety import LOG_RETENTION, LOG_ROTATION_SIZE
 import os
 import sys
 import importlib
+from pathlib import Path
 try:
     # log_system 경로 우선 시도
     ls_mod = importlib.import_module('log_system.log_stream')
@@ -81,6 +82,7 @@ try:
         # 핸들러 확인 실패 시 새로 추가 (안전한 선택)
         has_file_handler = False
 
+    _ACCOUNT_LOG_SINK_IDS: list[int] = []
     if not has_file_handler:
         # 🔥 로그 레벨을 설정 파일에서 읽어오거나 환경변수에서 확인
         import os
@@ -91,14 +93,13 @@ try:
             config_dir = get_config_dir()
             settings_path = os.path.join(config_dir, 'settings.json')
             if os.path.exists(settings_path):
-                import json
-                with open(settings_path, 'r', encoding='utf-8') as f:
-                    settings = json.load(f)
-                    log_level = settings.get('log_level', log_level).upper()
+                from config.settings import read_settings_json_file
+                settings, _ = read_settings_json_file(settings_path)
+                log_level = settings.get('log_level', log_level).upper()
         except Exception:
             pass
         
-        _base_logger.add(
+        _ACCOUNT_LOG_SINK_IDS.append(_base_logger.add(
             log_path,
             format="{time:YYYY-MM-DD HH:mm:ss} | {level: <8} - {message}",
             level=log_level,  # 🔥 설정 파일의 로그 레벨 사용
@@ -106,7 +107,7 @@ try:
             retention=LOG_RETENTION,
             encoding="utf-8",
             enqueue=True,
-        )
+        ))
 
 except ImportError:
     # loguru가 없으면 표준 logging 사용
@@ -115,6 +116,75 @@ except ImportError:
         # 메인에서 이미 설정했을 수도 있으므로 중복 핸들러 방지
         _base_logger.addHandler(logging.StreamHandler())
         _base_logger.setLevel(logging.INFO)
+    _ACCOUNT_LOG_SINK_IDS = []
+
+_ACCOUNT_LOGGING_LOCK = threading.RLock()
+
+
+def configure_account_logging(*, sources: list[str] | tuple[str, ...] | set[str] = (), level: str = "INFO") -> dict[str, object]:
+    """Route the sidecar's canonical log stream to the authenticated account.
+
+    ``log_adapter`` is imported while the Web sidecar is still on the login
+    screen, before ``path_utils`` knows the authenticated account.  The legacy
+    client reconfigured its sinks after login; the Web runtime previously did
+    not, leaving ``trading_<source>.log`` stale while the global console kept
+    moving.  Own and replace only this module's sinks so third-party handlers
+    are never disturbed.
+    """
+    normalized_level = str(level or "INFO").strip().upper()
+    if normalized_level not in _VALID_LEVELS:
+        normalized_level = "INFO"
+    normalized_sources = list(dict.fromkeys(
+        str(source or "").strip().lower()
+        for source in sources
+        if str(source or "").strip()
+    ))
+    try:
+        from loguru import logger as loguru_logger
+        from path_utils import get_exchange_log_file_path, get_log_file_path
+
+        main_path = Path(get_log_file_path())
+        main_path.parent.mkdir(parents=True, exist_ok=True)
+        with _ACCOUNT_LOGGING_LOCK:
+            for sink_id in list(_ACCOUNT_LOG_SINK_IDS):
+                try:
+                    loguru_logger.remove(sink_id)
+                except (TypeError, ValueError):
+                    pass
+            _ACCOUNT_LOG_SINK_IDS.clear()
+            common = {
+                "format": "{time:YYYY-MM-DD HH:mm:ss} | {level: <8} - {message}",
+                "level": normalized_level,
+                "rotation": LOG_ROTATION_SIZE,
+                "retention": LOG_RETENTION,
+                "encoding": "utf-8",
+                "enqueue": True,
+            }
+            _ACCOUNT_LOG_SINK_IDS.append(loguru_logger.add(str(main_path), **common))
+            for source in normalized_sources:
+                file_source = {"mirae": "miraeAsset", "kis": "koreaInvestment"}.get(source, source)
+                event_aliases = {
+                    "mirae": ("mirae", "miraeasset"),
+                    "kis": ("kis", "koreainvestment"),
+                }.get(source, (source,))
+                source_path = Path(get_exchange_log_file_path(file_source))
+                source_path.parent.mkdir(parents=True, exist_ok=True)
+                _ACCOUNT_LOG_SINK_IDS.append(loguru_logger.add(
+                    str(source_path),
+                    filter=lambda record, aliases=event_aliases: (
+                        any(f"(ex={alias})" in str(record.get("message", "")).lower() for alias in aliases)
+                    ),
+                    **common,
+                ))
+        return {
+            "ok": True,
+            "main_path": str(main_path),
+            "sources": normalized_sources,
+        }
+    except (ImportError, OSError, RuntimeError, TypeError, ValueError):
+        # Logging reconfiguration must never prevent login or trading.  The
+        # in-memory stream remains available to the Web UI as a fallback.
+        return {"ok": False, "main_path": "", "sources": normalized_sources}
 
 _VALID_LEVELS = {"DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"}
 _LEADING_LOG_PREFIX = re.compile(r"^\s*\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2}\s*\|\s*[A-Z]+\s*-\s*")
