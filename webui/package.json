@@ -1,7 +1,7 @@
 {
   "name": "noahai-web-ui",
   "private": true,
-  "version": "3.9.137",
+  "version": "3.9.138",
   "main": "electron/main.cjs",
   "type": "module",
   "engines": {
@@ -37,12 +37,12 @@
   "build": {
     "appId": "ai.noah.client",
     "productName": "NoahAI",
-    "buildVersion": "3.9.1.37",
+    "buildVersion": "3.9.1.38",
     "asar": true,
     "directories": { "output": "release" },
     "files": ["dist/**/*", "electron/**/*", "package.json"],
     "extraResources": [{ "from": "../deploy/web-engine", "to": "engine", "filter": ["**/*"] }],
-    "win": { "target": ["nsis"], "artifactName": "NoahAI-3.9.1.37-Setup.${ext}", "executableName": "NoahAI", "icon": "build/icon.ico" },
+    "win": { "target": ["nsis"], "artifactName": "NoahAI-3.9.1.38-Setup.${ext}", "executableName": "NoahAI", "icon": "build/icon.ico" },
     "mac": { "icon": "build/icon.png", "category": "public.app-category.finance" },
     "nsis": { "oneClick": false, "perMachine": false, "allowToChangeInstallationDirectory": true, "deleteAppDataOnUninstall": false },
     "publish": [{ "provider": "github", "owner": "nwsoft", "repo": "ai-trading-client" }]

@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Any
 
 from config.settings import load_settings
+from .source_trade_history import load_source_live_history
 from path_utils import get_ai_learning_data_path, get_db_file_path, get_exchange_ai_learning_data_path
 from .asset_insight_data import (
     _classify_trade,
@@ -1859,6 +1860,8 @@ class AccountQueryService:
                 "source": _normalize_source(source_scope),
                 "unscoped_records_included": False,
             }
+        if "source_workspaces" in feature_key and service_key in {"blockchain", "stock"}:
+            payload["live_history"] = load_source_live_history(self.db_path, source=source_scope)
         if "learning" in feature_key:
             payload["learning"] = self.learning_snapshot(
                 source=source_scope,

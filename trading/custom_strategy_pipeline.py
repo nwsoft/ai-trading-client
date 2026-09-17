@@ -1190,6 +1190,13 @@ class CustomStrategyPipeline:
             "note": "백테스트 단독 근거가 아닌 관찰/제한운용의 체결·비용·PnL 품질을 포함",
         }
         version["improvement_advice"] = build_improvement_advice(metrics)
+        chart = version["execution_validation"]["metrics"].get("replay_visualization")
+        if isinstance(chart, dict):
+            chart["binding"] = {
+                "strategy_key": strategy_key, "version_id": version_id,
+                "ir_hash": version.get("ir_hash"),
+                "recorded_at": version["execution_validation"]["recorded_at"],
+            }
         version["status"] = "execution_validated" if passed else "execution_rejected"
         version["updated_at"] = self._now()
         self._save()

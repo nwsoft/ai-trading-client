@@ -3,6 +3,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type { GatewayClient } from "../api";
 import type { StrategyCatalog, StrategyVersion } from "../types";
 import { venueProfile, venueProfilesForService } from "../venueSources";
+import { StrategyReplayChart } from "./StrategyReplayChart";
 
 const STRATEGY_HUB_URL = "https://daltrading.net/strategies";
 const STRATEGY_HUB_GUIDE_URL = `${STRATEGY_HUB_URL}/guide`;
@@ -306,6 +307,7 @@ function StrategyValidationEvidence({ version }: { version: StrategyVersion }) {
         {Array.isArray(overfit?.reasons) && overfit.reasons.length ? ` · 위험: ${overfit.reasons.join(", ")}` : ""}
       </p>
     </>}
+    <StrategyReplayChart version={version} />
     {evidence.length > 0 && <div className="strategy-paper-evidence">
       <h5>거래소별 PAPER 전진검증</h5>
       {evidence.map((row) => <div key={`${row.exchange}:${row.quote_currency}`}>

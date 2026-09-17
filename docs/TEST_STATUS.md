@@ -1,12 +1,23 @@
-## v3.9.1.37 키움 조회 대기·실패 상태 수정 (소스 후보)
+## v3.9.1.38 전략 과거재생·기관별 거래내역 (소스 후보)
+
+기준일 2026-09-17. 제품 **3.9.1.38** / updater **3.9.138**. 현재 공개 stable/latest는 **v3.9.1.37**이며 v38 Windows 새 설치본은 아직 생성·게시하지 않았습니다.
+
+- v3.9.1.38 버전 승격 후 전체 Python **2,572 passed / 8 skipped / 3 subtests passed**, 기존 Starlette 폐기예정 경고 1건.
+- 기관별 거래내역 집중 **70 passed**, Node **22.23.1** Web production **61 modules**, 11기관 격리 브라우저와 과거재생 브라우저 검사 오류 **0건**, 매뉴얼 11개 섹션과 문서 정합 PASS.
+- prekey 릴리스 게이트 PASS: 증권 집중 **176 passed / 6 skipped**, 4개 증권사 모드·무키 경로, 7개 거래소 준비도 보고, 사용자 노출 문서 동기화, 다중 거래소 불변조건 PASS. 자격정보 없는 오프라인 검사이므로 실계정 연결 증거는 아닙니다.
+- 코인 과거재생과 네 증권사 × 주식/ETF 500봉 서비스 경로, 수익률/가격 정밀도, 타점·거래표 연결을 검사했습니다. 500봉 자료는 가상 시세이며 실제 시장 성과가 아닙니다.
+- LIVE/PAPER 기본 탭과 접힘, 기관·계정 격리, 미확정/외부/가져오기/통화 불명/조회 실패를 검사했습니다. 거래소·증권사 전체 체결 API 또는 실계정 E2E 증거는 아닙니다.
+- Windows x64/x86 빌드, PE 버전·SHA, v37→v38 자동업데이트, 키움 OCX, 기관 실계정, 24시간 이상 PAPER는 **미완료**입니다.
+
+[v3.9.1.38 검증 원장](V39138_STRATEGY_REPLAY_LIVE_HISTORY_TEST_PLAN.md) · [과거재생](STRATEGY_REPLAY_VISUALIZATION_20260917.md) · [거래내역](SOURCE_TRADE_HISTORY_20260917.md)
+
+## v3.9.1.37 키움 조회 대기·실패 상태 수정 (당시 기록)
 
 2026-09-17 업데이트 채널 수정 후 최종: **2,494 passed / 8 skipped / 3 subtests passed**. 실제 electron-updater Provider 회귀 **4 passed**, 관련 집중 **51 passed**, 공개 서버 stable/latest→v36/latest.yml HTTP 200·설치기 주소 선택 확인. Web 52 modules·문서·매뉴얼·Electron/PowerShell 구문 PASS. Windows 설치/업데이트는 미완료. [업데이트 원인 분석](V39137_UPDATER_CHANNEL_INCIDENT.md).
 
 최종 소스 검증: 전체 Python **2,491 passed / 8 skipped / 3 subtests passed**, 집중 회귀 **135 passed / 3 subtests passed**, Node **22.23.1** Web build **52 modules**, 개발 릴리스 게이트·문서 정합·11개 매뉴얼 추출 PASS. Windows 설치기/OCX/사용자 실제 계정 재현은 **미완료**입니다.
 
-현재 소스 후보 버전: **v3.9.1.37** · updater 3.9.137.
-현재 공개 버전: **v3.9.1.36** · 현재 공개 기반: v3.9.1.36 stable/latest.
-3.9.1.37은 키움 조회 대기·요청 간격·실패 상태 보존 수정 후보입니다. Windows 새 설치본 검증은 미완료입니다.
+당시 소스 후보 버전: **v3.9.1.37** · updater 3.9.137. 당시 공개 기반: v3.9.1.36 stable/latest. 현재 v3.9.1.37은 공개됐으며 이 문단의 미완료 표기는 당시 기록입니다.
 
 - 로그인 후 종목 조회 중단 로그를 반영해 TR 즉시 오류·응답 제한·요청 간격·늦은 응답을 처리합니다.
 - 조회 실패를 정상 분석으로 넘기지 않고 최초 원인을 보존합니다. 계좌 목록·잔고·보유종목·미체결·ETF/거래내역 조회 계약을 수정합니다.

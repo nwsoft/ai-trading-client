@@ -30,4 +30,4 @@ def test_manual_boundary_is_independent_of_mutable_release_manifest(tmp_path, mo
     manifest.write_text('{"version":"9.9.9.9","publish_ready":false}')
     second = exporter._render_release_boundary('custom', 'guide')
     assert first == second
-    assert 'v3.9.1.37 Windows stable/latest 공개 제품' in second
+    assert 'v3.9.1.38 Windows stable/latest 공개 제품' in second

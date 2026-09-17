@@ -1,18 +1,80 @@
 # NoahAI - AI 금융 동반자 & 의사결정 인프라
 
+현재 소스 후보 버전: **v3.9.1.38** · updater **3.9.138**.
+현재 공개 버전: **v3.9.1.37** · 현재 공개 기반: v3.9.1.37 stable/latest (2026-09-17 원격 확인).
+공개 v37 이후의 전략 과거재생 차트와 기관별 LIVE/PAPER 거래내역 변경은 v38 새 산출물로만 배포합니다. 기존 공개 자산은 교체하지 않습니다. [v38 검증·배포 원장](docs/V39138_STRATEGY_REPLAY_LIVE_HISTORY_TEST_PLAN.md).
+
+현재 소스 후보: v3.9.1.38 · Strategy Replay & Mode-aware Trade History Patch
+
+[v3.9.1.38 검증 계획](docs/V39138_STRATEGY_REPLAY_LIVE_HISTORY_TEST_PLAN.md). 공개 v3.9.1.37 자산은 보존하고 Windows x64/x86 재빌드와 실계정·업데이트 게이트를 통과한 새 자산만 배포합니다.
+
+이전 공개 기반 기록: v3.9.1.33
+
+Kiwoom x86 & Release Integrity Patch · Windows 검증 후보
+
+키움 OpenAPI+ 전용 x86 호스트를 x64 엔진과 분리하고 설치기에 반드시 포함하며, PE 비트수·패키지 해시·source fingerprint를 자동 검증합니다. 외부 Windows 검증이 남은 게시물은 prerelease로만 공개되어 안정 채널 자동 업데이트에 들어가지 않습니다.
+
+[v3.9.1.34 검증 계획](docs/V39134_KIWOOM_X86_RELEASE_INTEGRITY_TEST_PLAN.md). 공개 v3.9.1.33 자산은 보존하고 새 버전으로만 배포합니다.
+
+## 이전 릴리스 점검 기록 (아래 후보·공개 표기는 당시 기준)
+
+## 다음 배포 후보: v3.9.1.32 Runtime Recovery & Scheduled Updates Patch
+
+v3.9.1.32는 국면 재선정 대기를 실제 변경 알림과 분리하고, 저장한 업데이트 확인 주기를 앱 공통 타이머로 실행합니다. Coinone의 미제공 활성 상태를 중단으로 오해하던 후보 수집을 수정하고, KIS·미래에셋의 주식/ETF 목록을 공식 공개 마스터로 분리합니다. 네 증권사 워커의 후보 없음·분석 완료·오류를 해당 기관 로그로 전달합니다. 주문 권한·TP/SL·점수 없는 진입 차단은 유지합니다.
+
+[검증·배포 계약](docs/V39132_RUNTIME_RECOVERY_TEST_PLAN.md). 새 Windows 설치기와 실계정 검증은 별도이며 공개 v31 자산을 덮어쓰지 않습니다.
+
+## 이전 릴리스 점검 기록 (아래 현재·후보 표현은 당시 기준)
+
+현재 소스 후보: v3.9.1.31
+
+현재 공개 기반: v3.9.1.30
+
+Readable Manual Experience Patch · Windows 재빌드 전
+
 ## 🎯 NoahAI란?
 
 **NoahAI는 사용자가 금융을 깊이 있게 배우지 않아도 자신의 자산·상황·위험을 이해하고 선택할 수 있도록 돕는 AI 금융 동반자입니다.**
 
 NoahAI의 핵심은 자동매매가 아니라 **판단·설명·기록·검증·환류 구조를 갖춘 AI 금융 의사결정 인프라**입니다.
 
-## 현재 작업 버전: v3.9.0.10 AI Custom Management & Runtime Integrity Update · Windows 재빌드 전
+## 다음 배포 후보: v3.9.1.31 Readable Manual Experience Patch
 
-2026-08-13 현재 v3.9.0.10은 v3.9.0.9 기능 전체를 유지하며 설정 `copy` 회귀, 빠른 탭 전환의 오래된 렌더 요청, 동적 위젯 Toplevel 소유권을 보강했습니다. AI 커스텀 프라이빗 전략은 수정본을 새 버전으로 저장하고 비활성 전략을 삭제할 수 있습니다. v3.9.0.9 EXE는 SHA `857ee230a60f...`로 이전 자산에 보존했으며 v3.9.0.10 Windows EXE와 SHA가 생성될 때까지 `pending_windows_rebuild`입니다.
+소개부터 업데이트까지 11개 인앱 메뉴얼 탭을 문서형 본문으로 표시합니다. 전체 정본을 기본 화면에 보존하고, 제목·목록·체크리스트·주의문·표를 구분해 읽을 수 있으며 11개 탭 전체 검색이 일치 항목별로 이동합니다. 현재 지원 기관과 배포 경계를 v3.9.1.31 기준으로 다시 대조했습니다.
 
-### UI 플랫폼 전환 방향 (아직 구현 전)
+v3.9.1.31 배포 완료 판정은 [v3.9.1.31 검증·배포 계약](docs/V39131_READABLE_MANUAL_RELEASE_TEST_PLAN.md)의 Windows 설치기·업데이트/재시작·대표 DPI 화면에서 11개 탭과 전체 검색을 확인한 뒤에만 합니다. 현재 공개 자산은 v3.9.1.30이며 소스 후보와 구분합니다.
 
-반복된 Tk/CustomTkinter 화면 수명주기 문제를 장기적으로 해소하고 SaaS와 데스크톱 경험을 맞추기 위해, Python 매매·AI 엔진은 유지하면서 Web UI와 데스크톱 셸을 화면 단위로 병행 이전합니다. 기존 UI를 즉시 제거하거나 주문 경로를 새 화면에 바로 연결하지 않습니다. 목표 구조·불변 계약은 [아키텍처](docs/ARCHITECTURE.md), 단계·백업·롤백은 [업데이트 계획](docs/UPDATE_PLAN.md), 검증 경계는 [테스트 상태](docs/TEST_STATUS.md)를 정본으로 사용합니다.
+## 현재 공개 기반: v3.9.1.30 Strategy Evidence & Venue Consistency Patch
+
+기관·기간을 먼저 선택한 PAPER 원장을 카드와 통계가 함께 집계합니다. 전략은 선언한 시간봉의 닫힌 봉으로 평가하고 실제 검사 기간을 표시하며, 공급되지 않는 증권사 분봉을 일봉으로 대체하지 않습니다. 따라하기 보완 이동, 날짜·상태 배치, 최초 버전 변경점 표기를 고쳤습니다. 기존 키움 프로세스 프록시의 선택·이벤트 처리·시간 초과 격리와 KIS 연결 진단을 보강합니다. 수익 보장이나 모든 실계정의 연결 완료를 뜻하지 않습니다.
+
+v3.9.1.30 Windows 자산은 공개 매니페스트에 보존되어 있습니다. 실계정 기관·장시간 PAPER 같은 외부 운영 게이트는 [검증 원장](docs/V39130_STRATEGY_VENUE_CONSISTENCY_TEST_PLAN.md)에서 배포 상태와 별도로 추적합니다.
+
+## 이전 버전: v3.9.1.29 Fair Strategy Commons & Managed Position Capacity Patch
+
+아래 버전별 문단은 당시 작업·게시 기록입니다. 현재 후보의 배포 상태는 맨 위 v3.9.1.30 검증 원장과 매니페스트를 따릅니다.
+
+v3.9.1.29는 전략 제작·PAPER 검증·내보내기·공유 준비를 회원등급과 분리합니다. 집중운용은 1개를 유지하고, 실제 계정의 관리형 다중포지션은 국내 무료 및 레퍼럴 확인 해외 무료가 거래소별 최대 3개, 코인 유료가 최대 5개입니다. 이는 목표값이 아닌 상한이며 모든 위험·성과·시장 가드레일이 우선합니다. Coinone KRW 현물은 중앙 등록부·설정·시세·PAPER·통계·Strategy Studio에 들어가지만 실계좌 E2E 전에는 LIVE를 실패 폐쇄합니다. Windows 설치본과 실계좌 검증 전까지 공개 v3.9.1.28 자산은 유지합니다.
+
+## 이전 통계 기반: v3.9.1.28 Canonical Execution PnL & Stable Statistics UI Patch
+
+v3.9.1.28은 거래 통계의 순손익 정본을 NoahAI 진입·청산 원장으로 유지하면서, 청산 주문 ID가 정확히 일치하는 거래소·증권사 체결만 대조합니다. 거래소 실현 PnL, 같은 기준통화의 수수료·세금을 반영한 체결 대조 완료 순손익, 대조 상태를 구분하며 승률·누적·최대/최소는 대조 완료 거래만 계산합니다. 과거 불확실 기록은 덮어쓰지 않고 `대조 미확정` 건수로 분리합니다. `화면 다시 계산`은 로컬 원장을 다시 읽고, `거래소 체결 동기화`는 선택한 실제 거래소 API의 체결을 가져와 대조합니다. 전체 거래소 선택 시 한 곳만 고르지 않고 활성 거래소를 순차 처리합니다. 통계 메시지가 생겨도 표 헤더가 밀려나지 않도록 고정 스크롤 구조를 사용합니다. Windows 설치기·blockmap·`latest.yml`과 manifest는 v3.9.1.28 공개 자산으로 보존합니다.
+
+v3.9.1.29 배포 완료 판정은 [검증 원장](docs/V39129_FAIR_STRATEGY_COMMONS_POSITION_CAP_COINONE_TEST_PLAN.md)의 모든 필수 행이 `[x] VERIFIED`가 된 뒤에만 합니다. v3.9.1.28 체결·통계 누적 기준은 [이전 검증 원장](docs/V39128_EXECUTION_PNL_STATISTICS_TEST_PLAN.md)에 보존합니다.
+
+## 이전 공개 기능: v3.9.1.27 Strategy Assistant Continuity & Guided UX Patch
+
+v3.9.1.27 Windows 설치기·blockmap·`latest.yml`과 릴리스 페이지는 2026-09-11 게시됐습니다. Strategy Studio의 두 번 누르기 확인을 명시적 확인창으로 바꾸고 전략 버전 생성 시각을 표시합니다. 외부 AI 심층분석 한도(기본 일 30회)는 비용·반복 호출 보호용 사용자 설정으로 유지하되, 한도에 도달해도 텍스트·Pine 규칙 분석과 5분 따라 만들기는 결정형 로컬 컴파일러로 계속됩니다. AI 비용 카드는 실제 토큰·기준일 공개 단가가 있는 사용자 요청형 호출만 예상액을 계산하고 미확정 비용을 0원으로 꾸미지 않습니다. 역할별 Provider·모델 구성과 제공사별 모델 상태·용도·장단점·공개 단가를 기준일과 함께 보여 주며 실제 계정 모델 목록은 사용자가 누른 연결 점검으로 별도 확인합니다. 설정의 9개 탭은 구조화된 탭 식별자를 AI 어시스턴트까지 전달해 다른 탭 답변과 섞이지 않고, 탭 이동 중 늦게 도착한 응답도 폐기합니다. OpenAI 기본 보호 Project와 공개 일반 질문용 Project 키를 분리하되 공개 경로는 기본 OFF이며, 사용자가 심층분석에서 공개 질문 1건을 별도 확인할 때만 최근 대화와 앱 상태를 제외하고 공유용 키를 사용합니다. 조직 공유 활성화와 무료량은 앱이 확인·보장하지 않습니다. AI 답변은 복사·붙여넣기 없이 Strategy Studio 검토 영역으로 가져올 수 있지만 사용자가 확인한 뒤에만 원본과 별도 보완 근거로 확정·재분석됩니다. 초보자·일반·고급은 실제 프롬프트와 캐시 문맥이 분리됩니다. 암호화폐와 주식·ETF의 공유 UI/분석 계약에 함께 적용하며 레버리지 가드레일은 암호화폐 최대 5배, 주식·ETF 1배를 유지합니다. 공개 사실은 모든 Provider 계정·거래소·증권사·DPI·24~72시간 운용의 무결함을 뜻하지 않으며, 남은 환경별 게이트는 [v3.9.1.27 검증 원장](docs/V39127_STRATEGY_ASSISTANT_CONTINUITY_TEST_PLAN.md)을 따릅니다.
+
+v3.9.1.23에서 운영 KPI·거래 통계·AI 리포트의 LIVE 청산 정본을 `trade_log`로 통일하고 PAPER 가상 청산을 별도 원장으로 분리했습니다. 전체 PAPER 운용의 메인 KPI, 기간별 LIVE/PAPER 통계, 비파괴 표시 기준과 Strategy Studio PAPER 일시정지·같은 시도 재개·새 검증 분리가 공개 기준입니다.
+
+향후 거래소·증권사는 중앙 기관 등록부와 Web UI inventory를 함께 갱신하고 주문·수명주기·LIVE/PAPER/LEARNING·통계·Strategy Studio·대상 OS 실환경 게이트를 모두 통과해야만 지원 완료로 표시합니다. [기관 실행 계약](docs/EXCHANGE_SEPARATION_GUIDELINES.md)을 따릅니다.
+
+v3.9.1.0의 UI-neutral 엔진, Web Application Service, React/Electron 셸 전환 기록은 [Web UI 1:1 전환 실행 원장](docs/WEB_UI_1_TO_1_PARITY_EXECUTION_PLAN_v3.9.1.0.md)에 보존합니다. 그 문서의 당시 `배포 불가` 판정은 v3.9.1.0 후보에 대한 역사적 판정이며, 현재 판정은 이 문서 맨 위의 v3.9.1.31 후보와 v3.9.1.30 공개 기반을 따릅니다. 실계정·특수 DPI·장시간 운용은 현재 버전에서도 별도 환경별 증거로 판단합니다.
+
+### UI 플랫폼 전환 내부 통합 후보
+
+반복된 Tk/CustomTkinter 화면 수명주기 문제를 해소하기 위해 Python 매매·AI 엔진을 UI-neutral 런타임으로 분리하고 Web UI와 Electron 셸로 전환하고 있습니다. 화면은 DB·설정·Trader를 직접 호출하지 않고 Application Services를 거쳐야 합니다. 다만 기술 구조 변경은 사용자 화면을 새로 설계할 권한이 아니며, 기존 클라이언트의 정보·배치·동작·상태·데이터 범위를 그대로 보존해야 합니다. 현재 판정은 [Web UI 1:1 전환 실행 원장](docs/WEB_UI_1_TO_1_PARITY_EXECUTION_PLAN_v3.9.1.0.md)을 따릅니다.
 
 - PyQt5는 Windows 키움 OpenAPI+의 `QAxWidget`/COM 연결에 필요하므로 제거하지 않습니다.
 - PyQt5·pandas·루트에서 수집된 VC DLL을 모두 제거한 뒤, 빌드 아키텍처와 같은 공식 VC143 재배포 폴더의 검증된 단일 세트만 EXE 루트에 넣습니다.
@@ -75,7 +137,7 @@ NoahAI의 핵심은 자동매매가 아니라 **판단·설명·기록·검증·
 
 ## v3.9.0.6 Source Candidate 2 업데이트 대상 소스 (2026-08-04, Windows 재빌드 전)
 
-- 상세 원인·거래소별 관찰·검증 경계는 [Teayu v3.9.0.6 장애 분석](docs/INCIDENT_260802_TEAYU_V3906.md)을 확인하세요.
+- 상세 원인·거래소별 관찰·검증 경계는 [Teayu v3.9.0.6 장애 분석](docs/archive/history/INCIDENT_260802_TEAYU_V3906.md)을 확인하세요.
 - 앱 설정 스키마는 데이터 파괴가 없는 기존 `3.9.0.5` 계약을 유지합니다. 제품 버전 상승을 이유로 사용자 설정을 다시 마이그레이션하지 않습니다.
 
 ## v3.9.0.5 Fix Patch 5 업데이트 대상 소스 (2026-08-01)
@@ -103,7 +165,7 @@ NoahAI의 핵심은 자동매매가 아니라 **판단·설명·기록·검증·
 - 과거 더미 최상위 설정 20개와 AlphaArena 이중 스키마를 정리합니다. 기존 값은 숨은 호환 보관소로 1회 이전하되, API 키는 거래소·증권사 키와 동일한 사용자별 로컬 설정 정책을 유지합니다.
 - 위쪽 거래소 선택은 화면·분석·학습 범위, 아래쪽은 신규 실주문 권한입니다. PAPER는 실제 주문 범위보다 우선하며 실시간 판단은 유지하고 모든 실주문을 차단합니다.
 - v3.9.0.5 최초 실행은 과도기 주문 범위를 LEARNING으로 잠급니다. LIVE 사용자는 아래쪽 실제 주문 거래소를 다시 선택·저장해야 합니다.
-- `설정 → AI 엔진/API`에서 OpenAI·DeepSeek·Anthropic Claude·Google Gemini를 선택할 수 있으며 Kimi K3는 AI 어시스턴트 시험 지원입니다.
+- `설정 → AI 엔진/API`에서 OpenAI·DeepSeek·Anthropic Claude·Google Gemini·Kimi K3/K2.6을 역할별로 선택할 수 있습니다. DeepSeek는 공식 `deepseek-v4-flash`·`deepseek-v4-pro`와 계정 확인형 비전 실험 모델을 사용합니다.
 - 애널리스트·어시스턴트·빈번/표준/정밀 작업은 이제 `{provider, model}`로 각각 배치되며 기존 모델 문자열 설정은 기존 Provider를 보존해 자동 변환됩니다.
 - AI 커스텀 무자막 YouTube 전사는 분석 엔진과 분리한 OpenAI 전사 프로필을 사용하고, 기본 2종과 다중 화자 구분 모델을 선택할 수 있습니다.
 - AI 커스텀은 익숙한 시중 전략의 실행력에 NoahAI의 시장국면 판단·감독·보호·기록을 더하는 제품 계층입니다. `기본 AI 후보 재확인`과 `사용자 전략 원형 독립 실행`을 구분하고, 고급 독립 전략은 기본 AI 합의·전체 수익성으로 재심사하지 않습니다.
@@ -121,7 +183,7 @@ NoahAI의 핵심은 자동매매가 아니라 **판단·설명·기록·검증·
 - 숨은 AI 학습·금융 인텔리전스·거래소·증권사 탭은 불필요한 callback/API 조회를 중지하고 다시 열 때 즉시 갱신합니다.
 - 업데이트는 열린 포지션·주문·주문 제출 상태를 기본 연기합니다. 유지 시 TP·SL, 청산 시 실제 0건 상태, 종료 flush, manifest SHA-256, 재시작 health check를 모두 통과해야 합니다.
 - Fix Patch 2 포함 전체 자동 회귀는 `1,261 passed, 6 skipped`입니다. 이 수치는 소스 검증 결과이며 새 Windows EXE의 설치·SHA 자동업데이트·복원, 실제 제공사 키와 거래소별 실연결, 24~72시간 실행 검증과는 분리합니다.
-- 상세 원인과 사용자 조치는 [Teayu_02 장애 조사](docs/INCIDENT_260729_TEAYU_02.md)를 확인하세요.
+- 상세 원인과 사용자 조치는 [Teayu_02 장애 조사](docs/archive/history/INCIDENT_260729_TEAYU_02.md)를 확인하세요.
 - 현재 기능별 통과·차단·미검증 범위는 [v3.9.0.5 통합 감사](docs/INTEGRATED_AUDIT_v3.9.0.5_20260731.md)를 기준으로 판단하세요. Teayu_02의 암호화폐 6개 거래소와 AI Provider는 아직 운영 준비 완료가 아닙니다.
 - 사용 순서: [설정 정본 안내](docs/SETTINGS_REFERENCE_v3.9.0.5.md) → [AI 엔진/API 사용자 안내](docs/AI_API_USER_GUIDE.md) → [사용자 가이드](docs/USER_GUIDE.md) → 앱 `사용자 매뉴얼 → 업데이트`.
 
@@ -255,15 +317,16 @@ NoahAI의 핵심은 자동매매가 아니라 **판단·설명·기록·검증·
 
 ### 🔄 포지션 복구 시스템 (v3.8.2 신규)
 - **자동 복구**: 앱 시작 시 실제 거래소에서 포지션 자동 조회
-- **완전 동기화**: 바이낸스와 CCXT 거래소 포지션 완전 동기화
+- **대조 동기화**: 거래소 주문 ID·체결 상태와 NoahAI 원장을 대조하고 불일치는 숨기지 않음
 - **안전한 재시작**: 거래 중에도 앱 재시작 가능
-- **데이터 무결성**: 실제 거래소와 앱 내 포지션 100% 일치
+- **데이터 무결성**: 일치 여부와 마지막 대조 시각을 기록하고, 확인되지 않은 상태는 `대조 미확정`으로 분리
 
-## �🛠️ 기술 스택
+## 기술 스택
 
 ### GUI
-- **CustomTkinter**: 모던 UI (유일 지원)
-- **PyQt5**: 레거시 UI (완전 지원 중단, 레거시 파일은 ImportError 스텁 처리)
+- **React + Vite + Electron**: v3.9.1.0 목표 사용자 UI와 Windows 설치 셸
+- **CustomTkinter**: v3.9.0.10 롤백 소스에만 보존하며 v3.9.1.0 bundle에는 포함하지 않음
+- **PyQt5/QAxWidget**: Windows 키움 OpenAPI+ broker worker 경계에만 유지
 
 ### 백엔드
 - **Python 3.8+**: 메인 프로그래밍 언어
@@ -321,7 +384,7 @@ python main.py
 ## 📞 지원
 
 - **문제 해결**: [문제 해결 가이드](docs/TROUBLESHOOTING.md)
-- **FAQ**: [자주 묻는 질문](docs/FAQ.md)
+- **FAQ**: [AI 실행 자주 묻는 질문](USER_GUIDE_AI_EXECUTION.md#자주-묻는-질문)
 - **업데이트**: [버전 히스토리](docs/CHANGELOG.md)
 
 ## 📄 라이선스

@@ -9,6 +9,7 @@ from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 from .custom_strategy_runtime import normalize_engine_settings
 from .declarative_strategy_engine import DeclarativeStrategyEngine
+from .replay_visualization import build_replay_visualization
 
 
 def _float(value: Any) -> float:
@@ -670,6 +671,7 @@ def run_historical_replay(
         "signal_mode": signal_mode,
         "equity_curve_percent": equity_curve,
         "drawdown_curve_percent": drawdown_curve,
+        "replay_visualization": build_replay_visualization(rows, trades, equity_curve, drawdown_curve),
         "regime_results": regime_results,
         "trades": trades,
         "assumptions": {

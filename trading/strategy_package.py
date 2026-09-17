@@ -94,6 +94,11 @@ def build_strategy_package(
     if not permissions or any(item not in {"view", "use", "fork", "manage"} for item in permissions):
         raise ValueError("지원하지 않는 공유 권한입니다.")
     source_name = Path(str(version.get("source_reference") or "").replace("\\", "/")).name
+    passport_snapshot = deepcopy(dict(passport or {}))
+    historical = passport_snapshot.get("execution_validation")
+    if isinstance(historical, dict) and isinstance(historical.get("metrics"), dict):
+        # Chart snapshots are local inspection evidence, not portable passport certification.
+        historical["metrics"].pop("replay_visualization", None)
     payload = {
         "format": FORMAT,
         "schema_version": SCHEMA_VERSION,
@@ -107,7 +112,7 @@ def build_strategy_package(
             "source_reference_name": source_name,
             "strategy_ir": ir,
         },
-        "passport": deepcopy(dict(passport or {})),
+        "passport": passport_snapshot,
         "access_policy": {
             "visibility": visibility,
             "permissions": permissions,

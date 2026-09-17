@@ -3069,3 +3069,33 @@ select:not([multiple]):disabled { color: #9ca3af; opacity: .78; cursor: not-allo
 .portfolio-mode-panel label { display: flex; align-items: center; gap: 12px; font-weight: 700; color: #bfdbfe; }
 .portfolio-mode-panel select { min-height: 38px; padding: 8px 28px 8px 12px; border: 1px solid #446381; border-radius: 7px; background: #15283d; color: #e2e8f0; }
 .portfolio-mode-panel p { margin: 8px 0; color: #cbd5e1; font-size: 13px; }
+/* Stored historical replay evidence: self-contained, no global table overrides. */
+.strategy-replay { margin-top: 14px; padding: 12px; border: 1px solid #33465e; border-radius: 10px; background: #0b1220; min-width: 0; }
+.strategy-replay summary { cursor: pointer; color: #b9dcff; font-weight: 700; }
+.strategy-replay p { overflow-wrap: anywhere; }
+.strategy-replay-chart { width: 100%; height: 460px; min-width: 0; }
+.strategy-replay-chart td, .strategy-replay-chart th { padding: 0; border: 0; max-width: none; overflow: visible; text-overflow: clip; }
+.replay-toolbar { display: flex; gap: 10px; align-items: center; justify-content: space-between; flex-wrap: wrap; margin: 10px 0; }
+.strategy-replay .replay-note { color: #a9bbd0; font-size: 12px; line-height: 1.65; }
+.replay-selection { border-left: 3px solid #5bbcff; padding: 10px; margin: 12px 0; line-height: 1.7; overflow-wrap: anywhere; }
+.replay-raw-values { margin: 10px 0; padding: 10px; border: 1px solid #25354a; border-radius: 6px; }
+.replay-raw-values dl { display: grid; grid-template-columns: minmax(140px, 1fr) 2fr; gap: 6px 12px; font-size: 12px; }
+.replay-raw-values dd { margin: 0; overflow-wrap: anywhere; }
+.strategy-replay .replay-table span { color: inherit; font-size: inherit; }
+.replay-table-scroll { overflow: auto; max-width: 100%; max-height: 360px; }
+.replay-table { width: 100%; border-collapse: collapse; font-size: 12px; white-space: nowrap; }
+.replay-table caption { text-align: left; color: #b8c8db; padding: 8px 0; white-space: normal; }
+.replay-table th, .replay-table td { padding: 9px; text-align: left; border-bottom: 1px solid #25354a; }
+.replay-table tr.selected { background: #19314a; }
+.replay-gain { color: #42d9ad; }
+.replay-loss { color: #ff8592; }
+@media (max-width: 600px) { .strategy-replay { padding: 8px; } }
+.source-trade-history { min-width: 0; }
+.source-history-tabs { display: flex; gap: 6px; margin: 0 0 6px; }
+.source-history-tabs button { flex: 1; border: 1px solid #344867; border-radius: 7px; padding: 7px; background: #172238; color: #c2d2e9; font-size: 11px; cursor: pointer; }
+.source-history-tabs button[aria-pressed="true"] { background: #155d79; color: #fff; border-color: #38a5c5; }
+.source-live-history-row { padding: 10px 6px; border-bottom: 1px solid #2b3d55; overflow-wrap: anywhere; }
+.source-live-history-summary { display: flex; flex-wrap: wrap; align-items: center; gap: 5px 12px; font-size: 12px; }
+.source-live-history-summary strong { margin-left: auto; }
+.source-live-history-row small, .source-live-history-row details { display: block; color: #9baec9; margin-top: 5px; font-size: 11px; }
+.source-live-history-row summary { cursor: pointer; }

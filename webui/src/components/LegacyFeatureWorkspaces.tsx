@@ -5,6 +5,7 @@ import { sourcesForService, STOCK_SOURCES } from "../venueSources";
 import { accountConnectionFailure, accountConnectionView } from "../accountConnection";
 import type { RuntimeSnapshot, WorkspaceSnapshot } from "../types";
 import { LogHelpDialog } from "./LogHelpDialog";
+import { SourceTradeHistory } from "./SourceTradeHistory";
 import { startSequentialPoll } from "../sequentialPoll";
 
 function numberText(value: unknown, digits = 1) {
@@ -729,6 +730,7 @@ export function SourceWorkspace({ client, runtime, service, source, onOpenManual
   const [hideSystem, setHideSystem] = useState(false);
   const [logHelpOpen, setLogHelpOpen] = useState(false);
   const [paperHistoryOpen, setPaperHistoryOpen] = useState(false);
+  const [historyFetchFailed, setHistoryFetchFailed] = useState(false);
   const clearMarkerRef = useRef("");
   const sourceLogConsoleRef = useRef<HTMLDivElement | null>(null);
   const running = runtime?.running_sources.includes(source) ?? false;
@@ -742,10 +744,9 @@ export function SourceWorkspace({ client, runtime, service, source, onOpenManual
   const paperMode = sourceExecutionMode === "paper";
   const executionModeLabel = liveMode ? "LIVE" : paperMode ? "PAPER" : "LEARNING";
   useEffect(() => {
-    // PAPER 운용 중에는 현재 거래내역을 바로 보여주고, LIVE에서는 과거
-    // 검증 기록이 포지션/로그 공간을 밀어내지 않도록 요약 상태로 시작한다.
-    setPaperHistoryOpen(paperMode);
-  }, [paperMode, source]);
+    // 기관/모드 전환 시 LIVE와 PAPER 내역 모두 요약 상태로 시작한다.
+    setPaperHistoryOpen(false);
+  }, [sourceExecutionMode, source]);
 
   function refreshStored() {
     Promise.all([
@@ -756,11 +757,15 @@ export function SourceWorkspace({ client, runtime, service, source, onOpenManual
     ])
       .then(([nextWorkspace, nextLogs]) => {
         setWorkspace(nextWorkspace);
+        setHistoryFetchFailed(false);
         const markerIndex = clearMarkerRef.current ? nextLogs.lines.map((line) => line.message).lastIndexOf(clearMarkerRef.current) : -1;
         setLogs(markerIndex >= 0 ? nextLogs.lines.slice(markerIndex + 1) : nextLogs.lines);
         setMessage("");
       })
-      .catch((reason: unknown) => setMessage(reason instanceof Error ? reason.message : `${service === "stock" ? "증권사" : "거래소"} 화면을 불러오지 못했습니다.`));
+      .catch((reason: unknown) => {
+        setHistoryFetchFailed(true);
+        setMessage(reason instanceof Error ? reason.message : `${service === "stock" ? "증권사" : "거래소"} 화면을 불러오지 못했습니다.`);
+      });
   }
   useEffect(() => {
     setAccountPayload(null);
@@ -807,8 +812,8 @@ export function SourceWorkspace({ client, runtime, service, source, onOpenManual
       setLogs(markerIndex >= 0 ? nextLogs.lines.slice(markerIndex + 1) : nextLogs.lines);
     }).catch(() => { /* Keep the last source snapshot while the next poll retries. */ });
     const loadWorkspace = () => client.workspace(service, `${service}.source_workspaces`, source).then((nextWorkspace) => {
-      if (active) setWorkspace(nextWorkspace);
-    }).catch(() => { /* Keep the last source snapshot while the next poll retries. */ });
+      if (active) { setWorkspace(nextWorkspace); setHistoryFetchFailed(false); }
+    }).catch(() => { if (active) setHistoryFetchFailed(true); });
     const stopLogs = startSequentialPoll(loadLogs, 1_000);
     const stopWorkspace = startSequentialPoll(loadWorkspace, 5_000);
     return () => { active = false; stopLogs(); stopWorkspace(); };
@@ -998,7 +1003,9 @@ export function SourceWorkspace({ client, runtime, service, source, onOpenManual
         <header className="source-card-header"><div className="source-card-title"><span className="source-card-mark statistics" aria-hidden="true">↗</span><div><small>{liveMode ? "VERIFIED PERFORMANCE" : paperMode ? "PAPER PERFORMANCE" : "LEARNING STATUS"}</small><h3>{liveMode ? "실거래 통계 · 오늘" : paperMode ? "가상 거래 통계 · 전체" : "학습 실행 상태"}</h3></div></div><div className="source-stat-context"><strong>{sourceLabel}</strong>{paperMode ? <><span>전체 가상 청산 <b>{paperClosedCount}건</b></span>{paperStatistics?.window_limited && <span>기관별 최대 {Number(paperStatistics.recent_window_limit)}건 · 전체 원장 초과</span>}</> : liveMode ? service === "stock" ? <span>오늘 청산 기준</span> : <><span>오늘 거래소 확인 체결 <b>{executionCountLabel(sourceExecutionCount, sourceStatistics?.execution_history_status)}</b></span><span>오늘 NoahAI 청산 <b>{sourceClosedCount}건</b></span></> : <span>신규 주문·가상 체결 없음</span>}</div></header>
         {paperMode ? <><div className="legacy-trade-kpis"><div><span>가상 청산</span><b>{paperClosedCount}건</b></div><div><span>가상 승률</span><b className="positive">{paperWinRate == null ? "미확정" : `${numberText(paperWinRate, 2)}%`}</b></div><div><span>가상 순손익 ({sourceCurrency})</span><b className={paperPnl < 0 ? "negative" : "positive"}>{paperPnl >= 0 ? "+" : ""}{numberText(paperPnl, service === "stock" ? 0 : 4)}</b></div><div><span>가상 수수료 ({sourceCurrency})</span><b>{numberText(paperFees, service === "stock" ? 0 : 4)}</b></div></div>{paperUnverifiedCount > 0 && <p className="spot-holding-scope">구버전 손익 미확정 {paperUnverifiedCount}건은 승률·손익에서 제외했습니다.</p>}</> : liveMode ? service === "stock" ? <div className="legacy-trade-kpis"><div><span>총 거래</span><b>{Number(stockStatistics?.total_trades ?? 0)}건</b></div><div><span>오늘 체결</span><b>{Number(stockStatistics?.today_count ?? 0)}건</b></div><div><span>실현손익</span><b className={Number(stockStatistics?.realized_pnl ?? 0) < 0 ? "negative" : "positive"}>{Number(stockStatistics?.realized_pnl ?? 0) > 0 ? "+" : ""}{numberText(stockStatistics?.realized_pnl ?? 0, 0)}원</b></div><div><span>미체결</span><b>{Number(stockStatistics?.open_orders_count ?? openOrders.length)}건</b></div></div> : <div className="legacy-trade-kpis"><div><span>거래소 체결</span><b>{executionCountLabel(sourceExecutionCount, sourceStatistics?.execution_history_status)}</b></div><div><span>청산 승률</span><b className="positive">{numberText(sourceWinRate, 2)}%</b></div><div><span>청산 순손익</span><b className={sourcePnl < 0 ? "negative" : "positive"}>{sourcePnl >= 0 ? "+" : ""}{numberText(sourcePnl, 4)}</b></div><div><span>청산 수수료</span><b>{numberText(accumulatedFees, 4)}</b></div></div> : <div className="empty-state">{running ? "LEARNING은 분석·전략·가드레일 판단만 기록 중이며 실제 주문과 가상 체결 통계는 만들지 않습니다." : "LEARNING은 자동으로 시작되지 않습니다. 위의 분석·학습 시작 버튼을 누르면 시세·코인 선정·전략·가드레일 판단만 기록하고 신규 주문은 차단합니다."}</div>}
       </article>
+      <SourceTradeHistory mode={sourceExecutionMode} source={source} history={workspace?.live_history} loading={!workspace && !historyFetchFailed} failed={historyFetchFailed}>
       <article className={`legacy-exchange-card exchange-statistics paper-history-card ${paperHistoryOpen ? "expanded" : "collapsed"}`}><header className="source-card-header"><div className="source-card-title"><span className="source-card-mark statistics" aria-hidden="true">P</span><div><small>PAPER HISTORY</small><h3>{paperMode ? "현재 PAPER 거래내역" : "과거 PAPER 검증 이력"}</h3></div></div><div className="paper-history-header-actions"><div className="source-stat-context"><strong>PAPER 기록</strong><span>{liveMode ? "LIVE와 분리" : "청산 완료"} · {Number(workspace?.paper_trades?.length ?? 0)}건 · 활성 수와 무관</span></div><button className="paper-history-toggle" type="button" aria-expanded={paperHistoryOpen} onClick={() => setPaperHistoryOpen((value) => !value)}>{paperHistoryOpen ? "접기" : "펼치기"}</button></div></header>{paperHistoryOpen && <>{liveMode && <p className="spot-holding-scope">과거 PAPER 가상 청산 기록입니다. 현재 LIVE 거래나 가상체결 발생을 뜻하지 않습니다.</p>}<div className="legacy-paper-history">{[...(workspace?.paper_trades ?? [])].reverse().slice(0, 10).map((row, index) => { const verified = String(row.calculation_status ?? "valid") === "valid"; return <div className="legacy-position-row" key={String(row.event_id ?? index)}><div><b>{String(row.symbol ?? "—")}</b><span>{String(row.exchange ?? source).toUpperCase()}</span></div><div><span>{row.strategy_key && row.version_id ? "전략 스튜디오" : "기본 전략"}</span><small>{String(row.closed_at ?? "")}</small></div><div><span>가상 실현손익</span>{verified ? <strong className={Number(row.net_pnl ?? 0) < 0 ? "negative" : "positive"}>{Number(row.net_pnl ?? 0) > 0 ? "+" : ""}{numberText(row.net_pnl, service === "stock" ? 0 : 4)} {String(row.quote_currency ?? sourceCurrency)}</strong> : <strong>과거 손익 미확정</strong>}</div></div>; })}{!workspace?.paper_trades?.length && <div className="empty-state">이 거래소에서 완료된 PAPER 가상 청산이 아직 없습니다.</div>}</div></>}</article>
+      </SourceTradeHistory>
     </div>
     <article className="legacy-exchange-log legacy-exchange-card">
       <div className="legacy-log-filters">

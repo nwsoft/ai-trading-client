@@ -292,6 +292,7 @@ export interface WorkspaceSnapshot {
     referral_url?: string;
     uid_masked?: string;
   };
+  live_history?: import("./components/SourceTradeHistory").SourceLiveHistory;
   paper_trades?: Array<Record<string, any>>;
   paper_positions?: Array<Record<string, any>>;
   paper_positions_status?: string;

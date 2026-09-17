@@ -165,7 +165,7 @@ def _render_release_boundary(section_id: str, content: str) -> str:
         count=1,
     )
     content = re.sub(
-        r"^• v\d+\.\d+\.\d+\.\d+ 소스 후보, Windows 공개 v\d+\.\d+\.\d+\.\d+$",
+        r"^• v\d+\.\d+\.\d+\.\d+ (?:소스 후보, Windows 공개 v\d+\.\d+\.\d+\.\d+|Windows stable/latest (?:공개 제품|배포 후보 · 공개 stable/latest는 v\d+\.\d+\.\d+\.\d+))$",
         line,
         content,
         count=1,
