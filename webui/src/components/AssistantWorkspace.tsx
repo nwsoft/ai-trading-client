@@ -2,6 +2,7 @@ import { Fragment, useEffect, useMemo, useRef, useState, type FormEvent, type Re
 
 import type { GatewayClient } from "../api";
 import type { ManualSection } from "../types";
+import { STRATEGY_EXPLANATION_MARKER } from "../strategyExplanation";
 
 type QuickQuestion = readonly [label: string, prompt: string];
 
@@ -261,7 +262,7 @@ const MANUAL_GUIDES: Record<string, ManualGuideDefinition> = {
   arena: {
     kicker: "숙련자용 실험 기능",
     title: "AlphaArena는 기본 자동매매와 분리된 고급 루프입니다.",
-    description: "선택한 AI 엔진이 구조화된 매매 의도를 만들고 자체 가드레일을 거쳐 PAPER 결과를 기록하는 고급 실험 기능입니다. v3.9.1.38에서는 LIVE가 차단됩니다.",
+    description: "선택한 AI 엔진이 구조화된 매매 의도를 만들고 자체 가드레일을 거쳐 PAPER 결과를 기록하는 고급 실험 기능입니다. v3.9.1.39에서는 LIVE가 차단됩니다.",
     visual: [["시장 입력", "시세·지표"], ["선택 모델", "구조화 판단"], ["가드레일", "허용 주문만"]],
     highlights: [["기본 OFF", "설정에서 명시적으로 활성화해야 화면과 실행 루프가 나타납니다."], ["한 번에 한 엔진", "여러 모델 동시 경쟁이 아니라 선택 모델 하나로 같은 규칙을 평가합니다."], ["현재 PAPER 전용", "Windows·주문 소유권·복구 외부 검증 전에는 LIVE 시작을 실패 폐쇄합니다."]],
     flowTitle: "한 세션의 흐름",
@@ -274,7 +275,7 @@ const MANUAL_GUIDES: Record<string, ManualGuideDefinition> = {
     kicker: "현재 설치와 변경사항",
     title: "최신 변경과 아직 남은 검증을 분리해서 보세요.",
     description: "업데이트 탭은 현재 설치 식별, 사용자 영향, 검증된 범위와 남은 배포 게이트를 확인하는 곳입니다. 사용법은 각 기능 탭에서 확인합니다.",
-    visual: [["버전", "3.9.1.38"], ["변경", "과거재생 차트·모드별 거래내역"], ["검증", "Windows 실계정 확인 별도"]],
+    visual: [["버전", "3.9.1.39"], ["변경", "TP/SL 청산 체결·손익 복구"], ["검증", "Windows 실계정 확인 별도"]],
     highlights: [["이번 후보", "같은 국면의 반복 알림, 자동 버전 확인 주기, Coinone 후보 수집과 증권 실행 로그를 보강했습니다."], ["유지한 안전장치", "점수 없는 후보 진입 차단·주문 권한·TP/SL·가드레일은 유지합니다. 후보 수집 복구는 수익이나 즉시 진입을 보장하지 않습니다."], ["배포 전 확인", "Windows 설치본의 주기 확인·업데이트 재시작·Coinone PAPER와 증권사 실계정 동작은 별도로 점검합니다."]],
     flowTitle: "업데이트를 확인하는 순서",
     flow: [["식별", "설정과 하단의 버전·패치 확인"], ["변경", "내 사용 흐름에 영향 주는 항목 확인"], ["보존", "설정·원장·전략 버전 유지 확인"], ["검증", "PAPER와 연결 상태 재확인"], ["배포", "설치·재시작 뒤 실제 화면 확인"]],
@@ -390,6 +391,7 @@ function ManualGuideContent({ sectionId, content, query }: { sectionId: string; 
 
 export function AssistantWorkspace({ client, service, initialQuestion = "", settingsSection = "", onOpenSettings, onChartAnalysis, onReturn, returnLabel, onSendToStrategy }: { client: GatewayClient; service: string; initialQuestion?: string; settingsSection?: string; onOpenSettings?: () => void; onChartAnalysis?: () => void; onReturn?: () => void; returnLabel?: string; onSendToStrategy?: (answer: string) => void }) {
   const [question, setQuestion] = useState("");
+  const [strategyContext, setStrategyContext] = useState("");
   const [level, setLevel] = useState<"beginner" | "standard" | "advanced">(service === "ai_custom" ? "beginner" : "standard");
   const [mode, setMode] = useState<"guide" | "deep_analysis">("guide");
   const [dataScope, setDataScope] = useState<"private" | "public_general">("private");
@@ -414,10 +416,13 @@ export function AssistantWorkspace({ client, service, initialQuestion = "", sett
     event.preventDefault();
     const prompt = question.trim();
     if (prompt.length < 2) return;
+    const requestPrompt = strategyContext ? `${prompt}\n${strategyContext}` : prompt;
+    if (requestPrompt.length > 4000) { setMessage("분석 자료와 질문이 입력 한도를 넘습니다. 질문을 짧게 나누어 주세요."); return; }
+    if (strategyContext && dataScope === "public_general") { setMessage("전략 자료는 기본 보호 경로에서만 질문하세요."); return; }
     setBusy(true); setMessage(""); setMessages((items) => [...items, { role: "user", text: prompt }]);
     try {
       const recentMessages = dataScope === "public_general" ? [] : messages.slice(-12).map((item) => ({ role: item.role, content: item.text }));
-      const result = await client.askAssistant(prompt, service, level, mode, recentMessages, settingsSection, dataScope);
+      const result = await client.askAssistant(requestPrompt, service, level, mode, recentMessages, settingsSection, dataScope);
       const answer = String(result.answer ?? "").trim() || "AI 응답이 비어 있어 답변을 표시하지 못했습니다. 일반 안내로 다시 시도하거나 AI Provider 연결 상태를 확인하세요.";
       setMessages((items) => [...items, { role: "assistant", text: answer }]);
       if (voice.enabled && voice.auto_tts && "speechSynthesis" in window) {
@@ -445,7 +450,17 @@ export function AssistantWorkspace({ client, service, initialQuestion = "", sett
     }).catch(() => undefined);
     return () => { recognitionRef.current?.abort?.(); window.speechSynthesis?.cancel(); };
   }, [client]);
-  useEffect(() => { if (initialQuestion) setQuestion(initialQuestion); }, [initialQuestion]);
+  useEffect(() => {
+    const hasSnapshot = service === "ai_custom" && initialQuestion.includes(STRATEGY_EXPLANATION_MARKER);
+    setStrategyContext(hasSnapshot ? initialQuestion : "");
+    if (initialQuestion) setQuestion(hasSnapshot ? "이 자료는 어떤 전략인가요? 진입·청산 방법과 자료 속 성과의 의미를 쉽게 설명해 주세요." : initialQuestion);
+    if (hasSnapshot) {
+      setDataScope("private");
+      setMode("guide");
+      setMessages([{ role: "assistant", text: "현재 전략 분석 자료를 가져왔습니다. 일반 안내는 로컬 요약, 심층분석은 외부 AI와의 대화입니다. 다른 초안의 대화는 섞지 않습니다." }]);
+      setMeta(null);
+    }
+  }, [initialQuestion, service]);
   useEffect(() => { if (service === "ai_custom") setLevel("beginner"); }, [service]);
   useEffect(() => { setDataScope("private"); }, [service, settingsSection]);
   const budget = status?.budget ?? {};
@@ -455,6 +470,7 @@ export function AssistantWorkspace({ client, service, initialQuestion = "", sett
   const publicRoute = status?.data_routing ?? {};
   async function togglePublicGeneral(enabled: boolean) {
     if (!enabled) { setDataScope("private"); return; }
+    if (strategyContext) { setMessage("전략 분석 자료가 첨부되어 있습니다. 기본 보호 경로를 사용하거나 분석 자료를 해제한 뒤 공개 일반 질문을 작성하세요."); return; }
     let route = publicRoute;
     try {
       const latest = await client.assistantStatus();
@@ -538,6 +554,7 @@ export function AssistantWorkspace({ client, service, initialQuestion = "", sett
         {message && <div className="inline-notice error-text">{message}</div>}
         {meta?.provider_failed && <div className="analysis-meta"><b>외부 분석 미완료 · 로컬 안내</b><span>{meta.provider_called ? `${String(meta.provider).toUpperCase()} · ${String(meta.model)} 호출 시도` : "Provider 응답 확인 전"}{meta.provider_status_code ? ` · HTTP ${meta.provider_status_code}` : ""} · {String(meta.provider_error ?? "연결 상태 확인 필요")}</span></div>}
         {meta?.provider_called && !meta?.provider_failed && <div className="analysis-meta"><b>{String(meta.provider).toUpperCase()} · {String(meta.model)}</b><span>{meta.privacy_route === "openai_shared_public_general" ? "공개 일반 질문용 Project" : meta.privacy_route === "protected_default_fallback" ? "기본 보호 경로로 대체" : "기본 보호 경로"} · {meta.cache_hit ? "캐시 응답 · 추가 호출 없음" : `토큰 ${Number(meta.usage?.total_tokens ?? 0).toLocaleString()} · 예상 $${meta.estimated_cost_usd ?? "산정 불가"}`}</span></div>}
+        {strategyContext && <div className="strategy-context-notice"><strong>현재 전략 분석 자료 첨부 · 자동 실행 없음</strong><span>규칙·읽은 범위·일부 원문 발췌를 질문에 함께 사용합니다. 심층분석을 전송하면 외부 AI 비용이 발생할 수 있습니다.</span><details><summary>전달할 분석 자료 보기</summary><pre>{strategyContext}</pre></details><button type="button" disabled={busy} onClick={() => { setStrategyContext(""); setMessages([]); setMeta(null); setQuestion(""); }}>분석 자료·대화 해제</button></div>}
         <form className="legacy-chat-input" onSubmit={submit}><input maxLength={4000} placeholder={profile.placeholder} value={question} onChange={(event) => setQuestion(event.target.value)} /><button className="send" disabled={busy || question.trim().length < 2} type="submit">전송</button><button className={listening ? "active" : ""} type="button" onClick={toggleVoiceInput}>{listening ? "듣기 중지" : "음성입력"}</button><button type="button" onClick={onOpenSettings}>설정관리</button><button type="button" onClick={openChartAnalysis}>차트분석</button></form>
       </article>
       <aside className="legacy-quick-question-panel"><h3>{profile.title}</h3><div>{profile.questions.map(([label, prompt]) => <button key={label} type="button" onClick={() => setQuestion(prompt)}>{label}</button>)}</div><footer><div className="assistant-mode-controls"><label>설명 수준<select aria-label="설명 수준" value={level} onChange={(event) => setLevel(event.target.value as typeof level)}><option value="beginner">초보자 · 따라하기</option><option value="standard">일반 · 핵심 요약</option><option value="advanced">고급 · 계약/근거</option></select></label><button className={mode === "guide" ? "active" : ""} onClick={() => { setMode("guide"); setDataScope("private"); }} title="제품 설정과 사용법을 로컬 정본으로 설명하며 외부 AI 비용이 들지 않습니다." type="button">일반 안내</button><button className={mode === "deep_analysis" ? "active danger" : ""} onClick={() => setMode("deep_analysis")} title="심층분석 (외부 AI·비용) · 사용자가 명시적으로 요청한 질문 1건만 외부 AI Provider로 분석하며 토큰 비용이 발생할 수 있습니다." type="button">심층분석</button></div>{mode === "deep_analysis" && <label className="assistant-public-route"><input type="checkbox" checked={dataScope === "public_general"} onChange={(event) => togglePublicGeneral(event.target.checked)} /><span>공개 일반 질문용 Project 사용</span><small>{publicRoute.public_general_effective ? "질문 1건만 전송 · 최근 대화와 앱 상태 제외" : "설정에서 별도 OpenAI Project 키와 공개 경로를 먼저 준비하세요."}</small></label>}<span>{mode === "guide" ? "일반 안내" : "심층분석 외부 AI 사용량"}</span><b>{mode === "guide" ? "외부 호출 없음" : `오늘 ${budget.daily_used ?? 0}/${budget.daily_limit ?? "—"} · 이번 달 ${budget.monthly_used ?? 0}/${budget.monthly_limit ?? "—"}`}</b>{budgetExhausted && <div className="assistant-budget-warning"><strong>외부 AI 사용 한도 도달</strong><span>비용·반복 호출 보호용 사용자 설정입니다. 일반 안내와 로컬 전략 분석은 계속됩니다.</span><button type="button" onClick={onOpenSettings}>AI 비용 한도 확인</button></div>}<small>{dataScope === "public_general" ? "공개 질문 모드: 질문 문장 외의 문맥을 보내지 않습니다. 전략·계좌·개인정보를 입력하지 마세요." : "기본 보호 경로: 초보자·일반·고급은 실제 프롬프트와 캐시 문맥이 분리됩니다."} 거래 설정은 변경하지 않습니다.</small></footer></aside>

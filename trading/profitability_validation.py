@@ -235,6 +235,17 @@ class ProfitabilityValidator:
             }
 
         trade_rows = [dict(t or {}) for t in (recent_trades or [])]
+        unresolved = sum(t.get('performance_evidence_ready') is False for t in trade_rows)
+        if unresolved:
+            # Missing losses must not turn a confirmed positive subset into a
+            # successful strategy, nor be reclassified as a cold start.
+            return {
+                'enabled': False, 'bypassed': False,
+                'reason': 'pnl_reconciliation_required',
+                'reasons': ['pnl_reconciliation_required'],
+                'unresolved_trades': unresolved,
+                'total_trades': len(trade_rows),
+            }
         extracted_returns = [self._extract_trade_return(t) for t in trade_rows]
         returns = [value for value in extracted_returns if value is not None]
         total_trades = len(returns)

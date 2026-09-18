@@ -122,6 +122,8 @@ export function TradingStatisticsWorkspace({
   const isPaper = statistics?.execution_mode === "paper";
   const performanceCount = isPaper ? Number(statistics?.closed_count ?? 0) : reconciledCount;
   const performanceLabel = isPaper ? "가상 청산" : "체결 대조 완료";
+  const unresolvedCount = Number(statistics?.unresolved_closed_count ?? 0);
+  const exchangeReference = statistics?.exchange_pnl_reference;
   const emptyPerformance = isPaper ? "청산 기록 없음" : "대조 전";
   const totalPnl = performanceCount > 0 ? currencyText(statistics?.pnl_by_currency) : emptyPerformance;
   const totalFees = currencyText(statistics?.fees_by_currency);
@@ -182,6 +184,12 @@ export function TradingStatisticsWorkspace({
     </header>
     {periodControls}
     <p className="workspace-copy">조회 범위: {rangeLabel} · {sourceLabel} · {statisticsMode.toUpperCase()}. 전체 대시보드는 오늘, 기관별 카드는 전체 기간입니다. 같은 기간·기관·모드로 비교하세요.</p>
+    {statisticsMode === "live" && <aside className="workspace-copy" aria-label="손익 비교 기준">
+      <p><b>NoahAI 연결 청산 순손익{unresolvedCount > 0 ? " · 확정분 부분 합계" : ""}: {totalPnl}</b> · 진입·청산 수수료 반영 기준, 펀딩비 포함 계좌 총손익과는 다릅니다.</p>
+      <p>거래소 수집 체결 실현손익 · 비용 차감 전: {Number(exchangeReference?.pnl_present_count ?? 0) > 0 ? currencyText(exchangeReference?.gross_pnl_by_currency) : "제공값 없음 / 확인 전"} · 손익값 없는 체결 {Number(exchangeReference?.pnl_missing_count ?? 0)}건</p>
+      <p>수집 체결은 수동 거래를 포함할 수 있습니다. 거래소 계좌 전체·누적 PnL은 아직 대조되지 않았으며 수수료·세금·펀딩비·조회 기간·진입 원가 기준을 맞춰야 비교할 수 있습니다. 표시 기준 초기화는 원장과 학습 기록을 삭제하지 않습니다.</p>
+      {unresolvedCount > 0 && <p role="alert"><b>미확정 {unresolvedCount}건이 있어 전체 손익·승률은 아직 확정할 수 없습니다. 아래 숫자는 대조 완료분만의 부분 합계입니다.</b></p>}
+    </aside>}
     <div className={`legacy-stat-feedback${error ? " error-text" : ""}`} role="status" aria-live="polite">
       {error || message || (Number(statistics?.legacy_unattributed_count ?? 0) > 0
         ? `레거시 출처 미확정 ${Number(statistics?.legacy_unattributed_count).toLocaleString()}건은 보존되며 기관별 합계에서 제외됩니다.`
@@ -190,13 +198,13 @@ export function TradingStatisticsWorkspace({
     <div className="legacy-stat-kpis">
       <article className="trades"><span>{statisticsMode === "paper" ? "가상 청산" : "NoahAI 청산"}</span><strong>{Number(statistics?.closed_count ?? 0).toLocaleString()}건</strong></article>
       <article className="win-rate"><span>{performanceLabel} 승률</span><strong>{performanceCount > 0 ? `${numberText(statistics?.win_rate, 1)}%` : emptyPerformance}</strong></article>
-      <article className="pnl"><span>{performanceLabel} 순손익</span><strong>{totalPnl}</strong></article>
+      <article className="pnl"><span>{performanceLabel} 순손익{!isPaper && unresolvedCount > 0 ? " · 부분 합계" : ""}</span><strong>{totalPnl}</strong></article>
       <article className="fees"><span>기간 Fee</span><strong>{totalFees}</strong></article>
     </div>
     <div className="legacy-stat-operating"><b>{statisticsMode === "paper" ? "모의 운용" : "실제 운용"}</b><span>{statisticsMode === "paper" ? `가상 청산 ${Number(statistics?.closed_count ?? 0).toLocaleString()}건` : `${service === "stock" ? "증권사" : "거래소"} 확인 체결 ${executionCountText(Number(statistics?.execution_count ?? 0), statistics?.execution_history_status)}`} | {statisticsMode === "paper" ? "가상 " : ""}체결금액 {currencyText(statistics?.notional_by_currency)} | 평균 보유시간 {holdText(statistics?.avg_hold_minutes)} (유효 {statistics?.valid_hold_count ?? 0}/{statistics?.closed_count ?? 0}건)</span></div>
     <div className="legacy-stat-table">
       <div className="legacy-stat-header">
-        {[service === "stock" ? "종목" : "코인", "총 거래", "익절", "손절", "승률", "평균 순수익률", service === "stock" ? "기관 실현 PnL" : "거래소 실현 PnL", "순손익", "수수료·세금", "최대 순수익", "최대 순손실"].map((label) => <b key={label}>{label}</b>)}
+        {[service === "stock" ? "종목" : "코인", "총 거래", "익절", "손절", "승률", "평균 순수익률", "연결 청산 총손익", "순손익", "수수료·세금", "최대 순수익", "최대 순손실"].map((label) => <b key={label}>{label}</b>)}
       </div>
       <div className="legacy-stat-body">
       {groups.map((group) => <section className="legacy-stat-group" key={String(group.source)}>

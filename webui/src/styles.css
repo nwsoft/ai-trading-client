@@ -981,7 +981,9 @@ h2 { font-size: 18px; }
 .data-workspace { display: grid; gap: 16px; }
 .table-scroll { overflow: auto; max-height: 460px; }
 
-.legacy-trading-statistics { display: grid; grid-template-rows: auto auto auto auto auto minmax(0, 1fr) auto; gap: 10px; height: 100%; min-height: 0; overflow: hidden; padding: 10px; color: #f8fafc; }
+.legacy-trading-statistics { display: flex; flex-direction: column; gap: 10px; height: 100%; min-height: 0; overflow: auto; padding: 10px; color: #f8fafc; }
+.legacy-trading-statistics > * { flex-shrink: 0; }
+.legacy-trading-statistics > .legacy-stat-table { flex: 1 0 240px; }
 .legacy-stat-filter { display: flex; align-items: center; gap: 18px; min-height: 42px; }
 .legacy-stat-filter h1 { margin: 0; font-size: 15px; }
 .legacy-stat-filter label { display: flex; align-items: center; gap: 8px; color: #9ca3af; font-size: 12px; }
@@ -2142,16 +2144,17 @@ body.dashboard-surface #root { height: 100vh; height: 100dvh; min-height: 0; ove
 .legacy-log-toolbar.compact { grid-template-columns: repeat(3, 130px); }
 .legacy-log-toolbar.compact button { height: 30px; font-size: 10px; font-weight: 700; }
 
-.legacy-assistant-workspace { height: 100%; min-height: 0; display: grid; grid-template-rows: auto 1fr; gap: 8px; }
+.legacy-assistant-workspace { height: 100%; min-height: 0; display: grid; grid-template-rows: auto minmax(0, 1fr); gap: 8px; }
 .assistant-info-bar { min-height: 38px; display: flex; justify-content: space-between; align-items: center; gap: 10px; }
 .assistant-info-bar > div { display: flex; gap: 7px; }
 .assistant-info-bar button, .assistant-info-bar select { height: 30px; padding: 0 12px; border: 1px solid #3d5877; border-radius: 7px; background: #2a3d58; color: #e5edf6; font-size: 10px; cursor: pointer; }
 .assistant-info-bar button.active { border-color: #38bdf8; background: #2563eb; color: #fff; }
 .assistant-info-bar button.active.danger { border-color: #fb7185; background: #9f1239; }
 .assistant-info-bar .assistant-return-button { min-height: 36px; height: 36px; border-color: #38bdf8; background: linear-gradient(135deg, #1d4ed8, #0f766e); color: #fff; font-size: 11px; font-weight: 900; box-shadow: 0 0 0 2px rgba(56, 189, 248, .14); }
-.assistant-main-grid { min-height: 0; display: grid; grid-template-columns: minmax(0, 4fr) minmax(240px, 1.3fr); gap: 10px; }
-.legacy-chat-panel { min-height: 0; display: grid; grid-template-rows: 1fr auto auto auto; padding: 6px; border: 2px solid #374151; border-radius: 14px; background: #0b1120; overflow: hidden; }
-.legacy-chat-history { min-height: 0; overflow: auto; padding: 12px; border: 1px solid #334155; border-radius: 12px; background: #0b1120; }
+.assistant-main-grid { min-height: 0; display: grid; grid-template-columns: minmax(0, 4fr) minmax(240px, 1.3fr); grid-template-rows: minmax(0, 1fr); gap: 10px; }
+.legacy-chat-panel { min-height: 0; display: flex; flex-direction: column; padding: 6px; border: 2px solid #374151; border-radius: 14px; background: #0b1120; overflow: hidden; }
+.legacy-chat-panel > :not(.legacy-chat-history) { flex-shrink: 0; }
+.legacy-chat-history { flex: 1 1 0; min-height: 0; overflow: auto; padding: 12px; border: 1px solid #334155; border-radius: 12px; background: #0b1120; }
 .legacy-chat-message { max-width: 88%; margin-bottom: 10px; padding: 10px 12px; border-radius: 10px; background: #172033; }
 .legacy-chat-message.user { margin-left: auto; background: #16375b; }
 .legacy-chat-message b { color: #60a5fa; font-size: 10px; }
@@ -3099,3 +3102,15 @@ select:not([multiple]):disabled { color: #9ca3af; opacity: .78; cursor: not-allo
 .source-live-history-summary strong { margin-left: auto; }
 .source-live-history-row small, .source-live-history-row details { display: block; color: #9baec9; margin-top: 5px; font-size: 11px; }
 .source-live-history-row summary { cursor: pointer; }
+
+.strategy-beginner-help { margin: 10px 0; }
+.strategy-beginner-help summary, .strategy-beginner-explanation summary, .strategy-context-notice summary { cursor: pointer; color: #bce5ff; }
+.strategy-beginner-help li { margin: 8px 0; line-height: 1.65; }
+.strategy-beginner-help dd, .strategy-beginner-explanation dd { overflow-wrap: anywhere; }
+.strategy-beginner-explanation { grid-column: 1 / -1; }
+.strategy-beginner-explanation p { line-height: 1.65; }
+.legacy-xai-sections .strategy-beginner-explanation dl > div { grid-template-columns: minmax(180px, 24%) minmax(0, 1fr); font-size: 12px; gap: 12px; padding: 5px 0; }
+.strategy-beginner-explanation small { display: block; font-size: 11px; color: #a9bad1; line-height: 1.6; }
+.strategy-context-notice { max-height: 180px; overflow: auto; padding: 10px 14px; border-top: 1px solid #344867; background: #122238; font-size: 12px; }
+.strategy-context-notice strong, .strategy-context-notice span { display: block; margin-bottom: 5px; }
+.strategy-context-notice pre { max-height: 150px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; }

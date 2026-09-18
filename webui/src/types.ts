@@ -337,6 +337,13 @@ export interface WorkspaceSnapshot {
     range?: StatisticsRange;
   };
   trading_statistics?: {
+    exchange_pnl_reference?: {
+      gross_pnl_by_currency?: Record<string, number>;
+      pnl_present_count?: number;
+      pnl_missing_count?: number;
+      account_total_verified?: boolean;
+      coverage?: string;
+    };
     asset_class: string;
     filter_source: string;
     closed_count: number;

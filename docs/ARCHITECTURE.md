@@ -1,6 +1,139 @@
-# NoahAI 시스템 아키텍처 (현재 소스 v3.9.0.10)
+# NoahAI 시스템 아키텍처 (현재 소스 후보 v3.9.1.39 · 공개 안정판 v3.9.1.38)
 
-## 2026-08-13 UI 플랫폼 전환 결정 (문서 설계, 배포 버전 변경 없음)
+## 현재 버전 기준 · v3.9.1.39 검증 후보
+
+현재 소스 후보 버전: **v3.9.1.39** · updater **3.9.139**. 현재 공개 stable/latest는 **v3.9.1.38**입니다.
+
+LIVE 성과 원장은 NoahAI 종료 행과 거래소 체결을 분리합니다. 실제 청산 주문 ID가 있는 LIVE 행만 exact-order 근거로 방향·수량·귀속·비용 통화를 대조합니다. 주문 ID 없는 시간/수량 후보는 미확정으로 남깁니다. [PnL 재감사](V39139_PNL_TRUST_AUDIT.md).
+
+## v3.9.1.38 과거재생·기관별 거래내역 (공개 기록)
+
+현재 소스 후보 버전: **v3.9.1.38** · updater **3.9.138**. 현재 공개 stable/latest는 **v3.9.1.37**입니다. Electron/Web UI와 x64 엔진은 UI·서비스를 소유하고 PyQt5/QAxWidget·pykiwoom은 전용 x86 키움 호스트에만 포함합니다.
+
+[v3.9.1.38 검증 게이트](V39138_STRATEGY_REPLAY_LIVE_HISTORY_TEST_PLAN.md). 과거재생은 저장된 검증 snapshot을 읽고, 기관별 LIVE 이력은 계정 DB의 해당 기관 종료 원장을 읽는 조회 경로입니다. 둘 다 실행 모드·주문·전략 상태를 변경하지 않습니다. 패키징은 PE x64/x86과 SHA를 자동 확인하고 실제 OCX·기관 계좌 동작은 외부 Windows 증거로 분리합니다.
+
+## 현재 소스 후보 v3.9.1.32 · 런타임 관측·데이터 계약
+
+추가 점검 계약: `market_observation.py`는 관측 유효성과 마지막 확정 국면을 분리한다. 실패는 `unknown`이며 신규 진입을 보류한다. `RegimeStabilizer`는 미확인 표본을 확정·연속 확인 횟수에 사용하지 않는다. 증권 실행은 빈 후보로도 보유 관리 서비스를 호출한다. 미래에셋 `candles`와 `stock_list`는 서로 다른 기능이다.
+
+알림 큐는 `(account generation, message)`를 보유하고 세대 검사와 수신 설정 복사를 같은 락에서 수행한다. 네트워크 I/O는 락 밖에서 수행하되 불변 복사본만 사용한다. 재시도·다음 채널 전송 전 세대를 재검사한다. 기존 in-flight 요청의 취소나 외부 서비스 exactly-once는 보장하지 않는다. 기관 설정은 중앙 등록부에서 생성하고 별칭은 `normalize_venue`로 통합한다. LIVE 위험 이벤트는 기존 위험 판정에 근거하며 미확인 손익/손실률은 창작하지 않는다.
+
+v3.9.1.32는 국면 재선정 대기를 실제 변경 알림과 분리하고, 저장한 업데이트 확인 주기를 앱 공통 타이머로 실행합니다. Coinone의 미제공 활성 상태를 중단으로 오해하던 후보 수집을 수정하고, KIS·미래에셋의 주식/ETF 목록을 공식 공개 마스터로 분리합니다. 네 증권사 워커의 후보 없음·분석 완료·오류를 해당 기관 로그로 전달합니다. 주문 권한·TP/SL·점수 없는 진입 차단은 유지합니다.
+
+`publish_market_regime_change`는 같은 상태·초기 관찰을 거릅니다. `update-scheduler.cjs`는 Electron 단일 주기 확인을 소유하고 React는 캐시 상태를 읽고 구독을 해제합니다. `kis_market_master.py`는 KRX 공개 종목 메타데이터만 소유하며 증권사 주문 API·회원 권한과 분리됩니다. `runtime_observability.py`는 기관별 상태 변화와 5분 요약을 공통 로그로 전달합니다.
+
+[계약과 외부 게이트](V39132_RUNTIME_RECOVERY_TEST_PLAN.md). 공개 기준 v3.9.1.31.
+
+미래에셋 제휴 `stock_list`/`etf_info`의 프로필 매핑이 있으면 기존 목록·NAV·추적오차를 우선 사용한다. KIS는 해당 프로필 라우터를 우회하므로 개별 시세 API를 목록으로 호출하지 않고 공개 마스터를 사용한다. 명시적 KIS ETF 목록은 보존한다.
+
+## 이전 아키텍처 변경 기록 (당시 기준)
+
+## v3.9.1.31 사용자 메뉴얼 정본 계약
+
+인앱 사용자 메뉴얼의 내용 정본은 `ui/widgets/user_manual_widget.py`이며 `scripts/export_legacy_manual_sections.py`가 UI 중립 JSON `docs/USER_MANUAL_SECTIONS.json`을 생성한다. Web UI는 이 11개 섹션 전체를 축약하거나 별도 사본으로 다시 작성하지 않고 문서 구조로 렌더링한다. 검색은 모든 섹션 본문의 실제 발생 위치를 순회한다.
+
+배포 전에는 정본과 JSON의 완전 일치, 11개 고유 섹션, UTF-8 무손실, 현재 기관 등록부, 소스 후보/공개 버전, 최신 업데이트 순서를 자동 검사한다. 거래 기능이 바뀌면 해당 기능 정본·사용자 가이드·인앱 메뉴얼·변경 이력·배포 체크리스트를 같은 변경에서 갱신하고, 누락 시 소스 빌드 게이트를 실패시킨다. v3.9.1.31의 메뉴얼 UI 변경은 v3.9.1.30 거래 수량·신호·가드레일·원장 계약을 변경하지 않는다.
+
+## v3.9.1.30 기관·통계·시간봉 공통 계약
+
+PAPER 카드는 `_paper_statistics_snapshot`과 동일한 집계기를 사용한다. JSONL은 재무/학습 원장 정본으로 보존하고, 기관·기간 필터 후 조회 상한을 적용한다. 캐시는 inode·mtime·size·조회 범위로 분리하고 변경 시 무효화한다. 결과 스칼라에 KRW와 USDT를 합산하지 않는다.
+
+`strategy_timeframe_contract`는 저장된 `decision_timeframe`/`execution_timeframe`과 선언형 지표의 필요 시간봉을 해석한다. 과거 재생 공급자와 런타임 지표 문맥은 같은 선언을 사용한다. 과거 재생은 완성 캔들·시간 순서·기관/봉 응답 일치를 검사한다. 상위봉은 그 봉이 닫힌 시각 이후에만 노출한다. 증권사 분봉 또는 서로 다른 판단/실행봉 미지원은 명시적 중단으로 표현한다.
+
+기관 추가 시 `CRYPTO_VENUES`/`STOCK_VENUES` 등록뿐 아니라 공개 캔들 공급·정렬·종료 시각·기관별 통계 테스트를 통과해야 한다. Coinone은 [공개 chart V2](https://docs.coinone.co.kr/reference/chart)를 사용한다. Bithumb 15m/4h는 [공식 분봉 API](https://apidocs.bithumb.com/v2.1.0/reference/분minute-캔들-조회)로 직접 조회한다. 구형 candlestick의 200봉 응답을 15분봉으로 재구성하면 표본이 부족해지므로 사용하지 않는다. Bithumb 2h만 완전한 1h 묶음으로 집계하며 실제 반환 표본 수를 기록한다.
+
+키움 OpenAPI+는 Windows에서 호출 출처에 관계없이 process proxy를 사용한다. COM 소유 프로세스는 유휴 중에도 Qt 이벤트를 처리한다. timeout 채널을 폐기하고 자동 주문 재시도를 금지한다. KIS 인증 성공과 실제 계좌 조회 성공은 별도 상태다. [v3.9.1.30 검증 계획](V39130_STRATEGY_VENUE_CONSISTENCY_TEST_PLAN.md)이 배포 게이트다.
+
+## v3.9.1.29 전략 공용계층·회원 운용용량·Coinone 온보딩 계약
+
+- AI Provider 진단은 `(credential, requested_model, capability)`에 대해 카탈로그 조회와 실제 생성 호출을 별도 증거로 보존한다. 텍스트 진단은 비민감 고정 문장을 한 번 호출하며 `requested_model`, Provider 응답의 `actual_model`, 토큰, 응답 ID, 정규화 오류를 반환한다. `/models` 누락이나 정적 호환 목록은 실제 호출 성공을 덮어쓰지 않는다.
+- 대화형 AI usage 정본은 화면에서 선택한 별칭이 아니라 성공 응답의 실제 모델 ID를 사용한다. 화면 초안은 `변경 대기`, 저장된 라우트는 `실행값`으로 구분하고 진단 호출도 비용 원장에 포함한다. Provider 청구 대조는 같은 Organization·Project·UTC 기간에서 수행한다.
+- GPT-6 reasoning 모델은 `max_completion_tokens`와 지원되는 reasoning 옵션만 전송하며 `temperature`, `top_p`, `logprobs`, `top_logprobs`를 Provider 경계에서 제거한다.
+- Strategy Studio의 제작·로컬 분석·PAPER 전진검증·내보내기·공유 준비는 상품 공용계층이다. 회원등급은 전략 IR, Level, 검증 판정, 허브 증거등급과 점수에 개입하지 않는다.
+- 실제 계정 운용용량은 전략 권한과 별도다. 집중운용은 1개, 관리형 다중포지션은 국내 무료/레퍼럴 확인 해외 무료가 기관별 최대 3개, 코인 유료가 최대 5개다. 계좌·시장·성과·전략 요청·하드 가드레일의 `min()` 결과가 최종값이며 용량을 채우기 위해 주문하지 않는다.
+- 국내 무료 기관과 해외 레퍼럴 기관을 분리한다. Upbit·Bithumb·Coinone은 UID 귀속 없이 열고, 해외 무료는 서버가 서명한 제휴 확인 집합만 허용한다. 이 정책은 거래 권한이며 전략 제작이나 PAPER 검증 권한이 아니다.
+- Coinone은 `ccxt_hybrid`로 공통 시세·정규화 기능은 CCXT를 사용하고 시장가 주문·주문상세·완료체결·캔들 공백은 공식 V2.1 계약으로 보완한다. 등록부의 `paper_supported=true`, `live_supported=false`를 실행 시작과 어댑터 주문 양쪽에서 검사한다.
+- 새 기관은 등록부 추가만으로 LIVE가 되지 않는다. mock 회귀 후 실제 계정 주문·부분체결·취소·수수료·재시작 대조를 통과해야 `live_supported`를 승격한다.
+
+## v3.9.1.28 체결·성과 원장 계약
+
+- `trade_log`는 NoahAI가 소유한 진입 lot와 청산 성과의 정본이고 `exchange_execution_log`는 수동 거래도 포함할 수 있는 기관 확인 체결 원장이다. 체결 동기화가 새 완료 거래를 임의 생성하지 않는다.
+- 두 원장은 정규화한 기관 ID, 종목, 정확한 청산 주문 ID로만 대조한다. 주문 ID 누락, 수량 불일치, 공급자 실현 PnL 미제공, 수수료 통화 변환 불가는 각각 상태로 보존하며 추정값으로 확정하지 않는다.
+- `gross_pnl`은 거래소/기관 실현손익 또는 명시된 주문연결 계산, `entry_fee`·`exit_fee`는 기관 비용, `net_pnl`은 같은 결제통화로 환산 가능한 비용을 차감한 성과다. 승패·승률·누적·최대/최소는 `net_pnl` 우선이다.
+- 파생상품 부분체결과 주식/ETF 부분매도는 완료되지 않은 원래 lot의 잔여수량을 유지하고 청산된 수량만 별도 성과 행으로 기록한다.
+- `exchange_trade_stats`와 `stock_trade_stats`는 운영 캐시일 뿐 기간별 성과 화면의 정본이 아니다. 새 기관도 반드시 같은 체결/lot/비용/대조 계약을 구현해야 한다.
+- 통계 UI는 헤더와 스크롤 본문을 하나의 고정 Grid 행에 두고 성공·오류·레거시 안내를 항상 존재하는 상태 행에 표시한다. 비동기 결과가 화면 최상위 행 수와 스크롤 기준점을 바꿀 수 없다.
+- 사용자 표시 버전은 `config/app_version.py`와 패키지 `buildVersion`의 제품 버전을 사용한다. Electron 런타임의 `app.getVersion()`이 개발 실행에서 의존성 버전을 반환해도 이를 제품명으로 노출하지 않으며, `Web UI`는 내부 구현 분류로만 남긴다.
+- 설정의 빠른 시작은 별도 설정 스키마나 실행 엔진이 아니다. 기존 허용 필드의 PAPER 안전안만 renderer 변경 대기에 놓고 저장 revision/diff, 중요 설정 확인, write-only 자격증명, 사용자의 명시적 서비스 시작 계약을 그대로 통과한다.
+
+## v3.9.1.27 설정 문맥·AI 모델·비용 경계
+
+- 설정 도움말 요청은 `service=settings`와 9개 허용값의 `settings_section`을 함께 사용한다. renderer의 한글 질문에서 현재 탭을 추측하지 않으며 Gateway가 알 수 없는 탭 값을 거부한다.
+- Settings 내부 안내와 전체 AI 어시스턴트는 같은 구조화 탭 ID를 사용한다. 탭 이동은 이전 요청 ID를 무효화하고 전체 어시스턴트도 `service + settings_section`별로 새 대화 상태를 만들어 교차 탭 응답 오염을 막는다.
+- 일반 안내는 버전 관리된 로컬 제품 정본으로 답하고 외부 Provider를 호출하지 않는다. 심층분석만 사용자 명시 동작으로 Provider·역할 모델·일/월 예산·캐시 계약을 사용하며 설정 저장이나 주문 실행 권한을 갖지 않는다.
+- `model_registry.py`는 NoahAI 어댑터가 지원하는 제공사별 정적 모델·상태·기능을, `provider_catalog.py`는 기준일 공개 단가·용도·장단점을 관리한다. 제공사 계정의 실제 사용 가능 모델은 사용자 요청형 네트워크 점검의 결과이며 정적 목록과 합치되 동일한 증거로 취급하지 않는다.
+- 비용 카드는 사용자 요청형 외부 호출 원장과 공개 단가를 이용한 예상값이다. 무료 토큰·캐시·프로모션·세금·같은 키를 쓰는 다른 앱은 Provider 콘솔만 확인할 수 있으므로 NoahAI 예상액을 청구서로 사용하지 않는다.
+- OpenAI 데이터 공유는 외부 조직 설정이고 NoahAI가 읽거나 변경하지 않는다. `openai`와 `openai_shared` 자격증명을 분리하며 기본 라우트는 항상 `protected_default`다. `public_general`은 사용자 명시, 기능 설정 ON, 공유용 키 존재가 모두 충족될 때만 `openai_shared_public_general`로 간다.
+- `public_general` 요청은 단일 질문 외에 최근 대화·runtime·workspace·settings·strategies·life-finance 문맥을 직렬화하지 않는다. 미설정·불명확 분류는 기본 보호 경로로 닫고, 보호 경로가 공유용 키를 사용하는 역방향 fallback은 금지한다. 캐시 키와 사용량 원장에도 privacy route를 포함한다.
+- OpenAI Chat Completions에는 `store=false`를 명시하지만 이를 Zero Data Retention, 학습 비동의, 무료 사용의 증거로 취급하지 않는다. 조직 공유 상태와 무료량은 Provider 콘솔의 외부 정본이다.
+- 이 계층은 UI·설명·외부 AI 요청에만 적용된다. 거래 신호, 전략 IR, 주문 수량, 가드레일, PAPER/LIVE 원장과 거래소·증권사 어댑터는 변경하지 않는다.
+
+## 기관 온보딩 불변 계약 (거래소·증권사 공통)
+
+새 거래소나 증권사를 추가하는 작업은 어댑터 한 개를 연결하는 일이 아니다. 아래 계약을 한 릴리스에서 함께 충족하고 자동·패키지·실환경 게이트를 통과해야만 제품에서 `지원`으로 표시한다.
+
+- 기관 식별과 시장 의미의 코드 정본은 `trading/exchanges/venue_capabilities.py`의 `_VENUES`다. `CRYPTO_VENUES`, `STOCK_VENUES`, 통화·현물/선물·SHORT·레버리지·주문 단위는 이 등록부에서 파생한다.
+- `config/web_ui_feature_inventory.json`은 Web UI가 읽는 기관·기능 정본이고 `webui/src/venueSources.ts`는 화면 공통 목록이다. 둘은 코드 등록부와 정확히 일치해야 하며 Python 런타임·통계나 개별 Web 화면에 기관 목록을 다시 복사하지 않는다.
+- 기관 ID, 서비스(`blockchain/stock`), 시장 유형, 기준통화, 주문 수량 단위, contract size, 포지션 모드, 보호주문, 체결 대조, client order ID, 비용, 시간 동기화, 호출 제한, 자격증명 별칭을 명시한다.
+- 실행모드 `LIVE/PAPER/LEARNING`, 청산 원장, 외부 확인 체결, 열린 포지션, PAPER 포지션·성과, 알림·로그 소유권, Strategy Studio의 `strategy_key + version_id + venue + execution_mode + event_id` 귀속을 모두 구현한다.
+- 통계 표시 기준은 `account + service + source`별 비파괴 기준시각이다. 거래·학습·PAPER·위험 원장을 삭제하지 않으며 전체 보기와 개별 기관 보기를 별도 범위로 관리한다.
+- 서로 다른 기준통화는 절대 합산하지 않는다. 가격·비용·PnL이 불확실하면 정확한 0으로 바꾸지 않고 `미확정/조회 실패`로 닫는다.
+- 시작·중지·PAPER 일시정지·재개·새 검증·재시작 복구·안전 종료와 조회용 어댑터까지 하나의 수명주기 계약으로 검증한다.
+- CCXT는 전송 계층의 출발점일 뿐이다. `validate_venue_onboarding_profile()`의 기관별 계약과 native escape hatch, mock 회귀, 해당 OS/계정의 PAPER·소액 LIVE 검증 없이는 지원 완료가 아니다.
+- 알 수 없는 기관이나 서비스가 다른 기관 ID를 받으면 Binance 또는 현물/선물 기본값으로 추정하지 않고 실패 폐쇄한다.
+- 실제 사용자 지원 폴더는 테스트 fixture나 마이그레이션 대상이 아니다. 재현에는 비식별 합성 fixture만 사용하며 실계정 readiness는 명시한 QA 계정에서만 수행한다.
+
+기관 추가 회귀는 `tests/test_v39116_market_execution_contract.py`가 코드 등록부, 런타임·통계 집합, Web UI inventory와 허용 범위의 드리프트를 차단한다. 자격증명 화면·어댑터·패키지·실환경 검증은 자동 드리프트 검사와 별개의 필수 게이트다.
+
+## 2026-09-07 v3.9.1.23 LIVE 통계·표시 기준 경계
+
+- LIVE 청산 수·승률·실현손익·비용의 정본은 `trade_log`, 외부 거래소 확인 체결은 `exchange_execution_log`, 현재 포지션은 최신 계좌 조회다. `exchange_trade_stats`와 증권 요약은 재생성 가능한 운영 캐시다.
+- 출처 없는 구형 `trade_log` 행은 보존하지만 특정 거래소나 대표 LIVE 성과로 추정 귀속하지 않고 미확정 근거로만 노출한다.
+- `execution_mode`는 신규 기록에서 LIVE/PAPER/LEARNING 실행 경계만 저장한다. 과거 Binance의 `optimized/manual`은 LIVE 호환 별칭이고 전략·실행 방식은 별도 필드가 소유한다.
+- 기간은 거래 통계 화면에서만 오늘·7일·30일·전체·사용자 지정을 제공한다. 청산은 `exit_time`, 확인 체결은 `executed_at`을 사용하며 KRW와 USDT를 합산하지 않는다.
+- 계정별 `statistics_view_state.json`은 비파괴 표시 기준시각만 저장한다. 거래·학습·PAPER·위험 원장을 수정하지 않으며 가드레일·성과회복 계산 입력으로 사용하지 않는다.
+- 운영 KPI의 열린 포지션은 활성 기관 전체의 계좌 조회가 성공했을 때만 최신 합계를 사용하고, 일부 실패하면 저장 원장 참고 상태를 명시한다.
+
+## 2026-09-06 v3.9.1.22 투자금·성과회복·병행검증 경계
+
+- `position_sizing_policy.py`가 계좌 마스터 위험, Strategy Studio 요청 위험, 시장·성과 배수에서 승인 Notional/증거금/수량과 동시 포지션 상한을 계산하며 Binance, Unified, 4개 증권사 경로가 같은 결과 의미를 사용한다.
+- 신규 계정은 `account_risk`, 구형 공통 정책 미보유 계정은 `legacy_venue`, 수동 목표액은 `manual_notional`이다. 마이그레이션은 기존 LIVE 노출을 자동 확대하지 않는다.
+- 전략은 계좌 상한 안에서 위험·레버리지·동시 포지션을 요청할 수 있으나 계좌 상한과 하드 가드레일을 높이거나 해제할 수 없다. Level 4는 이 제한 자율성의 편집 화면이며 Level 5 가드레일 해제 단계는 없다.
+- 신규 거래소는 `CCXT core + venue capability profile + native escape hatch` 원칙을 사용한다. CCXT 연결 성공만으로 주문·보호·재시작 적합성이 증명되지 않는다.
+- `profitability_validation.py`는 거래별 순수익률로 Sharpe/MDD/기대값/구간 안정률을 계산하고 통화별 현금 손익 합계와 분리한다.
+- `parallel_strategy_paper.py`는 거래소·증권사 어댑터와 주문 API를 받지 않으며 LIVE 활성 전략과 분리된 PAPER 관찰 버전별 가상 포지션만 저장한다.
+- 소스 회귀는 Windows 설치본, 실계정 수량, 실제 contractSize/정밀도, 장시간 LIVE/PAPER 병행 운용을 증명하지 않는다.
+
+## 2026-09-04 v3.9.1.21 PAPER 평가·비용·소유권 경계
+
+- 암호화폐 Binance/Unified와 증권 `StockAnalysisService`는 실행 계층이 다르지만, 활성 PAPER 포지션에는 현재가·gross/net PnL·비용·기준통화·계산 상태를 제공한다.
+- 국내 주식·ETF PAPER는 `trading/stock_paper_valuation.py`의 결정형 비용 계약을 사용한다. 세금·수수료·슬리피지는 추정치로 분리하며 실제 증권사 체결·청구 데이터로 표시하지 않는다.
+- `paper_strategy_ledger.py`는 암호화폐 KRW/USDT와 국내 증권 KRW를 거래소/증권사별로 기록한다. PAPER 성과 정책은 동일 소유자·PAPER 원장만 읽고 LIVE 체결 경로와 분리한다.
+- 공유 Recorder는 mutable 현재 탭이 아니라 호출이 전달한 실제 실행 거래소·증권사를 로그 소유자로 사용한다.
+- 소스 회귀 통과는 Windows 설치본·실제 증권사 계정·장시간 PAPER 검증을 대체하지 않는다.
+
+## 2026-08-14 v3.9.1.0 Web UI Internal Integration Candidate
+
+- `config/web_ui_feature_inventory.json`: 5개 서비스·6개 거래소·4개 증권사·플랫폼 기능의 이전 범위와 순서를 관리하는 기계 판독 정본
+- `web_platform/contracts.py`: schema `1.0.0`의 엄격한 플랫폼, 런타임 snapshot, 캔들, 이벤트 계약
+- `web_platform/application_services.py`: 계정별 설정 revision/diff·write-only 자격증명·프라이빗 전략·생활금융·마스킹 로그와 런타임 브리지의 단일 UI 경계
+- `web_platform/gateway.py`: loopback 전용 조회/명령 API, 강한 실행 토큰, Origin·명시 intent 제한, WebSocket 최초 메시지 인증
+- `web_platform/market_data.py`: Binance·Upbit·Bithumb·Bybit·OKX·Bitget spot/futures 캔들의 allowlist·정규화·짧은 캐시
+- `trading/stock_runtime_controller.py`: 4개 증권사 계좌·일봉·PAPER/LIVE worker의 UI-neutral 경계
+- `webui/`: React/Vite 서비스 셸, 전체 설정, 전략 스튜디오, AI 가이드/심층분석, 자산·생활금융·로그, Lightweight Charts, sandboxed Electron/NSIS/updater 셸
+- 현행 경계: Electron sidecar는 `NOAHAI_ENABLE_WEB_RUNTIME=1`로 기동되며 인증 사용자의 최초 명시적 시작 명령에서 UI-neutral `HeadlessTradingRuntime`을 지연 생성한다. `main.py`, `ui.*`, `tkinter`, `customtkinter`는 Web sidecar import·bundle 금지 대상이다. 암호화폐는 Binance/Unified 실행 계층, 증권은 `StockRuntimeController`를 사용하며 인증 전·엔진 초기화 실패·미지원 소스는 실패 폐쇄한다. 런타임 구조와 기능 원장의 `read_first` 12개 Web 소스 이전은 완료했지만 Windows 설치·실계정·PAPER E2E가 남아 제품 전체 배포 완료는 아니다.
+
+## 2026-08-13 UI 플랫폼 전환 결정
 
 ### 결론
 
@@ -45,10 +178,10 @@ Python Application Services
 1. 거래소 API 키·Secret·Passphrase는 브라우저 DOM, WebSocket payload, SaaS 서버로 보내지 않는다.
 2. UI는 거래소 SDK를 직접 호출하지 않고 `Application Services → OMS/Guardrails → Adapter`만 사용한다.
 3. 조회와 명령을 분리한다. 모든 명령에는 `command_id`, 사용자 의도, 대상 계정·거래소, 설정/전략 버전, 멱등성 키와 감사 결과가 있어야 한다.
-4. 기존 CustomTkinter UI와 새 UI가 별도 설정·포지션·전략 저장소를 만들지 않는다. 전환 기간에도 원본 상태는 하나다.
-5. 새 UI가 준비되지 않았거나 health/parity gate에 실패하면 기존 UI로 즉시 돌아갈 수 있어야 한다.
+4. 보존된 v3.9.0.10 CustomTkinter 클라이언트와 새 UI가 별도 설정·포지션·전략 저장소를 만들지 않는다. 전환 기간에도 원본 상태는 하나다.
+5. 새 UI가 health/parity gate에 실패하면 실행 중 bundle 내부에서 레거시 UI를 불러오지 않고, 설치 관리자가 보존된 직전 승인 버전으로 원자적으로 되돌려야 한다.
 6. 원격 SaaS에서 로컬 LIVE 주문을 직접 제어하는 기능은 초기 전환 범위가 아니다. 초기 SaaS는 설명·설정 초안·읽기 전용 동기화부터 시작한다.
-7. CustomTkinter 제거는 모든 화면과 PAPER/LIVE 안전 게이트가 동등성 검증을 통과한 뒤 마지막 단계에서만 수행한다.
+7. CustomTkinter는 v3.9.1.0 Web bundle과 sidecar에서 제외한다. 다만 직전 v3.9.0.10 설치본·소스 백업은 외부 동등성 게이트가 끝날 때까지 독립 롤백 자산으로 보존한다.
 
 ### 기술 판단 근거
 
@@ -64,6 +197,11 @@ Python Application Services
 
 ### 차트·전략 허브 확장 경계
 
+- `trading/exchanges/venue_capabilities.py`의 버전 관리 기관·기능 등록부가 Strategy Studio와 daltrading 탐색 범위의 정본이다. `scripts/export_strategy_venue_registry.py`가 Web UI TypeScript와 daltrading JSON 산출물을 생성하고 `--check`가 드리프트를 차단한다.
+- 허브 탐색은 거래소별 고정 카테고리를 만들지 않고 자산군·상품 유형·기관·시장국면·증거 단계 필터를 독립 구성한다. 전략 실행 대상도 같은 등록부의 capability에서 `전체 호환 기관` 또는 개별 기관으로 생성한다.
+- 새 기관은 등록만으로 LIVE가 되지 않는다. PAPER·LIVE 지원, 주문 단위, SHORT·레버리지, 비용, 체결 대조, 멱등성 및 승인된 소액 LIVE를 포함한 온보딩 상태가 `live_ready`인 경우만 LIVE/E5 배지를 허용한다.
+- `.noahstrategy`에는 개인 상세 거래를 넣지 않고 정확한 전략 버전의 제한된 기관·통화별 집계 여권만 포함한다. E0은 성과 없음, E1은 제작자 로컬·서버 미확인, E2~E5는 서버 서명·계정 연동·기관 확인 단계다. 모든 기관·통화·PAPER/LIVE 성과는 별도로 표시한다.
+
 - Web chart는 `MarketDataService`가 정규화한 과거 snapshot과 versioned realtime event만 소비한다. 화면별로 거래소 REST/WebSocket 연결을 새로 만들지 않는다.
 - 차트 마커는 임의 UI 좌표가 아니라 `strategy_version + command_id + order_id + fill_id`에 연결해 XAI·체결 감사와 같은 사실을 표시한다.
 - 가격·지표·포지션·PAPER/LIVE·비용의 계산 원본은 Python 엔진이다. JavaScript는 표현과 사용자 상호작용을 담당하고 주문/손익 정본을 다시 계산하지 않는다.
@@ -72,8 +210,8 @@ Python Application Services
 
 ## 🚀 최신 버전 정보
 
-**현재 소스·문서 기준**: v3.9.0.10 (2026-08-13)  
-**배포 상태**: `pending_windows_rebuild`; Windows EXE·SHA·설치 반복시험 전에는 배포 완료로 보지 않음  
+**현재 소스·문서 기준**: v3.9.1.0 (2026-08-14)  
+**배포 상태**: `pending_windows_rebuild`; Windows bundle·SHA·설치/업데이트/롤백 시험 전에는 배포 완료로 보지 않음  
 
 **v3.9.0.5 계좌 상태·소스 정합**:
 
@@ -223,7 +361,7 @@ AI 커스텀 선언형 엔진은 SMA/EMA 20·50·200, ADX, ATR, MACD 세부값, 
 
 > **버전 정합성**: 배포 앱의 **인앱 메뉴얼 창 제목**과 `CHANGELOG.md`가 **더 최신 패치 버전**(예: v3.8.9.x)을 가리킬 수 있습니다. 모듈 구조·책임 경계는 본 문서를 따르되, **세부 변경 목록은 CHANGELOG**를 우선하세요. 문서 동기화 규칙은 `DOCUMENTATION_POLICY.md` 참고.
 >
-> 참고: 2025-10-29 기준 UI는 단일 고정 스킨으로 전환되어 테마 시스템은 사용하지 않습니다. 과거 기록은 `HISTORICAL_THEME_BASELINE.md`를 참고하세요.
+> 참고: 2025-10-29 기준 UI는 단일 고정 스킨으로 전환되어 테마 시스템은 사용하지 않습니다. 과거 기록은 `archive/history/HISTORICAL_THEME_BASELINE.md`를 참고하세요.
 
 ## 2026-06-05 패치 기준선 (v3.8.9.21)
 
@@ -414,9 +552,9 @@ NoahAI의 역할은 다음으로 한정된다.
 noahai_client/
 ├── main.py                 # 메인 애플리케이션 진입점
 ├── ui/                     # 사용자 인터페이스
-│   ├── dashboard_modern.py  # 메인 대시보드 (CustomTkinter-only, PyQt 제거)
-│   ├── login_modern.py      # 로그인 화면 (CustomTkinter)
-│   └── settings_modern.py   # 설정 화면 (CustomTkinter)
+│   ├── dashboard_modern.py  # 전환기 fallback 대시보드 (CustomTkinter)
+│   ├── login_modern.py      # 전환기 fallback 로그인 (CustomTkinter)
+│   └── settings_modern.py   # 전환기 fallback 설정 (CustomTkinter)
 ├── trading/               # 거래 로직
 │   ├── trader.py          # 메인 거래 엔진 (Binance 전용 - 자체 API)
 │   ├── unified_trader.py  # 통합 거래 엔진 (CCXT 거래소 전용)
@@ -530,7 +668,7 @@ main.py._start_unified_trading() → unified_trader.start_trading() → CCXT 어
 4. **각 거래소별 어댑터는 해당 거래소만 담당**
 5. **중첩이나 중복 없이 계층적 구조 유지**
 
-### 🎛️ 대시보드 시스템 (중요)
+### 🎛️ 레거시 v3.9.0.10 대시보드 시스템 (롤백 참고)
 
 - **ModernDashboard**: 메인 대시보드 (CustomTkinter)
 - **서비스 구조**: 블록체인(암호화폐), 주식/증권(ETF 포함), 부동산 서비스 분리
@@ -543,9 +681,9 @@ main.py._start_unified_trading() → unified_trader.start_trading() → CCXT 어
   - 좌측: 제어/잔고/포지션/통계
   - 우측: 실시간 로그
 
-### 🎨 UI 스타일 및 고정 스킨 (현재 기준)
+### 🎨 레거시 롤백 UI 스타일 및 고정 스킨
 
-- **CustomTkinter-only + 단일 고정 스킨**: 현재 런타임은 테마 전환형 구조가 아니라 고정된 시각 규칙을 사용함
+- **CustomTkinter 롤백 자산 + 단일 고정 스킨**: v3.9.0.10 운영 화면은 독립 롤백 설치본으로만 보존한다. v3.9.1.0 `NoahAI.exe`/`NoahAIEngine.exe`는 이를 import하거나 패키징하지 않는다.
 - **고정 색상/폰트 규칙**: 주요 UI는 고정 색상 상수와 안전한 폰트 폴백을 기준으로 일관성을 유지함
 - **과거 테마 시스템은 역사적 참고**: 예전 `ThemeManager` 기반 설계 흔적은 문서/백업 참고용이며, 현재 배포 기준의 핵심 구조는 아님
 - **운영 원칙**: 새 위젯은 현재 고정 스킨 톤과 레이아웃 규칙을 따르되, 기능 회귀 없이 붙일 수 있어야 함

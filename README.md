@@ -1,12 +1,25 @@
 # NoahAI - AI 금융 동반자 & 의사결정 인프라
 
-현재 소스 후보 버전: **v3.9.1.38** · updater **3.9.138**.
-현재 공개 버전: **v3.9.1.37** · 현재 공개 기반: v3.9.1.37 stable/latest (2026-09-17 원격 확인).
-공개 v37 이후의 전략 과거재생 차트와 기관별 LIVE/PAPER 거래내역 변경은 v38 새 산출물로만 배포합니다. 기존 공개 자산은 교체하지 않습니다. [v38 검증·배포 원장](docs/V39138_STRATEGY_REPLAY_LIVE_HISTORY_TEST_PLAN.md).
+현재 공개 버전: **v3.9.1.38** · updater **3.9.138** · GitHub stable/latest(2026-09-17 게시 확인).
+현재 공개 기반: v3.9.1.38 stable/latest.
+공개 자산은 설치기·blockmap·`latest.yml`·`release-manifest.json`을 같은 버전으로 제공합니다. [v38 검증·배포 원장](docs/V39138_STRATEGY_REPLAY_LIVE_HISTORY_TEST_PLAN.md).
 
-현재 소스 후보: v3.9.1.38 · Strategy Replay & Mode-aware Trade History Patch
+현재 소스 후보: v3.9.1.39 · updater **3.9.139** · External Close Ledger Reconciliation Patch.
+PnL 재감사로 추가 결함을 확인하여 **v39 배포 보류**입니다. 시간·수량 유일 후보 자동 확정은 철회했으며, 실제 청산 주문 소유권과 실계정 1:1 대조가 남아 있습니다. [PnL 재감사](docs/V39139_PNL_TRUST_AUDIT.md).
 
-[v3.9.1.38 검증 계획](docs/V39138_STRATEGY_REPLAY_LIVE_HISTORY_TEST_PLAN.md). 공개 v3.9.1.37 자산은 보존하고 Windows x64/x86 재빌드와 실계정·업데이트 게이트를 통과한 새 자산만 배포합니다.
+## 현재 서비스 기준 (2026-09-18)
+
+- **NoahAI Client**: 핵심 제품 검증 완료, 무료·유료 Windows 서비스 중
+- **코인·증권·ETF**: 제공 중. 기관·계정·권한·운용 모드별 PAPER/LIVE 준비도는 별도 표시
+- **NoahAI Strategy Studio**: 현재 제공 중
+- **Strategy Hub**: 무료 공개 테스트 중. 유료 Marketplace·결제·제작자 정산은 별도 후속 단계
+- **생활금융**: 현금흐름·목표·보안 경고·세금 계산·금융상품 비교부터 클라이언트에서 단계적으로 제공 중
+
+생활금융의 금융상품 비교는 정보·시뮬레이션 기능이며 실제 가입·대출 실행·보험 계약·금융기관 심사를 대신하지 않습니다. “제품 검증 완료”와 “모든 기관·계정 환경에서 무결함”은 같은 의미가 아닙니다.
+
+현재 공개판: v3.9.1.38 · Strategy Replay & Mode-aware Trade History Patch
+
+[v3.9.1.39 검증 계획](docs/V39139_EXTERNAL_CLOSE_RECONCILIATION_TEST_PLAN.md). 공개 v3.9.1.38 자산은 보존하고 Windows x64/x86 재빌드와 실계정·업데이트 게이트를 통과한 새 자산만 v39로 배포합니다.
 
 이전 공개 기반 기록: v3.9.1.33
 

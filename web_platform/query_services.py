@@ -1253,6 +1253,7 @@ class AccountQueryService:
             "win_rate": round(wins / reconciled_closed_count * 100.0, 2) if reconciled_closed_count else 0.0,
             "pnl_by_currency": pnl_by_currency,
             "gross_pnl_by_currency": gross_pnl_by_currency,
+            "exchange_pnl_reference": execution.get("pnl_reference", {}),
             "fees_by_currency": fee_by_currency,
             "notional_by_currency": execution_notional or notional_by_currency,
             "avg_hold_minutes": all_hold_total / all_hold_count if all_hold_count else None,
@@ -1336,10 +1337,40 @@ class AccountQueryService:
                 notional: dict[str, float] = {}
                 for row in grouped:
                     venue = _normalize_source(row["exchange"])
-                    currency = "KRW" if venue in {"upbit", "bithumb", "coinone"} else "USDT"
+                    currency = "KRW" if venue in STOCK_VENUES | {"upbit", "bithumb", "coinone"} else "USDT"
                     result["count"] += int(row["row_count"] or 0)
                     notional[currency] = notional.get(currency, 0.0) + _number(row["total_cost"])
                 result["notional_by_currency"] = notional
+
+                # This is the saved fill window, NOT the venue account's total
+                # PnL. Never infer complete API coverage or funding inclusion.
+                if {"symbol", "realized_pnl", "realized_pnl_present"}.issubset(columns):
+                    pnl_groups = connection.execute(
+                        f"SELECT exchange, symbol, COUNT(*) AS n, "
+                        "SUM(CASE WHEN realized_pnl_present=1 THEN 1 ELSE 0 END) AS present, "
+                        "SUM(CASE WHEN realized_pnl_present=1 THEN realized_pnl ELSE 0 END) AS gross "
+                        f"FROM exchange_execution_log{where} GROUP BY exchange, symbol",
+                        tuple(params),
+                    ).fetchall()
+                    raw_gross: dict[str, float] = {}
+                    known_count = 0
+                    for item in pnl_groups:
+                        known = int(item['present'] or 0)
+                        known_count += known
+                        if known:
+                            family = _classify_trade(item['symbol'], item['exchange'], None)
+                            unit = _trade_currency(item['symbol'], item['exchange'], family)
+                            raw_gross[unit] = raw_gross.get(unit, 0.0) + _number(item['gross'])
+                    result['pnl_reference'] = {
+                        'basis': 'stored_provider_fill_gross',
+                        'gross_pnl_by_currency': raw_gross,
+                        'pnl_present_count': known_count,
+                        'pnl_missing_count': int(result['count']) - known_count,
+                        'account_total_verified': False,
+                        'coverage': 'stored_window_only',
+                        'funding_included': False,
+                        'fees_included': False,
+                    }
 
                 order_column = time_column or "id"
                 rows = connection.execute(

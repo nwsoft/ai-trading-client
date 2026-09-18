@@ -1,4 +1,19 @@
-## v3.9.1.38 Strategy Replay & Mode-aware Trade History Patch (배포 후보 · 2026-09-17)
+## 2026-09-18 · v3.9.1.39 External Close Ledger Reconciliation
+
+현재 소스 후보 **v3.9.1.39** · updater **3.9.139**. 공개 stable/latest는 **v3.9.1.38**이며 공개 v3.9.1.38 자산은 변경하지 않습니다. 외부 실계정 검증은 배포 후에도 별도 pending 게이트로 유지합니다.
+
+- 시간/수량 유일 후보의 자동 주문 연결은 소유권 오인 위험으로 철회했습니다. 주문 ID 없는 과거 외부 청산 자동 복구는 아직 미완료입니다.
+- PAPER/LIVE 격리, 청산 방향·중복 귀속, 미확인 비용 통화, 수수료 환급, UTC 입력 및 증권 KRW 집계를 보강했습니다.
+- NoahAI 연결 청산 순손익과 거래소 수집 체결 총손익을 구분하고 미확정 거래가 있으면 부분 합계로 표시합니다.
+- 미대조 성과가 수익성 검증의 정상/콜드스타트 판정과 Smart Exit 통계 조정에 사용되지 않도록 보강했습니다. 직접 학습·저널 경로까지 완료된 것은 아닙니다.
+- 추가 집중 회귀 **58 passed**, 전체 **2,606 passed / 8 skipped / 3 subtests**, Node 22.23.1 Web **61 modules** build PASS. 격리 코인/주식 UI fixture에서 API 쓰기·브라우저 오류 0건과 카드 겹침 해소를 확인했습니다. 이전 2,577건 및 prekey 결과는 재감사 전 코드의 기록입니다.
+- 실제 외부 청산 주문 소유권 연결, 사용자 원본 대조, 전체 AI 소비자 감사, Windows/업데이트/실계정 게이트가 남았습니다.
+
+상세 원인·검증·미완료 게이트: [PnL 신뢰성 재감사](docs/V39139_PNL_TRUST_AUDIT.md).
+
+## v3.9.1.38 Strategy Replay & Mode-aware Trade History Patch (2026-09-17 공개)
+
+v3.9.1.38은 GitHub stable/latest로 공개됐습니다. 아래 배포 후보·공개 v37·미완료 문구는 당시 기록입니다.
 
 현재 소스 후보 **v3.9.1.38** · updater **3.9.138**. 현재 공개 stable/latest는 **v3.9.1.37**입니다. 공개 v3.9.1.37 자산은 변경하지 않고 v38 새 산출물로만 배포합니다.
 

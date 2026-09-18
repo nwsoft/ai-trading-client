@@ -24,6 +24,9 @@ def _fraction(value: Any, default: float) -> float:
 
 
 def _trade_returns(trades: Iterable[Mapping[str, Any]] | None) -> list[float]:
+    trades = list(trades or [])
+    if any(row.get('performance_evidence_ready') is False for row in trades):
+        return []
     output: list[float] = []
     for row in trades or []:
         raw = row.get("pnl_percent")
@@ -56,8 +59,11 @@ def resolve_smart_exit_policy(
     sl0 = min(0.03, max(0.0005, _fraction(baseline_sl, 0.0020)))
     rr_min = min(5.0, max(0.25, _float(minimum_rr, 1.0)))
     costs = max(0.0, _float(fee_rate)) + max(0.0, _float(slippage_rate))
-    samples = _trade_returns(closed_trades)
-    fallback_samples = _trade_returns(fallback_closed_trades)
+    closed_trades = list(closed_trades or [])
+    fallback_closed_trades = list(fallback_closed_trades or [])
+    evidence_incomplete = any(row.get('performance_evidence_ready') is False for row in closed_trades + fallback_closed_trades)
+    samples = [] if evidence_incomplete else _trade_returns(closed_trades)
+    fallback_samples = [] if evidence_incomplete else _trade_returns(fallback_closed_trades)
     min_samples = max(1, int(minimum_samples))
     use_fallback = len(samples) < min_samples and len(fallback_samples) >= min_samples * 2
     statistical_samples = samples if not use_fallback else fallback_samples
@@ -68,6 +74,7 @@ def resolve_smart_exit_policy(
         "unit": "fraction",
         "baseline": {"tp": tp0, "sl": sl0},
         "sample_scope": {
+            "evidence_incomplete": evidence_incomplete,
             "closed_count": len(samples),
             "minimum_required": min_samples,
             "sufficient": len(samples) >= min_samples,

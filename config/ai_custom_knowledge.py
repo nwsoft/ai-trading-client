@@ -10,6 +10,7 @@ import re
 from typing import Any, Mapping
 
 from config.app_version import RELEASE_BUILD_LABEL
+from config.strategy_explanation import explain_strategy_snapshot
 from trading.ai_custom_features import resolve_ai_custom_features
 
 
@@ -72,6 +73,10 @@ def build_ai_custom_knowledge(
     provider_guide: str = "",
 ) -> str:
     """질문 의도에 맞는 AI 커스텀 로컬 정본 답변을 만든다."""
+
+    snapshot_answer = explain_strategy_snapshot(message)
+    if snapshot_answer:
+        return snapshot_answer
 
     header = f"NoahAI입니다. {RELEASE_BUILD_LABEL}의 AI 커스텀 기준으로 안내합니다.\n"
     profile = _profile_status(settings)

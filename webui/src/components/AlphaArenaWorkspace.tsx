@@ -49,7 +49,7 @@ export function AlphaArenaWorkspace({ client }: { client: GatewayClient }) {
         <p>시장 데이터와 직전 결과 → DeepSeek V4 Flash 판단 → 구조화 파서 → AlphaArena 자체 게이트 → PAPER 결과 기록 순서로 동작합니다.</p>
         <strong>기본 가드레일</strong>
         <ul><li>60초 판단 주기(최소 30초), BTC/ETH/SOL/XRP/DOGE/BNB</li><li>레버리지 10~20배 제한, 진입마다 TP와 SL 필수</li><li>심볼 쿨다운 30초, 최대 동시 포지션 6개</li><li>틱당 모델 제시 위험 합계 상한 1,500 USDT</li></ul>
-        <p>표준 자동매매의 수익성·포트폴리오·전략 합의 계층과 기존 TP/SL 보험·워치독을 공유하지 않습니다. v3.9.1.38에서는 LIVE가 차단되며, 처음 사용자는 표준 LEARNING/PAPER와 전략 스튜디오부터 검증하세요.</p>
+        <p>표준 자동매매의 수익성·포트폴리오·전략 합의 계층과 기존 TP/SL 보험·워치독을 공유하지 않습니다. v3.9.1.39에서는 LIVE가 차단되며, 처음 사용자는 표준 LEARNING/PAPER와 전략 스튜디오부터 검증하세요.</p>
         <button className="primary-button" type="button" onClick={() => setShowGuide(false)}>확인</button>
       </section>
     </div>}
@@ -57,6 +57,6 @@ export function AlphaArenaWorkspace({ client }: { client: GatewayClient }) {
     {error && <div className="inline-notice error-text">{error}</div>}
     {!data?.available && <div className="inline-notice">설정 → AlphaArena에서 기능을 활성화하고 AI 엔진/API 연결 상태를 확인하세요.</div>}
     <article className="panel arena-tab-panel"><nav className="intelligence-tabs" aria-label="AlphaArena 기록">{ARENA_TABS.map((name) => <button key={name} className={activeTab === name ? "active" : ""} type="button" onClick={() => setActiveTab(name)}>{name}</button>)}</nav><pre className="legacy-intelligence-output arena-output">{filtered.length ? formatRows(filtered) : emptyCopy}</pre></article>
-    <details className="panel arena-guide"><summary>Alpha Arena 모드 안내</summary><p>AlphaArena는 기본 OFF인 숙련자용 Binance USDT 선물 독립 실험 모드입니다.</p><p>시장 데이터와 직전 결과 → DeepSeek V4 Flash 판단 → 구조화 파서 → AlphaArena 자체 게이트 → PAPER 결과 기록 순서로 동작합니다.</p><p>60초 판단 주기(최소 30초), 레버리지 10~20배 제한, 진입마다 TP·SL 필수, 심볼 쿨다운 30초, 최대 동시 포지션 6개, 틱당 위험 합계 상한 1,500 USDT가 기본 가드레일입니다.</p><p>표준 자율주행의 수익성·포트폴리오·전략 합의 계층과 기존 TP/SL 보험·워치독을 공유하지 않습니다. v3.9.1.38에서는 LIVE가 차단되며, 처음 사용자는 표준 LEARNING/PAPER와 전략 스튜디오부터 검증하세요.</p></details>
+    <details className="panel arena-guide"><summary>Alpha Arena 모드 안내</summary><p>AlphaArena는 기본 OFF인 숙련자용 Binance USDT 선물 독립 실험 모드입니다.</p><p>시장 데이터와 직전 결과 → DeepSeek V4 Flash 판단 → 구조화 파서 → AlphaArena 자체 게이트 → PAPER 결과 기록 순서로 동작합니다.</p><p>60초 판단 주기(최소 30초), 레버리지 10~20배 제한, 진입마다 TP·SL 필수, 심볼 쿨다운 30초, 최대 동시 포지션 6개, 틱당 위험 합계 상한 1,500 USDT가 기본 가드레일입니다.</p><p>표준 자율주행의 수익성·포트폴리오·전략 합의 계층과 기존 TP/SL 보험·워치독을 공유하지 않습니다. v3.9.1.39에서는 LIVE가 차단되며, 처음 사용자는 표준 LEARNING/PAPER와 전략 스튜디오부터 검증하세요.</p></details>
   </section>;
 }

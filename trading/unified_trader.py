@@ -45,6 +45,7 @@ from .opportunity_coordinator import (
     policy_from_settings,
 )
 from .profitability_validation import ProfitabilityValidator
+from .pnl_evidence import provider_fill_gross_pnl
 from .position_sizing_policy import (
     ACCOUNT_RISK,
     LEGACY_VENUE,
@@ -1130,7 +1131,8 @@ class UnifiedTrader:
                 rows = execution_getter(
                     str(exchange_name or '').lower(), limit=max(1, int(limit))
                 ) or []
-                return [dict(row) for row in rows if isinstance(row, dict)]
+                return [{**row, 'performance_evidence_ready': False, 'pnl_is_net': False}
+                        for row in rows if isinstance(row, dict)]
             except Exception as exc:
                 self.logger.warning(
                     f"{exchange_name} 로컬 체결 원장 조회 실패: {exc}"
@@ -4896,11 +4898,7 @@ class UnifiedTrader:
                                             total_qty += amount
                                             total_cost += price * amount
                                             total_fees += fee
-                                            info = t.get('info') if isinstance(t.get('info'), dict) else {}
-                                            pnl_value = next((value for value in (
-                                                t.get('realized_pnl'), t.get('realizedPnl'),
-                                                t.get('pnl'), info.get('realizedPnl'), info.get('realized_pnl'),
-                                            ) if value not in (None, '')), None)
+                                            pnl_value = provider_fill_gross_pnl(exchange_name, t)
                                             if pnl_value is None:
                                                 pnl_complete = False
                                             else:
@@ -4952,7 +4950,11 @@ class UnifiedTrader:
                                     fee_asset=(actual or {}).get('fee_asset') or partial_fee_asset,
                                     reason=close_reason,
                                     pnl_source=str((actual or {}).get('pnl_source') or 'order_linked_calculated'),
-                                    reconciliation_status='exchange_confirmed_partial',
+                                    reconciliation_status=(
+                                        'exchange_confirmed_partial'
+                                        if (actual or {}).get('reconciliation_status') == 'exchange_confirmed'
+                                        else str((actual or {}).get('reconciliation_status') or 'pending_exchange_reconciliation')
+                                    ),
                                 )
                             else:
                                 exit_saved = self.recorder.log_trade_exit(

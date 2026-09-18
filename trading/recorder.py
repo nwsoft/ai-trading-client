@@ -10,12 +10,14 @@ import hashlib
 import logging
 import os
 import time
+import math
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional, Any
 from dataclasses import dataclass, asdict
 from loguru import logger as _base_logger
 from log_system.log_adapter import log_event
 import pandas as pd
+from trading.pnl_evidence import performance_evidence, provider_fill_gross_pnl
 
 
 @dataclass
@@ -1701,7 +1703,8 @@ class Recorder:
     @staticmethod
     def _execution_number(value: Any) -> float:
         try:
-            return float(value or 0.0)
+            number = float(value or 0.0)
+            return number if math.isfinite(number) else 0.0
         except Exception:
             return 0.0
 
@@ -1718,6 +1721,8 @@ class Recorder:
             pass
         try:
             parsed = datetime.fromisoformat(str(value).replace('Z', '+00:00'))
+            if parsed.tzinfo is not None:
+                parsed = parsed.astimezone()
             return parsed.replace(tzinfo=None).strftime('%Y-%m-%d %H:%M:%S')
         except Exception:
             return str(value)[:32]
@@ -1773,18 +1778,15 @@ class Recorder:
                         cost = price * quantity
 
                     fee_value = 0.0
-                    raw_info = trade.get('info') if isinstance(trade.get('info'), dict) else {}
-                    realized_candidates = (
-                        trade.get('realized_pnl'), trade.get('realizedPnl'),
-                        trade.get('pnl'), trade.get('profit'),
-                        raw_info.get('realizedPnl'), raw_info.get('realized_pnl'),
-                    )
-                    realized_present = any(value not in (None, '') for value in realized_candidates)
-                    realized_pnl = self._execution_number(
-                        next((value for value in realized_candidates if value not in (None, '')), 0.0)
-                    )
+                    provider_gross = provider_fill_gross_pnl(venue, trade)
+                    realized_present = provider_gross is not None
+                    realized_pnl = provider_gross if realized_present else 0.0
                     fee_currency = ''
                     fee_obj = trade.get('fee')
+                    fee_present = (
+                        fee_obj.get('cost') not in (None, '') if isinstance(fee_obj, dict)
+                        else any(trade.get(key) not in (None, '') for key in ('fee_cost', 'feeCost', 'commission', 'fee'))
+                    )
                     if isinstance(fee_obj, dict):
                         fee_value = self._execution_number(fee_obj.get('cost'))
                         fee_currency = str(fee_obj.get('currency') or '').strip().upper()
@@ -1817,6 +1819,20 @@ class Recorder:
 
                     # 같은 주문의 불완전한 접수 기록이 이미 있으면 체결 상세로 보강한다.
                     existing_id = None
+                    existing_detail = False
+                    if distinct_trade_id:
+                        found = cursor.execute(
+                            "SELECT id FROM exchange_execution_log WHERE exchange=? "
+                            "AND symbol=? AND trade_id=? AND COALESCE(order_id,'')=? ORDER BY id",
+                            (venue, symbol, distinct_trade_id, order_id),
+                        ).fetchall()
+                        if len(found) > 1:
+                            # Legacy duplicate repair requires an audited migration.
+                            result['skipped'] += 1
+                            continue
+                        if found:
+                            existing_id = int(found[0][0])
+                            existing_detail = True
                     if order_id and not distinct_trade_id:
                         cursor.execute(
                             """
@@ -1846,21 +1862,25 @@ class Recorder:
                         cursor.execute(
                             """
                             UPDATE exchange_execution_log
-                            SET side = ?, price = ?, quantity = ?, cost = ?, fee = ?, realized_pnl = ?,
-                                realized_pnl_present = ?,
-                                fee_currency = ?, executed_at = COALESCE(?, executed_at),
+                            SET side = ?, price = ?, quantity = ?, cost = ?,
+                                fee = CASE WHEN ? THEN ? ELSE fee END,
+                                realized_pnl = CASE WHEN ? THEN ? ELSE realized_pnl END,
+                                realized_pnl_present = MAX(COALESCE(realized_pnl_present,0), ?),
+                                fee_currency = COALESCE(NULLIF(?, ''), fee_currency), executed_at = COALESCE(?, executed_at),
                                 raw_status = ?, confirmation_status = 'confirmed', source = ?
                             WHERE id = ?
                             """,
                             (
-                                side, price, quantity, cost, fee_value, realized_pnl,
+                                side, price, quantity, cost,
+                                int(fee_present),
+                                fee_value, int(realized_present), realized_pnl,
                                 1 if realized_present else 0,
                                 fee_currency or None, executed_at or None,
                                 str(trade.get('status') or '').strip() or None,
                                 str(source or 'exchange_api'), existing_id,
                             ),
                         )
-                        result['inserted'] += 1
+                        result['skipped' if existing_detail else 'inserted'] += 1
                         continue
 
                     # A previously stored order-level receipt must not remain
@@ -1900,6 +1920,11 @@ class Recorder:
                     else:
                         result['skipped'] += 1
                 conn.commit()
+            # TP/SL 보험 주문이나 거래소 화면에서 체결된 청산은 포지션 소멸을
+            # 먼저 감지해 trade_log를 닫을 수 있다. 이때 응답 주문 ID가 없더라도
+            # 시간·방향·수량 후보는 소유권 증거가 아니므로 미확정으로 남긴다.
+            # 실제 주문 ID가 기록된 행만 기존 exact-order 대조를 수행한다.
+            self.link_unresolved_trade_closes_with_executions(venue)
             self.reconcile_trade_log_with_executions(venue)
         except Exception as exc:
             log_event(
@@ -1909,6 +1934,150 @@ class Recorder:
                 level='ERROR',
             )
         return result
+
+    @staticmethod
+    def _ledger_time_epoch(value: Any) -> Optional[float]:
+        """Return a comparable epoch for persisted ledger timestamps."""
+        if value in (None, ''):
+            return None
+        try:
+            numeric = float(value)
+            if numeric > 1e12:
+                numeric /= 1000.0
+            return numeric
+        except (TypeError, ValueError):
+            pass
+        try:
+            parsed = datetime.fromisoformat(str(value).strip().replace('Z', '+00:00'))
+            return parsed.timestamp()
+        except (TypeError, ValueError, OverflowError):
+            return None
+
+    def link_unresolved_trade_closes_with_executions(
+        self,
+        exchange: str,
+        *,
+        detection_grace_seconds: float = 120.0,
+    ) -> int:
+        """Flag a plausible missing-order candidate, never certify ownership.
+
+        External TP/SL execution can make a position disappear before NoahAI has
+        the exchange's final order id.  Symbol-only matching is unsafe, so a
+        candidate must also have the expected close side, complete provider PnL,
+        matching quantity, and an execution time near the observed close.
+        Even a unique candidate may be a manual/other-position fill. Without
+        an authoritative order link it must remain unresolved. The historical
+        method name/return contract is retained; no order IDs are auto-linked.
+        """
+        venue = str(exchange or '').strip().lower()
+        if not venue:
+            return 0
+        linked = 0
+        try:
+            with sqlite3.connect(self.db_path, timeout=20.0) as conn:
+                conn.row_factory = sqlite3.Row
+                trades = conn.execute(
+                    """
+                    SELECT id, symbol, side, quantity, entry_time, exit_time
+                    FROM trade_log
+                    WHERE LOWER(COALESCE(exchange, '')) = ?
+                      AND exit_time IS NOT NULL
+                      AND LOWER(COALESCE(execution_mode, '')) IN ('live', 'live_api', 'optimized', 'manual')
+                      AND COALESCE(exit_order_id, '') = ''
+                      AND LOWER(COALESCE(reconciliation_status, '')) NOT LIKE 'exchange_confirmed%'
+                      AND COALESCE(reconciliation_status, '') <> 'broker_order_linked'
+                      AND (
+                        LOWER(COALESCE(position_owner, '')) = 'noahai'
+                        OR LOWER(COALESCE(reason, '')) LIKE 'ai %'
+                        OR LOWER(COALESCE(reason, '')) LIKE 'stock_auto_%'
+                      )
+                    ORDER BY exit_time, id
+                    """,
+                    (venue,),
+                ).fetchall()
+                used_order_ids = {
+                    str(row[0])
+                    for row in conn.execute(
+                        """
+                        SELECT DISTINCT exit_order_id FROM trade_log
+                        WHERE LOWER(COALESCE(exchange, '')) = ?
+                          AND COALESCE(exit_order_id, '') <> ''
+                        """,
+                        (venue,),
+                    ).fetchall()
+                }
+                for trade in trades:
+                    entry_epoch = self._ledger_time_epoch(trade['entry_time'])
+                    exit_epoch = self._ledger_time_epoch(trade['exit_time'])
+                    expected_qty = max(0.0, float(trade['quantity'] or 0.0))
+                    side = str(trade['side'] or '').strip().upper()
+                    expected_close_side = (
+                        'sell' if side in {'LONG', 'BUY'}
+                        else 'buy' if side in {'SHORT', 'SELL'}
+                        else ''
+                    )
+                    if entry_epoch is None or exit_epoch is None or expected_qty <= 0 or not expected_close_side:
+                        continue
+
+                    fills = conn.execute(
+                        """
+                        SELECT order_id, side, quantity, realized_pnl_present,
+                               executed_at
+                        FROM exchange_execution_log
+                        WHERE exchange = ? AND UPPER(symbol) = UPPER(?)
+                          AND COALESCE(order_id, '') <> ''
+                          AND confirmation_status = 'confirmed'
+                        ORDER BY id
+                        """,
+                        (venue, str(trade['symbol'])),
+                    ).fetchall()
+                    by_order: Dict[str, List[sqlite3.Row]] = {}
+                    for fill in fills:
+                        order_id = str(fill['order_id'] or '')
+                        if order_id and order_id not in used_order_ids:
+                            by_order.setdefault(order_id, []).append(fill)
+
+                    candidates: List[str] = []
+                    tolerance = max(1e-8, expected_qty * 0.001)
+                    for order_id, order_fills in by_order.items():
+                        if any(str(fill['side'] or '').strip().lower() != expected_close_side for fill in order_fills):
+                            continue
+                        if any(int(fill['realized_pnl_present'] or 0) != 1 for fill in order_fills):
+                            continue
+                        fill_epochs = [self._ledger_time_epoch(fill['executed_at']) for fill in order_fills]
+                        if any(value is None for value in fill_epochs):
+                            continue
+                        grace = max(0.0, detection_grace_seconds)
+                        earliest_match = max(entry_epoch - 5.0, exit_epoch - grace)
+                        if any(
+                            value < earliest_match or value > exit_epoch
+                            for value in fill_epochs if value is not None
+                        ):
+                            continue
+                        fill_qty = sum(max(0.0, float(fill['quantity'] or 0.0)) for fill in order_fills)
+                        if abs(fill_qty - expected_qty) > tolerance:
+                            continue
+                        candidates.append(order_id)
+
+                    if len(candidates) != 1:
+                        continue
+                    conn.execute(
+                        """
+                        UPDATE trade_log
+                        SET reconciliation_status = 'candidate_requires_order_evidence'
+                        WHERE id = ? AND COALESCE(exit_order_id, '') = ''
+                        """,
+                        (int(trade['id']),),
+                    )
+                conn.commit()
+        except sqlite3.Error as exc:
+            log_event(
+                'trade',
+                f"미확정 청산-체결 주문 연결 오류({venue}): {exc}",
+                exchange=venue,
+                level='ERROR',
+            )
+        return linked
 
     @staticmethod
     def _settlement_currency(symbol: str, exchange: str) -> str:
@@ -1936,13 +2105,14 @@ class Recorder:
                 conn.row_factory = sqlite3.Row
                 rows = conn.execute(
                     """
-                    SELECT id, symbol, quantity, entry_price, pnl, fees, entry_fee,
+                    SELECT id, symbol, side, quantity, entry_price, pnl, fees, entry_fee,
                            fee_asset, entry_fee_asset, exit_fee_asset,
                            settlement_currency, exit_order_id, gross_pnl, net_pnl,
                            reconciliation_status
                     FROM trade_log
                     WHERE LOWER(COALESCE(exchange, '')) = ?
                       AND exit_time IS NOT NULL
+                      AND LOWER(COALESCE(execution_mode, '')) IN ('live', 'live_api', 'optimized', 'manual')
                       AND COALESCE(exit_order_id, '') <> ''
                       AND (
                         LOWER(COALESCE(position_owner, '')) = 'noahai'
@@ -1953,6 +2123,17 @@ class Recorder:
                     (venue,),
                 ).fetchall()
                 for row in rows:
+                    # An order cannot certify two independently owned full
+                    # closes. Multi-entry allocation needs a separate lot proof.
+                    conflict = conn.execute(
+                        "SELECT 1 FROM trade_log WHERE id != ? AND LOWER(exchange) = ? "
+                        "AND UPPER(symbol) = UPPER(?) AND exit_order_id = ? AND exit_time IS NOT NULL "
+                        "AND LOWER(execution_mode) IN ('live','live_api','optimized','manual') LIMIT 1",
+                        (int(row['id']), venue, row['symbol'], row['exit_order_id']),
+                    ).fetchone()
+                    if conflict:
+                        conn.execute("UPDATE trade_log SET reconciliation_status='order_attribution_conflict' WHERE id=?", (int(row['id']),))
+                        continue
                     existing_status = str(row['reconciliation_status'] or '')
                     final_status = (
                         existing_status.startswith('exchange_confirmed')
@@ -1960,7 +2141,7 @@ class Recorder:
                     )
                     fills = conn.execute(
                         """
-                        SELECT price, quantity, fee, fee_currency, realized_pnl,
+                        SELECT side, price, quantity, fee, fee_currency, realized_pnl,
                                COALESCE(realized_pnl_present, 0) AS pnl_present
                         FROM exchange_execution_log
                         WHERE exchange = ? AND order_id = ? AND UPPER(symbol) = UPPER(?)
@@ -1977,6 +2158,11 @@ class Recorder:
                             ('exchange_fill_not_found', int(row['id'])),
                         )
                         continue
+                    expected_side = {'LONG': 'sell', 'BUY': 'sell', 'SHORT': 'buy', 'SELL': 'buy'}.get(str(row['side'] or '').upper())
+                    if not expected_side or any(str(fill['side'] or '').lower() != expected_side for fill in fills):
+                        if not final_status:
+                            conn.execute("UPDATE trade_log SET reconciliation_status = 'close_side_mismatch' WHERE id = ?", (int(row['id']),))
+                        continue
                     fill_qty = sum(max(0.0, float(fill['quantity'] or 0.0)) for fill in fills)
                     expected_qty = max(0.0, float(row['quantity'] or 0.0))
                     tolerance = max(1e-8, expected_qty * 0.001)
@@ -1992,20 +2178,18 @@ class Recorder:
                     exit_price = quote / fill_qty if fill_qty > 0 else 0.0
                     pnl_complete = all(int(fill['pnl_present'] or 0) == 1 for fill in fills)
                     gross = sum(float(fill['realized_pnl'] or 0.0) for fill in fills) if pnl_complete else None
-                    currencies = {str(fill['fee_currency'] or '').upper() for fill in fills if fill['fee_currency']}
-                    exit_fee = sum(max(0.0, float(fill['fee'] or 0.0)) for fill in fills)
+                    currencies = {str(fill['fee_currency'] or '').upper() for fill in fills if float(fill['fee'] or 0.0) != 0}
+                    exit_fee = sum(float(fill['fee'] or 0.0) for fill in fills)
                     settlement = str(row['settlement_currency'] or '').upper() or self._settlement_currency(row['symbol'], venue)
                     exit_fee_asset = next(iter(currencies)) if len(currencies) == 1 else (
                         'MIXED' if currencies else str(row['exit_fee_asset'] or row['fee_asset'] or '').upper()
                     )
-                    entry_fee = max(0.0, float(row['entry_fee'] if row['entry_fee'] is not None else row['fees'] or 0.0))
+                    entry_fee = float(row['entry_fee'] if row['entry_fee'] is not None else row['fees'] or 0.0)
                     entry_fee_asset = str(row['entry_fee_asset'] or row['fee_asset'] or '').upper()
-                    entry_fee_convertible = entry_fee <= 0 or (
+                    entry_fee_convertible = entry_fee == 0 or (
                         bool(settlement) and bool(entry_fee_asset) and entry_fee_asset == settlement
                     )
-                    exit_fee_convertible = exit_fee <= 0 or (
-                        bool(settlement) and bool(exit_fee_asset) and exit_fee_asset == settlement
-                    )
+                    exit_fee_convertible = not currencies or currencies == {settlement}
                     fee_convertible = entry_fee_convertible and exit_fee_convertible
                     if gross is None:
                         if final_status:
@@ -2339,6 +2523,7 @@ class Recorder:
             results = self.execute_query(query, params)
 
             trade_history = []
+            column_names = [item[1] for item in self.execute_query('PRAGMA table_info(trade_log)')]
             for row in results:
                 # DB 실제 컬럼 순서: id, symbol, side, entry_price, exit_price,
                 #   quantity, leverage, pnl, pnl_percent, reason, entry_time, exit_time,
@@ -2361,7 +2546,7 @@ class Recorder:
                     'fees': row[14],
                     'slippage': row[15],
                     'exchange': row[16] if len(row) > 16 else None,
-                    'pnl_is_net': True,
+                    **performance_evidence(dict(zip(column_names, row))),
                 })
 
             return trade_history
@@ -3832,10 +4017,12 @@ class Recorder:
             query = (
                 "SELECT symbol, COALESCE(exchange, ''), entry_price, exit_price, quantity, leverage, "
                 "pnl, pnl_percent, entry_time, exit_time, COALESCE(reason, ''), "
-                "COALESCE(fees, 0), COALESCE(slippage, 0) "
+                "COALESCE(fees, 0), COALESCE(slippage, 0), "
+                "execution_mode, reconciliation_status, pnl_source, net_pnl "
                 "FROM trade_log "
                 f"WHERE exit_time > datetime('now', '-{safe_days} days') "
                 "AND LOWER(COALESCE(reason, '')) != 'binance_import' "
+                "AND LOWER(COALESCE(execution_mode, '')) IN ('live','live_api','optimized','manual') "
             )
             params: List[Any] = []
             normalized_symbol = str(symbol or "").strip()
@@ -3869,7 +4056,9 @@ class Recorder:
                     'reason': r[10],
                     'fees': r[11],
                     'slippage': r[12],
-                    'pnl_is_net': True,
+                    **performance_evidence(dict(zip(
+                        ('execution_mode', 'reconciliation_status', 'pnl_source', 'net_pnl'), r[13:17]
+                    ))),
                 })
             return results
         except Exception as e:

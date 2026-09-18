@@ -3164,11 +3164,18 @@ class StockAnalysisService:
         # PAPER 성과 판단은 PAPER 원장만, LIVE는 증권사 체결만 사용한다.
         # 두 범위를 섞으면 실제 계좌 거래가 가상 전략을 차단하거나 PAPER
         # 수익을 LIVE 성과로 오인할 수 있다.
-        cached_recent_trades = (
-            self._get_recent_paper_trade_samples(limit=400)
-            if execution_mode == ExecutionMode.PAPER.value
-            else self._get_recent_trade_samples(limit=400)
-        )
+        if execution_mode == ExecutionMode.PAPER.value:
+            cached_recent_trades = self._get_recent_paper_trade_samples(limit=400)
+        elif execution_mode == 'mock':
+            cached_recent_trades = self._get_recent_trade_samples(limit=400)
+        else:
+            # Buy/sell executions alone are not completed net-PnL outcomes.
+            recorder = getattr(self, 'recorder', None)
+            getter = getattr(recorder, 'get_recent_trades', None)
+            cached_recent_trades = (
+                getter(coin='', exchange=self.broker_name, days=30) or []
+                if callable(getter) else []
+            )[-400:]
         strategy_performance_context = {
             'recent_win_rate': 0.5,
             'consecutive_losses': 0,
@@ -3178,6 +3185,8 @@ class StockAnalysisService:
             pnl_values: List[float] = []
             for trade in recent_sample:
                 if not isinstance(trade, dict):
+                    continue
+                if trade.get('performance_evidence_ready') is False:
                     continue
                 pnl_values.append(
                     self._to_float(

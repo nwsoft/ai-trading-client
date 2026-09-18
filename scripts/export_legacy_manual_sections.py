@@ -23,6 +23,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from config.app_version import (
+    PUBLIC_RELEASE_VERSION,
     RELEASE_BUILD_LABEL,
     RELEASE_DISPLAY_LABEL,
     RELEASE_DISPLAY_PATCH,
@@ -157,7 +158,11 @@ def _render_release_boundary(section_id: str, content: str) -> str:
         return content
 
     marker = f"[v{RELEASE_VERSION} 제품 범위 / 운영 게이트 / 향후 생태계]"
-    line = f"• v{RELEASE_VERSION} Windows stable/latest 공개 제품"
+    line = (
+        f"• v{RELEASE_VERSION} Windows stable/latest 공개 제품"
+        if PUBLIC_RELEASE_VERSION == RELEASE_VERSION
+        else f"• v{RELEASE_VERSION} Windows stable/latest 배포 후보 · 공개 stable/latest는 v{PUBLIC_RELEASE_VERSION}"
+    )
     content = re.sub(
         r"\[v\d+\.\d+\.\d+\.\d+ 소스 후보 수준 / 운영 게이트 / 향후 생태계\]",
         marker,

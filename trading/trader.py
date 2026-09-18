@@ -6606,10 +6606,34 @@ class Trader:
                                         pnl_percent=pnl_percent,
                                         pnl_usdt=pnl_usdt,
                                         exit_reason="TP/SL 청산",
-                                        position=position  # 🔥 position 객체 전달하여 TP/SL 판단 정확도 향상
+                                        position=position,  # 🔥 position 객체 전달하여 TP/SL 판단 정확도 향상
+                                        exchange='binance',
+                                        entry_order_id=getattr(position, 'entry_order_id', None),
                                     )
                                     if not result:
                                         self.log_event('trade', f"⚠️ {symbol} 거래 로그 업데이트 실패 (TP/SL 청산)", level='WARNING')
+                                    else:
+                                        # 거래소 TP/SL 보험 주문은 포지션 소멸 이벤트에 최종
+                                        # 주문 ID가 포함되지 않는다. 확정 체결을 즉시 내려받아
+                                        # 원장에 보존한다. 시간/수량 후보만으로 소유권을
+                                        # 확정하지 않으며 실제 청산 주문 연결이 필요하다.
+                                        try:
+                                            recent_trades = self.binance_client.get_recent_trades(
+                                                symbol=symbol,
+                                                limit=200,
+                                            ) or []
+                                            if recent_trades:
+                                                self.recorder.save_exchange_execution_history(
+                                                    'binance',
+                                                    recent_trades,
+                                                    source='binance_external_close_recovery',
+                                                )
+                                        except Exception as sync_error:
+                                            self.log_event(
+                                                'trade',
+                                                f"⚠️ {symbol} TP/SL 체결 즉시 대조 지연: {sync_error} · 다음 체결 동기화에서 재시도",
+                                                level='WARNING',
+                                            )
                                 except Exception as e:
                                     self.log_event('trade', f"❌ {symbol} 거래 로그 업데이트 오류: {e}", level='ERROR')
 
