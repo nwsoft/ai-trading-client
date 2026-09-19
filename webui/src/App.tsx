@@ -142,6 +142,12 @@ function DesktopApp() {
   const [visitedStrategyStudios, setVisitedStrategyStudios] = useState<Record<"blockchain" | "stock", boolean>>({ blockchain: false, stock: false });
   const [lifeAssistantRequest, setLifeAssistantRequest] = useState(0);
   const [alphaArenaEnabled, setAlphaArenaEnabled] = useState(false);
+  const [alphaArenaRunning, setAlphaArenaRunning] = useState(false);
+  const [alphaStopBusy, setAlphaStopBusy] = useState(false);
+  useEffect(() => {
+    if (!session?.authenticated) { setAlphaArenaRunning(false); return; }
+    return startSequentialPoll(() => client.alphaArena().then((data) => setAlphaArenaRunning(Boolean(data.running))).catch(() => undefined), 5000);
+  }, [client, session?.authenticated, session?.account]);
   const [aiRecord, setAiRecord] = useState("AI 실행 기록 없음");
   const [statusClock, setStatusClock] = useState(() => new Date());
   const [error, setError] = useState("");
@@ -273,7 +279,7 @@ function DesktopApp() {
 
   useEffect(() => {
     const mode = session?.authenticated ? "dashboard" : "login";
-    const displayVersion = platform?.release_version || "3.9.1.39";
+    const displayVersion = platform?.release_version || "3.9.1.40";
     document.title = session?.authenticated ? `Noah AI Client - 대시보드 Beta v${displayVersion}` : "NoahAI Finance Decision OS - 로그인";
     document.body.classList.toggle("dashboard-surface", Boolean(session?.authenticated));
     window.noahAI?.window?.setMode(mode).catch(() => undefined);
@@ -418,17 +424,17 @@ function DesktopApp() {
     <section className="legacy-content-frame">
       <nav className="feature-nav" key={activeService} aria-label={`${selected?.label ?? "서비스"} 기능`}>
         <div className="feature-tab-strip" role="group" aria-label={`${selected?.label ?? "서비스"} 세부 기능`}>
-          {selected?.features.filter((item) => !item.id.endsWith("source_workspaces") && (item.id !== "blockchain.alpha_arena" || alphaArenaEnabled)).map((item) => <button className={item.id === feature?.id ? "active" : ""} key={item.id} onClick={() => { setActiveFeature(item.id); if (item.id.endsWith("ai_assistant") || item.id === "ai_analyst.assistant") setAssistantService(activeService); }} type="button">{item.label}</button>)}
+          {selected?.features.filter((item) => !item.id.endsWith("source_workspaces") && (item.id !== "blockchain.alpha_arena" || alphaArenaEnabled || alphaArenaRunning)).map((item) => <button className={item.id === feature?.id ? "active" : ""} key={item.id} onClick={() => { setActiveFeature(item.id); if (item.id.endsWith("ai_assistant") || item.id === "ai_analyst.assistant") setAssistantService(activeService); }} type="button">{item.label}</button>)}
         </div>
         {["blockchain", "stock"].includes(activeService) && <div className="source-tab-strip" role="group" aria-label={activeService === "stock" ? "증권사 선택" : "거래소 선택"}>
-          <span className="source-tab-label">{activeService === "stock" ? "증권사" : "거래소"}</span>
+          <span className="source-tab-label">{activeSurface === "alpha_arena" ? "일반 거래소 화면으로 이동" : activeService === "stock" ? "증권사" : "거래소"}</span>
           {activeSourceTabs.map((source) => (
             <button className={`source-tab ${feature?.id.endsWith("source_workspaces") && chartSource === source ? "active" : ""}`} key={source} onClick={() => selectSourceTab(source)} type="button">{source.toUpperCase()}</button>
           ))}
           {!activeSourceTabs.length && <span className="source-empty-note">설정에서 사용할 {activeService === "stock" ? "증권사" : "거래소"}를 선택하세요.</span>}
         </div>}
       </nav>
-      <main>{error && <div className="error-banner"><b>Gateway 연결 확인</b><span>{error}</span><button className="secondary-button" type="button" onClick={() => window.location.reload()}>전체 다시 시도</button></div>}
+      <main>{alphaArenaRunning && <div className="inline-notice arena-running-banner" role="status"><b>AlphaArena · Binance PAPER 판단 실험 실행 중</b><span>현재 화면의 거래소 선택과 별개입니다.</span><button type="button" disabled={alphaStopBusy} onClick={async () => { setAlphaStopBusy(true); try { await client.alphaArenaCommand("stop", false); setAlphaArenaRunning(false); } catch (reason) { setError(reason instanceof Error ? reason.message : "AlphaArena 정지 실패"); } finally { setAlphaStopBusy(false); } }}>AlphaArena 정지</button></div>}{error && <div className="error-banner"><b>Gateway 연결 확인</b><span>{error}</span><button className="secondary-button" type="button" onClick={() => window.location.reload()}>전체 다시 시도</button></div>}
       {activeSurface === "market_trend" && <MarketTrendWorkspace client={client} service={activeService as "blockchain" | "stock"} source={chartSource} />}
       {activeSurface === "trading_log" && <LegacyTradingLogWorkspace client={client} runtime={serviceRuntime} service={activeService} onOpenManual={() => openManual()} onAskAssistant={(question) => openAssistant(question, activeService)} onRuntimeChanged={refreshRuntimeFromSettings} />}
       {(["blockchain", "stock"] as const).map((strategyService) => {
@@ -456,7 +462,7 @@ function DesktopApp() {
     </section>
     <footer className="statusbar legacy-statusbar">
       <span className="legacy-status-left">{legacyStatusLabel(runtime, chartSource, statusClock)}</span>
-      <div className="legacy-release-update"><span className="legacy-release">{platform?.release_label ?? "v3.9.1.39"}</span><UpdateCenter client={client} accountScope={session?.account ?? ""} onOpenGuide={() => openManual("updates")} /></div>
+      <div className="legacy-release-update"><span className="legacy-release">{platform?.release_label ?? "v3.9.1.40"}</span><UpdateCenter client={client} accountScope={session?.account ?? ""} onOpenGuide={() => openManual("updates")} /></div>
       <div className="legacy-ai-summary"><span className="legacy-ai-record" title={aiRecord}>{aiRecord}</span><button className="legacy-record-button" type="button" onClick={() => void refreshAiRecord()}><AppIcon name="record" />기록</button></div>
     </footer>
     <SettingsCenter client={client} open={settingsOpen} onClose={() => setSettingsOpen(false)} onAskAssistant={(question, settingsSection) => openAssistant(question, "settings", settingsSection)} onOpenManual={() => { setSettingsOpen(false); openManual("settings"); }} onSettingsSaved={refreshRuntimeFromSettings} />

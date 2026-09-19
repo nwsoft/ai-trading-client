@@ -155,7 +155,7 @@ def _render_placeholders(content: str) -> str:
 def _render_release_boundary(section_id: str, content: str) -> str:
     """Keep the exported product boundary deterministic for this source version."""
     if section_id != "custom":
-        return content
+        return f"현재 설치 버전 기준: v{RELEASE_VERSION} · 공개 기반 v{PUBLIC_RELEASE_VERSION}\n\n{content}"
 
     marker = f"[v{RELEASE_VERSION} 제품 범위 / 운영 게이트 / 향후 생태계]"
     line = (

@@ -8,6 +8,7 @@ Alpha Arena Runner
 """
 
 import logging
+import math
 import threading
 import time
 import uuid
@@ -102,8 +103,11 @@ class AlphaArenaRunner:
     def start(self) -> bool:
         """Alpha Arena 실행 시작"""
         try:
-            if self.running:
+            if self.running or (self.run_thread and self.run_thread.is_alive()):
                 self.logger.warning("Alpha Arena가 이미 실행 중입니다.")
+                return False
+            if not bool(self.settings.get('paper_trading', True)):
+                self.logger.error("alpha_arena_live_blocked_pending_external_gate")
                 return False
             
             # 세션 초기화
@@ -157,7 +161,7 @@ class AlphaArenaRunner:
             self.stop_event.set()
             
             # 스레드 종료 대기
-            if self.run_thread and self.run_thread.is_alive():
+            if self.run_thread and self.run_thread.is_alive() and self.run_thread is not threading.current_thread():
                 self.run_thread.join(timeout=5)
             
             # 메트릭 종료
@@ -214,6 +218,9 @@ class AlphaArenaRunner:
     def _execute_tick(self):
         """단일 틱 실행"""
         try:
+            if not bool(self.settings.get('paper_trading', True)):
+                self.stop()
+                return
             # 메트릭 기록
             if self.metrics:
                 self.metrics.record_tick()
@@ -226,6 +233,10 @@ class AlphaArenaRunner:
             
             # 2. LLM 호출
             response = self._call_llm(prompt)
+            if not self.running or self.stop_event.is_set():
+                # A stopped session must not publish a late provider response
+                # as a fresh decision or start another execution cycle.
+                return
             if not response:
                 self.logger.warning("LLM 응답 없음")
                 return
@@ -346,23 +357,40 @@ class AlphaArenaRunner:
                 if not symbol.endswith('USDT'):
                     symbol = f"{symbol}USDT"
                 
-                # PAPER는 현재 시장의 AI 판단과 가드 검증만 기록하며 거래소에
-                # 주문을 제출하지 않는다. LIVE는 Headless runtime의 별도 확인
-                # 게이트를 통과한 경우에만 이 Runner가 시작될 수 있다.
+                # Defense in depth: v40 has NO LIVE execution path, including
+                # settings changes while an AI request is in flight.
                 if bool(self.settings.get('paper_trading', True)):
                     gate = self.order_executor._check_trade_gates(symbol, decision)
+                    if gate.get('allowed'):
+                        try:
+                            risk = float(decision.get('risk_usd', 0))
+                            if not math.isfinite(risk) or risk <= 0:
+                                raise ValueError('invalid risk')
+                        except (TypeError, ValueError):
+                            gate = {'allowed': False, 'reason': 'risk_usd는 유한한 양수여야 합니다.'}
+                        else:
+                            # Rehearsal candidates share the same tick budget.
+                            # This is not a virtual position or a PnL ledger.
+                            self.order_executor._current_tick_risk_usd += risk
+                            self.order_executor._paper_pending_entries += 1
+                            self.order_executor._cooldown_tracker[symbol] = time.time()
                     result = {
                         'status': 'SIMULATED' if gate.get('allowed') else 'SKIPPED',
                         'mode': 'PAPER',
                         'symbol': symbol,
                         'signal': str(decision.get('signal') or 'HOLD'),
                         'order_submitted': False,
+                        'gate_basis': 'exchange_positions_and_current_tick_candidates',
                         'simulation_id': f"paper_{uuid.uuid4().hex}",
                     }
                     if not gate.get('allowed'):
                         result['skip_reason'] = str(gate.get('reason') or 'guard_rejected')
                 else:
-                    result = self.order_executor.execute_trading_decision(symbol, decision)
+                    self.running = False
+                    self.stop_event.set()
+                    if self.on_error:
+                        self.on_error("alpha_arena_live_blocked_pending_external_gate")
+                    break
                 
                 # 주문 결과 기록
                 if self.metrics:

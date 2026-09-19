@@ -299,6 +299,7 @@ class OrderExecutor:
         """틱 추적 리셋 (새 틱 시작)"""
         self._current_tick_risk_usd = 0.0
         self._tick_start_time = time.time()
+        self._paper_pending_entries = 0
     
     def execute_trading_decision(self, symbol: str, decision: Dict[str, Any]) -> Dict[str, Any]:
         """
@@ -688,7 +689,7 @@ class OrderExecutor:
                     }
             
             # 7. 최대 동시 포지션 검증 (현재 포지션 수 확인)
-            current_positions = self._count_active_positions()
+            current_positions = self._count_active_positions() + getattr(self, '_paper_pending_entries', 0)
             if current_positions >= self._max_concurrent_positions:
                 return {
                     'allowed': False,
@@ -782,4 +783,3 @@ class OrderExecutor:
         except Exception as e:
             self.logger.error(f"SL 주문 생성 오류 ({symbol}): {e}")
             return None
-

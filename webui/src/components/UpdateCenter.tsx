@@ -4,7 +4,7 @@ import type { GatewayClient } from "../api";
 type UpdateState = "idle" | "checking" | "current" | "available" | "downloading" | "ready" | "preparing" | "installing" | "error" | "development";
 const pendingUpdateNotifications = new Set<string>();
 
-export function UpdateCenter({ client, onOpenGuide, detailed = false, currentVersion = "v3.9.1.39", accountScope = "" }: { client?: GatewayClient; onOpenGuide?: () => void; detailed?: boolean; currentVersion?: string; accountScope?: string } = {}) {
+export function UpdateCenter({ client, onOpenGuide, detailed = false, currentVersion = "v3.9.1.40", accountScope = "" }: { client?: GatewayClient; onOpenGuide?: () => void; detailed?: boolean; currentVersion?: string; accountScope?: string } = {}) {
   const [state, setState] = useState<UpdateState>(window.noahAI ? "checking" : "development");
   const [version, setVersion] = useState("");
   const [installedVersion, setInstalledVersion] = useState(currentVersion);

@@ -538,7 +538,9 @@ scoped_pool(list(getattr(self._app, "active_custom_strategy_pool", []) or []), a
                 "available": bool(arena_settings.get("enabled", False)),
                 "paper_trading": paper,
                 "execution_mode": "PAPER" if paper else "LIVE_BLOCKED_PENDING_EXTERNAL_GATE" if paper is False else "DETACHED",
-                "order_submission": False if paper else "blocked",
+                "order_submission": False,
+                "engine": str(arena_settings.get("engine") or "deepseek-v4-flash"),
+                "paper_scope": "decision_guard_rehearsal_not_virtual_pnl",
                 "events": [],
                 "symbols": list(arena_settings.get("symbols") or []),
                 "risk": {

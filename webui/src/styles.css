@@ -5,6 +5,9 @@
   font-synthesis: none;
   text-rendering: optimizeLegibility;
 }
+
+.legacy-strategy-workspace :is(span, em) { font-size: 13px !important; line-height: 1.55; }
+.legacy-strategy-workspace :is(strong, b) { font-size: max(13px, 1em); }
 .live-history-evidence { padding: 22px; border-left: 3px solid #fbbf24; }
 .live-history-evidence p { line-height: 1.7; color: #b9c9de; }
 .live-history-evidence strong, .live-history-evidence h2 { color: #f3f7ff; }
@@ -3114,3 +3117,35 @@ select:not([multiple]):disabled { color: #9ca3af; opacity: .78; cursor: not-allo
 .strategy-context-notice { max-height: 180px; overflow: auto; padding: 10px 14px; border-top: 1px solid #344867; background: #122238; font-size: 12px; }
 .strategy-context-notice strong, .strategy-context-notice span { display: block; margin-bottom: 5px; }
 .strategy-context-notice pre { max-height: 150px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; }
+
+/* v3.9.1.40: readable shared crypto/stock Strategy Studio, without hiding gates. */
+.legacy-strategy-workspace :is(p, li, dt, dd, label) { font-size: 14px !important; line-height: 1.65; }
+.legacy-strategy-workspace :is(small, summary, .eyebrow, .strategy-studio-alias) { font-size: 13px !important; line-height: 1.6; }
+.legacy-strategy-workspace :is(button, input, textarea, select) { font-size: 14px !important; }
+.legacy-strategy-workspace :is(button, select, input:not([type="checkbox"]):not([type="radio"])) { min-height: 38px; }
+.legacy-strategy-workspace :is(h4, h5) { font-size: 15px; line-height: 1.5; }
+.legacy-strategy-workspace .source-editor { min-height: 220px; line-height: 1.65; resize: vertical; }
+.legacy-strategy-workspace :is(pre, code) { font-size: 13px; overflow-wrap: anywhere; }
+.legacy-strategy-workspace .legacy-strategy-status :is(strong, span) { font-size: 13px; }
+.legacy-strategy-workspace .legacy-xai-sections { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.legacy-strategy-workspace .legacy-xai-card { padding: 16px; }
+.legacy-strategy-workspace .legacy-strategy-header { gap: 12px; }
+.strategy-help-difference { padding: 10px 14px; border: 1px solid #334155; border-radius: 8px; }
+.strategy-help-difference summary { cursor: pointer; color: #93c5fd; }
+.strategy-step-nav { position: sticky; top: 0; z-index: 3; display: flex; flex-wrap: wrap; gap: 8px; padding: 10px; background: #0b1423; border-bottom: 1px solid #334155; }
+.strategy-step-nav button { padding: 8px 16px; border: 1px solid #45617f; border-radius: 8px; color: #e2e8f0; background: #14263d; cursor: pointer; }
+.legacy-strategy-workspace :is(.legacy-strategy-source-card, .legacy-strategy-result-card, .legacy-xai-result, .studio-panel) { scroll-margin-top: 70px; }
+.legacy-strategy-workspace .strategy-guided-body { min-height: 0; }
+.legacy-strategy-workspace .strategy-guided-dialog { max-height: calc(100dvh - 32px); overflow: auto; }
+.legacy-alpha-arena { display: flex; flex-direction: column; gap: 14px; }
+.legacy-alpha-arena :is(p, small, pre, button) { font-size: 14px; line-height: 1.6; }
+.legacy-alpha-arena .arena-tab-panel { flex: 1; min-height: 230px; }
+.legacy-alpha-arena .arena-guide { flex: 0 0 auto; min-height: 0; }
+.legacy-alpha-arena .arena-output { white-space: pre-wrap; overflow-wrap: anywhere; }
+.arena-running-banner { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; border: 1px solid #ca8a04; }
+.arena-running-banner button { margin-left: auto; cursor: pointer; }
+@media (max-width: 1000px) {
+  .legacy-strategy-workspace .legacy-xai-sections { grid-template-columns: 1fr; }
+  .legacy-strategy-workspace .legacy-source-title-row { flex-wrap: wrap; }
+  .legacy-alpha-arena .arena-control-panel, .legacy-alpha-arena .arena-engine-control { flex-wrap: wrap; }
+}

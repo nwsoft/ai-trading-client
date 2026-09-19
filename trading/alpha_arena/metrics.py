@@ -46,6 +46,7 @@ class SessionMetrics:
     successful_orders: int = 0
     failed_orders: int = 0
     skipped_orders: int = 0
+    paper_decisions: int = 0
     
     # 심볼별 통계
     symbol_stats: Dict[str, Dict[str, Any]] = field(default_factory=dict)
@@ -88,6 +89,8 @@ class ArenaMetrics:
             self.current_metrics.failed_orders += 1
         elif status == 'SKIPPED':
             self.current_metrics.skipped_orders += 1
+        elif status == 'SIMULATED':
+            self.current_metrics.paper_decisions += 1
     
     def record_trade(self, symbol: str, side: str, entry_price: float, 
                     exit_price: Optional[float] = None, pnl: Optional[float] = None):
@@ -241,4 +244,3 @@ class ArenaMetrics:
         self.logger.info(f"실패 주문: {metrics.get('failed_orders')}")
         self.logger.info(f"스킵 주문: {metrics.get('skipped_orders')}")
         self.logger.info("=" * 60)
-

@@ -1,11 +1,11 @@
 # NoahAI - AI 금융 동반자 & 의사결정 인프라
 
-현재 공개 버전: **v3.9.1.38** · updater **3.9.138** · GitHub stable/latest(2026-09-17 게시 확인).
-현재 공개 기반: v3.9.1.38 stable/latest.
+현재 공개 버전: **v3.9.1.39** · updater **3.9.139** · GitHub stable/latest(2026-09-19 조회 확인).
+현재 공개 기반: v3.9.1.39 stable/latest.
 공개 자산은 설치기·blockmap·`latest.yml`·`release-manifest.json`을 같은 버전으로 제공합니다. [v38 검증·배포 원장](docs/V39138_STRATEGY_REPLAY_LIVE_HISTORY_TEST_PLAN.md).
 
-현재 소스 후보: v3.9.1.39 · updater **3.9.139** · External Close Ledger Reconciliation Patch.
-PnL 재감사로 추가 결함을 확인하여 **v39 배포 보류**입니다. 시간·수량 유일 후보 자동 확정은 철회했으며, 실제 청산 주문 소유권과 실계정 1:1 대조가 남아 있습니다. [PnL 재감사](docs/V39139_PNL_TRUST_AUDIT.md).
+현재 소스 후보: v3.9.1.40 · updater **3.9.140** · Strategy Studio Readability and AlphaArena Safety Patch.
+v39는 이미 공개되었습니다. v40은 전략 스튜디오 가독성·AlphaArena 안전성·설정 점검 수정 후 Windows 검증 후보이며 아직 게시하지 않았습니다. [v40 계획](docs/V39140_STUDIO_ALPHA_SETTINGS_TEST_PLAN.md). 이전 PnL 감사의 미완료 항목은 별도 유지합니다. 시간·수량 유일 후보 자동 확정은 철회했으며, 실제 청산 주문 소유권과 실계정 1:1 대조가 남아 있습니다. [PnL 재감사](docs/V39139_PNL_TRUST_AUDIT.md).
 
 ## 현재 서비스 기준 (2026-09-18)
 

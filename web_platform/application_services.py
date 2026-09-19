@@ -400,7 +400,7 @@ EDITABLE_SETTINGS: tuple[EditableSetting, ...] = (
     EditableSetting("advanced_trading_layers.strategy_engine.consensus_threshold", "합의 임계값", "고급 매매 계층", "number", "0.10~0.95 · 높을수록 더 많은 신호 합의가 필요합니다.", 0.10, 0.95, risk="high"),
     EditableSetting("advanced_trading_layers.strategy_engine.cooldown_sec", "심볼 쿨다운(초)", "고급 매매 계층", "integer", "같은 심볼의 재진입 최소 대기시간입니다.", 0, 3600, risk="high"),
     EditableSetting("alpha_arena.enabled", "Alpha Arena 모드 활성화", "AlphaArena", "boolean", "Binance USDT 선물 전용 독립 실험 모드이며 기본값은 OFF입니다.", risk="critical"),
-    EditableSetting("alpha_arena.engine", "AI 엔진", "AlphaArena", "select", "현재 실행 선택은 DeepSeek V4 Flash만 지원합니다.", options=("deepseek-v4-flash",)),
+    EditableSetting("alpha_arena.engine", "AI 엔진", "AlphaArena", "select", "전용 DeepSeek 키로 저장된 Flash/Pro 엔진 하나를 사용합니다. 변경 시 실험을 정지하며 다음 시작부터 적용합니다.", options=("deepseek-v4-flash", "deepseek-v4-pro")),
     EditableSetting("alpha_arena.initial_capital_benchmark", "초기 자금 기준", "AlphaArena", "select", "LLM 판단 비교에 사용하는 벤치마크 기준이며 실제 계좌 잔액이 아닙니다.", options=("10000", "1000", "100")),
     EditableSetting("alpha_arena.tick_interval_sec", "판단 주기(초)", "AlphaArena", "integer", "최소 30초 이상으로 실행 판단 주기를 제한합니다.", 30, 3600, risk="high"),
     EditableSetting("alpha_arena.leverage_min", "최소 레버리지", "AlphaArena", "integer", "AlphaArena 주문 후보의 최소 레버리지 가드입니다.", 1, 20, risk="critical"),
@@ -2946,13 +2946,18 @@ class ApplicationServices:
         """
         normalized_provider = str(provider or "").strip().lower()
         credential_scope = "openai_shared" if normalized_provider == "openai_shared" else normalized_provider
-        effective_provider = "openai" if normalized_provider == "openai_shared" else normalized_provider
+        effective_provider = {"openai_shared": "openai", "alpha:deepseek": "deepseek"}.get(normalized_provider, normalized_provider)
         if effective_provider not in PROVIDER_SPECS:
             raise ValueError("지원하지 않는 AI 제공사입니다.")
         if capability not in {"chat_text", "chat_json", "vision", "transcribe"}:
             raise ValueError("지원하지 않는 AI 기능 점검입니다.")
         with self._lock:
             settings = deepcopy(load_settings(persist_migrations=False) or {})
+        if normalized_provider == "alpha:deepseek":
+            from trading.alpha_arena.configuration import alpha_arena_ai_settings
+            settings = alpha_arena_ai_settings(settings)
+            # Probe exactly the saved engine used by the next Arena start.
+            model = settings["ai_provider_profiles"]["analyst"]["model"]
         if normalized_provider == "openai_shared":
             credentials = deepcopy(settings.get("ai_credentials") or {})
             credentials["openai"] = deepcopy(credentials.get("openai_shared") or {})
@@ -2975,6 +2980,7 @@ class ApplicationServices:
         health = router.health_check()
         result = router.validate_model(capability=capability, verify_account=False)
         result["credential_scope"] = credential_scope
+        result["diagnostic_scope"] = credential_scope
         requested_model = str(result.get("model") or getattr(getattr(router, "adapter", None), "model", "") or "")
         provider_models = [str(item) for item in (health.get("models") or [])]
         result["requested_model"] = requested_model

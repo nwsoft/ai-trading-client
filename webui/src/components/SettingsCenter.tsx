@@ -239,6 +239,7 @@ export function SettingsCenter({ client, open, onClose, onAskAssistant, onOpenMa
   const [backupOpen, setBackupOpen] = useState(false);
   const [backups, setBackups] = useState<SettingsBackup[]>([]);
   const [diagnostics, setDiagnostics] = useState<Record<string, any> | null>(null);
+  const diagnosticEpoch = useRef(0);
   const [providerCheck, setProviderCheck] = useState<Record<string, any> | null>(null);
   const [accountModelCatalogs, setAccountModelCatalogs] = useState<Record<string, string[]>>({});
   const [supportSummary, setSupportSummary] = useState("");
@@ -278,6 +279,9 @@ export function SettingsCenter({ client, open, onClose, onAskAssistant, onOpenMa
         setGuideProposal({});
         setCredentialDrafts({});
         setAccountModelCatalogs({});
+        setProviderCheck(null);
+        setSupportSummary("");
+        diagnosticEpoch.current += 1;
         setShowCredentialDraft(false);
         setMessage("");
         setNotificationResult(null);
@@ -335,7 +339,7 @@ export function SettingsCenter({ client, open, onClose, onAskAssistant, onOpenMa
   const visibleModelProvider = credentialProvider === "openai_shared" ? "openai" : ["openai", "deepseek", "kimi", "anthropic", "gemini"].includes(credentialProvider)
     ? credentialProvider : String(draft.ai_provider || "openai");
   const visibleModelDetails = snapshot?.model_catalog_details?.[visibleModelProvider] ?? [];
-  const checkedAccountModels = accountModelCatalogs[visibleModelProvider];
+  const checkedAccountModels = accountModelCatalogs[credentialProvider];
 
   function modelOptions(
     path: string,
@@ -346,12 +350,13 @@ export function SettingsCenter({ client, open, onClose, onAskAssistant, onOpenMa
     const provider = providerPath === "__openai_fixed__" ? "openai" : providerPath ? String(candidateDraft[providerPath] || "openai") : "openai";
     const capability = MODEL_CAPABILITIES[path] ?? "chat_text";
     const fallback = snapshot?.model_catalogs?.[provider]?.[capability] ?? [];
-    const discovered = capability !== "transcribe" ? accountModelCatalogs[provider] ?? [] : [];
+    const discovered = capability !== "transcribe" ? accountModelCatalogs[path === "ai_data_routing.public_openai_model" ? "openai_shared" : provider] ?? [] : [];
     const current = String(candidateDraft[path] || "").trim();
     return Array.from(new Set([...(includeCurrent && current ? [current] : []), ...fallback, ...discovered]));
   }
 
   function updateDraftField(path: string, value: unknown) {
+    if (path.startsWith("ai_provider") || path.includes("model") || path === "alpha_arena.engine") { diagnosticEpoch.current += 1; setProviderCheck(null); }
     setDraft((current) => {
       const next = { ...current, [path]: value };
       for (const [modelPath, providerPath] of Object.entries(MODEL_PROVIDER_PATHS)) {
@@ -419,7 +424,9 @@ export function SettingsCenter({ client, open, onClose, onAskAssistant, onOpenMa
   }, [activeSection, credentialProvider]);
 
   useEffect(() => {
+    diagnosticEpoch.current += 1;
     setProviderCheck(null);
+    setSupportSummary("");
     setShowCredentialDraft(false);
   }, [credentialProvider]);
 
@@ -686,6 +693,10 @@ export function SettingsCenter({ client, open, onClose, onAskAssistant, onOpenMa
       if (!next.save_receipt?.verified) {
         throw new Error("연결 정보를 저장한 뒤 재확인하지 못했습니다. 입력값은 화면에 유지됩니다.");
       }
+      diagnosticEpoch.current += 1;
+      setProviderCheck(null);
+      setSupportSummary("");
+      setAccountModelCatalogs((current) => Object.fromEntries(Object.entries(current).filter(([scope]) => scope !== provider)));
       setSnapshot(next);
       setCredentialDrafts((current) => Object.fromEntries(Object.entries(current).filter(([name]) => name !== provider)));
       let successMessage = clear
@@ -728,12 +739,14 @@ export function SettingsCenter({ client, open, onClose, onAskAssistant, onOpenMa
       if (!saved) return;
     }
     setBusy(true);
+    setNotificationResult((current) => ({ ...(current ?? {}), last_test: null }));
     setMessage(`${channel === "discord" ? "Discord" : "Telegram"} 테스트 메시지를 보내는 중입니다…`);
     try {
       const result = await client.testNotification(channel);
       setNotificationResult((current) => ({ ...(current ?? {}), last_test: result }));
-      setMessage(`${channel === "discord" ? "Discord" : "Telegram"} 테스트 메시지 전송을 확인했습니다.`);
+      setMessage(result.ok ? `${channel === "discord" ? "Discord" : "Telegram"} 테스트 메시지 전송을 확인했습니다.` : "테스트 메시지 전송을 확인하지 못했습니다. 연결 정보를 확인하세요.");
     } catch (error) {
+      setNotificationResult((current) => ({ ...(current ?? {}), last_test: { ok: false, channel } }));
       setMessage(error instanceof Error ? error.message : "테스트 메시지를 보내지 못했습니다.");
     } finally { setBusy(false); }
   }
@@ -770,7 +783,7 @@ export function SettingsCenter({ client, open, onClose, onAskAssistant, onOpenMa
   }
 
   async function runProviderCheck() {
-    const provider = ["openai", "openai_shared", "deepseek", "kimi", "anthropic", "gemini"].includes(credentialProvider)
+    const provider = ["openai", "openai_shared", "deepseek", "kimi", "anthropic", "gemini", "alpha:deepseek"].includes(credentialProvider)
       ? credentialProvider : String(draft.ai_provider || "openai");
     const pending = credentialDrafts[provider] ?? {};
     if (Object.values(pending).some((value) => value.trim())) {
@@ -778,26 +791,30 @@ export function SettingsCenter({ client, open, onClose, onAskAssistant, onOpenMa
       if (!saved) return;
     }
     const analystProvider = String(draft["ai_provider_profiles.analyst.provider"] || draft.ai_provider || "openai");
-    const model = String(provider === "openai_shared" ? draft["ai_data_routing.public_openai_model"] || "" : analystProvider === provider ? draft["ai_provider_profiles.analyst.model"] || "" : "");
+    const model = String(provider === "alpha:deepseek" ? draft["alpha_arena.engine"] || "deepseek-v4-flash" : provider === "openai_shared" ? draft["ai_data_routing.public_openai_model"] || "" : analystProvider === provider ? draft["ai_provider_profiles.analyst.model"] || "" : "");
     const selectionPending = provider === "openai_shared"
       ? Object.prototype.hasOwnProperty.call(changed, "ai_data_routing.public_openai_model")
       : analystProvider === provider && (
         Object.prototype.hasOwnProperty.call(changed, "ai_provider_profiles.analyst.provider")
         || Object.prototype.hasOwnProperty.call(changed, "ai_provider_profiles.analyst.model")
       );
+    const checkEpoch = diagnosticEpoch.current;
+    setAccountModelCatalogs((current) => Object.fromEntries(Object.entries(current).filter(([scope]) => scope !== provider)));
+    setProviderCheck(null);
     setBusy(true); setMessage(`Provider 모델 목록과 ${model || "기본 모델"} 실제 호출을 확인하는 중입니다…`);
     try {
       const result = await client.checkAIProvider(provider, model, "chat_text");
-      setProviderCheck({ ...result, selection_pending: selectionPending });
+      if (checkEpoch !== diagnosticEpoch.current) return;
+      setProviderCheck({ ...result, credential_scope: provider, selection_pending: selectionPending });
       if (result.model_callable) {
         client.assistantStatus()
           .then((next) => setAssistantStatus(next?.budget ?? next))
           .catch(() => undefined);
       }
-      if (Array.isArray(result.models) && result.models.length) {
+      if (Array.isArray(result.models) && result.catalog_checked) {
         setAccountModelCatalogs((current) => ({
           ...current,
-          [provider === "openai_shared" ? "openai" : provider]: Array.from(new Set(result.models.map(String))),
+          [provider]: Array.from(new Set(result.models.map(String))),
         }));
       }
       setMessage(result.model_callable
@@ -805,7 +822,8 @@ export function SettingsCenter({ client, open, onClose, onAskAssistant, onOpenMa
         : `${provider.toUpperCase()} 점검 미완료 · Provider 목록 연결과 선택 모델 호출 결과를 각각 확인하세요.`);
     } catch (error) {
       const reason = error instanceof Error ? error.message : "AI 제공사 점검에 실패했습니다.";
-      setProviderCheck({ ok: false, errors: [reason] });
+      if (checkEpoch !== diagnosticEpoch.current) return;
+      setProviderCheck({ ok: false, credential_scope: provider, errors: [reason] });
       setMessage(reason);
     } finally { setBusy(false); }
   }
@@ -854,15 +872,19 @@ export function SettingsCenter({ client, open, onClose, onAskAssistant, onOpenMa
       const saved = await saveCredential(false, credentialProvider, snapshot, false);
       if (!saved) return;
     }
+    const accountCheckEpoch = diagnosticEpoch.current;
+    setSupportSummary("");
     setBusy(true); setMessage(`${source.toUpperCase()} 계정 연결을 실제 조회로 확인하는 중입니다…`);
     try {
       const result = await client.refreshAccounts([source], true);
+      if (accountCheckEpoch !== diagnosticEpoch.current) return;
       const failure = accountConnectionFailure(result, source);
       if (failure) throw new Error(failure);
       const summary = `[NoahAI 연결 점검]\n시각: ${new Date().toISOString()}\n대상: ${source}\n결과: 성공\n응답 범위: ${Object.keys(result || {}).join(", ") || "계정 snapshot"}\n비밀값: 포함하지 않음`;
       setSupportSummary(summary);
       setMessage(`${source.toUpperCase()} 실제 계정 조회가 완료되었습니다.`);
     } catch (error) {
+      if (accountCheckEpoch !== diagnosticEpoch.current) return;
       const reason = error instanceof Error ? error.message : "계정 연결 점검 실패";
       const action = /Windows 로컬 엔진의 문자 인코딩|local_runtime_encoding_error|codec can't encode|cp949/i.test(reason)
         ? "NoahAI UTF-8 런타임 패치 버전으로 업데이트하고 앱을 완전히 다시 시작하세요. 이 오류만으로 API 키를 재발급할 필요는 없습니다."
@@ -917,7 +939,7 @@ export function SettingsCenter({ client, open, onClose, onAskAssistant, onOpenMa
           <button className="settings-quick-start-open" type="button" onClick={openQuickStart}>처음 사용 · 빠른 시작</button>
           <button className="settings-window-close" type="button" onClick={requestClose} aria-label="설정 창 닫기" title="설정 닫기">×</button>
         </header>
-        <div className="settings-live-warning"><span>v3.9.1.39 · LIVE는 별도 권한입니다 · PAPER OFF + 주문 대상/증권 LIVE + API 준비 + 가드레일</span><button type="button" onClick={() => onAskAssistant("실거래 전 필수 준비, PAPER와 LIVE의 차이, API 권한과 주문 가드레일을 현재 설정 기준으로 설명해줘.", activeSection)}>실거래 필수 안내</button></div>
+        <div className="settings-live-warning"><span>v3.9.1.40 · LIVE는 별도 권한입니다 · PAPER OFF + 주문 대상/증권 LIVE + API 준비 + 가드레일</span><button type="button" onClick={() => onAskAssistant("실거래 전 필수 준비, PAPER와 LIVE의 차이, API 권한과 주문 가드레일을 현재 설정 기준으로 설명해줘.", activeSection)}>실거래 필수 안내</button></div>
         <section className={`settings-readiness-strip ${readinessOpen ? "open" : ""}`}>
           <header><strong>AI 실행 준비도 진단</strong><button type="button" onClick={() => setReadinessOpen((value) => !value)}>{readinessOpen ? "상세 닫기" : "상세 보기"}</button></header>
           {readinessOpen && <div className="readiness-grid"><span><b>AI 키</b>{diagnostics?.ai?.configured ? "등록됨" : "미설정"}</span><span><b>기본 Provider</b>{String(diagnostics?.ai?.provider || "—").toUpperCase()}</span><span><b>거래 모드</b>{diagnostics?.trading?.paper_trading ? "PAPER" : diagnostics?.trading?.live_ready ? "LIVE 준비" : "LIVE 차단"}</span><span><b>런타임</b>{diagnostics?.trading?.runtime_status || "확인 중"}</span><span><b>회원 등급</b>{String(diagnostics?.membership?.user_grade || "확인 필요").toUpperCase()}</span><span><b>회원 정책</b>{diagnostics?.membership?.policy_version || diagnostics?.membership?.status || "서버 확인 필요"}</span></div>}
@@ -998,7 +1020,7 @@ export function SettingsCenter({ client, open, onClose, onAskAssistant, onOpenMa
             </section>}
             {activeSection === "general" && snapshot && <section className="settings-contract-status">
               <strong>설정 정리 상태</strong>
-              <p>앱 v3.9.1.39 · 설정 스키마 {snapshot.schema_version} · 현재 모드 {diagnostics?.trading?.paper_trading ? "PAPER" : "LIVE 확인 필요"} · 계정 설정 {snapshot.account_scope}</p>
+              <p>앱 v3.9.1.40 · 설정 스키마 {snapshot.schema_version} · 현재 모드 {diagnostics?.trading?.paper_trading ? "PAPER" : "LIVE 확인 필요"} · 계정 설정 {snapshot.account_scope}</p>
               {snapshot.storage_status?.ok === false && <p className="error-text">기존 settings.json의 문자 인코딩 또는 JSON 형식을 읽지 못했습니다. 원본 보호를 위해 저장이 차단됩니다. 파일을 삭제하지 말고 설정 백업 복구 또는 지원 로그 전달을 이용하세요.</p>}
               {snapshot.storage_status?.needs_normalization && <p>기존 {snapshot.storage_status.encoding} 설정을 호환해서 읽었습니다. 다음 검증 저장 시 UTF-8 정본으로 변환됩니다.</p>}
               <span>기본 설정은 원본 화면의 사용자 항목이며, 고급 설정에는 정본 JSON의 기술 정책이 표시됩니다. 비밀값과 런타임 snapshot은 별도 보호 경로로 관리됩니다.</span>
@@ -1020,7 +1042,7 @@ export function SettingsCenter({ client, open, onClose, onAskAssistant, onOpenMa
               <div className="credential-input-grid">{credentialFields.map((field) => {
                 const stored = Boolean(selectedCredentialFieldStatus[field]);
                 const label = CREDENTIAL_FIELD_LABELS[field] ?? field;
-                return <label key={`${credentialProvider}:${field}`}><span>{label}<em className={stored ? "ready" : ""}>{stored ? "저장됨" : field === "base_url" ? "선택·미저장" : "미저장"}</em></span><input type={field === "base_url" ? "url" : showCredentialDraft ? "text" : "password"} autoComplete="off" placeholder={stored ? "•••••••• 저장됨 · 변경할 때만 새 값 입력" : label} value={credentialDraft[field] ?? ""} onChange={(event) => setCredentialDrafts((current) => ({ ...current, [credentialProvider]: { ...(current[credentialProvider] ?? {}), [field]: event.target.value } }))} /></label>;
+                return <label key={`${credentialProvider}:${field}`}><span>{label}<em className={stored ? "ready" : ""}>{stored ? "저장됨" : field === "base_url" ? "선택·미저장" : "미저장"}</em></span><input type={field === "base_url" ? "url" : showCredentialDraft ? "text" : "password"} autoComplete="off" placeholder={stored ? "•••••••• 저장됨 · 변경할 때만 새 값 입력" : label} value={credentialDraft[field] ?? ""} onChange={(event) => { diagnosticEpoch.current += 1; setProviderCheck(null); setSupportSummary(""); setAccountModelCatalogs((current) => Object.fromEntries(Object.entries(current).filter(([scope]) => scope !== credentialProvider))); setCredentialDrafts((current) => ({ ...current, [credentialProvider]: { ...(current[credentialProvider] ?? {}), [field]: event.target.value } })); }} /></label>;
               })}</div>
               <div className="credential-actions"><button className="secondary-button" type="button" disabled={busy} onClick={() => void saveCredential(false)}>새 값 저장</button><button className="secondary-button" type="button" disabled={!Object.values(credentialDraft).some((value) => value.length > 0)} onClick={() => setShowCredentialDraft((value) => !value)}>{showCredentialDraft ? "입력값 숨기기" : "입력값 보기"}</button><button className="danger-button" type="button" disabled={busy || !selectedCredentialReady} onClick={() => void saveCredential(true)}>연결 삭제</button></div>
               {credentialDraft && Object.values(credentialDraft).some((value) => value.trim()) && <small>입력한 연결 정보는 새 값 저장, 전체 설정 저장 또는 저장 후 닫기를 누르면 저장됩니다.</small>}
@@ -1070,7 +1092,7 @@ export function SettingsCenter({ client, open, onClose, onAskAssistant, onOpenMa
                 <div className="settings-ai-model-grid">{visibleModelDetails.map((model) => {
                   const checked = Array.isArray(checkedAccountModels);
                   const available = checked && checkedAccountModels.includes(model.model);
-                  const probeAvailable = Boolean(providerCheck?.model_callable) && String(providerCheck?.requested_model || "") === model.model;
+                  const probeAvailable = Boolean(providerCheck?.model_callable) && providerCheck?.credential_scope === credentialProvider && String(providerCheck?.requested_model || "") === model.model;
                   const price = model.input_per_mtok_usd == null || model.output_per_mtok_usd == null
                     ? "단가 미등록 · 공식 가격표 확인"
                     : `입력 $${model.input_per_mtok_usd} · 출력 $${model.output_per_mtok_usd} / 100만 토큰`;
@@ -1095,11 +1117,11 @@ export function SettingsCenter({ client, open, onClose, onAskAssistant, onOpenMa
                 <small>NoahAI 일반 설정 안내는 로컬로 동작해 이 혜택이나 외부 토큰이 필요하지 않습니다. 실제 청구액은 OpenAI Usage가 정본이며 위 정가 예상액과 다를 수 있습니다.</small>
               </div>
             </section>}
-            {activeSection === "ai_engine" && <section className="settings-parity-panel">
-              <div className="settings-default-ai-note"><strong>기본 자동매매와 전략 스튜디오는 별개입니다.</strong><span>기본 모드는 외부 AI 키가 없어도 로컬 규칙·통계로 실행되며, 키가 연결되면 필요한 시장 이벤트에서 AI 판단을 보강합니다. ‘AI 최소 학습 표본 20’을 채워야 시작하는 절차는 없습니다.</span></div>
-              <header><div><strong>AI 모델·기능 실제 점검</strong><p>Provider 모델 목록 조회 후 선택한 Provider의 AI 애널리스트 모델(공개 질문용 키는 공개 질문 모델)을 비민감 고정 문장으로 1회 실제 호출합니다. 진단도 외부 호출 1회와 실제 토큰 비용이 발생하며 AI 비용 관리에 기록됩니다.</p></div><button className="primary-button" type="button" disabled={busy || !selectedCredentialReady} onClick={runProviderCheck}>선택 모델 1회 실제 호출 점검</button></header>
+            {(activeSection === "ai_engine" || activeSection === "alpha") && <section className="settings-parity-panel">
+              {activeSection === "alpha" && <p>AlphaArena 전용 키를 점검합니다. 엔진 변경은 먼저 현재 설정 저장을 누르세요. 실행 중 설정 변경은 실험을 정지시킵니다.</p>}<div className="settings-default-ai-note"><strong>기본 자동매매와 전략 스튜디오는 별개입니다.</strong><span>기본 모드는 외부 AI 키가 없어도 로컬 규칙·통계로 실행되며, 키가 연결되면 필요한 시장 이벤트에서 AI 판단을 보강합니다. ‘AI 최소 학습 표본 20’을 채워야 시작하는 절차는 없습니다.</span></div>
+              <header><div><strong>AI 모델·기능 실제 점검</strong><p>Provider 모델 목록 조회 후 선택 모델을 비민감 고정 문장으로 1회 실제 호출합니다. AlphaArena는 전용 키와 저장된 엔진, 공개 질문용 키는 공개 질문 모델을 사용합니다. 진단도 외부 호출 1회와 실제 토큰 비용이 발생하며 AI 비용 관리에 기록됩니다.</p></div><button className="primary-button" type="button" disabled={busy || !selectedCredentialReady} onClick={runProviderCheck}>선택 모델 1회 실제 호출 점검</button></header>
               <div className="settings-preset-row settings-ai-action-row"><span>설명 프리셋</span><button type="button" onClick={() => applyAssistantPreset("saver")}>절약형</button><button type="button" onClick={() => applyAssistantPreset("standard")}>균형형</button><button type="button" onClick={() => applyAssistantPreset("premium")}>정밀형</button><button type="button" onClick={() => onAskAssistant("AI 엔진/API를 처음 연결하는 사용자입니다. 공식 키 발급, 최소 권한, Provider와 모델 선택, 예상 비용, 연결 점검을 3단계로 안내해줘. 비밀키를 답변에 붙여 넣으라고 하지 말고 설정을 자동 저장하지 마.", activeSection)}>초보자 연결 3단계</button><button type="button" onClick={() => onAskAssistant("현재 저장된 AI 엔진 설정의 등록 여부만 보고 비용 절약형·균형형·정밀형 차이를 설명해줘. 키 값은 표시하지 말고 변경 후보만 제안해줘.", activeSection)}>AI 설정 도우미</button><button type="button" onClick={() => onAskAssistant("NoahAI 초기 설정을 5문항으로 진행해줘. 1) 투자 경험 2) 운용 서비스 3) PAPER/LIVE 범위 4) 위험 허용도 5) AI 비용 선호를 한 번에 하나씩 묻고, 마지막에 변경 후보와 영향만 요약해줘. 내 확인 전에는 설정을 저장하거나 거래를 실행하지 마.", activeSection)}>AI로 초기 설정 (5문항)</button></div>
-              {providerCheck && <div className={providerCheck.model_callable ? "diagnostic-result ready" : "diagnostic-result error-text"}>
+              {providerCheck && providerCheck.credential_scope === credentialProvider && <div className={providerCheck.model_callable ? "diagnostic-result ready" : "diagnostic-result error-text"}>
                 <b>{providerCheck.model_callable ? "선택 모델 실제 호출 확인됨" : providerCheck.catalog_checked ? "Provider 목록 연결됨 · 선택 모델 호출 실패" : "Provider 연결 확인 실패"}</b>
                 <span>요청 모델 {String(providerCheck.requested_model || "미확인")} · 실제 응답 모델 {String(providerCheck.actual_model || "응답 없음")}</span>
                 {providerCheck.selection_pending && <span>이 진단은 현재 화면 선택값을 호출했습니다. 실제 작업에 사용하려면 위의 `현재 설정 저장`을 눌러야 합니다.</span>}
@@ -1172,7 +1194,7 @@ export function SettingsCenter({ client, open, onClose, onAskAssistant, onOpenMa
             {activeSection === "update" && <section className="settings-update-panel">
               <strong>버전 정보 · 클라이언트 업데이트</strong>
               <p>업데이트 확인과 다운로드는 거래 엔진을 중지하지 않습니다. 설치·재시작은 거래 워커 정지와 기록 저장이 완료된 경우에만 진행합니다.</p>
-              <UpdateCenter client={client} accountScope={snapshot?.account_scope ?? ""} detailed currentVersion={platform?.release_version ? `v${platform.release_version}` : "v3.9.1.39"} />
+              <UpdateCenter client={client} accountScope={snapshot?.account_scope ?? ""} detailed currentVersion={platform?.release_version ? `v${platform.release_version}` : "v3.9.1.40"} />
               {!window.noahAI && <span>브라우저 개발 실행에서는 데스크톱 업데이트를 사용할 수 없습니다.</span>}
             </section>}
             {busy && !snapshot ? <div className="empty-state">설정 정본을 불러오는 중입니다.</div> : activeFields.map((field) => (

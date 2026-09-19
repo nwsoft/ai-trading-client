@@ -122,7 +122,7 @@ class NotificationUpdateContract(StrictContract):
 
 
 class AIProviderDiagnosticContract(StrictContract):
-    provider: Literal["openai", "deepseek", "kimi", "anthropic", "gemini"]
+    provider: Literal["openai", "openai_shared", "deepseek", "kimi", "anthropic", "gemini", "alpha:deepseek"]
     model: str = Field(default="", max_length=160)
     capability: Literal["chat_text", "chat_json", "vision", "transcribe"] = "chat_text"
 

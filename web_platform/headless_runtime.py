@@ -246,6 +246,14 @@ class HeadlessTradingRuntime:
         """
         canonical = deepcopy(dict(settings or {}))
         previous = deepcopy(dict(getattr(self, "settings", {}) or {}))
+        arena = getattr(self, "alpha_arena_runner", None)
+        # A runner caches its model, risk limits and clients. Never mutate an
+        # active session into another mode/account. Restart explicitly instead.
+        if arena is not None and previous != canonical:
+            arena.stop()
+            thread = getattr(arena, "run_thread", None)
+            if thread is None or not thread.is_alive():
+                self.alpha_arena_runner = None
         previous_keys = set(self.settings) if isinstance(self.settings, dict) else set()
         holders = [
             self,
@@ -694,7 +702,8 @@ class HeadlessTradingRuntime:
             "available": bool(arena_settings.get("enabled", False)),
             "paper_trading": paper,
             "execution_mode": "PAPER" if paper else "LIVE_BLOCKED_PENDING_EXTERNAL_GATE",
-            "order_submission": False if paper else "blocked",
+            "order_submission": False,
+            "paper_scope": "decision_guard_rehearsal_not_virtual_pnl",
             "events": list(self._alpha_arena_events),
             "symbols": list(arena_settings.get("symbols") or []),
             "risk": {
@@ -726,15 +735,23 @@ class HeadlessTradingRuntime:
             raise RuntimeError("alpha_arena_live_blocked_pending_external_gate")
         if self.binance_client is None:
             raise RuntimeError("alpha_arena_binance_runtime_not_ready")
-        if self.ai_manager is None or not callable(getattr(self.ai_manager, "enabled", None)) or not self.ai_manager.enabled():
+        old_runner = self.alpha_arena_runner
+        if old_runner is not None and old_runner.running:
+            return self.alpha_arena_snapshot()
+        old_thread = getattr(old_runner, "run_thread", None)
+        if old_thread is not None and old_thread.is_alive():
+            raise RuntimeError("AlphaArena 이전 요청 종료 대기 중입니다. 잠시 후 다시 시작하세요.")
+        from trading.alpha_arena.configuration import alpha_arena_ai_settings
+        arena_ai = create_ai_manager_from_settings(alpha_arena_ai_settings(self.settings), workload="analyst")
+        if arena_ai is None or not arena_ai.enabled():
             raise RuntimeError("alpha_arena_ai_provider_not_ready")
-        if self.alpha_arena_runner is None:
+        if not old_runner or not old_runner.running:
             from trading.alpha_arena.runner import AlphaArenaRunner
 
             self.alpha_arena_runner = AlphaArenaRunner(
                 binance_client=self.binance_client,
-                ai_manager=self.ai_manager,
-                settings=self.settings,
+                ai_manager=arena_ai,
+                settings=deepcopy(self.settings),
                 recorder=self.recorder,
             )
             self.alpha_arena_runner.set_callbacks(
