@@ -14,6 +14,9 @@ import type {
 } from "./types";
 
 export interface GatewayClient {
+  remoteStatus: () => Promise<Record<string, any>>;
+  configureRemote: (enabled: boolean, name: string, allowPause?: boolean) => Promise<Record<string, any>>;
+  resumeEntries: (source: string) => Promise<Record<string, any>>;
   platform: () => Promise<PlatformContract>;
   session: () => Promise<SessionSnapshot>;
   login: (username: string, password: string) => Promise<SessionSnapshot>;
@@ -274,6 +277,9 @@ export function createGatewayClient(): GatewayClient {
       mutate<SettingsSnapshot>("POST", "/api/v1/settings", { expected_revision: expectedRevision, changes }),
     updateCredentials: (expectedRevision, provider, values) =>
       mutate<SettingsSnapshot>("POST", "/api/v1/settings/credentials", { expected_revision: expectedRevision, provider, values }),
+    remoteStatus: () => get<Record<string, any>>("/api/v1/remote/status"),
+    configureRemote: (enabled, name, allowPause = false) => mutate<Record<string, any>>("POST", "/api/v1/remote/configure", { enabled, name, allow_pause: allowPause }),
+    resumeEntries: (source) => mutate<Record<string, any>>("POST", "/api/v1/remote/resume-entries", { source }),
     notificationStatus: () => get<Record<string, any>>("/api/v1/notifications/status"),
     testNotification: (channel) => mutate<Record<string, any>>("POST", "/api/v1/notifications/test", { channel }, 20_000),
     discoverTelegramChats: () => mutate<Record<string, any>>("POST", "/api/v1/notifications/telegram/discover", {}, 20_000),

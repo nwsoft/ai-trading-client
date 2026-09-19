@@ -14,6 +14,7 @@ import time
 from typing import Any, Dict, Optional, Tuple
 
 import requests
+from api.telemetry_batch import TelemetryBatcher
 
 logger = logging.getLogger(__name__)
 
@@ -21,6 +22,26 @@ _KPI_QUEUE_MAXSIZE = 5000
 _kpi_queue: "queue.Queue[Dict[str, Any]]" = queue.Queue(maxsize=_KPI_QUEUE_MAXSIZE)
 _kpi_worker_lock = threading.Lock()
 _kpi_worker_started = False
+_telemetry_batcher = TelemetryBatcher()
+_batch_delivery_lock = threading.Lock()
+_batch_capability_cache: Dict[str, tuple[float, bool]] = {}
+
+
+def _supports_telemetry_batch(item: Dict[str, Any]) -> bool:
+    if not item.get('headers') or (item.get('payload') or {}).get('event_type') not in {'learning_data_recorded','ai_inference_completed'}:
+        return False
+    url = str(item.get('url','')).removesuffix('/event') + '/catalog'
+    cached = _batch_capability_cache.get(url)
+    if cached and time.monotonic()-cached[0] < 300:
+        return cached[1]
+    supported = False
+    try:
+        response = requests.get(url, timeout=1.5, allow_redirects=False)
+        supported = response.status_code == 200 and response.json().get('telemetry_batch_version') == 1
+    except (requests.RequestException, ValueError, AttributeError):
+        pass
+    _batch_capability_cache[url] = (time.monotonic(), supported)
+    return supported
 _LIFECYCLE_EVENT_TYPES = {
     "trade_position_opened",
     "trade_position_reduced",
@@ -225,9 +246,16 @@ def _deliver_kpi_item(item: Dict[str, Any]) -> bool:
 
 def _kpi_worker_loop() -> None:
     while True:
-        item = _kpi_queue.get()
+        with _batch_delivery_lock:
+            for batch in _telemetry_batcher.ready():
+                _deliver_kpi_item(batch)
         try:
-            _deliver_kpi_item(item)
+            item = _kpi_queue.get(timeout=1)
+        except queue.Empty:
+            continue
+        try:
+            if not (_supports_telemetry_batch(item) and _telemetry_batcher.add(item)):
+                _deliver_kpi_item(item)
         finally:
             _kpi_queue.task_done()
 
@@ -241,6 +269,22 @@ def flush_kpi_events(timeout: float = 5.0) -> bool:
                 "KPI 큐 flush 제한시간 초과: remaining=%s",
                 getattr(_kpi_queue, "unfinished_tasks", 0),
             )
+            return False
+        time.sleep(0.05)
+    # A periodic batch can already be out of the raw queue and in transit.
+    # Do not report a successful flush while that delivery is still pending.
+    if not _batch_delivery_lock.acquire(timeout=max(0, deadline-time.monotonic())):
+        return False
+    try:
+        for item in _telemetry_batcher.ready(force=True):
+            try:
+                _kpi_queue.put_nowait(item)
+            except queue.Full:
+                return False
+    finally:
+        _batch_delivery_lock.release()
+    while getattr(_kpi_queue, 'unfinished_tasks', 0) > 0:
+        if time.monotonic() >= deadline:
             return False
         time.sleep(0.05)
     return True

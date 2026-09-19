@@ -1089,7 +1089,7 @@ class Recorder:
             )
             return False
 
-    def get_open_managed_trades(self, exchange: str) -> List[Dict[str, Any]]:
+    def get_open_managed_trades(self, exchange: str, *, strict: bool = False) -> List[Dict[str, Any]]:
         """Return open positions that a persisted NoahAI entry order owns.
 
         Account-wide exchange positions and balances are deliberately excluded.
@@ -1132,6 +1132,8 @@ class Recorder:
                 exchange=venue,
                 level='ERROR',
             )
+            if strict:
+                raise
             return []
 
     def get_actual_trade_info(
@@ -1171,24 +1173,31 @@ class Recorder:
                     # 청산 거래 (반대 방향)
                     try:
                         t_side = str(trade.get('side', '')).upper()
-                        need_side = 'SELL' if side.upper() == 'LONG' else 'BUY'
-                        if t_side and t_side != need_side:
-                            continue
+                        need_side = {'LONG':'SELL','BUY':'SELL','SHORT':'BUY','SELL':'BUY'}.get(side.upper())
+                        if not need_side or t_side != need_side:
+                            return None
                     except Exception:
                         pass
                     quantity = float(trade['quantity'])
                     price = float(trade['price'])
-                    commission = float(trade.get('commission', 0))
+                    provider_gross = provider_fill_gross_pnl('binance', trade)
+                    if provider_gross is None or trade.get('commission') is None:
+                        return None
+                    commission = float(trade['commission'])
+                    if not all(math.isfinite(v) for v in (quantity,price,commission)) or quantity <= 0 or price <= 0:
+                        return None
+                    if commission != 0 and not (trade.get('commission_asset') or trade.get('commissionAsset')):
+                        return None
 
                     exit_trades.append(trade)
                     total_fees += commission
                     total_quantity += quantity
                     weighted_exit_price += price * quantity
-                    gross_pnl += float(trade.get('realized_pnl', trade.get('realizedPnl', 0.0)) or 0.0)
+                    gross_pnl += provider_gross
                     if trade.get('commission_asset') or trade.get('commissionAsset'):
                         fee_assets.add(str(trade.get('commission_asset') or trade.get('commissionAsset')).upper())
 
-            if not exit_trades:
+            if not exit_trades or len(fee_assets) > 1:
                 return None
 
             # 가중 평균 청산가 계산
@@ -1666,7 +1675,7 @@ class Recorder:
         except Exception as e:
             log_event('trade', f"최적화 로그 삽입 오류: {e}", exchange=self.exchange, level='ERROR')
 
-    def execute_query(self, query: str, params: tuple = ()) -> List[tuple]:
+    def execute_query(self, query: str, params: tuple = (), *, strict: bool = False) -> List[tuple]:
         """쿼리 실행 (데이터베이스 잠금 방지)"""
         max_retries = 3
         retry_delay = 0.1  # 100ms
@@ -1693,9 +1702,13 @@ class Recorder:
                     continue
                 else:
                     log_event('trade', f"데이터베이스 잠금 오류 (최대 재시도 초과): {e}", exchange=self.exchange, level='ERROR')
+                    if strict:
+                        raise
                     return []
             except Exception as e:
                 log_event('trade', f"쿼리 실행 오류: {e}", exchange=self.exchange, level='ERROR')
+                if strict:
+                    raise
                 return []
 
         return []
@@ -2479,7 +2492,7 @@ class Recorder:
             log_event('trade', f"주문 복구 대상 조회 오류({venue}): {exc}", exchange=venue, level='ERROR')
             return []
 
-    def get_trade_history(self, symbol: Optional[str] = None, days: int = 30, since_ts: Optional[float] = None) -> List[Dict]:
+    def get_trade_history(self, symbol: Optional[str] = None, days: int = 30, since_ts: Optional[float] = None, *, strict: bool = False) -> List[Dict]:
         """거래 히스토리 조회"""
         try:
             if since_ts:
@@ -2520,10 +2533,10 @@ class Recorder:
                     """.format(days)
                     params = ()
 
-            results = self.execute_query(query, params)
+            results = self.execute_query(query, params, strict=strict)
 
             trade_history = []
-            column_names = [item[1] for item in self.execute_query('PRAGMA table_info(trade_log)')]
+            column_names = [item[1] for item in self.execute_query('PRAGMA table_info(trade_log)', strict=strict)]
             for row in results:
                 # DB 실제 컬럼 순서: id, symbol, side, entry_price, exit_price,
                 #   quantity, leverage, pnl, pnl_percent, reason, entry_time, exit_time,
@@ -2553,6 +2566,8 @@ class Recorder:
 
         except Exception as e:
             log_event('trade', f"거래 히스토리 조회 오류: {e}", exchange=self.exchange, level='ERROR')
+            if strict:
+                raise
             return []
 
     def count_closed_trades(
@@ -2641,11 +2656,13 @@ class Recorder:
         *,
         exchange: Optional[str] = None,
         execution_mode: str = 'live',
+        strict: bool = False,
     ) -> List[Dict]:
         """특정 날짜의 청산 거래를 거래소·실행모드별로 조회한다.
 
         일일 LIVE 손실 가드레일이 다른 거래소나 PAPER 행을 합산하지 않도록
-        명시 열만 읽는다. 과거 스키마의 빈 실행모드는 LIVE로 취급한다.
+        날짜 문자열의 공백/T/UTC offset 차이를 epoch로 정규화한다.
+        미대조 행도 반환하되 확정 손익으로 승격하지 않는다.
         """
         try:
             start_date = date.replace(hour=0, minute=0, second=0, microsecond=0)
@@ -2656,25 +2673,36 @@ class Recorder:
                        leverage, pnl, pnl_percent, reason, entry_time, exit_time,
                        tp_price, sl_price, fees, slippage,
                        COALESCE(exchange, 'binance') AS exchange,
-                       COALESCE(execution_mode, 'live') AS execution_mode
+                       execution_mode, reconciliation_status, net_pnl, pnl_source
                 FROM trade_log
                 WHERE exit_time >= ? AND exit_time < ?
                   AND LOWER(COALESCE(reason, '')) != 'binance_import'
             """
-            params: List[Any] = [start_date.isoformat(), end_date.isoformat()]
+            # Broad indexed date window, then exact local/aware time comparison.
+            # UTC offsets and legacy space-separated timestamps must not drop a close.
+            params: List[Any] = [(start_date - timedelta(days=2)).date().isoformat(),
+                                 (end_date + timedelta(days=2)).date().isoformat()]
             if exchange:
                 query += " AND LOWER(COALESCE(NULLIF(exchange, ''), 'binance')) = LOWER(?)"
                 params.append(str(exchange).strip().lower())
             normalized_mode = str(execution_mode or '').strip().lower()
-            if normalized_mode:
+            if normalized_mode == 'live':
+                # Unknown legacy mode is retained as UNVERIFIED, not silently lost.
+                query += " AND LOWER(COALESCE(execution_mode, '')) IN ('live','live_api','optimized','manual','')"
+            elif normalized_mode:
                 query += " AND LOWER(COALESCE(NULLIF(execution_mode, ''), 'live')) = LOWER(?)"
                 params.append(normalized_mode)
             query += " ORDER BY exit_time DESC"
 
-            results = self.execute_query(query, tuple(params))
+            results = self.execute_query(query, tuple(params), strict=strict)
 
             daily_trades = []
             for row in results:
+                closed_at = self._ledger_time_epoch(row[11])
+                if closed_at is None:
+                    raise ValueError('invalid close timestamp in daily ledger')
+                if not start_date.timestamp() <= closed_at < end_date.timestamp():
+                    continue
                 daily_trades.append({
                     'id': row[0],
                     'symbol': row[1],
@@ -2695,12 +2723,17 @@ class Recorder:
                     'slippage': row[15],
                     'exchange': row[16],
                     'execution_mode': row[17],
+                    **performance_evidence({'execution_mode': row[17],
+                                           'reconciliation_status': row[18],
+                                           'net_pnl': row[19], 'pnl_source': row[20]}),
                 })
 
             return daily_trades
 
         except Exception as e:
             log_event('trade', f"일일 거래 조회 오류: {e}", exchange=self.exchange, level='ERROR')
+            if strict:
+                raise
             return []
 
     def get_symbol_performance(self, symbol: str, days: int = 30) -> Dict:
@@ -3005,10 +3038,10 @@ class Recorder:
                                 # 기타 청산 (수동 등) - 둘 다 유지
                                 log_event('trade', f"[DEBUG] {symbol} 기타 청산: exit_price={exit_price}, tp_price={final_tp_price}, sl_price={final_sl_price}", exchange=self.exchange, level='INFO')
 
-                    entry_fee_value = max(0.0, float(
+                    entry_fee_value = float(
                         stored_entry_fee if stored_entry_fee is not None else stored_fees or 0.0
-                    ))
-                    exit_fee_value = max(0.0, float(additional_fees or 0.0))
+                    )
+                    exit_fee_value = float(additional_fees or 0.0)
                     total_fees = entry_fee_value + exit_fee_value
                     gross_value = float(gross_pnl if gross_pnl is not None else pnl_usdt)
                     resolved_net = net_pnl
@@ -3017,10 +3050,10 @@ class Recorder:
                         stored_entry_fee_asset or stored_fee_asset or ''
                     ).strip().upper() or None
                     exit_fee_ccy = str(fee_asset or '').strip().upper() or None
-                    entry_fee_convertible = entry_fee_value <= 0 or (
+                    entry_fee_convertible = entry_fee_value == 0 or (
                         bool(settlement) and bool(entry_fee_ccy) and entry_fee_ccy == settlement
                     )
-                    exit_fee_convertible = exit_fee_value <= 0 or (
+                    exit_fee_convertible = exit_fee_value == 0 or (
                         bool(settlement) and bool(exit_fee_ccy) and exit_fee_ccy == settlement
                     )
                     fee_convertible = entry_fee_convertible and exit_fee_convertible

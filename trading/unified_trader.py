@@ -3150,90 +3150,83 @@ class UnifiedTrader:
             side_for_order = 'BUY' if signal.upper() == 'LONG' else ('SELL' if signal.upper() == 'SHORT' else signal.upper())
 
             order_result: Dict[str, Any] = {}
-            try:
-                # 데모 모드: 고성능 시뮬레이션
-                if demo and hasattr(self, 'demo_trader'):
-                    # 실제 가격 조회 (실제 데이터 사용)
-                    current_price = self.exchange_manager.get_current_price(symbol, exchange_name) if hasattr(self, 'exchange_manager') else 50000.0
+            from trading.remote_entry_pause import gate as remote_entry_gate
+            with remote_entry_gate().permit(exchange_name) as entry_allowed:
+                if not entry_allowed:
+                    if crypto_command_id and self.recorder:
+                        self.recorder.update_crypto_order_command(crypto_command_id, status='rejected')
+                    get_opportunity_coordinator().release(opportunity_auth)
+                    return {'status': 'skipped', 'reason': 'remote_entries_paused'}
+                try:
+                    # 데모 모드: 고성능 시뮬레이션
+                    if demo and hasattr(self, 'demo_trader'):
+                        # 실제 가격 조회 (실제 데이터 사용)
+                        current_price = self.exchange_manager.get_current_price(symbol, exchange_name) if hasattr(self, 'exchange_manager') else 50000.0
 
-                    # 데모 모드 거래 실행 (TP/SL 포함)
-                    tp_percent = optimized_params.get('tp_percent', 0.018) if isinstance(optimized_params, dict) else 0.018
-                    sl_percent = optimized_params.get('sl_percent', 0.020) if isinstance(optimized_params, dict) else 0.020
+                        # 데모 모드 거래 실행 (TP/SL 포함)
+                        tp_percent = optimized_params.get('tp_percent', 0.018) if isinstance(optimized_params, dict) else 0.018
+                        sl_percent = optimized_params.get('sl_percent', 0.020) if isinstance(optimized_params, dict) else 0.020
 
-                    order_result = self.demo_trader.simulate_trade_execution(
-                        exchange_name=exchange_name,
-                        symbol=order_symbol,
-                        side=side_for_ccxt,
-                        quantity=position_size,
-                        price=current_price,
-                        leverage=leverage,
-                        tp_percent=tp_percent,
-                        sl_percent=sl_percent
-                    )
-
-                    # 데모 거래 로그 출력
-                    self.demo_trader.log_demo_trade(order_result, exchange_name)
-
-                # paper_trading 모드: 네트워크 호출 없이 성공 결과 시뮬레이션
-                elif paper:
-                    now_ts = int(datetime.now(timezone.utc).timestamp() * 1000)
-                    order_result = {
-                        'status': 'success',
-                        'order_id': f"paper-{exchange_name}-{symbol}-{now_ts}",
-                        'symbol': order_symbol,
-                        'side': side_for_ccxt,
-                        'quantity': position_size,
-                        'price': self.exchange_manager.get_current_price(symbol, exchange_name) if hasattr(self, 'exchange_manager') else None,
-                        'order_type': 'market',
-                        'timestamp': now_ts,
-                        'simulated': True
-                    }
-                else:
-                    # 가능 시 UnifiedTradingManager 경유로 표준화된 결과 사용
-                    trading_type = 'futures' if exchange_name in ['bybit', 'okx', 'bitget'] else 'spot'  # 바이낸스 제외
-                    unified_ex = None
-                    try:
-                        unified_ex = self.unified_manager.get_exchange(exchange_name, trading_type) if hasattr(self, 'unified_manager') and self.unified_manager else None
-                    except Exception:
-                        unified_ex = None
-
-                    if not paper and unified_ex:
-                        # CCXT 표준 경로
-                        advanced_cfg = self._get_advanced_layers_settings(exchange_name)
-                        execution_policy = dict(advanced_cfg.get('execution_optimizer', {}) or {})
-                        execution_policy.setdefault('signal_strength', float(confidence or 0.0))
-                        execution_policy.setdefault('volatility', float(analysis.get('market_volatility', 0.5) or 0.5) / 100.0)
-                        order_result = cast(Dict[str, Any], self.unified_manager.place_order_with_quality_control(
+                        order_result = self.demo_trader.simulate_trade_execution(
                             exchange_name=exchange_name,
-                            trading_type=trading_type,
                             symbol=order_symbol,
                             side=side_for_ccxt,
                             quantity=position_size,
-                            price=None,
-                            order_type='market',
-                            policy=execution_policy,
-                            client_order_id=(
-                                exchange_client_order_id(crypto_command_id)
-                                if crypto_command_id else None
-                            ),
-                        ))
-                    elif not paper:
-                        # 직접 클라이언트 경로
-                        if exchange_client and hasattr(exchange_client, 'exchange'):
-                            # CCXT 어댑터
-                            order_result = exchange_client.place_order(
+                            price=current_price,
+                            leverage=leverage,
+                            tp_percent=tp_percent,
+                            sl_percent=sl_percent
+                        )
+
+                        # 데모 거래 로그 출력
+                        self.demo_trader.log_demo_trade(order_result, exchange_name)
+
+                    # paper_trading 모드: 네트워크 호출 없이 성공 결과 시뮬레이션
+                    elif paper:
+                        now_ts = int(datetime.now(timezone.utc).timestamp() * 1000)
+                        order_result = {
+                            'status': 'success',
+                            'order_id': f"paper-{exchange_name}-{symbol}-{now_ts}",
+                            'symbol': order_symbol,
+                            'side': side_for_ccxt,
+                            'quantity': position_size,
+                            'price': self.exchange_manager.get_current_price(symbol, exchange_name) if hasattr(self, 'exchange_manager') else None,
+                            'order_type': 'market',
+                            'timestamp': now_ts,
+                            'simulated': True
+                        }
+                    else:
+                        # 가능 시 UnifiedTradingManager 경유로 표준화된 결과 사용
+                        trading_type = 'futures' if exchange_name in ['bybit', 'okx', 'bitget'] else 'spot'  # 바이낸스 제외
+                        unified_ex = None
+                        try:
+                            unified_ex = self.unified_manager.get_exchange(exchange_name, trading_type) if hasattr(self, 'unified_manager') and self.unified_manager else None
+                        except Exception:
+                            unified_ex = None
+
+                        if not paper and unified_ex:
+                            # CCXT 표준 경로
+                            advanced_cfg = self._get_advanced_layers_settings(exchange_name)
+                            execution_policy = dict(advanced_cfg.get('execution_optimizer', {}) or {})
+                            execution_policy.setdefault('signal_strength', float(confidence or 0.0))
+                            execution_policy.setdefault('volatility', float(analysis.get('market_volatility', 0.5) or 0.5) / 100.0)
+                            order_result = cast(Dict[str, Any], self.unified_manager.place_order_with_quality_control(
+                                exchange_name=exchange_name,
+                                trading_type=trading_type,
                                 symbol=order_symbol,
                                 side=side_for_ccxt,
-                                order_type='market',
                                 quantity=position_size,
+                                price=None,
+                                order_type='market',
+                                policy=execution_policy,
                                 client_order_id=(
                                     exchange_client_order_id(crypto_command_id)
                                     if crypto_command_id else None
                                 ),
-                            )
-                        elif exchange_client:
-                            # CCXT 어댑터만 지원 (바이낸스 제외)
-                            if hasattr(exchange_client, 'exchange'):
+                            ))
+                        elif not paper:
+                            # 직접 클라이언트 경로
+                            if exchange_client and hasattr(exchange_client, 'exchange'):
                                 # CCXT 어댑터
                                 order_result = exchange_client.place_order(
                                     symbol=order_symbol,
@@ -3245,13 +3238,27 @@ class UnifiedTrader:
                                         if crypto_command_id else None
                                     ),
                                 )
+                            elif exchange_client:
+                                # CCXT 어댑터만 지원 (바이낸스 제외)
+                                if hasattr(exchange_client, 'exchange'):
+                                    # CCXT 어댑터
+                                    order_result = exchange_client.place_order(
+                                        symbol=order_symbol,
+                                        side=side_for_ccxt,
+                                        order_type='market',
+                                        quantity=position_size,
+                                        client_order_id=(
+                                            exchange_client_order_id(crypto_command_id)
+                                            if crypto_command_id else None
+                                        ),
+                                    )
+                                else:
+                                    raise RuntimeError('CCXT 어댑터가 아닙니다')
                             else:
-                                raise RuntimeError('CCXT 어댑터가 아닙니다')
-                        else:
-                            raise RuntimeError('exchange client unavailable')
-            except Exception as e:
-                self.logger.error(f"주문 실행 오류: {e}")
-                order_result = {'status': 'error', 'error': str(e)}
+                                raise RuntimeError('exchange client unavailable')
+                except Exception as e:
+                    self.logger.error(f"주문 실행 오류: {e}")
+                    order_result = {'status': 'error', 'error': str(e)}
 
             if not paper and isinstance(order_result, dict):
                 order_result = self._confirm_ccxt_order_result(
@@ -6413,6 +6420,8 @@ Response in JSON format:
                 except Exception:
                     recent_trades = []
 
+                from trading.pnl_evidence import verified_live_samples
+                recent_trades = verified_live_samples(recent_trades, exchange_name)
                 if isinstance(recent_trades, list) and len(recent_trades) > 0:
                     # 🔥 확장된 분석: 최근 50회 거래 분석
                     recent_trades = recent_trades[-50:]  # 최근 50회로 제한
@@ -8689,6 +8698,8 @@ Response in JSON format:
                 except Exception:
                     recent_trades = []
 
+            from trading.pnl_evidence import verified_live_samples
+            recent_trades = verified_live_samples(recent_trades, exchange_name)
             if len(recent_trades) < 5:
                 return {'tp_multiplier': 1.0, 'sl_multiplier': 1.0}
 
@@ -8845,6 +8856,8 @@ Response in JSON format:
                 except Exception:
                     recent_trades = []
 
+            from trading.pnl_evidence import verified_live_samples
+            recent_trades = verified_live_samples(recent_trades, exchange_name)
             if len(recent_trades) < 5:
                 return {'tp_multiplier': 1.0, 'sl_multiplier': 1.0}
 

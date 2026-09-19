@@ -39,7 +39,7 @@ const ASSISTANT_PROFILES: Record<string, { title: string; placeholder: string; q
       ["전략 평가", "현재 거래 전략의 장단점을 평가해줘"],
       ["레버리지·투자금", "레버리지는 올랐는데 거래금액이 같은 이유와 현재 투자금 계산 방식을 알려줘"],
       ["안전 모드", "손실을 줄이기 위한 보수적 설정 순서와 영향을 알려줘"],
-      ["시장 상황", "현재 암호화폐 시장 상황과 근거를 알려줘"],
+      ["시장 상황", "시장 트렌드 탭에서 기간을 고른 뒤 '이 시장 브리핑 AI에게 묻기'로 화면 근거를 전달하는 방법과, 일반 질문이 최근 저장 신호만 쓰는 차이를 알려줘"],
       ["코인 분석", "현재 선택된 코인의 분석 결과와 근거를 보여줘"],
       ["거래 성과", "최근 거래 성과와 통계를 요약해줘"],
     ],
@@ -72,6 +72,8 @@ const ASSISTANT_PROFILES: Record<string, { title: string; placeholder: string; q
       ["수익/손실 리뷰", "최근 주식 성과를 기준으로 개선 포인트를 알려줘"],
       ["매수 타이밍", "분할매수 관점의 진입 점검 기준을 설명해줘"],
       ["ETF 후보", "점검할 ETF 유형과 후보 선정 기준을 알려줘"],
+      ["오늘·주간 시장", "시장 트렌드 탭에서 오늘·7일·30일 주식/ETF 흐름을 보고 화면 근거를 AI에게 묻는 방법을 알려줘"],
+      ["관찰 후보 XAI", "시장 트렌드의 관찰 후보가 개인화 추천과 어떻게 다르고 지지·반대·무효화 근거를 어떻게 읽는지 알려줘"],
       ["설정 권장", "현재 설정에서 주식/ETF 운용에 맞는 권장 설정을 알려줘"],
       ["투자금 계산", "현재 주식·ETF 투자금 계산 방식과 성과회복 뒤 금액 변화 기준을 알려줘"],
     ],
@@ -114,6 +116,8 @@ const ASSISTANT_PROFILES: Record<string, { title: string; placeholder: string; q
     ],
   },
 };
+
+const MARKET_TREND_SNAPSHOT_MARKER = "[MARKET_TREND_SNAPSHOT]";
 
 const SETTINGS_SECTION_LABELS: Record<string, string> = {
   general: "일반",
@@ -418,7 +422,7 @@ export function AssistantWorkspace({ client, service, initialQuestion = "", sett
     if (prompt.length < 2) return;
     const requestPrompt = strategyContext ? `${prompt}\n${strategyContext}` : prompt;
     if (requestPrompt.length > 4000) { setMessage("분석 자료와 질문이 입력 한도를 넘습니다. 질문을 짧게 나누어 주세요."); return; }
-    if (strategyContext && dataScope === "public_general") { setMessage("전략 자료는 기본 보호 경로에서만 질문하세요."); return; }
+    if (strategyContext && !strategyContext.includes(MARKET_TREND_SNAPSHOT_MARKER) && dataScope === "public_general") { setMessage("전략 자료는 기본 보호 경로에서만 질문하세요."); return; }
     setBusy(true); setMessage(""); setMessages((items) => [...items, { role: "user", text: prompt }]);
     try {
       const recentMessages = dataScope === "public_general" ? [] : messages.slice(-12).map((item) => ({ role: item.role, content: item.text }));
@@ -451,13 +455,15 @@ export function AssistantWorkspace({ client, service, initialQuestion = "", sett
     return () => { recognitionRef.current?.abort?.(); window.speechSynthesis?.cancel(); };
   }, [client]);
   useEffect(() => {
-    const hasSnapshot = service === "ai_custom" && initialQuestion.includes(STRATEGY_EXPLANATION_MARKER);
-    setStrategyContext(hasSnapshot ? initialQuestion : "");
-    if (initialQuestion) setQuestion(hasSnapshot ? "이 자료는 어떤 전략인가요? 진입·청산 방법과 자료 속 성과의 의미를 쉽게 설명해 주세요." : initialQuestion);
+    const hasStrategySnapshot = service === "ai_custom" && initialQuestion.includes(STRATEGY_EXPLANATION_MARKER);
+    const hasMarketSnapshot = ["blockchain", "stock"].includes(service) && initialQuestion.includes(MARKET_TREND_SNAPSHOT_MARKER);
+    const hasSnapshot = hasStrategySnapshot || hasMarketSnapshot;
+    setStrategyContext(hasStrategySnapshot ? initialQuestion : hasMarketSnapshot ? initialQuestion.slice(initialQuestion.indexOf(MARKET_TREND_SNAPSHOT_MARKER)) : "");
+    if (initialQuestion) setQuestion(hasStrategySnapshot ? "이 자료는 어떤 전략인가요? 진입·청산 방법과 자료 속 성과의 의미를 쉽게 설명해 주세요." : hasMarketSnapshot ? initialQuestion.split(MARKET_TREND_SNAPSHOT_MARKER, 1)[0].trim() : initialQuestion);
     if (hasSnapshot) {
       setDataScope("private");
       setMode("guide");
-      setMessages([{ role: "assistant", text: "현재 전략 분석 자료를 가져왔습니다. 일반 안내는 로컬 요약, 심층분석은 외부 AI와의 대화입니다. 다른 초안의 대화는 섞지 않습니다." }]);
+      setMessages([{ role: "assistant", text: hasMarketSnapshot ? "시장 트렌드 화면의 기간·기관·수집시각·표본 근거를 가져왔습니다. 일반 안내는 로컬 XAI 요약이며, 심층분석을 선택하면 설정된 외부 AI 비용과 호출 한도를 사용합니다." : "현재 전략 분석 자료를 가져왔습니다. 일반 안내는 로컬 요약, 심층분석은 외부 AI와의 대화입니다. 다른 초안의 대화는 섞지 않습니다." }]);
       setMeta(null);
     }
   }, [initialQuestion, service]);

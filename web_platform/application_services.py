@@ -873,6 +873,7 @@ class ApplicationServices:
             set_current_user_account(normalized_account)
         self.account = normalized_account or "local"
         self.session_user: dict[str, Any] | None = None
+        self._remote_monitor = None
         self.data_dir = Path(get_app_data_dir())
         self.runtime_bridge = runtime_bridge or (
             HeadlessRuntimeBridge(account=self.account)
@@ -1276,6 +1277,9 @@ class ApplicationServices:
         account = str(payload.get("id") or payload.get("username") or username).strip()
         if not account:
             raise RuntimeError("login_account_missing")
+        if self._remote_monitor is not None:
+            self._remote_monitor.close()
+            self._remote_monitor = None
         set_current_user_account(account)
         self.account = account
         # The LogStream singleton exists before login.  Establish a new
@@ -1340,7 +1344,19 @@ class ApplicationServices:
 
     def runtime_snapshot(self) -> dict[str, Any]:
         self.refresh_membership_status()
+        if self.account != 'local':
+            self.remote_monitor().start()
         return self.runtime_bridge.snapshot()
+
+    def remote_monitor(self):
+        from web_platform.remote_monitor import RemoteMonitor
+        with self._lock:
+            if self._remote_monitor is None or self._remote_monitor.account != self.account:
+                if self._remote_monitor is not None:
+                    self._remote_monitor.close()
+                self._remote_monitor = RemoteMonitor(account=self.account, data_dir=self.data_dir,
+                    snapshot=self.runtime_bridge.snapshot)
+            return self._remote_monitor
 
     def workspace_snapshot(
         self,
@@ -2171,6 +2187,111 @@ class ApplicationServices:
         })
 
     @staticmethod
+    def _market_trend_screen_evidence(question: str) -> dict[str, Any] | None:
+        """Read the bounded, public snapshot explicitly handed off by the UI.
+
+        The market-trend screen owns its period and venue-specific public data.
+        Passing that exact snapshot prevents the assistant from silently
+        replacing a 7-day view with unrelated stored engine signals.
+        """
+        marker = "[MARKET_TREND_SNAPSHOT]"
+        raw = str(question or "")
+        if marker not in raw:
+            return None
+        candidate = raw.split(marker, 1)[1].strip()
+        if not candidate or len(candidate) > 12_000:
+            return None
+        try:
+            payload = json.loads(candidate)
+        except (TypeError, ValueError, json.JSONDecodeError):
+            return None
+        if not isinstance(payload, dict) or payload.get("schema") != "market_trend_screen_v1":
+            return None
+        assets = payload.get("assets")
+        summary = payload.get("summary")
+        if not isinstance(assets, list) or not isinstance(summary, dict) or len(assets) > 20:
+            return None
+        safe_assets = []
+        for row in assets:
+            if not isinstance(row, dict):
+                continue
+            safe_assets.append({
+                "symbol": str(row.get("symbol") or "—")[:32],
+                "name": str(row.get("name") or row.get("symbol") or "—")[:80],
+                "change_pct": row.get("change_pct"),
+                "volume_change_pct": row.get("volume_change_pct"),
+                "average_intraday_range_pct": row.get("average_intraday_range_pct"),
+                "data_source": str(row.get("data_source") or "공개 시세")[:80],
+            })
+        return {
+            "service": str(payload.get("service") or "")[:24],
+            "source": str(payload.get("source") or "")[:32],
+            "period": str(payload.get("period") or "현재")[:32],
+            "captured_at": str(payload.get("captured_at") or "기록 없음")[:80],
+            "summary": summary,
+            "assets": safe_assets,
+            "missing": [str(item)[:80] for item in list(payload.get("missing") or [])[:12]],
+        }
+
+    @staticmethod
+    def _market_trend_screen_answer(question: str, evidence: dict[str, Any]) -> str:
+        summary = dict(evidence.get("summary") or {})
+        breadth = dict(summary.get("breadth") or {})
+        assets = list(evidence.get("assets") or [])
+        candidate_request = any(token in str(question or "").replace(" ", "") for token in ("관찰후보", "후보를비교", "추천종목", "추천코인"))
+
+        def numeric(value: Any, digits: int = 2, suffix: str = "%", *, signed: bool = True) -> str:
+            try:
+                number = float(value)
+            except (TypeError, ValueError):
+                return "미제공"
+            return f"{number:+.{digits}f}{suffix}" if signed else f"{number:.{digits}f}{suffix}"
+
+        def whole(value: Any) -> int:
+            try:
+                return max(0, int(value or 0))
+            except (TypeError, ValueError):
+                return 0
+
+        lines = [
+            f"{str(evidence.get('source') or '공개 시세').upper()} · {evidence.get('period', '현재')} 화면 근거를 기준으로 확인했습니다.",
+            f"수집 기준: {evidence.get('captured_at', '기록 없음')}",
+            "",
+            f"• 방향: {summary.get('direction', '확인 불가')} · 표본 평균 {numeric(summary.get('average_change_pct'))}",
+            f"• 시장 폭: 상승 {whole(breadth.get('up'))} · 중립 {whole(breadth.get('neutral'))} · 하락 {whole(breadth.get('down'))}",
+            f"• 평균 거래량 변화: {numeric(summary.get('average_volume_change_pct'))}",
+            f"• 평균 일중 변동폭: {numeric(summary.get('average_intraday_range_pct'), signed=False)}",
+        ]
+        if summary.get("funding_rate_pct") is not None or summary.get("long_short_ratio") is not None:
+            lines.append(
+                f"• 파생 심리: 펀딩 {numeric(summary.get('funding_rate_pct'), 4)} · "
+                f"롱/숏 {numeric(summary.get('long_short_ratio'), 2, '', signed=False)}"
+            )
+        if assets:
+            lines.extend(["", "[표본별 근거]"])
+            ordered = sorted(
+                assets,
+                key=lambda row: float(row.get("change_pct") or -1e18),
+                reverse=True,
+            ) if candidate_request else assets
+            for index, row in enumerate(ordered[:6], start=1):
+                prefix = f"관찰 {index}. " if candidate_request else "• "
+                support = f"기간 변화 {numeric(row.get('change_pct'))}"
+                volume = numeric(row.get("volume_change_pct"))
+                volatility = numeric(row.get("average_intraday_range_pct"), signed=False)
+                lines.append(f"{prefix}{row.get('name')} ({row.get('symbol')}) — 지지 근거: {support} · 거래량 {volume}")
+                lines.append(f"  반대·위험 근거: 일중 변동폭 {volatility}; 가격 상승과 거래량이 엇갈리면 추세 신뢰가 낮아질 수 있습니다.")
+                lines.append("  무효화 조건: 다음 갱신에서 방향이 반전하거나 시장 폭이 악화되면 현재 비교 우선순위를 유지하지 않습니다.")
+        missing = list(evidence.get("missing") or [])
+        lines.extend([
+            "",
+            f"추가 확인 필요: {' · '.join(missing) if missing else '표시된 공개 시세 외 계좌·뉴스·수급 근거'}",
+            "이 결과는 현재 화면의 제한된 표본을 비교한 읽기 전용 관찰 후보이며 개인화 매수 추천, 미래 수익 예측 또는 주문 지시가 아닙니다. "
+            "화면 기간·기관·수집시각이 달라지면 결론도 다시 계산해야 합니다.",
+        ])
+        return "\n".join(lines)
+
+    @staticmethod
     def _assistant_operational_answer(question: str, context: dict[str, Any]) -> str:
         execution = dict(context.get("execution") or {})
         source = str(execution.get("source") or "선택 안 됨").upper()
@@ -2179,6 +2300,10 @@ class ApplicationServices:
         positions = list(execution.get("managed_positions") or [])
         signals = list(context.get("latest_signals") or [])
         normalized = str(question or "").lower().replace(" ", "")
+
+        market_screen = ApplicationServices._market_trend_screen_evidence(question)
+        if market_screen is not None:
+            return ApplicationServices._market_trend_screen_answer(question, market_screen)
 
         if not ApplicationServices._assistant_position_intent(question):
             if any(token in normalized for token in ("시장", "코인분석", "신호", "종목분석", "추세", "trend")):
@@ -5366,6 +5491,8 @@ class ApplicationServices:
                 "errors": list(result.get("errors") or []),
             })
             if safe:
+                if self._remote_monitor is not None:
+                    self._remote_monitor.close()
                 try:
                     from api.kpi_client import emit_kpi_event, flush_kpi_events
                     emit_kpi_event(event_type="web_session_ended", category="platform", asset_class="platform", metadata={"safe_shutdown": True})

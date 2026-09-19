@@ -10,6 +10,7 @@ import time
 import logging
 import threading
 import math
+import sqlite3
 from datetime import datetime, timezone
 from typing import Dict, List, Optional, Any
 from dataclasses import dataclass, asdict, field
@@ -17,6 +18,7 @@ from enum import Enum
 import re, math, json, os
 
 from trading.tp_sl_manager import TpSlManager
+from trading.remote_entry_pause import entry_submission
 from trading.market_observation import track_market_observation, observation_problem
 from .execution_optimizer import ExecutionOptimizer
 from .ops_automation import OpsAutomationEngine
@@ -711,7 +713,7 @@ class Trader:
                 for retry in range(3):  # 최대 3회 재시도
                     try:
                         self.log_event('order', f"[{symbol}] 🔄 TP/SL 주문 생성 시도 (재시도 {retry+1}/3): TP={tp_price:.8f}, SL={sl_price:.8f}")
-                        tp_order_result, sl_order_result = self.binance_client.place_tp_sl_orders(
+                        tp_order_result, sl_order_result = self._place_owned_binance_protection(
                             symbol=symbol,
                             position_side=position_side,
                             take_profit=tp_price,
@@ -913,7 +915,7 @@ class Trader:
 
             # 🔥 BinanceClient.place_tp_sl_orders() 사용 (Algo Order API 대응, v3.8.9.5+)
             try:
-                tp_order_result, sl_order_result = self.binance_client.place_tp_sl_orders(
+                tp_order_result, sl_order_result = self._place_owned_binance_protection(
                     symbol=symbol,
                     position_side=position_side,
                     take_profit=tp_price,
@@ -1313,7 +1315,7 @@ class Trader:
                 side=side,
                 tp_price=tp_price,  # 🔥 검증된 값 사용
                 sl_price=sl_price,  # 🔥 검증된 값 사용
-                fees=max(0.0, float(fees or 0.0)),
+                fees=float(fees or 0.0),
                 slippage=0.0,
                 exchange=self.settings.get('selected_exchange', 'binance'),
                 order_id=str(order_id) if order_id is not None else None,
@@ -1326,7 +1328,7 @@ class Trader:
                 # execution boundary. Mixing them made LIVE rows look like a
                 # fourth execution mode named ``optimized``.
                 execution_mode=self._execution_mode().value,
-                entry_fee=max(0.0, float(fees or 0.0)),
+                entry_fee=float(fees or 0.0),
                 entry_fee_asset=str(fee_asset or '').strip().upper() or None,
                 settlement_currency='USDT',
                 pnl_source='pending_exchange_close',
@@ -1413,7 +1415,7 @@ class Trader:
                 'cost': cost,
                 'timestamp': payload.get('updateTime') or payload.get('time') or int(time.time() * 1000),
                 'status': status,
-                'fee': {'cost': max(0.0, float(fee or 0.0)), 'currency': fee_asset or 'USDT'},
+                'fee': {'cost': float(fee or 0.0), 'currency': fee_asset or 'USDT'},
                 '_execution_confirmed': confirmed,
             })
             if realized_pnl is not None:
@@ -1457,9 +1459,15 @@ class Trader:
         target = str(order_id)
         for attempt in range(max(1, attempts)):
             try:
-                rows = self.binance_client.get_recent_trades(symbol=symbol, limit=200) or []
+                rows = self.binance_client.get_recent_trades(symbol=symbol, limit=1000, order_id=target) or []
                 fills = [row for row in rows if str(row.get("order_id", "")) == target]
                 if fills:
+                    # Absence is not zero PnL/zero fee. Rebates retain their sign.
+                    if any(row.get('realized_pnl') is None or row.get('commission') is None
+                           or not math.isfinite(float(row['realized_pnl']))
+                           or not math.isfinite(float(row['commission']))
+                           or (float(row['commission']) != 0 and not row.get('commission_asset')) for row in fills):
+                        return {'confirmed': False, 'order_id': target, 'reason': 'fill_pnl_or_fee_unavailable'}
                     quantity = sum(max(0.0, float(row.get("quantity", 0.0) or 0.0)) for row in fills)
                     quote = sum(
                         max(0.0, float(row.get("quantity", 0.0) or 0.0))
@@ -1470,6 +1478,11 @@ class Trader:
                         str(row.get("commission_asset", "") or "").upper()
                         for row in fills if row.get("commission_asset")
                     }
+                    if len(assets) > 1:
+                        return {'confirmed': False, 'order_id': target, 'reason': 'fee_conversion_required'}
+                    saver = getattr(getattr(self, 'recorder', None), 'save_exchange_execution_history', None)
+                    if callable(saver):
+                        saver('binance', fills, source='binance_order_fill_summary')
                     return {
                         "confirmed": quantity > 0 and quote > 0,
                         "order_id": target,
@@ -1477,7 +1490,7 @@ class Trader:
                         "quantity": quantity,
                         "exit_price": quote / quantity if quantity > 0 else 0.0,
                         "gross_pnl": sum(float(row.get("realized_pnl", 0.0) or 0.0) for row in fills),
-                        "fees": sum(max(0.0, float(row.get("commission", 0.0) or 0.0)) for row in fills),
+                        "fees": sum(float(row['commission']) for row in fills),
                         "fee_asset": next(iter(assets)) if len(assets) == 1 else ("MIXED" if assets else None),
                         "reason": "exchange_order_fills",
                     }
@@ -1502,7 +1515,7 @@ class Trader:
         summary = self._get_binance_order_fill_summary(symbol, order_id, attempts=attempts)
         if summary.get("confirmed"):
             return (
-                max(0.0, float(summary.get("fees", 0.0) or 0.0)),
+                float(summary.get("fees", 0.0) or 0.0),
                 summary.get("fee_asset"),
                 "exchange_fill",
             )
@@ -2171,14 +2184,46 @@ class Trader:
             exchange_name,
         ) == ExecutionMode.LIVE
 
+    def _place_owned_binance_protection(self, *, entry_order_id=None, **kwargs):
+        # Persist only protection IDs returned from our own submission. Do not
+        # adopt arbitrary exchange open orders by matching symbol or TP price.
+        results = self.binance_client.place_tp_sl_orders(**kwargs)
+        symbol = str(kwargs.get('symbol') or '')
+        position = getattr(self, 'active_positions', {}).get(symbol)
+        entry_order_id = entry_order_id or getattr(position, 'entry_order_id', None)
+        if entry_order_id and getattr(self, 'recorder', None):
+            try:
+                from trading.binance_close_evidence import BinanceCloseEvidence
+                close_side = 'SELL' if str(kwargs.get('position_side')).upper() == 'LONG' else 'BUY'
+                BinanceCloseEvidence(self.recorder, self.binance_client).remember(
+                    entry_order_id, symbol, close_side, results)
+            except Exception as exc:
+                self.log_event('trade', f'{symbol} 보호 주문 근거 저장 지연: {type(exc).__name__}', level='ERROR')
+        return results
+
+    def _sync_owned_binance_closes(self):
+        now = time.monotonic()
+        if now - getattr(self, '_close_evidence_sync_at', 0) < 30:
+            return
+        self._close_evidence_sync_at = now
+        try:
+            from trading.binance_close_evidence import BinanceCloseEvidence
+            return BinanceCloseEvidence(self.recorder, self.binance_client).sync(limit=2)
+        except Exception as exc:
+            self.log_event('trade', f'Binance 청산 근거 재대조 지연: {type(exc).__name__}', level='WARNING')
+
     def _get_recent_trade_samples_binance(self, days: int = 45, limit: int = 300) -> List[Dict[str, Any]]:
         try:
             if hasattr(self, 'recorder') and self.recorder and hasattr(self.recorder, 'get_trade_history'):
-                rows = self.recorder.get_trade_history(days=days) or []
-                filtered = [dict(r) for r in rows if isinstance(r, dict) and str(r.get('exchange', 'binance')).lower() == 'binance']
+                rows = self.recorder.get_trade_history(days=days, strict=True) or []
+                filtered = [dict(r) for r in rows if isinstance(r, dict)
+                            and str(r.get('exchange') or 'binance').lower() == 'binance'
+                            and str(r.get('execution_mode') or '').lower() not in {'paper', 'learning', 'mock', 'demo'}]
                 return filtered[:limit]
         except Exception:
-            pass
+            # A failed ledger read is not an empty history/cold start.
+            return [{'performance_evidence_ready': False,
+                     'reconciliation_status': 'ledger_read_failed', 'execution_mode': 'live'}]
         return []
 
     def _build_strategy_runtime_state_binance(self, trades: List[Dict[str, Any]]) -> Dict[str, Any]:
@@ -2326,6 +2371,11 @@ class Trader:
             self._check_and_reselect_coins_optimized()
             self.log_event('analysis', "시장 분석 완료")
 
+            # Reconciliation must run before a guard can return early; otherwise
+            # an unresolved fill prevents the very retry needed to recover it.
+            if live_orders_enabled:
+                self._sync_owned_binance_closes()
+
             # 1. 일일 손실 한도 체크
             if live_orders_enabled and self.risk_manager:
                 daily_loss = self.risk_manager.evaluate_daily_loss_limit(
@@ -2375,7 +2425,10 @@ class Trader:
                 self.log_event(
                     'trade',
                     f"⚠️ 바이낸스 기본/confirm 후보 수익성 정책 차단: "
-                    f"{profitability_report.get('reasons', [])} · independent 전략은 버전별 검증 사용",
+                    f"{profitability_report.get('reasons', [])} · "
+                    f"미대조 {profitability_report.get('unresolved_trades', 0)}/{len(recent_trades)}건. "
+                    "거래 통계에서 체결 동기화·미대조 사유를 확인하세요. "
+                    "기록 초기화나 전략 전환으로 우회하지 마세요.",
                     level='WARNING',
                 )
                 # 독립 커스텀 전략이 없으면 이후 후보는 모두 기본/confirm
@@ -3812,6 +3865,7 @@ class Trader:
             self.log_event('trade', f"거래 실행 판단 중 오류: {e}", level='ERROR')
             return False
 
+    @entry_submission('binance')
     def execute_single_trade(self, trade_params: Dict):
         """단일 거래 실행 (폴백 플랜 지원)"""
         symbol = trade_params['symbol']
@@ -4535,7 +4589,8 @@ class Trader:
                     try:
                         # 🔥 BinanceClient.place_tp_sl_orders() 사용 (Algo Order API 대응, v3.8.9.5+)
                         # 이 메서드는 closePosition=True와 workingType을 올바르게 처리합니다
-                        tp_order_result, sl_order_result = self.binance_client.place_tp_sl_orders(
+                        tp_order_result, sl_order_result = self._place_owned_binance_protection(
+                            entry_order_id=order_result.get('order_id'),
                             symbol=symbol,
                             position_side=position_side,
                             take_profit=tp_price,
@@ -4723,7 +4778,8 @@ class Trader:
                                         tp_reset = []
                                         try:
                                                 # 🔥 BinanceClient.place_tp_sl_orders() 사용 (Algo Order API 대응)
-                                                tp_order_result, sl_order_result = self.binance_client.place_tp_sl_orders(
+                                                tp_order_result, sl_order_result = self._place_owned_binance_protection(
+                                                    entry_order_id=order_result.get('order_id'),
                                                     symbol=symbol,
                                                     position_side=position_side,
                                                     take_profit=tp_price,
@@ -5181,7 +5237,7 @@ class Trader:
                                                     price_prec = min_prec_needed
                                             
                                             # 🔥 BinanceClient.place_tp_sl_orders() 사용 (Algo Order API 대응)
-                                            tp_order_result, sl_order_result = self.binance_client.place_tp_sl_orders(
+                                            tp_order_result, sl_order_result = self._place_owned_binance_protection(
                                                 symbol=symbol,
                                                 position_side=pos_side,
                                                 take_profit=tp_price,
@@ -6039,6 +6095,8 @@ class Trader:
                         try:
                             # 🔥 간단한 DB 조회 (타임아웃은 recorder.execute_query에서 처리)
                             db_history = self.recorder.get_trade_history(symbol=symbol, days=30)
+                            from trading.pnl_evidence import verified_live_samples
+                            db_history = verified_live_samples(db_history, 'binance')
                             if isinstance(db_history, list) and len(db_history) > 0:
                                 # DB 데이터를 RiskManager 형식으로 변환
                                 for trade in db_history[:50]:  # 최근 50회만
@@ -6542,7 +6600,14 @@ class Trader:
                 try:
                     # 🔥 포지션 존재 여부 추가 확인 (사용자 임의 청산 대응)
                     current_position_info = self._get_position_info_with_retry(symbol)
-                    if not current_position_info or abs(float(current_position_info.get('positionAmt', 0))) == 0:
+                    if not isinstance(current_position_info, dict) or 'positionAmt' not in current_position_info:
+                        self.log_event('monitor', f'[{symbol}] 포지션 조회 미확정 · 청산/취소로 간주하지 않음', level='WARNING')
+                        time.sleep(interval)
+                        continue
+                    if not math.isfinite(float(current_position_info['positionAmt'])):
+                        time.sleep(interval)
+                        continue
+                    if abs(float(current_position_info['positionAmt'])) == 0:
                         self.log_event('monitor', f"[{symbol}] 포지션이 없음 - 사용자 임의 청산 감지", level='WARNING')
 
                         # 🔥 남은 오픈오더 자동 정리 (autotrade.py와 동일)
@@ -6582,18 +6647,9 @@ class Trader:
                             # 🔥 PnL USDT 계산 (통계용)
                             pnl_usdt = (pnl_percent / 100.0) * position.quantity * position.entry_price
 
-                            # 거래 통계 업데이트
-                            self.trade_stats['total_trades'] += 1
-                            self.trade_stats['total_pnl'] += pnl_usdt  # 🔥 USDT 단위로 누적
-
-                            if pnl_percent > 0:
-                                self.trade_stats['winning_trades'] += 1
-                            else:
-                                self.trade_stats['losing_trades'] += 1
-
-                            # DB에 통계 저장
+                            # Disappearance proves neither exit price nor net
+                            # profit. Persist pending evidence, not a win/loss.
                             if hasattr(self, 'recorder') and self.recorder:
-                                self.recorder.save_exchange_trade_stats('binance', self.trade_stats)
                                 
                                 # 🔥 개별 거래 로그 업데이트 (exit_time 설정, position 객체 전달) - 문제 1 해결
                                 try:
@@ -6618,6 +6674,7 @@ class Trader:
                                         # 원장에 보존한다. 시간/수량 후보만으로 소유권을
                                         # 확정하지 않으며 실제 청산 주문 연결이 필요하다.
                                         try:
+                                            self._sync_owned_binance_closes()
                                             recent_trades = self.binance_client.get_recent_trades(
                                                 symbol=symbol,
                                                 limit=200,
@@ -7063,7 +7120,7 @@ class Trader:
                 )
                 quantity_tolerance = max(1e-8, float(position.quantity or 0.0) * 0.001)
                 fully_closed = actual_quantity >= float(position.quantity or 0.0) - quantity_tolerance
-                exit_fee = max(0.0, float(fill_summary.get('fees', 0.0) or 0.0))
+                exit_fee = float(fill_summary.get('fees', 0.0) or 0.0)
                 exit_fee_asset = fill_summary.get('fee_asset')
                 exit_fee_source = 'exchange_fill' if fill_confirmed else 'unavailable'
                 self._record_binance_execution(
@@ -7092,9 +7149,7 @@ class Trader:
 
                 pnl_usdt = gross_pnl
 
-                # 거래 통계 업데이트
-                self.trade_stats['total_trades'] += 1
-                self.trade_stats['total_pnl'] += pnl_usdt  # 🔥 USDT 단위로 누적
+                verified_outcome = None
 
                 emit_kpi_event(
                     event_type='trade_order_executed',
@@ -7131,9 +7186,9 @@ class Trader:
                         exit_order_id=exit_order_id,
                         execution_mode='live',
                         source='noahai_client_trader_position',
-                        gross_pnl=gross_pnl,
-                        net_pnl=gross_pnl - float(exit_fee or 0.0),
-                        fees=float(exit_fee or 0.0),
+                        gross_pnl=gross_pnl if fill_confirmed else None,
+                        net_pnl=None,  # entry costs are not yet reconciled here
+                        fees=None,
                         extra={
                             'leverage': int(position.leverage or 1),
                             'fee_asset': exit_fee_asset,
@@ -7150,14 +7205,8 @@ class Trader:
                         execution_mode='live', source='noahai_client_trader_position',
                     )
 
-                if pnl_percent > 0:
-                    self.trade_stats['winning_trades'] += 1
-                else:
-                    self.trade_stats['losing_trades'] += 1
-
                 # DB에 통계 저장
                 if hasattr(self, 'recorder') and self.recorder:
-                    self.recorder.save_exchange_trade_stats('binance', self.trade_stats)
 
                     # 개별 거래 로그 업데이트 (종료 정보)
                     try:
@@ -7210,6 +7259,23 @@ class Trader:
                             )
 
                         self.log_event('debug', f"🔍 [DEBUG] update_trade_log 결과: {result}")
+                        if result and exit_order_id:
+                            from trading.pnl_evidence import performance_evidence
+                            with sqlite3.connect(self.recorder.db_path) as conn:
+                                conn.row_factory = sqlite3.Row
+                                matched = conn.execute('''SELECT * FROM trade_log
+                                    WHERE exchange='binance' AND symbol=? AND order_id=? AND exit_order_id=?
+                                    AND exit_time IS NOT NULL''',
+                                    (symbol,str(getattr(position,'entry_order_id','')),str(exit_order_id))).fetchall()
+                            if len(matched) == 1 and performance_evidence(dict(matched[0]))['performance_evidence_ready']:
+                                verified_outcome = dict(matched[0])
+                                net = float(verified_outcome['net_pnl'])
+                                pnl_percent = net / notional * 100 if notional > 0 else 0
+                                self.trade_stats['total_trades'] += 1
+                                self.trade_stats['total_pnl'] += net
+                                if net != 0:
+                                    self.trade_stats['winning_trades' if net > 0 else 'losing_trades'] += 1
+                                self.recorder.save_exchange_trade_stats('binance', self.trade_stats)
 
                     except Exception as e:
                         self.log_event('error', f"개별 거래 로그 업데이트 실패: {e}", level='ERROR')
@@ -7272,7 +7338,7 @@ class Trader:
                     self.log_event('trade', f"[{symbol}] ⚠️ 청산 후 오픈오더 정리 실패: {cleanup_error}", level='WARNING')
 
                 # 🔥 RiskManager에 거래 이력 업데이트 (패턴 분석용)
-                if hasattr(self, 'risk_manager') and self.risk_manager:
+                if verified_outcome and hasattr(self, 'risk_manager') and self.risk_manager:
                     try:
                         # datetime, timezone은 이미 모듈 레벨에서 임포트되어 있음 (Line 13)
                         entry_time = position.entry_time if hasattr(position, 'entry_time') else datetime.now(timezone.utc)
@@ -7288,7 +7354,7 @@ class Trader:
                             trade_result=trade_result,
                             profit_rate=pnl_percent,
                             entry_price=position.entry_price,
-                            exit_price=current_price,
+                            exit_price=actual_exit_price,
                             position_size=position.quantity * position.entry_price,
                             holding_time=holding_time_ms,
                             exchange='binance'
@@ -7299,10 +7365,12 @@ class Trader:
 
                 # 청산 후 AI 분석 + XAI 저장
                 try:
-                    if pnl_percent > 0:
-                        self._perform_profit_analysis_binance(symbol, position, current_price, pnl_percent, reason)
+                    if not verified_outcome:
+                        self.log_event('trade', f'[{symbol}] 미대조 손익은 성과 학습에 사용하지 않습니다.', level='WARNING')
+                    elif pnl_percent > 0:
+                        self._perform_profit_analysis_binance(symbol, position, actual_exit_price, pnl_percent, reason)
                     else:
-                        self._perform_loss_analysis_binance(symbol, position, current_price, pnl_percent, reason)
+                        self._perform_loss_analysis_binance(symbol, position, actual_exit_price, pnl_percent, reason)
                 except Exception as ai_err:
                     self.log_event('trade', f"[{symbol}] ⚠️ 청산 AI 분석 실패: {ai_err}", level='WARNING')
                 
@@ -7344,9 +7412,7 @@ class Trader:
                             pnl_percent = self._calc_pnl_percent(position, current_price)
                             pnl_usdt = (pnl_percent / 100.0) * position.quantity * position.entry_price
                             
-                            # 거래 통계 업데이트
-                            self.trade_stats['total_trades'] += 1
-                            self.trade_stats['total_pnl'] += pnl_usdt
+                            # A flat position alone cannot certify a net outcome.
                             closed_at = utc_now()
 
                             emit_kpi_event(
@@ -7383,18 +7449,13 @@ class Trader:
                                     execution_mode='live',
                                     source='noahai_client_trader_position',
                                     gross_pnl=pnl_usdt,
-                                    net_pnl=pnl_usdt,
-                                    fees=0.0,
+                                    net_pnl=None,
+                                    fees=None,
                                     extra={'leverage': int(position.leverage or 1)},
                                 )
-                            if pnl_percent > 0:
-                                self.trade_stats['winning_trades'] += 1
-                            else:
-                                self.trade_stats['losing_trades'] += 1
                             
                             # DB에 통계 저장
                             if hasattr(self, 'recorder') and self.recorder:
-                                self.recorder.save_exchange_trade_stats('binance', self.trade_stats)
                                 
                                 # 개별 거래 로그 업데이트
                                 try:
@@ -7409,7 +7470,9 @@ class Trader:
                                         pnl_percent=pnl_percent,
                                         pnl_usdt=pnl_usdt,
                                         exit_reason=reason,
-                                        position=position  # 🔥 position 객체 전달 (문제 1 해결)
+                                        position=position,
+                                        exchange='binance',
+                                        entry_order_id=getattr(position, 'entry_order_id', None),
                                     )
                                     self.log_event('trade', f"[{symbol}] ✅ 포지션 확인 기반 DB 저장 완료: {result}")
                                 except Exception as e:
@@ -7453,40 +7516,8 @@ class Trader:
                             except Exception:
                                 pass
                             
-                            # 🔥 RiskManager에 거래 이력 업데이트 (패턴 분석용)
-                            if hasattr(self, 'risk_manager') and self.risk_manager:
-                                try:
-                                    # datetime, timezone은 이미 모듈 레벨에서 임포트되어 있음 (Line 13)
-                                    entry_time = position.entry_time if hasattr(position, 'entry_time') else datetime.now(timezone.utc)
-                                    exit_time = datetime.now(timezone.utc)
-                                    holding_time_ms = _elapsed_milliseconds(entry_time) if isinstance(entry_time, datetime) else 0
-                                    
-                                    trade_result = 'PROFIT' if pnl_percent > 0 else 'LOSS'
-                                    
-                                    self.risk_manager.update_coin_trade_history(
-                                        symbol=symbol,
-                                        trade_result=trade_result,
-                                        profit_rate=pnl_percent,
-                                        entry_price=position.entry_price,
-                                        exit_price=current_price,
-                                        position_size=position.quantity * position.entry_price,
-                                        holding_time=holding_time_ms,
-                                        exchange='binance'
-                                    )
-                                    self.log_event('trade', f"[{symbol}] ✅ RiskManager 거래 이력 업데이트 완료 (포지션 확인 기반): {trade_result}, PnL: {pnl_percent:.2f}%")
-                                except Exception as rm_err:
-                                    self.log_event('trade', f"[{symbol}] ⚠️ RiskManager 거래 이력 업데이트 실패: {rm_err}", level='WARNING')
-
-                            # 청산 후 AI 분석 + XAI 저장
-                            try:
-                                if pnl_percent > 0:
-                                    self._perform_profit_analysis_binance(symbol, position, current_price, pnl_percent, reason)
-                                else:
-                                    self._perform_loss_analysis_binance(symbol, position, current_price, pnl_percent, reason)
-                            except Exception as ai_err:
-                                self.log_event('trade', f"[{symbol}] ⚠️ 청산 AI 분석 실패(포지션 확인 기반): {ai_err}", level='WARNING')
-                            
-                            self.logger.info(f"✅ {symbol} 포지션 청산 완료 (포지션 확인 기반): {reason}, PnL: {pnl_percent:.2f}%")
+                            self._sync_owned_binance_closes()
+                            self.log_event('trade', f'[{symbol}] 포지션 소멸 확인 · 순손익 대조 전 통계/성과 학습 보류', level='WARNING')
                         else:
                             self.log_event('trade', f"[{symbol}] ❌ 포지션 확인: 청산 실패 (포지션 수량: {position_amt})", level='ERROR')
                 except Exception as pos_check_err:
@@ -7583,6 +7614,7 @@ class Trader:
         except Exception as e:
             self.log_event('analysis', f"[{symbol}] 바이낸스 손절 AI 분석 오류: {e}", level='WARNING')
 
+    @entry_submission('binance')
     def _execute_paper_trade(self, symbol: str, trade_params: Dict[str, Any]):
         """실시간 시세를 사용하되 Binance 주문 API를 호출하지 않는 가상 진입."""
         try:
@@ -9052,6 +9084,8 @@ Response in JSON format:
                 except Exception:
                     recent_trades = []
 
+            from trading.pnl_evidence import verified_live_samples
+            recent_trades = verified_live_samples(recent_trades, 'binance')
             if len(recent_trades) < pattern_settings['analysis_periods']:
                 return {'tp_multiplier': 1.0, 'sl_multiplier': 1.0}
 

@@ -129,6 +129,25 @@ def create_gateway_app(
     def health() -> HealthContract:
         return HealthContract(release_version=RELEASE_VERSION)
 
+    @app.get('/api/v1/remote/status', dependencies=[Depends(require_token)])
+    def remote_status():
+        return services.remote_monitor().status()
+
+    @app.post('/api/v1/remote/configure', dependencies=[Depends(require_token), Depends(require_confirmed_intent)])
+    def remote_configure(payload: dict[str, Any]):
+        try:
+            return services.remote_monitor().configure(payload.get('enabled'), payload.get('name'), payload.get('allow_pause',False))
+        except ValueError as exc:
+            raise HTTPException(400,str(exc)) from exc
+
+    @app.post('/api/v1/remote/resume-entries', dependencies=[Depends(require_token), Depends(require_confirmed_intent)])
+    def resume_entries(payload: dict[str, Any]):
+        from trading.remote_entry_pause import gate
+        try:
+            return gate(services.data_dir).set(str(payload.get('source','')),False)
+        except ValueError as exc:
+            raise HTTPException(400,str(exc)) from exc
+
     @app.get("/api/v1/platform", response_model=PlatformContract, dependencies=[Depends(require_token)])
     def platform() -> PlatformContract:
         return PlatformContract(

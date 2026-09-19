@@ -6,6 +6,7 @@ import threading
 from datetime import datetime, timedelta, timezone
 from typing import Dict, List, Optional
 import logging
+from trading.pnl_evidence import verified_live_samples
 
 class AIAutoOptimizer:
     """
@@ -78,6 +79,7 @@ class AIAutoOptimizer:
             # 최근 1시간 데이터만 분석 (정확한 시간창 사용)
             since = datetime.now(timezone.utc) - timedelta(hours=1)
             trades: List[Dict] = self.recorder.get_trade_history(since_ts=since.timestamp())
+            trades = verified_live_samples(trades, self.settings.get('selected_exchange', 'binance'))
             if len(trades) < 5:
                 return
             stats = self._analyze_performance(trades)
@@ -90,6 +92,7 @@ class AIAutoOptimizer:
             # 최근 1일 거래 데이터 조회 (정확한 시간창 사용)
             since = datetime.now(timezone.utc) - timedelta(days=1)
             trades: List[Dict] = self.recorder.get_trade_history(since_ts=since.timestamp())
+            trades = verified_live_samples(trades, self.settings.get('selected_exchange', 'binance'))
 
             # 연속 손절 개수 계산
             consec_losses = self._count_consecutive_losses(trades)

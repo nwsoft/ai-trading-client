@@ -1,13 +1,16 @@
 # NoahAI - AI 금융 동반자 & 의사결정 인프라
 
-현재 공개 버전: **v3.9.1.39** · updater **3.9.139** · GitHub stable/latest(2026-09-19 조회 확인).
-현재 공개 기반: v3.9.1.39 stable/latest.
-공개 자산은 설치기·blockmap·`latest.yml`·`release-manifest.json`을 같은 버전으로 제공합니다. [v38 검증·배포 원장](docs/V39138_STRATEGY_REPLAY_LIVE_HISTORY_TEST_PLAN.md).
+현재 공개 버전: **v3.9.1.40** · updater **3.9.140** · GitHub stable/latest(2026-09-19 조회 확인).
+현재 공개 기반: v3.9.1.40 stable/latest. 공개 자산은 설치기·blockmap·`latest.yml`·`release-manifest.json`을 같은 버전으로 제공합니다. [v40 검증 기록](docs/V39140_STUDIO_ALPHA_SETTINGS_TEST_PLAN.md).
 
-현재 소스 후보: v3.9.1.40 · updater **3.9.140** · Strategy Studio Readability and AlphaArena Safety Patch.
-v39는 이미 공개되었습니다. v40은 전략 스튜디오 가독성·AlphaArena 안전성·설정 점검 수정 후 Windows 검증 후보이며 아직 게시하지 않았습니다. [v40 계획](docs/V39140_STUDIO_ALPHA_SETTINGS_TEST_PLAN.md). 이전 PnL 감사의 미완료 항목은 별도 유지합니다. 시간·수량 유일 후보 자동 확정은 철회했으며, 실제 청산 주문 소유권과 실계정 1:1 대조가 남아 있습니다. [PnL 재감사](docs/V39139_PNL_TRUST_AUDIT.md).
+현재 소스 후보: v3.9.1.41 · updater **3.9.141** · Market Trend Visuals and Evidence-based XAI Patch.
+v41은 오늘·7일·30일 시장 트렌드 그래프, 코인·주식 데이터 경계와 화면 근거 기반 AI 브리핑·XAI 관찰 후보를 보강한 다음 Windows 검증 후보입니다. 아직 설치기·업데이트·stable/latest로 게시하지 않았습니다. [v41 계획](docs/V39141_MARKET_TREND_XAI_TEST_PLAN.md). 이전 PnL 감사의 주문 소유권·실계정 1:1 대조 미완료 항목은 별도로 유지합니다. [PnL 재감사](docs/V39139_PNL_TRUST_AUDIT.md).
 
 ## 현재 서비스 기준 (2026-09-18)
+
+v41 추가 범위: **KPI 경량화·인증 DB 분리 도구·동의형 내 PC 원격 관리 베타**. 모바일 상태 확인과 PC에서 허용한 신규 주문 제출 일시정지만 제공하며 원격 시작/재개/전량 청산은 제외합니다. [실행 계획](docs/V39141_REMOTE_KPI_IMPLEMENTATION_PLAN.md) · [사용법](docs/REMOTE_MANAGEMENT_GUIDE_V39141.md) · [최종 소스 검증](reports/v39141-remote-kpi-verification.md). EC2 이관·S3 복원·Windows 설치본·운영 확대는 아직 미완료입니다.
+
+**9월 19일 PnL DB 확인 후 배포 보류:** 미대조 40건의 청산 주문 ID 누락을 확인하고 새 보호 주문 근거 보존/재대조, 과거 미청산의 가짜 평가손실 방지, 동일 API 연결의 일일 기준값 영속화, 순손익 성과 소비 경로를 보강했습니다. Client 2,741 passed. 특정 사용자 DB 복구가 필수 조건은 아니지만 기존 미대조 기록의 안전한 업데이트 처리·기관별/Windows·계좌 일별 대조는 미완료입니다. [조사/남은 작업](docs/V39141_PNL_GUARDRAIL_FEEDBACK.md).
 
 - **NoahAI Client**: 핵심 제품 검증 완료, 무료·유료 Windows 서비스 중
 - **코인·증권·ETF**: 제공 중. 기관·계정·권한·운용 모드별 PAPER/LIVE 준비도는 별도 표시
@@ -17,7 +20,7 @@ v39는 이미 공개되었습니다. v40은 전략 스튜디오 가독성·Alpha
 
 생활금융의 금융상품 비교는 정보·시뮬레이션 기능이며 실제 가입·대출 실행·보험 계약·금융기관 심사를 대신하지 않습니다. “제품 검증 완료”와 “모든 기관·계정 환경에서 무결함”은 같은 의미가 아닙니다.
 
-현재 공개판: v3.9.1.38 · Strategy Replay & Mode-aware Trade History Patch
+이전 공개 기록 (당시 기준): v3.9.1.38 · Strategy Replay & Mode-aware Trade History Patch
 
 [v3.9.1.39 검증 계획](docs/V39139_EXTERNAL_CLOSE_RECONCILIATION_TEST_PLAN.md). 공개 v3.9.1.38 자산은 보존하고 Windows x64/x86 재빌드와 실계정·업데이트 게이트를 통과한 새 자산만 v39로 배포합니다.
 

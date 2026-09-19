@@ -8,6 +8,7 @@
 import json
 import sqlite3
 import logging
+import math
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional, Tuple
 from dataclasses import dataclass, asdict
@@ -380,6 +381,8 @@ class RiskManager:
         currency = self._risk_currency(venue)
         manager = getattr(self, 'exchange_manager', None)
         if manager is None:
+            if venue != 'binance':
+                return {'valid': False, 'reason': '기관별 계좌 공급자 없음: Binance 잔고를 대신 사용하지 않습니다.'}
             equity = self._calculate_cumulative_balance()
             return {
                 'valid': equity > 0,
@@ -470,22 +473,8 @@ class RiskManager:
         today = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
         getter = getattr(self.database_manager, 'get_daily_actual_trades', None)
         if not callable(getter):
-            return []
-        try:
-            return list(getter(today, exchange=source, execution_mode='live') or [])
-        except TypeError:
-            # 구형/테스트 Recorder 계약과의 호환. 후단에서 거래소·모드를 다시
-            # 필터링해 다른 거래소나 PAPER 행을 손실에 섞지 않는다.
-            rows = list(getter(today) or [])
-            filtered = []
-            for row in rows:
-                if not isinstance(row, dict):
-                    continue
-                row_exchange = str(row.get('exchange') or source).strip().lower()
-                row_mode = str(row.get('execution_mode') or 'live').strip().lower()
-                if row_exchange == source and row_mode == 'live':
-                    filtered.append(row)
-            return filtered
+            raise RuntimeError('daily ledger reader unavailable')
+        return list(getter(today, exchange=source, execution_mode='live', strict=True) or [])
 
     def _managed_unrealized_pnl(self, source: str) -> Tuple[bool, float, str]:
         getter = getattr(self.database_manager, 'get_open_managed_trades', None)
@@ -496,14 +485,47 @@ class RiskManager:
                 return True, float(self._get_unrealized_pnl() or 0.0), ''
             return True, 0.0, ''
         try:
-            rows = list(getter(source) or [])
+            rows = list(getter(source, strict=True) or [])
         except Exception as exc:
             return False, 0.0, f'NoahAI 관리 포지션 원장 조회 실패: {exc}'
         live_rows = [
             row for row in rows
             if isinstance(row, dict)
-            and str(row.get('execution_mode') or 'live').strip().lower() == 'live'
+            and str(row.get('execution_mode') or 'live').strip().lower() in {'live', 'live_api', 'optimized', 'manual'}
         ]
+        if source == 'binance':
+            # Local open rows are historical intent, not proof that a position
+            # still exists. A confirmed flat account must not value zombie lots.
+            getter = getattr(self.binance_client, 'get_positions_result', None)
+            if not callable(getter):
+                return False, 0.0, 'Binance 현재 포지션 확인 API 없음'
+            try:
+                snapshot = getter()
+                if not isinstance(snapshot, dict) or snapshot.get('status') != 'success' or not isinstance(snapshot.get('positions'), list):
+                    return False, 0.0, 'Binance 현재 포지션 조회 실패'
+                actual = snapshot['positions']
+                if not actual:
+                    return True, 0.0, ''
+                total = 0.0
+                for pos in actual:
+                    def field(key):
+                        return pos.get(key) if isinstance(pos, dict) else getattr(pos, key, None)
+                    symbol, side = str(field('symbol')), str(field('side')).upper()
+                    owned = [r for r in live_rows if r.get('symbol') == symbol and
+                             ('SHORT' if str(r.get('side')).upper() in ('SELL','SHORT') else 'LONG') == side]
+                    if not owned:
+                        continue  # account/manual position outside NoahAI scope
+                    size = float(field('size'))
+                    qty = sum(float(r.get('quantity') or 0) for r in owned)
+                    if not math.isfinite(size) or size <= 0 or not math.isclose(qty, size, rel_tol=1e-6, abs_tol=1e-8):
+                        return False, 0.0, f'{symbol} 현재 포지션과 관리 원장 수량 대조 필요'
+                    pnl = float(field('unrealized_pnl'))
+                    if not math.isfinite(pnl):
+                        return False, 0.0, f'{symbol} 거래소 미실현 손익 확인 필요'
+                    total += pnl
+                return True, total, ''
+            except Exception:
+                return False, 0.0, 'Binance 현재 포지션 손익 응답 검증 실패'
         if not live_rows:
             return True, 0.0, ''
         manager = getattr(self, 'exchange_manager', None)
@@ -520,7 +542,7 @@ class RiskManager:
                 current = float(manager.get_current_price(symbol, source) or 0.0)
             except Exception:
                 current = 0.0
-            if current <= 0:
+            if not math.isfinite(current) or current <= 0:
                 return False, 0.0, f'관리 포지션 현재가 확인 실패: {symbol}'
             side = str(row.get('side') or 'LONG').strip().upper()
             sign = -1.0 if side in {'SHORT', 'SELL'} else 1.0
@@ -551,7 +573,8 @@ class RiskManager:
 
         today = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
         snapshot = self._get_live_equity_snapshot(venue)
-        if not bool(snapshot.get('valid')):
+        if (not bool(snapshot.get('valid')) or
+                not math.isfinite(float(snapshot.get('equity') or 0)) or float(snapshot.get('equity') or 0) <= 0):
             reason = str(snapshot.get('reason') or snapshot.get('status') or 'risk_data_unavailable')
             decision = DailyLossDecision(
                 blocked=True,
@@ -582,12 +605,37 @@ class RiskManager:
             return decision
 
         current_equity = float(snapshot.get('equity') or 0.0)
-        trades = self._today_live_trades(venue)
-        realized_pnl = sum(
-            self._risk_number(row.get('realized_pnl', row.get('pnl', 0.0)))
-            for row in trades
-            if isinstance(row, dict)
-        )
+        try:
+            trades = self._today_live_trades(venue)
+            unresolved = sum(not isinstance(row, dict) or row.get('performance_evidence_ready') is not True
+                             for row in trades)
+            if unresolved:
+                raise ValueError(f'당일 LIVE 청산 {len(trades)}건 중 {unresolved}건 손익 대조 필요')
+            nets = [float(row['net_pnl']) for row in trades]
+            if not all(math.isfinite(value) for value in nets):
+                raise ValueError('확정 순손익 값이 유효하지 않습니다')
+            realized_pnl = sum(nets)
+        except Exception as exc:
+            reason = str(exc)
+            decision = DailyLossDecision(
+                blocked=True, status='risk_data_unavailable', source=venue,
+                execution_mode=mode, currency=currency, current_equity=current_equity,
+                reason=reason,
+            )
+            self._last_daily_loss_decision[venue] = decision
+            self.logger.warning(f'{venue.upper()} LIVE 손익 대조 필요: {reason}')
+            try:
+                from trading.notifications import publish_notification
+                publish_notification(
+                    'risk_data_unavailable', 'LIVE 손익 대조 필요',
+                    f'확정 순손익을 확인하지 못해 손실 금액·비율을 알리지 않습니다. 원인: {reason}. '
+                    '신규 진입을 보류합니다. 거래 통계의 체결 동기화와 미대조 사유를 확인하세요.',
+                    source=venue, execution_mode='live', severity='warning',
+                    dedupe_key=f'risk-pnl-unavailable:live:{venue}:{today.date().isoformat()}',
+                )
+            except Exception:
+                pass
+            return decision
         unrealized_valid, unrealized_pnl, unrealized_reason = self._managed_unrealized_pnl(venue)
         if not unrealized_valid:
             decision = DailyLossDecision(
@@ -619,17 +667,35 @@ class RiskManager:
 
         total_pnl = float(realized_pnl + unrealized_pnl)
         self.daily_pnl = total_pnl
-        baseline_key = f'{today.date().isoformat()}:{venue}:{currency}'
+        from trading.daily_risk_basis import credential_scope, load_or_create
+        scope = credential_scope(self.settings, self.binance_client, venue)
+        baseline_key = f'{today.date().isoformat()}:{venue}:{currency}:{scope}'
         initial_equity = self._daily_initial_equity.get(baseline_key, 0.0)
         if initial_equity <= 0:
             if self.daily_initial_balance > 0 and not self._daily_initial_equity:
                 # 기존 호출자/테스트가 명시한 시작 잔고를 한 번만 승계한다.
                 initial_equity = float(self.daily_initial_balance)
             else:
-                # 재시작 시 오늘 실현·미실현 손익을 제거해 일 시작 자산을 복원한다.
+                # 실행 세션의 추정 기준값. 입출금/외부 거래를 모르면 실제 일 시작
+                # 자산은 복원할 수 없다. 거래소 일별 계좌 PnL과 혼동하지 않는다.
                 initial_equity = max(0.0, current_equity - total_pnl)
             if initial_equity <= 0:
                 initial_equity = current_equity
+            if scope:
+                try:
+                    initial_equity = load_or_create(
+                        getattr(self.database_manager, 'db_path', None), today.date().isoformat(),
+                        venue, currency, scope, initial_equity)
+                except Exception:
+                    decision = DailyLossDecision(blocked=True, status='risk_data_unavailable', source=venue,
+                        execution_mode=mode, currency=currency, reason='일일 위험 기준 자산 저장/복원 실패')
+                    self._last_daily_loss_decision[venue] = decision
+                    return decision
+            elif self.daily_initial_balance <= 0:
+                decision = DailyLossDecision(blocked=True, status='risk_data_unavailable', source=venue,
+                    execution_mode=mode, currency=currency, reason='일일 위험 기준 계정 식별 필요')
+                self._last_daily_loss_decision[venue] = decision
+                return decision
             self._daily_initial_equity[baseline_key] = initial_equity
         self.daily_initial_balance = initial_equity
         self.last_daily_reset = today
@@ -670,9 +736,10 @@ class RiskManager:
                 publish_notification(
                     'guardrail_stop',
                     'LIVE 일일 손실 가드레일 거래 중단',
-                    f'실현 {realized_pnl:.4f} + 미실현 {unrealized_pnl:.4f} = {total_pnl:.4f} {currency}, '
+                    f'NoahAI 당일 청산 순손익 {realized_pnl:.4f} + 관리 포지션 미실현 {unrealized_pnl:.4f} = {total_pnl:.4f} {currency}, '
                     f'손실률 {loss_rate:.2f}%가 중단 한도 {self.max_daily_loss_percent:.2f}%를 초과했습니다. '
-                    f'기준 자산 {initial_equity:.4f}, 현재 자산 {current_equity:.4f} {currency}.',
+                    f'당일 고정 위험 기준 자산 {initial_equity:.4f}, 현재 자산 {current_equity:.4f} {currency}. '
+                    '최초 확인 시점의 조정 기준이며 거래소 계좌 일별 PnL과 범위가 다릅니다.',
                     source=venue,
                     execution_mode='live',
                     severity='critical',
@@ -687,8 +754,10 @@ class RiskManager:
                 publish_notification(
                     'loss_warning',
                     'LIVE 일일 손실 경고',
-                    f'실현·미실현 합계 {total_pnl:.4f} {currency}, 손실률 {loss_rate:.2f}%입니다. '
-                    f'중단 한도는 {self.max_daily_loss_percent:.2f}%입니다.',
+                    f'NoahAI 당일 청산 순손익 {realized_pnl:.4f} + 관리 포지션 미실현 {unrealized_pnl:.4f} '
+                    f'= {total_pnl:.4f} {currency}, 손실률 {loss_rate:.2f}%입니다. '
+                    f'당일 고정 위험 기준 자산 {initial_equity:.4f} {currency}, 중단 한도 {self.max_daily_loss_percent:.2f}%. '
+                    '최초 확인 시점의 조정 기준이며 거래소 계좌 일별 PnL과 범위가 다릅니다.',
                     source=venue,
                     execution_mode='live',
                     severity='warning',

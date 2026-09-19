@@ -834,6 +834,16 @@ Compare current signal with recent loss patterns and decide. Respond in JSON:
             recorder = Recorder()
             trades = recorder.get_trade_history(days=days) or []
 
+            # A global sum of KRW/USDT or an incomplete window is not a PnL.
+            venues = {str(t.get('exchange') or 'binance') for t in trades}
+            if len(venues) > 1:
+                return {'data_status':'venue_scope_required', 'total_pnl':None}
+            from trading.pnl_evidence import verified_live_samples
+            verified = verified_live_samples(trades, next(iter(venues), 'binance'))
+            if trades and not verified:
+                return {'data_status':'pnl_reconciliation_required', 'total_pnl':None}
+            trades = verified
+
             total_trades = len(trades)
             winning = [t for t in trades if float(t.get('pnl') or 0) > 0]
             losing = [t for t in trades if float(t.get('pnl') or 0) < 0]

@@ -1650,11 +1650,17 @@ class BinanceClient:
                 ts = self.get_synced_timestamp()
                 rw = self.config.recv_window
                 rows = self.client.futures_position_information(timestamp=ts, recvWindow=rw)
+                if not isinstance(rows, list) or any(not isinstance(p, dict) or 'positionAmt' not in p for p in rows):
+                    raise ValueError('invalid position response; not a confirmed flat account')
                 position_list: List[Position] = []
                 for pos in rows or []:
                     amount = float(pos.get('positionAmt', 0) or 0)
+                    if not math.isfinite(amount):
+                        raise ValueError('non-finite position amount')
                     if amount == 0:
                         continue
+                    if pos.get('unRealizedProfit') is None or not math.isfinite(float(pos['unRealizedProfit'])):
+                        raise ValueError('position unrealized PnL unavailable')
                     position_list.append(Position(
                         symbol=pos['symbol'],
                         side="LONG" if amount > 0 else "SHORT",
@@ -1688,6 +1694,7 @@ class BinanceClient:
         limit: int = 100,
         since_ms: Optional[int] = None,
         from_id: Optional[str] = None,
+        order_id: Optional[str] = None,
     ) -> List[Dict]:
         """최근 거래 내역 조회 (실현 PnL 포함)"""
         # 키가 없으면 조용히 빈 리스트 반환
@@ -1708,6 +1715,10 @@ class BinanceClient:
                 query['startTime'] = int(since_ms)
             elif str(from_id or '').isdigit():
                 query['fromId'] = int(str(from_id)) + 1
+            if order_id is not None:
+                if not symbol or not str(order_id).isdigit():
+                    raise ValueError('order-scoped history requires symbol and numeric order id')
+                query['orderId'] = int(order_id)
             if symbol:
                 # 특정 심볼의 거래 내역
                 trades = self.client.futures_account_trades(symbol=symbol, **query)
@@ -1725,8 +1736,8 @@ class BinanceClient:
                     'side': trade['side'],
                     'quantity': float(trade['qty']),
                     'price': float(trade['price']),
-                    'realized_pnl': float(trade.get('realizedPnl', 0)),
-                    'commission': float(trade.get('commission', 0)),
+                    'realized_pnl': float(trade['realizedPnl']) if trade.get('realizedPnl') not in (None, '') else None,
+                    'commission': float(trade['commission']) if trade.get('commission') not in (None, '') else None,
                     'commission_asset': trade.get('commissionAsset', ''),
                     'time': trade['time']
                 }
@@ -1746,6 +1757,10 @@ class BinanceClient:
             else:
                 self.logger.error(f"최근 거래 내역 조회 오류: {e}")
             return []
+
+    def get_algo_order_evidence(self, algo_id: str) -> Dict:
+        """Query only an already-owned protection id; failures remain unknown."""
+        return self._get_futures_signed('/fapi/v1/algoOrder', {'algoId': str(algo_id)})
 
     def get_open_orders(self, symbol: str) -> List[Dict]:
         """미체결 주문 조회"""

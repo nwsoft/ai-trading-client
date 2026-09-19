@@ -376,56 +376,140 @@ export function LegacyAIReportWorkspace({ client, service, source: _source, sour
   </section>;
 }
 
-export function MarketTrendWorkspace({ client, service, source }: { client: GatewayClient; service: "blockchain" | "stock"; source: string }) {
+type MarketTrendPeriod = "today" | "week" | "month";
+type MarketTrendRow = {
+  symbol: string;
+  name?: string;
+  price?: number;
+  change: number;
+  volumeChange: number;
+  volumeValue?: number;
+  volatility: number;
+  direction: string;
+  source?: string;
+  tradedAt?: string;
+  marketStatus?: string;
+  spark: number[];
+  historyAvailable: boolean;
+};
+
+function MarketSparkline({ values, tone }: { values: number[]; tone: "positive" | "negative" | "neutral" }) {
+  const points = values.filter(Number.isFinite);
+  if (points.length < 2) return <div className="market-spark-empty">기간 시계열 미제공</div>;
+  const minimum = Math.min(...points);
+  const maximum = Math.max(...points);
+  const range = maximum - minimum || 1;
+  const polyline = points.map((value, index) => `${(index / Math.max(1, points.length - 1)) * 100},${34 - ((value - minimum) / range) * 30}`).join(" ");
+  return <svg className={`market-sparkline ${tone}`} viewBox="0 0 100 38" preserveAspectRatio="none" role="img" aria-label="선택 기간 가격 흐름">
+    <polyline points={polyline} fill="none" vectorEffect="non-scaling-stroke" />
+  </svg>;
+}
+
+function MarketBreadthDonut({ positive, neutral, negative }: { positive: number; neutral: number; negative: number }) {
+  const total = Math.max(1, positive + neutral + negative);
+  const positiveEnd = positive / total * 100;
+  const neutralEnd = positiveEnd + neutral / total * 100;
+  return <div className="market-breadth-visual">
+    <div className="market-breadth-donut" style={{ background: `conic-gradient(#22c55e 0 ${positiveEnd}%, #64748b ${positiveEnd}% ${neutralEnd}%, #ef4444 ${neutralEnd}% 100%)` }} role="img" aria-label={`상승 ${positive}, 중립 ${neutral}, 하락 ${negative}`}>
+      <span>{positive + neutral + negative}</span>
+    </div>
+    <div><b>시장 폭</b><span><i className="up" />상승 {positive}</span><span><i className="flat" />중립 {neutral}</span><span><i className="down" />하락 {negative}</span></div>
+  </div>;
+}
+
+export function MarketTrendWorkspace({ client, service, source, onAskAssistant }: { client: GatewayClient; service: "blockchain" | "stock"; source: string; onAskAssistant?: (question: string) => void }) {
   const [snapshot, setSnapshot] = useState<WorkspaceSnapshot | null>(null);
-  const [marketRows, setMarketRows] = useState<Array<{ symbol: string; name?: string; price?: number; change: number; volumeChange: number; direction: string; source?: string; tradedAt?: string; marketStatus?: string }>>([]);
+  const [period, setPeriod] = useState<MarketTrendPeriod>("today");
+  const [marketRows, setMarketRows] = useState<MarketTrendRow[]>([]);
   const [stockIndices, setStockIndices] = useState<Array<Record<string, any>>>([]);
   const [sentiment, setSentiment] = useState<Record<string, any> | null>(null);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const refreshSequence = useRef(0);
   function refresh() {
+    const requestId = ++refreshSequence.current;
     setLoading(true);
-    const symbols = service === "stock" ? ["005930", "000660", "035420", "035720", "005380", "373220"] : ["BTCUSDT", "ETHUSDT", "BNBUSDT"];
+    setMarketRows([]);
+    setStockIndices([]);
+    setSentiment(null);
+    setError("");
+    const krwSpot = ["upbit", "bithumb", "coinone"].includes(String(source || "").toLowerCase());
+    const symbols = service === "stock" ? ["005930", "000660", "035420", "035720", "005380", "373220"] : krwSpot ? ["BTCKRW", "ETHKRW", "XRPKRW"] : ["BTCUSDT", "ETHUSDT", "BNBUSDT"];
+    const lookback = period === "today" ? 1 : period === "week" ? 7 : 30;
+    const stockHistories = period === "today" || !source
+      ? Promise.resolve(symbols.map(() => null))
+      : symbols.reduce<Promise<Array<any>>>((previous, symbol) => previous.then(async (rows) => {
+        const history = await client.candles(symbol, "1d", 45, source, "stock").catch(() => null);
+        return [...rows, history];
+      }), Promise.resolve([]));
     const marketRequest = service === "stock"
-      ? client.stockOverview(symbols)
-      : Promise.all(symbols.map((symbol) => client.candles(symbol, "1d", 30, source || "binance", "futures").catch(() => null)));
+      ? Promise.all([
+        client.stockOverview(symbols),
+        stockHistories,
+      ])
+      : Promise.all(symbols.map((symbol) => client.candles(symbol, "1d", 45, source || "binance", krwSpot ? "spot" : "futures").catch(() => null)));
     Promise.all([
       client.workspace(service, `${service}.trends`, source),
       marketRequest,
       service === "blockchain" && (!source || source === "binance") ? client.marketSentiment("BTCUSDT").catch(() => null) : Promise.resolve(null),
     ]).then(([next, marketPayload, nextSentiment]) => {
+      if (requestId !== refreshSequence.current) return;
       setSnapshot(next as WorkspaceSnapshot);
       setSentiment(nextSentiment as Record<string, any> | null);
       if (service === "stock") {
-        const publicSnapshot = marketPayload as Record<string, any>;
+        const [publicSnapshot, histories] = marketPayload as [Record<string, any>, Array<any>];
         const quotes = Array.isArray(publicSnapshot.quotes) ? publicSnapshot.quotes : [];
         setStockIndices(Array.isArray(publicSnapshot.indices) ? publicSnapshot.indices : []);
         setMarketRows(quotes.filter((row) => row?.status === "ok").map((row) => {
-          const change = Number(row.change ?? 0);
-          return { symbol: String(row.symbol), name: String(row.name ?? row.symbol), price: Number(row.price ?? 0), change, volumeChange: row.volume == null ? Number.NaN : Number(row.volume), direction: change > .25 ? "상승" : change < -.25 ? "하락" : "중립", source: String(row.source ?? publicSnapshot.source ?? "naver_finance_public"), tradedAt: String(row.traded_at ?? ""), marketStatus: String(row.market_status ?? "") };
+          const history = histories[symbols.indexOf(String(row.symbol))];
+          const points = Array.isArray(history?.candles) ? history.candles : [];
+          const closes = points.map((point: any) => Number(point?.close)).filter(Number.isFinite);
+          const volumes = points.map((point: any) => Number(point?.volume)).filter(Number.isFinite);
+          const historyReady = closes.length > lookback;
+          const change = period === "today"
+            ? Number(row.change ?? Number.NaN)
+            : historyReady && closes.at(-1 - lookback) ? (Number(closes.at(-1)) - Number(closes.at(-1 - lookback))) / Number(closes.at(-1 - lookback)) * 100 : Number.NaN;
+          const recentPoints = points.slice(-Math.min(points.length, lookback + 1));
+          const volatility = recentPoints.length ? recentPoints.reduce((sum: number, point: any) => {
+            const open = Number(point?.open ?? 0);
+            return sum + (open ? Math.abs(Number(point?.high ?? open) - Number(point?.low ?? open)) / open * 100 : 0);
+          }, 0) / recentPoints.length : Number.NaN;
+          const previousVolumes = volumes.slice(-Math.min(volumes.length, lookback + 1), -1);
+          const averageVolume = previousVolumes.length ? previousVolumes.reduce((sum: number, value: number) => sum + value, 0) / previousVolumes.length : 0;
+          const volumeChange = volumes.length && averageVolume ? (Number(volumes.at(-1)) - averageVolume) / averageVolume * 100 : Number.NaN;
+          return { symbol: String(row.symbol), name: String(row.name ?? row.symbol), price: Number(row.price ?? 0), change, volumeChange, volumeValue: row.volume == null ? undefined : Number(row.volume), volatility, direction: !Number.isFinite(change) ? "확인 불가" : change > .25 ? "상승" : change < -.25 ? "하락" : "중립", source: period === "today" ? String(row.source ?? publicSnapshot.source ?? "naver_finance_public") : String(history?.source ?? source), tradedAt: String(period === "today" ? row.traded_at ?? "" : history?.captured_at ?? ""), marketStatus: String(row.market_status ?? ""), spark: closes.slice(-Math.min(closes.length, lookback + 1)), historyAvailable: period === "today" || historyReady };
         }));
       } else {
         setStockIndices([]);
         const candles = marketPayload as Array<any>;
         setMarketRows(candles.flatMap((payload, index) => {
         const points = payload?.candles ?? [];
-        if (points.length < 2) return [];
+        if (points.length <= lookback) return [];
         const current = Number(points.at(-1)?.close ?? 0);
-        const previous = Number(points.at(-7)?.close ?? points[0]?.close ?? current);
+        const previous = Number(points.at(-1 - lookback)?.close ?? points[0]?.close ?? current);
         const currentVolume = Number(points.at(-1)?.volume ?? 0);
-        const previousVolume = Number(points.at(-7)?.volume ?? points[0]?.volume ?? currentVolume);
+        const previousVolumes = points.slice(-1 - lookback, -1).map((point: any) => Number(point?.volume ?? 0)).filter(Number.isFinite);
+        const previousVolume = previousVolumes.length ? previousVolumes.reduce((sum: number, value: number) => sum + value, 0) / previousVolumes.length : currentVolume;
         const change = previous ? (current - previous) / previous * 100 : 0;
         const volumeChange = previousVolume ? (currentVolume - previousVolume) / previousVolume * 100 : 0;
-          return [{ symbol: symbols[index], change, volumeChange, direction: change > .25 ? "상승" : change < -.25 ? "하락" : "중립", source: String(payload?.source ?? source) }];
+        const recentPoints = points.slice(-1 - lookback);
+        const volatility = recentPoints.length ? recentPoints.reduce((sum: number, point: any) => {
+          const open = Number(point?.open ?? 0);
+          return sum + (open ? Math.abs(Number(point?.high ?? open) - Number(point?.low ?? open)) / open * 100 : 0);
+        }, 0) / recentPoints.length : Number.NaN;
+          return [{ symbol: symbols[index], name: krwSpot ? symbols[index].replace("KRW", "/KRW") : symbols[index].replace("USDT", "/USDT"), price: current, change, volumeChange, volatility, direction: change > .25 ? "상승" : change < -.25 ? "하락" : "중립", source: String(payload?.source ?? source), tradedAt: String(payload?.captured_at ?? ""), spark: recentPoints.map((point: any) => Number(point?.close)).filter(Number.isFinite), historyAvailable: true }];
         }));
       }
       setError("");
-    }).catch((reason: unknown) => setError(reason instanceof Error ? reason.message : "시장 트렌드를 불러오지 못했습니다."))
-      .finally(() => setLoading(false));
+    }).catch((reason: unknown) => {
+      if (requestId === refreshSequence.current) setError(reason instanceof Error ? reason.message : "시장 트렌드를 불러오지 못했습니다.");
+    }).finally(() => {
+      if (requestId === refreshSequence.current) setLoading(false);
+    });
   }
   useEffect(() => {
     refresh();
-  }, [client, service, source]);
+  }, [client, service, source, period]);
   const candidates = snapshot?.selected_coins ?? [];
   const stats = snapshot?.statistics ?? [];
   const trading = snapshot?.trading;
@@ -433,35 +517,58 @@ export function MarketTrendWorkspace({ client, service, source }: { client: Gate
   const pnl = Number(trading?.pnl_by_currency?.[service === "stock" ? "KRW" : "USDT"] ?? 0);
   const sampleCount = service === "stock" ? stats.length : candidates.length;
   const topCandidates = candidates.slice(0, 5).map((row) => String(row.symbol ?? row.coin ?? "")).filter(Boolean);
-  const averageChange = marketRows.length ? marketRows.reduce((sum, row) => sum + row.change, 0) / marketRows.length : 0;
-  const direction = marketRows.length ? averageChange > .25 ? "상승" : averageChange < -.25 ? "하락" : "중립" : "연결 중";
+  const validRows = marketRows.filter((row) => Number.isFinite(row.change));
+  const averageChange = validRows.length ? validRows.reduce((sum, row) => sum + row.change, 0) / validRows.length : 0;
+  const direction = validRows.length ? averageChange > .25 ? "상승" : averageChange < -.25 ? "하락" : "중립" : "연결 중";
   const fundingRate = sentiment == null ? null : Number(sentiment.funding_rate ?? 0);
   const longShortRatio = sentiment == null ? null : Number(sentiment.long_short_ratio ?? 1);
-  const fearGreed = longShortRatio == null ? "연결 중" : longShortRatio > 1.2 ? "탐욕" : longShortRatio < .8 ? "공포" : "중립";
-  const positiveBreadth = marketRows.filter((row) => row.change > 0).length;
-  const status = marketRows.length ? service === "stock" ? `공개 시세 ${marketRows.length}개${marketRows[0]?.tradedAt ? ` · 기준 ${marketRows[0].tradedAt.replace("T", " ")}` : ""}` : `실시간 표본 ${marketRows.length}개` : sampleCount > 0 ? `저장 표본 ${sampleCount}건` : "수집 대기";
+  const positiveBreadth = validRows.filter((row) => row.change > .25).length;
+  const negativeBreadth = validRows.filter((row) => row.change < -.25).length;
+  const neutralBreadth = Math.max(0, validRows.length - positiveBreadth - negativeBreadth);
+  const averageVolumeChange = validRows.filter((row) => Number.isFinite(row.volumeChange)).length ? validRows.filter((row) => Number.isFinite(row.volumeChange)).reduce((sum, row) => sum + row.volumeChange, 0) / validRows.filter((row) => Number.isFinite(row.volumeChange)).length : Number.NaN;
+  const averageVolatility = validRows.filter((row) => Number.isFinite(row.volatility)).length ? validRows.filter((row) => Number.isFinite(row.volatility)).reduce((sum, row) => sum + row.volatility, 0) / validRows.filter((row) => Number.isFinite(row.volatility)).length : Number.NaN;
+  const status = marketRows.length ? service === "stock" ? period === "today" ? `공개 당일 시세 ${marketRows.length}개${marketRows[0]?.tradedAt ? ` · 기준 ${marketRows[0].tradedAt.replace("T", " ")}` : ""}` : `${(source || "증권사").toUpperCase()} 일봉 확보 ${validRows.length}/${marketRows.length}개` : `${(source || "binance").toUpperCase()} 공개 시세 표본 ${marketRows.length}개` : sampleCount > 0 ? `저장 표본 ${sampleCount}건` : "수집 대기";
   const indexText = stockIndices.filter((row) => row?.status === "ok").map((row) => `${String(row.name ?? row.symbol)} ${Number(row.change ?? 0) >= 0 ? "+" : ""}${Number(row.change ?? 0).toFixed(2)}%`).join(" · ");
   const stockSectors = [["IT·반도체", ["005930", "000660"]], ["인터넷·플랫폼", ["035420", "035720"]], ["자동차", ["005380"]], ["2차전지", ["373220"]]] as Array<[string, string[]]>;
   const sectorText = stockSectors.map(([name, symbols]) => {
     const rows = marketRows.filter((row) => symbols.includes(row.symbol));
-    const change = rows.length ? rows.reduce((sum, row) => sum + row.change, 0) / rows.length : null;
+    const usableRows = rows.filter((row) => Number.isFinite(row.change));
+    const change = usableRows.length ? usableRows.reduce((sum, row) => sum + row.change, 0) / usableRows.length : null;
     return `• ${name}: ${change == null ? "데이터 없음" : `${change >= 0 ? "+" : ""}${change.toFixed(2)}%`}`;
   }).join("\n");
+  const periodLabel = period === "today" ? "오늘" : period === "week" ? "최근 7일" : "최근 30일";
+  const capturedAt = service === "blockchain" && sentiment?.captured_at ? new Date(Number(sentiment.captured_at)).toISOString() : marketRows.find((row) => row.tradedAt)?.tradedAt || "화면 새로고침 시점";
+  const watchCandidates = [...validRows].sort((left, right) => right.change - left.change).slice(0, 3);
+  const assistantEvidence = JSON.stringify({
+    schema: "market_trend_screen_v1", service, source: source || (service === "stock" ? "public" : "binance"), period: periodLabel, captured_at: capturedAt,
+    summary: { direction, average_change_pct: Number(averageChange.toFixed(4)), breadth: { up: positiveBreadth, neutral: neutralBreadth, down: negativeBreadth }, average_volume_change_pct: Number.isFinite(averageVolumeChange) ? Number(averageVolumeChange.toFixed(4)) : null, average_intraday_range_pct: Number.isFinite(averageVolatility) ? Number(averageVolatility.toFixed(4)) : null, funding_rate_pct: fundingRate == null ? null : Number((fundingRate * 100).toFixed(6)), long_short_ratio: longShortRatio },
+    assets: validRows.map((row) => ({ symbol: row.symbol, name: row.name, change_pct: Number(row.change.toFixed(4)), volume_change_pct: Number.isFinite(row.volumeChange) ? Number(row.volumeChange.toFixed(4)) : null, average_intraday_range_pct: Number.isFinite(row.volatility) ? Number(row.volatility.toFixed(4)) : null, data_source: row.source })),
+    missing: service === "stock" ? ["외국인·기관 수급", "원달러 환율", "금리", "공시·뉴스"] : ["실제 공포탐욕지수", "미결제약정", "청산 규모", "BTC 도미넌스"],
+  });
+  function askMarketAssistant(kind: "brief" | "candidates") {
+    const instruction = kind === "brief"
+      ? `${periodLabel} ${service === "stock" ? "주식·ETF" : "코인"} 시장 상황을 현재 화면 근거만으로 요약해줘. 방향·시장 폭·거래량·변동성·파생 심리(있는 경우)를 구분하고 반대 신호와 누락 데이터도 알려줘.`
+      : `현재 화면 표본 안에서만 관찰 후보를 비교해줘. 개인화 매수 추천이나 주문 지시가 아니라 후보별 지지 근거, 반대 근거, 판단 무효화 조건, 추가 확인 데이터를 XAI 형식으로 설명해줘.`;
+    onAskAssistant?.(`${instruction}\n[MARKET_TREND_SNAPSHOT]${assistantEvidence}`);
+  }
   return <section className="legacy-market-trend">
-    <header className="legacy-market-trend-title"><span>시장 트렌드 인사이트</span><button type="button" onClick={refresh} disabled={loading}>{loading ? "수집 중…" : "새로고침"}</button></header>
-    <div className="legacy-trend-chips">
-      <span>시장 방향: {direction} {marketRows.length ? `${averageChange >= 0 ? "+" : ""}${averageChange.toFixed(2)}%` : ""}</span>
-      <span>{service === "stock" ? "섹터 브레드스" : "펀딩비"}: {service === "stock" ? marketRows.length ? `${positiveBreadth}/${marketRows.length} 섹터 상승` : "연동 대기" : fundingRate == null ? "연결 중" : fundingRate.toFixed(4)}</span>
-      <span>{service === "stock" ? "KOSPI/KOSDAQ" : "공포/탐욕"}: {service === "stock" ? indexText || "연결 중" : fearGreed}</span>
-    </div>
+    <header className="legacy-market-trend-title"><div><span>시장 트렌드 인사이트</span><small>{service === "stock" ? "국내 주식·ETF 표본" : `${(source || "binance").toUpperCase()} 공개 시세`} · {periodLabel}</small></div><div className="market-period-tabs" role="group" aria-label="시장 트렌드 기간">{(["today", "week", "month"] as MarketTrendPeriod[]).map((item) => <button className={period === item ? "active" : ""} type="button" key={item} onClick={() => setPeriod(item)}>{item === "today" ? "오늘" : item === "week" ? "7일" : "30일"}</button>)}</div><button type="button" onClick={refresh} disabled={loading}>{loading ? "수집 중…" : "새로고침"}</button></header>
     <div className={`legacy-workspace-feedback${error ? " error-text" : ""}`} role="status" aria-live="polite">{error}</div>
-    <div className="legacy-trend-grid">
-      <article><h3>{service === "stock" ? "주식 시장 방향 · 모멘텀" : "시장 방향 · 모멘텀"}</h3><div className="legacy-trend-content"><p>{marketRows.length ? marketRows.map((row) => `• ${row.name ?? row.symbol}(${row.symbol}): ${row.direction} ${row.change >= 0 ? "+" : ""}${row.change.toFixed(2)}%`).join("\n") : `• ${status}\n• 공개 시세가 확보되면 방향성을 표시합니다.`}</p></div></article>
-      <article><h3>{service === "stock" ? "업종 · 섹터 흐름" : "대표 코인 · 섹터 흐름"}</h3><div className="legacy-trend-content"><p>{service === "stock" ? marketRows.length ? sectorText : "• 네이버 금융 공개 시세 연결 후 업종 흐름을 표시합니다." : topCandidates.length ? `• 저장 후보: ${topCandidates.join(", ")}\n• 대표 코인 평균 변화: ${averageChange >= 0 ? "+" : ""}${averageChange.toFixed(2)}%` : marketRows.map((row) => `• ${row.symbol}: ${row.change.toFixed(2)}%`).join("\n") || "• 저장된 대표 코인 후보가 없습니다."}</p></div></article>
-      <article><h3>{service === "stock" ? "투자 심리 · 거래량" : "시장 심리 · 거래량 지표"}</h3><div className="legacy-trend-content"><p>{marketRows.length ? marketRows.map((row) => `• ${row.name ?? row.symbol}: ${service === "stock" ? `거래량 ${Number.isFinite(row.volumeChange) ? row.volumeChange.toLocaleString() : "미제공"}` : `거래량 ${row.volumeChange >= 0 ? "+" : ""}${row.volumeChange.toFixed(1)}%`}`).join("\n") : "• 확인 가능한 거래량 표본이 없습니다."}<br />• 출처: {service === "stock" ? "네이버 금융 공개 시세(계좌·주문과 분리)" : "선택 거래소 공개 시세"}<br />• 현재 상태: {status}</p></div></article>
-      <article><h3>{service === "stock" ? "내 포트폴리오 트렌드" : "나의 포트폴리오 트렌드"}</h3><div className="legacy-trend-content"><p>• 저장된 종료 거래: {closed}건<br />• 실현손익: {numberText(pnl, service === "stock" ? 0 : 4)} {service === "stock" ? "KRW" : "USDT"}<br />• 잔고·미실현손익은 계좌 새로고침 결과와 분리합니다.</p></div></article>
-      <article className="legacy-trend-ai"><h3>AI 전략 상태</h3><div className="legacy-trend-content"><p>• 현재 저장 표본과 실행 결과를 분리해 표시합니다.<br />• 표본이 없거나 기준을 충족하지 못하면 HOLD를 유지합니다.<br />• 전략 변경·승인·PAPER 상태는 전략 스튜디오에서 확인합니다.</p></div></article>
-      <article className="legacy-trend-account"><h3>계좌 · 실행 상태</h3><div className="legacy-trend-content"><p>• 기준 연결: {source.toUpperCase()}<br />• 청산 완료 성과: {closed}건<br />• 공개 시장 데이터와 계좌 잔고는 분리되며, 잔고·포지션은 거래소 탭의 실시간 새로고침 결과를 기준으로 합니다.</p></div></article>
+    <div className="market-trend-kpis">
+      <article><span>시장 방향 · {periodLabel}</span><strong className={direction === "상승" ? "positive" : direction === "하락" ? "negative" : ""}>{direction} {validRows.length ? `${averageChange >= 0 ? "+" : ""}${averageChange.toFixed(2)}%` : ""}</strong><div className="market-direction-scale"><i style={{ left: `${Math.max(2, Math.min(98, 50 + averageChange * 5))}%` }} /></div><small>표본 {validRows.length}개 동일가중 평균</small></article>
+      <article><MarketBreadthDonut positive={positiveBreadth} neutral={neutralBreadth} negative={negativeBreadth} /><small>원형은 비율에만 사용합니다.</small></article>
+      <article><span>{service === "stock" ? "지수 · 거래량" : "파생 심리 · 거래량"}</span><strong>{service === "stock" ? indexText || "지수 연결 중" : fundingRate == null ? "해당 거래소 미연동" : `펀딩 ${(fundingRate * 100).toFixed(4)}%`}</strong><div className="market-metric-lines"><span>{service === "stock" ? `표본 거래량 ${Number.isFinite(averageVolumeChange) ? `${averageVolumeChange >= 0 ? "+" : ""}${averageVolumeChange.toFixed(1)}%` : "기간 비교 미제공"}` : `롱/숏 ${longShortRatio == null ? "미제공" : longShortRatio.toFixed(2)}`}</span><span>평균 거래량 변화 {Number.isFinite(averageVolumeChange) ? `${averageVolumeChange >= 0 ? "+" : ""}${averageVolumeChange.toFixed(1)}%` : "미제공"}</span></div><small>{service === "blockchain" && "공포·탐욕 지수가 아니라 선택 거래소 파생 데이터입니다."}</small></article>
+      <article><span>평균 일중 변동폭</span><strong>{Number.isFinite(averageVolatility) ? `${averageVolatility.toFixed(2)}%` : "기간 데이터 미제공"}</strong><div className="market-volatility-bar"><i style={{ width: `${Math.min(100, Math.max(0, averageVolatility * 10))}%` }} /></div><small>고가–저가 ÷ 시가의 기간 평균 · 위험 참고값</small></article>
+    </div>
+    <section className="market-asset-board">
+      <header><div><h3>{service === "stock" ? "주식·ETF 표본 흐름" : "대표 코인 흐름"}</h3><p>가격 방향·거래량·변동성을 같은 기간으로 맞춰 봅니다.</p></div><span>{status}</span></header>
+      <div className="market-asset-grid">{marketRows.map((row) => { const tone = !Number.isFinite(row.change) ? "neutral" : row.change > .25 ? "positive" : row.change < -.25 ? "negative" : "neutral"; return <article key={row.symbol} className={tone}><header><div><b>{row.name ?? row.symbol}</b><small>{row.symbol}</small></div><strong>{Number.isFinite(row.change) ? `${row.change >= 0 ? "+" : ""}${row.change.toFixed(2)}%` : "기간 데이터 없음"}</strong></header><MarketSparkline values={row.spark} tone={tone} /><footer><span>거래량 {Number.isFinite(row.volumeChange) ? `${row.volumeChange >= 0 ? "+" : ""}${row.volumeChange.toFixed(1)}%` : row.volumeValue != null ? numberText(row.volumeValue, 0) : "미제공"}</span><span>변동폭 {Number.isFinite(row.volatility) ? `${row.volatility.toFixed(2)}%` : "미제공"}</span></footer></article>; })}{!marketRows.length && <div className="empty-state">{status} · 공개 시세가 확보되면 그래프를 표시합니다.</div>}</div>
+    </section>
+    <div className="market-trend-detail-grid">
+      <article><h3>{service === "stock" ? "업종 · 섹터 흐름" : "후보·시장 범위"}</h3><p>{service === "stock" ? sectorText : `저장 후보: ${topCandidates.join(", ") || "없음"}\n표본 상위 흐름: ${watchCandidates.map((row) => `${row.name ?? row.symbol} ${row.change >= 0 ? "+" : ""}${row.change.toFixed(2)}%`).join(" · ") || "확인 불가"}`}</p></article>
+      <article><h3>추가 확인이 필요한 필수 데이터</h3><p>{service === "stock" ? "외국인·기관 수급 · 원/달러 환율 · 금리 · 공시/뉴스는 현재 이 카드의 정본 데이터가 아닙니다. 연결 전에는 AI가 추정하지 않습니다." : "실제 공포탐욕지수 · 미결제약정 · 청산 규모 · BTC 도미넌스는 현재 이 카드의 정본 데이터가 아닙니다. 롱/숏 비율을 공포탐욕으로 바꾸어 부르지 않습니다."}</p></article>
+      <article><h3>내 실행과 분리</h3><p>저장된 종료 거래 {closed}건 · 실현손익 {numberText(pnl, service === "stock" ? 0 : 4)} {service === "stock" ? "KRW" : "USDT"}<br />{service === "stock" ? "오늘: 네이버 금융 공개 시세(계좌·주문과 분리)" : "선택 거래소 공개 시세(계좌·주문과 분리)"}<br />공개 시장 표본은 계좌 잔고·미실현손익·주문 신호가 아닙니다.</p></article>
+      <article className="market-xai-card"><h3>AI 질문 · XAI 관찰 후보</h3><p>화면의 기간·기관·수집시각·표본을 함께 전달합니다. 답변은 근거·반대 근거·무효화 조건·누락 데이터를 나누며 주문을 실행하지 않습니다.</p><div><button type="button" disabled={!onAskAssistant || !validRows.length} onClick={() => askMarketAssistant("brief")}>이 시장 브리핑 AI에게 묻기</button><button type="button" disabled={!onAskAssistant || !validRows.length} onClick={() => askMarketAssistant("candidates")}>관찰 후보 XAI 비교</button></div></article>
     </div>
   </section>;
 }

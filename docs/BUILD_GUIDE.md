@@ -1,10 +1,18 @@
 # NoahAI 빌드·릴리즈 가이드
 
-현행 소스 후보: **3.9.1.40** / Electron updater: **3.9.140**. 공개 stable/latest는 **v3.9.1.39**이며 기존 v39 자산·태그·manifest는 불변입니다. 과거 설명은 [보존본](archive/build/BUILD_GUIDE_PRE_V39135.md)에 있으며 아래 명령만 현행입니다.
+현행 소스 후보: **3.9.1.41** / Electron updater: **3.9.141**. 공개 stable/latest는 **v3.9.1.40**이며 기존 v40 자산·태그·manifest는 불변입니다. 과거 설명은 [보존본](archive/build/BUILD_GUIDE_PRE_V39135.md)에 있으며 아래 명령만 현행입니다.
 
-**v40 신규 빌드 필요:** [v40 검증 계획](V39140_STUDIO_ALPHA_SETTINGS_TEST_PLAN.md)을 따릅니다. 공개 v39 자산을 이름만 바꾸거나 재사용하지 않습니다. 현재 Mac 동기화 작업본에는 Git 이력과 Windows 도구가 없으므로 검토된 소스 커밋을 정식 Windows 빌드 환경에 전달해야 합니다. 이전 PnL 미완료 검증도 완료로 승계하지 않습니다.
+**v41 신규 빌드 필요:** [v41 검증 계획](V39141_MARKET_TREND_XAI_TEST_PLAN.md)을 따릅니다. 공개 v40 자산을 이름만 바꾸거나 재사용하지 않습니다. 현재 Mac 동기화 작업본에는 Git 이력과 Windows 도구가 없으므로 검토된 소스 커밋을 정식 Windows 빌드 환경에 전달해야 합니다. 이전 PnL 미완료 검증도 완료로 승계하지 않습니다.
 
 ## 공통 원칙
+
+### v41 추가 입력 및 서버 선행 조건
+
+[KPI·원격 실행 계획](V39141_REMOTE_KPI_IMPLEMENTATION_PLAN.md)과 [검증 보고](../reports/v39141-remote-kpi-verification.md)를 함께 확인합니다. `api/telemetry_batch.py`, `web_platform/remote_monitor.py`, `trading/remote_entry_pause.py`, 새 설정 UI 및 재생성한 매뉴얼을 포함한 **새 소스 fingerprint**로 빌드합니다. 시장 트렌드만 들어 있던 이전 v41 fingerprint는 재사용하지 않습니다.
+
+**추가 배포 차단 게이트:** [DB 기반 PnL 조사](V39141_PNL_GUARDRAIL_FEEDBACK.md). `trading/binance_close_evidence.py`, `trading/daily_risk_basis.py`와 새 계산 경로가 포함된 소스를 다시 식별합니다. 특정 사용자 과거 40건 복구는 필수 조건이 아니지만 기존 미대조 기록을 가진 사용자의 안전한 업데이트 처리·실기관/Windows·계좌 일별 대조는 미완료입니다. 빌드 성공은 이 게이트를 해제하지 않습니다.
+
+daltrading 서버의 `docs/V39141_REMOTE_KPI_DEPLOYMENT.md`에 따라 DB 분리/복원과 relay를 먼저 검증합니다. Client는 구형 서버에 개별 KPI로 호환하지만 원격 베타는 서버 활성화가 필요합니다. Windows에서 모바일 로그인과 PC 인증 공존, 오프라인/만료, 신규 제출 정지·보호 청산 유지·PC 재개를 확인한 뒤 20→100→300명으로 확대합니다. 소스 통과가 Windows 설치본·운영 DB 이관 완료를 뜻하지 않습니다.
 
 - **v3.9.1.37부터 태그 대상 필수:** 빌드 입력을 검토·비밀정보 제외 후 Git에 커밋하고 해당 커밋을 원격에 게시합니다. 기본 브랜치의 오래된 HEAD에 태그를 자동 생성하지 않습니다. 기존 v37 이하 태그·설치 파일은 보존합니다.
 - 매뉴얼·기관 레지스트리 생성 결과도 커밋에 포함한 뒤 새 체크아웃에서 빌드합니다. `.gitattributes`의 LF 줄바꿈을 적용해 커밋 내용과 실제 빌드 입력 바이트가 일치해야 합니다. `git add .`로 계정 데이터·자격증명·로그·DB·설치기를 일괄 공개하지 마세요.
@@ -13,7 +21,7 @@
 - stable 게시 후 공개 목록 첫 항목·Atom 첫 항목·Latest·latest.yml/설치기 이름이 같은 버전인지 확인합니다. 전파 지연 등으로 불일치하면 **게시되었지만 검증 미완료**로 실패 처리하며 삭제/재태깅하지 않습니다. `python scripts/verify_release_provenance.py --phase published`로 읽기 전용 재확인합니다.
 
 - `config/app_version.py`, `webui/package.json`·lock의 updater 버전, Windows 리소스 버전이 일치해야 합니다. 변환식은 `A.B.C.D → A.B.(C*100+D)`입니다.
-- 소스 테스트 통과, 패키지 실행, 실제 계정 연결, 장시간 PAPER 검증은 서로 다른 증거입니다. [v3.9.1.40 검증 계획](V39140_STUDIO_ALPHA_SETTINGS_TEST_PLAN.md)의 실제 확인한 행만 `[x]`로 표시합니다.
+- 소스 테스트 통과, 패키지 실행, 실제 계정 연결, 장시간 PAPER 검증은 서로 다른 증거입니다. [v3.9.1.41 검증 계획](V39141_MARKET_TREND_XAI_TEST_PLAN.md)의 실제 확인한 행만 `[x]`로 표시합니다.
 - 소스 fingerprint는 `scripts/release_source_fingerprint.py`로 계산합니다. 변경된 소스에 이전 바이너리·해시를 재사용하지 않습니다.
 - 사용자 `data/Teayu`·API 키·원장은 빌드 입력이나 공개 릴리즈에 포함하지 않습니다. 빌드되는 data는 공개 금융상품 카탈로그뿐입니다.
 - `deploy/release-manifest.json`은 Windows 산출물 명세입니다. macOS는 `deploy/mac-release/release-manifest-mac.json`을 사용하며 서로 덮어쓰지 않습니다.
@@ -22,13 +30,13 @@
 
 ## 자동 업데이트 계약
 
-- 3.9.1.40 일반 설치본은 GitHub stable/latest만 조회하고 prerelease·다운그레이드를 허용하지 않습니다. 앱의 Beta 명칭은 사전공개 채널 선택을 뜻하지 않습니다. 테스트 prerelease는 수동 설치용입니다. Windows에는 `latest.yml`, macOS에는 `latest-mac.yml`과 해당 플랫폼 설치 자산을 같은 버전·같은 Release에 함께 게시해야 합니다.
+- 3.9.1.41 일반 설치본은 GitHub stable/latest만 조회하고 prerelease·다운그레이드를 허용하지 않습니다. 앱의 Beta 명칭은 사전공개 채널 선택을 뜻하지 않습니다. 테스트 prerelease는 수동 설치용입니다. Windows에는 `latest.yml`, macOS에는 `latest-mac.yml`과 해당 플랫폼 설치 자산을 같은 버전·같은 Release에 함께 게시해야 합니다.
 - `백그라운드 업데이트 확인`이 ON이면 로그인 후 15초 뒤 첫 확인을 하고, 이후 사용자가 저장한 1~72시간 주기로 확인합니다. OFF여도 `지금 버전 확인`은 사용할 수 있습니다.
 - `업데이트 자동 다운로드`가 ON이면 새 버전을 발견한 뒤 다운로드합니다. OFF이면 알림만 표시하고 사용자가 다운로드 버튼을 눌러야 합니다.
 - Windows에서 `종료 시 자동 설치`가 ON이고 다운로드가 완료된 상태라면, 정상 종료 시 거래 엔진·기록의 안전 종료가 성공한 뒤 설치합니다. OFF이면 업데이트 화면의 `설치·재시작`을 사용합니다. 안전 종료 실패 시에는 설치하지 않습니다.
 - macOS 자동 업데이트는 앱 코드서명이 필요합니다. 현재 서명 없는 테스트 DMG/ZIP은 같은 Release에서 수동 다운로드·설치만 가능하며, 설정 스위치만으로 이 제약을 우회할 수 없습니다.
 - 이미 게시된 `v3.9.1.35` 자산에는 게시 후 수정한 종료 설치·prerelease 조회 패치가 들어 있지 않습니다. 다만 stable/latest 전환으로 v3.9.1.34 Windows 설치본은 v3.9.1.35를 확인·다운로드할 수 있습니다. 같은 버전 자산을 교체하지 말고 다음 제품 버전으로 패치를 빌드·게시한 뒤 이전 설치본에서 1회 실제 업데이트를 검증합니다.
-- v3.9.1.40은 새 x64 엔진·x86 키움 호스트·Electron 설치기로만 빌드합니다. 공개 v3.9.1.39의 설치기·blockmap·`latest.yml` 이름이나 해시를 복사·교체하지 않습니다.
+- v3.9.1.41은 새 x64 엔진·x86 키움 호스트·Electron 설치기로만 빌드합니다. 공개 v3.9.1.40의 설치기·blockmap·`latest.yml` 이름이나 해시를 복사·교체하지 않습니다.
 
 ## Windows PC 준비
 
@@ -73,17 +81,17 @@ powershell -ExecutionPolicy Bypass -File .\scripts\build_and_release_windows.ps1
 ```text
 deploy/web-engine/NoahAIEngine.exe                 x64
 deploy/web-engine/NoahAIKiwoomHost.exe             x86, PE 0x14c
-deploy/web-release/NoahAI-3.9.1.40-Setup.exe
-deploy/web-release/NoahAI-3.9.1.40-Setup.exe.blockmap
-deploy/web-release/latest.yml                      updater 3.9.140
+deploy/web-release/NoahAI-3.9.1.41-Setup.exe
+deploy/web-release/NoahAI-3.9.1.41-Setup.exe.blockmap
+deploy/web-release/latest.yml                      updater 3.9.141
 deploy/release-manifest.json
 ```
 
-빌드 전 `deploy/release-manifest.json`이 v3.9.1.39를 가리키는 것은 정상입니다. 이 파일은 공개 증거이며 Windows v40 빌드가 성공해 새 해시를 계산하기 전 문서 편집만으로 v40 값이나 가짜 해시를 넣지 않습니다. 빌드 스크립트가 새 산출물에서 v40 manifest를 생성한 뒤 설치기·blockmap·`latest.yml`과 함께 검증합니다.
+빌드 전 `deploy/release-manifest.json`이 v3.9.1.40을 가리키는 것은 정상입니다. 이 파일은 공개 증거이며 Windows v41 빌드가 성공해 새 해시를 계산하기 전 문서 편집만으로 v41 값이나 가짜 해시를 넣지 않습니다. 빌드 스크립트가 새 산출물에서 v41 manifest를 생성한 뒤 설치기·blockmap·`latest.yml`과 함께 검증합니다.
 
-### v3.9.1.40 추가 확인
+### v3.9.1.41 추가 확인
 
-먼저 [v40 필수 점검](V39140_STUDIO_ALPHA_SETTINGS_TEST_PLAN.md)의 AlphaArena 모드 변경 차단·정지·재시작·전용 키·로그 및 전략 스튜디오/설정 화면을 확인합니다. 아래 거래·검증 항목도 회귀 확인합니다.
+먼저 [v41 필수 점검](V39141_MARKET_TREND_XAI_TEST_PLAN.md)의 기간별 시장 트렌드·데이터 경계·화면 근거 XAI·빈 상태와 Windows DPI를 확인합니다. v40의 AlphaArena·전략 스튜디오/설정 및 아래 거래·검증 항목도 회귀 확인합니다.
 
 1. Strategy Studio 과거재생에서 검증 캔들, 모든 진입·청산 화살표, 선택 거래 이름·원본 가격, 청산 기준 수익률 곡선과 거래표를 확인합니다.
 2. 코인과 주식·ETF 각각 500봉 검증을 실행하고 기관·자산·통화·비용·전략 버전이 결과와 일치하는지 확인합니다. 국내 현물 신규 SHORT는 계속 차단되어야 합니다.
@@ -91,7 +99,8 @@ deploy/release-manifest.json
 4. 기관별 거래내역은 PAPER/LIVE 모두 기본 접힘이며 모드·기관 전환 시 다시 접혀야 합니다. LIVE 탭 선택만으로 실행 모드가 바뀌어서는 안 됩니다.
 5. LIVE 종료 원장의 확정·미확정·외부·가져오기·통화 불명·조회 실패를 구분하고 PAPER/LEARNING 기록이나 다른 기관·계정 기록이 섞이지 않는지 확인합니다.
 6. Binance TP/SL 청산 직후 해당 거래의 주문 ID·실현손익·수수료가 확정 대조되는지, 같은 종목 연속 2건의 첫 손익이 유지되는지 확인합니다. 모호한 수동 체결을 섞으면 자동 연결되지 않아야 합니다.
-7. 공개 v3.9.1.39 설치본에서 v3.9.1.40를 확인·다운로드하고 거래 엔진 안전 종료 뒤 설치·재시작되는지 확인합니다. 설정, 계정 자격정보, 전략 버전, 검증 결과와 PAPER/LIVE 원장을 대조합니다.
+7. 시장 트렌드에서 코인/주식 각각 오늘·7일·30일을 전환하고 시장 폭 원형 그래프, 미니 추세선, 거래량·변동성, 데이터 누락 안내와 두 AI 질문 버튼을 확인합니다. 주식 장기 기간은 선택 증권사 일봉을 순차 조회하며 실패 종목을 당일 수익률로 대체하지 않아야 합니다.
+8. 공개 v3.9.1.40 설치본에서 v3.9.1.41을 확인·다운로드하고 거래 엔진 안전 종료 뒤 설치·재시작되는지 확인합니다. 설정, 계정 자격정보, 전략 버전, 검증 결과와 PAPER/LIVE 원장을 대조합니다.
 
 ### 키움 10054 확인 순서
 
@@ -116,17 +125,17 @@ python3.13 -m venv .venv
 고정 의존성/OCR·PDF·자료 가져오기 사전 검사·전체 Python 회귀·매뉴얼/문서 검사·locked npm 설치·Web 빌드·PyInstaller 엔진·bootstrap smoke·Electron DMG/ZIP·패키지 엔진 smoke를 순서대로 수행합니다. macOS 엔진은 `deploy/mac-engine/noahai-engine`이며 Windows 엔진 폴더를 참조하지 않습니다.
 
 ```text
-deploy/mac-release/NoahAI-3.9.1.40-arm64.dmg
-deploy/mac-release/NoahAI-3.9.1.40-arm64.zip
+deploy/mac-release/NoahAI-3.9.1.41-arm64.dmg
+deploy/mac-release/NoahAI-3.9.1.41-arm64.zip
 deploy/mac-release/latest-mac.yml
 deploy/mac-release/release-manifest-mac.json
 ```
 
 기본은 서명 없는 로컬 테스트 후보입니다. 정식 서명 빌드는 Developer ID를 Keychain에 설치하고 `CSC_NAME` 및 Apple 공증용 환경을 준비한 뒤 `--signed`로 실행합니다. 인증서·Apple 비밀값은 문서·로그·명령행에 넣지 않습니다. `codesign --verify --deep --strict` 및 `spctl --assess`를 통과하지 않으면 서명 배포로 인정하지 않습니다.
 
-Windows와 macOS는 같은 제품 버전의 **공용 GitHub Release 태그 `v3.9.1.40`**를 사용합니다. Windows는 `latest.yml`, macOS는 `latest-mac.yml`을 읽으므로 플랫폼별 자동업데이트 자산이 충돌하지 않습니다. DMG·ZIP과 두 blockmap, `latest-mac.yml`, Mac manifest를 Windows 설치기와 같은 릴리즈에 게시합니다.
+Windows와 macOS는 같은 제품 버전의 **공용 GitHub Release 태그 `v3.9.1.41`**를 사용합니다. Windows는 `latest.yml`, macOS는 `latest-mac.yml`을 읽으므로 플랫폼별 자동업데이트 자산이 충돌하지 않습니다. DMG·ZIP과 두 blockmap, `latest-mac.yml`, Mac manifest를 Windows 설치기와 같은 릴리즈에 게시합니다.
 
-`scripts/publish_macos.py`는 공용 릴리즈가 이미 있으면 Mac 자산만 추가하고 원격 SHA-256을 검증합니다. Windows 릴리즈가 아직 없으면 같은 `v3.9.1.40` 태그의 draft를 만들며, 별도 `-macos-candidate` 태그는 만들지 않습니다. 같은 이름의 원격 자산이 다르면 덮어쓰지 않고 새 제품 버전을 요구합니다. 새 릴리즈에서 서명 없는 Mac 자산을 stable 릴리즈에 추가하는 작업은 스크립트가 차단합니다. v3.9.1.39 이하의 기존 Mac 자산은 과거 공개·수동 테스트 기록이며 v3.9.1.40 자동업데이트 증거로 승계하지 않습니다.
+`scripts/publish_macos.py`는 공용 릴리즈가 이미 있으면 Mac 자산만 추가하고 원격 SHA-256을 검증합니다. Windows 릴리즈가 아직 없으면 같은 `v3.9.1.41` 태그의 draft를 만들며, 별도 `-macos-candidate` 태그는 만들지 않습니다. 같은 이름의 원격 자산이 다르면 덮어쓰지 않고 새 제품 버전을 요구합니다. 새 릴리즈에서 서명 없는 Mac 자산을 stable 릴리즈에 추가하는 작업은 스크립트가 차단합니다. v3.9.1.40 이하의 기존 Mac 자산은 과거 공개·수동 테스트 기록이며 v3.9.1.41 자동업데이트 증거로 승계하지 않습니다.
 
 ```bash
 .venv/bin/python scripts/publish_macos.py

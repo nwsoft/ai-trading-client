@@ -16,6 +16,7 @@
 """
 
 from __future__ import annotations
+from trading.remote_entry_pause import entry_submission
 
 import logging
 import math
@@ -911,6 +912,7 @@ class StockAnalysisService:
             return restored
         return {}
 
+    @entry_submission('', stock=True)
     def _place_paper_stock_order(
         self,
         *,
@@ -2776,6 +2778,7 @@ class StockAnalysisService:
         except Exception:
             return 0
 
+    @entry_submission('', stock=True)
     def _place_stock_order(
         self,
         *,

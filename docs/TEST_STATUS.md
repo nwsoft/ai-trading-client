@@ -1,16 +1,17 @@
-## 2026-09-19 - v3.9.1.40 Strategy Studio Readability and AlphaArena Safety Patch
+## 2026-09-19 - v3.9.1.41 Market Trend Visuals and Evidence-based XAI Patch
 
-검증 결과: 전체 Python **2,635 passed / 8 skipped / 3 subtests**, AlphaArena 집중 **75 passed**, Node **43 passed**. Web **63 modules**, 문서 정합·매뉴얼 11개 섹션과 격리 브라우저 검사 PASS. Windows 새 빌드·게시·실계정 검증은 **미완료**입니다. [증거 및 배포 환경 제약](../reports/v39140-verification.md).
+9월 19일 사용자 DB 확인 및 공통 PnL 수정 후 **Client 2,741 passed / 8 skipped / 3 subtests**, **Node 43 passed**. 원본 DB 해시 불변·복사본 재현 확인. 보호 주문 근거 연결, 실제 계좌 포지션 기반 Binance 미실현, 일일 위험 기준값 영속화, 확정 순손익 성과 소비를 보강했다. **daltrading 115 passed / 3 subtests**와 Chrome fixture 320~1280px 검사는 DB 수령 전 단계의 증거다. Web 64 modules 빌드도 이전 KPI/원격 단계 기록이며 이번 React 변경은 없다. [통합 검증 보고](../reports/v39141-remote-kpi-verification.md). 특정 사용자 과거 DB 복구 자체가 필수 조건은 아니나 **기존 미대조 기록의 안전한 업그레이드 처리·실기관·일별 계좌 대조·Windows/운영 게이트 미완료로 배포 보류**. [PnL 조사](V39141_PNL_GUARDRAIL_FEEDBACK.md).
 
-현재 소스 후보 **v3.9.1.40** · updater **3.9.140**. 현재 공개 stable/latest는 **v3.9.1.39**이며 기존 공개 자산은 보존합니다.
+시장 트렌드 변경 직후 기록: 전체 Python **2,639 passed / 8 skipped / 3 subtests**, Node **43 passed**, Web **63 modules**, 문서 정합·매뉴얼 11개 섹션 PASS. 시장 트렌드 격리 브라우저에서 코인 3개·주식 6개, 증권 일봉 동시 조회 최고 1건, 숨은 근거 전달과 오류 0건을 확인했습니다. KPI/원격 추가 후 최신 수치는 위 보고서를 따릅니다. Windows v41 새 빌드·게시·실기관 검증은 **미완료**입니다.
 
-- 전략 스튜디오 코인/주식·ETF 공통 설명 가독성, 입력 공간, 단계 이동을 개선합니다. 검증·승인·여권 정책은 바꾸지 않습니다.
-- AlphaArena 실행 중 PAPER 변경을 통한 LIVE 주문 경로를 차단합니다. 설정 변경 시 정지하고 새 설정으로 명시적 재시작하며, 이전 요청 종료 전 중복 시작은 거부합니다.
-- 전용 DeepSeek 키와 저장된 엔진으로 실행/연결 점검을 통일하고, AI 설명·판단·PAPER 결과 누락을 수정합니다.
-- AlphaArena는 가상 손익 검증이 아닌 PAPER 판단 실험임을 표시합니다. 다른 거래소 화면에서도 실행 상태와 정지를 제공합니다.
-- 설정의 실제 호출 점검 버튼과 매뉴얼 이름을 맞추고, 키/기관 변경 및 알림 실패 시 오래된 성공 표시를 제거합니다. 공개/보호 Project 모델 목록을 분리합니다.
-- Windows 새 설치본·업데이트·원격 게시 검증은 미완료입니다. 코드/화면 검사만으로 배포 완료를 표시하지 않습니다.
-- [v40 검증·배포 계획](V39140_STUDIO_ALPHA_SETTINGS_TEST_PLAN.md)
+현재 소스 후보 **v3.9.1.41** · updater **3.9.141**. 현재 공개 stable/latest는 **v3.9.1.40**이며 기존 공개 자산은 보존합니다.
+
+- 오늘·7일·30일 전환, 시장 폭 원형·미니 추세선·방향/변동성·거래량 표시와 기간 변경 중 오래된 값 제거를 검사했습니다.
+- 코인 현물/선물·KRW/USDT 범위와 주식 일봉 순차 조회, 실패 시 거짓 장기 수익률을 만들지 않는 상태를 검사했습니다.
+- 화면의 기관·기간·수집시각·표본·누락 데이터를 로컬 XAI가 사용하고 지지·반대·무효화 조건을 분리하는지 검사했습니다.
+- v40 Strategy Studio·AlphaArena·설정 회귀를 포함하지만, 실제 Provider 호출·거래소/증권사 계정·Windows 설치본을 대신하지 않습니다.
+- Windows v41 새 설치본·업데이트·원격 게시 검증은 미완료입니다. 코드/화면 검사만으로 배포 완료를 표시하지 않습니다.
+- [v41 검증·배포 계획](V39141_MARKET_TREND_XAI_TEST_PLAN.md)
 
 이하 과거 버전의 후보·배포 보류·공개 기준은 당시 기록이며 현재 배포 상태를 뜻하지 않습니다。
 

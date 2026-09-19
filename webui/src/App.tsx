@@ -279,7 +279,7 @@ function DesktopApp() {
 
   useEffect(() => {
     const mode = session?.authenticated ? "dashboard" : "login";
-    const displayVersion = platform?.release_version || "3.9.1.40";
+    const displayVersion = platform?.release_version || "3.9.1.41";
     document.title = session?.authenticated ? `Noah AI Client - 대시보드 Beta v${displayVersion}` : "NoahAI Finance Decision OS - 로그인";
     document.body.classList.toggle("dashboard-surface", Boolean(session?.authenticated));
     window.noahAI?.window?.setMode(mode).catch(() => undefined);
@@ -435,7 +435,7 @@ function DesktopApp() {
         </div>}
       </nav>
       <main>{alphaArenaRunning && <div className="inline-notice arena-running-banner" role="status"><b>AlphaArena · Binance PAPER 판단 실험 실행 중</b><span>현재 화면의 거래소 선택과 별개입니다.</span><button type="button" disabled={alphaStopBusy} onClick={async () => { setAlphaStopBusy(true); try { await client.alphaArenaCommand("stop", false); setAlphaArenaRunning(false); } catch (reason) { setError(reason instanceof Error ? reason.message : "AlphaArena 정지 실패"); } finally { setAlphaStopBusy(false); } }}>AlphaArena 정지</button></div>}{error && <div className="error-banner"><b>Gateway 연결 확인</b><span>{error}</span><button className="secondary-button" type="button" onClick={() => window.location.reload()}>전체 다시 시도</button></div>}
-      {activeSurface === "market_trend" && <MarketTrendWorkspace client={client} service={activeService as "blockchain" | "stock"} source={chartSource} />}
+      {activeSurface === "market_trend" && <MarketTrendWorkspace client={client} service={activeService as "blockchain" | "stock"} source={chartSource} onAskAssistant={(question) => openAssistant(question, activeService)} />}
       {activeSurface === "trading_log" && <LegacyTradingLogWorkspace client={client} runtime={serviceRuntime} service={activeService} onOpenManual={() => openManual()} onAskAssistant={(question) => openAssistant(question, activeService)} onRuntimeChanged={refreshRuntimeFromSettings} />}
       {(["blockchain", "stock"] as const).map((strategyService) => {
         const visible = activeSurface === "strategy" && activeService === strategyService;
@@ -462,7 +462,7 @@ function DesktopApp() {
     </section>
     <footer className="statusbar legacy-statusbar">
       <span className="legacy-status-left">{legacyStatusLabel(runtime, chartSource, statusClock)}</span>
-      <div className="legacy-release-update"><span className="legacy-release">{platform?.release_label ?? "v3.9.1.40"}</span><UpdateCenter client={client} accountScope={session?.account ?? ""} onOpenGuide={() => openManual("updates")} /></div>
+      <div className="legacy-release-update"><span className="legacy-release">{platform?.release_label ?? "v3.9.1.41"}</span><UpdateCenter client={client} accountScope={session?.account ?? ""} onOpenGuide={() => openManual("updates")} /></div>
       <div className="legacy-ai-summary"><span className="legacy-ai-record" title={aiRecord}>{aiRecord}</span><button className="legacy-record-button" type="button" onClick={() => void refreshAiRecord()}><AppIcon name="record" />기록</button></div>
     </footer>
     <SettingsCenter client={client} open={settingsOpen} onClose={() => setSettingsOpen(false)} onAskAssistant={(question, settingsSection) => openAssistant(question, "settings", settingsSection)} onOpenManual={() => { setSettingsOpen(false); openManual("settings"); }} onSettingsSaved={refreshRuntimeFromSettings} />
