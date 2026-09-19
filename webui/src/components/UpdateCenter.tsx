@@ -1,10 +1,11 @@
+import { t } from '../i18n';
 import { useEffect, useRef, useState } from "react";
 import type { GatewayClient } from "../api";
 
 type UpdateState = "idle" | "checking" | "current" | "available" | "downloading" | "ready" | "preparing" | "installing" | "error" | "development";
 const pendingUpdateNotifications = new Set<string>();
 
-export function UpdateCenter({ client, onOpenGuide, detailed = false, currentVersion = "v3.9.1.41", accountScope = "" }: { client?: GatewayClient; onOpenGuide?: () => void; detailed?: boolean; currentVersion?: string; accountScope?: string } = {}) {
+export function UpdateCenter({ client, onOpenGuide, detailed = false, currentVersion = "v3.9.1.42", accountScope = "" }: { client?: GatewayClient; onOpenGuide?: () => void; detailed?: boolean; currentVersion?: string; accountScope?: string } = {}) {
   const [state, setState] = useState<UpdateState>(window.noahAI ? "checking" : "development");
   const [version, setVersion] = useState("");
   const [installedVersion, setInstalledVersion] = useState(currentVersion);
@@ -84,19 +85,19 @@ export function UpdateCenter({ client, onOpenGuide, detailed = false, currentVer
           : state === "error" ? "확인 실패"
             : label;
   return <div className="update-version-console">
-    <div><span>현재 버전</span><strong>{currentVersion || installedVersion}</strong></div>
-    <div><span>GitHub 확인 버전</span><strong>{version || (state === "checking" ? "확인 중…" : "확인되지 않음")}</strong></div>
-    <div><span>업데이트 상태</span><strong className={`state-${state}`}>{statusText}</strong></div>
-    <div><span>자동 다운로드</span><strong>{schedule.autoDownloadEnabled ? "ON" : "OFF"}</strong></div>
-    <div><span>종료 시 자동 설치</span><strong>{schedule.autoInstallOnAppQuitEnabled ? "ON" : "OFF"}</strong></div>
-    <div><span>마지막 확인 시도</span><strong>{schedule.lastCheckAt ? new Date(Number(schedule.lastCheckAt)).toLocaleString("ko-KR") : "아직 확인하지 않음"}</strong></div>
-    <div><span>다음 자동 확인</span><strong>{schedule.nextCheckAt ? new Date(Number(schedule.nextCheckAt)).toLocaleString("ko-KR") : schedule.autoCheckEnabled ? "진행 중인 확인 완료 후 예약" : "자동 확인 꺼짐 또는 개발 실행"}</strong></div>
+    <div><span>{t("현재 버전")}</span><strong>{currentVersion || installedVersion}</strong></div>
+    <div><span>{t("GitHub 확인 버전")}</span><strong>{version || (state === "checking" ? "확인 중…" : "확인되지 않음")}</strong></div>
+    <div><span>{t("업데이트 상태")}</span><strong className={`state-${state}`}>{statusText}</strong></div>
+    <div><span>{t("자동 다운로드")}</span><strong>{schedule.autoDownloadEnabled ? "ON" : "OFF"}</strong></div>
+    <div><span>{t("종료 시 자동 설치")}</span><strong>{schedule.autoInstallOnAppQuitEnabled ? "ON" : "OFF"}</strong></div>
+    <div><span>{t("마지막 확인 시도")}</span><strong>{schedule.lastCheckAt ? new Date(Number(schedule.lastCheckAt)).toLocaleString("ko-KR") : "아직 확인하지 않음"}</strong></div>
+    <div><span>{t("다음 자동 확인")}</span><strong>{schedule.nextCheckAt ? new Date(Number(schedule.nextCheckAt)).toLocaleString("ko-KR") : schedule.autoCheckEnabled ? "진행 중인 확인 완료 후 예약" : "자동 확인 꺼짐 또는 개발 실행"}</strong></div>
     <div className="update-version-actions">
       {actionButton}
-      <button className="update-check-button" type="button" disabled={["checking", "downloading", "ready", "preparing", "installing"].includes(state)} onClick={() => void window.noahAI?.updater.check().catch(reportError)}>지금 버전 확인</button>
-      <a href="https://github.com/nwsoft/ai-trading-client/releases/latest" target="_blank" rel="noreferrer">최신 릴리스 열기</a>
+      <button className="update-check-button" type="button" disabled={["checking", "downloading", "ready", "preparing", "installing"].includes(state)} onClick={() => void window.noahAI?.updater.check().catch(reportError)}>{t("지금 버전 확인")}</button>
+      <a href="https://github.com/nwsoft/ai-trading-client/releases/latest" target="_blank" rel="noreferrer">{t("최신 릴리스 열기")}</a>
     </div>
-    <p>앱이 실행 중일 때 저장한 주기마다 확인합니다. 자동 다운로드와 종료 시 자동 설치는 설정값을 따르며, 설치 전에는 거래 엔진의 안전 종료를 확인합니다.</p>
+    <p>{t("앱이 실행 중일 때 저장한 주기마다 확인합니다. 자동 다운로드와 종료 시 자동 설치는 설정값을 따르며, 설치 전에는 거래 엔진의 안전 종료를 확인합니다.")}</p>
     {message && <p>{message}</p>}
   </div>;
 }

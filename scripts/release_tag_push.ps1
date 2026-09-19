@@ -151,6 +151,9 @@ $expectedTag = "v$releaseVersion"
 if ($tag -ne $expectedTag) {
     Fail "tag/version mismatch. requested=$tag, RELEASE_VERSION=$expectedTag"
 }
+if ([version]$releaseVersion -ge [version]"3.9.1.0") {
+    Fail "v3.9.1.0+ uses the Electron bundle release contract. Run build_web_ui_windows.ps1, complete the tester runbook, then use publish_web_ui_windows_release.ps1."
+}
 
 Write-Host "[RELEASE_TAG] RELEASE_VERSION=$expectedTag"
 Write-Host "[RELEASE_TAG] Running doc consistency check..."

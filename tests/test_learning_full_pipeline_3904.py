@@ -3,6 +3,7 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 from trading.execution_mode import ExecutionMode
+from trading.custom_strategy_runtime import stamp_trade_exit_rates
 from trading.trader import Trader
 from trading.stock_analysis_service import StockAnalysisService
 from trading.unified_trader import UnifiedTrader
@@ -25,14 +26,12 @@ def test_binance_learning_dry_run_runs_final_gate_without_order_submission():
     result = trader.execute_trades(
         [{"symbol": "BTCUSDT"}],
         {
-            "BTCUSDT": {
+            "BTCUSDT": stamp_trade_exit_rates({
                 "side": "BUY",
                 "qty": 0.01,
                 "price": 100_000.0,
                 "leverage": 1,
-                "tp": 0.0018,
-                "sl": 0.0020,
-            }
+            }, tp_fraction=0.0018, sl_fraction=0.0020, source="test_optimizer")
         },
         dry_run=True,
     )
@@ -74,9 +73,10 @@ def test_unified_learning_builds_complete_plan_before_mutating_exchange_state():
     trader._log_trade_event = MagicMock()
     trader._position_store = MagicMock(return_value={})
     trader._get_ai_max_positions = MagicMock(return_value=3)
-    trader._get_ai_enhanced_parameters_unified = MagicMock(
-        return_value={"tp_percent": 0.003, "sl_percent": 0.002, "leverage": 3}
-    )
+    trader._get_ai_enhanced_parameters_unified = MagicMock(return_value=stamp_trade_exit_rates(
+        {"leverage": 3}, tp_fraction=0.003, sl_fraction=0.002,
+        source="test_unified_dynamic",
+    ))
     exchange_client = SimpleNamespace(
         set_leverage=MagicMock(),
         set_margin_type=MagicMock(),
@@ -141,9 +141,10 @@ def test_unified_trade_fails_closed_when_min_notional_validation_raises():
     trader._log_trade_event = MagicMock()
     trader._position_store = MagicMock(return_value={})
     trader._get_ai_max_positions = MagicMock(return_value=3)
-    trader._get_ai_enhanced_parameters_unified = MagicMock(
-        return_value={"tp_percent": 0.003, "sl_percent": 0.002, "leverage": 3}
-    )
+    trader._get_ai_enhanced_parameters_unified = MagicMock(return_value=stamp_trade_exit_rates(
+        {"leverage": 3}, tp_fraction=0.003, sl_fraction=0.002,
+        source="test_unified_dynamic",
+    ))
     exchange_client = SimpleNamespace(
         set_leverage=MagicMock(),
         set_margin_type=MagicMock(),

@@ -48,6 +48,6 @@
 
 캡처가 완료되면, 각 문서 해당 섹션에 다음 형식으로 추가하세요.
 
-![ModernDashboard 메인](images/modern_dashboard_main_dark.png)
+`images/modern_dashboard_main_dark.png` — 캡처 파일이 저장된 뒤 이미지 링크로 전환합니다.
 
 주의: 저장소 용량을 고려하여 PNG를 70~80% 품질로 최적화하고, 가로 폭 1200px 기준으로 리사이즈를 권장합니다.

@@ -70,8 +70,10 @@
 
 한 번에 실행하려면 아래 전체 실행기를 사용한다.
 
-- `python scripts/stock_live_readiness_run.py --broker kiwoom`
-- 엄격 모드: `python scripts/stock_live_readiness_run.py --broker kiwoom --strict`
+- 공통 offline: `python scripts/stock_live_readiness_run.py --all-supported-brokers --offline`
+- 승인된 QA 계정: `python scripts/stock_live_readiness_run.py --broker kiwoom --strict --account QA_ACCOUNT`
+
+계정을 생략하면 `data/*`를 자동 탐색하지 않는다. 실제 사용자·테스터 설정은 지원 증거이며 명시적 동의와 대상 지정 없이 readiness 입력으로 사용하지 않는다.
 
 1. settings에서 브로커별 필수값 입력
 2. scripts/stock_d1_preflight.py 실행

@@ -158,7 +158,7 @@ class TestServiceTabStructureInvariance:
             'AI 학습',
             'AI 리포트',
             'AI 어시스턴트',
-            'AI 커스텀',
+            '전략 스튜디오',
         }
         assert COMMON_TRADING_TABS == expected
 

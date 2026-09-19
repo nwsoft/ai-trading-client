@@ -1,6 +1,36 @@
 # NoahAI 마스터 문서
 
-> 최신 동기화: 2026-08-13 · 소스 대상 v3.9.0.10 AI Custom Management & Runtime Integrity Update, 대시보드 매뉴얼·어시스턴트 지식과 UI 플랫폼 전환 설계·복구 기준선 반영, Windows 재빌드 전  
+## 현재 서비스 정본 · 2026-09-18
+
+NoahAI Client는 핵심 제품 검증을 완료하고 무료·유료 Windows 서비스로 운영한다. 코인·증권·ETF, Strategy Studio는 현재 제공 중이다. Strategy Hub는 무료 공개 테스트이며 유료 Marketplace·결제·제작자 정산과 구분한다. 생활금융은 현금흐름·목표·보안 경고·세금 계산·금융상품 비교를 시작으로 클라이언트에서 단계적으로 제공한다. 세부 기관별 PAPER/LIVE 준비도와 금융상품 시뮬레이션/실제 가입 경계는 별도로 표시한다.
+
+이 기준은 아래 역사적 계획 문서에서 사용된 `베타 검증 중`, `향후 제공`, `구현 예정` 표현보다 우선한다. 과거 버전의 당시 상태를 설명하는 릴리즈 기록은 변경하지 않는다.
+
+## 현재 소스 후보 · v3.9.1.41
+
+추가 구현 정본: [KPI·원격 실행 계획](V39141_REMOTE_KPI_IMPLEMENTATION_PLAN.md). KPI 인증 DB 격리·집계·30일 외부 보관 도구와 동의형 모바일 상태/신규 제출 일시정지 베타를 포함합니다. 원격 시작·재개·전량 청산·PnL 상세 공유는 제공하지 않습니다. 소스 시험과 운영 이관·Windows 배포는 별도입니다.
+
+현재 소스 후보는 **v3.9.1.41** · updater **3.9.141**이며, 현재 공개 stable/latest는 **v3.9.1.40**입니다. v41은 시장 트렌드 기간별 그래프와 화면 근거 기반 AI 브리핑·XAI 관찰 후보 변경이며 Windows 새 빌드·실기관·업데이트 검증 전 소스 후보입니다. [v41 검증 게이트](V39141_MARKET_TREND_XAI_TEST_PLAN.md). 공개 v40 자산은 불변입니다.
+
+이전 PnL 재감사의 주문 소유권·실계정 대조 미완료 사항은 별도로 유지합니다. [PnL 재감사](V39139_PNL_TRUST_AUDIT.md).
+
+## 현재 버전 기준 · v3.9.1.40 공개판
+
+현재 공개 버전은 **v3.9.1.40** · updater **3.9.140**입니다. Strategy Studio 가독성·AlphaArena PAPER 안전성·설정 점검을 포함한 설치기·blockmap·`latest.yml`·manifest가 stable/latest로 게시됐습니다.
+
+[v3.9.1.40 검증 기록](V39140_STUDIO_ALPHA_SETTINGS_TEST_PLAN.md). stable 자산 게시 사실은 확인됐습니다. 실제 기관 계정·키움 OCX·특수 DPI·장시간 PAPER의 환경별 무결함은 별도 검증 상태로 표시합니다.
+
+## v3.9.1.32 소스 후보 · 공개 v3.9.1.31
+
+v3.9.1.32는 국면 재선정 대기를 실제 변경 알림과 분리하고, 저장한 업데이트 확인 주기를 앱 공통 타이머로 실행합니다. Coinone의 미제공 활성 상태를 중단으로 오해하던 후보 수집을 수정하고, KIS·미래에셋의 주식/ETF 목록을 공식 공개 마스터로 분리합니다. 네 증권사 워커의 후보 없음·분석 완료·오류를 해당 기관 로그로 전달합니다. 주문 권한·TP/SL·점수 없는 진입 차단은 유지합니다.
+
+제품 버전 3.9.1.32 / updater 3.9.132. 새 Windows 설치본의 설정창 미방문 주기 확인, 상태 5분 요약, Coinone 후보 점수·PAPER, KIS 장중 주기 로그를 확인해야 합니다. 사용자 공유 데이터는 읽기 전용입니다.
+
+[근본 원인과 필수 검증](V39132_RUNTIME_RECOVERY_TEST_PLAN.md)
+
+## 이전 문서 기록 (아래 현재·후보 표기는 당시 기준)
+
+> 최신 동기화: 2026-09-14 · v3.9.1.31 소스 후보 · v3.9.1.30 Windows 공개 자산 · 환경별 외부 검증은 별도  
 > 이 파일은 공식 문서의 지도입니다. 기능의 사실 판단은 코드 → 테스트 → 아래 정본 순서로 확인합니다.
 
 ## 공식 정본
@@ -9,11 +39,23 @@
 |---|---|---|
 | 문서 진입점 | `docs/README.md` | 처음 읽을 문서와 빠른 실행 |
 | 변경 이력 | `docs/CHANGELOG.md` | 버전별 사용자·개발 변경 |
+| v3.9.1.39 검증·배포 | `V39139_EXTERNAL_CLOSE_RECONCILIATION_TEST_PLAN.md` | 외부 TP/SL 청산 주문 연결·실현손익 복구·Windows·실계정·게시 게이트 |
+| v3.9.1.38 검증·배포 | `V39138_STRATEGY_REPLAY_LIVE_HISTORY_TEST_PLAN.md` | 과거재생·LIVE/PAPER 이력·Windows·실계정·게시 게이트 |
+| v3.9.1.31 배포 점검 | `docs/DEPLOY_CHECKLIST.md` | 11개 메뉴얼·전역 검색·Windows DPI·업데이트 보존 게이트 |
+| v3.9.1.30 실행 검증 원장 | `docs/V39130_STRATEGY_VENUE_CONSISTENCY_TEST_PLAN.md` | 통계 범위·전략 시간봉·증권 연결·기관별 실행 경계 |
+| v3.9.1.27 배포 원장 | `docs/V39127_STRATEGY_ASSISTANT_CONTINUITY_TEST_PLAN.md` | 단일 확인·생성 시각·429 로컬 복구·설명 수준·AI 답변 검토 전달·요청형 비용·역할별 모델 |
+| Marketplace 사업·결제 정본 | `docs/STRATEGY_MARKETPLACE_POINTS_AND_LICENSE_PLAN.md` | 테스트 포인트 구매가치 전환, 판매자 자율 가격·고가 계약형 판매, 유상/적립 포인트, 20% 수수료, daltrading 관리자·원화 결제·월 정산, 조건부 코인/모바일 게이트 |
+| 과거 릴리스 원장 | `docs/archive/release/` | 당시 버전의 검증·배포 이력. 현재 상태 판정에는 사용하지 않음 |
+| 기관 온보딩 정본 | `docs/ARCHITECTURE.md`, `docs/EXCHANGE_SEPARATION_GUIDELINES.md`, `docs/BROKER_EXPANSION_ROADMAP.md` | 신규 거래소·증권사의 등록·실행·원장·UI·검증 완료 정의 |
+| 거래소 실행 계약 | `docs/EXCHANGE_SEPARATION_GUIDELINES.md` | 상품·방향·통화·수량·소유권·실패 폐쇄 정본 |
 | 개발 계획 | `docs/UPDATE_PLAN.md` | 완료·부분 완료·미완료 분리 |
+| Strategy Studio 마스터 플랜 | `docs/NOAHAI_STRATEGY_STUDIO_MASTER_PLAN.md` | 최종 명칭, 현재 Level 1~4, 무료 허브와 향후 마켓의 사업·개발 단계 |
 | 사용자 가이드 | `docs/USER_GUIDE.md` | 설치 후 실제 사용 순서 |
 | 레퍼럴·거래소 제휴 운영 | `daltrading/REFERRAL_MEMBERSHIP_OPERATIONS_20260727.md` | 제휴 신청·코드 연결·UID 귀속·회원등급 게이트 통합 정본(관련 저장소) |
-| 인앱 매뉴얼 | `ui/widgets/user_manual_widget.py` | 앱 안의 쉬운 기능 설명 |
+| 인앱 매뉴얼 | `ui/widgets/user_manual_widget.py` → `docs/USER_MANUAL_SECTIONS.json` → `webui/src/components/AssistantWorkspace.tsx` | 11개 정본의 생성·전역 검색·문서형 표시 |
 | 기술 구조 | `docs/ARCHITECTURE.md` | 모듈 구조와 책임 경계 |
+| Web UI 기능 동등성 정본 | `config/web_ui_feature_inventory.json` | 서비스·화면·이전 단계의 기계 판독 목록 |
+| Web UI 1:1 완료 판정 정본 | `docs/WEB_UI_1_TO_1_PARITY_EXECUTION_PLAN_v3.9.1.0.md` | 로그인부터 5개 서비스·설정·매뉴얼·Windows E2E까지의 유일한 완료 원장 |
 | UI 플랫폼 전환 실행 계획 | `docs/UPDATE_PLAN.md` | Web UI·desktop shell·Gateway 단계, 백업·검증·롤백 |
 | UI 디자인/상태 계약 | `docs/UI_DESIGN_GUIDE.md` | 레거시 안정화와 새 Web UI 화면 기준 |
 | 거래 흐름 | `docs/TRADING_FLOW.md` | 코인·증권 주문 파이프라인 |
@@ -25,15 +67,17 @@
 | 빌드 | `docs/BUILD_GUIDE.md` | 의존성·명령·산출물 검증 |
 | 배포 | `docs/DEPLOY_CHECKLIST.md` | 배포 전후 운영 게이트 |
 | 테스트 | `docs/TEST_STATUS.md` | 최신 자동·GUI 검증 근거 |
-| Fix 2 업데이트·UI 근본 장애 | `docs/INCIDENT_260811_V3908_FIX2_UPDATER_UI_ROOT_CAUSE.md` | 자동업데이트 상태 머신·화면 재사용·DLL 판정·배포 계약 |
+| Web UI 완성 판정 | `docs/WEB_UI_MIGRATION_STATUS_v3.9.1.0.md` | 구조 분리·기능 동등성·Windows 배포 게이트 분리 |
+| Web UI 테스터 실행표 | `docs/WEB_UI_TESTER_RUNBOOK_v3.9.1.0.md` | 설치·화면·설정·AI Custom·거래·soak QA |
+| Fix 2 업데이트·UI 근본 장애 | `docs/archive/history/INCIDENT_260811_V3908_FIX2_UPDATER_UI_ROOT_CAUSE.md` | 자동업데이트 상태 머신·화면 재사용·DLL 판정·배포 계약 |
 | AI 커스텀·어시스턴트 QA | `docs/AI_CUSTOM_ASSISTANT_TEST_RUNBOOK_v3.9.0.2.md` | 순서·계정·기대 결과 |
 | AI 커스텀 핵심 고도화 | `docs/AI_CUSTOME_UPDATE_PLAN.md` | 시장 검증, Noah Strategy IR, Progressive Strategy UI, P0~P3와 KPI |
-| AI 커스텀 제품 로드맵 | `docs/AI_CUSTOM_STRATEGY_OS_PRODUCT_ROADMAP.md` | 1~8단계와 현재 구현 경계 |
-| 전략 여권·공유 | `docs/AI_CUSTOM_STRATEGY_SHARING_AND_PASSPORT.md` | `.noahstrategy`, 9개 목적별 탐색, 민감정보·유료 마켓 분리 |
+| Strategy Studio 제품 로드맵 | `docs/AI_CUSTOM_STRATEGY_OS_PRODUCT_ROADMAP.md` | 전략 스튜디오·검증·무료 허브·유료 마켓 단계와 현재 구현 경계 |
+| 전략 여권·공유 | `docs/AI_CUSTOM_STRATEGY_SHARING_AND_PASSPORT.md` | `.noahstrategy`, E0~E5 증거 단계, 10개 범용 목적과 동적 기관 필터, 민감정보·유료 마켓 분리 |
 | 대외 설명·비즈니스 정본 | `docs/NOAHAI_EXTERNAL_POSITIONING_AND_BUSINESS_PLAN_20260804.md` | NoahAI·AI 커스텀 공식 문구, 경쟁 비교, 고객별 설명, 무료→유료→B2B 사업 계층 |
-| Teayu 테스터 진단 | `docs/TESTER_260728_STABILITY_EXCHANGE_REPORT.md` | 강제종료 후보·주문 범위·재검증 |
-| Teayu_02 장애 조사 | `docs/INCIDENT_260729_TEAYU_02.md` | keyring·Binance 로딩·비정상 종료 증거와 v3.9.0.5 수정 |
-| Teayu 거래소·통화 장애 조사 | `docs/INCIDENT_260802_TEAYU_V3906.md` | 6개 거래소 심볼 조회·무거래 순환 차단·KRW/USDT 리포트·200건·종료 진단 |
+| Teayu 테스터 진단 | `docs/archive/history/TESTER_260728_STABILITY_EXCHANGE_REPORT.md` | 강제종료 후보·주문 범위·재검증 |
+| Teayu_02 장애 조사 | `docs/archive/history/INCIDENT_260729_TEAYU_02.md` | keyring·Binance 로딩·비정상 종료 증거와 v3.9.0.5 수정 |
+| Teayu 거래소·통화 장애 조사 | `docs/archive/history/INCIDENT_260802_TEAYU_V3906.md` | 6개 거래소 심볼 조회·무거래 순환 차단·KRW/USDT 리포트·200건·종료 진단 |
 
 ## v3.9.0.7 공개 설명 정본
 
@@ -51,7 +95,7 @@
 - 설정 DB 계약: 기존 `3.9.0.5` 설정 스키마 유지. 이번 제품 버전 변경으로 사용자 설정·거래 DB를 재작성하지 않음
 - 배포 경계: 소스 후보이며 `pending_windows_rebuild`. Windows 설치·실계정·장시간 검증 전에는 배포 또는 거래소 완전 작동 완료가 아님
 
-대외 설명은 `docs/NOAHAI_EXTERNAL_POSITIONING_AND_BUSINESS_PLAN_20260804.md`를 따른다. NoahAI는 `AI 금융 의사결정 인프라`, AI 커스텀은 `AI 전략 운영체제`, daltrading 전략 허브는 `검증 기반 무료 베타 탐색 계층`으로 구분한다. `TradingView 완전 상위호환`, `모든 Pine 지원`, `검증된 고수익 전략 마켓` 표현은 사용하지 않는다.
+대외 설명은 `docs/NOAHAI_EXTERNAL_POSITIONING_AND_BUSINESS_PLAN_20260804.md`를 따른다. NoahAI는 `AI 금융 의사결정 인프라`, NoahAI Strategy Studio는 `근거 기반 전략 작업 공간`, Strategy OS는 장기 지향점, daltrading Verified Strategy Hub는 `검증 기반 무료 베타 탐색 계층`으로 구분한다. `TradingView 완전 상위호환`, `모든 Pine 지원`, `검증된 고수익 전략 마켓` 표현은 사용하지 않는다.
 | 기술 백서 | `docs/NOAHAI_TECHNICAL_WHITEPAPER.md` | 기술 철학·구조 공식 설명 |
 | 사업 설명 | `docs/BUSINESS_PROPOSAL_2026.md` | 구현과 로드맵을 구분한 사업 문서 |
 | 문서 정책 | `docs/DOCUMENTATION_POLICY.md` | 중복 방지·정합성 규칙 |
@@ -122,7 +166,12 @@ v3.9.0.5 Fix Patch 1 Windows EXE는 현재 공개 자산입니다. 현재 Fix Pa
 1. `CHANGELOG.md`: 무엇이 바뀌었는지
 2. `UPDATE_PLAN.md`: 완료·부분 완료·미완료 상태
 3. `USER_GUIDE.md`: 사용자가 무엇을 눌러야 하는지
-4. `ui/widgets/user_manual_widget.py`: 앱 안의 쉬운 설명
-5. `TEST_STATUS.md`: 검증 결과
+4. `ui/widgets/user_manual_widget.py`에서 추출한 `docs/USER_MANUAL_SECTIONS.json`과 `webui/src/components/AssistantWorkspace.tsx`의 `ManualCenter`: 레거시 본문과 v3.9.1.0 앱 표시를 함께 갱신
+5. `ui/widgets/user_manual_widget.py`: v3.9.0.10 롤백 클라이언트 설명
+6. `TEST_STATUS.md`: 검증 결과
+
+새 거래소·증권사를 추가할 때는 위 목록에 더해 `venue_capabilities.py`, `web_ui_feature_inventory.json`, 설정/자격증명, 런타임 수명주기, LIVE/PAPER/LEARNING 원장, 통계/KPI/리포트, Strategy Studio 귀속과 기관별 회귀를 한 묶음으로 갱신한다. 등록부와 UI inventory가 어긋나거나 대상 OS·계정 검증이 없으면 지원 완료로 표시하지 않는다.
 
 빌드·배포가 관련되면 `BUILD_GUIDE.md`, `DEPLOY_CHECKLIST.md`, 버전 파일, 릴리스 매니페스트까지 함께 확인합니다.
+
+소스 연결, 자동 테스트, Vite 빌드는 1:1 완료 증거가 아니다. `WEB_UI_1_TO_1_PARITY_EXECUTION_PLAN_v3.9.1.0.md`에 `OPEN`, `SOURCE`, `MAC`이 하나라도 남으면 테스터 배포와 공개 배포를 금지한다.

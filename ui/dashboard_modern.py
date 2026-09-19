@@ -2160,7 +2160,7 @@ class ModernDashboard(ctk.CTk):
                 selected = str(cast(ctk.CTkTabview, self.tab_widget).get() or "")
             except Exception:
                 return
-            if selected != "AI 커스텀":
+            if selected != "전략 스튜디오":
                 return
             self._ensure_custom_strategy_tab(materialize=True)
 
@@ -2180,7 +2180,7 @@ class ModernDashboard(ctk.CTk):
         try:
             if not getattr(self, 'tab_widget', None):
                 return
-            name = "AI 커스텀"
+            name = "전략 스튜디오"
             tab = self._get_or_add_tab(name)
             if not materialize:
                 return
@@ -4599,7 +4599,12 @@ class ModernDashboard(ctk.CTk):
                     multi_venue_policy['_authorized_targets'] = list(enabled_brokers)
                     auto_risk_policy['multi_venue_execution'] = multi_venue_policy
 
-                    svc = StockAnalysisService(adapter, broker_name=broker, recorder=getattr(self, 'recorder', None))
+                    svc = StockAnalysisService(
+                        adapter,
+                        broker_name=broker,
+                        recorder=getattr(self, 'recorder', None),
+                        paper_settings=self.settings if isinstance(self.settings, dict) else {},
+                    )
                     cycle_result = svc.run_auto_trade_cycle(
                         symbols=symbols,
                         quantity=float(cfg.get('quantity', 1.0) or 1.0),
@@ -5799,7 +5804,7 @@ class ModernDashboard(ctk.CTk):
             notional: Dict[str, float] = {}
             for exchange, count, cost in cur.fetchall():
                 summary['count'] += int(count or 0)
-                currency = 'KRW' if str(exchange).lower() in {'upbit', 'bithumb'} else 'USDT'
+                currency = 'KRW' if str(exchange).lower() in {'upbit', 'bithumb', 'coinone'} else 'USDT'
                 notional[currency] = notional.get(currency, 0.0) + float(cost or 0.0)
             summary['notional_by_currency'] = notional
         except Exception as exc:
@@ -5881,7 +5886,7 @@ class ModernDashboard(ctk.CTk):
 
             for row in rows:
                 exchange, symbol, side, price, quantity, cost, fee, fee_currency, executed_at = row
-                quote = 'KRW' if str(exchange).lower() in {'upbit', 'bithumb'} else 'USDT'
+                quote = 'KRW' if str(exchange).lower() in {'upbit', 'bithumb', 'coinone'} else 'USDT'
                 fee_unit = str(fee_currency or quote).upper()
                 values = [
                     str(exchange or '').upper(),
@@ -7732,7 +7737,7 @@ class ModernDashboard(ctk.CTk):
                     name = str(exchange or '').strip().lower()
                     if not name:
                         continue
-                    trading_type = 'spot' if name in {'upbit', 'bithumb'} else 'futures'
+                    trading_type = 'spot' if name in {'upbit', 'bithumb', 'coinone'} else 'futures'
                     try:
                         adapter = manager.get_exchange(name, trading_type)
                         if adapter is not None and hasattr(adapter, 'get_balance'):
@@ -9473,7 +9478,7 @@ class ModernDashboard(ctk.CTk):
                     result = res if isinstance(res, dict) else {}
                     if result.get('status') == 'paper':
                         paper_summary = summarize_paper_positions(result.get('positions', {}))
-                        quote = 'KRW' if str(exchange).lower() in {'upbit', 'bithumb'} else 'USDT'
+                        quote = 'KRW' if str(exchange).lower() in {'upbit', 'bithumb', 'coinone'} else 'USDT'
                         paper_items = [
                             ("PAPER 모드", "실잔고 미사용"),
                             ("가상 포지션", f"{int(paper_summary['position_count'])}개"),
@@ -12534,14 +12539,13 @@ class ModernDashboard(ctk.CTk):
         """항상 최상단 표시 설정 적용"""
         try:
             # 설정 파일을 직접 읽어서 ui_settings 확인
-            import json
             from path_utils import get_config_dir
+            from config.settings import read_settings_json_file
             import os
 
             config_path = os.path.join(get_config_dir(), 'settings.json')
             if os.path.exists(config_path):
-                with open(config_path, 'r', encoding='utf-8') as f:
-                    settings = json.load(f)
+                settings, _ = read_settings_json_file(config_path)
                 always_on_top = settings.get('ui_settings', {}).get('always_on_top', False)
             else:
                 # 설정 파일이 없으면 기본값 사용 (False로 변경하여 자연스러운 창 동작)
@@ -12993,7 +12997,7 @@ class ModernDashboard(ctk.CTk):
             service = str(getattr(self, "current_service", "blockchain") or "blockchain").lower()
             if selected in (self.service_sub_tabs.get(service, {}) or {}):
                 self._schedule_source_tab_render(service, selected)
-            if selected == "AI 커스텀":
+            if selected == "전략 스튜디오":
                 self._schedule_custom_strategy_tab_render()
             else:
                 self._cancel_custom_strategy_tab_render()
@@ -13452,11 +13456,14 @@ class ModernDashboard(ctk.CTk):
         # 로컬 렌더 검증 전용. 모든 탭/스타일 초기화 뒤 선택한다.
         try:
             verify_tab = str(os.environ.get('NOAHAI_UI_VERIFY_TAB', '') or '').strip()
+            # v3.9.1.15 이전 자동화가 사용한 화면명도 계속 받아들인다.
+            if verify_tab == "AI 커스텀":
+                verify_tab = "전략 스튜디오"
             if verify_tab and self._tab_exists(verify_tab):
                 def _select_verify_tab(target=verify_tab):
                     tv = cast(ctk.CTkTabview, self.tab_widget)
                     tv.set(target)
-                    if target == "AI 커스텀":
+                    if target == "전략 스튜디오":
                         self._ensure_custom_strategy_tab()
                     elif target in {"금융 인텔리전스", "금융 인텔리전스 허브", "성과·위험 분석"}:
                         self._ensure_current_financial_intelligence_content()

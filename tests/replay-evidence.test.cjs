@@ -11,6 +11,13 @@ const compiled = ts.transpileModule(fs.readFileSync(source, 'utf8'), { compilerO
 const module_ = new Module(source, module);
 module_._compile(compiled, source);
 const { readReplayEvidence, replayAction, formatReplayPercent, formatReplayPrice, replayPriceMinMove, replayMarkerText } = module_.exports;
+
+test('English replay labels retain short-entry SELL and short-exit BUY semantics', () => {
+  assert.equal(replayAction('SHORT',true,'en'),'▼ SELL · SHORT ENTRY');
+  assert.equal(replayAction('SHORT',false,'en'),'▲ BUY · SHORT EXIT');
+  assert.equal(replayAction('LONG',true,'en'),'▲ BUY · LONG ENTRY');
+  assert.equal(module_.exports.replayExitReason('stop_loss','en'),'Stop loss');
+});
 const venvPython = process.platform === 'win32'
   ? path.join(root, '.venv', 'Scripts', 'python.exe')
   : path.join(root, '.venv', 'bin', 'python');

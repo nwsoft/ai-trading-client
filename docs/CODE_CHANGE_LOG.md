@@ -1,5 +1,121 @@
 # 🔄 코드 수정 이력 추적
 
+## 2026-09-20: v3.9.1.42 한국어 기본·영어 베타
+
+- UI 후속: 로그인 하단·일반 설정으로 언어 선택기 이동. 저장된 언어 우선, 미저장 시 Electron OS 첫 선호 언어/브라우저 언어 참고, 미지원은 한국어. 국가/IP 조회·거래 변경 없음. 로그인 450×680 한/영 배치와 입력 보존, 설정 즉시 전환·저장 확인.
+
+- 표시 전용 사전/언어 선택·계정별 별도 저장. JSX 표시와 option의 원래 값 분리, 입력·전략·PnL·원격 승인 불변.
+- 650개 정적 영어 문구, replay ENTRY/EXIT·사유·곡선 설명, 11항목 영어 운영 가이드, 명시적 AI 심층분석 출력 언어/캐시 문맥.
+- daltrading 원격 HTML/JS/확인창 영어화 및 로그인 후 언어 유지. DB schema·원격 권한·주문 API 변경 없음.
+- 미완료 범위/실기관/Windows 게이트는 [실행 계획](V39142_ENGLISH_IMPLEMENTATION_PLAN.md)과 [검증 보고](../reports/v39142-english-verification.md)에 별도 기록.
+
+## 2026-09-14: v3.9.1.30 통계·전략 시간봉·증권 연결 정합
+
+- `paper_strategy_ledger.read_paper_strategy_outcomes`: 기관/기간/중복 제거 후 제한을 적용하는 역방향 청크 조회. 다른 기관 거래가 선택 기관의 과거 기록을 밀어내지 않는다.
+- `ApplicationServices`: PAPER 카드와 통계의 공통 집계 및 짧은 집계 캐시. 실행기관·기간·통화 정본 통일. 과거 시세 검사에 선언 시간봉/다중봉·완성봉·UTC 기간 사용.
+- `strategy_timeframes`, `custom_strategy_validator`, `declarative_strategy_engine`: 선언봉 수집과 실제 평가 문맥을 공유하고 상위봉 미래 데이터 사용 차단. 주식은 일봉 공급 한계를 명시.
+- `market_data`: Coinone 공개 차트, 응답 시간순 정렬, Bithumb 공식 15m/4h 분봉 조회 및 2h 완전 묶음 합성.
+- `kiwoom_process_proxy`/factory: 전 Windows 호출의 COM 격리, Qt 이벤트 처리, timeout 채널 폐기·불확실 주문 차단. KIS/stock runtime은 인증 상태와 실패 원인을 전달.
+- `StrategyStudio`/CSS: 보완 영역 이동·포커스, 분 단위 날짜·반응형 상태, v1 비교 제외, 명시적 검증 대상/시간봉 안내, 허브 설명 펼치기.
+- `SourceWorkspace`/CSS: 미연결·오류 안내 슬롯 고정 및 좁은 화면 세로 배치. 로그·실행 풀 안내·카드 겹침 회귀.
+- 검증: 전체 Python 2,296 passed/8 skipped, Web 51 modules, 브라우저 24개 조합, 표면 계약 감사 PASS. Windows/실계정/장시간 검증은 별도 미완료.
+- 테스트 및 외부 게이트: [v3.9.1.30 계획](V39130_STRATEGY_VENUE_CONSISTENCY_TEST_PLAN.md).
+
+---
+
+## 2026-09-12: v3.9.1.29 공정 전략 공용계층·회원 운용용량·Coinone 온보딩
+
+- `OpenAIClient`가 GPT-6 reasoning 파라미터를 정규화하고 요청 모델과 Provider 응답 모델을 별도로 기록한다. `AIProviderRouter.probe_model`과 설정 서비스는 모델 목록 조회와 실제 생성 호출을 분리하며, 진단 토큰도 대화형 비용 원장에 남긴다.
+- 설정 UI는 저장된 실행값/변경 대기값, 요청 모델/실제 응답 모델, 모델 목록/실제 호출 결과를 각각 표시하고 실제 응답 모델별 로컬 사용량을 제공한다.
+- 전략 제작·PAPER 검증 상한을 회원등급과 분리하고 실제 계정의 집중 1개/무료 3개/코인 유료 5개 운용용량을 런타임 최종 포지션 검사에 연결했다.
+- 국내 무료 Upbit·Bithumb·Coinone과 서버 확인 해외 레퍼럴 허용 집합을 분리했다. 서버 정책은 제품 기본 상한을 낮출 수만 있고 클라이언트 상한을 몰래 높일 수 없다.
+- Coinone 하이브리드 어댑터, 중앙 기관 기능 등록부, 자격증명·설정·시세·PAPER·통계·Strategy Studio·Hub 생성 등록부를 연결했다.
+- Coinone LIVE는 실제 계정 E2E 승인 전 시작 게이트와 주문 어댑터에서 이중 차단하며, 종목 없는 주문 조회를 BTC로 추측하지 않고 실패 폐쇄한다.
+
+## 2026-09-12: v3.9.1.28 Strategy Studio·Strategy Hub 기관/증거 계약 정합
+
+- Strategy Studio의 실행 범위를 `Binance/전체 거래소` 고정 표현에서 공통 기관 등록부 기반의 `전체 호환 기관/개별 기관`으로 변경했다. 현재 6개 코인 거래소와 4개 증권사를 같은 정본에서 생성하고 주식·ETF도 동일한 범위 계약을 사용한다.
+- daltrading의 별도 거래소 하드코딩을 제거하고 자산군·상품 유형·기관·시장국면·증거 단계 필터를 등록부에서 동적으로 생성한다. 목적 분류는 거래소 이름 대신 암호화폐 선물·현물·주식/ETF를 포함한 10개 범용 분류를 사용한다.
+- `.noahstrategy`는 개인 상세 거래 없이 정확한 전략 key·버전의 제한된 기관·통화별 로컬 집계만 포함한다. 근거가 없으면 E0, 제작자 로컬 근거가 있으면 E1로 공개하되 둘 다 랭킹에서 제외한다.
+- 동일 key·version·IR 해시의 E0 공개본은 재내보낸 패키지로 E1 근거만 append-only 갱신한다. 실행 규칙·범위가 달라졌으면 새 버전을 요구하고 기존 취득 패키지 해시는 바꾸지 않는다.
+- E2~E5는 서버 서명·계정 연동·기관 체결 대조로만 승격하며, 신규 기관은 `live_ready` 온보딩 게이트 전 LIVE 근거와 E5 등록을 실패 폐쇄한다.
+- 검증 결과: NoahAI 전체 `2,235 passed, 8 skipped`, Web production build `51 modules`, daltrading 전체 `100 passed`.
+
+---
+
+## 2026-09-09: v3.9.1.24 버전 불변성·Strategy Studio·Strategy Hub UX 정합
+
+- `config/app_version.py`, Electron package/buildVersion, Windows version resource, Web fallback와 feature inventory를 제품 `3.9.1.24` / updater `3.9.124`로 동기화했다.
+- 공개 v3.9.1.23 manifest·installer·`latest.yml`은 직전 공개 자산으로 보존하고 후속 변경은 v3.9.1.24 새 설치본으로만 배포하도록 검증 원장을 분리했다.
+- Strategy Studio 반응형 탭·실행 풀 안내·고급 JSON 확인·재검증 설명과 Strategy Hub 로그인 복귀·서버 분석→사용자 확인 2단계 제출·24시간 초안 보존을 v3.9.1.24 범위로 정리했다.
+- 같은 strategy key의 sibling 버전 PAPER 권한을 묵시적으로 교체하지 않고 명시 일시정지를 요구해 기존 attempt·성과·활성 검증시간을 보존한다.
+- 버전별 저장 실행 파라미터를 읽기 전용으로 표시하고, 정확한 key/version의 PAPER 세부 체결·비용·실제 TP/SL·Smart Exit 근거를 개인 로컬 JSON으로 내보낸다. 개인 거래는 공유 패키지와 허브 자동 전송에서 분리한다.
+- Strategy Hub의 E0 카드는 E2~E5 검증 랭킹과 분리하고 순위·0.0점 대신 성과 점수 없음·검증 시작 전으로 표시하며 제작자 설명과 서버 검증 근거를 구분한다.
+- NoahAI 전체 Python 회귀 `2,136 passed, 8 skipped`, 변경 집중 회귀 `66 passed`, daltrading 전체 회귀 `89 passed`, Web production build `50 modules`, 문서 정합·Web 표면·활성 소스 감사를 통과했다.
+- Electron 빌드·업데이트 도구의 `js-yaml`을 보안 수정 버전 4.3.2로 고정해 npm 전체/production audit 취약점 0건을 확인했다. 로컬 Node 20.11.0은 빌드에 성공했지만 Windows 릴리스는 요구 버전 22.12 이상에서 다시 수행한다.
+
+## 2026-09-08: v3.9.1.23 기관 등록부·확장 회귀 정합
+
+### 문제
+
+- 거래소·증권사 목록이 Python 런타임, 통계, Web UI에 중복돼 미래 기관 추가 시 일부 화면이나 원장이 누락될 수 있었음
+- CCXT 연결이나 탭 생성만으로는 주문 단위·PAPER·통계·안전 종료까지 같은 계약을 상속했다는 보장이 없었음
+- 실제 사용자 지원 폴더가 개발 readiness의 암묵적 계정 후보가 될 수 있었음
+
+### 수정
+
+- `venue_capabilities.py`의 `_VENUES`에서 암호화폐·증권 기관 집합과 서비스 소유권을 파생
+- `query_services`, `runtime_bridge`, `headless_runtime`, `application_services`의 통계/실행 허용 범위를 중앙 등록부에 연결
+- 코드 등록부, Web UI inventory, `venueSources.ts`, 통계 서비스 허용 범위가 다르면 실패하는 드리프트 회귀를 추가하고 App·운영 KPI·레거시 화면의 중복 기관 배열을 공통 모듈로 통합
+- 기관 추가 시 자격증명·수명주기·LIVE/PAPER/LEARNING·통계·KPI·리포트·Strategy Studio·문서·외부 검증을 함께 완료하도록 정본 문서 갱신
+- dev/prekey는 offline readiness만 수행하고 release 실연결은 명시한 QA 계정만 사용하도록 유지
+
+### 검증 경계
+
+- 중앙 등록부 회귀는 소스 목록 누락을 차단하지만 새 기관의 실제 주문 적합성을 대신하지 않는다.
+- Windows 패키지와 기관별 PAPER/모의·승인 소액 LIVE는 여전히 외부 배포 게이트다.
+
+## 2026-08-27: v3.9.1.13 코인 선정 상태·실행 차단·설명 정합화
+
+### 문제
+
+- 평가 후보가 부족할 때 실제 기준을 완화하지 않고 조사 범위를 100→70→50→30→10개로 줄여 오히려 후보를 잃을 수 있었음
+- 후보가 하나도 없을 때 고정 10개를 0점 또는 임의 점수 후보처럼 해석할 수 있었고 후속 신호가 신규 주문으로 이어질 여지가 있었음
+- Binance 거래소 정보 배열의 앞 100개 절단으로 뒤쪽의 고거래대금 심볼을 놓칠 수 있었음
+- 수집 경로별 메이저 분류가 달라 BTC가 중간 로그에서 알트로 표시될 수 있었음
+- 점수 가중치 합이 1을 넘을 수 있어 100점 척도의 의미가 흐려졌음
+- 유동성 상위 30개 점수 worker가 종목마다 15분·1시간 캔들, 펀딩비와 OI를 다시 호출해 10초 제한시간 안에 첫 batch조차 끝나지 않았고 Binance·OKX가 `fallback_unscored`로 전환됨
+- 거래를 시작하지 않아도 증권 잔고·종목 조회가 어댑터를 만들 수 있으나 안전 종료는 실행 worker만 수집해 Kiwoom COM 자식이 `runtime_still_alive`로 남음
+
+### 수정
+
+- 정상 목표 충족 `scored`, 정상 부분 결과 `scored_partial`, 평가 전면 실패 `fallback_unscored` 상태를 분리
+- 부분 후보는 그대로 사용하고 점수 없는 심볼에 임의 30·50점을 만들지 않음
+- `fallback_unscored`는 진단용 참조 목록으로만 전달하고 Binance·통합 Trader의 PAPER/LIVE 신규 진입을 차단; 기존 포지션 보호·청산은 유지
+- Binance 거래 가능한 USDT 무기한 선물 전체 티커를 거래대금으로 정렬한 뒤 상위 후보의 캔들을 검증
+- Binance·현물·CCXT·최종 선정·폴백이 공통 `MAJOR_CRYPTO_BASES`를 사용
+- 종합점수 가중치를 합계 1.0으로 정규화하고 계산 실패 후보를 제외
+- Web UI에 정상·부분·데이터 불가 상태와 실행 가능 후보 수, 재선정 방법을 구분 표시
+- 코인 선택 정본·사용자 가이드·실행 흐름·인앱 매뉴얼·배포 체크리스트를 동일 계약으로 갱신
+- 6개 거래소 전체 티커는 일괄 조회를 우선하고, 상세 점수는 유동성 상위 30개·최대 8개 병렬·단계별 10초로 제한
+- 거래소별 UI·자동 중복 요청을 single-flight로 합치고 30초 완료 결과 캐시를 공유
+- 자동 재선정은 거래 루프 밖에서 수행하고 완료 목록만 원자 교체; 120초 초과 결과는 이전 정상 후보 유지 또는 신규 진입 차단
+- 암호화폐 국면은 5분 관찰·2회 확인·10분 유지·3시간 후보 재평가로 안정화
+- 주식·ETF는 동일 증권사 서비스와 유니버스를 5분 재사용하고, 지원 시 KOSPI 5거래일 이력으로 국면 판정
+- 후보 점수 worker는 일괄 ticker snapshot만 사용하고 종목별 네트워크 호출을 금지; 캐시된 Binance 펀딩비·OI만 선택적으로 반영하고 미제공 항목은 가중치에서 제외
+- 선정 종목의 캔들·신호·전략 검증은 후속 실시간 분석 단계에 유지하고 후보 단계의 미계산 기술점수는 `—`로 보존
+- 증권 안전 종료 대상을 worker가 아닌 키움·신한·미래에셋·KIS의 모든 생성 어댑터로 확장하고, Kiwoom RPC가 진행 중이어도 소유 COM 자식을 제한시간 안에 정리
+
+### 검증
+
+- 코인·종목 선정 집중 회귀 `76 passed`
+- Web/Gateway·선정 확장 회귀 `161 passed`
+- 후속 수정 집중 회귀 `41 passed`
+- 전체 Python 회귀 `1,866 passed, 8 skipped`
+- Web UI production build 49 modules, Python compile, 문서 정합성, Web source parity PASS
+- Binance 공개 API 읽기 전용 스모크: USDT 무기한 선물/티커 524개 일치, 거래대금 상위 5개 1시간봉 50개 확보, 주문 0건
+- Windows 설치본·실계정 PAPER/LIVE 주문 차단·6개 거래소 E2E는 별도 배포 게이트로 유지
+
 ---
 
 ## 2026-07-06: 자동업데이트 경로 고정/누적 파일/진행률 가시성 개선
@@ -182,7 +298,7 @@
 
 ---
 
-> 2025-10-29 업데이트: 테마 시스템은 폐기되었고, UI는 고정 스킨(하드코딩) 방식으로 전환되었습니다. 과거 기록은 보존용 문서(`HISTORICAL_THEME_BASELINE.md`)를 참고하세요.
+> 2025-10-29 업데이트: 테마 시스템은 폐기되었고, UI는 고정 스킨(하드코딩) 방식으로 전환되었습니다. 과거 기록은 보존용 문서(`archive/history/HISTORICAL_THEME_BASELINE.md`)를 참고하세요.
 
 ---
 

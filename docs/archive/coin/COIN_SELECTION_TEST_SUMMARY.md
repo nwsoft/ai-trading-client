@@ -235,9 +235,9 @@ tail -f data/nwsoft/logs/trading_binance.log
 ## 📚 관련 문서
 
 - [📘 전체 가이드](./COIN_SELECTION_TEST.md)
-- [🎯 거래 시작 가이드](./ACCOUNT_MANAGEMENT.md)
-- [🔧 설정 가이드](../config/settings_template.json)
-- [📊 AI 거래 전략](./AI_API_ARCHITECTURE.md)
+- [🎯 거래 시작 가이드](../../ACCOUNT_MANAGEMENT.md)
+- [🔧 설정 가이드](../../../config/settings_template.json)
+- [📊 AI 거래 전략](../../AI_API_ARCHITECTURE.md)
 
 ---
 

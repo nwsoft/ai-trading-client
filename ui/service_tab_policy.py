@@ -9,13 +9,15 @@ from __future__ import annotations
 
 from typing import Dict, List, Set
 
+from config.product_ui_contract import SERVICE_FEATURE_LABELS, visible_feature_labels
+
 
 COMMON_TRADING_TABS: Set[str] = {
     "실시간 거래 로그",
     "AI 학습",
     "AI 리포트",
     "AI 어시스턴트",
-    "AI 커스텀",
+    "전략 스튜디오",
 }
 
 SERVICE_TAB_SPECS: Dict[str, Dict[str, List[str]]] = {
@@ -65,6 +67,39 @@ SERVICE_TAB_SPECS: Dict[str, Dict[str, List[str]]] = {
     },
 }
 
+_PRODUCT_SERVICE_BY_LEGACY_SERVICE = {
+    "blockchain": "blockchain",
+    "stock": "stock",
+    "real_estate": "portfolio",
+    "other": "personal_finance",
+    "ai_analyst": "ai_analyst",
+}
+
+
+def _legacy_policy_labels(service: str) -> tuple[str, ...]:
+    spec = SERVICE_TAB_SPECS[service]
+    if service in {"blockchain", "stock"}:
+        info_tab = "코인 정보" if service == "blockchain" else "종목 정보"
+        labels = (
+            "실시간 거래 로그",
+            info_tab,
+            "거래 통계",
+            "시장 트렌드",
+            "AI 학습",
+            "AI 리포트",
+            "AI 어시스턴트",
+            "전략 스튜디오",
+            "금융 인텔리전스",
+        )
+        return labels + (("AlphaArena",) if service == "blockchain" else ())
+    return tuple(spec.get("primary", [])) + tuple(spec.get("detail", []))
+
+
+# Import-time drift guard for all five services.  A label/order change on one
+# UI now fails immediately instead of silently producing a different Web app.
+for _legacy_service, _product_service in _PRODUCT_SERVICE_BY_LEGACY_SERVICE.items():
+    assert _legacy_policy_labels(_legacy_service) == visible_feature_labels(_product_service)
+
 
 def normalize_service_name(service_name: str | None) -> str:
     service = str(service_name or "").strip().lower()
@@ -105,25 +140,10 @@ def get_service_tab_order(
     """
     service = normalize_service_name(service_name)
     sources = list(dict.fromkeys(source_tabs or []))
-    if service in {"blockchain", "stock"}:
-        info_tab = "코인 정보" if service == "blockchain" else "종목 정보"
-        order = [
-            "실시간 거래 로그",
-            info_tab,
-            "거래 통계",
-            "시장 트렌드",
-            "AI 학습",
-            "AI 리포트",
-            "AI 어시스턴트",
-            "AI 커스텀",
-            "금융 인텔리전스",
-        ]
-        if service == "blockchain":
-            order.append("AlphaArena")
-        return order + sources
-
-    spec = SERVICE_TAB_SPECS.get(service, {})
-    return list(spec.get("primary", [])) + list(spec.get("detail", [])) + sources
+    product_service = _PRODUCT_SERVICE_BY_LEGACY_SERVICE.get(service)
+    if product_service:
+        return list(visible_feature_labels(product_service)) + sources
+    return sources
 
 
 def get_service_tab_snapshot(service_name: str | None) -> Dict[str, object]:
@@ -175,9 +195,9 @@ def format_trading_runtime_status(
         if str(item).strip()
     } & enabled
     if not enabled:
-        return "자동매매: 대상 거래소 없음"
+        return "자율주행: 대상 거래소 없음"
     if not running:
-        return f"자동매매: 정지 (0/{len(enabled)} 실행)"
+        return f"자율주행: 정지 (0/{len(enabled)} 실행)"
     if running == enabled:
-        return f"자동매매: 전체 실행 ({len(running)}/{len(enabled)})"
-    return f"자동매매: 부분 실행 ({len(running)}/{len(enabled)})"
+        return f"자율주행: 전체 실행 ({len(running)}/{len(enabled)})"
+    return f"자율주행: 부분 실행 ({len(running)}/{len(enabled)})"

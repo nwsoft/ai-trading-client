@@ -168,6 +168,7 @@ def test_settings_help_covers_every_settings_tab_without_secrets():
         "거래소 선택",
         "거래소 API",
         "AI 엔진/API",
+        "알림·리포트",
         "고급 매매 계층",
         "AlphaArena",
         "AI 시스템 상태",

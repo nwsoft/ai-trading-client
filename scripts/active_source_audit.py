@@ -14,8 +14,12 @@ from typing import Any, Dict, Iterable, List, Set
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
-EXCLUDED_PARTS = {".venv", "build", "dist", "data", "__pycache__", ".pytest_cache"}
-FORBIDDEN_SOURCE_MARKERS = ("_Conflict.py", ".broken.py")
+EXCLUDED_PARTS = {
+    ".venv", "build", "dist", "data", "node_modules", "release",
+    "__pycache__", ".pytest_cache",
+}
+ACTIVE_SOURCE_SUFFIXES = {".py", ".js", ".jsx", ".ts", ".tsx", ".json"}
+FORBIDDEN_SOURCE_MARKERS = ("_conflict.", ".broken.", ".orig.")
 FORBIDDEN_SOURCE_NAMES = {
     "ai_learning_widget_fixed.py",
     "ai_learning_widget_safe.py",
@@ -35,6 +39,38 @@ def _active_python_files() -> Iterable[Path]:
         yield path
 
 
+def _active_source_files() -> Iterable[Path]:
+    """Yield executable/configuration sources that may enter a product build.
+
+    Synology Drive can materialize a conflict copy with an arbitrary extension,
+    for example ``Component_<host>_<date>_Conflict.tsx``.  Restricting this
+    audit to Python allowed such a file to replace a React import and produce a
+    blank window.  Generated outputs, dependencies, data and documentation are
+    deliberately outside this build-input audit.
+    """
+    for path in ROOT.rglob("*"):
+        if not path.is_file() or path.suffix.lower() not in ACTIVE_SOURCE_SUFFIXES:
+            continue
+        if any(part in EXCLUDED_PARTS for part in path.parts):
+            continue
+        if "docs" in path.parts or "legacy" in path.parts:
+            continue
+        yield path
+
+
+def _forbidden_active_sources() -> List[str]:
+    forbidden: List[str] = []
+    for path in _active_source_files():
+        lowered = path.name.lower()
+        if (
+            any(marker in lowered for marker in FORBIDDEN_SOURCE_MARKERS)
+            or path.name in FORBIDDEN_SOURCE_NAMES
+            or lowered.endswith(".orig")
+        ):
+            forbidden.append(path.relative_to(ROOT).as_posix())
+    return sorted(forbidden)
+
+
 def _sha256(path: Path) -> str:
     digest = hashlib.sha256()
     with path.open("rb") as stream:
@@ -43,9 +79,13 @@ def _sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
+def _read_python_source(path: Path) -> str:
+    return path.read_text(encoding="utf-8-sig")
+
+
 def _dashboard_dead_methods(files: List[Path]) -> List[str]:
     dashboard_path = ROOT / "ui" / "dashboard_modern.py"
-    dashboard_tree = ast.parse(dashboard_path.read_text(encoding="utf-8"))
+    dashboard_tree = ast.parse(_read_python_source(dashboard_path))
     dashboard_class = next(
         node for node in dashboard_tree.body
         if isinstance(node, ast.ClassDef) and node.name == "ModernDashboard"
@@ -58,7 +98,7 @@ def _dashboard_dead_methods(files: List[Path]) -> List[str]:
     references: Set[str] = set()
     string_references: Set[str] = set()
     for path in files:
-        tree = ast.parse(path.read_text(encoding="utf-8"))
+        tree = ast.parse(_read_python_source(path))
         for node in ast.walk(tree):
             if isinstance(node, ast.Attribute) and node.attr in methods:
                 references.add(node.attr)
@@ -70,7 +110,7 @@ def _dashboard_dead_methods(files: List[Path]) -> List[str]:
 
 
 def _silent_except_count(path: Path) -> int:
-    tree = ast.parse(path.read_text(encoding="utf-8"))
+    tree = ast.parse(_read_python_source(path))
     return sum(
         1
         for node in ast.walk(tree)
@@ -105,16 +145,11 @@ def main() -> int:
     syntax_failures = []
     for path in files:
         try:
-            ast.parse(path.read_text(encoding="utf-8"))
+            ast.parse(_read_python_source(path))
         except SyntaxError as exc:
             syntax_failures.append(f"{path.relative_to(ROOT)}:{exc.lineno}")
 
-    forbidden = [
-        str(path.relative_to(ROOT))
-        for path in files
-        if any(marker in path.name for marker in FORBIDDEN_SOURCE_MARKERS)
-        or path.name in FORBIDDEN_SOURCE_NAMES
-    ]
+    forbidden = _forbidden_active_sources()
     dead_methods = _dashboard_dead_methods(files) if not syntax_failures else []
     quarantine = _validate_quarantine()
 

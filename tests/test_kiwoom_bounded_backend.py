@@ -281,9 +281,16 @@ def test_worker_preserves_analysis_failure_instead_of_normal_cycle_message(monke
 
 
 def test_manual_boundary_uses_release_source_not_mutable_manifest():
-    from scripts.export_legacy_manual_sections import RELEASE_VERSION, _render_release_boundary
+    from scripts.export_legacy_manual_sections import (
+        PUBLIC_RELEASE_VERSION,
+        RELEASE_VERSION,
+        _render_release_boundary,
+    )
     text = _render_release_boundary('custom', 'guide')
-    assert f'v{RELEASE_VERSION} Windows stable/latest 공개 제품' in text
+    assert (
+        f'v{RELEASE_VERSION} Windows stable/latest 배포 후보 · '
+        f'공개 stable/latest는 v{PUBLIC_RELEASE_VERSION}'
+    ) in text
 
 
 def test_parent_fault_diagnostics_do_not_require_child_environment(tmp_path, monkeypatch):

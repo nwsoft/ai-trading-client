@@ -53,6 +53,7 @@ a = Analysis(
         'trading.strategy_package',
         'trading.strategy_quality_report',
         'trading.signed_strategy_webhook',
+        'trading.notifications',
         'referral_account_proof',
         'trading.exchanges.exchange_factory',
         'trading.exchanges.adapters.kiwoom_stock_adapter',

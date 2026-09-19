@@ -1,3 +1,4 @@
+import { t, useLocale } from '../i18n';
 import { Fragment, useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from "react";
 
 import type { GatewayClient } from "../api";
@@ -293,51 +294,51 @@ function ManualIntroContent({ content, query }: { content: string; query: string
   return <article className="manual-intro-page">
     <section className="manual-intro-hero">
       <div>
-        <span className="manual-kicker">처음 보는 분은 여기부터</span>
+        <span className="manual-kicker">{t("처음 보는 분은 여기부터")}</span>
         <h3>{highlightedManualText("NoahAI는 자동매매 버튼이 아니라 금융 판단 흐름입니다.", query)}</h3>
         <p>{highlightedManualText("시장 데이터를 읽고, 이유를 설명하고, 기록과 검증을 남긴 뒤 사용자가 허용한 범위에서만 실행으로 이어집니다.", query)}</p>
       </div>
-      <div className="manual-intro-visual" role="img" aria-label="사용자, NoahAI, 거래소와 증권사의 역할 관계">
-        <div className="manual-visual-node user">사용자<br /><small>허용·확인</small></div>
-        <div className="manual-visual-core">NoahAI<br /><small>판단·기록·가드레일</small></div>
-        <div className="manual-visual-node venue">거래소·증권사<br /><small>체결·잔고</small></div>
+      <div className="manual-intro-visual" role="img" aria-label={t("사용자, NoahAI, 거래소와 증권사의 역할 관계")}>
+        <div className="manual-visual-node user">{t("사용자")}<br /><small>{t("허용·확인")}</small></div>
+        <div className="manual-visual-core">NoahAI<br /><small>{t("판단·기록·가드레일")}</small></div>
+        <div className="manual-visual-node venue">{t("거래소·증권사")}<br /><small>{t("체결·잔고")}</small></div>
       </div>
     </section>
 
     <section className="manual-intro-summary">
-      <div><b>먼저 기억할 3가지</b><p>실계좌 체결·잔고의 1차 주체는 항상 연결한 기관입니다.</p></div>
-      <div><b>PAPER 먼저</b><p>PAPER는 실주문 없이 설정과 전략을 확인하는 안전한 검증 단계입니다.</p></div>
-      <div><b>LIVE는 별도</b><p>API 권한, 주문 대상, 가드레일, 사용자 확인이 모두 필요합니다.</p></div>
+      <div><b>{t("먼저 기억할 3가지")}</b><p>{t("실계좌 체결·잔고의 1차 주체는 항상 연결한 기관입니다.")}</p></div>
+      <div><b>{t("PAPER 먼저")}</b><p>{t("PAPER는 실주문 없이 설정과 전략을 확인하는 안전한 검증 단계입니다.")}</p></div>
+      <div><b>{t("LIVE는 별도")}</b><p>{t("API 권한, 주문 대상, 가드레일, 사용자 확인이 모두 필요합니다.")}</p></div>
     </section>
 
     <section className="manual-book-section">
-      <header><span>작동 흐름</span><h4>판단이 실행으로 이어지는 5단계</h4></header>
+      <header><span>{t("작동 흐름")}</span><h4>{t("판단이 실행으로 이어지는 5단계")}</h4></header>
       <div className="manual-flow-strip">
         {INTRO_FLOW_STEPS.map(([title, body]) => <div key={title}><strong>{highlightedManualText(title, query)}</strong><p>{highlightedManualText(body, query)}</p></div>)}
       </div>
     </section>
 
     <section className="manual-book-section">
-      <header><span>처음 사용</span><h4>가장 안전한 시작 순서</h4></header>
+      <header><span>{t("처음 사용")}</span><h4>{t("가장 안전한 시작 순서")}</h4></header>
       <div className="manual-step-grid">
         {INTRO_FIRST_STEPS.map(([step, title, body]) => <div key={step}><b>{step}</b><strong>{highlightedManualText(title, query)}</strong><p>{highlightedManualText(body, query)}</p></div>)}
       </div>
     </section>
 
     <section className="manual-book-section">
-      <header><span>비교</span><h4>일반 자동매매와 NoahAI의 차이</h4></header>
-      <div className="manual-compare-table" role="table" aria-label="일반 자동매매와 NoahAI 비교">
-        <div role="row"><b role="columnheader">구분</b><b role="columnheader">일반 자동매매</b><b role="columnheader">NoahAI</b></div>
+      <header><span>{t("비교")}</span><h4>{t("일반 자동매매와 NoahAI의 차이")}</h4></header>
+      <div className="manual-compare-table" role="table" aria-label={t("일반 자동매매와 NoahAI 비교")}>
+        <div role="row"><b role="columnheader">{t("구분")}</b><b role="columnheader">{t("일반 자동매매")}</b><b role="columnheader">NoahAI</b></div>
         {INTRO_COMPARE_ROWS.map(([label, legacy, noah]) => <div role="row" key={label}><strong role="cell">{highlightedManualText(label, query)}</strong><span role="cell">{highlightedManualText(legacy, query)}</span><span role="cell">{highlightedManualText(noah, query)}</span></div>)}
       </div>
     </section>
 
     <section className="manual-book-section manual-responsibility-panel">
-      <header><span>책임 경계</span><h4>누가 무엇을 확인하나요?</h4></header>
+      <header><span>{t("책임 경계")}</span><h4>{t("누가 무엇을 확인하나요?")}</h4></header>
       <div>
-        <p><b>사용자</b><span>API 키, 손실 허용 범위, PAPER/LIVE 전환, 실제 주문 허용 기관을 결정합니다.</span></p>
-        <p><b>NoahAI</b><span>판단 보조, 설명, 로그, 전략 검증, 가드레일과 허용 범위의 실행 연계를 담당합니다.</span></p>
-        <p><b>거래소·증권사</b><span>실제 체결, 정산, 잔고, 주문 거절 사유와 계정 정책의 1차 주체입니다.</span></p>
+        <p><b>{t("사용자")}</b><span>{t("API 키, 손실 허용 범위, PAPER/LIVE 전환, 실제 주문 허용 기관을 결정합니다.")}</span></p>
+        <p><b>NoahAI</b><span>{t("판단 보조, 설명, 로그, 전략 검증, 가드레일과 허용 범위의 실행 연계를 담당합니다.")}</span></p>
+        <p><b>{t("거래소·증권사")}</b><span>{t("실제 체결, 정산, 잔고, 주문 거절 사유와 계정 정책의 1차 주체입니다.")}</span></p>
       </div>
     </section>
 
@@ -371,14 +372,14 @@ function ManualGuideContent({ sectionId, content, query }: { sectionId: string; 
     </section>
 
     <section className="manual-book-section">
-      <header><span>한눈에 보는 흐름</span><h4>{highlightedManualText(guide.flowTitle, query)}</h4></header>
+      <header><span>{t("한눈에 보는 흐름")}</span><h4>{highlightedManualText(guide.flowTitle, query)}</h4></header>
       <div className="manual-flow-strip">
         {guide.flow.map(([title, body]) => <div key={title}><strong>{highlightedManualText(title, query)}</strong><p>{highlightedManualText(body, query)}</p></div>)}
       </div>
     </section>
 
     <section className="manual-book-section">
-      <header><span>실제 사용 안내</span><h4>{highlightedManualText(guide.guideTitle, query)}</h4></header>
+      <header><span>{t("실제 사용 안내")}</span><h4>{highlightedManualText(guide.guideTitle, query)}</h4></header>
       <div className="manual-step-grid">
         {guide.guide.map(([step, title, body]) => <div key={`${step}-${title}`}><b>{step}</b><strong>{highlightedManualText(title, query)}</strong><p>{highlightedManualText(body, query)}</p></div>)}
       </div>
@@ -551,39 +552,39 @@ export function AssistantWorkspace({ client, service, initialQuestion = "", sett
   return <><section className="legacy-assistant-workspace">
     <div className="assistant-info-bar">
       {onReturn ? <button className="assistant-return-button" type="button" onClick={onReturn}>← {returnLabel || "이전 화면으로 돌아가기"}</button> : <span />}
-      <div><button type="button" onClick={() => navigator.clipboard?.writeText(messages.map((item) => `${item.role === "user" ? "사용자" : "NoahAI"}: ${item.text}`).join("\n\n"))}>전체 복사</button><button type="button" onClick={() => { const blob = new Blob([messages.map((item) => `${item.role === "user" ? "사용자" : "NoahAI"}: ${item.text}`).join("\n\n")], { type: "text/plain;charset=utf-8" }); const url = URL.createObjectURL(blob); const anchor = document.createElement("a"); anchor.href = url; anchor.download = "NoahAI-어시스턴트.txt"; anchor.click(); URL.revokeObjectURL(url); }}>TXT 저장</button></div>
+      <div><button type="button" onClick={() => navigator.clipboard?.writeText(messages.map((item) => `${item.role === "user" ? "사용자" : "NoahAI"}: ${item.text}`).join("\n\n"))}>{t("전체 복사")}</button><button type="button" onClick={() => { const blob = new Blob([messages.map((item) => `${item.role === "user" ? "사용자" : "NoahAI"}: ${item.text}`).join("\n\n")], { type: "text/plain;charset=utf-8" }); const url = URL.createObjectURL(blob); const anchor = document.createElement("a"); anchor.href = url; anchor.download = "NoahAI-어시스턴트.txt"; anchor.click(); URL.revokeObjectURL(url); }}>{t("TXT 저장")}</button></div>
     </div>
     <div className="assistant-main-grid">
       <article className="legacy-chat-panel">
-        {service === "settings" && settingsSection && <div className="assistant-settings-context" role="status"><strong>설정 문맥 고정</strong><span>{SETTINGS_SECTION_LABELS[settingsSection] ?? settingsSection} 탭의 저장 상태와 안전 계약만 기준으로 답합니다.</span></div>}
-        <div className="legacy-chat-history">{messages.map((item, index) => <div className={`legacy-chat-message ${item.role}`} key={`${item.role}-${index}`}><b>{item.role === "user" ? "사용자" : "NoahAI"}</b><p>{item.text}</p>{item.role === "assistant" && index >= 2 && onSendToStrategy && <button className="assistant-send-to-strategy" type="button" onClick={() => onSendToStrategy(item.text)}>이 답변을 전략 스튜디오 검토 영역으로 보내기</button>}</div>)}{busy && <div className="legacy-chat-message assistant"><b>NoahAI</b><p>질문을 확인하고 있습니다…</p></div>}</div>
+        {service === "settings" && settingsSection && <div className="assistant-settings-context" role="status"><strong>{t("설정 문맥 고정")}</strong><span>{SETTINGS_SECTION_LABELS[settingsSection] ?? settingsSection}{t(" 탭의 저장 상태와 안전 계약만 기준으로 답합니다.")}</span></div>}
+        <div className="legacy-chat-history">{messages.map((item, index) => <div className={`legacy-chat-message ${item.role}`} key={`${item.role}-${index}`}><b>{item.role === "user" ? t("사용자") : "NoahAI"}</b><p>{item.text}</p>{item.role === "assistant" && index >= 2 && onSendToStrategy && <button className="assistant-send-to-strategy" type="button" onClick={() => onSendToStrategy(item.text)}>{t("이 답변을 전략 스튜디오 검토 영역으로 보내기")}</button>}</div>)}{busy && <div className="legacy-chat-message assistant"><b>NoahAI</b><p>{t("질문을 확인하고 있습니다…")}</p></div>}</div>
         {message && <div className="inline-notice error-text">{message}</div>}
-        {meta?.provider_failed && <div className="analysis-meta"><b>외부 분석 미완료 · 로컬 안내</b><span>{meta.provider_called ? `${String(meta.provider).toUpperCase()} · ${String(meta.model)} 호출 시도` : "Provider 응답 확인 전"}{meta.provider_status_code ? ` · HTTP ${meta.provider_status_code}` : ""} · {String(meta.provider_error ?? "연결 상태 확인 필요")}</span></div>}
+        {meta?.provider_failed && <div className="analysis-meta"><b>{t("외부 분석 미완료 · 로컬 안내")}</b><span>{meta.provider_called ? `${String(meta.provider).toUpperCase()} · ${String(meta.model)} 호출 시도` : "Provider 응답 확인 전"}{meta.provider_status_code ? ` · HTTP ${meta.provider_status_code}` : ""} · {String(meta.provider_error ?? "연결 상태 확인 필요")}</span></div>}
         {meta?.provider_called && !meta?.provider_failed && <div className="analysis-meta"><b>{String(meta.provider).toUpperCase()} · {String(meta.model)}</b><span>{meta.privacy_route === "openai_shared_public_general" ? "공개 일반 질문용 Project" : meta.privacy_route === "protected_default_fallback" ? "기본 보호 경로로 대체" : "기본 보호 경로"} · {meta.cache_hit ? "캐시 응답 · 추가 호출 없음" : `토큰 ${Number(meta.usage?.total_tokens ?? 0).toLocaleString()} · 예상 $${meta.estimated_cost_usd ?? "산정 불가"}`}</span></div>}
-        {strategyContext && <div className="strategy-context-notice"><strong>현재 전략 분석 자료 첨부 · 자동 실행 없음</strong><span>규칙·읽은 범위·일부 원문 발췌를 질문에 함께 사용합니다. 심층분석을 전송하면 외부 AI 비용이 발생할 수 있습니다.</span><details><summary>전달할 분석 자료 보기</summary><pre>{strategyContext}</pre></details><button type="button" disabled={busy} onClick={() => { setStrategyContext(""); setMessages([]); setMeta(null); setQuestion(""); }}>분석 자료·대화 해제</button></div>}
-        <form className="legacy-chat-input" onSubmit={submit}><input maxLength={4000} placeholder={profile.placeholder} value={question} onChange={(event) => setQuestion(event.target.value)} /><button className="send" disabled={busy || question.trim().length < 2} type="submit">전송</button><button className={listening ? "active" : ""} type="button" onClick={toggleVoiceInput}>{listening ? "듣기 중지" : "음성입력"}</button><button type="button" onClick={onOpenSettings}>설정관리</button><button type="button" onClick={openChartAnalysis}>차트분석</button></form>
+        {strategyContext && <div className="strategy-context-notice"><strong>{t("현재 전략 분석 자료 첨부 · 자동 실행 없음")}</strong><span>{t("규칙·읽은 범위·일부 원문 발췌를 질문에 함께 사용합니다. 심층분석을 전송하면 외부 AI 비용이 발생할 수 있습니다.")}</span><details><summary>{t("전달할 분석 자료 보기")}</summary><pre>{strategyContext}</pre></details><button type="button" disabled={busy} onClick={() => { setStrategyContext(""); setMessages([]); setMeta(null); setQuestion(""); }}>{t("분석 자료·대화 해제")}</button></div>}
+        <form className="legacy-chat-input" onSubmit={submit}><input maxLength={4000} placeholder={t(profile.placeholder)} value={question} onChange={(event) => setQuestion(event.target.value)} /><button className="send" disabled={busy || question.trim().length < 2} type="submit">{t("전송")}</button><button className={listening ? "active" : ""} type="button" onClick={toggleVoiceInput}>{listening ? "듣기 중지" : t("음성입력")}</button><button type="button" onClick={onOpenSettings}>{t("설정관리")}</button><button type="button" onClick={openChartAnalysis}>{t("차트분석")}</button></form>
       </article>
-      <aside className="legacy-quick-question-panel"><h3>{profile.title}</h3><div>{profile.questions.map(([label, prompt]) => <button key={label} type="button" onClick={() => setQuestion(prompt)}>{label}</button>)}</div><footer><div className="assistant-mode-controls"><label>설명 수준<select aria-label="설명 수준" value={level} onChange={(event) => setLevel(event.target.value as typeof level)}><option value="beginner">초보자 · 따라하기</option><option value="standard">일반 · 핵심 요약</option><option value="advanced">고급 · 계약/근거</option></select></label><button className={mode === "guide" ? "active" : ""} onClick={() => { setMode("guide"); setDataScope("private"); }} title="제품 설정과 사용법을 로컬 정본으로 설명하며 외부 AI 비용이 들지 않습니다." type="button">일반 안내</button><button className={mode === "deep_analysis" ? "active danger" : ""} onClick={() => setMode("deep_analysis")} title="심층분석 (외부 AI·비용) · 사용자가 명시적으로 요청한 질문 1건만 외부 AI Provider로 분석하며 토큰 비용이 발생할 수 있습니다." type="button">심층분석</button></div>{mode === "deep_analysis" && <label className="assistant-public-route"><input type="checkbox" checked={dataScope === "public_general"} onChange={(event) => togglePublicGeneral(event.target.checked)} /><span>공개 일반 질문용 Project 사용</span><small>{publicRoute.public_general_effective ? "질문 1건만 전송 · 최근 대화와 앱 상태 제외" : "설정에서 별도 OpenAI Project 키와 공개 경로를 먼저 준비하세요."}</small></label>}<span>{mode === "guide" ? "일반 안내" : "심층분석 외부 AI 사용량"}</span><b>{mode === "guide" ? "외부 호출 없음" : `오늘 ${budget.daily_used ?? 0}/${budget.daily_limit ?? "—"} · 이번 달 ${budget.monthly_used ?? 0}/${budget.monthly_limit ?? "—"}`}</b>{budgetExhausted && <div className="assistant-budget-warning"><strong>외부 AI 사용 한도 도달</strong><span>비용·반복 호출 보호용 사용자 설정입니다. 일반 안내와 로컬 전략 분석은 계속됩니다.</span><button type="button" onClick={onOpenSettings}>AI 비용 한도 확인</button></div>}<small>{dataScope === "public_general" ? "공개 질문 모드: 질문 문장 외의 문맥을 보내지 않습니다. 전략·계좌·개인정보를 입력하지 마세요." : "기본 보호 경로: 초보자·일반·고급은 실제 프롬프트와 캐시 문맥이 분리됩니다."} 거래 설정은 변경하지 않습니다.</small></footer></aside>
+      <aside className="legacy-quick-question-panel"><h3>{t(profile.title)}</h3><div>{profile.questions.map(([label, prompt]) => <button key={label} type="button" onClick={() => setQuestion(prompt)}>{label}</button>)}</div><footer><div className="assistant-mode-controls"><label>{t("설명 수준")}<select aria-label={t("설명 수준")} value={level} onChange={(event) => setLevel(event.target.value as typeof level)}><option value="beginner">{t("초보자 · 따라하기")}</option><option value="standard">{t("일반 · 핵심 요약")}</option><option value="advanced">{t("고급 · 계약/근거")}</option></select></label><button className={mode === "guide" ? "active" : ""} onClick={() => { setMode("guide"); setDataScope("private"); }} title={t("제품 설정과 사용법을 로컬 정본으로 설명하며 외부 AI 비용이 들지 않습니다.")} type="button">{t("일반 안내")}</button><button className={mode === "deep_analysis" ? "active danger" : ""} onClick={() => setMode("deep_analysis")} title={t("심층분석 (외부 AI·비용) · 사용자가 명시적으로 요청한 질문 1건만 외부 AI Provider로 분석하며 토큰 비용이 발생할 수 있습니다.")} type="button">{t("심층분석")}</button></div>{mode === "deep_analysis" && <label className="assistant-public-route"><input type="checkbox" checked={dataScope === "public_general"} onChange={(event) => togglePublicGeneral(event.target.checked)} /><span>{t("공개 일반 질문용 Project 사용")}</span><small>{publicRoute.public_general_effective ? "질문 1건만 전송 · 최근 대화와 앱 상태 제외" : "설정에서 별도 OpenAI Project 키와 공개 경로를 먼저 준비하세요."}</small></label>}<span>{mode === "guide" ? t("일반 안내") : "심층분석 외부 AI 사용량"}</span><b>{mode === "guide" ? "외부 호출 없음" : `오늘 ${budget.daily_used ?? 0}/${budget.daily_limit ?? "—"} · 이번 달 ${budget.monthly_used ?? 0}/${budget.monthly_limit ?? "—"}`}</b>{budgetExhausted && <div className="assistant-budget-warning"><strong>{t("외부 AI 사용 한도 도달")}</strong><span>{t("비용·반복 호출 보호용 사용자 설정입니다. 일반 안내와 로컬 전략 분석은 계속됩니다.")}</span><button type="button" onClick={onOpenSettings}>{t("AI 비용 한도 확인")}</button></div>}<small>{dataScope === "public_general" ? "공개 질문 모드: 질문 문장 외의 문맥을 보내지 않습니다. 전략·계좌·개인정보를 입력하지 마세요." : "기본 보호 경로: 초보자·일반·고급은 실제 프롬프트와 캐시 문맥이 분리됩니다."}{t(" 거래 설정은 변경하지 않습니다.")}</small></footer></aside>
     </div>
-  </section>{chartOpen && chartService && <div className="modal-backdrop chart-analysis-backdrop" role="dialog" aria-modal="true" aria-label="차트 스크린샷 분석기"><section className="chart-analysis-dialog">
-    <header><div><small>AI 어시스턴트 보조 도구</small><h2>차트 스크린샷 분석기</h2><p>PNG·JPG·WEBP 이미지를 OCR과 설정된 비전 AI로 분석합니다. 분석은 주문을 실행하지 않습니다.</p></div><button type="button" disabled={chartBusy} onClick={() => setChartOpen(false)}>×</button></header>
+  </section>{chartOpen && chartService && <div className="modal-backdrop chart-analysis-backdrop" role="dialog" aria-modal="true" aria-label={t("차트 스크린샷 분석기")}><section className="chart-analysis-dialog">
+    <header><div><small>{t("AI 어시스턴트 보조 도구")}</small><h2>{t("차트 스크린샷 분석기")}</h2><p>{t("PNG·JPG·WEBP 이미지를 OCR과 설정된 비전 AI로 분석합니다. 분석은 주문을 실행하지 않습니다.")}</p></div><button type="button" disabled={chartBusy} onClick={() => setChartOpen(false)}>×</button></header>
     <div className="chart-analysis-body">
       <div className="chart-upload-panel">
-        <label className="chart-file-picker">차트 이미지 선택<input type="file" accept="image/png,image/jpeg,image/webp" disabled={chartBusy} onChange={(event) => selectChartFile(event.target.files?.[0])} /></label>
-        <small>최대 8MB · 심볼, 시간봉, 가격축과 지표 이름이 함께 보이도록 캡처하세요.</small>
-        {chartImage ? <img src={chartImage} alt="분석할 차트 미리보기" /> : <div className="chart-empty-preview">선택한 차트 미리보기가 여기에 표시됩니다.</div>}
-        <div className="chart-analysis-actions"><button className="primary-button" type="button" disabled={!chartImage || chartBusy} onClick={() => void runChartAnalysis()}>{chartBusy ? "분석 중…" : "외부 비전 AI로 분석"}</button><button type="button" disabled={chartBusy} onClick={() => { setChartFileName(""); setChartImage(""); setChartResult(null); setChartMessage(""); }}>초기화</button></div>
-        <p className="chart-cost-note">이 버튼을 누를 때만 이미지가 설정된 Analyst Provider로 전송되며 1회 AI API 비용과 일·월 예산을 사용합니다.</p>
+        <label className="chart-file-picker">{t("차트 이미지 선택")}<input type="file" accept="image/png,image/jpeg,image/webp" disabled={chartBusy} onChange={(event) => selectChartFile(event.target.files?.[0])} /></label>
+        <small>{t("최대 8MB · 심볼, 시간봉, 가격축과 지표 이름이 함께 보이도록 캡처하세요.")}</small>
+        {chartImage ? <img src={chartImage} alt="분석할 차트 미리보기" /> : <div className="chart-empty-preview">{t("선택한 차트 미리보기가 여기에 표시됩니다.")}</div>}
+        <div className="chart-analysis-actions"><button className="primary-button" type="button" disabled={!chartImage || chartBusy} onClick={() => void runChartAnalysis()}>{chartBusy ? "분석 중…" : "외부 비전 AI로 분석"}</button><button type="button" disabled={chartBusy} onClick={() => { setChartFileName(""); setChartImage(""); setChartResult(null); setChartMessage(""); }}>{t("초기화")}</button></div>
+        <p className="chart-cost-note">{t("이 버튼을 누를 때만 이미지가 설정된 Analyst Provider로 전송되며 1회 AI API 비용과 일·월 예산을 사용합니다.")}</p>
       </div>
       <div className="chart-result-panel">
         {chartMessage && <div className="inline-notice error-text">{chartMessage}</div>}
-        {!chartResult && !chartMessage && <div className="honest-empty-state"><b>분석 결과 없음</b><span>이미지를 선택하고 분석을 실행하세요. 읽을 수 없는 값은 추정하지 않습니다.</span></div>}
-        {chartResult && <><div className="chart-result-summary"><span className={`state-pill ${String(chartAnalysis.stance || "NEUTRAL").toLowerCase()}`}>{String(chartAnalysis.stance || "NEUTRAL")}</span><b>{String(chartAnalysis.summary || "분석 요약이 없습니다.")}</b><small>신뢰도 {Math.round(Number(chartAnalysis.confidence || 0) * 100)}% · {String(chartResult.provider).toUpperCase()} / {String(chartResult.model)}</small></div>
-          <section><h3>화면에서 확인된 근거</h3>{(chartAnalysis.visible_evidence || []).map((item: unknown, index: number) => <p key={`e-${index}`}>• {String(item)}</p>)}</section>
-          <section><h3>위험·불확실성</h3>{(chartAnalysis.risks || []).map((item: unknown, index: number) => <p key={`r-${index}`}>• {String(item)}</p>)}</section>
-          <section><h3>참고 플랜</h3><pre>{JSON.stringify(chartAnalysis.plan || {}, null, 2)}</pre></section>
-          {chartResult.ocr?.warning && <p className="chart-ocr-warning">OCR 안내: {String(chartResult.ocr.warning)} 비전 분석 결과와 구분해 확인하세요.</p>}
-          <small>주문 실행: 없음 · 사용량 {Number(chartResult.usage?.total_tokens || 0).toLocaleString()} tokens · 예상 비용 {chartResult.estimated_cost_usd ?? "산정 불가"}</small></>}
+        {!chartResult && !chartMessage && <div className="honest-empty-state"><b>{t("분석 결과 없음")}</b><span>{t("이미지를 선택하고 분석을 실행하세요. 읽을 수 없는 값은 추정하지 않습니다.")}</span></div>}
+        {chartResult && <><div className="chart-result-summary"><span className={`state-pill ${String(chartAnalysis.stance || "NEUTRAL").toLowerCase()}`}>{String(chartAnalysis.stance || "NEUTRAL")}</span><b>{String(chartAnalysis.summary || "분석 요약이 없습니다.")}</b><small>{t("신뢰도 ")}{Math.round(Number(chartAnalysis.confidence || 0) * 100)}% · {String(chartResult.provider).toUpperCase()} / {String(chartResult.model)}</small></div>
+          <section><h3>{t("화면에서 확인된 근거")}</h3>{(chartAnalysis.visible_evidence || []).map((item: unknown, index: number) => <p key={`e-${index}`}>• {String(item)}</p>)}</section>
+          <section><h3>{t("위험·불확실성")}</h3>{(chartAnalysis.risks || []).map((item: unknown, index: number) => <p key={`r-${index}`}>• {String(item)}</p>)}</section>
+          <section><h3>{t("참고 플랜")}</h3><pre>{JSON.stringify(chartAnalysis.plan || {}, null, 2)}</pre></section>
+          {chartResult.ocr?.warning && <p className="chart-ocr-warning">{t("OCR 안내: ")}{String(chartResult.ocr.warning)}{t(" 비전 분석 결과와 구분해 확인하세요.")}</p>}
+          <small>{t("주문 실행: 없음 · 사용량 ")}{Number(chartResult.usage?.total_tokens || 0).toLocaleString()}{t(" tokens · 예상 비용 ")}{chartResult.estimated_cost_usd ?? "산정 불가"}</small></>}
       </div>
     </div>
   </section></div>}</>;
@@ -720,12 +721,12 @@ function ManualDocumentContent({ sectionId, content, query }: { sectionId: strin
     .filter(({ block }) => block.kind === "heading" && block.level <= 3)
     .slice(1, sectionId === "updates" ? 20 : 16) as Array<{ block: Extract<ManualDocumentBlock, { kind: "heading" }>; index: number }>;
   const jumpTo = (index: number) => document.getElementById(`manual-${sectionId}-block-${index}`)?.scrollIntoView({ behavior: "smooth", block: "start" });
-  return <section className="manual-document" aria-label="전체 사용자 설명">
+  return <section className="manual-document" aria-label={t("전체 사용자 설명")}>
     <header className="manual-document-header">
-      <div><span>전체 사용 설명</span><h4>접힌 원문 없이, 모든 내용을 읽기 쉽게 정리했습니다.</h4></div>
-      <p>제목·목록·체크리스트·표를 구분했습니다. 상단 검색은 이 본문 전체에서 실제 일치 항목을 한 건씩 찾습니다.</p>
+      <div><span>{t("전체 사용 설명")}</span><h4>{t("접힌 원문 없이, 모든 내용을 읽기 쉽게 정리했습니다.")}</h4></div>
+      <p>{t("제목·목록·체크리스트·표를 구분했습니다. 상단 검색은 이 본문 전체에서 실제 일치 항목을 한 건씩 찾습니다.")}</p>
     </header>
-    {chapterLinks.length > 1 && <nav className="manual-document-index" aria-label="이 탭의 목차">
+    {chapterLinks.length > 1 && <nav className="manual-document-index" aria-label={t("이 탭의 목차")}>
       {chapterLinks.map(({ block, index }) => <button key={`${block.text}-${index}`} type="button" onClick={() => jumpTo(index)}>{highlightedManualText(block.text, query)}</button>)}
     </nav>}
     <div className="manual-document-body">
@@ -749,6 +750,7 @@ function ManualDocumentContent({ sectionId, content, query }: { sectionId: strin
 }
 
 export function ManualCenter({ client, onClose, onAskAssistant, onOpenSettings, onNavigate, initialTab = "intro" }: { client: GatewayClient; onClose: () => void; onAskAssistant: (question: string) => void; onOpenSettings?: () => void; onNavigate?: (service: string, feature: string) => void; initialTab?: string }) {
+  const locale = useLocale();
   const [activeTab, setActiveTab] = useState(initialTab);
   const [manualSections, setManualSections] = useState<ManualSection[]>([]);
   const [query, setQuery] = useState("");
@@ -759,14 +761,18 @@ export function ManualCenter({ client, onClose, onAskAssistant, onOpenSettings, 
   const [guideError, setGuideError] = useState("");
   const manualContentRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
+    let current = true;
     client.manual()
       .then((snapshot) => {
+        if (!current) return;
         setManualSections(snapshot.sections);
-        setActiveTab(snapshot.sections.some((item) => item.id === initialTab) ? initialTab : "intro");
+        const target = locale === 'en' ? ({custom:'strategy',assets:'dashboard',stocks:'dashboard',live:'settings',assistant:'ai',intelligence:'ai',runtime:'intro'} as Record<string,string>)[initialTab] ?? initialTab : initialTab;
+        setActiveTab(snapshot.sections.some((item) => item.id === target) ? target : "intro");
         setGuideError("");
       })
-      .catch((reason) => setGuideError(reason instanceof Error ? reason.message : "사용자 메뉴얼 정본을 불러오지 못했습니다."));
-  }, [client, initialTab]);
+      .catch((reason) => { if (current) setGuideError(reason instanceof Error ? reason.message : "사용자 메뉴얼 정본을 불러오지 못했습니다."); });
+    return () => { current = false; };
+  }, [client, initialTab, locale]);
   useEffect(() => {
     const closeOnEscape = (event: KeyboardEvent) => { if (event.key === "Escape") onClose(); };
     window.addEventListener("keydown", closeOnEscape);
@@ -813,25 +819,25 @@ export function ManualCenter({ client, onClose, onAskAssistant, onOpenSettings, 
   }
   return <div className="modal-backdrop" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
     <section aria-modal="true" aria-labelledby="manual-center-title" className="manual-modal" role="dialog">
-      <header className="manual-header"><h2 id="manual-center-title">▥ NoahAI - AI 금융 의사결정 인프라</h2><p>현재 버전 기준 기능 안내 · 실제 화면 순서 · 운영 경계</p></header>
+      <header className="manual-header"><h2 id="manual-center-title">{t("▥ NoahAI - AI 금융 의사결정 인프라")}</h2><p>{t("현재 버전 기준 기능 안내 · 실제 화면 순서 · 운영 경계")}</p></header>
       <div className="manual-toolbar">
-        <div className="manual-quick-links">{[["실거래 준비", "live"], ["설정 가이드", "settings"], ["전략 스튜디오", "custom"], ["거래소·증권", "assets"], ["업데이트", "updates"]].map(([label, id]) => <button key={id} type="button" onClick={() => setActiveTab(id)}>{label}</button>)}</div>
-        <div className="manual-search"><input placeholder="전체 메뉴얼에서 기능·설정·오류 검색" value={query} onChange={(event) => { setQuery(event.target.value); setSearchTerm(""); setSearchCursor(-1); setSearchStatus(""); }} onKeyDown={(event) => event.key === "Enter" && searchManual()} /><button type="button" onClick={searchManual}>검색 결과 다음</button>{query && <button type="button" onClick={() => { setQuery(""); setSearchTerm(""); setSearchCursor(-1); setSearchStatus(""); }}>지우기</button>}<button className="primary-button" type="button" onClick={() => onAskAssistant(query.trim() ? `사용자 매뉴얼에서 '${query.trim()}'을 찾고 있었습니다. 현재 설정과 실제 작동 기준으로 초보자도 이해하게 설명해줘.` : "현재 버전에서 실행 모드, 거래소 선택, 전략 스튜디오 사용 난이도, 고급 매매 계층과 AlphaArena를 초보자도 이해하게 설명해줘.")}>AI에게 묻기</button><span role="status">{searchStatus}</span></div>
+        <div className="manual-quick-links">{(locale === 'en' ? [["Start here", "intro"], ["Settings", "settings"], ["Strategy Studio", "strategy"], ["Replay charts", "backtest"], ["Remote", "remote"], ["Updates", "updates"]] : [["실거래 준비", "live"], ["설정 가이드", "settings"], ["전략 스튜디오", "custom"], ["거래소·증권", "assets"], ["업데이트", "updates"]]).map(([label, id]) => <button key={id} type="button" onClick={() => setActiveTab(id)}>{t(label)}</button>)}</div>
+        <div className="manual-search"><input placeholder={t("전체 메뉴얼에서 기능·설정·오류 검색")} value={query} onChange={(event) => { setQuery(event.target.value); setSearchTerm(""); setSearchCursor(-1); setSearchStatus(""); }} onKeyDown={(event) => event.key === "Enter" && searchManual()} /><button type="button" onClick={searchManual}>{t("검색 결과 다음")}</button>{query && <button type="button" onClick={() => { setQuery(""); setSearchTerm(""); setSearchCursor(-1); setSearchStatus(""); }}>{t("지우기")}</button>}<button className="primary-button" type="button" onClick={() => onAskAssistant(query.trim() ? `사용자 매뉴얼에서 '${query.trim()}'을 찾고 있었습니다. 현재 설정과 실제 작동 기준으로 초보자도 이해하게 설명해줘.` : "현재 버전에서 실행 모드, 거래소 선택, 전략 스튜디오 사용 난이도, 고급 매매 계층과 AlphaArena를 초보자도 이해하게 설명해줘.")}>{t("AI에게 묻기")}</button><span role="status">{searchStatus}</span></div>
       </div>
       <nav className="manual-tabs">{manualSections.map((item) => <button className={item.id === activeTab ? "active" : ""} key={item.id} onClick={() => setActiveTab(item.id)} type="button">{item.label}</button>)}</nav>
       {guideError && <div className="inline-notice error-text">{guideError}</div>}
       <div className={`manual-content ${active && (active.id === "intro" || MANUAL_GUIDES[active.id]) ? "manual-rich-content" : ""}`} ref={manualContentRef}>
-        {active?.id === "intro"
+        {locale === 'en' ? <pre className="manual-raw-content">{highlightedContent}</pre> : active?.id === "intro"
           ? <ManualIntroContent content={active?.content ?? ""} query={query} />
           : active && MANUAL_GUIDES[active.id]
             ? <ManualGuideContent sectionId={active.id} content={active.content} query={query} />
             : <pre className="manual-raw-content">{highlightedContent}</pre>}
       </div>
       <footer><div className="manual-deep-links">
-        <button className="manual-action-button" type="button" onClick={onOpenSettings}>설정 화면 열기</button>
-        {activeTab === "custom" && <button type="button" onClick={() => onNavigate?.("blockchain", "blockchain.ai_custom")}>전략 스튜디오 화면 열기</button>}
-        {activeTab === "assets" && <><button type="button" onClick={() => onNavigate?.("blockchain", "blockchain.source_workspaces")}>거래소 화면 열기</button><button type="button" onClick={() => onNavigate?.("stock", "stock.source_workspaces")}>증권사 화면 열기</button></>}
-      </div><button className="manual-close-button" onClick={onClose} type="button">× 닫기</button></footer>
+        <button className="manual-action-button" type="button" onClick={onOpenSettings}>{t("설정 화면 열기")}</button>
+        {activeTab === "custom" && <button type="button" onClick={() => onNavigate?.("blockchain", "blockchain.ai_custom")}>{t("전략 스튜디오 화면 열기")}</button>}
+        {activeTab === "assets" && <><button type="button" onClick={() => onNavigate?.("blockchain", "blockchain.source_workspaces")}>{t("거래소 화면 열기")}</button><button type="button" onClick={() => onNavigate?.("stock", "stock.source_workspaces")}>{t("증권사 화면 열기")}</button></>}
+      </div><button className="manual-close-button" onClick={onClose} type="button">{t("× 닫기")}</button></footer>
     </section>
   </div>;
 }

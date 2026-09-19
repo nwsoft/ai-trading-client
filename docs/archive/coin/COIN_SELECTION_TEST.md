@@ -253,11 +253,11 @@ mkdir -p data
 
 ## 관련 파일
 
-- **테스트 스크립트**: [`scripts/test_coin_selection_full.py`](../scripts/test_coin_selection_full.py)
-- **이전 버전**: [`scripts/test_coin_selection.py`](../scripts/test_coin_selection.py) (간단 버전)
-- **Evaluator**: [`trading/evaluator.py`](../trading/evaluator.py) (코인 선택 로직)
-- **설정**: [`config/settings.py`](../config/settings.py) (설정 구조)
-- **기본 설정**: [`data/settings.json`](../data/settings.json) (사용자 설정)
+- **테스트 스크립트**: [`scripts/test_coin_selection_full.py`](../../../scripts/test_coin_selection_full.py)
+- **이전 버전**: [`scripts/test_coin_selection.py`](../../../scripts/test_coin_selection.py) (간단 버전)
+- **Evaluator**: [`trading/evaluator.py`](../../../trading/evaluator.py) (코인 선택 로직)
+- **설정**: [`config/settings.py`](../../../config/settings.py) (설정 구조)
+- **기본 설정**: [`data/settings.json`](../../../data/settings.json) (사용자 설정)
 
 ---
 

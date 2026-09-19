@@ -4,6 +4,8 @@
 from unittest.mock import MagicMock
 from types import SimpleNamespace
 
+from trading.custom_strategy_runtime import stamp_trade_exit_rates
+
 
 def test_profitability_validator_blocks_when_metrics_bad():
     from trading.profitability_validation import ProfitabilityValidator
@@ -415,7 +417,7 @@ def test_unified_trader_cycle_records_allocation_and_ops_metrics():
     assert "profitability_validation" in trader.cycle_execution_metrics["bybit"]
 
 
-def test_unified_trader_execute_signal_trade_uses_quality_control_and_allocation():
+def _quality_control_trader_fixture():
     from trading.unified_trader import UnifiedTrader
 
     trader = UnifiedTrader.__new__(UnifiedTrader)
@@ -450,7 +452,12 @@ def test_unified_trader_execute_signal_trade_uses_quality_control_and_allocation
     trader._analyze_pattern_similarity_unified = MagicMock(return_value={"action": "KEEP"})
     trader._calculate_dynamic_confidence_threshold_unified = MagicMock(return_value=0.1)
     trader._get_ai_max_positions = MagicMock(return_value=3)
-    trader._get_ai_enhanced_parameters_unified = MagicMock(return_value={"tp_percent": 0.02, "sl_percent": 0.01, "leverage": 3, "position_size_factor": 1.0})
+    trader._get_ai_enhanced_parameters_unified = MagicMock(return_value=stamp_trade_exit_rates(
+        {"leverage": 3, "position_size_factor": 1.0},
+        tp_fraction=0.02,
+        sl_fraction=0.01,
+        source="test_unified_dynamic",
+    ))
     trader.get_exchange_client = MagicMock(return_value=SimpleNamespace(
         set_leverage=lambda symbol, leverage: True,
         set_margin_type=lambda symbol, margin_type: True,
@@ -470,6 +477,11 @@ def test_unified_trader_execute_signal_trade_uses_quality_control_and_allocation
     )
     trader._record_exchange_execution = MagicMock()
     trader._log_trade_event = MagicMock()
+    return trader
+
+
+def test_unified_trader_execute_signal_trade_uses_quality_control_and_allocation():
+    trader = _quality_control_trader_fixture()
 
     result = trader._execute_signal_trade("bybit", "BTCUSDT", {"signal": "LONG", "confidence": 0.91, "market_volatility": 1.2})
 
@@ -479,6 +491,39 @@ def test_unified_trader_execute_signal_trade_uses_quality_control_and_allocation
     assert call.kwargs["quantity"] > 0
     assert call.kwargs["policy"]["enabled"] is True
     assert result["latency_ms"] == 120.0
+
+
+def test_remote_pause_blocks_all_unified_venue_entry_submissions(tmp_path, monkeypatch):
+    from trading import remote_entry_pause
+    from trading import unified_trader
+    from trading.opportunity_coordinator import OpportunityCoordinator
+    coordinator = OpportunityCoordinator()
+    monkeypatch.setattr(unified_trader, 'get_opportunity_coordinator', lambda: coordinator)
+    gate = remote_entry_pause.EntryPause(tmp_path)
+    monkeypatch.setattr(remote_entry_pause, 'gate', lambda: gate)
+    for venue in ('bybit', 'okx', 'bitget', 'upbit', 'bithumb', 'coinone'):
+        trader = _quality_control_trader_fixture()
+        trader.active_positions = {venue: {}}
+        trader.portfolio_allocation_cache = {venue: trader.portfolio_allocation_cache['bybit']}
+        trader.get_exchange_client.return_value.get_balance = lambda: {'free':{'KRW':1000000},'total':{'KRW':1000000}}
+        gate.set(venue, True)
+        result = trader._execute_signal_trade(venue, 'BTCUSDT', {'signal':'LONG','confidence':.91,'market_volatility':1.2})
+        assert result.get('reason') == 'remote_entries_paused', (venue, result)
+        trader.unified_manager.place_order_with_quality_control.assert_not_called()
+
+
+def test_remote_pause_does_not_block_owned_spot_exit(tmp_path, monkeypatch):
+    from trading import remote_entry_pause
+    gate = remote_entry_pause.EntryPause(tmp_path)
+    monkeypatch.setattr(remote_entry_pause, 'gate', lambda: gate)
+    for venue in ('upbit', 'bithumb', 'coinone'):
+        trader = _quality_control_trader_fixture()
+        position = SimpleNamespace(position_owner='noahai')
+        trader._position_store = MagicMock(return_value={'BTC/KRW':position})
+        trader._close_position_unified = MagicMock(return_value=True)
+        gate.set(venue, True)
+        trader._execute_signal_trade(venue, 'BTC/KRW', {'signal':'SHORT'})
+        trader._close_position_unified.assert_called_once_with(venue, 'BTC/KRW', position, 50000.0)
 
 
 def test_life_finance_advisor_loads_external_catalog(tmp_path):

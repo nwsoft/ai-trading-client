@@ -276,6 +276,9 @@ function createWindow() {
   if (!gatewayBootstrap) throw new Error("gateway bootstrap is not ready");
   process.env.NOAHAI_GATEWAY_URL = gatewayBootstrap.gatewayUrl;
   process.env.NOAHAI_GATEWAY_TOKEN = gatewayBootstrap.gatewayToken;
+  // Local presentation hint only. Never derive a country or send this to telemetry.
+  try { process.env.NOAHAI_SYSTEM_LANGUAGE = app.getPreferredSystemLanguages()[0] || 'ko'; }
+  catch { process.env.NOAHAI_SYSTEM_LANGUAGE = 'ko'; }
   mainWindow = new BrowserWindow({
     // CustomTkinter's geometry("450x680") describes the client area.  Electron
     // normally interprets width/height as the framed window bounds, which made

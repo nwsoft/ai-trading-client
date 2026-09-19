@@ -27,7 +27,7 @@ AI 커스텀 기능 시험 전에 같은 앱 프로세스에서 다음 두 시�
 16. 비활성 프라이빗 전략을 7개 이상 저장하고 앱을 완전히 종료·재시작한다. 시작 화면이 정상이어야 하며 AI 커스텀을 열기 전 로그에 `ai-custom-build-before/after`가 없어야 한다.
 17. AI 커스텀 최초 진입 뒤 거래소 탭과 100회 왕복한다. `ai-custom-build-before/after`는 최초 한 쌍만 있어야 하며 같은 전략 목록과 입력 상태가 유지돼야 한다. 추가 build, 좌측 상단 분리 화면, 빈 본문, 잔상 또는 종료가 있으면 실패다.
 
-설정·프로세스 원인은 `INCIDENT_260812_V3909_UI_SETTINGS_ROOT_CAUSE.md`, 7개 전략 복원·AI 커스텀/소스 탭 원인은 `INCIDENT_260813_V39010_SETTINGS_TAB_STRATEGY_MANAGEMENT.md`를 따른다.
+설정·프로세스 원인은 `archive/history/INCIDENT_260812_V3909_UI_SETTINGS_ROOT_CAUSE.md`, 7개 전략 복원·AI 커스텀/소스 탭 원인은 `archive/history/INCIDENT_260813_V39010_SETTINGS_TAB_STRATEGY_MANAGEMENT.md`를 따른다.
 
 ### 0.1 Kimi K3 설정 시험
 

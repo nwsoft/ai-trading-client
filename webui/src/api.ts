@@ -1,3 +1,4 @@
+import { getLocale } from './i18n';
 import type {
   CandleSnapshot,
   FeatureInventory,
@@ -14,8 +15,10 @@ import type {
 } from "./types";
 
 export interface GatewayClient {
+  displayPreferences: () => Promise<{locale: string; saved: boolean}>;
+  saveDisplayPreferences: (locale: string) => Promise<{locale: string; saved: boolean}>;
   remoteStatus: () => Promise<Record<string, any>>;
-  configureRemote: (enabled: boolean, name: string, allowPause?: boolean) => Promise<Record<string, any>>;
+  configureRemote: (enabled: boolean, name: string, allowPause?: boolean, allowControl?: boolean, shareDetails?: boolean) => Promise<Record<string, any>>;
   resumeEntries: (source: string) => Promise<Record<string, any>>;
   platform: () => Promise<PlatformContract>;
   session: () => Promise<SessionSnapshot>;
@@ -212,7 +215,7 @@ export function createGatewayClient(): GatewayClient {
     }
     const response = await request(`${baseUrl}${path}`, {
       method: "GET",
-      headers: { Authorization: `Bearer ${configuration.gatewayToken}` },
+      headers: { Authorization: `Bearer ${configuration.gatewayToken}`, 'X-NoahAI-Locale': getLocale() },
       cache: "no-store",
     }, timeoutMs);
     if (!response.ok) {
@@ -232,6 +235,7 @@ export function createGatewayClient(): GatewayClient {
         Authorization: `Bearer ${configuration.gatewayToken}`,
         "Content-Type": "application/json",
         "X-NoahAI-Intent": "confirmed",
+        "X-NoahAI-Locale": getLocale(),
       },
       cache: "no-store",
       body: JSON.stringify(body),
@@ -244,6 +248,8 @@ export function createGatewayClient(): GatewayClient {
   }
 
   return {
+    displayPreferences: () => get('/api/v1/display-preferences'),
+    saveDisplayPreferences: (locale) => mutate('POST', '/api/v1/display-preferences', {locale}),
     platform: () => get<PlatformContract>("/api/v1/platform"),
     session: () => get<SessionSnapshot>("/api/v1/session"),
     login: (username, password) => mutate<SessionSnapshot>("POST", "/api/v1/session/login", { username, password }),
@@ -278,7 +284,7 @@ export function createGatewayClient(): GatewayClient {
     updateCredentials: (expectedRevision, provider, values) =>
       mutate<SettingsSnapshot>("POST", "/api/v1/settings/credentials", { expected_revision: expectedRevision, provider, values }),
     remoteStatus: () => get<Record<string, any>>("/api/v1/remote/status"),
-    configureRemote: (enabled, name, allowPause = false) => mutate<Record<string, any>>("POST", "/api/v1/remote/configure", { enabled, name, allow_pause: allowPause }),
+    configureRemote: (enabled, name, allowPause = false, allowControl = false, shareDetails = false) => mutate<Record<string, any>>("POST", "/api/v1/remote/configure", { enabled, name, allow_pause: allowPause, allow_control: allowControl, share_details: shareDetails }),
     resumeEntries: (source) => mutate<Record<string, any>>("POST", "/api/v1/remote/resume-entries", { source }),
     notificationStatus: () => get<Record<string, any>>("/api/v1/notifications/status"),
     testNotification: (channel) => mutate<Record<string, any>>("POST", "/api/v1/notifications/test", { channel }, 20_000),

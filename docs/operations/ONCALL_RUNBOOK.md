@@ -23,7 +23,9 @@
 - 코드 예외
 
 5. 복구 검증
-- stock_live_readiness_run.py --all-supported-brokers 실행
+- offline 공통 계약: `stock_live_readiness_run.py --all-supported-brokers --offline`
+- 승인된 대상 계정 실연동: `stock_live_readiness_run.py --all-supported-brokers --strict --account QA_ACCOUNT`
+- 실제 사용자/테스터 폴더를 이름 없이 자동 탐색하지 않음
 - test_stock_live_readiness_scripts.py 최소 회귀
 - 자동매매 1사이클 dry 확인
 

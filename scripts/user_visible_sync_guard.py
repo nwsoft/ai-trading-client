@@ -20,6 +20,7 @@ ROOT = Path(__file__).resolve().parents[1]
 # 사용자 체감에 영향이 큰 코드 경로
 USER_VISIBLE_PREFIXES = (
     "ui/",
+    "webui/src/",
     "trading/",
     "api/",
     "main.py",

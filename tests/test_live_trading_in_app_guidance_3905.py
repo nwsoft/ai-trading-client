@@ -12,14 +12,21 @@ def test_fix_patch_build_is_identifiable_inside_client():
     from config.app_version import (
         DASHBOARD_TITLE,
         RELEASE_BUILD_LABEL,
+        RELEASE_DISPLAY_LABEL,
         RELEASE_NOTICE_ID,
+        RELEASE_PATCH,
+        RELEASE_VERSION,
         USER_MANUAL_TITLE,
     )
 
-    assert RELEASE_BUILD_LABEL == "v3.9.0.10 AI Custom Management & Runtime Integrity Update"
-    assert "AI Custom Management & Runtime Integrity Update" in DASHBOARD_TITLE
-    assert "AI Custom Management & Runtime Integrity Update" in USER_MANUAL_TITLE
-    assert "ai-custom-management-settings-tab-runtime-integrity-source-candidate" in RELEASE_NOTICE_ID
+    assert RELEASE_BUILD_LABEL == f"v{RELEASE_VERSION} {RELEASE_PATCH}"
+    assert RELEASE_DISPLAY_LABEL == f"v{RELEASE_VERSION}"
+    assert RELEASE_DISPLAY_LABEL in DASHBOARD_TITLE
+    assert RELEASE_DISPLAY_LABEL in USER_MANUAL_TITLE
+    assert "Internal Integration Candidate" not in DASHBOARD_TITLE
+    assert "Internal Integration Candidate" not in USER_MANUAL_TITLE
+    assert RELEASE_NOTICE_ID.startswith(f"v{RELEASE_VERSION}-")
+    assert RELEASE_NOTICE_ID.endswith("-patch")
 
 
 def test_user_guide_covers_all_live_venues_modes_and_memberships():
@@ -33,6 +40,7 @@ def test_user_guide_covers_all_live_venues_modes_and_memberships():
         "Bitget",
         "Upbit",
         "Bithumb",
+        "Coinone",
         "키움증권",
         "신한증권",
         "미래에셋증권",
@@ -56,10 +64,12 @@ def test_user_guide_covers_all_live_venues_modes_and_memberships():
 def test_manual_has_dedicated_live_readiness_tab_and_quick_link():
     manual = _read("ui/widgets/user_manual_widget.py")
 
+    assert "Internal Integration Candidate" not in manual
+    assert "Web 전환 후보" not in manual
     assert '("실거래 준비", "실거래 준비")' in manual
     assert "self.create_live_trading_guide_tab(tab_widget)" in manual
     assert 'tab_widget.add("실거래 준비")' in manual
-    assert "build_live_trading_guide(RELEASE_BUILD_LABEL)" in manual
+    assert "build_live_trading_guide(RELEASE_DISPLAY_LABEL)" in manual
     assert "새 Windows EXE의 크기·SHA-256·설치 검증 전" in manual
     assert "manifest는 pending_windows_rebuild" in manual
 

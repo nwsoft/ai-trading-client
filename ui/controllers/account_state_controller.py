@@ -7,8 +7,10 @@ CustomTkinter에 의존하지 않는 순수 정책만 둔다. 현물 보유자�
 from dataclasses import dataclass
 from typing import Any, Dict
 
+from trading.account_state_contract import normalize_spot_holdings
 
-SPOT_EXCHANGES = frozenset({"upbit", "bithumb"})
+
+SPOT_EXCHANGES = frozenset({"upbit", "bithumb", "coinone"})
 
 
 @dataclass(frozen=True)
@@ -53,49 +55,6 @@ def get_exchange_account_contract(exchange: str) -> AccountPanelContract:
         holding_mode=False,
         source="positions",
     )
-
-
-def _numeric_balance(value: Any) -> float:
-    if isinstance(value, dict):
-        value = value.get("total", value.get("balance", value.get("wallet_balance", 0)))
-    try:
-        return float(value or 0)
-    except (TypeError, ValueError):
-        return 0.0
-
-
-def normalize_spot_holdings(balance: Any, quote_asset: str = "KRW") -> Dict[str, Dict[str, Any]]:
-    """정규화된 잔고에서 기준통화·요약키를 제외한 실제 현물 보유량을 만든다."""
-    if not isinstance(balance, dict):
-        return {}
-
-    excluded = {
-        str(quote_asset or "KRW").upper(),
-        "TOTAL",
-        "TOTAL_BALANCE",
-        "TOTAL_ASSETS",
-        "AVAILABLE",
-        "AVAILABLE_BALANCE",
-        "FREE",
-        "CASH",
-        "EQUITY",
-        "UNREALIZED_PNL",
-        "UNREALIZEDPNL",
-    }
-    holdings: Dict[str, Dict[str, Any]] = {}
-    for raw_asset, raw_value in balance.items():
-        asset = str(raw_asset or "").strip().upper()
-        quantity = _numeric_balance(raw_value)
-        if not asset or asset in excluded or quantity <= 0:
-            continue
-        holdings[asset] = {
-            "symbol": asset,
-            "side": "HOLD",
-            "quantity": quantity,
-            "entry_price": 0.0,
-            "unrealized_pnl": 0.0,
-        }
-    return holdings
 
 
 def build_account_panel_result(

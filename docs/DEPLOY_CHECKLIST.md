@@ -1,4 +1,8 @@
-## 2026-09-19 - v3.9.1.41 Market Trend Visuals and Evidence-based XAI Patch
+## v3.9.1.42 인계 체크리스트
+
+제품 3.9.1.42 / updater 3.9.142, 공개 v3.9.1.41 자산 보존. Client 빌드·릴리스는 사용자가 수행합니다. [실행 계획·시험](V39142_REMOTE_CONTROL_PLAN.md). v41 연결 호환, PC 시작/재개 별도 승인, 웹 재인증, PAPER/LIVE 확인, 설정 변경·중복·만료·오프라인·회원 차단을 확인합니다. 실제 Windows 설치본/11기관 계좌 제어와 300명 운용은 별도 미완료 게이트입니다. 운영 시험에서 실제 거래 시작 명령을 보내지 않습니다.
+
+## 보존 기록: 2026-09-19 - v3.9.1.41 Market Trend Visuals and Evidence-based XAI Patch
 
 현재 소스 후보 **v3.9.1.41** · updater **3.9.141**. 현재 공개 stable/latest는 **v3.9.1.40**이며 공개 v40 자산은 보존합니다.
 

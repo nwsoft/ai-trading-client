@@ -18,7 +18,7 @@ from typing import Any, Dict, Iterable, List, Optional
 
 
 CRYPTO_EXCHANGES = {
-    "binance", "upbit", "bithumb", "bybit", "okx", "bitget",
+    "binance", "upbit", "bithumb", "coinone", "bybit", "okx", "bitget",
 }
 STOCK_EXCHANGES = {
     "kiwoom", "shinhan", "miraasset", "miraeasset", "mirae_asset",
@@ -114,7 +114,7 @@ def normalize_current_balances(
         krw = _first_number(data, ("KRW",))
         # Korean spot venues report their account base in KRW; a generic total
         # from those adapters is therefore KRW, not USDT.
-        if any(name in source_key for name in ("upbit", "bithumb")) and not krw:
+        if any(name in source_key for name in ("upbit", "bithumb", "coinone")) and not krw:
             krw = _first_number(data, ("TOTAL", "TOTAL_ASSETS", "EQUITY"))
             usdt = 0.0
         reserved = {
@@ -219,7 +219,7 @@ def _trade_currency(symbol: Any, exchange: Any, asset_class: str) -> str:
         return "KRW"
     venue = str(exchange or "").strip().lower()
     symbol_key = str(symbol or "").strip().upper()
-    if venue in {"upbit", "bithumb"} or symbol_key.startswith("KRW-"):
+    if venue in {"upbit", "bithumb", "coinone"} or symbol_key.startswith("KRW-"):
         return "KRW"
     return "USDT"
 

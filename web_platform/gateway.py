@@ -106,7 +106,7 @@ def create_gateway_app(
         allow_origins=list(ALLOWED_ORIGINS),
         allow_credentials=False,
         allow_methods=["GET", "POST", "DELETE"],
-        allow_headers=["Authorization", "Content-Type", "X-NoahAI-Intent"],
+        allow_headers=["Authorization", "Content-Type", "X-NoahAI-Intent", "X-NoahAI-Locale"],
     )
 
     @app.middleware("http")
@@ -129,6 +129,21 @@ def create_gateway_app(
     def health() -> HealthContract:
         return HealthContract(release_version=RELEASE_VERSION)
 
+    @app.get('/api/v1/display-preferences', dependencies=[Depends(require_token)])
+    def display_preferences():
+        from web_platform.display_preferences import read_preferences
+        return read_preferences(services.data_dir)
+
+    @app.post('/api/v1/display-preferences', dependencies=[Depends(require_token), Depends(require_confirmed_intent)])
+    def save_display_preferences(payload: dict[str, Any]):
+        from web_platform.display_preferences import save_preferences
+        if set(payload) != {'locale'}:
+            raise HTTPException(400, 'display_preferences_invalid')
+        try:
+            return save_preferences(services.data_dir, payload['locale'])
+        except ValueError as exc:
+            raise HTTPException(400, str(exc)) from exc
+
     @app.get('/api/v1/remote/status', dependencies=[Depends(require_token)])
     def remote_status():
         return services.remote_monitor().status()
@@ -136,7 +151,7 @@ def create_gateway_app(
     @app.post('/api/v1/remote/configure', dependencies=[Depends(require_token), Depends(require_confirmed_intent)])
     def remote_configure(payload: dict[str, Any]):
         try:
-            return services.remote_monitor().configure(payload.get('enabled'), payload.get('name'), payload.get('allow_pause',False))
+            return services.remote_monitor().configure(payload.get('enabled'), payload.get('name'), payload.get('allow_pause',False),payload.get('allow_control',False),payload.get('share_details',False))
         except ValueError as exc:
             raise HTTPException(400,str(exc)) from exc
 
@@ -175,7 +190,7 @@ def create_gateway_app(
         "/api/v1/assistant/ask",
         dependencies=[Depends(require_token), Depends(require_confirmed_intent)],
     )
-    def assistant_ask(body: AssistantQueryContract) -> dict[str, Any]:
+    def assistant_ask(body: AssistantQueryContract, request: Request) -> dict[str, Any]:
         try:
             return services.ask_assistant(
                 question=body.question,
@@ -185,6 +200,7 @@ def create_gateway_app(
                 recent_messages=[item.model_dump() for item in body.recent_messages],
                 settings_section=body.settings_section,
                 data_scope=body.data_scope,
+                **({'output_locale': 'en'} if request.headers.get('x-noahai-locale') == 'en' else {}),
             )
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -201,9 +217,9 @@ def create_gateway_app(
         return load_feature_inventory()
 
     @app.get("/api/v1/manual", dependencies=[Depends(require_token)])
-    def manual() -> dict[str, Any]:
+    def manual(request: Request) -> dict[str, Any]:
         try:
-            return services.manual_snapshot()
+            return services.manual_snapshot(**({'output_locale': 'en'} if request.headers.get('x-noahai-locale') == 'en' else {}))
         except RuntimeError as exc:
             raise HTTPException(status_code=503, detail=str(exc)) from exc
 

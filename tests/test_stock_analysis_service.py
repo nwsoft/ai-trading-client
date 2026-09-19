@@ -398,6 +398,58 @@ class TestStockAnalysisService:
         assert result['decisions'][0]['action'] == 'BUY'
         assert result['decisions'][0]['success'] is True
 
+    @pytest.mark.parametrize("broker", ["kiwoom", "shinhan", "miraeAsset", "koreaInvestment"])
+    def test_account_risk_sizing_uses_krw_equity_and_whole_shares(self, svc, broker):
+        svc.broker_name = broker
+        svc.adapter.api_type = 'mock'
+        svc.adapter.place_order.return_value = {
+            'status': 'success', 'order_id': 'RISK-1', 'success': True,
+        }
+        analysis = {**self._MOCK_ANALYSIS_BUY, 'symbol': '123456'}
+        with patch.object(svc, 'get_market_regime', return_value='range'), \
+             patch.object(svc, 'analyze_symbol', return_value=analysis):
+            result = svc.run_auto_trade_cycle(
+                symbols=['123456'], quantity=1, buy_threshold=35,
+                execution_mode_override='mock', guardrails={'enabled': False},
+                exit_policy={'stop_loss_percent': 2.0},
+                auto_risk_policy={
+                    'profitability_validation': {'enabled': False},
+                    'position_sizing_policy': {
+                        'mode': 'account_risk',
+                        'risk_per_trade_percent': 0.5,
+                        'max_margin_usage_percent': 100.0,
+                        'max_notional_percent': 100.0,
+                        'paper_equity_krw': 10_000_000,
+                    },
+                },
+            )
+
+        decision = result['decisions'][0]
+        assert decision['success'] is True
+        assert decision['position_sizing']['mode'] == 'account_risk'
+        assert decision['position_sizing']['account_equity_source'] == 'paper_virtual_equity'
+        submitted_qty = float(svc.adapter.place_order.call_args.kwargs['quantity'])
+        assert submitted_qty == int(submitted_qty)
+        assert submitted_qty > 1
+
+    def test_paper_portfolio_sizing_never_reads_live_broker_balance(self, svc):
+        svc.adapter.get_balance.reset_mock()
+        with patch.object(svc, 'get_market_regime', return_value='range'), \
+             patch.object(svc, 'analyze_symbol', return_value=dict(self._MOCK_ANALYSIS_BUY)):
+            svc.run_auto_trade_cycle(
+                symbols=['005930'], buy_threshold=35,
+                execution_mode_override='paper', guardrails={'enabled': False},
+                auto_risk_policy={
+                    'profitability_validation': {'enabled': False},
+                    'portfolio_orchestration': {'enabled': True},
+                    'position_sizing_policy': {
+                        'mode': 'account_risk', 'paper_equity_krw': 10_000_000,
+                    },
+                },
+            )
+
+        svc.adapter.get_balance.assert_not_called()
+
     def test_run_auto_trade_cycle_blocks_live_without_flag(self, svc):
         svc.adapter.api_type = 'openapi'
 
@@ -522,7 +574,9 @@ class TestStockAnalysisService:
         assert result['orders_executed'] == 0
         assert result['decisions'][0]['reason'] == 'auto_risk_blocked'
 
-    def test_run_auto_trade_cycle_executes_exit_policy_sell(self, svc):
+    @pytest.mark.parametrize('regime', ['range', 'unknown'])
+    def test_run_auto_trade_cycle_executes_exit_policy_sell(self, svc, regime):
+        svc.get_market_regime = MagicMock(return_value=regime)
         svc.adapter.api_type = 'mock'
         svc.adapter.place_order.return_value = {
             'status': 'success',

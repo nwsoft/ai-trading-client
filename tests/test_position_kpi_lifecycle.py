@@ -95,4 +95,7 @@ def test_unified_close_all_reuses_lifecycle_close_and_flushes_kpi_queue():
     assert "self._close_position_unified(" in unified_source
     assert "'reason': 'close_all_untracked'" not in unified_source
     assert "계정 포지션은 close_all 자동청산에서 제외" in unified_source
-    assert "flush_kpi_events(timeout=5.0)" in unified_source
+    stop_source = unified_source.split("def stop_trading(", 1)[1].split("def request_trading_stop", 1)[0]
+    batch_wait_source = unified_source.split("def wait_for_trading_stops(", 1)[1].split("def _monitoring_loop", 1)[0]
+    assert "self.wait_for_trading_stops([exchange_name], timeout=5.0)" in stop_source
+    assert "flush_kpi_events(" in batch_wait_source

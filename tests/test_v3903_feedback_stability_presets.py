@@ -154,7 +154,7 @@ def test_assistant_handoff_loads_draft_only_and_switches_tab():
         "이평선 매매 초안을 AI 커스텀에 넣어줘"
     )
     assert loaded == ["trend_follow"]
-    assert selected_tabs == ["AI 커스텀"]
+    assert selected_tabs == ["전략 스튜디오"]
     assert "아직 분석·저장·승인·실행하지 않았습니다" in response
 
 

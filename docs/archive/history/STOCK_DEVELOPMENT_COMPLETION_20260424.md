@@ -291,8 +291,8 @@ for broker in enabled_brokers:
 ---
 
 ## 🔗 참고 문서
-- [STOCK_ETF_ARCHITECTURE_DECISION_20260423.md](./STOCK_ETF_ARCHITECTURE_DECISION_20260423.md)
-- [STOCK_ETF_IMPLEMENTATION_STATUS_20260423.md](./STOCK_ETF_IMPLEMENTATION_STATUS_20260423.md)
-- [exchange_factory.py](../trading/exchanges/exchange_factory.py)
-- [settings_modern.py](../ui/settings_modern.py)
-- [dashboard_modern.py](../ui/dashboard_modern.py)
+- [STOCK_ETF_ARCHITECTURE_DECISION_20260423.md](../../STOCK_ETF_ARCHITECTURE_DECISION_20260423.md)
+- [STOCK_ETF_IMPLEMENTATION_STATUS_20260423.md](../../STOCK_ETF_IMPLEMENTATION_STATUS_20260423.md)
+- [exchange_factory.py](../../../trading/exchanges/exchange_factory.py)
+- [settings_modern.py](../../../ui/settings_modern.py)
+- [dashboard_modern.py](../../../ui/dashboard_modern.py)

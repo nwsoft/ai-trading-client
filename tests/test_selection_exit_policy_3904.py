@@ -6,10 +6,18 @@ from trading.exit_policy import (
 from trading.selection_policy import (
     SelectionPolicy,
     StrategyUniversePolicy,
+    candidate_execution_eligible,
     combine_selection_paths,
     resolve_effective_market_regime,
     select_advanced_strategy_universe,
 )
+
+
+def test_candidate_execution_gate_blocks_unscored_reference_symbols_only():
+    assert candidate_execution_eligible({"symbol": "BTCUSDT", "selection_status": "scored"}) is True
+    assert candidate_execution_eligible({"symbol": "BTCUSDT", "selection_status": "scored_partial"}) is True
+    assert candidate_execution_eligible({"symbol": "BTCUSDT", "selection_status": "fallback_unscored"}) is False
+    assert candidate_execution_eligible({"symbol": "BTCUSDT", "execution_eligible": False}) is False
 from trading.stock_exit_policy import resolve_stock_exit_thresholds
 from trading.trade_candidate import evaluate_trade_candidate
 
@@ -59,7 +67,9 @@ def test_explicit_symbol_regime_scope_uses_symbol_regime_for_custom_strategy():
         "regime_scope": "symbol",
         "signal_mode": "independent",
         "entry_signal": "LONG",
-        "engine_settings": {"tp_percent": 0.02, "sl_percent": 0.01},
+        "engine_settings": {
+            "_unit": "fraction", "tp_percent": 0.02, "sl_percent": 0.01,
+        },
         "rules": {
             "signal_mode": "independent",
             "entry_signal": "LONG",

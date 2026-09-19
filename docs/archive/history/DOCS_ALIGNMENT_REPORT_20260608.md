@@ -68,7 +68,7 @@ v3.8.9.21 기준으로 기술문서/기술백서/가이드/IR 관련 핵심 문�
 ## 2026-06-22 추가 점검 델타
 
 - 사업/특허 진행 전 최종 사실성 점검 문서를 신규 추가함.
-  - [FINAL_BUSINESS_PATENT_READINESS_20260622.md](FINAL_BUSINESS_PATENT_READINESS_20260622.md)
+- [FINAL_BUSINESS_PATENT_READINESS_20260622.md](../../FINAL_BUSINESS_PATENT_READINESS_20260622.md)
 - 핵심 결론
   - 인증/세션/등급 수신은 코드와 정합
   - 등급별 강제 게이팅/자동 과금은 미구현으로 판정

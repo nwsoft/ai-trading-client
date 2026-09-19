@@ -378,7 +378,7 @@ class AIAssistantWidget(CTkFrame):
 
         # 초기 메시지 (채팅창 안에 표시)
         self.add_ai_message("안녕하세요. NoahAI 공식 AI 어시스턴트입니다.")
-        self.add_ai_message("사용법·현재 상태·설정 위치를 질문하거나, 변경할 값을 말하면 확인 후 도와드립니다.")
+        self.add_ai_message("사용법·현재 상태·설정의 현재값·영향·위치를 설명합니다. 실제 변경과 저장은 설정 화면에서 직접 확인해 주세요.")
 
         # 사용자 입력 영역
         input_frame = CTkFrame(
@@ -1512,7 +1512,7 @@ class AIAssistantWidget(CTkFrame):
                 "설정창은 한 인스턴스를 재사용하고, "
                 "시장 트렌드·금융 인텔리전스·AlphaArena·코인/종목 정보·거래 통계·AI 화면은 공통 탭 소유권으로 "
                 "예전 위젯 참조·콜백·native 메뉴를 함께 정리합니다. 같은 서비스와 동일 source 구성은 화면을 다시 만들지 않고 재사용하며 일부 섹션만 생성된 화면은 정상으로 표시하지 않습니다.\n"
-                "금융 인텔리전스는 거래소 탭보다 앞에 있어야 하고, `거래소: N곳 · 기준 ...`은 분석 범위, `자동매매: 정지/부분 실행/전체 실행 (n/m)`은 실제 워커 상태입니다. "
+                "금융 인텔리전스는 거래소 탭보다 앞에 있어야 하고, `거래소: N곳 · 기준 ...`은 분석 범위, `자율주행: 정지/부분 실행/전체 실행 (n/m)`은 실제 워커 상태입니다. "
                 "`No more menus can be allocated` 또는 `invalid command name`이 다시 나오면 정상 동작이 아닙니다. "
                 "설정/서비스 반복 횟수, 직전 화면, 발생 시각 로그와 전체 화면만 전달하고 API 키·계정정보는 보내지 마세요. "
                 "Fix 4 창 제목·SHA 일치와 100회 왕복의 USER/GDI/TK_MENU 상한 검증 전에는 설치본 완료로 판단하지 않습니다."
@@ -1671,13 +1671,13 @@ class AIAssistantWidget(CTkFrame):
                 if widget is None or not widget.load_beginner_preset(key):
                     raise RuntimeError("AI 커스텀 입력창 준비 실패")
                 if getattr(dashboard, "tab_widget", None) is not None:
-                    dashboard.tab_widget.set("AI 커스텀")
+                    dashboard.tab_widget.set("전략 스튜디오")
                 handoff_note = (
-                    "\n요청한 초안을 AI 커스텀 입력창에 불러왔습니다. 아직 분석·저장·승인·실행하지 않았습니다."
+                    "\n요청한 초안을 전략 스튜디오 입력창에 불러왔습니다. 아직 분석·저장·승인·실행하지 않았습니다."
                 )
             except Exception as exc:
                 self.logger.warning(f"기본 전략 AI 커스텀 전달 실패: {exc}")
-                handoff_note = "\nAI 커스텀 탭을 열고 같은 이름의 프리셋에서 ‘선택 내용 불러오기’를 눌러 주세요."
+                handoff_note = "\n전략 스튜디오 탭을 열고 같은 이름의 프리셋에서 ‘선택 내용 불러오기’를 눌러 주세요."
         elif wants_handoff:
             handoff_note = (
                 "\nAI 자동 대응은 별도 커스텀 전략으로 저장하지 않습니다. "
@@ -4325,11 +4325,15 @@ AI 상태: {ai_status}"""
                 self.add_ai_message("설정을 업데이트할 수 없습니다.")
                 return
 
-            # 현재 설정 가져오기
-            current_settings = copy.deepcopy(dashboard.settings)
+            # 화면 객체는 오래된 설정 사본을 보유할 수 있으므로 저장 직전에
+            # 디스크의 최신 설정을 기준으로 사용자 승인 변경만 병합한다.
+            from config.settings import load_settings, save_settings
+            current_settings = copy.deepcopy(
+                load_settings() or dashboard.settings
+            )
 
             # 설정 업데이트
-            before_snapshot_full = copy.deepcopy(dashboard.settings)
+            before_snapshot_full = copy.deepcopy(current_settings)
             for key, value in settings.items():
                 if key == 'risk_tolerance' or key == 'balance_utilization_limit':
                     # ai_trading_preferences 내부 설정
@@ -4354,7 +4358,6 @@ AI 상태: {ai_status}"""
                     current_settings[key] = value
 
             # 설정 파일에 저장
-            from config.settings import load_settings, save_settings
             if save_settings(current_settings):
                 persisted_settings = load_settings() or {}
                 expected_values = self._logical_setting_values(current_settings, settings.keys())

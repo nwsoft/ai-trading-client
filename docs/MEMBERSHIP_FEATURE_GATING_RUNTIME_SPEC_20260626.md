@@ -14,7 +14,7 @@
 - 사용자 인증/세션/등급 수신 경로는 이미 존재
   - user_status_manager.py, api/backend_api.py
 - code-verified 문서에서 등급 강제 게이팅 미구현이 이미 확인됨
-  - docs/SAAS_UPDATE_PLAN_CODE_VERIFIED_20260609.md
+  - docs/archive/history/SAAS_UPDATE_PLAN_CODE_VERIFIED_20260609.md
 
 2026-07-27 구현 범위:
 

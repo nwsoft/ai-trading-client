@@ -206,7 +206,8 @@ class AIAssistantContextTests(unittest.TestCase):
         )
 
         self.assertIn("현재 AI 커스텀 실자동매매 사용 스위치: OFF", response)
-        self.assertIn("v3.9.0.10 AI Custom Management & Runtime Integrity Update", response)
+        from config.app_version import RELEASE_BUILD_LABEL
+        self.assertIn(RELEASE_BUILD_LABEL, response)
         self.assertIn("원문의 어느 문장·화면이 어떤 IR 노드", response)
         self.assertIn("Level 1", response)
         self.assertIn("미지원은 차단", response)

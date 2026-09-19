@@ -66,11 +66,12 @@ export function readReplayEvidence(metrics: Record<string, any>, versionId: stri
   return { candles, trades, equity, hash: String(chart.candles_sha256 ?? "") };
 }
 
-export function replayAction(side: "LONG" | "SHORT", entry: boolean): string {
+export function replayAction(side: "LONG" | "SHORT", entry: boolean, locale: 'ko' | 'en' = 'ko'): string {
   const buy = (side === "LONG") === entry;
-  return `${buy ? "▲ BUY" : "▼ SELL"} · ${side} ${entry ? "진입" : "청산"}`;
+  return `${buy ? "▲ BUY" : "▼ SELL"} · ${side} ${locale === 'en' ? (entry ? 'ENTRY' : 'EXIT') : (entry ? "진입" : "청산")}`;
 }
 
-export function replayExitReason(reason: string): string {
+export function replayExitReason(reason: string, locale: 'ko' | 'en' = 'ko'): string {
+  if (locale === 'en') return ({stop_loss:'Stop loss',take_profit:'Take profit',declarative_exit:'Strategy exit condition',horizon:'Holding period ended'} as Record<string,string>)[reason] ?? 'Reason not recorded';
   return ({ stop_loss: "손절", take_profit: "익절", declarative_exit: "전략 청산 조건", horizon: "보유기간 종료" } as Record<string, string>)[reason] ?? "사유 미기록";
 }

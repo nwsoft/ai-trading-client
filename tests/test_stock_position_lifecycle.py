@@ -107,7 +107,7 @@ def test_stock_partial_sell_preserves_remaining_open_lot(monkeypatch):
     update_query, update_params = recorder.execute_query.call_args_list[1].args
     closed_lot = recorder.insert_trade_log.call_args.args[0]
     assert "SET quantity = ?, fees = ?" in update_query
-    assert update_params == (3.0, 60.0, 41)
+    assert update_params == (3.0, 60.0, 60.0, 41)
     assert closed_lot.quantity == 2.0
     assert closed_lot.exit_time is not None
     assert result["events"][0]["event"] == "reduced"

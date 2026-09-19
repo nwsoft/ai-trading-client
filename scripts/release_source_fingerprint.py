@@ -40,6 +40,7 @@ EXPLICIT_FILES = (
     "docs/USER_MANUAL_SECTIONS.json",
     "docs/NOTIFICATION_INTEGRATIONS_GUIDE.md",
     "docs/REMOTE_MANAGEMENT_GUIDE_V39141.md",
+    "docs/REMOTE_MANAGEMENT_GUIDE_V39142.md",
     "config/windows_version_info.txt",
     "config/windows_kiwoom_host_version_info.txt",
     "icon.ico",

@@ -1,7 +1,9 @@
+import { t } from '../i18n';
 import { useEffect, useState, type FormEvent } from "react";
 
 import type { GatewayClient } from "../api";
 import type { SessionSnapshot } from "../types";
+import { LanguagePicker } from './LanguagePicker';
 
 export function LoginScreen({ client, onSuccess }: { client: GatewayClient; onSuccess: (session: SessionSnapshot) => void }) {
   const [username, setUsername] = useState("");
@@ -48,37 +50,38 @@ export function LoginScreen({ client, onSuccess }: { client: GatewayClient; onSu
   }
   return (
     <main className="legacy-login-shell">
-      <section className="legacy-login-window" aria-label="NoahAI 로그인">
+      <section className="legacy-login-window" aria-label={t("NoahAI 로그인")}>
         <header className="legacy-login-logo">
           <div className="legacy-login-title-row">
             <img className="legacy-login-logo-image" src="/icon.png" alt="" />
             <h1>NoahAI Decision OS</h1>
           </div>
-          <p>AI 재테크 의사결정 파트너</p>
+          <p>{t("AI 재테크 의사결정 파트너")}</p>
         </header>
         <form className="legacy-login-form" onSubmit={submit}>
-          <h2>로그인</h2>
+          <h2>{t("로그인")}</h2>
           <label>
-            <span>아이디</span>
-            <input autoComplete="username" placeholder="아이디를 입력하세요" value={username} onChange={(event) => setUsername(event.target.value)} />
+            <span>{t("아이디")}</span>
+            <input autoComplete="username" placeholder={t("아이디를 입력하세요")} value={username} onChange={(event) => setUsername(event.target.value)} />
           </label>
           <label>
-            <span>패스워드</span>
-            <input autoComplete="current-password" placeholder="패스워드를 입력하세요" type="password" value={password} onChange={(event) => setPassword(event.target.value)} />
+            <span>{t("패스워드")}</span>
+            <input autoComplete="current-password" placeholder={t("패스워드를 입력하세요")} type="password" value={password} onChange={(event) => setPassword(event.target.value)} />
           </label>
           <div className="legacy-login-options">
             <label className="legacy-checkbox">
               <input type="checkbox" checked={saveLogin} onChange={(event) => setSaveLogin(event.target.checked)} />
-              <span>로그인 정보 저장</span>
+              <span>{t("로그인 정보 저장")}</span>
             </label>
-            <button className="legacy-help-button" type="button" onClick={openHelp}>도움말</button>
+            <button className="legacy-help-button" type="button" onClick={openHelp}>{t("도움말")}</button>
           </div>
           {message && <div className="legacy-login-message error-text">{message}</div>}
           <div className="legacy-login-actions">
-            <a className="legacy-signup-button" href="https://daltrading.net" rel="noreferrer" target="_blank">회원가입</a>
-            <button className="legacy-login-button" disabled={busy || !username.trim() || !password} type="submit">{busy ? "인증 중…" : "로그인"}</button>
+            <a className="legacy-signup-button" href="https://daltrading.net" rel="noreferrer" target="_blank">{t("회원가입")}</a>
+            <button className="legacy-login-button" disabled={busy || !username.trim() || !password} type="submit">{busy ? t("인증 중…") : t("로그인")}</button>
           </div>
         </form>
+        <footer className="legacy-login-language"><LanguagePicker /></footer>
       </section>
     </main>
   );
@@ -146,18 +149,18 @@ export function LoginHelpScreen() {
   }, []);
   const selected = LOGIN_HELP_TABS.find((item) => item.id === tab) ?? LOGIN_HELP_TABS[0];
   return <main className="login-help-shell">
-    <section className="login-help-window" aria-label="로그인 도움말">
-      <nav className="login-help-tabs" aria-label="도움말 분류">
+    <section className="login-help-window" aria-label={t("로그인 도움말")}>
+      <nav className="login-help-tabs" aria-label={t("도움말 분류")}>
         {LOGIN_HELP_TABS.map((item) => <button className={tab === item.id ? "active" : ""} key={item.id} onClick={() => setTab(item.id)} type="button">{item.label}</button>)}
       </nav>
       {selected.id === "web" ? <div className="login-help-web">
-        <p>Noah AI Labs 공식 사이트에서 회사 소개, 서비스·적용 영역, 기술 소개, 금융 AI와 미래를 확인할 수 있습니다.</p>
-        <a href="https://noahailabs.com/ko/about" rel="noreferrer" target="_blank">회사 소개</a>
-        <a href="https://noahailabs.com/ko/product" rel="noreferrer" target="_blank">서비스·적용 영역</a>
-        <a href="https://noahailabs.com/ko/technology" rel="noreferrer" target="_blank">기술 소개</a>
-        <a href="https://noahailabs.com/ko/service/financial-ai-future" rel="noreferrer" target="_blank">금융 AI와 미래</a>
+        <p>{t("Noah AI Labs 공식 사이트에서 회사 소개, 서비스·적용 영역, 기술 소개, 금융 AI와 미래를 확인할 수 있습니다.")}</p>
+        <a href="https://noahailabs.com/ko/about" rel="noreferrer" target="_blank">{t("회사 소개")}</a>
+        <a href="https://noahailabs.com/ko/product" rel="noreferrer" target="_blank">{t("서비스·적용 영역")}</a>
+        <a href="https://noahailabs.com/ko/technology" rel="noreferrer" target="_blank">{t("기술 소개")}</a>
+        <a href="https://noahailabs.com/ko/service/financial-ai-future" rel="noreferrer" target="_blank">{t("금융 AI와 미래")}</a>
       </div> : <pre className="login-help-content">{selected.content}</pre>}
-      <footer><button type="button" onClick={() => window.close()}>닫기</button></footer>
+      <footer><button type="button" onClick={() => window.close()}>{t("닫기")}</button></footer>
     </section>
   </main>;
 }

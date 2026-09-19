@@ -1,3 +1,4 @@
+import { t } from '../i18n';
 import { useEffect, useRef, useState } from "react";
 
 import type { GatewayClient } from "../api";
@@ -161,34 +162,34 @@ export function TradingStatisticsWorkspace({
   const periodButtons: Array<[StatisticsPeriod, string]> = [
     ["today", "오늘"], ["7d", "7일"], ["30d", "30일"], ["all", "전체"], ["custom", "사용자 지정"],
   ];
-  const periodControls = <div className="legacy-stat-period-controls" aria-label="통계 범위">
-    <div className="legacy-stat-period-buttons" aria-label="실행 모드"><button type="button" className={statisticsMode === "live" ? "active" : ""} onClick={() => setStatisticsMode("live")}>LIVE</button><button type="button" className={statisticsMode === "paper" ? "active" : ""} onClick={() => setStatisticsMode("paper")}>PAPER</button></div>
+  const periodControls = <div className="legacy-stat-period-controls" aria-label={t("통계 범위")}>
+    <div className="legacy-stat-period-buttons" aria-label={t("실행 모드")}><button type="button" className={statisticsMode === "live" ? "active" : ""} onClick={() => setStatisticsMode("live")}>LIVE</button><button type="button" className={statisticsMode === "paper" ? "active" : ""} onClick={() => setStatisticsMode("paper")}>PAPER</button></div>
     <div className="legacy-stat-period-buttons">{periodButtons.map(([value, label]) => <button type="button" className={period === value ? "active" : ""} key={value} onClick={() => setPeriod(value)}>{label}</button>)}</div>
-    {period === "custom" && <div className="legacy-stat-custom-range"><label>시작일<input type="date" value={customStart} onChange={(event) => setCustomStart(event.target.value)} /></label><label>종료일<input type="date" value={customEnd} min={customStart || undefined} onChange={(event) => setCustomEnd(event.target.value)} /></label></div>}
+    {period === "custom" && <div className="legacy-stat-custom-range"><label>{t("시작일")}<input type="date" value={customStart} onChange={(event) => setCustomStart(event.target.value)} /></label><label>{t("종료일")}<input type="date" value={customEnd} min={customStart || undefined} onChange={(event) => setCustomEnd(event.target.value)} /></label></div>}
     <div className="legacy-stat-baseline-actions">
-      {statisticsMode === "live" && <button type="button" onClick={() => void updateBaseline("set")} disabled={loading}>통계 표시 기준 새로 시작</button>}
-      {statisticsMode === "live" && baselineActive && <button type="button" onClick={() => void updateBaseline("clear")} disabled={loading}>전체 기록 복원</button>}
+      {statisticsMode === "live" && <button type="button" onClick={() => void updateBaseline("set")} disabled={loading}>{t("통계 표시 기준 새로 시작")}</button>}
+      {statisticsMode === "live" && baselineActive && <button type="button" onClick={() => void updateBaseline("clear")} disabled={loading}>{t("전체 기록 복원")}</button>}
       <span>{statisticsMode === "paper" ? "PAPER 가상 원장 · LIVE 및 표시 기준과 분리" : baselineActive ? `기준 적용: ${new Date(String(snapshot?.statistics_view?.baseline_at)).toLocaleString()}` : "원본 전체 기록 보존"}</span>
     </div>
   </div>;
 
   return <section className="legacy-trading-statistics">
     <header className="legacy-stat-filter">
-      <h1>거래 통계 · {statisticsMode.toUpperCase()} ({statisticsMode === "paper" ? "가상 원장" : "데이터베이스"} 기준)</h1>
+      <h1>{t("거래 통계 · ")}{statisticsMode.toUpperCase()} ({statisticsMode === "paper" ? "가상 원장" : "데이터베이스"}{t(" 기준)")}</h1>
       <label>{filterLabel}
         <select value={selectedSource} onChange={(event) => setSelectedSource(event.target.value)}>
-          <option value="all">전체</option>
+          <option value="all">{t("전체")}</option>
           {sources.map((source) => <option key={source} value={source}>{source.toUpperCase()}</option>)}
         </select>
       </label>
     </header>
     {periodControls}
-    <p className="workspace-copy">조회 범위: {rangeLabel} · {sourceLabel} · {statisticsMode.toUpperCase()}. 전체 대시보드는 오늘, 기관별 카드는 전체 기간입니다. 같은 기간·기관·모드로 비교하세요.</p>
-    {statisticsMode === "live" && <aside className="workspace-copy" aria-label="손익 비교 기준">
-      <p><b>NoahAI 연결 청산 순손익{unresolvedCount > 0 ? " · 확정분 부분 합계" : ""}: {totalPnl}</b> · 진입·청산 수수료 반영 기준, 펀딩비 포함 계좌 총손익과는 다릅니다.</p>
-      <p>거래소 수집 체결 실현손익 · 비용 차감 전: {Number(exchangeReference?.pnl_present_count ?? 0) > 0 ? currencyText(exchangeReference?.gross_pnl_by_currency) : "제공값 없음 / 확인 전"} · 손익값 없는 체결 {Number(exchangeReference?.pnl_missing_count ?? 0)}건</p>
-      <p>수집 체결은 수동 거래를 포함할 수 있습니다. 거래소 계좌 전체·누적 PnL은 아직 대조되지 않았으며 수수료·세금·펀딩비·조회 기간·진입 원가 기준을 맞춰야 비교할 수 있습니다. 표시 기준 초기화는 원장과 학습 기록을 삭제하지 않습니다.</p>
-      {unresolvedCount > 0 && <p role="alert"><b>미확정 {unresolvedCount}건이 있어 전체 손익·승률은 아직 확정할 수 없습니다. 아래 숫자는 대조 완료분만의 부분 합계입니다.</b></p>}
+    <p className="workspace-copy">{t("조회 범위: ")}{rangeLabel} · {sourceLabel} · {statisticsMode.toUpperCase()}{t(". 전체 대시보드는 오늘, 기관별 카드는 전체 기간입니다. 같은 기간·기관·모드로 비교하세요.")}</p>
+    {statisticsMode === "live" && <aside className="workspace-copy" aria-label={t("손익 비교 기준")}>
+      <p><b>{t("NoahAI 연결 청산 순손익")}{unresolvedCount > 0 ? " · 확정분 부분 합계" : ""}: {totalPnl}</b>{t(" · 진입·청산 수수료 반영 기준, 펀딩비 포함 계좌 총손익과는 다릅니다.")}</p>
+      <p>{t("거래소 수집 체결 실현손익 · 비용 차감 전: ")}{Number(exchangeReference?.pnl_present_count ?? 0) > 0 ? currencyText(exchangeReference?.gross_pnl_by_currency) : "제공값 없음 / 확인 전"}{t(" · 손익값 없는 체결 ")}{Number(exchangeReference?.pnl_missing_count ?? 0)}{t("건")}</p>
+      <p>{t("수집 체결은 수동 거래를 포함할 수 있습니다. 거래소 계좌 전체·누적 PnL은 아직 대조되지 않았으며 수수료·세금·펀딩비·조회 기간·진입 원가 기준을 맞춰야 비교할 수 있습니다. 표시 기준 초기화는 원장과 학습 기록을 삭제하지 않습니다.")}</p>
+      {unresolvedCount > 0 && <p role="alert"><b>{t("미확정 ")}{unresolvedCount}{t("건이 있어 전체 손익·승률은 아직 확정할 수 없습니다. 아래 숫자는 대조 완료분만의 부분 합계입니다.")}</b></p>}
     </aside>}
     <div className={`legacy-stat-feedback${error ? " error-text" : ""}`} role="status" aria-live="polite">
       {error || message || (Number(statistics?.legacy_unattributed_count ?? 0) > 0
@@ -196,12 +197,12 @@ export function TradingStatisticsWorkspace({
         : `조회 범위: ${rangeLabel}`)}
     </div>
     <div className="legacy-stat-kpis">
-      <article className="trades"><span>{statisticsMode === "paper" ? "가상 청산" : "NoahAI 청산"}</span><strong>{Number(statistics?.closed_count ?? 0).toLocaleString()}건</strong></article>
-      <article className="win-rate"><span>{performanceLabel} 승률</span><strong>{performanceCount > 0 ? `${numberText(statistics?.win_rate, 1)}%` : emptyPerformance}</strong></article>
-      <article className="pnl"><span>{performanceLabel} 순손익{!isPaper && unresolvedCount > 0 ? " · 부분 합계" : ""}</span><strong>{totalPnl}</strong></article>
-      <article className="fees"><span>기간 Fee</span><strong>{totalFees}</strong></article>
+      <article className="trades"><span>{statisticsMode === "paper" ? t("가상 청산") : "NoahAI 청산"}</span><strong>{Number(statistics?.closed_count ?? 0).toLocaleString()}{t("건")}</strong></article>
+      <article className="win-rate"><span>{performanceLabel}{t(" 승률")}</span><strong>{performanceCount > 0 ? `${numberText(statistics?.win_rate, 1)}%` : emptyPerformance}</strong></article>
+      <article className="pnl"><span>{performanceLabel}{t(" 순손익")}{!isPaper && unresolvedCount > 0 ? " · 부분 합계" : ""}</span><strong>{totalPnl}</strong></article>
+      <article className="fees"><span>{t("기간 Fee")}</span><strong>{totalFees}</strong></article>
     </div>
-    <div className="legacy-stat-operating"><b>{statisticsMode === "paper" ? "모의 운용" : "실제 운용"}</b><span>{statisticsMode === "paper" ? `가상 청산 ${Number(statistics?.closed_count ?? 0).toLocaleString()}건` : `${service === "stock" ? "증권사" : "거래소"} 확인 체결 ${executionCountText(Number(statistics?.execution_count ?? 0), statistics?.execution_history_status)}`} | {statisticsMode === "paper" ? "가상 " : ""}체결금액 {currencyText(statistics?.notional_by_currency)} | 평균 보유시간 {holdText(statistics?.avg_hold_minutes)} (유효 {statistics?.valid_hold_count ?? 0}/{statistics?.closed_count ?? 0}건)</span></div>
+    <div className="legacy-stat-operating"><b>{statisticsMode === "paper" ? "모의 운용" : "실제 운용"}</b><span>{statisticsMode === "paper" ? `가상 청산 ${Number(statistics?.closed_count ?? 0).toLocaleString()}건` : `${service === "stock" ? "증권사" : "거래소"} 확인 체결 ${executionCountText(Number(statistics?.execution_count ?? 0), statistics?.execution_history_status)}`} | {statisticsMode === "paper" ? "가상 " : ""}{t("체결금액 ")}{currencyText(statistics?.notional_by_currency)}{t(" | 평균 보유시간 ")}{holdText(statistics?.avg_hold_minutes)}{t(" (유효 ")}{statistics?.valid_hold_count ?? 0}/{statistics?.closed_count ?? 0}{t("건)")}</span></div>
     <div className="legacy-stat-table">
       <div className="legacy-stat-header">
         {[service === "stock" ? "종목" : "코인", "총 거래", "익절", "손절", "승률", "평균 순수익률", "연결 청산 총손익", "순손익", "수수료·세금", "최대 순수익", "최대 순손실"].map((label) => <b key={label}>{label}</b>)}
@@ -209,8 +210,8 @@ export function TradingStatisticsWorkspace({
       <div className="legacy-stat-body">
       {groups.map((group) => <section className="legacy-stat-group" key={String(group.source)}>
         <h2>{String(group.label)}{group.attribution_status === "legacy_source_unconfirmed" ? " · 출처 미확정" : ""}</h2>
-        <p>총 {Number(group.closed_count ?? 0).toLocaleString()}건 | {performanceLabel} 순손익 {Number(isPaper ? group.closed_count : group.reconciled_count) > 0 ? `${numberText(group.total_pnl)} ${String(group.currency ?? "")}` : emptyPerformance} | 비용 {numberText(group.total_fees)} {String(group.currency ?? "")} | {isPaper ? "가상 원장 기준 · 거래소 체결 대조 대상 아님" : `체결 대조 ${Number(group.reconciled_count ?? 0)}/${Number(group.closed_count ?? 0)}건 · 미확정 ${Number(group.unresolved_count ?? 0)}건`}</p>
-        <p className="operating">{isPaper ? "가상" : "실제"} 체결금액 {numberText(group.total_notional)} {String(group.currency ?? "")} | 평균 보유시간 {holdText(group.avg_hold_minutes)} (유효 {Number(group.valid_hold_count ?? 0)}/{Number(group.closed_count ?? 0)}건)</p>
+        <p>{t("총 ")}{Number(group.closed_count ?? 0).toLocaleString()}{t("건 | ")}{performanceLabel}{t(" 순손익 ")}{Number(isPaper ? group.closed_count : group.reconciled_count) > 0 ? `${numberText(group.total_pnl)} ${String(group.currency ?? "")}` : emptyPerformance}{t(" | 비용 ")}{numberText(group.total_fees)} {String(group.currency ?? "")} | {isPaper ? "가상 원장 기준 · 거래소 체결 대조 대상 아님" : `체결 대조 ${Number(group.reconciled_count ?? 0)}/${Number(group.closed_count ?? 0)}건 · 미확정 ${Number(group.unresolved_count ?? 0)}건`}</p>
+        <p className="operating">{isPaper ? t("가상") : "실제"}{t(" 체결금액 ")}{numberText(group.total_notional)} {String(group.currency ?? "")}{t(" | 평균 보유시간 ")}{holdText(group.avg_hold_minutes)}{t(" (유효 ")}{Number(group.valid_hold_count ?? 0)}/{Number(group.closed_count ?? 0)}{t("건)")}</p>
         {(group.rows ?? []).map((row: Record<string, any>) => <div className="legacy-stat-row" key={`${String(group.source)}-${String(row.symbol)}`}>
           <b>{String(row.symbol ?? "—")}</b>
           <span title={`체결 대조 ${Number(row.reconciled_count ?? 0)}/${Number(row.total_trades ?? 0)}건`}>{Number(row.total_trades ?? 0)}</span><span>{Number(row.winning_trades ?? 0)}</span><span>{Number(row.losing_trades ?? 0)}</span>
@@ -220,14 +221,14 @@ export function TradingStatisticsWorkspace({
           <span title={row.reconciliation_status === "confirmed" ? "체결 대조 완료 순손익" : "대조 완료된 거래만 합산"}>{row.total_pnl == null ? "—" : `${Number(row.total_pnl) >= 0 ? "+" : ""}${numberText(row.total_pnl)}`}</span><span>{numberText(row.total_fees)}</span><span>{optionalNumberText(row.max_profit)}</span><span>{optionalNumberText(row.max_loss)}</span>
         </div>)}
       </section>)}
-      {!loading && !groups.length && <div className="empty-state">{sourceLabel} 기준으로 청산된 거래가 없습니다.</div>}
-      {loading && <div className="empty-state">거래 통계를 불러오는 중입니다.</div>}
+      {!loading && !groups.length && <div className="empty-state">{sourceLabel}{t(" 기준으로 청산된 거래가 없습니다.")}</div>}
+      {loading && <div className="empty-state">{t("거래 통계를 불러오는 중입니다.")}</div>}
       </div>
     </div>
     <footer>
-      <button type="button" onClick={refresh} disabled={loading}>화면 다시 계산</button>
-      {service === "blockchain" && statisticsMode === "live" && <button type="button" onClick={importTrades} disabled={loading}>거래소 체결 동기화</button>}
-      <span>{selectedSource === "all" ? `전체 ${service === "stock" ? "증권사" : "거래소"}` : `${sourceLabel} ${service === "stock" ? "증권사" : "거래소"}`} 기준 {statisticsMode.toUpperCase()} 통계를 갱신했습니다. (청산 종목 {groups.reduce((sum, group) => sum + Number((group.rows ?? []).length), 0)}개, {statisticsMode === "paper" ? `가상 청산 ${Number(statistics?.closed_count ?? 0)}건` : `거래소 확인 체결 ${executionCountText(Number(statistics?.execution_count ?? 0), statistics?.execution_history_status)}, NoahAI 청산 ${Number(statistics?.closed_count ?? 0)}건 · 대조 완료 ${Number(statistics?.reconciled_closed_count ?? 0)}건 · 미확정 ${Number(statistics?.unresolved_closed_count ?? 0)}건`}, 누적 Fee {footerFee}{selectedSource === "all" ? " 각 기관 기준통화" : ` ${feeEntries[0]?.[0] ?? "기준통화"}`})</span>
+      <button type="button" onClick={refresh} disabled={loading}>{t("화면 다시 계산")}</button>
+      {service === "blockchain" && statisticsMode === "live" && <button type="button" onClick={importTrades} disabled={loading}>{t("거래소 체결 동기화")}</button>}
+      <span>{selectedSource === "all" ? `전체 ${service === "stock" ? "증권사" : "거래소"}` : `${sourceLabel} ${service === "stock" ? "증권사" : "거래소"}`}{t(" 기준 ")}{statisticsMode.toUpperCase()}{t(" 통계를 갱신했습니다. (청산 종목 ")}{groups.reduce((sum, group) => sum + Number((group.rows ?? []).length), 0)}{t("개, ")}{statisticsMode === "paper" ? `가상 청산 ${Number(statistics?.closed_count ?? 0)}건` : `거래소 확인 체결 ${executionCountText(Number(statistics?.execution_count ?? 0), statistics?.execution_history_status)}, NoahAI 청산 ${Number(statistics?.closed_count ?? 0)}건 · 대조 완료 ${Number(statistics?.reconciled_closed_count ?? 0)}건 · 미확정 ${Number(statistics?.unresolved_closed_count ?? 0)}건`}{t(", 누적 Fee ")}{footerFee}{selectedSource === "all" ? " 각 기관 기준통화" : ` ${feeEntries[0]?.[0] ?? "기준통화"}`})</span>
     </footer>
   </section>;
 }

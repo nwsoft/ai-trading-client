@@ -1,5 +1,8 @@
 from membership_policy import (
     is_exchange_allowed,
+    membership_denial_code,
+    membership_position_cap,
+    membership_source_access,
     normalize_user_grade,
     referral_allowed_exchanges,
     referral_exchange_entitlement,
@@ -14,15 +17,16 @@ def test_referral_grade_aliases_are_distinct_from_paid_coin() -> None:
     assert normalize_user_grade("pro_coin") == "pro_coin"
 
 
-def test_referral_exchange_policy_allows_only_server_list_and_foreign_safe_set() -> None:
+def test_referral_exchange_policy_keeps_domestic_open_and_foreign_verified_set() -> None:
     policy = {
         "allowed_exchanges": ["binance", "bybit", "upbit", "bithumb", "unknown"],
     }
 
-    assert referral_allowed_exchanges(policy) == {"binance", "bybit"}
+    assert referral_allowed_exchanges(policy) == {"binance", "bybit", "upbit", "bithumb", "coinone"}
     assert is_exchange_allowed("referral", "binance", policy)
-    assert not is_exchange_allowed("referral", "upbit", policy)
-    assert not is_exchange_allowed("referral", "bithumb", policy)
+    assert is_exchange_allowed("referral", "upbit", policy)
+    assert is_exchange_allowed("referral", "bithumb", policy)
+    assert is_exchange_allowed("referral", "coinone", policy)
     assert not is_exchange_allowed("referral", "okx", policy)
 
 
@@ -69,6 +73,89 @@ def test_referral_entitlement_requires_server_verified_uid_and_enabled_program()
     assert "확인 대기" in pending["label"]
 
 
+def test_referral_denial_codes_distinguish_each_operator_action() -> None:
+    base = {
+        "allowed_exchanges": ["bybit"],
+        "referral_programs": [
+            {
+                "exchange": "bybit",
+                "enabled": True,
+                "attribution_status": "pending",
+                "uid_masked": "****8484",
+                "can_configure_api": False,
+            }
+        ],
+    }
+
+    assert membership_denial_code("referral", "bybit", base) == (
+        "membership_exchange_approval_pending"
+    )
+    for status, expected in {
+        "rejected": "membership_exchange_approval_rejected",
+        "expired": "membership_exchange_approval_expired",
+    }.items():
+        base["referral_programs"][0]["attribution_status"] = status
+        assert membership_denial_code("referral", "bybit", base) == expected
+
+    base["referral_programs"][0].update(
+        attribution_status="verified", can_configure_api=True
+    )
+    base["allowed_exchanges"] = []
+    assert membership_denial_code("referral", "bybit", base) == (
+        "membership_exchange_activation_pending"
+    )
+
+
+def test_referral_start_requires_complete_signed_approval_contract() -> None:
+    missing_program = {"allowed_exchanges": ["bybit"], "referral_programs": []}
+    access = membership_source_access("referral", "bybit", missing_program)
+    assert access["allowed"] is False
+    assert membership_denial_code("referral", "bybit", missing_program) == (
+        "membership_exchange_approval_required"
+    )
+
+    approved = {
+        "allowed_exchanges": ["bybit"],
+        "referral_programs": [
+            {
+                "exchange": "bybit",
+                "enabled": True,
+                "attribution_status": "verified",
+                "can_configure_api": True,
+                "can_start_trading": True,
+            }
+        ],
+    }
+    assert membership_source_access("referral", "bybit", approved)["allowed"] is True
+    assert membership_denial_code("referral", "bybit", approved) == ""
+
+
+def test_membership_source_access_keeps_crypto_and_stock_plans_separate() -> None:
+    assert membership_denial_code("pro_stock", "bybit", {}) == (
+        "membership_crypto_plan_required"
+    )
+    assert membership_denial_code("pro_coin", "kis", {}) == (
+        "membership_stock_plan_required"
+    )
+    assert membership_source_access("premium", "kis", {})["allowed"] is True
+
+
+def test_web_gateway_maps_membership_conflicts_to_actionable_korean() -> None:
+    root = Path(__file__).resolve().parents[1]
+    source = (root / "webui" / "src" / "api.ts").read_text(encoding="utf-8")
+    for code in (
+        "membership_exchange_approval_required",
+        "membership_exchange_approval_pending",
+        "membership_exchange_approval_rejected",
+        "membership_exchange_approval_expired",
+        "membership_exchange_activation_pending",
+        "membership_crypto_plan_required",
+        "membership_stock_plan_required",
+    ):
+        assert code in source
+    assert "API 키 인증 완료와 거래 권한은 별개" in source
+
+
 def test_referral_program_rejects_non_https_join_url() -> None:
     program = referral_program(
         {
@@ -107,6 +194,28 @@ def test_paid_asset_grades_keep_their_asset_boundary() -> None:
     assert is_exchange_allowed("pro_coin", "upbit", {})
     assert is_exchange_allowed("premium", "bitget", {})
     assert not is_exchange_allowed("pro_stock", "binance", {})
+
+
+def test_position_capacity_is_separate_from_strategy_validation_rights() -> None:
+    assert membership_position_cap("referral") == 3
+    assert membership_position_cap("pro_coin") == 5
+    assert membership_position_cap("premium") == 5
+    assert membership_position_cap("pro_stock") == 0
+    assert membership_position_cap("referral", strategy_validation=True) == 5
+    assert membership_position_cap("premium", strategy_validation=True) == 5
+    assert membership_position_cap(
+        "premium", {"max_managed_positions_per_venue": 4}
+    ) == 4
+    assert membership_position_cap(
+        "referral", {"max_managed_positions_per_venue": 9}
+    ) == 3
+
+
+def test_domestic_referral_entitlement_does_not_require_referral_uid() -> None:
+    entitlement = referral_exchange_entitlement("referral", "coinone", {})
+    assert entitlement["allowed"] is True
+    assert entitlement["status"] == "domestic_free"
+    assert entitlement["verification_method"] == "not_required_domestic"
 
 
 def test_status_check_refresh_emits_exchange_runtime_heartbeat() -> None:

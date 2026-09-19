@@ -24,6 +24,26 @@ def test_missing_conditions_are_not_inferred_or_approved():
         pipeline.approve(draft["strategy_key"], draft["version_id"], approved_by="user")
 
 
+def test_market_regime_labels_are_saved_as_runtime_contract_without_direction_guessing():
+    pipeline = CustomStrategyPipeline()
+    explicit = pipeline.submit(
+        name="regime labels",
+        rules={
+            **_rules(),
+            "market_conditions": ["상승장", "하락장", "횡보장"],
+            "regime_scope": "전체 시장 기준 (권장)",
+        },
+    )
+    assert explicit["rules"]["market_regimes"] == ["bull", "bear", "range"]
+    assert explicit["rules"]["regime_scope"] == "market"
+
+    unspecified = pipeline.submit(
+        name="moving average only",
+        rules={**_rules(), "market_conditions": "EMA20 위 LONG"},
+    )
+    assert unspecified["rules"]["market_regimes"] == ["all"]
+
+
 def test_approval_paper_validation_and_live_confirmation_are_mandatory():
     pipeline = CustomStrategyPipeline(min_paper_trades=2)
     item = pipeline.submit(name="safe", rules=_rules())

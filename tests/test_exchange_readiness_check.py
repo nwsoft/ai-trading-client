@@ -3,6 +3,8 @@
 
 import sys
 import logging
+import json
+import subprocess
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -240,3 +242,32 @@ def test_readiness_resolves_explicit_account_without_hardcoded_user():
     assert path == (
         ROOT / "data" / "260729_Teayu_02" / "config" / "settings.json"
     ).resolve()
+
+
+def test_readiness_worker_uses_utf8_independent_of_windows_locale():
+    from scripts import exchange_readiness_check as readiness
+
+    payload = {
+        "exchange": "binance",
+        "enabled": True,
+        "key_ready": True,
+        "validate": True,
+        "balance_status": "success",
+        "balance_message": "한글 🔧",
+        "root_cause": "ready",
+        "action": "정상",
+    }
+    completed = subprocess.CompletedProcess(
+        args=[], returncode=0,
+        stdout=f"{readiness.WORKER_RESULT_PREFIX}{json.dumps(payload, ensure_ascii=False)}\n",
+        stderr="",
+    )
+    with patch.object(readiness.subprocess, "run", return_value=completed) as run:
+        result = readiness.check_one_with_timeout({}, "binance", timeout_sec=3)
+
+    kwargs = run.call_args.kwargs
+    assert kwargs["encoding"] == "utf-8"
+    assert kwargs["errors"] == "replace"
+    assert kwargs["env"]["PYTHONUTF8"] == "1"
+    assert kwargs["env"]["PYTHONIOENCODING"] == "utf-8"
+    assert result["balance_message"] == "한글 🔧"

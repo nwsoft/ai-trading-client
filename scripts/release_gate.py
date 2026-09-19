@@ -28,6 +28,11 @@ def _parse_args() -> argparse.Namespace:
         default="dev",
         help="dev: 개발용, prekey: 키 입력 전 최종완료용, release: 배포 직전 엄격 검증",
     )
+    parser.add_argument(
+        "--readiness-account",
+        default="",
+        help="release 프로필의 실증권 준비도 대상 계정. 지정하지 않으면 실계정 접근을 차단",
+    )
     return parser.parse_args()
 
 
@@ -52,7 +57,14 @@ def main() -> int:
     strict = args.profile == "release"
     readiness_cmd = [python_cmd, "scripts/stock_live_readiness_run.py", "--all-supported-brokers"]
     if strict:
-        readiness_cmd.append("--strict")
+        readiness_cmd.extend(["--strict"])
+        readiness_account = str(getattr(args, "readiness_account", "") or "").strip()
+        if readiness_account:
+            readiness_cmd.extend(["--account", readiness_account])
+    else:
+        # Development/prekey gates must be deterministic and must never inspect
+        # data/<real-user> or contact a broker merely because credentials exist.
+        readiness_cmd.append("--offline")
 
     steps = []
     # 공통 필수 회귀

@@ -44,6 +44,8 @@ def test_execution_mode_priority_and_scope_contract():
     }
     assert resolve_crypto_execution_mode(paper, "binance") == ExecutionMode.PAPER
     assert resolve_crypto_execution_mode(paper, "bybit") == ExecutionMode.PAPER
+    assert resolve_crypto_execution_mode(paper, "upbit") == ExecutionMode.PAPER
+    assert resolve_crypto_execution_mode(paper, "bithumb") == ExecutionMode.PAPER
 
     learning = {"paper_trading": False, "trade_enabled_exchanges": []}
     assert resolve_crypto_execution_mode(learning, "binance") == ExecutionMode.LEARNING
@@ -57,6 +59,13 @@ def test_execution_mode_priority_and_scope_contract():
     assert resolve_crypto_execution_mode(live, "okx") == ExecutionMode.LEARNING
     unconfirmed = {"paper_trading": False, "trade_enabled_exchanges": ["binance"]}
     assert resolve_crypto_execution_mode(unconfirmed, "binance") == ExecutionMode.LEARNING
+
+    webui_live = {
+        "paper_trading": False,
+        "trade_enabled_exchanges": ["binance"],
+        "_trade_scope_user_confirmed_v3905": True,
+    }
+    assert resolve_crypto_execution_mode(webui_live, "binance") == ExecutionMode.LIVE
 
     assert resolve_stock_execution_mode(paper, allow_live_order=True) == ExecutionMode.PAPER
     assert resolve_stock_execution_mode({}, allow_live_order=False) == ExecutionMode.LEARNING
@@ -83,6 +92,7 @@ def test_binance_low_level_order_guard_is_fail_closed_in_paper():
 
 
 def test_binance_paper_position_does_not_touch_live_store(monkeypatch):
+    from trading.custom_strategy_runtime import stamp_trade_exit_rates
     trader = Trader.__new__(Trader)
     trader.settings = {
         "paper_trading": True,
@@ -106,7 +116,12 @@ def test_binance_paper_position_does_not_touch_live_store(monkeypatch):
 
     result = trader._execute_paper_trade(
         "BTCUSDT",
-        {"side": "BUY", "qty": 0.1, "price": 100.0, "tp": 0.01, "sl": 0.01},
+        stamp_trade_exit_rates(
+            {"side": "BUY", "qty": 0.1, "price": 100.0},
+            tp_fraction=0.01,
+            sl_fraction=0.01,
+            source="test_optimizer",
+        ),
     )
 
     assert result["simulated"] is True

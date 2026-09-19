@@ -1,3 +1,4 @@
+import { t } from '../i18n';
 import { useEffect, useMemo, useState } from "react";
 
 import type { GatewayClient } from "../api";
@@ -87,23 +88,23 @@ export function AIAnalystWorkspace({
   const riskGuard = (snapshot?.risk?.length ?? 0) > 0 ? "경고 확인" : "기록 없음";
   return <section className="analyst-workspace legacy-analyst-workspace">
     <article className="panel analyst-hero">
-      <div><h1>AI 통합 애널리스트</h1><p>보유 자산·현재 포지션·시장 지표를 종합하여 AI가 맞춤 투자 분석을 제공합니다.</p></div>
-      <button className="secondary-button" type="button" onClick={refresh}>새로고침</button>
+      <div><h1>{t("AI 통합 애널리스트")}</h1><p>{t("보유 자산·현재 포지션·시장 지표를 종합하여 AI가 맞춤 투자 분석을 제공합니다.")}</p></div>
+      <button className="secondary-button" type="button" onClick={refresh}>{t("새로고침")}</button>
     </article>
     {error && <div className="inline-notice error-text">{error}</div>}
-    <label>성과 기준 · 전체 기간 <select aria-label="애널리스트 성과 모드" value={statisticsMode} onChange={(event) => setStatisticsMode(event.target.value as "live" | "paper")}><option value="paper">PAPER 가상 원장</option><option value="live">LIVE 체결 대조 원장</option></select></label>
+    <label>{t("성과 기준 · 전체 기간 ")}<select aria-label={t("애널리스트 성과 모드")} value={statisticsMode} onChange={(event) => setStatisticsMode(event.target.value as "live" | "paper")}><option value="paper">{t("PAPER 가상 원장")}</option><option value="live">{t("LIVE 체결 대조 원장")}</option></select></label>
     <div className="analyst-metrics metric-grid">
-      <div className="tone-blue"><span>종료 거래</span><strong>{Number(trading?.closed_count ?? 0).toLocaleString()}건</strong></div>
-      <div className="tone-green"><span>{paper ? "가상 청산" : "체결 대조 완료"} 승률</span><strong>{reconciledCount > 0 ? `${Number(trading?.win_rate ?? 0).toFixed(1)}%` : paper ? "청산 기록 없음" : "대조 전"}</strong></div>
-      <div className="tone-purple"><span>{paper ? "가상" : "확정"} 순손익</span><strong>{pnlText(snapshot)}</strong></div>
-      <div className="tone-amber"><span>리스크 가드</span><strong>{riskGuard}</strong></div>
+      <div className="tone-blue"><span>{t("종료 거래")}</span><strong>{Number(trading?.closed_count ?? 0).toLocaleString()}{t("건")}</strong></div>
+      <div className="tone-green"><span>{paper ? t("가상 청산") : t("체결 대조 완료")}{t(" 승률")}</span><strong>{reconciledCount > 0 ? `${Number(trading?.win_rate ?? 0).toFixed(1)}%` : paper ? "청산 기록 없음" : "대조 전"}</strong></div>
+      <div className="tone-purple"><span>{paper ? t("가상") : "확정"}{t(" 순손익")}</span><strong>{pnlText(snapshot)}</strong></div>
+      <div className="tone-amber"><span>{t("리스크 가드")}</span><strong>{riskGuard}</strong></div>
     </div>
     <article className="panel analyst-jump-row">
-      <h2>빠른 이동</h2>
+      <h2>{t("빠른 이동")}</h2>
       <div className="command-row">
-        <button className="secondary-button" type="button" onClick={onOpenSummary}>AI 요약 리포트 탭 열기</button>
-        <button className="secondary-button" type="button" onClick={onOpenScenario}>시나리오 점검 탭 열기</button>
-        <button className="primary-button" type="button" onClick={() => onOpenAssistant()}>AI 어시스턴트 열기</button>
+        <button className="secondary-button" type="button" onClick={onOpenSummary}>{t("AI 요약 리포트 탭 열기")}</button>
+        <button className="secondary-button" type="button" onClick={onOpenScenario}>{t("시나리오 점검 탭 열기")}</button>
+        <button className="primary-button" type="button" onClick={() => onOpenAssistant()}>{t("AI 어시스턴트 열기")}</button>
       </div>
     </article>
     <div className="analyst-card-grid">
@@ -114,10 +115,10 @@ export function AIAnalystWorkspace({
       </article>)}
     </div>
     <div className="analyst-preview-grid">
-      <article className="panel tone-cyan"><span className="analyst-card-eyebrow">EVIDENCE SUMMARY</span><h2>AI 요약 리포트 미리보기</h2><div className="analyst-preview-lines">{summaryPreview.split("\n").map((line) => <p key={line}>{line}</p>)}</div></article>
-      <article className="panel tone-red"><span className="analyst-card-eyebrow">SCENARIO CHECK</span><h2>시나리오 점검 미리보기</h2><div className="analyst-preview-lines">{scenarioPreview.split("\n").map((line) => <p key={line}>{line}</p>)}</div></article>
+      <article className="panel tone-cyan"><span className="analyst-card-eyebrow">EVIDENCE SUMMARY</span><h2>{t("AI 요약 리포트 미리보기")}</h2><div className="analyst-preview-lines">{summaryPreview.split("\n").map((line) => <p key={line}>{line}</p>)}</div></article>
+      <article className="panel tone-red"><span className="analyst-card-eyebrow">SCENARIO CHECK</span><h2>{t("시나리오 점검 미리보기")}</h2><div className="analyst-preview-lines">{scenarioPreview.split("\n").map((line) => <p key={line}>{line}</p>)}</div></article>
     </div>
-    <div className="command-row analyst-preview-actions"><button className="secondary-button" type="button" onClick={refresh}>미리보기 새로고침</button></div>
-    <article className="panel analyst-result"><span className="analyst-card-eyebrow">ASSISTANT HANDOFF</span><h2>AI 분석 결과</h2><div className="analyst-result-copy">{result.split("\n").filter(Boolean).map((line) => <p key={line}>{line}</p>)}</div></article>
+    <div className="command-row analyst-preview-actions"><button className="secondary-button" type="button" onClick={refresh}>{t("미리보기 새로고침")}</button></div>
+    <article className="panel analyst-result"><span className="analyst-card-eyebrow">ASSISTANT HANDOFF</span><h2>{t("AI 분석 결과")}</h2><div className="analyst-result-copy">{result.split("\n").filter(Boolean).map((line) => <p key={line}>{line}</p>)}</div></article>
   </section>;
 }

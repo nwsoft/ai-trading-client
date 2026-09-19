@@ -36,7 +36,10 @@ def test_user_strategy_cannot_bypass_approval_and_paper_validation(tmp_path):
     strategy_id = customizer.create_custom_strategy({
         "name": "safe custom",
         "rules": _rules(),
-        "base_params": {"leverage": 1, "tp_percent": 2.0, "sl_percent": 1.0},
+        "base_params": {
+            "_unit": "percent_points", "leverage": 1,
+            "tp_percent": 2.0, "sl_percent": 1.0,
+        },
     })
     strategy = customizer.user_strategies[strategy_id]
 
@@ -56,6 +59,39 @@ def test_user_strategy_cannot_bypass_approval_and_paper_validation(tmp_path):
     assert pool[0]["engine_settings"]["leverage"] == 1
     assert pool[0]["engine_settings"]["tp_percent"] == 0.02
     assert pool[0]["engine_settings"]["sl_percent"] == 0.01
+
+
+def test_customizer_uses_rules_regime_and_normalizes_legacy_display_labels(tmp_path):
+    customizer = StrategyCustomizer(
+        None,
+        _Trader(),
+        None,
+        None,
+        storage_path=str(tmp_path / "private.json"),
+        min_paper_trades=1,
+    )
+    rules = {**_rules(), "market_conditions": "상승 추세"}
+    rules.pop("market_regimes", None)
+    strategy_id = customizer.create_custom_strategy({
+        "name": "legacy Korean label",
+        "rules": rules,
+        "target_scope": "asset:crypto",
+        "base_params": {
+            "_unit": "percent_points", "leverage": 1,
+            "tp_percent": 2.0, "sl_percent": 1.0,
+        },
+    })
+    strategy = customizer.user_strategies[strategy_id]
+    assert strategy["market_regimes"] == ["bull"]
+
+    key = strategy["pipeline_strategy_key"]
+    version_id = strategy["pipeline_version_id"]
+    customizer.approve_custom_strategy(key, version_id, approved_by="user")
+    customizer.record_paper_validation(key, version_id, trades=1)
+    customizer.activate_custom_strategy(key, version_id, live_confirmation=True)
+    strategy["market_regimes"] = ["상승 추세"]
+    pool = customizer.get_active_strategy_pool()
+    assert pool[0]["market_regimes"] == ["bull"]
 
 
 def test_trusted_runtime_preset_remains_available_without_user_pipeline(tmp_path):
@@ -88,10 +124,11 @@ def test_user_strategy_adaptive_adjustment_never_mutates_global_trader(tmp_path)
             "rules": {
                 **_rules(),
                 "regime_parameters": {
-                    "bull": {"leverage": 2, "tp_percent": 3.0}
+                    "bull": {"_unit": "percent_points", "leverage": 2, "tp_percent": 3.0}
                 },
             },
             "base_params": {
+                "_unit": "percent_points",
                 "leverage": 1,
                 "tp_percent": 2.0,
                 "sl_percent": 1.0,

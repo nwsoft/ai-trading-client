@@ -59,12 +59,18 @@ def test_profiles_allow_individual_toggles_but_keep_dependencies_fail_closed():
     assert disabled["features"]["monthly_yearly_table"] is False
     assert disabled["features"]["team_sharing"] is False
     assert disabled["marketplace"] is False
+    lab = resolve_ai_custom_features({"ai_custom_features": {
+        "profile": "lab", "overrides": {},
+    }})
+    assert lab["view_level"] == 4
 
 
 def test_ai_assistant_knows_v3908_profile_and_backtest_boundaries():
+    from config.app_version import RELEASE_BUILD_LABEL
+
     settings = {"ai_custom_features": {"profile": "advanced", "overrides": {}}}
     profile_answer = build_ai_custom_knowledge("AI 커스텀 고급 프로필과 지표 언어를 설명해줘", settings)
-    assert "v3.9.0.10 AI Custom Management & Runtime Integrity Update" in profile_answer
+    assert RELEASE_BUILD_LABEL in profile_answer
     assert "현재 프로필: 고급 · 보기 Level 3" in profile_answer
     assert "제한형 사용자 지표 언어" in profile_answer
     assert "안전을 우회하지 않습니다" in profile_answer
@@ -73,6 +79,15 @@ def test_ai_assistant_knows_v3908_profile_and_backtest_boundaries():
     assert "최소 통과조건" in backtest_answer
     assert "미래 수익" in backtest_answer
     assert "PAPER 전진검증" in backtest_answer
+
+
+def test_ai_assistant_explains_coin_selection_states_and_order_boundary():
+    answer = build_ai_custom_knowledge("코인 종합점수가 미산출이고 고정 10개가 나오는 이유는?")
+
+    assert "scored_partial" in answer
+    assert "fallback_unscored" in answer
+    assert "PAPER와 LIVE 신규 진입을 만들지" in answer
+    assert "기존 포지션" in answer
 
 
 def test_nested_expression_graph_and_user_indicator_are_safe_and_executable():

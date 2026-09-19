@@ -1,8 +1,15 @@
+from copy import deepcopy
+
 from trading.custom_strategy_runtime import (
+    ExitRateContractError,
     apply_engine_settings_to_trade_config,
     limited_live_engine_settings,
     normalize_engine_settings,
+    require_explicit_stored_exit_unit,
+    stamp_trade_exit_rates,
+    validate_trade_exit_rates,
 )
+import pytest
 from trading.custom_strategy_validator import (
     enrich_advanced_indicator_context,
     run_historical_replay,
@@ -25,6 +32,24 @@ def test_percent_points_are_converted_once_to_order_fractions():
     assert applied["sl"] == 0.01
     assert applied["position_size_factor"] == 0.5
     assert applied["qty"] == 0.5
+
+
+def test_exit_rate_contract_rejects_alias_conflict_and_missing_unit_provenance():
+    stamped = stamp_trade_exit_rates(
+        {}, tp_fraction=0.003, sl_fraction=0.0015, source="ai_custom_strategy"
+    )
+    assert validate_trade_exit_rates(stamped) == pytest.approx((0.003, 0.0015))
+
+    stamped["tp_percent"] = 0.3
+    with pytest.raises(ExitRateContractError, match="TP 실행 필드 충돌"):
+        validate_trade_exit_rates(stamped)
+
+    with pytest.raises(ExitRateContractError, match="단위가 없습니다"):
+        require_explicit_stored_exit_unit({"tp_percent": 0.3, "sl_percent": 0.15})
+
+    require_explicit_stored_exit_unit({
+        "_unit": "percent_points", "tp_percent": 0.3, "sl_percent": 0.15,
+    })
 
 
 def test_limited_live_forces_one_x_and_one_percent_without_changing_tp_sl():
@@ -102,6 +127,34 @@ def test_historical_replay_accepts_stock_adapter_scalar_price_history():
     assert metrics["net_pnl_percent"] > 0
 
 
+def test_historical_replay_executes_bidirectional_independent_entry_branches():
+    prices = [100.0 * (1.001 ** index) for index in range(180)]
+    rules = {
+        "signal_mode": "independent",
+        "entry_signal": "",
+        "engine_settings": {"_unit": "percent_points", "tp_percent": 0.5, "sl_percent": 1.0},
+        "executable_entry": {"all": [], "any": []},
+        "independent_entries": {
+            "LONG": {"all": [{"field": "current_price", "operator": "gt_field", "value_field": "ma50"}]},
+            "SHORT": {"all": [{"field": "current_price", "operator": "lt_field", "value_field": "ma50"}]},
+        },
+    }
+
+    metrics = run_historical_replay(rules, prices, fee_rate=0.0, slippage_bps=0.0, spread_bps=0.0)
+
+    assert metrics["decisions"] > 0
+    assert metrics["direction_conflicts"] == 0
+    assert {trade["side"] for trade in metrics["trades"]} == {"LONG"}
+
+    conflicting = deepcopy(rules)
+    conflicting["independent_entries"]["SHORT"] = deepcopy(conflicting["independent_entries"]["LONG"])
+    blocked = run_historical_replay(
+        conflicting, prices, fee_rate=0.0, slippage_bps=0.0, spread_bps=0.0,
+    )
+    assert blocked["decisions"] == 0
+    assert blocked["direction_conflicts"] > 0
+
+
 def test_historical_replay_supports_ema200_and_realistic_round_trip_costs():
     klines = []
     price = 100.0
@@ -133,7 +186,7 @@ def test_historical_replay_applies_declarative_exit_and_rejects_unsupported_fiel
     rules = {
         "signal_mode": "independent",
         "entry_signal": "LONG",
-        "engine_settings": {"_unit": "percent_points", "tp_percent": 10.0, "sl_percent": 10.0},
+        "engine_settings": {"_unit": "percent_points", "tp_percent": 5.0, "sl_percent": 3.0},
         "executable_entry": {
             "all": [{"field": "current_price", "operator": "gt_field", "value_field": "ma50"}],
         },

@@ -1,6 +1,6 @@
 # AI API 아키텍처 및 멀티 제공사 가이드
 
-> 기준: 2026-07-29 · v3.9.0.4 업데이트 배포 대상. 멀티 Provider 구현은 v3.9.0.3 후보에서 시작해 v3.9.0.4에 포함  
+> 기준: 2026-09-11 · v3.9.1.27 공개판. 멀티 Provider 구현은 v3.9.0.3 후보에서 시작해 v3.9.0.4에 포함됐고 현재는 역할별 비용·계정 모델 검증까지 확장  
 > 이 문서는 AI 호출 계층의 기술 정본입니다. 금융 인텔리전스 UI·데이터 상태는 `FINANCIAL_INTELLIGENCE_EXPANSION_PLAN_20260723.md`, 사용자 사용법은 `USER_GUIDE.md`와 인앱 매뉴얼을 따릅니다.
 
 ## 📋 목적
@@ -16,7 +16,7 @@ AIManager (trading/ai/ai_manager.py)
   ├─ AIProviderRouter (trading/ai/provider_router.py)
   │   ├─ OpenAICompatibleAdapter
   │   │   ├─ OpenAI
-  │   │   ├─ DeepSeek V4 Flash/Pro
+  │   │   ├─ DeepSeek V4 Flash/Pro + Flash Vision Exp
   │   │   ├─ Google Gemini
   │   │   └─ Kimi K3/K2.6 (텍스트·JSON·비전 정식 연동)
   │   ├─ AnthropicClient (네이티브 Messages API)
@@ -43,7 +43,7 @@ Claude Code 앱/CLI 로그인이나 Claude 구독을 자격증명으로 재사�
 Claude 선택지는 Anthropic Console에서 발급한 별도 API 키와 API 과금을 사용한다.
 Gemini도 Google AI Studio에서 발급한 Gemini API 키를 사용한다.
 
-설정 화면의 가격 비교는 `2026-07-28`, USD/100만 토큰 기준 스냅샷이다. 캐시·장문·배치·
+설정 화면의 가격 비교는 `2026-09-11`, USD/100만 토큰 기준 스냅샷이다. 캐시·장문·배치·
 지역·서비스 티어에 따라 실제 청구가 달라지므로 각 제공사의 공식 가격 링크를 함께 표시한다.
 
 ### 현재 호출 경로의 비용 특성 (2026-07-24 점검)
@@ -84,6 +84,10 @@ v3.9.0.4 감사에서는 시장분석 정책 밖의 보조 호출도 별도로 �
   └─ 전략 원문·차트·어시스턴트 → 사용자가 요청한 때만 호출
 ```
 
+사용자 요청형 호출은 자동매매 예산과 분리된 `ai_interactive_usage.json`에 예약 횟수와 성공 응답의 Provider·모델·역할·토큰을 기록한다. 공개 단가와 토큰을 모두 확인할 수 있을 때만 비용을 추정하며 누락 사용량은 0달러가 아니라 `비용 미산출`이다. 이 원장은 NoahAI 밖에서 같은 API 키를 사용한 비용과 Provider 청구서 전체를 대체하지 않는다.
+
+DeepSeek의 정식 최신 별칭은 `deepseek-v4-flash`와 `deepseek-v4-pro`다. 일반 Flash는 텍스트 모델이며 이미지 입력은 별도 `deepseek-v4-flash-vision-exp`만 허용한다. Provider 수준의 전송 기능과 모델별 capability를 모두 통과해야 차트 이미지를 전송한다.
+
 `trade_enabled_exchanges`가 실제 주문 범위, `learning_enabled_exchanges`가 학습 범위다. 주문 키가 명시적으로 빈 목록이면 실제 주문은 0개다. 주문 키 자체가 없는 구버전 프로필만 선택 거래소 1곳으로 호환하며, 학습 범위가 비면 활성 거래소 전체를 사용한다.
 
 ### 2026-07-24 사용자 데이터 교차 점검
@@ -105,6 +109,8 @@ OpenAI 비용 CSV는 프로젝트 단위이고 거래소 메타데이터를 포�
 - 애널리스트·어시스턴트뿐 아니라 frequent_cheap·standard·premium 작업 route를 각각 해석합니다.
 - OpenAI·DeepSeek·Kimi·Gemini는 호환 어댑터로, Claude는 네이티브 Messages 클라이언트로 연결합니다.
 - 모델 목록, 텍스트·JSON, usage·오류 정규화와 capability 검사를 공통 계약으로 제공합니다.
+- 모델 목록 조회와 실제 생성 성공을 별도 증거로 유지합니다. 진단은 선택 모델을 비민감 고정 문장으로 1회 호출하고 요청 모델, Provider 응답 모델, 토큰, 응답 ID와 정규화 오류를 반환합니다.
+- 성공 usage는 설정 별칭이 아니라 Provider 응답의 실제 모델 ID로 기록합니다. 화면 초안과 저장된 실행값도 분리합니다.
 - 실거래 경로는 제공사 실패 때 다른 제공사로 임의 전환하지 않습니다.
 
 #### 2. OpenAIClient / AnthropicClient
@@ -183,9 +189,9 @@ client = router.client_facade()
 ### 전환 절차
 1. 앱 `설정 → AI 엔진/API`에서 제공사를 선택합니다.
 2. 선택 제공사의 API 키를 사용자별 로컬 설정에 저장합니다.
-3. 계정 모델 목록을 새로고침하고 역할별 모델을 선택합니다.
-4. 저장 시 정적 capability·종료 상태를 검사하고, 키가 있으면 실제 계정 모델 목록도 확인합니다.
-5. `실제 API 기능 검증`에서 텍스트·JSON·usage·정규화 오류와 선택적 음성 전사를 확인합니다.
+3. 계정 모델 목록을 새로고침하고 역할별 모델을 선택합니다. 목록은 탐색 정보이며 호출 권한의 최종 증거가 아닙니다.
+4. 저장 시 정적 capability·종료 상태를 검사하고 화면 초안을 실행값으로 확정합니다.
+5. `선택 모델 1회 실제 호출 점검`에서 비민감 텍스트 생성, 요청/응답 모델, usage와 정규화 오류를 확인합니다. 비전·음성 전사는 각각의 기능 화면에서 별도로 확인합니다.
 6. 연결 실패 시 이전 설정을 유지하며 다른 제공사로 실거래를 자동 우회하지 않습니다.
 
 ### 음성 전사 분리

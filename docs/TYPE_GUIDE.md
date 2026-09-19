@@ -1,6 +1,6 @@
 # 타입 안정성 가이드 (엄격 모드)
 
-본 프로젝트는 CustomTkinter 기반 대시보드와 통합 트레이딩 코어를 대상으로 “엄격 타입 정리” 정책을 적용합니다. 목표는 정적 분석 경고를 최소화하고, 런타임 안정성을 높이는 것입니다.
+본 프로젝트는 React/Electron Web UI, UI-neutral Python Application Services와 통합 트레이딩 코어에 “엄격 타입 정리” 정책을 적용합니다. v3.9.1.0 Web bundle은 CustomTkinter/Tkinter를 포함하지 않으며, 아래 CustomTkinter 규칙은 보존된 v3.9.0.10 롤백 소스에만 적용합니다.
 
 - 생성이 보장되는 UI 구성요소는 Optional을 지양합니다.
   - 예: `tab_widget`, `start_stop_btn`, `analytics_summary_label`, 배지/라벨 등은 생성 함수에서 즉시 할당합니다.
@@ -22,9 +22,9 @@
 
 변경 로그 요약 (2025-09-21)
 - `ui/dashboard_modern.py`: 생성자 속성 초기화 확대, unified_trader/unified_manager 접근시 지역 변수 안전 추출, analytics 요약 타입 보정, 여러 Optional 호출부 가드 강화.
-- 레거시 PyQt5 파일: ImportError 스텁 유지(사용 차단) – CustomTkinter-only 정책 고수.
+- PyQt5는 일반 UI가 아니라 Windows 키움 OpenAPI+ worker 경계에서만 허용합니다. PySide6는 현재 bundle에 포함하지 않습니다.
 
-## UI 위젯 라이프사이클 원칙 (대시보드)
+## 레거시 v3.9.0.10 UI 위젯 라이프사이클 원칙 (롤백 참고)
 - 탭뷰 참조는 항상 `self.tab_widget`에서 지역 변수로 캐스팅해 사용합니다.
   - 예: `tv = cast(CTkTabview, self.tab_widget)` 후 `tv.add/remove/tab(...)` 호출
   - 과거 `self.tabview` 별칭은 사용하지 않습니다.

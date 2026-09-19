@@ -48,7 +48,7 @@ from trading.ai.model_registry import (
     selectable_models,
     validate_model_route,
 )
-from membership_policy import normalize_user_grade, referral_exchange_entitlement
+from membership_policy import membership_position_cap, normalize_user_grade, referral_exchange_entitlement
 import threading
 
 class ModernSettingsWindow:
@@ -2799,7 +2799,7 @@ class ModernSettingsWindow:
         self.ai_custom_runtime_enabled_var = ctk.BooleanVar(value=False)
         self.ai_custom_limited_live_var = ctk.BooleanVar(value=False)
         ctk.CTkSwitch(
-            runtime_frame, text="AI 커스텀 전략을 실제 자동매매 엔진에서 사용",
+            runtime_frame, text="전략 스튜디오 전략을 실제 자동매매 엔진에서 사용",
             variable=self.ai_custom_runtime_enabled_var,
             font=ctk.CTkFont(family="Segoe UI", size=13, weight="bold"),
         ).pack(anchor="w", padx=14, pady=(12, 6))
@@ -2820,7 +2820,7 @@ class ModernSettingsWindow:
         profile_row = ctk.CTkFrame(feature_frame, fg_color="transparent")
         profile_row.pack(fill="x", padx=14, pady=(12, 8))
         ctk.CTkLabel(
-            profile_row, text="AI 커스텀 사용 난이도", font=ctk.CTkFont(family="Segoe UI", size=13, weight="bold"),
+            profile_row, text="전략 스튜디오 사용 난이도", font=ctk.CTkFont(family="Segoe UI", size=13, weight="bold"),
         ).pack(side="left")
         self.ai_custom_feature_profile_combo = ctk.CTkComboBox(
             profile_row, values=["초보자", "일반", "고급", "실험실"], state="readonly", width=120, height=30,
@@ -4693,7 +4693,13 @@ class ModernSettingsWindow:
         """포지션 모드 변경 시 호출"""
         try:
             mode = self.position_mode_var.get()
-            max_positions = 1 if mode == "focus" else 3
+            max_positions = 1 if mode == "focus" else max(
+                1,
+                membership_position_cap(
+                    self.membership_user_grade,
+                    self.membership_policy,
+                ),
+            )
 
             # 현재 설정 업데이트
             self.current_settings['max_positions'] = max_positions
@@ -4703,7 +4709,7 @@ class ModernSettingsWindow:
                 self.current_settings['exchange_risk_overrides'] = {}
 
             # 모든 거래소에 적용
-            exchanges = ['binance', 'bybit', 'okx', 'bitget', 'upbit', 'bithumb']
+            exchanges = ['binance', 'bybit', 'okx', 'bitget', 'upbit', 'bithumb', 'coinone']
             for exchange in exchanges:
                 if exchange not in self.current_settings['exchange_risk_overrides']:
                     self.current_settings['exchange_risk_overrides'][exchange] = {}

@@ -1,0 +1,56 @@
+[
+  {
+    "id": "ko_rsi_long_confirm",
+    "kind": "text",
+    "source": "RSI 30 이하에서 LONG 진입. RSI 55 이상에서 청산. 손절 1%, 익절 2%, 자산 5%. 횡보장에서 사용.",
+    "ready": true,
+    "signal_mode": "confirm",
+    "entry_signal": "LONG",
+    "entry_condition": {"field": "rsi", "operator": "lte", "value": 30.0},
+    "tp_percent": 2.0,
+    "sl_percent": 1.0
+  },
+  {
+    "id": "ko_rsi_dual_independent",
+    "kind": "text",
+    "source": "RSI 30 이하이면 LONG 진입, RSI 70 이상이면 SHORT 진입. RSI 50에서 청산. 손절 1%, 익절 2%, 자산 5%. 횡보장.",
+    "ready": true,
+    "signal_mode": "independent",
+    "branches": ["LONG", "SHORT"],
+    "tp_percent": 2.0,
+    "sl_percent": 1.0
+  },
+  {
+    "id": "pine_rsi_alias_long",
+    "kind": "pine",
+    "source": "//@version=5\nr = ta.rsi(close, 14)\nlongCondition = r < 30\nif longCondition\n    strategy.entry('L', strategy.long)\n// RSI 55 이상 청산. 손절 1%, 익절 2%, 자산 5%. 횡보장.\nstrategy.close('L')",
+    "ready": true,
+    "signal_mode": "confirm",
+    "entry_signal": "LONG",
+    "entry_condition": {"field": "rsi", "operator": "lt", "value": 30.0},
+    "tp_percent": 2.0,
+    "sl_percent": 1.0
+  },
+  {
+    "id": "unitless_exit_requires_confirmation",
+    "kind": "text",
+    "source": "RSI 30 이하 LONG 진입. RSI 55 이상 청산. 손절 30, 익절 100, 자산 5%. 횡보장.",
+    "ready": false,
+    "missing_contains": ["stop_loss_unit_missing", "take_profit_unit_missing"],
+    "engine_absent": ["tp_percent", "sl_percent"]
+  },
+  {
+    "id": "pine_request_security_fail_closed",
+    "kind": "pine",
+    "source": "//@version=5\nhtf = request.security(syminfo.tickerid, '60', close)\nlongCondition = ta.rsi(htf, 14) < 30\nif longCondition\n    strategy.entry('L', strategy.long)\n// 손절 1%, 익절 2%, 자산 5%. 횡보장.\nstrategy.close('L')",
+    "ready": false,
+    "missing_contains": ["pine_multitimeframe_request_not_supported"]
+  },
+  {
+    "id": "pine_custom_function_fail_closed",
+    "kind": "pine",
+    "source": "//@version=5\nmySignal(x) => ta.rsi(x,14) < 30\nif mySignal(close)\n    strategy.entry('L', strategy.long)\n// 손절 1%, 익절 2%, 자산 5%. 횡보장.\nstrategy.close('L')",
+    "ready": false,
+    "missing_contains": ["pine_custom_function_not_supported"]
+  }
+]

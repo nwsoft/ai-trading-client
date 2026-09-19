@@ -1,4 +1,5 @@
 import json
+import os
 import stat
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -67,6 +68,15 @@ def test_gemini_uses_official_openai_compatibility_endpoint():
     assert "gemini-3.6-flash" in router.spec.fallback_models
 
 
+def test_openai_compatible_client_distinguishes_packaging_failure_from_missing_key():
+    with patch("trading.ai.openai_client.OpenAI", None):
+        client = OpenAIClient(api_key="present-but-not-printed", provider="openai")
+    error = client.get_initialization_error()
+    assert client.is_ready() is False
+    assert error["code"] == "provider_sdk_unavailable"
+    assert "present-but-not-printed" not in json.dumps(error)
+
+
 def test_router_from_settings_keeps_legacy_openai_compatible():
     router = AIProviderRouter.from_settings(
         {
@@ -79,6 +89,47 @@ def test_router_from_settings_keeps_legacy_openai_compatible():
     assert router.spec.provider == "openai"
     assert router.adapter.client.api_key == "legacy-key"
     assert router.adapter.model == "gpt-4o"
+
+
+def test_legacy_selected_provider_key_survives_empty_structured_template_entries():
+    settings = {
+        "ai_provider": "deepseek",
+        "openai_api_key": "legacy-selected-provider-key",
+        "openai_base_url": "https://api.deepseek.com",
+        "openai_model": "deepseek-v4-flash",
+        "ai_credentials": {
+            "openai": {"api_key": "", "base_url": ""},
+            "deepseek": {"api_key": "", "base_url": "https://api.deepseek.com"},
+            "kimi": {"api_key": "", "base_url": "https://api.moonshot.ai/v1"},
+            "anthropic": {"api_key": "", "base_url": "https://api.anthropic.com"},
+            "gemini": {"api_key": "", "base_url": "https://generativelanguage.googleapis.com/v1beta/openai/"},
+        },
+        "ai_provider_profiles": {
+            "analyst": {"provider": "deepseek", "model": "deepseek-v4-flash"},
+        },
+    }
+    hydrated = hydrate_ai_credentials(settings)
+    assert hydrated["ai_credentials"]["deepseek"]["api_key"] == "legacy-selected-provider-key"
+    assert hydrated["ai_credentials"]["openai"]["api_key"] == ""
+    router = AIProviderRouter.from_settings(settings, workload="analyst")
+    assert router.spec.provider == "deepseek"
+    assert router.adapter.client.api_key == "legacy-selected-provider-key"
+
+
+def test_legacy_alias_is_not_borrowed_when_a_structured_provider_owns_it():
+    settings = {
+        "ai_provider": "deepseek",
+        "openai_api_key": "openai-owned-key",
+        "ai_credentials": {
+            "openai": {"api_key": "openai-owned-key"},
+            "deepseek": {"api_key": ""},
+        },
+        "ai_provider_profiles": {
+            "analyst": {"provider": "deepseek", "model": "deepseek-v4-flash"},
+        },
+    }
+    router = AIProviderRouter.from_settings(settings, workload="analyst")
+    assert router.adapter.client.api_key == ""
 
 
 def test_kimi_profile_routes_independently_by_workload():
@@ -196,12 +247,93 @@ def test_usage_normalizes_kimi_cached_tokens_and_finish_reason():
     assert client.get_last_usage() == {
         "provider": "kimi",
         "model": "kimi-k3",
+        "requested_model": "kimi-k3",
         "input_tokens": 10,
         "cached_input_tokens": 4,
         "output_tokens": 5,
         "total_tokens": 15,
     }
     assert client.get_last_response_meta()["finish_reason"] == "stop"
+
+
+def test_usage_preserves_requested_and_provider_response_model():
+    client = OpenAIClient(api_key="", provider="openai")
+    completion = SimpleNamespace(
+        id="chatcmpl-diagnostic",
+        model="gpt-6-astra-2026-09-01",
+        usage=SimpleNamespace(prompt_tokens=3, completion_tokens=1, total_tokens=4),
+        choices=[SimpleNamespace(finish_reason="stop")],
+    )
+
+    client._record_usage(completion, "gpt-6-astra")
+
+    assert client.get_last_usage()["requested_model"] == "gpt-6-astra"
+    assert client.get_last_usage()["model"] == "gpt-6-astra-2026-09-01"
+    assert client.get_last_response_meta()["response_id"] == "chatcmpl-diagnostic"
+
+
+def test_gpt6_chat_uses_reasoning_compatible_completion_parameters():
+    captured = {}
+
+    class Completions:
+        def create(self, **kwargs):
+            captured.update(kwargs)
+            return SimpleNamespace(
+                id="chatcmpl-astra",
+                model="gpt-6-astra",
+                choices=[SimpleNamespace(message=SimpleNamespace(content="OK"), finish_reason="stop")],
+                usage=SimpleNamespace(prompt_tokens=2, completion_tokens=1, total_tokens=3),
+            )
+
+    client = OpenAIClient(api_key="test", model="gpt-6-astra", provider="openai")
+    client._client = SimpleNamespace(chat=SimpleNamespace(completions=Completions()))
+
+    assert client.chat(
+        "system",
+        "user",
+        max_tokens=64,
+        temperature=0.2,
+        top_p=0.8,
+        logprobs=True,
+        top_logprobs=2,
+        reasoning_effort="low",
+    ) == "OK"
+    assert captured["max_completion_tokens"] == 64
+    assert captured["reasoning_effort"] == "low"
+    assert "max_tokens" not in captured
+    assert "temperature" not in captured
+    assert "top_p" not in captured
+    assert "logprobs" not in captured
+    assert "top_logprobs" not in captured
+
+
+def test_router_probe_calls_selected_model_and_reports_provider_model(monkeypatch):
+    router = AIProviderRouter("openai", api_key="test", model="gpt-6-astra")
+    observed = {}
+
+    def fake_chat(system, prompt, **kwargs):
+        observed.update({"system": system, "prompt": prompt, **kwargs})
+        return SimpleNamespace(
+            ok=True,
+            requested_model="gpt-6-astra",
+            model="gpt-6-astra-2026-09-01",
+            usage={"model": "gpt-6-astra-2026-09-01", "total_tokens": 4},
+            finish_reason="stop",
+            error=None,
+        )
+
+    monkeypatch.setattr(router.adapter, "chat_text", fake_chat)
+    monkeypatch.setattr(router.adapter.client, "get_last_response_meta", lambda: {"response_id": "chatcmpl-probe"})
+
+    result = router.probe_model(capability="chat_text")
+
+    assert result["ok"] is True
+    assert result["requested_model"] == "gpt-6-astra"
+    assert result["actual_model"] == "gpt-6-astra-2026-09-01"
+    assert result["response_id"] == "chatcmpl-probe"
+    assert observed["model"] == "gpt-6-astra"
+    assert observed["reasoning_effort"] == "low"
+    assert "계좌" not in observed["prompt"]
 
 
 def test_invalid_json_is_normalized_as_contract_error():
@@ -276,7 +408,8 @@ def test_save_settings_keeps_local_ai_key_and_private_file_mode(tmp_path):
     assert persisted["openai_api_key"] == "secret-value"
     assert persisted["ai_credentials"]["openai"]["api_key"] == "secret-value"
     assert "credential_ref" not in persisted["ai_credentials"]["openai"]
-    assert stat.S_IMODE(config_path.stat().st_mode) == 0o600
+    if os.name != "nt":
+        assert stat.S_IMODE(config_path.stat().st_mode) == 0o600
     backups = list(backup_dir.glob("settings_*.json"))
     assert len(backups) == 1
     assert "old-plaintext-secret" in backups[0].read_text(encoding="utf-8")

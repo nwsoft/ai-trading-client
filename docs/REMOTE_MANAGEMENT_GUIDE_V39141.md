@@ -1,6 +1,6 @@
 # v3.9.1.41 내 PC 원격 관리 베타
 
-2026-09-19 소스 후보. 공개판은 v3.9.1.40이며 이 문서는 서버 또는 Windows 배포 완료의 증거가 아닙니다.
+2026-09-19 후속 확인: Client v3.9.1.41은 GitHub에 별도로 공개됐습니다. daltrading 서버의 원격 메뉴·relay는 이번 작업에서 배포해 검증 계정 1개에 활성화했고 실제 웹 로그인·페이지/API를 확인했습니다. 이 작업에서 Windows 설치기 게시 또는 실제 PC 연결·제어 검증을 한 것은 아닙니다. 서버 정본: daltrading `docs/V39141_REMOTE_PRODUCTION_VERIFICATION.md`.
 
 ## 사용자 순서
 

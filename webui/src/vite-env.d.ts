@@ -4,6 +4,7 @@ interface NoahAIBootstrap {
   gatewayUrl: string;
   gatewayToken: string;
   desktop: boolean;
+  systemLanguage?: string;
 }
 
 interface Window {

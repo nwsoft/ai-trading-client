@@ -1,3 +1,9 @@
+## 2026-09-20 - v3.9.1.42 Remote Operation Consent and Control Patch (소스 후보)
+
+추가: 한국어·영어 베타. 로그인 폼 하단 또는 설정 → 일반 → 표시 언어에서 선택하며 핵심 표시·영어 매뉴얼·명시적 심층분석·daltrading 원격 화면에 적용합니다. 저장된 선택이 없을 때만 시스템 선호 언어를 참고하고 미지원 언어는 한국어로 시작합니다. 고급 진단·알림·일부 화면은 한국어 원문입니다. [지원/미지원 범위](docs/V39142_ENGLISH_IMPLEMENTATION_PLAN.md). 설치본·실기관 검증은 별도입니다.
+
+공개 v3.9.1.41 자산은 유지합니다. 이번 범위는 PC 승인형 원격 시작·재개, 새 거래 일시정지, 위험·손익 요약과 상태 설명입니다. API 키·전략 원문·실행 주체는 PC에 유지하며 원격 모드 전환·전체 청산·백테스트는 제외합니다. [사용법](docs/REMOTE_MANAGEMENT_GUIDE_V39142.md) · [검증](docs/V39142_REMOTE_CONTROL_PLAN.md). 설치기 빌드·릴리스는 사용자가 수행하며 실제 Windows/기관 검증은 미완료입니다.
+
 ## 2026-09-19 - v3.9.1.41 Market Trend Visuals and Evidence-based XAI Patch
 
 추가 범위: **KPI 경량화·내 PC 원격 관리 베타**. 내부 patch 식별자는 유지하고 같은 v41 새 산출물에 포함합니다.

@@ -135,6 +135,17 @@ class FakeKiwoomBackend:
         return 0
 
 
+class FailedKiwoomBackend:
+    def __init__(self, login_result):
+        self.login_result = login_result
+
+    def CommConnect(self, block=True):
+        return self.login_result
+
+    def GetConnectState(self):
+        return 0
+
+
 class TestKiwoomBackendAdapter(unittest.TestCase):
     def setUp(self):
         self.backend = FakeKiwoomBackend()
@@ -150,6 +161,18 @@ class TestKiwoomBackendAdapter(unittest.TestCase):
         self.assertTrue(self.adapter.connect())
         self.assertEqual(self.adapter.account_no, '12345678')
         self.assertEqual(self.adapter.user_id, 'kiwoom_user')
+
+    def test_connect_does_not_treat_login_request_result_as_session_state(self):
+        for login_result in (False, None, 0):
+            with self.subTest(login_result=login_result):
+                adapter = KiwoomStockAdapter(
+                    user_id='user',
+                    password='pw',
+                    cert_password='cert',
+                    backend_client=FailedKiwoomBackend(login_result),
+                )
+                self.assertFalse(adapter.connect())
+                self.assertFalse(adapter.is_connected)
 
     def test_get_balance_parses_summary(self):
         self.adapter.connect()

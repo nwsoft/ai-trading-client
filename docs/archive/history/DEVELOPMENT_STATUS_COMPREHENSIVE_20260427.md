@@ -117,7 +117,7 @@
 **상태**: 즉시 실행 개시 (오늘부터 5월 10일까지)  
 **목표**: AI 어시스턴트 개인화 상담 강화  
 **기간**: 1~2주 (1차 사이클)  
-**계획 문서**: [LIFE_FINANCE_PHASE1_ACTION_20260428.md](docs/LIFE_FINANCE_PHASE1_ACTION_20260428.md)  
+**계획 문서**: [LIFE_FINANCE_PHASE1_ACTION_20260428.md](../../LIFE_FINANCE_PHASE1_ACTION_20260428.md)  
 
 **액션**:
 1. 신용도/위험도 입력 UI 추가 (신용도: 좋음/보통/낮음, 위험도: 회피/보수/공격)

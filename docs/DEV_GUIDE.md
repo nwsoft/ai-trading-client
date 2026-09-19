@@ -1,11 +1,43 @@
 # 개발자 가이드 (회귀 방지 규칙)
 
-> 기준: 2026-08-13 · v3.9.0.10 및 UI 플랫폼 전환 설계  
+## 제품 상태 문서화 계약 (2026-09-18)
+
+- NoahAI Client는 검증 완료 후 무료·유료 서비스 중으로 표기한다.
+- Strategy Studio는 현재 제공 중, Strategy Hub는 무료 공개 테스트 중으로 구분한다.
+- 유료 Marketplace·결제·제작자 정산은 구현·운영 게이트가 닫히기 전 현재 서비스처럼 표시하지 않는다.
+- 코인·증권·ETF 제공 사실과 개별 기관의 PAPER/LIVE 준비도를 분리한다. 제품 전체를 `검증 중`으로 되돌리지 않고 기관 capability를 구체적으로 표시한다.
+- 생활금융은 현재 단계적 서비스다. 현금흐름·목표·보안 경고·세금 계산·금융상품 비교의 실제 화면/계산 제공과, 외부 금융기관 가입·심사·실행을 분리한다.
+- 릴리즈 시 README, MASTER, UPDATE_PLAN, CHANGELOG, 공개 웹, 구조화 데이터, `llms.txt`를 함께 점검한다.
+
+> 기준: 2026-09-11 · v3.9.1.27 Strategy Assistant 연속성·AI 비용·모델 라우팅 공개판  
 > 금융 인텔리전스의 메뉴·데이터·상태 모델은 `FINANCIAL_INTELLIGENCE_EXPANSION_PLAN_20260723.md`, 검증은 `FINANCIAL_INTELLIGENCE_TEST_CHECKLIST_20260723.md`를 따릅니다. 빌드 절차는 이 문서에 복제하지 않고 `BUILD_GUIDE.md`만 사용합니다.
 
 본 문서는 개발 단계에서의 회귀를 막고, Pylance/런타임 안정성을 유지하기 위한 규칙 모음입니다. PR 전 체크리스트로 활용하세요.
 
+Strategy Studio에서 외부 화면으로 질문을 연결할 때는 `ai_custom` 문맥과 복귀 대상을 함께 설정하고, 원문·File 객체·분석 상태를 가진 컴포넌트를 언마운트하지 않는다. Provider 공백 응답은 성공으로 캐시하지 않으며 로컬 정본 fallback을 유지한다. 기본 NoahAI 사용 경로를 실행 규칙 없는 커스텀 전략 생성으로 연결해서는 안 된다.
+
+외부 AI 보조 호출과 결정형 전략 컴파일은 서로 다른 실패 경계다. `interactive_ai_budget_exceeded`는 텍스트·Pine 로컬 컴파일을 중단시키지 않고 외부 설명만 생략한다. AI 답변을 Strategy Studio로 전달할 때는 편집 가능한 미적용 초안으로 두고, 사용자 확정·재분석·저장·승인·PAPER·LIVE 단계를 합치지 않는다. 설명 수준은 프롬프트와 캐시 키에 포함한다.
+
+사용자 요청형 AI 비용은 성공 응답의 실제 토큰과 기준일 가격표가 함께 있을 때만 계산한다. 토큰·가격·모델 귀속이 없으면 0으로 보정하지 말고 `비용 미산출`로 남긴다. 캐시 응답을 새 Provider 호출로 중복 집계하지 않으며 이 원장을 자동매매 전체 비용이나 Provider 청구서로 이름 붙이지 않는다.
+
+Provider가 이미지 전송 형식을 지원하더라도 선택 모델 capability가 비전 입력을 지원하는지 별도로 검사한다. DeepSeek 일반 Flash/Pro는 텍스트·JSON 경로, Vision 실험 모델은 명시적 이미지 경로로 분리한다. 모델 이름은 공식 API ID와 실제 계정 조회 결과만 허용하고 마케팅 명칭을 추측해 정적 등록하지 않는다. 역할별 모델 변경은 사용자 저장 뒤 적용하며 비용만으로 전략 의미나 실행 규칙을 자동 변경하지 않는다.
+
+Strategy Studio의 화면 예시 문구와 deterministic source compiler는 같은 입력 계약을 사용해야 한다. 위험예산·증거금/종목 비중은 명시적 `%`와 의미 라벨이 함께 있을 때만 구조화하고, 분석 결과를 UI 위험 상태에 동기화한 뒤 최종 저장한다. 자동 보완은 화면에서 사용자가 이미 확정한 운용값에만 허용하며 진입·청산·방향·지표·임계값을 AI가 만들어 넣어서는 안 된다.
+
+## 신규 거래소·증권사 개발 규칙
+
+1. `venue_capabilities.py`를 기관 의미의 유일한 Python 정본으로 사용한다. 통계·런타임 모듈에 새 기관 set을 복사하지 않는다.
+2. `web_ui_feature_inventory.json`과 `webui/src/venueSources.ts`를 함께 갱신하고 화면은 공통 목록을 import한다. `test_canonical_venue_registry_drives_runtime_statistics_and_ui_inventory` 통과 전에는 메뉴를 공개하지 않는다.
+3. `validate_venue_onboarding_profile()`에 주문 단위, contract size, 포지션 모드, 보호주문, 주문/체결/포지션 대조, client order ID, 비용, 시간 동기화, 호출 제한과 native escape hatch를 선언한다.
+4. LIVE/PAPER/LEARNING을 별도 권한·원장으로 구현하고 현재 포지션과 기간 청산 통계를 혼합하지 않는다. 통화 불명·조회 실패·가격 없음은 0으로 보정하지 않는다.
+5. 기관별 표시 기준은 `account + service + source`만 바꾸는 비파괴 상태다. 위험·학습·전략 PAPER 원장에 전달하지 않는다.
+6. 시작하지 않은 조회용 어댑터도 안전 종료 대상이다. 정상 종료, 강제 종료, 재시작, 토큰/COM 대기, 진행 중 HTTP 요청을 기관별로 시험한다.
+7. 실제 사용자 폴더를 fixture로 열거나 자동 선택하지 않는다. 합성 fixture와 명시적인 QA 계정만 사용한다.
+8. 소스 테스트 뒤 대상 OS 패키지, PAPER soak, 승인된 소액 LIVE 원장을 외부 기관 기록과 대조해야 지원 완료다.
+
 ## UI 플랫폼 전환 개발 규칙
+
+현재 구현 위치는 `web_platform/`, `webui/`, `config/web_ui_feature_inventory.json`이다. Stage 0 읽기 전용 계약은 종료됐고, 현재 command endpoint는 엄격 DTO·명시 intent·멱등 ID·계정 경계·감사·fail-closed를 모두 만족해야 한다. 새 명령은 화면이 어댑터를 직접 호출하지 않고 Application Services를 거쳐야 한다.
 
 1. **엔진 우선 분리**: 새 화면보다 application service와 DTO/event 계약을 먼저 만든다. UI 모듈에서 Trader, 거래소 SDK, DB connection을 새로 직접 참조하지 않는다.
 2. **하나의 원본**: 기존 CTk와 새 Web UI는 같은 설정·전략·포지션·명령 서비스를 사용한다. 호환을 위해 저장소나 손익 계산을 복제하지 않는다.
@@ -154,8 +186,10 @@ if hasattr(self, 'unified_trader') and self.unified_trader:
 - [ ] `trading/exchanges/adapters/`에 어댑터 구현
 - [ ] `config/settings_template.json`에 설정 추가
 - [ ] `ui/dashboard_modern.py`에 서비스 탭 추가
-- [ ] `docs/`에 서비스별 문서 추가
+- [ ] 새 문서를 만들기 전에 기존 `ARCHITECTURE.md`, `TRADING_FLOW.md`, `EXCHANGE_SEPARATION_GUIDELINES.md`에 통합
 - [ ] `UPDATE_PLAN.md`에 개발 계획 반영
+- [ ] 기관 등록부·Web inventory·자격증명·런타임·통계·PAPER·Strategy Studio·안전 종료 동시 갱신
+- [ ] mock, 대상 OS, PAPER, 승인된 소액 LIVE와 배포 문서 게이트 분리 기록
 
 ### ETF 모듈 추가 시 특별 고려사항
 - ETF는 증권의 한 종류이지만 별도 필터링/분류 로직 필요

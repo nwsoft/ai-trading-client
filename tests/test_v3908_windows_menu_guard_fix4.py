@@ -101,8 +101,8 @@ def test_multi_exchange_header_is_scope_not_single_exchange_claim():
 
 def test_bottom_status_distinguishes_saved_scope_from_running_workers():
     enabled = {"binance", "upbit", "bithumb", "bybit", "okx", "bitget"}
-    assert format_trading_runtime_status(enabled, set()) == "자동매매: 정지 (0/6 실행)"
-    assert format_trading_runtime_status(enabled, {"binance", "okx"}) == "자동매매: 부분 실행 (2/6)"
+    assert format_trading_runtime_status(enabled, set()) == "자율주행: 정지 (0/6 실행)"
+    assert format_trading_runtime_status(enabled, {"binance", "okx"}) == "자율주행: 부분 실행 (2/6)"
 
 
 def test_financial_intelligence_is_before_every_exchange_tab():

@@ -10,6 +10,7 @@ D1 증권 실행 경로 사전 점검 스크립트
 """
 
 import json
+import os
 import platform
 import sys
 from pathlib import Path
@@ -22,55 +23,54 @@ if str(ROOT) not in sys.path:
 from trading.exchanges.exchange_factory import ExchangeFactory
 
 
-def _load_settings() -> Tuple[Dict[str, Any], Path]:
-    """사용자 계정별 설정을 우선 탐색해 가장 관련성 높은 settings.json을 로드한다."""
+def _load_settings(*, account: str = "") -> Tuple[Dict[str, Any], Path]:
+    """Load only an explicitly selected account or a non-account template.
+
+    Readiness tooling used to scan ``data/*/config/settings.json`` and pick the
+    account with the richest credentials.  That made an ordinary developer
+    gate capable of opening a real tester's account data.  User snapshots are
+    support evidence, never an implicit test fixture.  A live readiness run
+    must therefore name its account through ``NOAHAI_READINESS_ACCOUNT`` (or
+    provide an exact settings path); otherwise only root/template settings are
+    considered.
+    """
     data_dir = ROOT / "data"
     candidates: List[Path] = []
 
-    # 1) 계정별 설정(data/*/config/settings.json) 우선
-    if data_dir.exists():
-        account_settings = sorted(data_dir.glob("*/config/settings.json"))
-        # 공용/초기화 성격의 폴더는 후순위로 밀어 혼선을 줄인다.
-        preferred = [p for p in account_settings if p.parent.parent.name.lower() not in {"nwsoft"}]
-        fallback = [p for p in account_settings if p.parent.parent.name.lower() in {"nwsoft"}]
-        candidates.extend(preferred)
-        candidates.extend(fallback)
+    exact_path = str(os.environ.get("NOAHAI_READINESS_SETTINGS_PATH") or "").strip()
+    if exact_path:
+        candidates.append(Path(exact_path).expanduser())
 
-    # 2) 루트 data/settings.json, 3) 템플릿
+    account = str(account or os.environ.get("NOAHAI_READINESS_ACCOUNT") or "").strip()
+    if account:
+        if account in {".", ".."} or "/" in account or "\\" in account:
+            return {}, Path("(invalid readiness account)")
+        candidates.append(data_dir / account / "config" / "settings.json")
+
+    # No account directory is searched implicitly.
     candidates.extend([
         ROOT / "data" / "settings.json",
         ROOT / "config" / "settings_template.json",
     ])
 
-    # 관련성 점수: 활성 브로커/키움 인증값이 있는 파일을 우선
+    # Exact candidates keep their declared priority.  Credential richness must
+    # never cause another account to be selected.
     scored: List[Tuple[int, float, Path, Dict[str, Any]]] = []
-    for path in candidates:
+    for priority, path in enumerate(candidates):
         if not path.exists():
             continue
         try:
-            settings = json.loads(path.read_text(encoding="utf-8"))
+            from config.settings import read_settings_json_file
+            settings, _ = read_settings_json_file(path)
         except Exception:
             continue
-
-        score = 0
-        brokers = settings.get("enabled_stock_brokers")
-        if isinstance(brokers, list) and brokers:
-            score += 4
-
-        stock_cfg = settings.get("stock_broker_configs") if isinstance(settings.get("stock_broker_configs"), dict) else {}
-        kiwoom_cfg = stock_cfg.get("kiwoom") if isinstance(stock_cfg.get("kiwoom"), dict) else {}
-        if kiwoom_cfg:
-            score += 2
-            for key in ("id", "password", "cert_password", "account_no"):
-                if str(kiwoom_cfg.get(key, "")).strip():
-                    score += 1
 
         try:
             mtime = path.stat().st_mtime
         except Exception:
             mtime = 0.0
 
-        scored.append((score, mtime, path, settings))
+        scored.append((-priority, mtime, path, settings))
 
     if scored:
         scored.sort(key=lambda item: (item[0], item[1]), reverse=True)

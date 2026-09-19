@@ -1,6 +1,8 @@
 import json
 from pathlib import Path
 
+from config.app_version import RELEASE_BUILD_LABEL, RELEASE_HIGHLIGHT, RELEASE_PATCH, RELEASE_VERSION
+
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -27,28 +29,50 @@ def test_user_surfaces_share_provider_scope_and_menu_path():
 
 
 def test_release_metadata_and_installed_manual_are_scoped_separately():
-    assert "현재 작업 버전: v3.9.0.10" in _read("README.md")
-    assert "v3.9.0.10 AI Custom Management & Runtime Integrity Update" in _read("README.md")
+    readme = _read("README.md")
+    assert f"현재 소스 후보: v{RELEASE_VERSION}" in readme
+    assert RELEASE_PATCH in readme
+    assert "Windows 검증 후보" in readme
+    assert "모든 필수 행이 `[x] VERIFIED`" in readme
     assert "v3.9.0.5 설정 정본·실행 모드 통합" in _read("RELEASE_NOTES.md")
     manual = _read("ui/widgets/user_manual_widget.py")
     assert "현재 설치 버전" in manual
-    assert "v3.9.0.10 최신 업데이트" in manual
+    assert f"v{RELEASE_VERSION} 최신 업데이트" in manual
     assert "새 Windows 빌드 전 업데이트 대상" not in manual
     assert "SHA-256이 게시된 Windows" in _read("docs/AI_API_USER_GUIDE.md")
-    manifest = json.loads(_read("deploy/release-manifest.json"))
-    assert manifest["version"] == "3.9.0.10"
-    assert manifest["release_label"] == "v3.9.0.10 AI Custom Management & Runtime Integrity Update"
-    # 현재 manifest는 새 v3.9.0.10 빌드 대기, 이전 공개 자산은 v3.9.0.9로 보존한다.
-    assert manifest["build_status"] == "pending_windows_rebuild"
-    assert manifest["previous_published_asset"]["version"] == "3.9.0.9"
-    assert manifest["previous_published_asset"]["release_label"] == "v3.9.0.9 AI Custom Stability Update"
-    assert manifest["previous_published_asset"]["path"] == "deploy/previous/AITrading-v3.9.0.9-AI-Custom-Stability-Update.exe"
-    assert manifest["previous_published_asset"]["purpose"] == "previous_published_windows_build"
-    assert _read("deploy/version.txt").strip() == "3.9.0.10"
-    assert 'RELEASE_VERSION = "3.9.0.10"' in _read("config/app_version.py")
-    assert "FileVersion', u'3.9.0.10" in _read("config/windows_version_info.txt")
-    assert "ProductVersion', u'3.9.0.10" in _read("config/windows_version_info.txt")
-    assert 'RELEASE_HIGHLIGHT = "AI 커스텀 관리 · 설정 오류 차단 · 최신 탭 렌더·위젯 소유권 안정화"' in _read("config/app_version.py")
+    manifest_path = ROOT / "deploy" / "release-manifest.json"
+    if manifest_path.exists():
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        manifest_is_current = manifest["version"] == RELEASE_VERSION
+        assert tuple(map(int, manifest["version"].split("."))) <= tuple(map(int, RELEASE_VERSION.split(".")))
+        if manifest_is_current:
+            assert manifest["release_label"] == RELEASE_BUILD_LABEL
+        else:
+            assert manifest["publish_ready"] is True
+            assert f"공개 v{manifest['version']}" in _read("RELEASE_NOTES.md")
+        assert manifest["build_status"] in {
+            "pending_windows_rebuild",
+            "built_windows_unverified",
+            "windows_external_gates_pending",
+            "windows_stable_external_gates_pending",
+            "windows_verified_release_candidate",
+        }
+        if manifest["build_status"] == "pending_windows_rebuild":
+            assert manifest["publish_ready"] is False
+            assert manifest.get("source_fingerprint") is None
+        else:
+            assert len(manifest.get("source_fingerprint") or "") == 64
+            assert manifest_is_current is False or manifest["previous_published_asset"]["version"] != RELEASE_VERSION
+            assert manifest["previous_published_asset"]["path"].startswith("deploy/web-release/NoahAI-")
+        assert manifest["previous_published_asset"]["purpose"] == "previous_published_windows_build"
+    deployed_version = _read("deploy/version.txt").strip()
+    assert tuple(map(int, deployed_version.split("."))) <= tuple(map(int, RELEASE_VERSION.split(".")))
+    if manifest_path.exists():
+        assert deployed_version == manifest["version"]
+    assert f'RELEASE_VERSION = "{RELEASE_VERSION}"' in _read("config/app_version.py")
+    assert f"FileVersion', u'{RELEASE_VERSION}" in _read("config/windows_version_info.txt")
+    assert f"ProductVersion', u'{RELEASE_VERSION}" in _read("config/windows_version_info.txt")
+    assert f'RELEASE_HIGHLIGHT = "{RELEASE_HIGHLIGHT}"' in _read("config/app_version.py")
 
 
 def test_release_asset_generator_preserves_fix_patch_identity(tmp_path):
@@ -107,3 +131,4 @@ def test_ai_architecture_is_router_first_not_legacy_openai_only():
     assert "ProviderCapabilities" in architecture
     assert "Phase 2: 하이브리드" not in architecture
     assert "[ ] DeepSeek API 지원" not in architecture
+

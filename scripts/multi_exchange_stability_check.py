@@ -99,8 +99,12 @@ def _check_source_invariants() -> List[str]:
     if "exchange=exchange_name" not in ut:
         issues.append("unified_trader: 거래소별 로그 태깅(exchange=exchange_name) 누락")
 
-    if "major_bases = {'BTC', 'ETH', 'BNB', 'SOL', 'ADA', 'XRP', 'DOT', 'LINK', 'AVAX', 'MATIC'}" not in ev:
-        issues.append("evaluator: 포맷 독립 메이저 코인 분류 코드 누락")
+    if "MAJOR_CRYPTO_BASES = frozenset" not in ev:
+        issues.append("evaluator: 공통 메이저 코인 분류 상수 누락")
+    if ev.count("in MAJOR_CRYPTO_BASES") < 3:
+        issues.append("evaluator: Binance·현물·CCXT 수집 공통 메이저 분류 적용 누락")
+    if "major_bases = MAJOR_CRYPTO_BASES" not in ev or "major_symbols = MAJOR_CRYPTO_BASES" not in ev:
+        issues.append("evaluator: 최종 선정·폴백 공통 메이저 분류 적용 누락")
 
     if "is_crypto_derivative_candidate(" not in ev:
         issues.append("evaluator: 토큰화 비암호화 상품 metadata 필터 누락")

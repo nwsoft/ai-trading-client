@@ -1,4 +1,44 @@
-# API 참조 문서 - v3.9.0.7
+# API 참조 문서 - v3.9.1.24
+
+## 로컬 Web Gateway 통계 계약
+
+### 기간·실행모드 조회
+
+```http
+GET /api/v1/workspaces/{service}/statistics
+  ?source={venue_or_broker}
+  &statistics_mode=live|paper
+  &statistics_period=today|7d|30d|all|custom
+  &statistics_start=YYYY-MM-DD
+  &statistics_end=YYYY-MM-DD
+Authorization: Bearer {ephemeral_local_token}
+```
+
+- `service`는 `blockchain` 또는 `stock`이며 `source`는 해당 서비스의 기관 등록부에 있어야 한다.
+- LIVE는 `trade_log` 청산 원장, PAPER는 PAPER 전용 청산 원장을 조회한다. LEARNING은 거래 통계가 아니다.
+- 사용자 지정 기간은 청산시각 기준이며 현재 포지션은 기간과 별도 snapshot이다.
+- 통화가 다르면 응답의 통화별 묶음을 유지하고 총액으로 합산하지 않는다.
+- 알 수 없는 기관, 다른 서비스의 기관, 잘못된 날짜·모드는 HTTP 400으로 실패 폐쇄한다.
+
+### LIVE 통계 표시 기준
+
+```http
+POST /api/v1/statistics/view-baseline
+Authorization: Bearer {ephemeral_local_token}
+X-NoahAI-Intent: confirmed
+Content-Type: application/json
+
+{"service":"blockchain|stock","source":"기관 ID 또는 빈 문자열","action":"set|clear"}
+```
+
+- `set`은 `account + service + source`의 현재시각을 표시 기준으로 저장하고, `clear`는 보존된 전체 기록을 다시 표시한다.
+- 빈 `source`는 해당 자산군 전체 보기의 독립 범위다. 개별 기관 기준과 자동으로 같은 값이 되지 않는다.
+- 거래·체결·학습·PAPER·가드레일·성과회복·열린 포지션은 변경하지 않는다.
+- 이 API는 LIVE 표시에만 적용한다. PAPER 재시작은 Strategy Studio의 별도 attempt API/명령을 사용한다.
+
+### 신규 기관 API 등록 규칙
+
+기관 ID는 `trading/exchanges/venue_capabilities.py`와 `config/web_ui_feature_inventory.json`에 동시에 등록한다. Account snapshot DTO, 자격증명 계약, 런타임 명령, 통계 응답, 로그·알림과 안전 종료가 구현되지 않은 기관은 API allowlist에만 먼저 노출하지 않는다.
 
 ## 🌐 백엔드 서버 API
 

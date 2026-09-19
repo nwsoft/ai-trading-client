@@ -2,6 +2,7 @@
 # -*- coding: utf-8 -*-
 
 import sys
+import json
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -55,6 +56,44 @@ def _live_row(**overrides):
     }
     row.update(overrides)
     return row
+
+
+def test_preflight_never_auto_selects_a_real_account_folder(tmp_path, monkeypatch):
+    from scripts import stock_d1_preflight as preflight
+
+    user_settings = tmp_path / "data" / "RealTester" / "config" / "settings.json"
+    user_settings.parent.mkdir(parents=True)
+    user_settings.write_text(json.dumps({"marker": "must-not-be-read", "enabled_stock_brokers": ["kiwoom"]}), encoding="utf-8")
+    template = tmp_path / "config" / "settings_template.json"
+    template.parent.mkdir(parents=True)
+    template.write_text(json.dumps({"marker": "template"}), encoding="utf-8")
+    monkeypatch.setattr(preflight, "ROOT", tmp_path)
+    monkeypatch.delenv("NOAHAI_READINESS_ACCOUNT", raising=False)
+    monkeypatch.delenv("NOAHAI_READINESS_SETTINGS_PATH", raising=False)
+
+    settings, selected = preflight._load_settings()
+
+    assert settings["marker"] == "template"
+    assert selected == template
+
+
+def test_preflight_reads_only_the_explicit_readiness_account(tmp_path, monkeypatch):
+    from scripts import stock_d1_preflight as preflight
+
+    selected_path = tmp_path / "data" / "Chosen" / "config" / "settings.json"
+    other_path = tmp_path / "data" / "Other" / "config" / "settings.json"
+    selected_path.parent.mkdir(parents=True)
+    other_path.parent.mkdir(parents=True)
+    selected_path.write_text(json.dumps({"marker": "chosen"}), encoding="utf-8")
+    other_path.write_text(json.dumps({"marker": "other", "enabled_stock_brokers": ["kiwoom"]}), encoding="utf-8")
+    monkeypatch.setattr(preflight, "ROOT", tmp_path)
+    monkeypatch.setenv("NOAHAI_READINESS_ACCOUNT", "Chosen")
+    monkeypatch.delenv("NOAHAI_READINESS_SETTINGS_PATH", raising=False)
+
+    settings, selected = preflight._load_settings()
+
+    assert settings["marker"] == "chosen"
+    assert selected == selected_path
 
 
 def test_smoke_check_returns_zero_without_targets_by_default():
@@ -285,7 +324,7 @@ def test_readiness_runner_all_brokers_adds_drill_steps():
 
     calls = []
 
-    def _fake_run(command, cwd=None, capture_output=None, text=None):
+    def _fake_run(command, cwd=None, capture_output=None, text=None, env=None):
         calls.append(command)
         return SimpleNamespace(returncode=0, stdout="ok", stderr="")
 
@@ -310,7 +349,7 @@ def test_readiness_runner_all_supported_brokers_uses_factory_list():
 
     calls = []
 
-    def _fake_run(command, cwd=None, capture_output=None, text=None):
+    def _fake_run(command, cwd=None, capture_output=None, text=None, env=None):
         calls.append(command)
         return SimpleNamespace(returncode=0, stdout="ok", stderr="")
 
@@ -358,3 +397,44 @@ def test_readiness_runner_all_supported_non_strict_allows_precheck_blocked():
          patch.object(runner, "subprocess") as subproc:
         subproc.run.side_effect = results
         assert runner.main() == 0
+
+
+def test_readiness_runner_offline_never_runs_account_or_network_steps():
+    from scripts import stock_live_readiness_run as runner
+
+    calls = []
+
+    def _fake_run(command, cwd=None, capture_output=None, text=None, env=None):
+        calls.append(command)
+        return SimpleNamespace(returncode=0, stdout="ok", stderr="")
+
+    args = SimpleNamespace(
+        broker="kiwoom", strict=False, all_brokers=False,
+        all_supported_brokers=True, skip_mock_check=False,
+        offline=True, account="",
+    )
+    with patch.object(runner, "_parse_args", return_value=args), \
+         patch.object(runner, "subprocess") as subproc:
+        subproc.run.side_effect = _fake_run
+        assert runner.main() == 0
+
+    joined = [" ".join(call) for call in calls]
+    assert any("stock_supported_mode_matrix_check.py" in call for call in joined)
+    assert any("stock_nonkey_hardening_check.py" in call for call in joined)
+    assert not any("stock_d1_preflight.py" in call for call in joined)
+    assert not any("stock_live_smoke_check.py" in call for call in joined)
+    assert not any("stock_live_order_drill.py" in call for call in joined)
+
+
+def test_readiness_runner_strict_live_requires_explicit_account():
+    from scripts import stock_live_readiness_run as runner
+
+    args = SimpleNamespace(
+        broker="kiwoom", strict=True, all_brokers=False,
+        all_supported_brokers=True, skip_mock_check=False,
+        offline=False, account="",
+    )
+    with patch.object(runner, "_parse_args", return_value=args), \
+         patch.object(runner.subprocess, "run") as run:
+        assert runner.main() == 1
+        run.assert_not_called()

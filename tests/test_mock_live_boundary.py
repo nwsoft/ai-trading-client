@@ -299,7 +299,7 @@ class TestEnableStockLiveOrderSetting:
 
     def test_settings_template_default_is_false(self):
         import json
-        with open('config/settings_template.json') as f:
+        with open('config/settings_template.json', encoding='utf-8') as f:
             tmpl = json.load(f)
         assert tmpl.get('enable_stock_live_order') is False
 
@@ -310,7 +310,7 @@ class TestEnableStockLiveOrderSetting:
 
     def test_broker_allow_live_order_per_broker_default_false(self):
         import json
-        with open('config/settings_template.json') as f:
+        with open('config/settings_template.json', encoding='utf-8') as f:
             tmpl = json.load(f)
         configs = tmpl.get('stock_broker_configs', {})
         for broker_key in ('kiwoom', 'shinhan', 'miraeAsset', 'koreaInvestment'):

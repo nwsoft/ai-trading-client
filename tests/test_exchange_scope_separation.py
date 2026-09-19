@@ -48,3 +48,21 @@ def test_explicit_multi_exchange_trade_scope_is_respected():
     assert trader.trade_enabled_exchanges == ["bybit", "okx"]
     assert trader._is_trade_enabled("bybit") is True
     assert trader._is_trade_enabled("binance") is False
+
+
+def test_webui_canonical_multi_exchange_trade_scope_is_respected():
+    trader = UnifiedTrader(
+        settings={
+            "selected_exchange": "binance",
+            "enabled_exchanges": ["binance", "bybit", "okx"],
+            "trade_enabled_exchanges": ["bybit", "okx"],
+            "_trade_scope_user_confirmed_v3905": True,
+            "learning_enabled_exchanges": ["binance", "bybit", "okx"],
+        },
+        exchange_manager=None,
+        unified_manager=None,
+    )
+
+    assert trader.trade_enabled_exchanges == ["bybit", "okx"]
+    assert trader._is_trade_enabled("bybit") is True
+    assert trader._is_trade_enabled("binance") is False

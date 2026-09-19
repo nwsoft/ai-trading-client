@@ -72,8 +72,9 @@ def load_settings():
     if not settings_path.exists():
         raise FileNotFoundError(f"설정 파일을 찾을 수 없습니다: {settings_path}")
 
-    with settings_path.open("r", encoding="utf-8") as f:
-        return json.load(f), settings_path
+    from config.settings import read_settings_json_file
+    settings, _ = read_settings_json_file(settings_path)
+    return settings, settings_path
 
 
 def build_arg_parser() -> argparse.ArgumentParser:

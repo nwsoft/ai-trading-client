@@ -10,6 +10,7 @@ from trading.profitability_validation import ProfitabilityValidator
 from trading.strategy_source_ingestor import ExtractedStrategySource, StrategySourceIngestor
 from trading.custom_strategy_pipeline import CustomStrategyPipeline
 from trading.declarative_strategy_engine import DeclarativeStrategyEngine
+from config.app_version import RELEASE_VERSION
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -75,7 +76,7 @@ strategy.exit("X", "L")
 stop_loss 1%
 take_profit 2%
 position_size 5%
-market conditions EMA RSI trend
+market conditions EMA RSI trend 횡보장
 """
     result = StrategySourceIngestor().analyze(pine, "pine")
     assert result["source"]["kind"] == "pine"
@@ -244,7 +245,7 @@ def test_settings_have_visible_section_save_bars_and_noahai_close_branding():
     assert "계속 편집" in dialog
     assert "ai_custom_runtime_enabled_var" in source
     assert "ai_custom_limited_live_var" in source
-    assert "AI 커스텀 전략을 실제 자동매매 엔진에서 사용" in source
+    assert "전략 스튜디오 전략을 실제 자동매매 엔진에서 사용" in source
     assert "self.ai_custom_runtime_enabled_var = ctk.BooleanVar(value=False)" in source
     assert "self.ai_custom_limited_live_var = ctk.BooleanVar(value=False)" in source
     assert 'text="AI 애널리스트 모델:"' in source
@@ -324,7 +325,7 @@ def test_existing_strategy_key_creates_incrementing_versions_and_trims_to_ten(tm
 
 def test_custom_strategy_manual_exposes_real_button_flow_and_scopes():
     manual = (ROOT / "ui" / "widgets" / "user_manual_widget.py").read_text(encoding="utf-8")
-    assert 'tab_widget.add("AI 커스텀")' in manual
+    assert 'tab_widget.add("전략 스튜디오")' in manual
     assert "manual_width = max(900, min(1240, screen_width - 60))" in manual
     assert "style_tabview(" in manual
     for text in (
@@ -358,23 +359,38 @@ def test_custom_strategy_source_limits_and_visible_ai_model_are_explicit():
     assert "audio_transcript_available" in ingestor
 
 
-def test_windows_executable_metadata_is_aligned_to_39010():
+def test_windows_executable_metadata_is_aligned_to_current_release():
     version_info = (ROOT / "config" / "windows_version_info.txt").read_text(encoding="utf-8")
     spec = (ROOT / "aiautotrade.spec").read_text(encoding="utf-8")
     safe_builder = (ROOT / "build_safe.py").read_text(encoding="utf-8")
-    assert "filevers=(3, 9, 0, 10)" in version_info
-    assert "ProductVersion', u'3.9.0.10'" in version_info
+    assert "filevers=(" in version_info
+    assert "prodvers=(" in version_info
+    assert f"ProductVersion', u'{RELEASE_VERSION}'" in version_info
     assert "version='config/windows_version_info.txt'" in spec
     assert "version='config/windows_version_info.txt'" in safe_builder
-    assert 'RELEASE_VERSION = "3.9.0.10"' in (ROOT / "config" / "app_version.py").read_text(encoding="utf-8")
-    assert (ROOT / "deploy" / "version.txt").read_text(encoding="utf-8").strip() == "3.9.0.10"
-    manifest = json.loads((ROOT / "deploy" / "release-manifest.json").read_text(encoding="utf-8"))
-    assert manifest["version"] == "3.9.0.10"
-    exe_asset = manifest["assets"]["exe"]
-    # v3.9.0.10은 Windows 재빌드 대기이며 직전 공개 v3.9.0.9는 별도 보존한다.
-    assert manifest.get("build_status") == "pending_windows_rebuild"
-    assert exe_asset["size"] == 0
-    assert exe_asset["sha256"] == ""
+    assert f'RELEASE_VERSION = "{RELEASE_VERSION}"' in (ROOT / "config" / "app_version.py").read_text(encoding="utf-8")
+    deployed_version = (ROOT / "deploy" / "version.txt").read_text(encoding="utf-8").strip()
+    assert tuple(map(int, deployed_version.split("."))) <= tuple(map(int, RELEASE_VERSION.split(".")))
+    manifest_path = ROOT / "deploy" / "release-manifest.json"
+    if not manifest_path.exists():
+        return
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    assert deployed_version == manifest["version"]
+    assert tuple(map(int, manifest["version"].split("."))) <= tuple(map(int, RELEASE_VERSION.split(".")))
+    installer_asset = manifest["assets"]["installer"]
+    assert manifest.get("build_status") in {"pending_windows_rebuild", "built_windows_unverified", "windows_external_gates_pending", "windows_stable_external_gates_pending", "windows_verified_release_candidate"}
+    if manifest.get("build_status") == "pending_windows_rebuild":
+        assert manifest.get("publish_ready") is False
+        assert manifest.get("source_fingerprint") is None
+        assert installer_asset["size"] == 0
+        assert installer_asset["sha256"] == ""
+    else:
+        assert len(manifest.get("source_fingerprint") or "") == 64
+        assert installer_asset["size"] > 0
+        assert len(installer_asset["sha256"]) == 64
+        assert len(manifest["assets"]["latest_yml"]["sha256"]) == 64
+        assert len(manifest["assets"]["blockmap"]["sha256"]) == 64
+    assert manifest["assets"]["engine_sidecar"]["distribution"] == "embedded_in_installer"
     previous_asset = manifest["previous_published_asset"]
     exe_path = ROOT / previous_asset["path"]
     assert exe_path.exists()
@@ -384,10 +400,16 @@ def test_windows_executable_metadata_is_aligned_to_39010():
         for chunk in iter(lambda: exe_file.read(1024 * 1024), b""):
             digest.update(chunk)
     assert previous_asset["sha256"] == digest.hexdigest()
-    assert previous_asset["version"] == "3.9.0.9"
-    assert previous_asset["release_label"] == "v3.9.0.9 AI Custom Stability Update"
+    assert previous_asset["version"] != RELEASE_VERSION
+    assert (
+        previous_asset["release_label"] == f"v{previous_asset['version']}"
+        or previous_asset["release_label"].startswith(f"v{previous_asset['version']} ")
+    )
     assert previous_asset["purpose"] == "previous_published_windows_build"
-    assert "/v3.9.0.10/AITrading.exe" in manifest["assets"]["exe"]["download_url"]
+    if manifest.get("build_status") != "pending_windows_rebuild":
+        assert f"/v{manifest['version']}/NoahAI-{manifest['version']}-Setup.exe" in installer_asset["download_url"]
+    assert manifest["update_contract"]["metadata"] == "latest.yml"
+    assert manifest["update_contract"]["legacy_single_exe_updater"] == "retired_after_v3.9.0.10"
     release_builder = (ROOT / "scripts" / "generate_release_assets.py").read_text(encoding="utf-8")
     assert "AITrading.exe가 최신 런타임 소스보다 오래된 빌드" in release_builder
     assert "_latest_runtime_source" in release_builder

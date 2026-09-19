@@ -1,6 +1,279 @@
+## v3.9.1.42 원격 운용 제어 (2026-09-20)
+
+[현재 실행 계획](V39142_REMOTE_CONTROL_PLAN.md): 상태별 시작·새 거래 일시정지·재개, 별도 PC 승인/웹 재인증, 위험 요약·설명·기기 관리. Client 설치기 빌드·릴리스는 사용자가 수행하고 daltrading만 배포·검증합니다. 공개 v41은 보존합니다.
+
 # NoahAI 기술 확장 계획
 
-## 2026-08-13 UI 플랫폼 전환 계획 (문서 설계, 배포 버전 변경 없음)
+## v3.9.1.41: KPI·인증 및 원격 관리 소스 구현·시험
+
+[실행 계획과 검증 상태](V39141_REMOTE_KPI_IMPLEMENTATION_PLAN.md)를 기준으로 개발합니다. 공개판은 v3.9.1.40이며 운영 데이터 이관·Windows 배포 완료를 뜻하지 않습니다.
+
+9월 19일 DB 확인 후 우선순위: [PnL 차단·손실 알림 조사](V39141_PNL_GUARDRAIL_FEEDBACK.md). 청산 주문 근거·현재 포지션 대조·기준값 영속화 및 관련 계산 보강 회귀 후에도 기존 미대조 기록 사용자의 안전한 업데이트 처리·실기관/Windows·계좌 일별 대조가 남아 v41 공개를 보류합니다. 특정 사용자 원장 복구와 배포 검증은 구분합니다.
+
+## 2026-09-18 현재 서비스 기준 및 다음 업데이트
+
+### 운영 확정
+
+- NoahAI Client 핵심 제품 검증 완료, 무료·유료 서비스 중
+- 코인·증권·ETF 서비스 제공 중. 개별 기관의 계정·권한·PAPER/LIVE 준비도는 capability registry를 따른다.
+- Strategy Studio 현재 제공 중
+- Strategy Hub 무료 공개 테스트 중
+- 생활금융은 현금흐름·목표·보안 경고·세금 계산·금융상품 비교부터 단계적으로 제공 중
+
+### 다음 개발·운영 순서
+
+1. 무료·유료 Client의 가입·권한·기관별 제공 범위를 앱과 공개 웹에서 같은 용어로 유지
+2. Strategy Hub 무료 테스트의 제출·취득·철회·신고·재검증 운영 안정화
+3. 유료 Marketplace는 포인트·결제·환불·분쟁·제작자 정산 E2E 이후 별도 개방
+4. 생활금융은 현재 기능을 유지하면서 공식 데이터/API 제휴, 정확도 근거, 기관 실행 경계를 기능별로 확장
+5. 릴리즈마다 README·MASTER·CHANGELOG·공개 웹·`llms.txt`의 서비스 상태 자동 정합 검사
+
+아래의 과거 단계별 계획에 있는 `베타 검증 중`, `향후 제공`, `구현 예정` 표기는 해당 시점의 기록이다. 현재 서비스 상태 판정에는 이 절을 우선한다.
+
+## 다음 배포 후보 · v3.9.1.41
+
+현재 소스 후보는 **v3.9.1.41** · updater **3.9.141**, 현재 공개 stable/latest는 **v3.9.1.40**입니다.
+
+- 완료: 오늘·7일·30일 시장 트렌드, 시장 폭 원형·방향/변동성 막대·종목별 미니 추세선과 기간 변경 중 오래된 값 제거.
+- 완료: 코인 현물/선물·KRW/USDT 범위 분리, 주식 일봉 순차 조회와 실패 시 거짓 장기 수익률 차단.
+- 완료: 화면 기간·기관·수집 시각·표본·누락 데이터를 사용하는 로컬 시장 브리핑과 관찰 후보 XAI.
+- 시장 트렌드 변경 직후 소스 확인: 2,639 passed / 8 skipped / 3 subtests, Node 43 passed, Web 63 modules. 추가 KPI/원격 변경 후 최신 결과는 [통합 검증 보고](../reports/v39141-remote-kpi-verification.md)를 따릅니다.
+- 대기: Windows v41 새 빌드, v40→v41 업데이트, 실제 거래소·네 증권사 원본 대조, DPI·장시간 운용과 원격 stable/latest 검증.
+
+[v3.9.1.41 검증 게이트](V39141_MARKET_TREND_XAI_TEST_PLAN.md)
+
+## v3.9.1.39 PnL 재감사 잔여 게이트
+
+- 보류: 시간/수량 유일 후보 자동 확정은 오연결 위험으로 철회했습니다. 실제 보호주문과 청산 체결 주문의 연결 및 과거 누락 복구가 필요합니다. [PnL 재감사](V39139_PNL_TRUST_AUDIT.md).
+- 완료: 연결된 주문의 realized PnL·수수료를 기존 exact-order 대조기로 계산하고, 연속 2건의 첫 손익 보존 회귀 추가.
+- 완료: 복수 후보·방향 불일치·provider PnL 누락은 임의 연결하지 않고 미확정 유지.
+- 소스 확인: 전체 2,606 passed / 8 skipped / 3 subtests, Web 61 modules build 및 격리 비교 UI 확인. 대기: 권위 있는 주문 연결, 전체 학습 경로, Windows x64/x86 새 빌드, 기관 실계정 대조, v38→v39 업데이트, stable/latest 원격 검증.
+
+[v3.9.1.39 검증 게이트](V39139_EXTERNAL_CLOSE_RECONCILIATION_TEST_PLAN.md). 이 잔여 게이트는 v40 공개 또는 v41 시장 화면 소스 검증으로 자동 완료되지 않습니다.
+
+## 현재 버전 기준 · v3.9.1.40 공개판
+
+현재 공개 버전은 **v3.9.1.40** · updater **3.9.140**입니다. Strategy Studio 가독성·AlphaArena PAPER 안전성·설정 점검을 포함한 공개 자산이 stable/latest로 게시됐습니다.
+
+[v3.9.1.40 검증 기록](V39140_STUDIO_ALPHA_SETTINGS_TEST_PLAN.md). stable 게시 사실과 기관 실계정·키움 E2E·장시간 PAPER 같은 외부 운영 증거는 구분합니다.
+
+### v3.9.1.38 소스 완료 범위
+
+- 과거검증의 캔들·진입/청산·거래표·청산 기준 수익률 곡선을 같은 전략 버전과 연결하고 공유 패키지에는 상세 시계열을 넣지 않는다.
+- 수익률/가격 정밀도와 다수 타점 가독성을 보강하고 코인·주식/ETF의 시간봉·비용·기관·현물 SHORT 경계를 유지한다.
+- 기관별 PAPER/LIVE 거래내역을 분리하고 기본 접힘, 계정·기관 격리, 확정/미확정/외부/가져오기/조회 실패 상태를 제공한다.
+- 화면의 이력 탭 조회는 실행 모드, 전략 승인, PAPER/LIVE 권한, 원장 데이터를 변경하지 않는다.
+- v3.9.1.38 버전 승격 후 전체 Python 2,572 passed / 8 skipped / 3 subtests, Node 22.23.1 Web 61 modules, 11기관·과거재생 격리 브라우저, 매뉴얼·문서 정합을 재검증했다.
+
+### v3.9.1.38 게시 후 남은 환경 검증 범위
+
+- 공개된 Windows x64/x86 자산의 PE/manifest/installer 해시와 대표 DPI 화면 재확인
+- v37→v38 업데이트·안전 종료·재시작 및 설정/전략/검증/PAPER/LIVE 원장 보존 대조
+- 11개 기관의 승인된 실제 계정 읽기 대조, 키움 OCX/중복 로그인 회귀, 24시간 이상 PAPER 관찰
+- 게시된 v38 목록/Atom/Latest/`latest.yml`/원격 SHA의 지속 일치 확인
+
+## v3.9.1.32 소스 후보 · 공개 v3.9.1.31
+
+v3.9.1.32는 국면 재선정 대기를 실제 변경 알림과 분리하고, 저장한 업데이트 확인 주기를 앱 공통 타이머로 실행합니다. Coinone의 미제공 활성 상태를 중단으로 오해하던 후보 수집을 수정하고, KIS·미래에셋의 주식/ETF 목록을 공식 공개 마스터로 분리합니다. 네 증권사 워커의 후보 없음·분석 완료·오류를 해당 기관 로그로 전달합니다. 주문 권한·TP/SL·점수 없는 진입 차단은 유지합니다.
+
+제품 버전 3.9.1.32 / updater 3.9.132. 새 Windows 설치본의 설정창 미방문 주기 확인, 상태 5분 요약, Coinone 후보 점수·PAPER, KIS 장중 주기 로그를 확인해야 합니다. 사용자 공유 데이터는 읽기 전용입니다.
+
+[근본 원인과 필수 검증](V39132_RUNTIME_RECOVERY_TEST_PLAN.md)
+
+## 이전 문서 기록 (아래 현재·후보 표기는 당시 기준)
+
+## 2026-09-14 v3.9.1.31 사용자 메뉴얼 정본·검색·가독성
+
+### 소스 완료 범위
+
+- 소개부터 업데이트까지 11개 인앱 메뉴얼의 정본 전체를 문서형 화면으로 기본 노출한다.
+- 제목·본문·목록·체크리스트·주의문·표의 시각 위계를 공통화하고 모든 탭 본문의 실제 일치 항목을 순회하는 검색을 제공한다.
+- 정본 재추출 완전 일치, 11개 고유 탭, UTF-8 무손실, 현재 7개 코인 거래소·4개 증권사, Coinone/AlphaArena LIVE 차단, 소스 후보/공개 버전과 최신 업데이트 순서를 자동 검사한다.
+- 사용자 가이드·아키텍처·릴리스 노트·배포 체크리스트의 현재 상태를 v3.9.1.31 소스 후보 / v3.9.1.30 공개 기준으로 통일한다.
+- 이 변경은 메뉴얼 표시·탐색 범위이며 v3.9.1.30 거래 수량·신호·가드레일·PAPER/LIVE 원장을 변경하지 않는다.
+
+### 배포 전 외부 게이트
+
+- Windows v3.9.1.31 설치기·blockmap·`latest.yml`·manifest 생성 및 source fingerprint/해시 일치
+- v3.9.1.30→v3.9.1.31 설치·재시작과 설정·원장·전략 버전·검증 시도·초안 보존
+- Windows 100/125/150/175% DPI에서 11개 탭·표·목록·검색 이동·스크롤·닫기·기능 이동 확인
+
+## 2026-09-12 v3.9.1.28 체결·PnL 통계 정합성
+
+### 소스 완료 범위
+
+- 거래기관 체결은 `exchange_execution_log`, NoahAI 진입-청산 성과는 `trade_log`를 정본으로 유지하되 정확한 청산 주문 ID로만 대조한다.
+- 거래소/기관 실현 PnL과 비용 반영 순손익을 구분하며 승률·누적·최대/최소는 체결 대조 완료 순손익만으로 계산하고 미확정 건수를 분리한다.
+- 부분체결·부분매도는 잔여 lot/포지션을 유지하고, 수동·외부 체결은 NoahAI 성과에서 분리한다.
+- 주식/ETF의 개별 broker fill을 가짜 round trip으로 생성하지 않는다.
+- 통계 화면의 동적 메시지가 Grid 행 수를 바꾸지 않으며 헤더와 데이터 본문은 고정된 단일 스크롤 영역을 사용한다.
+
+### 배포 전 외부 게이트
+
+- Windows v3.9.1.28 설치기·blockmap·`latest.yml` 생성 및 동일 버전 확인
+- Binance·Upbit·Bithumb·Bybit·Bitget·OKX 실제 계정의 주문/부분체결/수수료 통화 확인
+- 키움·신한·미래에셋·한국투자 실제 체결 필드·세금·부분매도 확인
+- v3.9.1.27→v3.9.1.28 업데이트/재시작, DPI, 장시간 원장 대조 확인
+
+## 2026-09-11 v3.9.1.27 Strategy Assistant 연속성·AI 비용·모델 라우팅
+
+### 공개 완료 범위
+
+- 승인·자동검증·PAPER 재개·삭제의 두 번 누르기 임시 상태를 제거하고 영향이 명시된 확인/취소 창으로 통일한다.
+- 외부 AI 429와 텍스트·Pine 결정형 규칙 컴파일을 분리해, 심층분석 예산 소진이 전략 제작 전체를 막지 않게 한다.
+- AI 엔진/API 설정에 일·월 외부 호출 한도와 현재 사용량을 함께 표시하고, NoahAI 로컬 비용 보호 429와 Provider 자체 429의 원인·해결 경계를 분리한다.
+- 사용자 요청형 성공 호출의 실제 토큰과 기준일 공개 단가가 모두 있을 때만 오늘·월 예상 비용을 계산한다. 토큰·단가가 없는 호출은 0원이 아닌 `비용 미산출`로 표시하고 자동매매 백그라운드 비용·Provider 전체 청구액과 구분한다.
+- 빈번·표준·정밀·애널리스트·어시스턴트·전사 역할의 현재 Provider·모델을 요약하고 기존 역할별 설정으로 사용자가 품질·비용을 구성한다. 기존 사용자의 선택과 기본값을 자동 변경하지 않는다.
+- DeepSeek 공식 `deepseek-v4-flash` 자동 최신 별칭·`deepseek-v4-pro`·`deepseek-v4-flash-vision-exp`를 구분하고 일반 Flash의 이미지 입력을 호출 전에 차단한다. 확인되지 않은 `deepseek-v4.1-flash` ID는 등록하지 않는다.
+- YouTube 전략 자료는 공개·다운로드 가능한 자막을 먼저 사용하고 자막이 없을 때만 별도 OpenAI 음성 전사를 사용한다.
+- 설명 수준별 시스템 지시문·캐시를 분리하고 Strategy Studio에서는 초보자 안내를 기본으로 한다.
+- AI 답변은 Strategy Studio의 편집 가능한 미적용 초안으로 전달하며 사용자 확정 후 전체 규칙을 재분석한다.
+- 전략 버전 생성 시각을 표시하고 Electron 제목을 패키지 버전에서 계산한다.
+- 암호화폐와 주식·ETF 공통 제작 경로에 적용하고 레버리지 상한은 기존대로 유지한다.
+
+### 공개 후 남은 외부 게이트
+
+- Windows v3.9.1.27 설치기·blockmap·`latest.yml`·GitHub 릴리스는 게시 완료. v3.9.1.26→v3.9.1.27 업데이트/재시작·롤백은 환경별 검증으로 유지
+- 실제 Provider 정상·빈 응답·30/30 한도, Windows DPI와 암호화폐/주식 Strategy Studio 왕복
+- 실제 사용자 Provider 계정에서 DeepSeek 공식 모델 목록·텍스트 JSON·Vision 실험 모델과 비용 토큰 메타데이터를 확인하고, Provider 콘솔 청구액과 앱의 포함 범위를 구분한다.
+- 거래소·증권사 실제 자격정보·장시간 PAPER/LIVE 결과는 이번 UI/분석 소스 회귀와 별도 검증
+
+## 2026-09-12 Marketplace 무료→유료 전환 준비
+
+### 현재 구현
+
+- daltrading 무료 허브의 상품 스냅샷, 가격 0인 취득, 전략 버전·패키지 해시 고정, 영구·비독점 실행 라이선스와 재다운로드 감사 원장은 구현돼 있다.
+- 테스트·유상 포인트, PG 결제, 환불·차지백, 제작자 수익·지급 원장과 daltrading 유료 운영 콘솔은 아직 구현되지 않았다.
+- daltrading 회원 마이페이지에는 계정별 무료 취득·활성 라이선스·최근 주문·내 전략·순취득자/전체 다운로드 집계와 클라이언트용 `/strategies/api/account-summary`가 구현됐다. 미구현 포인트·정산 금액은 가짜 0으로 표시하지 않는다.
+
+### 다음 개발 순서
+
+1. 국내 원화 PG·포인트, 구매자보호, 국내 판매자 원화 정산 계약을 첫 출시 범위로 사전 심사
+2. 유상/적립 포인트·보상 이벤트·테스트 포인트 1:1 전환·잔액 대사 원장
+3. 결제 주문·영수증·서명 webhook·환불 상태 머신
+4. 판매자 자율 가격·증거별 가격구간·세금·쿠폰 부담·20% 플랫폼 수수료 스냅샷
+5. 제작자 KYC·수익 보류·월 마감·T+30 원화 정산
+6. daltrading 관리자 판매자·상품·가격·포인트·분쟁·정산 콘솔과 이중 승인형 유료 개방 게이트
+7. 자체 웹 결제→포인트→라이선스→Windows 비활성 가져오기 E2E 후 테스트 종료일 원화 유료 오픈
+8. 원화 결제·정산 안정화와 별도 규제 검토 뒤 외부 사업자 기반 코인 결제
+
+테스트 포인트는 적립 전부터 유료 오픈일 `1P=1원 구매가치`로 1:1 전환된다고 고지하고, 모든 전략에 잔액 범위에서 100% 사용하게 한다. 로그인 10P, 하루 첫 유효 PAPER 60분 100P, 30일 최대 3,000P, 테스트 누적 최대 30,000P를 시작값으로 하며 플랫폼 부담 사용액 때문에 제작자 정산을 줄이지 않는다. 판매자는 E 단계별 허용범위 안에서 가격을 직접 정하고 10,000~9,999,000P 일반 판매와 10,000,000P 이상 개별계약형 판매를 지원한다. 현재 자체 웹 Marketplace와 Windows 클라이언트에는 Apple·Google 심사를 출시 게이트로 두지 않는다. LIVE 시간·거래 횟수·거래대금·수익률에는 보상하지 않는다. 전체 정책과 출시 금지 조건은 `STRATEGY_MARKETPLACE_POINTS_AND_LICENSE_PLAN.md`를 따른다.
+
+## 2026-09-09 v3.9.1.25 Strategy Studio 안내·AI 문맥 복구
+
+### 소스 후보 범위
+
+- AI 어시스턴트 왕복에서 Strategy Studio의 원문·파일·분석·안내 상태를 서비스별로 보존한다.
+- 전략 질문은 `ai_custom` 정본으로 라우팅하고 Provider 빈 응답·실패는 로컬 정본 안내로 대체한다.
+- 기본 NoahAI 사용 확인과 커스텀 전략 제작을 분리하고, 분석 차단 뒤 수정·예시·재분석 경로를 안내창 안에 제공한다.
+- 자체 진입조건 전략의 과거재생과 NoahAI 기본 진입 보조 전략의 PAPER 전진검증을 분리해, 적용 불가능한 자동검증 확인 버튼이 반복되지 않게 한다.
+- Level 1~4와 승인·자동검증·PAPER·LIVE·하드 가드레일 계약은 변경하지 않는다.
+
+### 남은 배포 게이트
+
+- Windows v3.9.1.25 설치기·blockmap·`latest.yml` 신원과 v3.9.1.24→v3.9.1.25 업데이트/재시작
+- Windows에서 원문/파일 입력 → AI에게 묻기 → 전략 스튜디오 복귀 상태 보존
+- Provider 정상·빈 응답·오류와 블록체인/주식 Strategy Studio 격리 E2E
+- 해상도·배율별 5분 안내 차단 목록·편집·재분석 화면 확인
+
+## 2026-09-09 v3.9.1.24 Strategy Studio·Strategy Hub UX 정합
+
+### 소스 후보 범위
+
+- 공개 v3.9.1.23 통계·PAPER 계약을 변경하지 않고 후속 화면·허브 변경을 새 제품 버전으로 분리한다.
+- Strategy Studio의 반응형 기관 탭, 실행 풀 빈 상태, 고급 JSON 사용자 선언 확인과 최종 재검증 세부 안내를 보강한다.
+- 공개 전략 둘러보기와 회원 라이선스를 구분하고 daltrading 로그인 뒤 원래 화면으로 복귀한다.
+- daltrading 제출을 1단계 서버 패키지 분석과 2단계 사용자 확인으로 분리하고, 추출된 기관·현물/선물·시장국면·검증 대상과 다른 수동 범위를 차단하며 24시간 분석 초안을 보존한다.
+- 현재 소스 후보와 직전 공개 자산을 구분해 동일 버전 자산 재게시를 금지한다.
+
+### 남은 배포 게이트
+
+- Windows v3.9.1.24 설치기·blockmap·`latest.yml` 신원과 v3.9.1.23→v3.9.1.24 업데이트/재시작
+- Windows 해상도·배율별 Strategy Studio 화면과 운영 daltrading 로그인·제출 E2E
+- 6개 거래소·4개 증권사의 v3.9.1.23 실행·통계·PAPER 계약 비회귀 smoke
+
+## 2026-09-08 v3.9.1.23 기관 등록부·통계·PAPER 생명주기 정합
+
+### 소스 완료 범위
+
+- 거래소·증권사의 서비스/시장/통화/주문 의미 정본을 `venue_capabilities.py`로 통합하고 Python 런타임·통계 허용 목록을 이 등록부에서 파생한다.
+- Web UI의 기계 판독 목록은 `web_ui_feature_inventory.json`으로 유지하되 코드 등록부와 불일치하면 회귀 테스트가 실패한다.
+- LIVE `trade_log`, PAPER 전용 원장, LEARNING 기록, 현재 포지션과 외부 확인 체결의 소유권을 분리한다.
+- 기간 통계와 기관별 비파괴 표시 기준, PAPER 일시정지·재개·새 시도 보존 계약을 6개 거래소·4개 증권사 공통 서비스에 적용한다.
+- 개발/prekey readiness가 실제 사용자 폴더를 자동 선택하지 못하게 하고, release 실연결은 명시한 QA 계정에서만 허용한다.
+
+### 신규 기관 Definition of Done
+
+1. 기관 프로필과 Web inventory·설정·UI 선택 목록 동기화
+2. 주문 단위·포지션 모드·보호주문·부분체결·대조·멱등성·비용·시간·호출 제한 구현
+3. LIVE/PAPER/LEARNING, 통계·KPI·리포트·로그·알림·Strategy Studio 귀속 구현
+4. 시작·중지·재시작·조회용 연결·안전 종료 수명주기 검증
+5. mock/실패 회귀, 대상 OS 패키지, PAPER soak, 승인된 소액 LIVE 원장 대조
+6. 사용자 안내·개발 문서·변경이력·배포 원장 동시 갱신
+
+어느 하나라도 미완료이면 `구현 중` 또는 `외부 검증 대기`로 표시한다. CCXT 연결 성공이나 화면 탭 생성만으로 지원 완료로 승격하지 않는다.
+
+### 공개 후 운영 관찰
+
+- Windows v3.9.1.23 설치기·blockmap·`latest.yml`은 게시됐으며 후속 버전에서 같은 번호로 교체하지 않는다.
+- 6개 거래소와 4개 증권사의 실제/모의계정 통계·포지션·비용·종료 대조
+- PAPER 일시정지·재개와 LIVE/PAPER KPI의 24~72시간 soak
+
+## 2026-08-28 v3.9.1.15 최종 주문규격·Strategy Studio Level 4·무료 허브 다음 단계
+
+### 이번 배포 후보 범위
+
+- Binance의 `5.10 USDT < 20 USDT` 차단을 사용자 목표 금액과 거래소 최소 주문규격을 혼용한 실행 계약 오류로 수정
+- 다중 거래소 승인 수량에 이미 반영된 SPLIT 비율을 후단에서 다시 곱하지 않도록 정합
+- 사용자 목표·승인 상한·거래소 `MIN_NOTIONAL/minQty/stepSize`를 분리하고 규격 누락은 추정 주문 대신 실패 폐쇄
+- Strategy Studio Level 4를 실험실 프로필에 연결하고 안정형·표준형·적극형 3단계 운용 정책 추가
+- 구형 Web UI `risk_budget` 필드를 실제 런타임이 읽는 `risk_model` 계약으로 새 버전 저장 시 정규화
+- 가드레일 해제 필드, 위험 허용범위 초과, 미지원 국면 정책은 저장 단계에서 차단
+
+### Windows 배포 게이트
+
+1. v3.9.1.15 Windows 엔진·Web assets·설치기·blockmap·`latest.yml` 새로 빌드
+2. 신규 계정과 기존 `min_trade_amount=20` 계정에서 Binance PAPER 초기 위험배수 0.10 주문 규격 통과
+3. 승인 상한이 거래소 최소보다 작은 케이스가 수량 상향 없이 명시 차단되는지 확인
+4. 다중 거래소 SPLIT/PARALLEL/BEST에서 승인 수량과 실제 제출 수량 일치
+5. Level 4 전략 저장→재시작→IR/XAI→PAPER→해제 불가 가드레일 Windows E2E
+6. Binance PAPER 통과 후에도 소액 LIVE는 별도 승인·지정 계정으로만 검증
+
+### Strategy Studio·Verified Strategy Hub 다음 순서
+
+1. 원문 → IR → 전략 요청값 → Level 4 정책 조정값 → 하드 가드레일 → 거래소 제출값 → 최종 청산 사유의 단일 XAI trace
+2. 자연어·Pine·TradingView·PDF 대표 전략 의미 동등성 코퍼스와 실제 TradingView webhook 수신 E2E
+3. 전략 키·버전별 PAPER/LIVE 판단·주문·체결·손익·중단 귀속 완결
+4. daltrading 무료 베타의 실제 회원 제출→운영자 검토→다운로드→비활성 가져오기→재검증→공개 중지/철회 E2E
+5. 무료 베타에서 품질·권리·철회·장시간 안정성이 확인된 뒤에만 제작자 구독·독립 검증·B2B를 검토. 성과 기반 과금은 현재 범위에서 제외
+
+현재 순서에서 블록체인·NFT·토큰·완전 복제 방지를 선행하지 않는다. 원문 대신 패키지 해시·버전·공개/철회 상태의 선택적 증명은 무료 허브 운영 계약이 안정된 후 검토한다.
+
+> 2026-08-19 현재 기능·조건부 연결·미완료 배포 게이트와 외부 채널 문구는 [v3.9.1.0 기능·안내·배포 정합성 정본](archive/release/V3910_CAPABILITIES_AND_RELEASE_GATES.md)을 우선합니다. 아래 단계별 기록의 과거 `소스 구현 완료`는 공개 배포·1:1 화면 완료를 뜻하지 않습니다.
+
+## 2026-08-14 v3.9.1.0 Web UI Major Transition 실행 계획
+
+### 내부 통합 후보 현재 구현 상태
+
+- 기능 동등성 inventory와 schema `1.0.0` DTO/event 계약: **IMPLEMENTED**
+- localhost Gateway, 실행별 token, Origin 제한, WebSocket 인증: **IMPLEMENTED**
+- React/Vite shell, 5개 서비스, 오류·빈 상태·재시도, 1080px 반응형·모달 수명주기: **IMPLEMENTED / BROWSER PASS**
+- 설정 snapshot/revision/diff, 템플릿 일반 필드·증권사 안전 필드, write-only 거래소·증권·AI 자격증명: **IMPLEMENTED / FOCUSED TEST PASS**
+- 6개 거래소·4개 증권사 계좌 snapshot과 암호화폐 spot/futures·증권 일봉 차트: **IMPLEMENTED / EXTERNAL CREDENTIAL E2E PENDING**
+- AI 커스텀 다중 원본·IR/XAI·버전/diff/rollback·패키지·상태머신·PAPER 자동 귀속: **IMPLEMENTED / FOCUSED TEST PASS**
+- 로컬 AI 제품 가이드와 사용자 명시 외부 Provider 심층분석·예산/캐시/비용: **IMPLEMENTED / PROVIDER E2E PENDING**
+- 계정별 생활금융·자산 snapshot·비밀값 마스킹 로그 조회: **IMPLEMENTED / BROWSER RENDER PASS**
+- Electron 임의 loopback port·sidecar health·단일 인스턴스·NSIS/electron-updater UI·Windows 빌드 스크립트: **SOURCE IMPLEMENTED**
+- UI-neutral `HeadlessTradingRuntime`, 독립 Web sidecar spec, 레거시 UI/Tk bundle 금지 검사: **SOURCE IMPLEMENTED / WINDOWS TOC PENDING**
+- 인증 후 명시 명령 기반 암호화폐/증권 거래 엔진 지연 attach: **SOURCE IMPLEMENTED / EXTERNAL E2E PENDING**
+- 종료·업데이트 전 신규 명령 차단, 워커 정지, Recorder/로그 flush, 완료 handshake: **SOURCE IMPLEMENTED / PACKAGED E2E PENDING**
+- 금융 인텔리전스·AlphaArena·자산 고급 분석·생활금융 고급 기능·AI 요약/허브 12개 전용 Web 화면·서비스·DTO·오류/빈 상태: **SOURCE IMPLEMENTED / EXTERNAL DATA E2E PENDING**
+- 기능 동등성 원장 43개: `source_connected_parity_open` 37, `source_connected_external_e2e_open` 4, `legacy_parity_in_progress` 0, `integrated_in_ai_custom` 1, `server_later` 1. 제품 서비스 기능 35개는 32 parity-open·3 external-E2E-open이며 플랫폼 기능 8개는 5 parity-open·1 external-E2E-open·1 AI 커스텀 통합·1 후속 서버 기능이다. **소스 연결 완료와 기능 동등성 완료를 분리하며 전체 parity는 OPEN**
+- Windows installer/bundle, 자동업데이트·롤백, 코드서명, 다중 모니터: **PENDING EXTERNAL GATE**
+
+v3.9.0.10 이후 중간 Windows 패치는 공개하지 않는다. v3.9.1.0은 **런타임·패키징 구조 분리와 기존 12개 읽기 기능의 Web 소스 이전까지 완료**했다. 이제 Windows에서 단일 설치 후보를 만들고 설치·업데이트·실계정 조회·PAPER 외부 게이트를 통과한 후보만 배포한다. 전략 랭킹·팀 공유·고급 드로잉은 기존 기능 parity가 아니라 후속 제품 확장으로 관리한다.
+
+## 2026-08-13 UI 플랫폼 전환 설계
 
 ### 제품·기술 결정
 
@@ -28,7 +301,7 @@
 
 ### 시작 기준선과 백업
 
-- 기준 소스: v3.9.0.10 `pending_windows_rebuild`; UI 플랫폼 전환은 아직 런타임에 적용하지 않음.
+- 전환 기준선: v3.9.0.10 Windows 자산; 현재 구현 소스는 v3.9.1.0 `pending_windows_rebuild`.
 - 소스 기준선 백업: `/Users/playone/SynologyDrive/Works/noahai_client_backups/20260813_ui_platform_migration_baseline/noahai_client_source_v3.9.0.10_pre_ui_migration.tar.gz`
 - SHA-256: `b4bdf11d6c633c1c4942bb1fb422241436fd3c923dfac2230e3e8146bb48ab96`
 - 백업 범위: 소스·UI·엔진·테스트·문서·빌드/릴리스 설정 633개 파일. 사용자 데이터·자격증명·`.venv`·빌드 산출물은 의도적으로 제외한다.
@@ -38,11 +311,11 @@
 
 | 단계 | 작업 | 완료 게이트 | 실패 시 복구 |
 |---|---|---|---|
-| 0. 기준선 고정 | 화면/설정/명령/이벤트/DB 스키마 inventory, golden screenshot, API 호출·UI 자원 기준 측정 | 백업 SHA 확인, v3.9.0.10 회귀, Windows 설치본 신원 확인 | 전환 브랜치 폐기, 기준선 복원 |
+| 0. 기준선 고정 | 화면/설정/명령/이벤트/DB 스키마 inventory, golden screenshot, API 호출·UI 자원 기준 측정 | 백업 SHA 확인, v3.9.0.10 회귀, Windows 설치본 신원 확인 | 전환 소스 폐기, 기준선 복원 |
 | 1. 엔진 경계 추출 | UI에 섞인 조회·저장·진단을 application service와 typed DTO로 이동 | 기존 CTk 화면 동작·주문 결과 불변, UI→거래소 직접 호출 0 | service adapter feature flag OFF |
 | 2. Local Gateway | read API, 상태 snapshot, versioned WebSocket event, health 추가 | localhost 인증·Origin·CSP·rate limit, 재연결/유실 복구, 비밀정보 0 | gateway 비활성, CTk direct adapter 유지 |
 | 3. 새 셸·디자인 시스템 | 로그인, 상단 상태, 내비게이션, 오류/로딩/빈 상태, 매뉴얼 | Windows/macOS 배율·다중 모니터·키보드·스크린리더, Electron/Tauri POC | POC 폐기, 제품 UI 영향 없음 |
-| 4. 읽기 화면 | 거래 로그→코인/종목 정보→시장 트렌드→AI 리포트→자산 통합→AI 애널리스트 | 동일 snapshot에서 값·통화·시각·오류상태 parity, 200회 탭 전환 | 화면별 legacy route |
+| 4. 읽기 화면 | 거래 로그→코인/종목 정보→시장 트렌드→AI 리포트→자산 통합→AI 애널리스트 | **소스 이전 완료**. 동일 snapshot 값·통화·시각·오류상태와 200회 탭 전환은 Windows 후보 E2E | 후보 배포 중단·v3.9.0.10 롤백 |
 | 5. 설정·AI 커스텀 | 설정 snapshot/diff, 프로필, 전략 생성·수정본·삭제·승인·XAI | 저장 100회, 7/50/200 전략, 재시작, 버전/감사/비밀정보 parity | 쓰기 권한은 CTk 유지 |
 | 6. 거래 명령 | 시작/중지, PAPER, 진입/청산, 위험 승인 UI | command idempotency, stale state 차단, 주문 소유권, PAPER soak, 거래소별 E2E | 새 UI 명령 feature flag 즉시 OFF |
 | 7. Broker 격리 | 키움 PyQt5/QAx worker와 기타 native 의존성 프로세스 분리 | worker crash/restart, IPC 인증, 계정 격리, 주문 중복 0 | 기존 Windows broker 경로 |
@@ -129,26 +402,26 @@ Web UI는 서버 기반 전략 탐색·필터·비교·설명에 PySide6보다 �
 ```
 
 - 하나의 전체 수익률/승률 순위를 만들지 않는다.
-- `추세장 / 횡보장 / 저위험 / 소액 / Binance 선물 / Upbit·Bithumb 현물 / 장기 PAPER / 실제 체결 / 초보자 설명 우수` 목적별로 분리한다.
+- `추세장 / 횡보장 / 저위험 / 소액 / 암호화폐 선물 / 암호화폐 현물 / 주식·ETF / 장기 PAPER / 실제 체결 / 초보자 설명 우수`의 범용 목적을 사용하고 자산·상품·기관·국면·증거 단계는 등록부 기반 동적 필터로 분리한다.
 - 기존 정본 점수 `강건성 30 + 위험 효율 25 + 실행 품질 20 + 증거 품질 15 + 설명·운영 품질 10`을 유지한다.
 - 같은 통화·비용·기간·시장국면·PAPER/LIVE 조건끼리만 비교한다. MDD, 표본 수, 최근성, walk-forward, 실패·중단 이력과 전략 버전을 함께 표시한다.
 - 과최적화 의심, 미래 데이터 누수, 권리 미확인, 가드레일 위반, 표본 부족은 순위 제외 또는 명확한 제한 배지로 처리한다.
 - 랭킹 상위라는 이유로 자동 적용하지 않는다. 가져오기는 비활성 검토 상태이며 사용자 승인·로컬 검증·PAPER를 다시 통과한다.
 
-### 구현 착수 준비 완료 조건
+### 구현 착수 준비 완료 조건 (달성 기록)
 
 - [x] UI 전환 전 소스 백업과 SHA 검증
 - [x] 목표 구조, Web UI/PySide6 결정, rollback 원칙 문서화
 - [x] 현재 서비스/기능군 parity 원장 정의
 - [x] Windows EXE·bundle updater 계약 정의
 - [x] 차트·전략 랭킹 목표와 라이선스 경계 정의
-- [ ] 현재 화면별 입력/출력/부작용/데이터 원천 machine-readable inventory
-- [ ] application service 인터페이스와 DTO/event JSON Schema 고정
-- [ ] Electron 기준/Tauri 비교 shell POC
-- [ ] Lightweight Charts 실제 Binance testnet 캔들·gap 복구 POC
-- [ ] 기존 CTk와 새 query snapshot golden parity harness
+- [x] 현재 화면별 입력/출력/부작용/데이터 원천 machine-readable inventory
+- [x] application service 인터페이스와 DTO/event schema 고정
+- [x] Electron 셸 결정과 보안·sidecar·업데이터 계약 구현
+- [x] Lightweight Charts 실제 공개 캔들·다중 venue 정규화 POC
+- [x] 기존 계정 DB·설정·전략 정본 query 회귀 harness
 
-위 5개 미완료 항목을 Stage 0 준비 스프린트로 닫은 뒤 제품 화면 이전을 시작한다.
+Stage 0~5에서 UI-neutral 런타임, Application Service, AI 커스텀 및 기능별 Web 소스 연결 기반을 구현했다. 이것은 기존 화면·동작의 1:1 완료 판정이 아니다. 현재 제품 서비스 기능 35개는 모두 전용 화면과 정본 서비스에 연결됐고 상태는 `source_connected_parity_open` 32개, `source_connected_external_e2e_open` 3개다. 로그인부터 5개 서비스·하위 탭·source 화면·설정·매뉴얼을 [Web UI 1:1 전환 실행 원장](WEB_UI_1_TO_1_PARITY_EXECUTION_PLAN_v3.9.1.0.md)의 순서로 닫아야 한다. 그 뒤에만 Windows 패키징, 설치·업데이트·롤백, 실계정·PAPER 외부 E2E로 진행한다.
 
 ### 필수 검증 매트릭스
 
@@ -190,7 +463,7 @@ Web UI는 서버 기반 전략 탐색·필터·비교·설명에 PySide6보다 �
 - `[Fix 2 소스 완료]` 유지 포지션이 없는 시작 API 지연은 advisory, 유지 포지션은 최대 30초 API·포지션 복구 재시도 후 fail-closed
 - `[Fix 2 소스 완료]` 동일 서비스·동일 source 구성·공통 AI 탭 재사용, 현재 선택 탭 보존, 부분 서비스 화면 fail-closed
 - `[Fix 2 외부 게이트]` 최초 Fix 2 수동 교체, 이후 same-version 자동업데이트, 설정/서비스 100회 USER·GDI 측정, 빌드 DLL·Tcl/Tk·EXE SHA 검증
-- 근본 원인·판정 기준은 `INCIDENT_260811_V3908_FIX2_UPDATER_UI_ROOT_CAUSE.md`에서 관리
+- 근본 원인·판정 기준은 `archive/history/INCIDENT_260811_V3908_FIX2_UPDATER_UI_ROOT_CAUSE.md`에서 관리
 
 ### 2026-08-10 v3.9.0.8 AI Custom Update Fix 1
 
@@ -311,12 +584,13 @@ Web UI는 서버 기반 전략 탐색·필터·비교·설명에 PySide6보다 �
 - [x] 원문→규칙 근거 추적, 고급 주문 계획, 워크포워드·비용/파라미터 민감도·몬테카를로·PAPER 전진검증 기록, 전략 충돌 HOLD·성과 강등 제안 구현
 - [x] Binance·통합 선물의 부분청산 체결 확인·중복 방지, 추적손절·손익분기 상태, 재진입 신호 요구 계약과 공통 주문 상태 복구 구현
 - [x] 모든 거래소·증권 어댑터가 공개 시세와 분리된 인증 체결 이벤트 큐·건강·REST 증분 복구 계약을 상속하도록 구현
-- [x] daltrading 전략 여권·검증 스냅샷·공개 게이트와 9개 목적별 무료 탐색 화면/API 기반 구현
+- [x] daltrading 전략 여권·append-only 검증 스냅샷·E0/E1 검증 전 공개·E2~E5 승격 게이트, 10개 범용 목적과 등록부 기반 동적 필터 화면/API 구현
 - [x] 전략 허브 기본 30일 무료 테스트, 관리자 기간·가격·준비 설정, 미준비 유료 전환 fail-closed 정책 구현
 - [x] 클라이언트 `.noahstrategy` 로컬 exporter/importer·변조/민감정보 차단·비활성 가져오기·권한 메타데이터
-- [ ] 서버 오브젝트 저장소·회원 초대/철회·다운로드·실제 비공개/팀 공유 E2E
-- [ ] 유료 마켓은 권리·결제·구매권한·정산·환불·분쟁·모더레이션·법무와 E2E 완료 후 7단계로 별도 개방. 현재 코드 게이트 차단
+- [ ] 서버 오브젝트 저장소·무료 취득 거래·계정별 영구 실행 라이선스·재다운로드 E2E. 회원/팀 공유는 일반 사용자 필수 범위에서 제외하고 B2B 수요 확인 후 검토
+- [ ] 유료 마켓은 Noah Point, 상품·가격 스냅샷, 구매권한, 제작자 수익 원장, 외부 카드·계좌 결제와 E2E 완료 후 7단계로 별도 개방. 외부 코인 결제 포인트 충전은 후속 결제수단이며 현재 코드 게이트 차단
 - [x] `.noahstrategy` 전용 패키지, 민감정보 제외, 비활성 가져오기, 전략 여권, 6A/6B 공유와 7단계 마켓 분리 정본 작성
+- [x] 무료 다운로드를 향후 `FREE` 취득 거래·영구 실행 라이선스로 확장하는 원장, 구매자 포인트·제작자 수익 분리와 코인 결제 어댑터 순서를 `docs/STRATEGY_MARKETPLACE_POINTS_AND_LICENSE_PLAN.md`로 정본화
 
 - [x] 분석 10초 주기 `force=True` 체결 전체 조회 제거 및 기본 5분 LIVE 증분 동기화
 - [x] 수익성 검증의 로컬 완료 거래·확정 체결 원장 우선 사용
@@ -576,7 +850,7 @@ LEARNING도 1~9의 판단 파이프라인을 실행하고 10번의 주문 제출
 7. `[구현 완료]` 비밀값 없는 설정 감사 CLI와 v3.9.0.5 계약 집중 회귀 추가
 8. `[문서 완료]` README·릴리스 노트·CHANGELOG·업데이트 계획·사용자 가이드·인앱 매뉴얼·설정 정본 안내 동기화
 8-1. `[구현 완료]` Teayu_02 필수 keyring 정책 철회·Binance 영구 로딩·지연 잔고 갱신·AI preflight 파괴 위젯·OHLCV/문자열 계약 회귀 수정
-8-2. `[문서 완료]` 장애 증거·원인·사용자 무설치 원칙·Windows 재검증 조건을 `INCIDENT_260729_TEAYU_02.md`와 모든 사용자 표면에 동기화
+8-2. `[문서 완료]` 장애 증거·원인·사용자 무설치 원칙·Windows 재검증 조건을 `archive/history/INCIDENT_260729_TEAYU_02.md`와 모든 사용자 표면에 동기화
 9. `[검증 완료]` 전체 자동 회귀 최신 `1,254 passed, 6 skipped`, 멀티 거래소 E2E와 개발 릴리스 게이트, 설정 템플릿 감사 PASS
 9-1. `[감사 완료]` 비밀값 로그·읽기 전용 진단·거래소 빈 응답·인증 원인·전략 권한·Binance 폴백 기능을 통합 보강하고 `INTEGRATED_AUDIT_v3.9.0.5_20260731.md` 작성
 9-2. `[외부 조치 필요]` Teayu_02 암호화폐 6개 거래소 인증/IP/계정 응답과 DeepSeek·OpenAI 키 재입력 후 재검증
@@ -687,7 +961,7 @@ LEARNING도 1~9의 판단 파이프라인을 실행하고 10번의 주문 제출
 - `[고급모드 1차 완료]` EMA·SMA·RSI·ATR·거래량 평균의 사용자 기간 2~500, 조건별 시간봉, AND/OR, 진입·전체 청산 규칙 편집과 실시간 계산값 비교
 - `[소스 구현·외부 E2E 후속]` 부분익절·추적손절·재진입 편집, 서명 TradingView webhook 검증 게이트+국면 필터, 제한형 사용자 지표 언어. webhook 운영 endpoint는 외부 E2E 대상
 - `[문서]` 상세 기준: `docs/AI_CUSTOM_CONVERSATIONAL_PRESETS_PLAN_v3.9.0.3.md`
-- `[진단]` Teayu 테스터 근거·수정·재검증: `docs/TESTER_260728_STABILITY_EXCHANGE_REPORT.md`
+- `[진단]` Teayu 테스터 근거·수정·재검증: `docs/archive/history/TESTER_260728_STABILITY_EXCHANGE_REPORT.md`
 - `[배포 게이트]` Windows 10/11 글꼴 실화면, 비정상 종료 재현 로그, 각 실제 거래소 최소 주문·장시간 안정성은 새 EXE에서 별도 검증
 
 ### 2026-07-26 AI 커스텀·NoahAI 어시스턴트 고도화
@@ -1098,7 +1372,7 @@ v3.9.0.1 반영 기록:
 | 공통 리스크 가드레일 | 현재 제공 | 전략 소스와 무관하게 최종 진입 전 우선 적용 |
 | PDF/문서/영상/YouTube 전략 추출 | 현재 제공 | 텍스트·OCR·자막·대표 프레임 추출 -> 누락 재확인 -> 승인/실행검증 |
 | TradingView/Pine Script 전략 추출 | 현재 제공 | 공개 링크 또는 사용자 제공 Pine을 규칙/엔진 설정으로 변환 |
-| 전략 공유/랭킹 | 부분 구현 | daltrading 전략 여권·검증 게이트·9개 목적별 탐색 기반 적용. 클라이언트 패키지 공유·다운로드는 후속이며 재현성/신뢰도 통과 전략만 승격 |
+| 전략 공유/랭킹 | 부분 구현 | daltrading 전략 여권·E0/E1 검증 전 공개·E2~E5 검증 게이트, 10개 범용 목적과 자산·상품·기관·국면·증거 단계 동적 탐색 적용. 정확한 전략 버전의 제한된 로컬 집계만 E1에 표시하며 재현성/신뢰도 통과 전략만 랭킹으로 승격 |
 | 뉴스/유튜브 신뢰도 판별 | 업데이트 예정 | 판단 보조 전용(자동 매매 신호 직접 사용 금지) |
 
 #### YouTube 전체 맥락 분석·브라우저 연결 고도화 계획 (v3.9.0+)
@@ -1686,8 +1960,8 @@ v3.9.0.0 구현 상태:
 
 ### 2026-06-09 추가 정본 링크 (SaaS/회원등급 실행)
 
-- 코드 검증 기반 SaaS 업데이트 플랜: docs/SAAS_UPDATE_PLAN_CODE_VERIFIED_20260609.md
-- 코드 검증 기반 SaaS 비즈니스 플랜: docs/SAAS_BUSINESS_PLAN_CODE_VERIFIED_20260609.md
+- 코드 검증 기반 SaaS 업데이트 플랜: docs/archive/history/SAAS_UPDATE_PLAN_CODE_VERIFIED_20260609.md
+- 코드 검증 기반 SaaS 비즈니스 플랜: docs/archive/history/SAAS_BUSINESS_PLAN_CODE_VERIFIED_20260609.md
 
 ### 2026-06-15 추가 정본 링크 (증권사 확장 우선순위 & PMF 검증 기준)
 
@@ -2472,3 +2746,10 @@ AI 어시스턴트 컨텍스트를 다중 자산군·다중 데이터소스와 �
 - 기능 나열이 아니라 **구조·책임·경계** 중심으로 서술한다.
 - ARCHITECTURE.md와 철학·용어·책임이 일치해야 하며,  
   홈/미래 비전 페이지에 그대로 연결해도 모순이 없어야 한다.
+## 2026-09-10 v3.9.1.26 Strategy Studio 위험 입력·사용자 확인 보완
+
+- 화면 안내와 deterministic compiler가 `거래당 계좌 손실 N%`, `증거금 사용 최대 N%`, `종목당 투자 비중 최대 N%`를 같은 계약으로 해석한다.
+- 명시적 `%`가 없는 값은 추정하지 않으며 분석된 위험값을 UI 저장값과 동기화한다.
+- 누락값 보완은 사용자가 현재 선택한 위험·시장값만 원문에 추가하고 재분석한다.
+- 진입·청산·방향·지표·임계값의 AI 자동 생성은 금지하고, NoahAI 재량 운용은 기본 NoahAI/confirm 역할로 분리한다.
+- Windows v3.9.1.26 설치기·blockmap·`latest.yml`, v3.9.1.25→v3.9.1.26 업데이트/재시작, 암호화폐·주식 Strategy Studio 화면을 확인한다.

@@ -176,7 +176,8 @@ def _format_message(item: NotificationMessage) -> str:
     mode = str(item.execution_mode or "").strip().upper()
     mode_label = f"[{mode}]" if mode else ""
     occurred = item.occurred_at or datetime.now(timezone.utc).astimezone().strftime("%Y-%m-%d %H:%M:%S")
-    return f"[NoahAI]{mode_label} {item.title}{source}\n{item.message}\n시각: {occurred}"[:3900]
+    link = f"\n원격 상태 확인 (로그인 필요): https://daltrading.net/remote?source={item.source}" if item.source in SUPPORTED_VENUES and item.event_type in {'guardrail_stop','loss_warning','risk_data_unavailable','runtime_failure'} else ''
+    return f"[NoahAI]{mode_label} {item.title}{source}\n{item.message}\n시각: {occurred}"[:3700] + link
 
 
 def _deliver_discord(config: dict[str, Any], item: NotificationMessage, timeout: float) -> None:

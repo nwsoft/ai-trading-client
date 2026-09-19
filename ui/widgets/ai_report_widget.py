@@ -271,7 +271,7 @@ class AIReportWidget(CTkFrame):
         try:
             options = self._load_exchange_options()
         except Exception:
-            options = ["전체", "binance", "bybit", "okx", "bitget", "upbit", "bithumb"]
+            options = ["전체", "binance", "bybit", "okx", "bitget", "upbit", "bithumb", "coinone"]
         if "전체" not in options:
             options = ["전체"] + options
         ctk.CTkLabel(button_frame, text="거래소:").grid(row=0, column=0, padx=(10, 5), pady=5, sticky="w")

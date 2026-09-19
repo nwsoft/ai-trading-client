@@ -4,6 +4,7 @@ import json
 import os
 from pathlib import Path
 import secrets
+import hashlib
 import threading
 import time
 import requests
@@ -24,14 +25,20 @@ def public_snapshot(runtime):
 
 
 class RemoteMonitor:
-    def __init__(self, *, account, data_dir, snapshot, transport=None):
+    def __init__(self, *, account, data_dir, snapshot, transport=None, control_context=None, control_execute=None):
         self.account=account; self.data_dir=Path(data_dir); self.snapshot=snapshot
         self.transport=transport or requests.Session()
+        self.control_context = control_context
+        self.control = None
+        if control_context and control_execute:
+            from web_platform.remote_control import RemoteControl
+            self.control = RemoteControl(data_dir, self.approval_context, control_execute)
+        self.control_acks = {}
         self.path=self.data_dir/'remote_monitor.json'
         self.lock=threading.RLock(); self.stop_event=threading.Event(); self.thread=None
         self.send_lock=threading.Lock();self.generation=0;self.pending={}
         self.token=''; self.sequence=0; self.last_sent=None; self.error=None
-        self.config={'enabled':False,'allow_pause':False,'install_id':secrets.token_urlsafe(24),'name':'내 NoahAI PC'}
+        self.config={'enabled':False,'allow_pause':False,'allow_control':False,'share_details':False,'approved':{},'approval_id':'','install_id':secrets.token_urlsafe(24),'name':'내 NoahAI PC'}
         try:
             saved=json.loads(self.path.read_text(encoding='utf-8'))
             if saved.get('account')==account:
@@ -45,7 +52,15 @@ class RemoteMonitor:
                     'last_sent':self.last_sent,'error':self.error,
                     'capabilities':['status','pause_entries'] if self.config['allow_pause'] else ['status'],
                     'portal_url':PORTAL+'/remote','heartbeat_seconds':60,'allow_pause':self.config['allow_pause'],
+                    'allow_control':self.config['allow_control'],'share_details':self.config['share_details'],
+                    'approved':self.config['approved'],
                     'entry_pauses':self.pause_states()}
+
+    def approval_context(self, approval_id=None):
+        context = dict(self.control_context())
+        epoch = self.config['approval_id'] if approval_id is None else approval_id
+        context['revision'] = hashlib.sha256((context['revision'] + epoch).encode()).hexdigest()
+        return context
 
     def save(self):
         self.data_dir.mkdir(parents=True,exist_ok=True)
@@ -56,16 +71,24 @@ class RemoteMonitor:
             stream.flush(); os.fsync(stream.fileno())
         os.replace(temporary,self.path)
 
-    def configure(self,enabled,name,allow_pause=False):
+    def configure(self,enabled,name,allow_pause=False,allow_control=False,share_details=False):
         if self.account=='local':
             raise ValueError('로그인 후 연결할 수 있습니다.')
-        if not isinstance(enabled,bool) or not isinstance(allow_pause,bool) or not isinstance(name,str) or not 1<=len(name.strip())<=60:
+        if not all(isinstance(v,bool) for v in (enabled,allow_pause,allow_control,share_details)) or not isinstance(name,str) or not 1<=len(name.strip())<=60:
             raise ValueError('PC 이름과 연결 설정을 확인하세요.')
+        approved = {}
+        approval_id = secrets.token_urlsafe(24)
+        if enabled and allow_control:
+            if not self.control_context: raise ValueError('remote_control_unavailable')
+            context = self.approval_context(approval_id)
+            approved = {row['source']:{'revision':context['revision'],'mode':row['mode']}
+                        for row in context['sources'] if row['mode'] in ('paper','live')}
+            if not approved: raise ValueError('paper_or_live_source_required')
         with self.lock:
             self.generation+=1
             if name.strip()!=self.config['name']:
                 self.token=''
-            self.config.update(enabled=enabled,name=name.strip(),allow_pause=allow_pause);self.error=None
+            self.config.update(enabled=enabled,name=name.strip(),allow_pause=allow_pause,allow_control=allow_control,share_details=share_details,approved=approved,approval_id=approval_id);self.error=None
             self.save()
             if not enabled:
                 self.token=''
@@ -127,8 +150,19 @@ class RemoteMonitor:
                 if generation!=self.generation or self.stop_event.is_set():return
                 self.sequence+=1;sequence=self.sequence
                 acks=[{'id':key,'status':'draining' if pauses.state(source)['in_flight'] else 'paused'} for key,source in self.pending.items()]
+                acks += [{'id':key,'status':value} for key,value in self.control_acks.items()]
             snapshot=public_snapshot(self.snapshot());snapshot['allow_pause']=config['allow_pause']
             for row in snapshot['sources']:row['entry_pause']=pauses.state(row['source'])
+            snapshot['protocol']=2
+            if self.control_context:
+                context=self.approval_context()
+                for row in snapshot['sources']:
+                    details=next((r for r in context['sources'] if r['source']==row['source']),{})
+                    row['mode']=details.get('mode',row['mode'])
+                    row['control_ready']=bool(config['allow_control'] and config['approved'].get(row['source']) == {'revision':context['revision'],'mode':row['mode']})
+                    row['revision']=context['revision'] if row['control_ready'] else ''
+                    if config['share_details']:row['details']=details.get('details',{})
+            snapshot['allow_control']=config['allow_control']
             with self.lock:
                 if generation!=self.generation or self.stop_event.is_set():return
             response=self.transport.post(PORTAL+'/remote/device/sync',headers={'Authorization':'Bearer '+token},
@@ -141,10 +175,20 @@ class RemoteMonitor:
                 self.last_sent=time.time();self.error=None
                 for ack in acks:
                     if ack['status']=='paused':self.pending.pop(ack['id'],None)
-                for cmd in result.get('commands',[])[:20]:
+                    self.control_acks.pop(ack['id'],None)
+            for cmd in result.get('commands',[])[:20]:
+                with self.lock:
+                    if generation!=self.generation or self.stop_event.is_set():return
                     if config['allow_pause'] and cmd.get('action')=='pause_entries' and cmd.get('source') in VENUES and time.time()<float(cmd.get('expires',0)):
                         pauses.set(cmd['source'],True,command_id=str(cmd['id']),expires=float(cmd['expires']))
                         self.pending[str(cmd['id'])]=cmd['source']
+                        continue
+                if config['allow_control'] and self.control and cmd.get('action') in ('start','resume'):
+                    try:
+                        status=self.control.run(cmd,config['approved'])
+                    except Exception:
+                        status='rejected'
+                    with self.lock:self.control_acks[str(cmd.get('id',''))]=status
         except Exception:
             with self.lock:
                 if generation==self.generation and not self.error:

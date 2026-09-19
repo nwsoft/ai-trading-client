@@ -51,6 +51,7 @@ class CustomStrategyWidget(ctk.CTkScrollableFrame):
         "Binance만": "exchange:binance", "Bybit만": "exchange:bybit",
         "OKX만": "exchange:okx", "Bitget만": "exchange:bitget",
         "Upbit만": "exchange:upbit", "Bithumb만": "exchange:bithumb",
+        "Coinone만": "exchange:coinone",
         "모든 블록체인": "asset:crypto", "모든 주식/ETF": "asset:stock",
         "모든 자산": "asset:all", "키움증권만": "broker:kiwoom",
         "신한증권만": "broker:shinhan", "미래에셋만": "broker:miraeasset",
@@ -145,7 +146,8 @@ class CustomStrategyWidget(ctk.CTkScrollableFrame):
     def _build(self):
         header = ctk.CTkFrame(self, fg_color="#111827", corner_radius=16, border_width=1, border_color="#273449")
         header.pack(fill="x", padx=14, pady=(14, 8))
-        ctk.CTkLabel(header, text="AI 커스텀 전략 센터", font=self._font(22, "bold"), text_color="#f8fafc").pack(anchor="w", padx=18, pady=(16, 4))
+        ctk.CTkLabel(header, text="NoahAI Strategy Studio", font=self._font(22, "bold"), text_color="#f8fafc").pack(anchor="w", padx=18, pady=(16, 4))
+        ctk.CTkLabel(header, text="전략 스튜디오 · 기존 AI 커스텀", font=self._font(12), text_color="#93c5fd").pack(anchor="w", padx=18, pady=(0, 8))
         ctk.CTkLabel(
             header,
             text=(
@@ -205,7 +207,7 @@ class CustomStrategyWidget(ctk.CTkScrollableFrame):
             guide_card,
             text=(
                 "AI 멘토 인터뷰: 투자 경험·목표·위험 허용도 등 8문항을 묻고 개인화된 교육용 전략 후보 2~3개를 만듭니다. 자동 저장·승인하지 않습니다.\n"
-                "처음 사용법 AI에게 묻기: 현재 화면과 프로필을 기준으로 입력 → XAI 검토 → 저장 → 승인 → 자동검증 → PAPER 순서를 안내합니다. 전략 후보를 만들지는 않습니다."
+                "처음 사용법 AI에게 묻기: 현재 화면과 프로필을 기준으로 입력 → XAI 검토 → 저장 → 승인 → 적용 가능한 과거검증 → PAPER 순서를 안내합니다. 전략 후보를 만들지는 않습니다."
             ),
             font=self._font(11), text_color="#b8c7dc", justify="left", wraplength=1060,
         ).pack(fill="x", padx=12, pady=(0, 10))
@@ -227,7 +229,7 @@ class CustomStrategyWidget(ctk.CTkScrollableFrame):
         feature_card.pack(fill="x", padx=18, pady=(0, 14))
         ctk.CTkLabel(
             feature_card,
-            text=f"AI 커스텀 기능 위치 · 현재 {self.feature_state.get('profile_label', '일반')} / Level {self.feature_state.get('view_level', 2)}",
+            text=f"전략 스튜디오 기능 위치 · 현재 {self.feature_state.get('profile_label', '일반')} / Level {self.feature_state.get('view_level', 2)}",
             font=self._font(12, "bold"), text_color="#a78bfa",
         ).pack(anchor="w", padx=12, pady=(10, 3))
         ctk.CTkLabel(
@@ -516,24 +518,28 @@ class CustomStrategyWidget(ctk.CTkScrollableFrame):
         ctk.CTkLabel(risk_row, text="전략 위험예산", font=self._font(11), text_color="#91a4bd").pack(side="left", padx=(0, 6))
         self.risk_per_trade_combo = ctk.CTkComboBox(
             risk_row, values=["0.25", "0.5", "1.0", "2.0"], width=80, height=34,
+            command=lambda _value: self._mark_custom_risk_policy(),
         )
         self.risk_per_trade_combo.set("0.5")
         self.risk_per_trade_combo.pack(side="left")
         ctk.CTkLabel(risk_row, text="%/거래 · 증거금 최대", font=self._font(10), text_color="#91a4bd").pack(side="left", padx=(5, 5))
         self.max_margin_combo = ctk.CTkComboBox(
             risk_row, values=["5", "10", "20", "30"], width=75, height=34,
+            command=lambda _value: self._mark_custom_risk_policy(),
         )
         self.max_margin_combo.set("10")
         self.max_margin_combo.pack(side="left")
         ctk.CTkLabel(risk_row, text="% · 레버리지 상한", font=self._font(10), text_color="#91a4bd").pack(side="left", padx=(5, 5))
         self.max_leverage_combo = ctk.CTkComboBox(
-            risk_row, values=["1", "2", "3", "5", "10"], width=70, height=34,
+            risk_row, values=["1", "2", "3", "5"], width=70, height=34,
+            command=lambda _value: self._mark_custom_risk_policy(),
         )
         self.max_leverage_combo.set("3")
         self.max_leverage_combo.pack(side="left")
         ctk.CTkLabel(risk_row, text="국면 이탈 시", font=self._font(11), text_color="#91a4bd").pack(side="left", padx=(16, 6))
         self.transition_combo = ctk.CTkComboBox(
             risk_row, values=["기본 노아AI에 맡김", "커스텀 신규 진입 일시정지"], width=190, height=34,
+            command=lambda _value: self._mark_custom_risk_policy(),
         )
         self.transition_combo.set("기본 노아AI에 맡김")
         self.transition_combo.pack(side="left")
@@ -542,6 +548,29 @@ class CustomStrategyWidget(ctk.CTkScrollableFrame):
             text="실제 레버리지는 위험예산÷손절거리로 계산되며 상한을 넘지 않습니다.",
             font=self._font(10), text_color="#38bdf8",
         ).pack(side="left", padx=10)
+
+        self.expert_policy_frame = ctk.CTkFrame(source_card, fg_color="#0b1120", corner_radius=10)
+        ctk.CTkLabel(
+            self.expert_policy_frame,
+            text="Level 4 전문가 운용 정책",
+            font=self._font(12, "bold"), text_color="#f8fafc",
+        ).pack(side="left", padx=(12, 8), pady=9)
+        self.risk_policy_combo = ctk.CTkComboBox(
+            self.expert_policy_frame,
+            values=["안정형", "표준형", "적극형", "사용자 조정값"],
+            width=125, height=32, state="readonly",
+            command=self._on_risk_policy_changed,
+        )
+        self.risk_policy_combo.set("표준형")
+        self.risk_policy_combo.pack(side="left", padx=5, pady=7)
+        ctk.CTkLabel(
+            self.expert_policy_frame,
+            text=(
+                "위험예산·최대비중·레버리지 상한·국면 이탈 대응만 조절합니다. "
+                "승인·LIVE 권한·일일 손실 중단·주문 규격·TP/SL·중복 주문·긴급 정지는 끌 수 없습니다."
+            ),
+            font=self._font(10), text_color="#fbbf24", justify="left", wraplength=760,
+        ).pack(side="left", fill="x", expand=True, padx=10, pady=7)
 
         analyze_row = ctk.CTkFrame(source_card, fg_color="transparent")
         analyze_row.pack(fill="x", padx=16, pady=(0, 14))
@@ -622,7 +651,7 @@ class CustomStrategyWidget(ctk.CTkScrollableFrame):
         ctk.CTkLabel(result_header, text="2. XAI 분석 결과와 적용값", font=self._font(16, "bold"), text_color="#f8fafc").pack(side="left")
         self.strategy_view_combo = ctk.CTkComboBox(
             result_header,
-            values=["Level 1 이해·시험", "Level 2 핵심값", "Level 3 전체 IR"],
+            values=["Level 1 이해·시험", "Level 2 핵심값", "Level 3 전체 IR", "Level 4 전문가 운용"],
             width=155,
             height=30,
             state="readonly",
@@ -630,7 +659,8 @@ class CustomStrategyWidget(ctk.CTkScrollableFrame):
         )
         self.strategy_view_combo.set("Level 1 이해·시험")
         self.strategy_view_combo.set(
-            "Level 3 전체 IR" if self.strategy_view_level == 3
+            "Level 4 전문가 운용" if self.strategy_view_level == 4
+            else "Level 3 전체 IR" if self.strategy_view_level == 3
             else "Level 2 핵심값" if self.strategy_view_level == 2
             else "Level 1 이해·시험"
         )
@@ -677,22 +707,48 @@ class CustomStrategyWidget(ctk.CTkScrollableFrame):
         self.version_rows.pack(fill="x", padx=12, pady=(0, 12))
 
     def _on_strategy_view_changed(self, value: str):
-        level = 3 if "Level 3" in str(value) else 2 if "Level 2" in str(value) else 1
+        level = 4 if "Level 4" in str(value) else 3 if "Level 3" in str(value) else 2 if "Level 2" in str(value) else 1
         self._set_strategy_view_level(level)
+
+    def _mark_custom_risk_policy(self) -> None:
+        combo = getattr(self, "risk_policy_combo", None)
+        if combo is not None:
+            combo.set("사용자 조정값")
+
+    def _on_risk_policy_changed(self, value: str) -> None:
+        presets = {
+            "안정형": ("0.25", "5", "1", "커스텀 신규 진입 일시정지"),
+            "표준형": ("0.5", "10", "3", "기본 노아AI에 맡김"),
+            "적극형": ("1.0", "20", "5", "기본 노아AI에 맡김"),
+        }
+        preset = presets.get(str(value))
+        if not preset:
+            return
+        self.risk_per_trade_combo.set(preset[0])
+        self.max_margin_combo.set(preset[1])
+        self.max_leverage_combo.set(preset[2])
+        self.transition_combo.set(preset[3])
 
     def _set_strategy_view_level(self, level: int):
         """한 IR을 사용자 숙련도에 따라 단계적으로 표시한다."""
-        self.strategy_view_level = int(level) if int(level) in {1, 2, 3} else 1
+        self.strategy_view_level = int(level) if int(level) in {1, 2, 3, 4} else 1
         advanced_card = getattr(self, "advanced_card", None)
         result_card = getattr(self, "result_card", None)
         if advanced_card is not None and result_card is not None:
-            if self.strategy_view_level == 3:
+            if self.strategy_view_level >= 3:
                 if not advanced_card.winfo_manager():
                     advanced_card.pack(
                         fill="x", padx=14, pady=8, before=result_card,
                     )
             elif advanced_card.winfo_manager():
                 advanced_card.pack_forget()
+        expert_policy = getattr(self, "expert_policy_frame", None)
+        if expert_policy is not None:
+            if self.strategy_view_level == 4:
+                if not expert_policy.winfo_manager():
+                    expert_policy.pack(fill="x", padx=16, pady=(0, 8), before=self.risk_row)
+            elif expert_policy.winfo_manager():
+                expert_policy.pack_forget()
         if self.analysis_result:
             self._show_analysis(self.analysis_result)
 
@@ -835,7 +891,7 @@ class CustomStrategyWidget(ctk.CTkScrollableFrame):
 
         window = ctk.CTkToplevel(self)
         self._safe_flow_window = window
-        window.title("AI 커스텀 12단계 안전 사용 순서")
+        window.title("전략 스튜디오 12단계 안전 사용 순서")
         window.geometry("780x640")
         window.minsize(700, 560)
         window.configure(fg_color="#050a13")
@@ -848,7 +904,7 @@ class CustomStrategyWidget(ctk.CTkScrollableFrame):
         header = ctk.CTkFrame(window, fg_color="#111827", corner_radius=14)
         header.pack(fill="x", padx=18, pady=(18, 10))
         ctk.CTkLabel(
-            header, text="AI 커스텀, 안전하게 시작하는 12단계",
+            header, text="전략 스튜디오, 안전하게 시작하는 12단계",
             font=self._font(21, "bold"), text_color="#f8fafc",
         ).pack(anchor="w", padx=18, pady=(16, 4))
         ctk.CTkLabel(
@@ -1225,11 +1281,19 @@ class CustomStrategyWidget(ctk.CTkScrollableFrame):
                 json.dumps(ir_projection.get("editable_parameters", {}), ensure_ascii=False, indent=2),
                 f"IR 무결성: {'통과' if ir_validation.get('valid') else '실패'} · {ir_hash[:16]}",
             ])
-        else:
+        elif self.strategy_view_level == 3:
             lines.extend([
                 "",
                 "[Level 3 · 전체 Noah Strategy IR]",
                 json.dumps(ir_projection, ensure_ascii=False, indent=2),
+            ])
+        else:
+            lines.extend([
+                "",
+                "[Level 4 · 전문가 운용 정책 + 전체 Noah Strategy IR]",
+                json.dumps(ir_projection, ensure_ascii=False, indent=2),
+                "",
+                "하드 가드레일은 해제되지 않으며, 전략 위험예산·최대비중·레버리지 상한·국면 이탈 대응만 새 버전에 저장합니다.",
             ])
         self.result_text.configure(state="normal")
         self.result_text.delete("1.0", "end")
@@ -1493,6 +1557,15 @@ class CustomStrategyWidget(ctk.CTkScrollableFrame):
             "max_notional_percent": 100.0,
             "stop_mode": "configured",
         }
+        preset_labels = {
+            "안정형": "conservative",
+            "표준형": "standard",
+            "적극형": "active",
+            "사용자 조정값": "custom",
+        }
+        rules["risk_policy_preset"] = preset_labels.get(
+            self.risk_policy_combo.get(), "custom"
+        )
         rules["regime_transition"] = (
             "pause" if self.transition_combo.get().startswith("커스텀") else "delegate_to_noah"
         )
@@ -1812,6 +1885,15 @@ class CustomStrategyWidget(ctk.CTkScrollableFrame):
             self.risk_per_trade_combo.set(str(risk.get("risk_per_trade_percent", 0.5)))
             self.max_margin_combo.set(str(risk.get("max_margin_usage_percent", 10)))
             self.max_leverage_combo.set(str(risk.get("max_leverage", 3)))
+            preset_labels = {
+                "conservative": "안정형",
+                "standard": "표준형",
+                "active": "적극형",
+                "custom": "사용자 조정값",
+            }
+            self.risk_policy_combo.set(
+                preset_labels.get(str(rules.get("risk_policy_preset") or "custom"), "사용자 조정값")
+            )
             self.transition_combo.set(
                 "커스텀 신규 진입 일시정지"
                 if str(rules.get("regime_transition") or "delegate_to_noah") == "pause"
@@ -2155,7 +2237,7 @@ class CustomStrategyWidget(ctk.CTkScrollableFrame):
         if not bool(runtime_cfg.get("enabled", False)):
             messagebox.showwarning(
                 "AI 커스텀 사용 꺼짐",
-                f"{AI_CUSTOM_SETTINGS_PATH} → ‘AI 커스텀 전략을 실제 자동매매 엔진에서 사용’을 켜고 저장하세요.",
+                f"{AI_CUSTOM_SETTINGS_PATH} → ‘전략 스튜디오 전략을 실제 자동매매 엔진에서 사용’을 켜고 저장하세요.",
             )
             return
         if str(operation_mode or "standard").lower() == "limited_live" and not bool(runtime_cfg.get("allow_limited_live", False)):

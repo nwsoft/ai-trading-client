@@ -12,6 +12,7 @@
 """
 
 import argparse
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -34,6 +35,8 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--all-brokers", action="store_true", help="enabled_stock_brokers 전체를 순회 실행")
     parser.add_argument("--all-supported-brokers", action="store_true", help="설정과 무관하게 지원 브로커(키움/신한/미래에셋/한국투자) 전체 순회")
     parser.add_argument("--skip-mock-check", action="store_true", help="mock 공통경로 점검(stock_nonkey_hardening_check)을 건너뜀")
+    parser.add_argument("--offline", action="store_true", help="사용자 설정·네트워크를 열지 않고 mode matrix와 mock 계약만 점검")
+    parser.add_argument("--account", default="", help="실환경 점검 대상 계정. 계정 폴더 자동 탐색은 하지 않음")
     parser.add_argument("--strict", action="store_true", help="각 단계 skip/실패를 종료코드 1로 처리")
     return parser.parse_args()
 
@@ -51,7 +54,7 @@ def _resolve_target_brokers(args: argparse.Namespace) -> List[str]:
     if not bool(getattr(args, "all_brokers", False)):
         return [str(getattr(args, "broker", "kiwoom") or "kiwoom").strip()]
 
-    settings, _ = _load_settings()
+    settings, _ = _load_settings(account=str(getattr(args, "account", "") or ""))
     brokers = _get_enabled_brokers(settings)
     ordered: List[str] = []
     for broker in brokers:
@@ -61,12 +64,13 @@ def _resolve_target_brokers(args: argparse.Namespace) -> List[str]:
     return ordered or ["kiwoom", "shinhan", "miraeAsset", "koreaInvestment"]
 
 
-def _run_step(title: str, command: List[str]) -> Tuple[int, str]:
+def _run_step(title: str, command: List[str], *, env: dict[str, str] | None = None) -> Tuple[int, str]:
     result = subprocess.run(
         command,
         cwd=str(ROOT),
         capture_output=True,
         text=True,
+        env=env,
     )
     output = (result.stdout or "").strip()
     if result.stderr:
@@ -82,6 +86,16 @@ def main() -> int:
     args = _parse_args()
 
     python_cmd = str(PYTHON if PYTHON.exists() else sys.executable)
+    offline = bool(getattr(args, "offline", False))
+    account = str(getattr(args, "account", "") or "").strip()
+    if bool(getattr(args, "strict", False)) and not offline and not account:
+        print("[FINAL]\nFAIL | strict live readiness requires an explicit --account")
+        return 1
+    child_env = os.environ.copy()
+    child_env.pop("NOAHAI_READINESS_SETTINGS_PATH", None)
+    child_env.pop("NOAHAI_READINESS_ACCOUNT", None)
+    if account:
+        child_env["NOAHAI_READINESS_ACCOUNT"] = account
     target_brokers = _resolve_target_brokers(args)
 
     steps = [
@@ -90,12 +104,10 @@ def main() -> int:
             [python_cmd, "scripts/stock_supported_mode_matrix_check.py"],
             True,
         ),
-        (
-            "PRECHECK",
-            [python_cmd, "scripts/stock_d1_preflight.py"],
-            True,
-        ),
     ]
+
+    if not offline:
+        steps.append(("PRECHECK", [python_cmd, "scripts/stock_d1_preflight.py"], True))
 
     if not bool(getattr(args, "skip_mock_check", False)):
         steps.append(
@@ -106,15 +118,14 @@ def main() -> int:
             )
         )
 
-    steps.extend([
-        (
+    if not offline:
+        steps.append((
             "SMOKE",
             [python_cmd, "scripts/stock_live_smoke_check.py"] + (["--strict"] if args.strict else []),
             False,
-        ),
-    ])
+        ))
 
-    for broker in target_brokers:
+    for broker in ([] if offline else target_brokers):
         steps.append(
             (
                 f"ORDER_DRILL:{broker}",
@@ -126,7 +137,7 @@ def main() -> int:
 
     failures = []
     for title, command, always_strict in steps:
-        exit_code, _ = _run_step(title, command)
+        exit_code, _ = _run_step(title, command, env=child_env)
         if exit_code != 0 and (args.strict or always_strict):
             if (
                 title == "PRECHECK"

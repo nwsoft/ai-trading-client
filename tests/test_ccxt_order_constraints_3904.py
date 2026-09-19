@@ -48,6 +48,29 @@ def test_ccxt_order_contract_returns_exchange_precision_quantity():
     assert result["notional"] == 5500.0
 
 
+def test_futures_contract_size_is_included_in_notional_validation():
+    class ContractExchange(FakeCcxtExchange):
+        def market(self, _symbol):
+            return {
+                "quote": "USDT",
+                "contractSize": 0.01,
+                "limits": {
+                    "amount": {"min": 1.0},
+                    "cost": {"min": 5.0},
+                },
+            }
+
+    result = prepare_ccxt_order_quantity(
+        ContractExchange(),
+        "BTC/USDT:USDT",
+        10.0,
+        reference_price=100.0,
+    )
+    assert result["allowed"] is True
+    assert result["notional"] == 10.0
+    assert result["contract_size"] == 0.01
+
+
 def test_krw_market_uses_safe_fallback_when_ccxt_omits_cost_limit():
     class MissingCostExchange(FakeCcxtExchange):
         def market(self, _symbol):

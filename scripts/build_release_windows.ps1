@@ -60,6 +60,9 @@ try {
     if ($Version -ne $configuredVersion) {
         throw "version mismatch: requested=$Version config=$configuredVersion"
     }
+    if ([version]$Version -ge [version]"3.9.1.0") {
+        throw "v3.9.1.0+ uses scripts/build_web_ui_windows.ps1. This legacy single-EXE builder is intentionally blocked."
+    }
     Write-Host "[BUILD_RELEASE] version=$Version profile=$GateProfile"
     $releaseLabel = (& python -c "from config.app_version import RELEASE_BUILD_LABEL; print(RELEASE_BUILD_LABEL)").Trim()
     if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($releaseLabel)) {

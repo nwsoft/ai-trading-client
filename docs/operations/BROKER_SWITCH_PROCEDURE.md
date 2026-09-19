@@ -21,7 +21,8 @@
 3. 점검 실행
 - stock_d1_preflight.py
 - stock_supported_mode_matrix_check.py
-- stock_live_readiness_run.py --all-supported-brokers
+- 공통 offline: stock_live_readiness_run.py --all-supported-brokers --offline
+- 실연동: stock_live_readiness_run.py --all-supported-brokers --strict --account QA_ACCOUNT
 
 4. 제한 모드 재가동
 - 소량 주문수/작은 수량으로 AUTO 1~2사이클

@@ -1,3 +1,9 @@
+## 2026-09-20 - v3.9.1.42 원격 운용 제어
+
+**언어 UI 후속 재검증:** Client **2,821 passed / 8 skipped / 3 subtests**, Node **51 passed**, app/node TypeScript + Web build PASS. 로그인 450×680 한/영 배치·입력 보존, 일반 설정 언어 전환/저장 확인. Server는 이번 후속에서 변경하지 않았으며 이전 clean worktree **125 passed / 3 subtests**, Node **7 passed** 증거를 유지합니다. [언어 범위/잔여 게이트](V39142_ENGLISH_IMPLEMENTATION_PLAN.md) · [최종 보고](../reports/v39142-english-verification.md). 다음 문단은 영어 추가 전 원격 기능 검증 기록입니다.
+
+현재 시험·배포 증거는 [V39142_REMOTE_CONTROL_PLAN.md](V39142_REMOTE_CONTROL_PLAN.md)를 따릅니다. Client **2,809 passed / 8 skipped / 3 subtests**, Node **43 passed**, TypeScript·문서 정합 PASS. Server **124 passed / 3 subtests**, Node **5 passed** 및 daltrading 운영 배포·HTTPS 로그인·모바일 시각 확인 완료. Client 설치기 빌드·릴리스는 수행하지 않았습니다. Windows 설치본·실기관 운용은 미완료이며 mock/단위 시험으로 대체하지 않습니다. 아래 v41 수치는 역사적 기록입니다.
+
 ## 2026-09-19 - v3.9.1.41 Market Trend Visuals and Evidence-based XAI Patch
 
 9월 19일 사용자 DB 확인 및 공통 PnL 수정 후 **Client 2,741 passed / 8 skipped / 3 subtests**, **Node 43 passed**. 원본 DB 해시 불변·복사본 재현 확인. 보호 주문 근거 연결, 실제 계좌 포지션 기반 Binance 미실현, 일일 위험 기준값 영속화, 확정 순손익 성과 소비를 보강했다. **daltrading 115 passed / 3 subtests**와 Chrome fixture 320~1280px 검사는 DB 수령 전 단계의 증거다. Web 64 modules 빌드도 이전 KPI/원격 단계 기록이며 이번 React 변경은 없다. [통합 검증 보고](../reports/v39141-remote-kpi-verification.md). 특정 사용자 과거 DB 복구 자체가 필수 조건은 아니나 **기존 미대조 기록의 안전한 업그레이드 처리·실기관·일별 계좌 대조·Windows/운영 게이트 미완료로 배포 보류**. [PnL 조사](V39141_PNL_GUARDRAIL_FEEDBACK.md).

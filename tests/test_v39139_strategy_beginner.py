@@ -46,7 +46,7 @@ def test_beginner_panel_is_not_gated_to_advanced_and_manual_has_actual_flow():
     panel_pos = studio.index("<StrategyBeginnerExplanation")
     assert panel_pos < studio.index('{resultView !== "Level 1 이해·시험"')
     assistant = (ROOT / "webui/src/components/AssistantWorkspace.tsx").read_text(encoding="utf-8")
-    assert 'strategyContext && dataScope === "public_general"' in assistant
+    assert 'strategyContext && !strategyContext.includes(MARKET_TREND_SNAPSHOT_MARKER) && dataScope === "public_general"' in assistant
     assert "client.askAssistant(requestPrompt" in assistant
     assert 'setMode("guide")' in assistant
     assert "분석 자료·대화 해제" in assistant

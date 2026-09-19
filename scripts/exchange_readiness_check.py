@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 """거래소 준비도 점검 스크립트
 
-국내(업비트/빗썸) -> 해외(Bybit/OKX/Bitget/Binance) 순서로
+국내(업비트/빗썸/코인원) -> 해외(Bybit/OKX/Bitget/Binance) 순서로
 연결/인증/잔고조회 상태를 점검해 운영자가 바로 판단할 수 있게 출력합니다.
 """
 
@@ -21,7 +21,7 @@ if str(ROOT) not in sys.path:
 from trading.exchange_manager import ExchangeManager
 
 
-DOMESTIC_EXCHANGES = ["upbit", "bithumb"]
+DOMESTIC_EXCHANGES = ["upbit", "bithumb", "coinone"]
 OVERSEAS_EXCHANGES = ["bybit", "okx", "bitget", "binance"]
 DEFAULT_TIMEOUT_SEC = int(os.environ.get("EXCHANGE_READINESS_TIMEOUT_SEC", "25") or "25")
 WORKER_RESULT_PREFIX = "__READINESS_RESULT__="
@@ -48,7 +48,9 @@ def load_user_settings(
 ) -> Dict[str, Any]:
     user_settings = resolve_settings_path(settings_file, account)
     if user_settings.exists():
-        return json.loads(user_settings.read_text(encoding="utf-8"))
+        from config.settings import read_settings_json_file
+        settings, _ = read_settings_json_file(user_settings)
+        return settings
     return {}
 
 
@@ -66,6 +68,8 @@ def key_ready(settings: Dict[str, Any], exchange: str) -> bool:
         return bool(settings.get("upbit_api_key") and settings.get("upbit_secret_key"))
     if ex == "bithumb":
         return bool(settings.get("bithumb_api_key") and settings.get("bithumb_secret_key"))
+    if ex == "coinone":
+        return bool(settings.get("coinone_api_key") and settings.get("coinone_secret_key"))
     return False
 
 
@@ -186,6 +190,9 @@ def check_one_with_timeout(base_settings: Dict[str, Any], exchange: str, timeout
         return check_one(base_settings, exchange)
 
     try:
+        worker_env = dict(os.environ)
+        worker_env["PYTHONUTF8"] = "1"
+        worker_env["PYTHONIOENCODING"] = "utf-8"
         completed = subprocess.run(
             [
                 sys.executable,
@@ -195,9 +202,12 @@ def check_one_with_timeout(base_settings: Dict[str, Any], exchange: str, timeout
             ],
             input=json.dumps(base_settings, ensure_ascii=False),
             text=True,
+            encoding="utf-8",
+            errors="replace",
             capture_output=True,
             timeout=timeout_sec,
             check=False,
+            env=worker_env,
         )
     except subprocess.TimeoutExpired:
         timeout_result = {

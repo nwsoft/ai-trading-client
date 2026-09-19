@@ -20,6 +20,8 @@ import os
 import json
 import time
 
+import pytest
+
 # 프로젝트 루트 경로 추가
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -364,10 +366,18 @@ def _run_place_futures_order_directly() -> bool:
         return False
 
 
+@pytest.mark.skipif(
+    os.environ.get("INTEGRATION_TEST", "0") != "1",
+    reason="requires explicit Binance integration-test opt-in",
+)
 def test_tp_sl_order_creation():
     assert _run_tp_sl_order_creation() is True
 
 
+@pytest.mark.skipif(
+    os.environ.get("INTEGRATION_TEST", "0") != "1",
+    reason="requires explicit Binance integration-test opt-in",
+)
 def test_place_futures_order_directly():
     assert _run_place_futures_order_directly() is True
 

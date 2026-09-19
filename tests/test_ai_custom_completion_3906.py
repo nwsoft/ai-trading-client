@@ -172,13 +172,15 @@ def test_korean_natural_language_rsi_rules_compile_to_executable_ir():
     assert result["missing_conditions"] == []
     assert result["rules"]["entry_signal"] == "LONG"
     assert result["rules"]["executable_entry"]["all"] == [
-        {"field": "rsi", "operator": "lte", "value": 30.0}
+        {"field": "rsi", "operator": "lte", "value": 30.0},
+        {"field": "signal", "operator": "eq", "value": "LONG"},
     ]
     assert result["rules"]["executable_exit"]["all"] == [
         {"field": "rsi", "operator": "gte", "value": 65.0}
     ]
     assert result["strategy_ir"]["support"]["status"] == "supported"
-    assert result["strategy_ir"]["support"]["node_count"] == 2
+    # 방향 보존 조건도 실행 노드이며 원문 LONG이 SHORT 후보를 승인하지 않게 한다.
+    assert result["strategy_ir"]["support"]["node_count"] == 3
 
 
 def test_mentor_requires_profile_and_returns_teaching_candidates():

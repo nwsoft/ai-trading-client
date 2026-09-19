@@ -1,3 +1,4 @@
+import { t } from '../i18n';
 const BASE_GUIDE = `[로그 레벨 의미]
 - INFO: 정상 동작/진행 상황 안내
 - WARNING: 즉시 중단은 아니지만 점검이 필요한 경고
@@ -56,9 +57,9 @@ export function LogHelpDialog({
   if (!open) return null;
   return <div className="log-help-backdrop" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
     <section className="log-help-dialog" role="dialog" aria-modal="true" aria-labelledby="log-help-title">
-      <h2 id="log-help-title">실시간 로그 해석 가이드</h2>
+      <h2 id="log-help-title">{t("실시간 로그 해석 가이드")}</h2>
       <pre>{BASE_GUIDE}{"\n\n"}{contextualGuide(service, source)}</pre>
-      <footer><button type="button" onClick={() => { onClose(); onOpenManual(); }}>사용자 매뉴얼(업데이트) 열기</button><button className="secondary-button" type="button" onClick={onClose}>닫기</button></footer>
+      <footer><button type="button" onClick={() => { onClose(); onOpenManual(); }}>{t("사용자 매뉴얼(업데이트) 열기")}</button><button className="secondary-button" type="button" onClick={onClose}>{t("닫기")}</button></footer>
     </section>
   </div>;
 }

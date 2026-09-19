@@ -9,6 +9,7 @@
 
 from __future__ import annotations
 
+import json
 import re
 import sys
 from pathlib import Path
@@ -20,7 +21,7 @@ DOCS = ROOT / "docs"
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from config.app_version import RELEASE_VERSION
+from config.app_version import RELEASE_HIGHLIGHT, RELEASE_VERSION
 
 TARGETS: Dict[str, Path] = {
     "app_version": ROOT / "config" / "app_version.py",
@@ -46,6 +47,8 @@ TARGETS: Dict[str, Path] = {
     "build_guide": DOCS / "BUILD_GUIDE.md",
     "architecture_audit": DOCS / "ARCHITECTURE_AUDIT_2026-08-01.md",
     "source_quarantine": DOCS / "SOURCE_QUARANTINE_MANIFEST_20260801.md",
+    "marketplace_plan": DOCS / "STRATEGY_MARKETPLACE_POINTS_AND_LICENSE_PLAN.md",
+    "release_manifest": ROOT / "deploy" / "release-manifest.json",
 }
 
 
@@ -78,12 +81,18 @@ def check_release_version_markers(text_map: Dict[str, str]) -> List[str]:
         errors.append("[MANUAL] 인앱 메뉴얼 제목이 USER_MANUAL_TITLE 상수를 사용하지 않습니다.")
 
     app_version = text_map.get("app_version", "")
-    if 'RELEASE_HIGHLIGHT = "AI 커스텀 관리 · 설정 오류 차단 · 최신 탭 렌더·위젯 소유권 안정화"' not in app_version:
+    if f'RELEASE_HIGHLIGHT = "{RELEASE_HIGHLIGHT}"' not in app_version:
         errors.append("[APP_VERSION] 대시보드 사용자용 최신 업데이트 요약이 현행 변경과 다릅니다.")
 
-    expected_release_line = f"현재 설치 기준 버전: **v{RELEASE_VERSION}**"
-    if expected_release_line not in user_guide:
-        errors.append(f"[USER_GUIDE] '{expected_release_line}' 문구가 없습니다.")
+    expected_release_lines = (
+        f"현재 설치 기준 버전: **v{RELEASE_VERSION}**",
+        f"현재 공개 버전: **v{RELEASE_VERSION}**",
+        f"현재 소스 후보 버전: **v{RELEASE_VERSION}**",
+    )
+    if not any(line in user_guide for line in expected_release_lines):
+        errors.append(
+            f"[USER_GUIDE] 현재 설치/공개/소스 후보 v{RELEASE_VERSION} 문구가 없습니다."
+        )
 
     if "배포 버전 변경 없음" not in user_guide:
         errors.append("[USER_GUIDE] 문서 동기화 항목의 '배포 버전 변경 없음' 표기가 없습니다.")
@@ -101,6 +110,58 @@ def check_release_version_markers(text_map: Dict[str, str]) -> List[str]:
             f"[CHANGELOG] 최신 섹션 제목에 '{expected_changelog_tag}'가 없습니다. (현재: {latest_heading})"
         )
 
+    return errors
+
+
+def check_current_release_and_marketplace(text_map: Dict[str, str]) -> List[str]:
+    """Keep current public identity and monetization policy out of historical drift."""
+    errors: List[str] = []
+    try:
+        manifest = json.loads(text_map.get("release_manifest", ""))
+    except (TypeError, ValueError):
+        return ["[RELEASE_MANIFEST] JSON을 읽을 수 없습니다."]
+
+    manifest_version = str(manifest.get("version") or "")
+    manifest_tuple = parse_version_tuple(manifest_version)
+    source_tuple = parse_version_tuple(RELEASE_VERSION)
+    if manifest_tuple is None:
+        errors.append("[RELEASE_MANIFEST] 공개 version 형식이 올바르지 않습니다.")
+    elif source_tuple is not None and manifest_tuple > source_tuple:
+        errors.append("[RELEASE_MANIFEST] 공개 version이 현재 소스 후보보다 높습니다.")
+
+    if manifest.get("publish_ready") is True:
+        required_public = {
+            "readme": f"현재 공개 기반: v{manifest_version}",
+            "docs_readme": f"v{manifest_version}",
+            "release_notes": f"공개 v{manifest_version}",
+            "user_guide": f"현재 공개 버전: **v{manifest_version}**",
+            "test_status": f"v{manifest_version}",
+        }
+        for surface, marker in required_public.items():
+            if marker not in text_map.get(surface, "")[:6000]:
+                errors.append(f"[PUBLIC_RELEASE] {surface}: '{marker}' 누락")
+
+        user_guide_head = text_map.get("user_guide", "")[:6000]
+        if len(re.findall(r"^현재 공개 버전:", user_guide_head, flags=re.MULTILINE)) != 1:
+            errors.append("[PUBLIC_RELEASE] USER_GUIDE 상단의 '현재 공개 버전'은 정확히 한 줄이어야 합니다.")
+
+    marketplace = text_map.get("marketplace_plan", "")
+    for marker in (
+        "무료 상품 스냅샷",
+        "플랫폼 기본 수수료",
+        "유상 Noah Point",
+        "Evidence의 약자",
+        "1P = 1원 구매가치",
+        "10,000,000P 이상",
+        "daltrading 관리자 운영 콘솔",
+        "모바일 앱스토어는 현재 범위가 아님",
+        "하루 첫 유효 PAPER 60분",
+        "T+30",
+        "코인 결제",
+        "출시 금지 조건",
+    ):
+        if marker not in marketplace:
+            errors.append(f"[MARKETPLACE_POLICY] '{marker}' 누락")
     return errors
 
 
@@ -129,6 +190,425 @@ def check_for_higher_version_mentions(text_map: Dict[str, str]) -> List[str]:
 
 def check_release_surface_alignment(text_map: Dict[str, str]) -> List[str]:
     """동일 버전의 핵심 변경이 사용자 노출·기술·검증 문서에 함께 있는지 확인한다."""
+    if RELEASE_VERSION == "3.9.1.42":
+        required = {
+            "manual_widget": ("v3.9.1.42 최신 업데이트", "원격 권한 저장", "비밀번호 재확인"),
+            "user_guide": ("현재 소스 후보 버전: **v3.9.1.42**", "3.9.142", "REMOTE_MANAGEMENT_GUIDE_V39142.md"),
+            "release_notes": ("v3.9.1.42", "공개 v3.9.1.41"),
+            "deploy_release_notes": ("NoahAI v3.9.1.42", "3.9.142"),
+            "build_guide": ("3.9.142", "V39142_REMOTE_CONTROL_PLAN.md"),
+            "test_status": ("v3.9.1.42", "Windows", "미완료"),
+            "readme": ("현재 소스 후보: v3.9.1.42", "현재 공개 기반: v3.9.1.41"),
+        }
+        return [f"[RELEASE_SURFACE] {surface}: '{marker}' 누락"
+                for surface, markers in required.items() for marker in markers
+                if marker not in text_map.get(surface, "")]
+    if RELEASE_VERSION == "3.9.1.41":
+        required = {
+            "manual_widget": ("v3.9.1.41 최신 업데이트", "관찰 후보 XAI 비교", "공개 stable/latest는 v3.9.1.40"),
+            "user_guide": ("현재 소스 후보 버전: **v3.9.1.41**", "3.9.141", "V39141_MARKET_TREND_XAI_TEST_PLAN.md"),
+            "release_notes": ("v3.9.1.41 Market Trend Visuals", "공개 stable/latest는 **v3.9.1.40**"),
+            "changelog": ("V39141_MARKET_TREND_XAI_TEST_PLAN.md", "관찰 후보"),
+            "build_guide": ("3.9.141", "V39141_MARKET_TREND_XAI_TEST_PLAN.md"),
+            "test_status": ("v3.9.1.41", "Windows", "미완료"),
+            "deploy_checklist": ("v3.9.1.41", "3.9.141", "v3.9.1.40"),
+            "readme": ("현재 소스 후보: v3.9.1.41", "현재 공개 기반: v3.9.1.40"),
+        }
+        return [f"[RELEASE_SURFACE] {surface}: '{marker}' 누락"
+                for surface, markers in required.items() for marker in markers
+                if marker not in text_map.get(surface, "")]
+    if RELEASE_VERSION == "3.9.1.40":
+        required = {
+            "manual_widget": ("v3.9.1.40 최신 업데이트", "PAPER 판단 실험", "선택 모델 1회 실제 호출 점검"),
+            "user_guide": ("현재 소스 후보 버전: **v3.9.1.40**", "3.9.140"),
+            "release_notes": ("v3.9.1.40", "공개 stable/latest는 **v3.9.1.39**"),
+            "changelog": ("V39140_STUDIO_ALPHA_SETTINGS_TEST_PLAN.md",),
+            "build_guide": ("3.9.140", "V39140_STUDIO_ALPHA_SETTINGS_TEST_PLAN.md"),
+            "test_status": ("v3.9.1.40", "Windows", "미완료"),
+            "readme": ("현재 소스 후보: v3.9.1.40", "현재 공개 기반: v3.9.1.39"),
+        }
+        return [f"[RELEASE_SURFACE] {surface}: '{marker}' 누락"
+                for surface, markers in required.items() for marker in markers
+                if marker not in text_map.get(surface, "")]
+    if RELEASE_VERSION == "3.9.1.39":
+        required = {
+            "manual_widget": ("v3.9.1.39 최신 업데이트", "거래소 체결 동기화", "대조 전"),
+            "user_guide": ("현재 소스 후보 버전: **v3.9.1.39**", "3.9.139", "외부 TP/SL"),
+            "release_notes": ("v3.9.1.39 External Close Ledger Reconciliation", "공개 stable/latest는 **v3.9.1.38**"),
+            "changelog": ("V39139_EXTERNAL_CLOSE_RECONCILIATION_TEST_PLAN.md", "exit_order_id"),
+            "build_guide": ("3.9.139", "V39139_EXTERNAL_CLOSE_RECONCILIATION_TEST_PLAN.md"),
+            "test_status": ("v3.9.1.39", "Windows", "미완료"),
+            "deploy_checklist": ("v3.9.1.39", "3.9.139", "현재 공개 버전: **v3.9.1.38**"),
+            "readme": ("현재 소스 후보: v3.9.1.39", "현재 공개 기반: v3.9.1.38"),
+            "architecture": ("v3.9.1.39", "exact-order"),
+        }
+        return [f"[RELEASE_SURFACE] {surface}: '{marker}' 누락"
+                for surface, markers in required.items() for marker in markers
+                if marker not in text_map.get(surface, "")]
+    if RELEASE_VERSION == "3.9.1.38":
+        required = {
+            "manual_widget": ("v3.9.1.38 최신 업데이트", "v3.9.1.37 이전 업데이트", "기본 접힘"),
+            "user_guide": ("현재 소스 후보 버전: **v3.9.1.38**", "3.9.138", "기관별 거래내역"),
+            "release_notes": ("v3.9.1.38 Strategy Replay", "공개 stable/latest는 **v3.9.1.37**"),
+            "deploy_release_notes": ("NoahAI v3.9.1.38", "3.9.138"),
+            "changelog": ("V39138_STRATEGY_REPLAY_LIVE_HISTORY_TEST_PLAN.md", "SOURCE_TRADE_HISTORY_20260917.md"),
+            "build_guide": ("3.9.138", "V39138_STRATEGY_REPLAY_LIVE_HISTORY_TEST_PLAN.md"),
+            "test_status": ("v3.9.1.38", "Windows", "미완료"),
+            "deploy_checklist": ("v3.9.1.38", "3.9.138", "현재 공개 버전: **v3.9.1.37**"),
+            "readme": ("현재 소스 후보: v3.9.1.38", "현재 공개 기반: v3.9.1.37"),
+            "architecture": ("v3.9.1.38", "기관별 LIVE 이력"),
+        }
+        return [f"[RELEASE_SURFACE] {surface}: '{marker}' 누락"
+                for surface, markers in required.items() for marker in markers
+                if marker not in text_map.get(surface, "")]
+    if RELEASE_VERSION == "3.9.1.37":
+        required = {
+            "manual_widget": ("v3.9.1.37 최신 업데이트", "v3.9.1.36 이전 업데이트", "v3.9.1.35 이전 업데이트"),
+            "user_guide": ("현재 소스 후보 버전: **v3.9.1.37**", "3.9.137"),
+            "release_notes": ("v3.9.1.37", "공개 v3.9.1.36"),
+            "changelog": ("V39137_KIWOOM_BOUNDED_QUERIES_TEST_PLAN.md",),
+            "build_guide": ("3.9.137", "V39137_KIWOOM_BOUNDED_QUERIES_TEST_PLAN.md"),
+            "test_status": ("v3.9.1.37", "Windows", "미완료"),
+        }
+        return [f"[RELEASE_SURFACE] {surface}: '{marker}' 누락"
+                for surface, markers in required.items() for marker in markers
+                if marker not in text_map.get(surface, "")]
+    if RELEASE_VERSION == "3.9.1.34":
+        required = {
+            "manual_widget": ("v3.9.1.34 최신 업데이트", "32비트 호스트"),
+            "user_guide": ("현재 소스 후보 버전: **v3.9.1.34**", "현재 공개 버전: **v3.9.1.33**"),
+            "release_notes": ("v3.9.1.34 Kiwoom x86", "3.9.134", "공개 v3.9.1.33"),
+            "deploy_release_notes": ("NoahAI v3.9.1.34 Kiwoom x86", "3.9.134", "prerelease"),
+            "changelog": ("v3.9.1.34", "source fingerprint", "V39134_KIWOOM_X86_RELEASE_INTEGRITY_TEST_PLAN.md"),
+            "readme": ("현재 소스 후보: v3.9.1.34", "현재 공개 기반: v3.9.1.33"),
+            "architecture": ("v3.9.1.34", "전용 x86 호스트"),
+            "test_status": ("v3.9.1.34", "키움 OCX", "미완료"),
+            "deploy_checklist": ("v3.9.1.34", "3.9.134", "공개 안정판: **v3.9.1.33**"),
+            "build_guide": ("3.9.134", "NoahAIKiwoomHost.exe", "requirements_kiwoom_x86.txt", "prerelease"),
+        }
+        return [f"[RELEASE_SURFACE] {surface}: '{marker}' 누락"
+                for surface, markers in required.items() for marker in markers
+                if marker not in text_map.get(surface, "")]
+    if RELEASE_VERSION == "3.9.1.33":
+        required = {
+            "manual_widget": ("v3.9.1.33 최신 업데이트", "증권 AI 학습", "32비트 호스트"),
+            "user_guide": ("현재 소스 후보 버전: **v3.9.1.33**", "현재 공개 버전: **v3.9.1.32**"),
+            "release_notes": ("v3.9.1.33 Evidence", "3.9.133", "미배포 후보"),
+            "changelog": ("v3.9.1.33", "미배포 후보", "V39132_USER_FEEDBACK_AUDIT.md"),
+            "readme": ("현재 소스 후보: v3.9.1.33", "현재 공개 기반: v3.9.1.32"),
+            "architecture": ("v3.9.1.33", "증권사별 학습 DB"),
+            "test_status": ("v3.9.1.33", "Windows", "미완료"),
+            "deploy_checklist": ("v3.9.1.33", "3.9.133", "공개 v3.9.1.32"),
+            "build_guide": ("3.9.133", "v3.9.1.33", "NoahAIKiwoomHost.exe"),
+        }
+        return [f"[RELEASE_SURFACE] {surface}: '{marker}' 누락"
+                for surface, markers in required.items() for marker in markers
+                if marker not in text_map.get(surface, "")]
+    if RELEASE_VERSION == "3.9.1.32":
+        required = {
+            "manual_widget": ("v3.9.1.32 최신 업데이트", "다음 예약", "후보 점수"),
+            "user_guide": ("현재 소스 후보 버전: **v3.9.1.32**", "현재 공개 버전: **v3.9.1.31**"),
+            "release_notes": ("v3.9.1.32 Runtime Recovery", "공개 v3.9.1.31"),
+            "changelog": ("v3.9.1.32", "fetch_tickers(symbols)", "정본 재추출"),
+            "readme": ("현재 소스 후보: v3.9.1.32", "현재 공개 기반: v3.9.1.31"),
+            "architecture": ("update-scheduler.cjs", "kis_market_master.py", "runtime_observability.py"),
+            "test_status": ("v3.9.1.32", "V39132_RUNTIME_RECOVERY_TEST_PLAN.md"),
+            "deploy_checklist": ("v3.9.1.32", "V39132_RUNTIME_RECOVERY_TEST_PLAN.md"),
+            "build_guide": ("3.9.132", "v3.9.1.32"),
+        }
+        return [f"[RELEASE_SURFACE] {surface}: '{marker}' 누락"
+                for surface, markers in required.items() for marker in markers
+                if marker not in text_map.get(surface, "")]
+    if RELEASE_VERSION == "3.9.1.31":
+        required = {
+            "manual_widget": ("v3.9.1.31 최신 업데이트", "11개 메뉴얼", "AlphaArena는 이 후보에서 PAPER"),
+            "user_guide": ("v3.9.1.31 메뉴얼", "현재 소스 후보 버전: **v3.9.1.31**", "현재 공개 버전: **v3.9.1.30**"),
+            "release_notes": ("v3.9.1.31 Readable Manual Experience Patch", "PAPER 판단·결과 기록"),
+            "changelog": ("v3.9.1.31 대시보드 메뉴얼 전 탭", "정본 재추출"),
+            "readme": ("현재 소스 후보: v3.9.1.31", "현재 공개 기반: v3.9.1.30"),
+            "docs_readme": ("v3.9.1.31 소스 후보", "공개 v3.9.1.30"),
+            "architecture": ("현재 소스 후보 v3.9.1.31", "사용자 메뉴얼 정본 계약"),
+            "update_plan": ("v3.9.1.31 사용자 메뉴얼 정본", "Windows 100/125/150/175% DPI"),
+            "test_status": ("v3.9.1.31 사용자 메뉴얼 정본", "68 passed"),
+            "deploy_checklist": ("v3.9.1.31 패치 필수 게이트", "11개 고유 탭"),
+            "master_documentation": ("v3.9.1.31 소스 후보", "11개 정본의 생성"),
+            "build_guide": ("v3.9.1.31 Readable Manual Experience 소스 후보", "3.9.131"),
+        }
+        errors: List[str] = []
+        for surface, markers in required.items():
+            text = text_map.get(surface, "")
+            for marker in markers:
+                if marker not in text:
+                    errors.append(f"[RELEASE_SURFACE] {surface}: '{marker}' 누락")
+        return errors
+    if RELEASE_VERSION == "3.9.1.15":
+        required = {
+            "manual_widget": ("v3.9.1.15 최신 업데이트", "[v3.9.1.15 Web UI]", "상태형 포지션"),
+            "user_guide": ("현재 소스 후보 버전: **v3.9.1.15**", "3.9.115", "신규 주문을 보류"),
+            "release_notes": ("v3.9.1.15 Web UI Order Contract, Strategy Studio Level 4 & Binance Cycle Integrity Patch", "3.9.115", "5.10 USDT", "계정의 쓰기 가능한"),
+            "deploy_release_notes": ("NoahAI v3.9.1.15 Web UI Order Contract, Strategy Studio Level 4 & Binance Cycle Integrity Patch", "3.9.115", "Level 4"),
+            "changelog": ("v3.9.1.15 주문규격 정합·Strategy Studio Level 4·Binance 사이클 복구", "3.9.115"),
+            "readme": ("v3.9.1.15 Web UI Order Contract, Strategy Studio Level 4 & Binance Cycle Integrity Patch · Windows 재빌드 전",),
+            "build_guide": ("v3.9.1.15 Web UI Order Contract, Strategy Studio Level 4 & Binance Cycle Integrity Patch", "V39115_ORDER_CONTRACT_LEVEL4_STRATEGY_HUB.md", "3.9.115"),
+            "deploy_checklist": ("v3.9.1.15 Web UI Order Contract, Strategy Studio Level 4 & Binance Cycle Integrity Patch", "V39115_ORDER_CONTRACT_LEVEL4_STRATEGY_HUB.md"),
+        }
+        errors: List[str] = []
+        for surface, markers in required.items():
+            text = text_map.get(surface, "")
+            for marker in markers:
+                if marker not in text:
+                    errors.append(f"[RELEASE_SURFACE] {surface}: '{marker}' 누락")
+        return errors
+    if RELEASE_VERSION == "3.9.1.14":
+        required = {
+            "manual_widget": ("v3.9.1.14 최신 업데이트", "[v3.9.1.14 Web UI]", "이전 정상 점수 후보"),
+            "user_guide": ("현재 소스 후보 버전: **v3.9.1.14**", "3.9.114", "기본 60초"),
+            "release_notes": ("v3.9.1.14 Web UI Selection Recovery & Broker Lifecycle Patch", "3.9.114", "기존 정상 후보"),
+            "deploy_release_notes": ("NoahAI v3.9.1.14 Web UI Selection Recovery & Broker Lifecycle Patch", "3.9.114", "V39114_SELECTION_RECOVERY_BROKER_LIFECYCLE_TEST_PLAN.md"),
+            "changelog": ("v3.9.1.14 후보 선정 복구·증권 조회 연결", "3.9.114"),
+            "readme": ("v3.9.1.14 Web UI Selection Recovery & Broker Lifecycle Patch · Windows 재빌드 전",),
+            "build_guide": ("v3.9.1.14 Web UI Selection Recovery & Broker Lifecycle Patch", "V39114_SELECTION_RECOVERY_BROKER_LIFECYCLE_TEST_PLAN.md", "3.9.114"),
+            "deploy_checklist": ("v3.9.1.14 Web UI Selection Recovery & Broker Lifecycle Patch", "V39114_SELECTION_RECOVERY_BROKER_LIFECYCLE_TEST_PLAN.md"),
+        }
+        errors: List[str] = []
+        for surface, markers in required.items():
+            text = text_map.get(surface, "")
+            for marker in markers:
+                if marker not in text:
+                    errors.append(f"[RELEASE_SURFACE] {surface}: '{marker}' 누락")
+        return errors
+    if RELEASE_VERSION == "3.9.1.13":
+        required = {
+            "manual_widget": ("v3.9.1.13 최신 업데이트", "[v3.9.1.13 Web UI]", "숨은 PAPER"),
+            "user_guide": ("현재 설치 기준 버전: **v3.9.1.13**", "3.9.113", "112%"),
+            "release_notes": ("v3.9.1.13 Web UI OKX Shutdown, Accessibility & Validation Clarity Patch", "3.9.113", "worker"),
+            "deploy_release_notes": ("NoahAI v3.9.1.13 Web UI OKX Shutdown, Accessibility & Validation Clarity Patch", "3.9.113", "V39113_OKX_UI_ACCESSIBILITY_TEST_PLAN.md"),
+            "changelog": ("v3.9.1.13 OKX 안전 종료·가독성·PAPER", "3.9.113"),
+            "readme": ("v3.9.1.13 Web UI OKX Shutdown, Accessibility & Validation Clarity Patch · Windows 재빌드 전",),
+            "build_guide": ("v3.9.1.13 Web UI OKX Shutdown, Accessibility & Validation Clarity Patch", "V39113_OKX_UI_ACCESSIBILITY_TEST_PLAN.md", "3.9.113"),
+            "deploy_checklist": ("v3.9.1.13 Web UI OKX Shutdown, Accessibility & Validation Clarity Patch", "V39113_OKX_UI_ACCESSIBILITY_TEST_PLAN.md"),
+        }
+        errors: List[str] = []
+        for surface, markers in required.items():
+            text = text_map.get(surface, "")
+            for marker in markers:
+                if marker not in text:
+                    errors.append(f"[RELEASE_SURFACE] {surface}: '{marker}' 누락")
+        return errors
+    if RELEASE_VERSION == "3.9.1.12":
+        required = {
+            "manual_widget": ("v3.9.1.12 최신 업데이트", "[v3.9.1.12 Web UI]", "회원 전략 제출", "검증 여권"),
+            "user_guide": ("현재 설치 기준 버전: **v3.9.1.12**", "3.9.112", "허브에 제출"),
+            "release_notes": ("v3.9.1.12 Web UI Strategy Hub, Manual & Trust Patch", "3.9.112", "자동 업로드"),
+            "deploy_release_notes": ("NoahAI v3.9.1.12 Web UI Strategy Hub, Manual & Trust Patch", "3.9.112", "V39112_STRATEGY_HUB_MANUAL_TRUST_TEST_PLAN.md"),
+            "changelog": ("v3.9.1.12 전략 허브·메뉴얼·검증 신뢰", "3.9.112"),
+            "readme": ("v3.9.1.12 Web UI Strategy Hub, Manual & Trust Patch · Windows 재빌드 전",),
+            "build_guide": ("v3.9.1.12 Web UI Strategy Hub, Manual & Trust Patch", "V<버전숫자>_*_TEST_PLAN.md", "3.9.112"),
+            "deploy_checklist": ("v3.9.1.12 Web UI Strategy Hub, Manual & Trust Patch", "V39112_STRATEGY_HUB_MANUAL_TRUST_TEST_PLAN.md"),
+        }
+        errors: List[str] = []
+        for surface, markers in required.items():
+            text = text_map.get(surface, "")
+            for marker in markers:
+                if marker not in text:
+                    errors.append(f"[RELEASE_SURFACE] {surface}: '{marker}' 누락")
+        return errors
+    if RELEASE_VERSION == "3.9.1.11":
+        required = {
+            "manual_widget": ("v3.9.1.11 최신 업데이트", "[v3.9.1.11 Web UI]", "PAPER TP/SL"),
+            "user_guide": ("현재 설치 기준 버전: **v3.9.1.11**", "3.9.111", "관찰 일수"),
+            "release_notes": ("v3.9.1.11 Web UI Safe Shutdown & PAPER Validation Integrity Patch", "3.9.111", "45초"),
+            "deploy_release_notes": ("NoahAI v3.9.1.11 Web UI Safe Shutdown & PAPER Validation Integrity Patch", "3.9.111", "V39111_SAFE_SHUTDOWN_PAPER_VALIDATION_TEST_PLAN.md"),
+            "changelog": ("v3.9.1.11 안전 종료·PAPER 검증 정합", "3.9.111"),
+            "readme": ("v3.9.1.11 Web UI Safe Shutdown & PAPER Validation Integrity Patch · Windows 재빌드 전",),
+            "build_guide": ("v3.9.1.11 Web UI Safe Shutdown & PAPER Validation Integrity Patch", "V<버전숫자>_*_TEST_PLAN.md", "3.9.111"),
+            "deploy_checklist": ("v3.9.1.11 Web UI Safe Shutdown & PAPER Validation Integrity Patch", "V39111_SAFE_SHUTDOWN_PAPER_VALIDATION_TEST_PLAN.md"),
+        }
+        errors: List[str] = []
+        for surface, markers in required.items():
+            text = text_map.get(surface, "")
+            for marker in markers:
+                if marker not in text:
+                    errors.append(f"[RELEASE_SURFACE] {surface}: '{marker}' 누락")
+        return errors
+    if RELEASE_VERSION == "3.9.1.10":
+        required = {
+            "manual_widget": ("v3.9.1.10 최신 업데이트", "[v3.9.1.10 Web UI]", "가상 거래 통계"),
+            "user_guide": ("현재 설치 기준 버전: **v3.9.1.10**", "3.9.110", "가상 포지션"),
+            "release_notes": ("v3.9.1.10 Web UI PAPER Position, Statistics & Notifications Patch", "3.9.110", "Discord", "tail-read"),
+            "deploy_release_notes": ("NoahAI v3.9.1.10 Web UI PAPER Position, Statistics & Notifications Patch", "3.9.110", "V39110_PAPER_POSITION_POLICY_STATISTICS_TEST_PLAN.md"),
+            "changelog": ("v3.9.1.10 PAPER 포지션·가상 통계·외부 알림", "3.9.110"),
+            "readme": ("v3.9.1.10 Web UI PAPER Position, Statistics & Notifications Patch · Windows 재빌드 전",),
+            "build_guide": ("v3.9.1.10 Web UI PAPER Position, Statistics & Notifications Patch", "V<버전숫자>_*_TEST_PLAN.md", "3.9.110"),
+            "deploy_checklist": ("v3.9.1.10 Web UI PAPER Position, Statistics & Notifications Patch", "V39110_PAPER_POSITION_POLICY_STATISTICS_TEST_PLAN.md"),
+        }
+        errors: List[str] = []
+        for surface, markers in required.items():
+            text = text_map.get(surface, "")
+            for marker in markers:
+                if marker not in text:
+                    errors.append(f"[RELEASE_SURFACE] {surface}: '{marker}' 누락")
+        return errors
+    if RELEASE_VERSION == "3.9.1.9":
+        required = {
+            "manual_widget": ("v3.9.1.9 최신 업데이트", "[v3.9.1.9 Web UI]", "PAPER 전진검증"),
+            "user_guide": ("현재 설치 기준 버전: **v3.9.1.9**", "3.9.109", "PAPER 전진검증"),
+            "release_notes": ("v3.9.1.9 Web UI PAPER Validation & Grounded Assistant Patch", "3.9.109", "AI 어시스턴트"),
+            "deploy_release_notes": ("NoahAI v3.9.1.9 Web UI PAPER Validation & Grounded Assistant Patch", "3.9.109", "V3919_PAPER_VALIDATION_GROUNDED_ASSISTANT_TEST_PLAN.md"),
+            "changelog": ("v3.9.1.9 PAPER 전진검증", "3.9.109"),
+            "readme": ("v3.9.1.9 Web UI PAPER Validation & Grounded Assistant Patch · Windows 재빌드 전",),
+            "build_guide": ("v3.9.1.9 Web UI PAPER Validation & Grounded Assistant Patch", "V<버전숫자>_*_TEST_PLAN.md", "3.9.109"),
+            "deploy_checklist": ("v3.9.1.9 Web UI PAPER Validation & Grounded Assistant Patch", "V3919_PAPER_VALIDATION_GROUNDED_ASSISTANT_TEST_PLAN.md"),
+        }
+        errors: List[str] = []
+        for surface, markers in required.items():
+            text = text_map.get(surface, "")
+            for marker in markers:
+                if marker not in text:
+                    errors.append(f"[RELEASE_SURFACE] {surface}: '{marker}' 누락")
+        return errors
+
+    if RELEASE_VERSION == "3.9.1.8":
+        required = {
+            "manual_widget": ("v3.9.1.8 최신 업데이트", "[v3.9.1.8 Web UI]", "거래소 확인 체결"),
+            "user_guide": ("현재 설치 기준 버전: **v3.9.1.8**", "3.9.108", "KRW와 USDT"),
+            "release_notes": ("v3.9.1.8 Web UI Execution Reconciliation & Broker Reliability Patch", "3.9.108", "Bithumb"),
+            "deploy_release_notes": ("NoahAI v3.9.1.8 Web UI Execution Reconciliation & Broker Reliability Patch", "3.9.108", "V3918_EXECUTION_RECONCILIATION_PATCH_TEST_PLAN.md"),
+            "changelog": ("v3.9.1.8 체결 원장 정합", "3.9.108"),
+            "readme": ("v3.9.1.8 Web UI Execution Reconciliation & Broker Reliability Patch · Windows 재빌드 전",),
+            "build_guide": ("v3.9.1.8 Web UI Execution Reconciliation & Broker Reliability Patch", "V<버전숫자>_*_TEST_PLAN.md", "3.9.108"),
+            "deploy_checklist": ("v3.9.1.8 Web UI Execution Reconciliation & Broker Reliability Patch", "V3918_EXECUTION_RECONCILIATION_PATCH_TEST_PLAN.md"),
+        }
+        errors: List[str] = []
+        for surface, markers in required.items():
+            text = text_map.get(surface, "")
+            for marker in markers:
+                if marker not in text:
+                    errors.append(f"[RELEASE_SURFACE] {surface}: '{marker}' 누락")
+        return errors
+
+    if RELEASE_VERSION == "3.9.1.7":
+        required = {
+            "manual_widget": ("v3.9.1.7 최신 업데이트", "[v3.9.1.7 Web UI]", "single-flight"),
+            "user_guide": ("현재 설치 기준 버전: **v3.9.1.7**", "6개 거래소 장시간", "3.9.107"),
+            "release_notes": ("v3.9.1.7 Web UI Long-Run Performance & Request Isolation Patch", "3.9.107", "single-flight"),
+            "deploy_release_notes": ("NoahAI v3.9.1.7 Web UI Long-Run Performance & Request Isolation Patch", "3.9.107", "V3917_LONG_RUN_PERFORMANCE_PATCH_TEST_PLAN.md"),
+            "changelog": ("v3.9.1.7 장시간 성능·요청 격리 패치", "3.9.107"),
+            "readme": ("v3.9.1.7 Web UI Long-Run Performance & Request Isolation Patch · Windows 재빌드 전",),
+            "build_guide": ("v3.9.1.7 Web UI Long-Run Performance & Request Isolation Patch", "V<버전숫자>_*_TEST_PLAN.md", "3.9.107"),
+            "deploy_checklist": ("v3.9.1.7 Web UI Long-Run Performance & Request Isolation Patch", "V3917_LONG_RUN_PERFORMANCE_PATCH_TEST_PLAN.md"),
+        }
+        errors: List[str] = []
+        for surface, markers in required.items():
+            text = text_map.get(surface, "")
+            for marker in markers:
+                if marker not in text:
+                    errors.append(f"[RELEASE_SURFACE] {surface}: '{marker}' 누락")
+        return errors
+
+    if RELEASE_VERSION == "3.9.1.6":
+        plan_marker = "V<버전숫자>_*_TEST_PLAN.md"
+        required = {
+            "manual_widget": ("v3.9.1.6 최신 업데이트", "[v3.9.1.6 Web UI]", "최근 50개"),
+            "user_guide": ("현재 설치 기준 버전: **v3.9.1.6**", "Learning Data, Exchange Logs & Runtime Reliability Patch", "3.9.106"),
+            "release_notes": ("v3.9.1.6 Web UI Learning Data, Exchange Logs & Runtime Reliability Patch", "3.9.106", "최근 50개"),
+            "deploy_release_notes": ("NoahAI v3.9.1.6 Web UI Learning Data, Exchange Logs & Runtime Reliability Patch", "3.9.106", "V3916_LEARNING_LOG_RUNTIME_PATCH_TEST_PLAN.md"),
+            "changelog": ("v3.9.1.6 학습 데이터·거래소 로그·런타임 안정화 패치", "3.9.106"),
+            "readme": ("v3.9.1.6 Web UI Learning Data, Exchange Logs & Runtime Reliability Patch · Windows 재빌드 전",),
+            "build_guide": ("v3.9.1.6 Web UI Learning Data, Exchange Logs & Runtime Reliability Patch", plan_marker, "3.9.106"),
+            "deploy_checklist": ("v3.9.1.6 Web UI Learning Data, Exchange Logs & Runtime Reliability Patch", "V3916_LEARNING_LOG_RUNTIME_PATCH_TEST_PLAN.md"),
+        }
+        errors: List[str] = []
+        for surface, markers in required.items():
+            text = text_map.get(surface, "")
+            for marker in markers:
+                if marker not in text:
+                    errors.append(f"[RELEASE_SURFACE] {surface}: '{marker}' 누락")
+        return errors
+
+    if RELEASE_VERSION == "3.9.1.5":
+        required = {
+            "manual_widget": ("v3.9.1.5 최신 업데이트", "[v3.9.1.5 Web UI]", "settings.write_failed"),
+            "user_guide": ("현재 설치 기준 버전: **v3.9.1.5**", "Windows Exchange API Encoding & Credential Verification Patch", "3.9.105"),
+            "release_notes": ("v3.9.1.5 Windows Exchange API Encoding & Credential Verification Patch", "3.9.105", "settings.write_failed"),
+            "deploy_release_notes": ("NoahAI v3.9.1.5 Windows Exchange API Encoding & Credential Verification Patch", "3.9.105", "V3915_EXCHANGE_API_ENCODING_PATCH_TEST_PLAN.md"),
+            "changelog": ("v3.9.1.5 Windows 거래소 API 인코딩", "3.9.105"),
+            "readme": ("v3.9.1.5 Windows Exchange API Encoding & Credential Verification Patch · Windows 재빌드 전",),
+            "build_guide": ("v3.9.1.5 Windows Exchange API Encoding & Credential Verification Patch", "V3915_EXCHANGE_API_ENCODING_PATCH_TEST_PLAN.md", "3.9.105"),
+            "deploy_checklist": ("v3.9.1.5 Windows Exchange API Encoding & Credential Verification Patch", "V3915_EXCHANGE_API_ENCODING_PATCH_TEST_PLAN.md"),
+        }
+        errors: List[str] = []
+        for surface, markers in required.items():
+            text = text_map.get(surface, "")
+            for marker in markers:
+                if marker not in text:
+                    errors.append(f"[RELEASE_SURFACE] {surface}: '{marker}' 누락")
+        return errors
+
+    if RELEASE_VERSION == "3.9.1.3":
+        required = {
+            "manual_widget": ("v3.9.1.3 최신 업데이트", "[v3.9.1.3 Web UI]", "설정 저장 후 재검증"),
+            "user_guide": ("현재 설치 기준 버전: **v3.9.1.3**", "Settings Persistence Verification Patch", "검증 영수증"),
+            "release_notes": ("v3.9.1.3 Settings Persistence Verification Patch", "3.9.103", "NoahAIEngine.exe"),
+            "deploy_release_notes": ("NoahAI v3.9.1.3 Settings Persistence Verification Patch", "3.9.103", "pending_windows_rebuild"),
+            "changelog": ("v3.9.1.3 설정 저장", "3.9.103"),
+            "readme": ("v3.9.1.3 Settings Persistence Verification Patch · Windows 재빌드 전",),
+            "build_guide": ("v3.9.1.3 Settings Persistence Verification Patch", "V3913_SETTINGS_VERIFICATION_PATCH_TEST_PLAN.md", "3.9.103"),
+            "deploy_checklist": ("v3.9.1.3 Settings Persistence Verification Patch", "V3913_SETTINGS_VERIFICATION_PATCH_TEST_PLAN.md"),
+        }
+        errors: List[str] = []
+        for surface, markers in required.items():
+            text = text_map.get(surface, "")
+            for marker in markers:
+                if marker not in text:
+                    errors.append(f"[RELEASE_SURFACE] {surface}: '{marker}' 누락")
+        return errors
+
+    if RELEASE_VERSION == "3.9.1.1":
+        required = {
+            "manual_widget": ("v3.9.1.1 최신 업데이트", "[v3.9.1.1 Web UI]"),
+            "user_guide": ("현재 설치 기준 버전: **v3.9.1.1**",),
+            "release_notes": ("v3.9.1.1 Settings Persistence Patch", "3.9.101", "v3.9.1.0→v3.9.1.1"),
+            "deploy_release_notes": ("NoahAI v3.9.1.1 Settings Persistence Patch", "3.9.101", "Documents/NoahAI"),
+            "changelog": ("v3.9.1.1 설정 저장 패치", "3.9.101"),
+            "readme": ("v3.9.1.1 Settings Persistence Patch · Windows 검증 전",),
+        }
+        errors: List[str] = []
+        for surface, markers in required.items():
+            text = text_map.get(surface, "")
+            for marker in markers:
+                if marker not in text:
+                    errors.append(f"[RELEASE_SURFACE] {surface}: '{marker}' 누락")
+        return errors
+
+    if RELEASE_VERSION == "3.9.1.0":
+        required = {
+            # 내부 후보 식별자는 manifest/배포 문서에만 유지한다. 최종 사용자용
+            # 인앱 매뉴얼에는 제품 버전과 사용자 영향만 표시한다.
+            "manual_widget": ("v3.9.1.0 최신 업데이트", "[v3.9.1.0 Web UI]", "Windows bundle"),
+            "user_guide": ("현재 설치 기준 버전: **v3.9.1.0**", "Web UI Internal Integration Candidate", "pending_windows_rebuild"),
+            "release_notes": ("v3.9.1.0 Web UI Internal Integration Candidate", "실패 폐쇄", "pending_windows_rebuild"),
+            "deploy_release_notes": ("v3.9.1.0 Web UI Internal Integration Candidate", "read_first", "pending_windows_rebuild"),
+            "architecture": ("현재 소스 v3.9.1.0", "web_platform/gateway.py", "Application Services"),
+            "update_plan": ("v3.9.1.0 Web UI Major Transition", "PENDING", "pending_windows_rebuild"),
+            "test_status": ("v3.9.1.0 Web UI 1:1 전환 현재 검증", "전체 Python 회귀", "전체 1:1 완료 및 배포 가능 판정은 아니다"),
+            "readme": ("v3.9.1.0 Web UI 1:1 전환 진행 중 · 배포 불가", "모든 필수 행이 `[x] VERIFIED`", "pending_windows_rebuild"),
+            "docs_readme": ("v3.9.1.0 Web UI 1:1 전환 진행 중 · 배포 불가", "35개", "pending_windows_rebuild"),
+            "deploy_checklist": ("v3.9.1.0 Web UI Internal Integration Candidate", "Gateway", "build_web_ui_windows.ps1", "publish_ready=false", "pending_windows_rebuild"),
+            "master_documentation": ("v3.9.1.0 Web UI 1:1 전환 진행 중", "WEB_UI_1_TO_1_PARITY_EXECUTION_PLAN", "배포 불가"),
+            "build_guide": ("v3.9.1.0 Web UI Internal Integration Candidate", "Node `>=22.12.0`", "publish_web_ui_windows_release.ps1", "built_windows_unverified", "publish_ready=false"),
+            "ai_custom_architecture": ("v3.9.1.0 Web UI Internal Integration Candidate", "버전 diff/rollback", "pending_windows_rebuild"),
+            "assistant_guide": ("v3.9.1.0 Web UI Internal Integration Candidate", "백테스트/PAPER", ".noahstrategy"),
+            "trading_flow": ("v3.9.1.0 Web UI Internal Integration Candidate", "실패 폐쇄", "PAPER/Windows E2E"),
+        }
+        errors: List[str] = []
+        for surface, markers in required.items():
+            text = text_map.get(surface, "")
+            for marker in markers:
+                if marker not in text:
+                    errors.append(f"[RELEASE_SURFACE] {surface}: '{marker}' 누락")
+        return errors
+
     if RELEASE_VERSION == "3.9.0.10":
         required = {
             "manual_widget": ("v3.9.0.10 최신 업데이트", "수정본 만들기", "전략 삭제", "PAPER"),
@@ -525,6 +1005,7 @@ def main() -> int:
     errors.extend(check_release_version_markers(text_map))
     errors.extend(check_for_higher_version_mentions(text_map))
     errors.extend(check_release_surface_alignment(text_map))
+    errors.extend(check_current_release_and_marketplace(text_map))
 
     print("문서/버전 정합성 점검 결과")
     print(f"- 기준 배포 버전: v{RELEASE_VERSION}")

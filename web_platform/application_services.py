@@ -1355,8 +1355,107 @@ class ApplicationServices:
                 if self._remote_monitor is not None:
                     self._remote_monitor.close()
                 self._remote_monitor = RemoteMonitor(account=self.account, data_dir=self.data_dir,
-                    snapshot=self.runtime_bridge.snapshot)
+                    snapshot=self.runtime_bridge.snapshot, control_context=self.remote_control_context,
+                    control_execute=lambda cmd, account=self.account: self.execute_remote_control(cmd, expected_account=account))
             return self._remote_monitor
+
+    def remote_control_context(self):
+        """Bounded cached summary only; no account API polling from heartbeat."""
+        from web_platform.remote_monitor import public_snapshot
+        from web_platform.remote_control import settings_revision, safe_number
+        settings = load_settings(persist_migrations=False) or {}
+        # Strategy file changes invalidate approval too. Only hashes leave PC.
+        import hashlib
+        strategy_digests = {}
+        for scope in ('binance', 'unified'):
+            try:
+                filename = self.data_dir / 'custom_strategies' / self._strategy_filename(scope)
+                strategy_digests[scope] = hashlib.sha256(filename.read_bytes()).hexdigest() if filename.is_file() else ''
+            except Exception:
+                raise RuntimeError('remote_strategy_revision_unavailable')
+        revision = settings_revision({'settings': settings, 'strategies': strategy_digests})
+        snapshot = public_snapshot(self.runtime_bridge.snapshot())
+        app = getattr(self.runtime_bridge, '_app', None)
+        risk = getattr(app, 'risk_manager', None)
+        for row in snapshot['sources']:
+            source = row['source']
+            if source in {'kiwoom','kis','mirae','shinhan'}:
+                # Do not authorize PAPER using a stale last-cycle mode while
+                # current settings would run LIVE (or the reverse).
+                from trading.execution_mode import resolve_stock_execution_mode
+                controller = getattr(app, 'stock_runtime_controller', None)
+                adapter = None
+                allowed = False
+                if controller is not None and not settings.get('paper_trading',True):
+                    broker = controller._canonical(source)
+                    adapter = controller._adapters.get(broker)
+                    if adapter is not None:
+                        allowed = controller._live_permission(settings,broker,adapter)[0]
+                row['mode'] = resolve_stock_execution_mode(settings,allow_live_order=allowed,adapter_api_type=str(getattr(adapter,'api_type',''))).value
+            detail = {'position_count': None, 'strategy_count': None, 'risk_status': 'not_checked',
+                      'realized_pnl': None, 'unrealized_pnl': None, 'loss_rate': None,
+                      'loss_limit': safe_number(getattr(risk, 'max_daily_loss_percent', None)), 'checked_at': None}
+            if app is not None:
+                try:
+                    local = self.runtime_bridge.assistant_context_snapshot(service='stock' if source in {'kiwoom','kis','mirae','shinhan'} else 'blockchain', source=source)
+                    detail['position_count'] = len(local['managed_positions']) if source not in {'kiwoom','kis','mirae','shinhan'} or row['mode']=='paper' else None
+                    detail['strategy_count'] = len(local['active_custom_strategies'])
+                except Exception: pass
+            decision = getattr(risk, '_last_daily_loss_decision', {}).get(source)
+            if decision is not None and decision.execution_mode == row['mode']:
+                detail['risk_status'] = decision.status
+                detail['currency'] = decision.currency
+                detail['checked_at'] = safe_number(getattr(decision, 'checked_at', None))
+                if decision.status not in ('risk_data_unavailable','not_applicable'):
+                    for key in ('realized_pnl','unrealized_pnl','loss_rate'):
+                        detail[key] = safe_number(getattr(decision,key,None))
+            row['details'] = detail
+        return {**snapshot, 'revision': revision}
+
+    def execute_remote_control(self, cmd, *, expected_account=None):
+        """Reuse local starts; never change mode/budget/strategy or reset risk."""
+        from trading.remote_entry_pause import gate
+        source = cmd['source']
+        monitor = self._remote_monitor
+        if not monitor or expected_account != self.account or monitor.account != self.account or monitor.stop_event.is_set() or not monitor.config.get('enabled') or not monitor.config.get('allow_control'):
+            raise RuntimeError('remote_permission_revoked')
+        membership = self.refresh_membership_status(force=True)
+        if membership.get('status') != 'active' or membership.get('active') is not True:
+            raise RuntimeError('remote_membership_check_required')
+        context = monitor.approval_context()
+        row = next((r for r in context['sources'] if r['source']==source), {})
+        expected = {'revision':context['revision'],'mode':row.get('mode')}
+        if monitor.config.get('approved',{}).get(source)!=expected or cmd.get('revision')!=context['revision'] or cmd.get('mode')!=row.get('mode'):
+            raise RuntimeError('pc_settings_changed')
+        app = self.runtime_bridge._ensure_app()
+        app.assert_command_allowed(source)
+        if row['mode']=='live':
+            if source in {'kiwoom','kis','mirae','shinhan'}:
+                controller = app.stock_runtime_controller
+                broker = controller._canonical(source)
+                adapter = controller._adapters.get(broker)
+                if adapter is None or not controller._live_permission(controller._settings_snapshot(),broker,adapter)[0]:
+                    raise RuntimeError('stock_live_readiness_required_on_pc')
+            else:
+                decision = app.risk_manager.evaluate_daily_loss_limit(source=source, execution_mode='live')
+                if decision.blocked: raise RuntimeError('risk_guardrail_blocked')
+        import time
+        # Recheck after potentially slow network checks; no late start allowed.
+        if time.time() >= cmd['expires'] or monitor.approval_context()['revision'] != cmd['revision'] or self._remote_monitor is not monitor or self.account != expected_account or monitor.stop_event.is_set() or not monitor.config.get('enabled') or not monitor.config.get('allow_control'):
+            raise RuntimeError('expired_or_changed_remote_request')
+        pauses = gate(self.data_dir)
+        if pauses.state(source)['in_flight']:
+            raise RuntimeError('entry_submission_still_draining')
+        # Keep entries fenced while starting workers; existing exits are untouched.
+        pauses.set(source, True)
+        self.execute_runtime_command(command_id=cmd['id'], command='trading.start', payload={'source':source,'live_confirmation':row['mode']=='live'})
+        if source not in self.runtime_bridge.snapshot().get('running_sources',[]):
+            raise RuntimeError('runtime_start_not_confirmed')
+        # Serialize the final permission check and entry release with PC opt-out.
+        with monitor.lock:
+            if time.time() >= cmd['expires'] or monitor.approval_context()['revision'] != cmd['revision'] or self._remote_monitor is not monitor or self.account != expected_account or monitor.stop_event.is_set() or not monitor.config.get('enabled') or not monitor.config.get('allow_control'):
+                raise RuntimeError('expired_or_changed_remote_request')
+            pauses.set(source, False)
 
     def workspace_snapshot(
         self,
@@ -2457,6 +2556,7 @@ class ApplicationServices:
         recent_messages: list[dict[str, str]] | None = None,
         settings_section: str | None = None,
         data_scope: str = "private",
+        output_locale: str = "ko",
     ) -> dict[str, Any]:
         """Answer product-operation questions from the shipped, versioned knowledge base.
 
@@ -2611,6 +2711,10 @@ class ApplicationServices:
                     "실행 계약, 관련 필드, 증거 경계, 실패 조건과 운영상 trade-off까지 기술적으로 설명하세요."
                 ),
             }.get(explanation_level, "핵심 상태와 다음 행동을 간결하게 설명하세요.")
+            if output_locale == 'en':
+                context['assistant_policy']['output_locale'] = 'en'
+                explanation_instruction = explanation_instruction.replace('쉬운 한국어', '쉬운 영어')
+                explanation_instruction += ' Respond in English. Preserve identifiers, original evidence, numbers, units, uncertainty and all safety boundaries. Do not translate or regenerate executable strategy rules.'
             try:
                 result = self.interactive_ai.ask(
                     settings=settings,
@@ -2699,11 +2803,17 @@ class ApplicationServices:
                 "usage": result.get("usage"),
                 "privacy_route": result.get("privacy_route", "protected_default"),
             })
+            if output_locale == 'en' and result.get('provider_failed'):
+                from web_platform.english_guide import local_answer
+                result['answer'] = local_answer(str(result.get('answer') or answer), service)
             return result
         if explanation_level == "beginner":
             answer = "초보자 안내\n\n" + answer
         elif explanation_level == "advanced":
             answer += "\n\n고급 확인: 실행 IR 해시, 전략 버전, 실행 모드, 주문 가드레일과 감사 기록을 함께 대조하세요."
+        if output_locale == 'en':
+            from web_platform.english_guide import local_answer
+            answer = local_answer(answer, service)
         result = {
             "schema_version": "1.0.0",
             "service": service,
@@ -5345,13 +5455,16 @@ class ApplicationServices:
             deduplicated.append(row)
         return {"schema_version": "1.0.0", "service": service_key, "source": normalized, "lines": deduplicated[-limit:], "captured_at": _utc_now()}
 
-    def manual_snapshot(self) -> dict[str, Any]:
+    def manual_snapshot(self, *, output_locale: str = 'ko') -> dict[str, Any]:
         """Return the exact reachable legacy in-app manual contract.
 
         The JSON is generated from ``UserManualWidget`` during development and
         release builds.  Keeping the extraction at build time lets the headless
         sidecar remain UI-neutral while preventing a shortened Web-only manual.
         """
+        if output_locale == 'en':
+            from web_platform.english_guide import manual_snapshot
+            return {**manual_snapshot(), 'captured_at': _utc_now()}
         guide_path = Path(get_app_base_dir()) / "docs" / "USER_MANUAL_SECTIONS.json"
         try:
             payload = json.loads(guide_path.read_text(encoding="utf-8"))

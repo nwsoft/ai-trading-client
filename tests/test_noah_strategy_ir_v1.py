@@ -22,6 +22,12 @@ def _complete_rules():
         "regime_scope": "market",
         "signal_mode": "independent",
         "entry_signal": "LONG",
+        "exit_policy": {"mode": "strategy_owned"},
+        "engine_settings": {
+            "_unit": "percent_points",
+            "tp_percent": 2.0,
+            "sl_percent": 1.0,
+        },
         "executable_entry": {
             "all": [
                 {
@@ -175,7 +181,10 @@ def test_active_runtime_pool_excludes_an_ir_tampered_after_activation(tmp_path):
     strategy_id = customizer.create_custom_strategy({
         "name": "runtime integrity",
         "rules": _complete_rules(),
-        "base_params": {"leverage": 1, "tp_percent": 2.0, "sl_percent": 1.0},
+        "base_params": {
+            "_unit": "percent_points", "leverage": 1,
+            "tp_percent": 2.0, "sl_percent": 1.0,
+        },
         "target_scope": "exchange:binance",
         "signal_mode": "independent",
         "entry_signal": "LONG",

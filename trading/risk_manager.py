@@ -11,7 +11,8 @@ import logging
 import math
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional, Tuple
-from dataclasses import dataclass, asdict
+from dataclasses import dataclass, asdict, field
+import time
 import os
 
 
@@ -64,6 +65,7 @@ class DailyLossDecision:
     loss_amount: float = 0.0
     loss_rate: float = 0.0
     reason: str = ""
+    checked_at: float = field(default_factory=time.time)
 
 
 class RiskManager:

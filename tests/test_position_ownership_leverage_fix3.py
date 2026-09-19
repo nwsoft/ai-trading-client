@@ -129,6 +129,21 @@ def test_spot_short_without_noah_long_protects_manual_balance():
     assert "수동 보유자산을 보호" in result["reason"]
 
 
+def test_upbit_paper_short_without_noah_long_does_not_open_synthetic_short():
+    trader = UnifiedTrader.__new__(UnifiedTrader)
+    trader.logger = logging.getLogger("test.spot.short.paper")
+    trader.settings = {"paper_trading": True}
+    trader._execution_mode = lambda _exchange: ExecutionMode.PAPER
+    trader._position_store = lambda _exchange: {}
+
+    result = trader._execute_signal_trade(
+        "upbit", "BTC/KRW", {"signal": "SHORT", "confidence": 0.9}
+    )
+
+    assert result["status"] == "skipped"
+    assert "신규 공매도가 아닙니다" in result["reason"]
+
+
 def test_spot_short_closes_only_owned_long_instead_of_opening_short():
     trader = UnifiedTrader.__new__(UnifiedTrader)
     trader.logger = logging.getLogger("test.spot.short.owned")

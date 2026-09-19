@@ -183,6 +183,51 @@ class TestProfitabilityValidatorThresholds:
 
 class TestProfitabilityValidatorCalculations:
 
+    def test_prefers_normalized_percent_over_cash_currency(self):
+        v = ProfitabilityValidator()
+        krw = {"net_pnl": 1000.0, "net_pnl_percent": 1.0, "pnl_is_net": True}
+        usdt = {"net_pnl": 1.0, "net_pnl_percent": 1.0, "pnl_is_net": True}
+        assert v._extract_trade_return(krw) == pytest.approx(0.01)
+        assert v._extract_trade_return(usdt) == pytest.approx(0.01)
+
+    def test_derives_normalized_return_from_cash_and_entry_notional(self):
+        v = ProfitabilityValidator()
+        row = {
+            "net_pnl": 2.0,
+            "pnl_is_net": True,
+            "entry_price": 100.0,
+            "quantity": 2.0,
+        }
+        assert v._extract_trade_return(row) == pytest.approx(0.01)
+
+    def test_cash_pnl_without_capital_basis_is_excluded_from_kpi(self):
+        v = ProfitabilityValidator()
+        result = v.evaluate_strategy(
+            [{"net_pnl": 1000.0, "pnl_is_net": True}],
+            policy={"enabled": True, "min_trades": 1},
+        )
+        assert result["total_trades"] == 0
+        assert result["raw_trade_rows"] == 1
+        assert result["excluded_return_rows"] == 1
+        assert result["reason"] == "insufficient_trades"
+
+    def test_report_keeps_cash_pnl_but_uses_return_curve_for_mdd(self):
+        v = ProfitabilityValidator()
+        trades = [
+            {"net_pnl": 1000.0, "net_pnl_percent": 1.0, "pnl_is_net": True},
+            {"net_pnl": -500.0, "net_pnl_percent": -0.5, "pnl_is_net": True},
+        ]
+        result = v.evaluate_strategy(trades, policy={
+            "enabled": True, "min_trades": 1, "min_win_rate": 0.0,
+            "min_sharpe": -999.0, "max_mdd": 1.0,
+            "min_expectancy": -1.0, "min_walkforward_pass_rate": 0.0,
+        })
+        assert result["net_pnl"] == pytest.approx(500.0)
+        assert result["expectancy"] == pytest.approx(0.0025)
+        assert result["mdd"] == pytest.approx(0.005)
+        assert result["return_basis"] == "normalized_return"
+        assert result["walkforward_method"] == "closed_trade_window_stability_not_retrained_oos"
+
     def test_win_rate_calculation(self):
         v = ProfitabilityValidator()
         # 4승 1패 → win_rate=0.8

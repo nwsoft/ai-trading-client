@@ -104,7 +104,7 @@
 
 #### 1.4 저장 결과 기준 확인
 
-- [ ] 설정 저장 후 [noahai_client/data/settings.json](noahai_client/data/settings.json)에 `enabled_stock_brokers`와 `stock_broker_configs.kiwoom` 값이 반영되는지 확인
+- [ ] 설정 저장 후 [data/settings.json](../data/settings.json)에 `enabled_stock_brokers`와 `stock_broker_configs.kiwoom` 값이 반영되는지 확인
 - [ ] 현재 구현 기준으로 활성화한 증권사(키움/신한/미래에셋)의 `api_type`, `api_version`, 계정 필드가 각 broker 키에 저장되는지 확인
 
 ---

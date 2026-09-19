@@ -30,4 +30,5 @@ def test_manual_boundary_is_independent_of_mutable_release_manifest(tmp_path, mo
     manifest.write_text('{"version":"9.9.9.9","publish_ready":false}')
     second = exporter._render_release_boundary('custom', 'guide')
     assert first == second
-    assert 'v3.9.1.38 Windows stable/latest 공개 제품' in second
+    from config.app_version import RELEASE_VERSION, PUBLIC_RELEASE_VERSION
+    assert f'v{RELEASE_VERSION} Windows stable/latest 배포 후보 · 공개 stable/latest는 v{PUBLIC_RELEASE_VERSION}' in second
