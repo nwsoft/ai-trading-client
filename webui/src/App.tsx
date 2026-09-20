@@ -141,6 +141,8 @@ function DesktopApp() {
   const [activeService, setActiveService] = useState("blockchain");
   const [activeFeature, setActiveFeature] = useState("blockchain.logs");
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [settingsInitialField, setSettingsInitialField] = useState<string>();
+  const [settingsRevision, setSettingsRevision] = useState(0);
   const [manualOpen, setManualOpen] = useState(false);
   const [manualInitialTab, setManualInitialTab] = useState("intro");
   const [assistantQuestion, setAssistantQuestion] = useState("");
@@ -288,7 +290,7 @@ function DesktopApp() {
 
   useEffect(() => {
     const mode = session?.authenticated ? "dashboard" : "login";
-    const displayVersion = platform?.release_version || "3.9.1.42";
+    const displayVersion = platform?.release_version || "3.9.1.43";
     document.title = session?.authenticated ? `Noah AI Client - 대시보드 Beta v${displayVersion}` : "NoahAI Finance Decision OS - 로그인";
     document.body.classList.toggle("dashboard-surface", Boolean(session?.authenticated));
     window.noahAI?.window?.setMode(mode).catch(() => undefined);
@@ -450,7 +452,7 @@ function DesktopApp() {
       {(["blockchain", "stock"] as const).map((strategyService) => {
         const visible = activeSurface === "strategy" && activeService === strategyService;
         if (!visible && !visitedStrategyStudios[strategyService]) return null;
-        return <div className="strategy-studio-keepalive" hidden={!visible} key={strategyService}><StrategyStudio client={client} service={strategyService} source={selectedSources[strategyService]} onAskAssistant={(question) => openStrategyAssistant(question, strategyService)} onOpenSettings={() => setSettingsOpen(true)} assistantDraft={strategyAssistantDraft?.service === strategyService ? strategyAssistantDraft : null} onAssistantDraftConsumed={() => setStrategyAssistantDraft(null)} /></div>;
+        return <div className="strategy-studio-keepalive" hidden={!visible} key={strategyService}><StrategyStudio client={client} service={strategyService} source={selectedSources[strategyService]} onAskAssistant={(question) => openStrategyAssistant(question, strategyService)} onOpenSettings={() => setSettingsOpen(true)} settingsRevision={settingsRevision} onOpenDifficultySettings={() => { setSettingsInitialField("ai_custom_features.profile"); setSettingsOpen(true); }} assistantDraft={strategyAssistantDraft?.service === strategyService ? strategyAssistantDraft : null} onAssistantDraftConsumed={() => setStrategyAssistantDraft(null)} /></div>;
       })}
       {activeSurface === "ai_learning" && <LegacyAILearningWorkspace client={client} service={activeService as "blockchain" | "stock"} source={chartSource} sources={activeSourceTabs} />}
       {activeSurface === "ai_report" && <LegacyAIReportWorkspace client={client} service={activeService as "blockchain" | "stock"} source={chartSource} sources={activeSourceTabs} onAskAssistant={(question) => openAssistant(question, activeService)} />}
@@ -472,10 +474,10 @@ function DesktopApp() {
     </section>
     <footer className="statusbar legacy-statusbar">
       <span className="legacy-status-left">{legacyStatusLabel(runtime, chartSource, statusClock)}</span>
-      <div className="legacy-release-update"><span className="legacy-release">{platform?.release_label ?? "v3.9.1.42"}</span><UpdateCenter client={client} accountScope={session?.account ?? ""} onOpenGuide={() => openManual("updates")} /></div>
+      <div className="legacy-release-update"><span className="legacy-release">{platform?.release_label ?? "v3.9.1.43"}</span><UpdateCenter client={client} accountScope={session?.account ?? ""} onOpenGuide={() => openManual("updates")} /></div>
       <div className="legacy-ai-summary"><span className="legacy-ai-record" title={aiRecord}>{aiRecord}</span><button className="legacy-record-button" type="button" onClick={() => void refreshAiRecord()}><AppIcon name="record" />{t("기록")}</button></div>
     </footer>
-    <SettingsCenter client={client} open={settingsOpen} onClose={() => setSettingsOpen(false)} onAskAssistant={(question, settingsSection) => openAssistant(question, "settings", settingsSection)} onOpenManual={() => { setSettingsOpen(false); openManual("settings"); }} onSettingsSaved={refreshRuntimeFromSettings} />
+    <SettingsCenter client={client} open={settingsOpen} initialField={settingsInitialField} onClose={() => { setSettingsOpen(false); setSettingsInitialField(undefined); }} onAskAssistant={(question, settingsSection) => openAssistant(question, "settings", settingsSection)} onOpenManual={() => { setSettingsOpen(false); openManual("settings"); }} onSettingsSaved={async () => { setSettingsRevision((value) => value + 1); await refreshRuntimeFromSettings(); }} />
     {manualOpen && <ManualCenter client={client} initialTab={manualInitialTab} onClose={() => setManualOpen(false)} onAskAssistant={(question) => openAssistant(question, activeService)} onOpenSettings={() => { setManualOpen(false); setSettingsOpen(true); }} onNavigate={openManualTarget} />}
   </div>;
 }

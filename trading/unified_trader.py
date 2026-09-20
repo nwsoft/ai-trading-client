@@ -2042,9 +2042,10 @@ class UnifiedTrader:
                 (layer_settings.get('profitability_validation', {}) or {}).get('enabled', False)
             ) and not bool(profitability_report.get('enabled', True))
             if profitability_blocked:
+                from trading.record_recovery import recovery_hint
                 self.logger.warning(
                     f"⚠️ {exchange_name} 기본/confirm 후보 수익성 정책 차단: "
-                    f"{profitability_report.get('reasons', [])} · independent 전략은 버전별 검증 사용"
+                    f"{profitability_report.get('reasons', [])} · {recovery_hint(profitability_report)}"
                 )
             if profitability_report.get('stage') in {'limited_live_learning', 'recovery_learning', 'validated_adaptive'}:
                 stage_label = {

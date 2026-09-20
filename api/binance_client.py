@@ -1762,6 +1762,56 @@ class BinanceClient:
         """Query only an already-owned protection id; failures remain unknown."""
         return self._get_futures_signed('/fapi/v1/algoOrder', {'algoId': str(algo_id)})
 
+    def get_recovery_order_fills(self, symbol: str, order_id: str, closed_epoch: float) -> List[Dict]:
+        """Read-only, explicit historical window; never disguise API failure as [].
+
+        USD-M userTrades defaults to seven recent days without dates. An old
+        exact order therefore needs its recorded close window, not latest-N.
+        A saturated response is NOT certified as complete.
+        """
+        if not self._has_api_keys():
+            raise RuntimeError('credential_required')
+        if not symbol or not str(order_id).isdigit():
+            raise ValueError('invalid_order_reference')
+        end = min(int((closed_epoch + 86400) * 1000), self.get_synced_timestamp())
+        rows = self.client.futures_account_trades(
+            symbol=symbol, orderId=int(order_id), startTime=int((closed_epoch - 86400) * 1000),
+            endTime=end, limit=1000, recvWindow=self.config.recv_window,
+            requests_params={'timeout': 15},
+        )
+        if not isinstance(rows, list) or len(rows) >= 1000:
+            raise RuntimeError('history_page_incomplete')
+        return [{**r, 'order': str(r.get('orderId', '')), 'quantity': r.get('qty'),
+                 'realized_pnl': r.get('realizedPnl'), 'commission_asset': r.get('commissionAsset')}
+                for r in rows if isinstance(r, dict)]
+
+    def get_recovery_history_page(self, kind: str, symbol: str, start: int, end: int) -> List[Dict]:
+        """Raw authenticated history, not latest-N and never error-as-empty.
+
+        The durable collector splits saturated time intervals; fromId cannot
+        be combined with time bounds on userTrades. No trading endpoint here.
+        """
+        paths = {'fills': '/fapi/v1/userTrades', 'orders': '/fapi/v1/allOrders',
+                 'algos': '/fapi/v1/allAlgoOrders', 'income': '/fapi/v1/income'}
+        if kind not in paths or not symbol or start < 0 or not start <= end < start + 7*86400000:
+            raise ValueError('invalid_history_window')
+        if not self._has_api_keys():
+            raise RuntimeError('credential_required')
+        rows = self._get_futures_signed(paths[kind], {
+            'symbol': symbol, 'startTime': start, 'endTime': end, 'limit': 1000})
+        if not isinstance(rows, list) or any(not isinstance(r, dict) for r in rows):
+            raise RuntimeError('provider_history_query_failed')
+        return rows
+
+    def get_recovery_position_anchor(self, symbol: str) -> List[Dict]:
+        """Explicit position-side quantities and update times; absence != flat."""
+        if not self._has_api_keys():
+            raise RuntimeError('credential_required')
+        rows = self._get_futures_signed('/fapi/v2/positionRisk', {'symbol': symbol})
+        if not isinstance(rows, list) or not rows or any(not isinstance(r, dict) for r in rows):
+            raise RuntimeError('position_anchor_unavailable')
+        return rows
+
     def get_open_orders(self, symbol: str) -> List[Dict]:
         """미체결 주문 조회"""
         # 키가 없으면 조용히 빈 리스트 반환

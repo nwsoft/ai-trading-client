@@ -1746,6 +1746,7 @@ class Recorder:
         trades: List[Dict[str, Any]],
         *,
         source: str = 'exchange_api',
+        reconcile: bool = True,
     ) -> Dict[str, int]:
         """거래소 실제 체결 원장을 중복 없이 저장한다.
 
@@ -1937,8 +1938,9 @@ class Recorder:
             # 먼저 감지해 trade_log를 닫을 수 있다. 이때 응답 주문 ID가 없더라도
             # 시간·방향·수량 후보는 소유권 증거가 아니므로 미확정으로 남긴다.
             # 실제 주문 ID가 기록된 행만 기존 exact-order 대조를 수행한다.
-            self.link_unresolved_trade_closes_with_executions(venue)
-            self.reconcile_trade_log_with_executions(venue)
+            if reconcile:
+                self.link_unresolved_trade_closes_with_executions(venue)
+                self.reconcile_trade_log_with_executions(venue)
         except Exception as exc:
             log_event(
                 'trade',
@@ -2103,7 +2105,7 @@ class Recorder:
                 return quote
         return ''
 
-    def reconcile_trade_log_with_executions(self, exchange: str) -> int:
+    def reconcile_trade_log_with_executions(self, exchange: str, *, trade_ids=None) -> int:
         """Reconcile NoahAI closes only when an exact exit-order match is safe.
 
         Unknown legacy rows, manual fills, quantity mismatches and mixed fee
@@ -2113,6 +2115,13 @@ class Recorder:
         if not venue:
             return 0
         reconciled = 0
+        # Maintenance uses small explicit batches, not a full ledger scan per fill.
+        selected_ids = None if trade_ids is None else list(dict.fromkeys(int(i) for i in trade_ids))
+        if selected_ids == []:
+            return 0
+        if selected_ids is not None and len(selected_ids) > 100:
+            raise ValueError('reconciliation_batch_too_large')
+        id_clause = '' if selected_ids is None else ' AND id IN (' + ','.join('?' for _ in selected_ids) + ')'
         try:
             with sqlite3.connect(self.db_path, timeout=20.0) as conn:
                 conn.row_factory = sqlite3.Row
@@ -2132,8 +2141,8 @@ class Recorder:
                         OR LOWER(COALESCE(reason, '')) LIKE 'ai %'
                         OR LOWER(COALESCE(reason, '')) LIKE 'stock_auto_%'
                       )
-                    """,
-                    (venue,),
+                    """ + id_clause,
+                    (venue, *(selected_ids or [])),
                 ).fetchall()
                 for row in rows:
                     # An order cannot certify two independently owned full
@@ -2197,7 +2206,16 @@ class Recorder:
                     exit_fee_asset = next(iter(currencies)) if len(currencies) == 1 else (
                         'MIXED' if currencies else str(row['exit_fee_asset'] or row['fee_asset'] or '').upper()
                     )
-                    entry_fee = float(row['entry_fee'] if row['entry_fee'] is not None else row['fees'] or 0.0)
+                    # Legacy `fees` may already be entry+exit total, or an
+                    # estimate. Reusing it as entry fee double charges costs;
+                    # treating NULL as zero silently invents a net result.
+                    if row['entry_fee'] is None:
+                        conn.execute("""UPDATE trade_log SET gross_pnl=?,net_pnl=NULL,
+                            exit_price=?,exit_fee=?,pnl_source=?,
+                            reconciliation_status='entry_fee_evidence_missing' WHERE id=?""",
+                            (gross,exit_price,exit_fee,'exchange_realized_pnl' if gross is not None else 'exact_fill_price_no_provider_pnl',int(row['id'])))
+                        continue
+                    entry_fee = float(row['entry_fee'])
                     entry_fee_asset = str(row['entry_fee_asset'] or row['fee_asset'] or '').upper()
                     entry_fee_convertible = entry_fee == 0 or (
                         bool(settlement) and bool(entry_fee_asset) and entry_fee_asset == settlement
@@ -2912,6 +2930,10 @@ class Recorder:
                         stats.get('total_pnl', 0.0),
                         stats.get('max_drawdown', 0.0)
                     ))
+                # Capture the INSERT result before the verification SELECT.
+                # Returning an undefined variable after commit reported a
+                # successful write as a failure (observed in customer logs).
+                inserted_id = cursor.lastrowid
                 conn.commit()
 
                 # 저장 후 확인
@@ -4093,6 +4115,10 @@ class Recorder:
                         ('execution_mode', 'reconciliation_status', 'pnl_source', 'net_pnl'), r[13:17]
                     ))),
                 })
+            # Historical repair writes exchange UTC timestamps while legacy
+            # rows may contain local/offset timestamps. Lexical SQL order is
+            # not chronological and must not select the wrong newest sample.
+            results.sort(key=lambda row: self._ledger_time_epoch(row['exit_time']) or 0)
             return results
         except Exception as e:
             log_event('trade', f"최근 거래 이력 조회 오류: {e}", exchange=self.exchange, level='ERROR')

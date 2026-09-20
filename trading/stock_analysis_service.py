@@ -3183,7 +3183,13 @@ class StockAnalysisService:
             'recent_win_rate': 0.5,
             'consecutive_losses': 0,
         }
-        if cached_recent_trades:
+        # Incomplete LIVE windows cannot become a winners-only tuning sample.
+        live_performance_complete = execution_mode in (ExecutionMode.PAPER.value, 'mock') or all(
+            isinstance(row, dict) and row.get('performance_evidence_ready') is True
+            for row in cached_recent_trades
+        )
+        strategy_performance_context['performance_evidence_complete'] = live_performance_complete
+        if cached_recent_trades and live_performance_complete:
             recent_sample = list(cached_recent_trades)[-30:]
             pnl_values: List[float] = []
             for trade in recent_sample:

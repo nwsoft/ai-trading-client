@@ -7,6 +7,7 @@ import json
 import math
 import sqlite3
 import time
+from contextlib import contextmanager
 
 
 class BinanceCloseEvidence:
@@ -20,8 +21,14 @@ class BinanceCloseEvidence:
                 checked_at REAL NOT NULL DEFAULT 0, response_json TEXT,
                 PRIMARY KEY(symbol, protection_id, kind))''')
 
+    @contextmanager
     def connect(self):
-        return sqlite3.connect(self.recorder.db_path, timeout=10)
+        conn = sqlite3.connect(self.recorder.db_path, timeout=10)
+        try:
+            with conn:
+                yield conn
+        finally:
+            conn.close()
 
     def remember(self, entry_id, symbol, close_side, results):
         if not entry_id:
@@ -45,7 +52,7 @@ class BinanceCloseEvidence:
                 saved += cur.rowcount
         return saved
 
-    def sync(self, limit=2, now=None):
+    def sync(self, limit=2, now=None, trade_id=None):
         now = time.time() if now is None else now
         result = {'checked': 0, 'linked': 0, 'failed': 0}
         with self.connect() as conn:
@@ -57,8 +64,9 @@ class BinanceCloseEvidence:
                     AND t.position_owner='noahai'
                     AND t.execution_mode IN ('live','live_api','optimized','manual')
                     AND (t.exit_order_id IS NULL OR t.exit_order_id=p.actual_order_id)
-                    AND COALESCE(t.reconciliation_status,'') != 'exchange_confirmed')
-                ORDER BY p.checked_at,p.rowid LIMIT ?''', (now-30, max(1,min(int(limit),10)))).fetchall()
+                    AND COALESCE(t.reconciliation_status,'') != 'exchange_confirmed'
+                    AND (? IS NULL OR t.id=?))
+                ORDER BY p.checked_at,p.rowid LIMIT ?''', (now-30, trade_id, trade_id, max(1,min(int(limit),10)))).fetchall()
         for row in rows:
             result['checked'] += 1
             with self.connect() as conn:
@@ -79,7 +87,15 @@ class BinanceCloseEvidence:
                     continue
                 if str(response.get('symbol') or '').upper() != row['symbol'] or str(response.get('side') or '').upper() != row['close_side']:
                     raise ValueError('protection symbol/side mismatch')
-                fills = self.client.get_recent_trades(symbol=row['symbol'], limit=1000, order_id=actual)
+                recovery_fetch = getattr(self.client, 'get_recovery_order_fills', None)
+                close_epoch = None
+                if trade_id is not None:
+                    with self.connect() as conn:
+                        closed = conn.execute('SELECT exit_time FROM trade_log WHERE id=?', (trade_id,)).fetchone()
+                    close_epoch = self.recorder._ledger_time_epoch(closed[0]) if closed else None
+                fills = (recovery_fetch(row['symbol'], actual, close_epoch)
+                         if callable(recovery_fetch) and close_epoch is not None
+                         else self.client.get_recent_trades(symbol=row['symbol'], limit=1000, order_id=actual))
                 fills = [f for f in fills if str(f.get('order_id') or f.get('order')) == actual]
                 if not fills:
                     continue
@@ -89,7 +105,7 @@ class BinanceCloseEvidence:
                 if any(not math.isfinite(float(f.get('commission') if 'commission' in f else f['fee'].get('cost')))
                        for f in fills):
                     continue
-                self.recorder.save_exchange_execution_history('binance', fills, source='owned_protection_order')
+                self.recorder.save_exchange_execution_history('binance', fills, source='owned_protection_order', reconcile=trade_id is None)
                 with self.connect() as conn:
                     conn.row_factory = sqlite3.Row
                     trades = conn.execute('''SELECT id,side,quantity,exit_time FROM trade_log
@@ -117,13 +133,15 @@ class BinanceCloseEvidence:
                     closed_at = datetime.fromtimestamp(max(epochs), timezone.utc).isoformat()
                     cur = conn.execute('''UPDATE trade_log SET exit_order_id=?,exit_time=?,
                         reconciliation_status='pending_exchange_reconciliation'
-                        WHERE id=? AND (exit_order_id IS NULL OR exit_order_id=?)''',
-                        (actual,closed_at,trade['id'],actual))
+                        WHERE id=? AND (exit_order_id IS NULL OR exit_order_id=?)
+                        AND exchange='binance' AND UPPER(symbol)=? AND order_id=?''',
+                        (actual,closed_at,trade['id'],actual,row['symbol'],row['entry_order_id']))
                     conn.execute('''UPDATE binance_close_evidence SET actual_order_id=?,response_json=?
                         WHERE symbol=? AND protection_id=? AND kind=?''',
                         (actual,json.dumps(response),row['symbol'],row['protection_id'],row['kind']))
                     result['linked'] += cur.rowcount
-                self.recorder.reconcile_trade_log_with_executions('binance')
+                if trade_id is None:
+                    self.recorder.reconcile_trade_log_with_executions('binance')
             except Exception:
                 result['failed'] += 1
         return result

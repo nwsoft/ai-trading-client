@@ -3227,3 +3227,14 @@ html[lang="en"] .legacy-topbar { flex-wrap: wrap; height: auto; min-height: 58px
 html[lang="en"] .service-nav, html[lang="en"] .feature-nav { flex-wrap: wrap; }
 html[lang="en"] button { white-space: normal; overflow-wrap: break-word; }
 .english-beta-notice { margin: 8px 12px; padding: 8px 12px; border: 1px solid #466981; border-radius: 6px; color: #cee3f6; font-size: 13px; line-height: 1.45; }
+/* Account-local maintenance keeps the established dark Settings controls. */
+.record-recovery { display: grid; gap: 12px; min-width: 0; padding: 16px; }
+.record-recovery h3 { margin: 0; font-size: 17px; line-height: 1.5; }
+.record-recovery p, .record-recovery li { margin: 0; font-size: 14px; line-height: 1.65; word-break: keep-all; overflow-wrap: anywhere; }
+.record-recovery label { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; font-size: 14px; }
+.record-recovery select, .record-recovery button { min-height: 42px; padding: 10px 14px; color: #e6f1ff; background: #24496a; border: 1px solid #5c80a1; border-radius: 8px; font-size: 14px; line-height: 1.4; }
+.record-recovery button { width: fit-content; max-width: 100%; white-space: normal; text-align: center; cursor: pointer; }
+.record-recovery button:disabled { opacity: .6; cursor: wait; }
+.record-recovery [role="status"] { display: grid; gap: 8px; padding: 12px; background: #111f33; border-radius: 8px; }
+.record-recovery small { font-size: 12px; line-height: 1.5; color: #b4c9e1; }
+.record-recovery ul { margin: 0; padding-left: 20px; }

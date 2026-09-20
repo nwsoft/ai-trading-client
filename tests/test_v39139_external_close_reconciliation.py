@@ -40,6 +40,9 @@ def _closed_external_short(
         tp_price=0.3034,
         sl_price=None,
         fees=0.0,
+        # This fixture proves a fee-free entry; NULL is unknown, not zero.
+        entry_fee=0.0,
+        entry_fee_asset="USDT",
         slippage=0.0,
         exchange="binance",
         order_id=entry_order_id,

@@ -65,7 +65,8 @@ def test_english_manual_and_local_fallback_preserve_evidence_boundaries():
     manual=manual_snapshot()
     assert len(manual['sections'])==11
     assert len({s['id'] for s in manual['sections']})==11
-    assert manual['release_version']=='3.9.1.42'
+    from config.app_version import RELEASE_VERSION
+    assert manual['release_version'] == RELEASE_VERSION
     for text in ['UTC', 'Unresolved', 'PAPER', 'LIVE', 'funding', 'not actual', 'password', 'not proof']:
         assert text.lower() in manual['content'].lower()
     original='미대조 1건 · PnL -0.25001 USDT · 계정 없음'

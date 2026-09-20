@@ -28,7 +28,9 @@ Ask: “Explain the strategy's entry, exit, stop loss and missing conditions in 
 4. Revalidate and save a version. Then approve that version and run validation. Saved, approved, validated and applied are different states.
 5. Inspect historical replay and PAPER evidence. Applying a strategy still requires the correct venue, mode, account limits and execution checks. LIVE is never enabled by translation or AI conversation.
 
-Use Ask AI about this result for a plain-language explanation of the current analysis. Unsupported conditions are not replaced with guessed rules.'''),
+Use Ask AI about this result for a plain-language explanation of the current analysis. Unsupported conditions are not replaced with guessed rules.
+
+Difficulty: open the Level comparison, then Difficulty settings to jump directly to the selector under Settings → AI Engine/API. Choose Level 1 (Beginner), Level 2 (Standard), Level 3 (Advanced) or Level 4 (Lab), then save the current settings. Open crypto and stock studios refresh after a verified save without clearing your strategy input. These are display-complexity profiles, not return ratings or permission to bypass validation.'''),
     ('backtest', 'Replay charts and validation', '''After approving a supported strategy version, run Historical replay with a supported symbol, timeframe and candle count. In the saved version, expand Historical replay chart to view the candles, simulated entry / exit markers, closed-trade compounded return curve and trade table. Click a trade row to focus its interval; Fit range shows the complete span.
 
 Chart time is UTC candle-start time, not actual exchange fill time. Green BUY and red SELL represent order sides: SELL can open a short position. Read the entry / exit labels rather than assuming every BUY is an entry.
@@ -40,7 +42,17 @@ No chart means missing or inconsistent original evidence, not zero profit. Older
 
 NoahAI-linked closed-trade net PnL is different from exchange full-account daily PnL. Fees, taxes, funding, transfers, manual trades and unrealized positions can change the comparison basis. Read the reconciliation status and cost basis. Unresolved trades are not zero-profit trades; a reconciled subtotal is not the complete result.
 
-Sync venue fills rereads available evidence. Recalculate display updates statistics. Setting a display baseline does not delete the ledger. Do not bypass a reconciliation block merely to resume entries. Give support redacted logs and trade identifiers, never API secrets.'''),
+Sync venue fills rereads available evidence. Recalculate display updates statistics. Setting a display baseline does not delete the ledger. Do not bypass a reconciliation block merely to resume entries. Give support redacted logs and trade identifiers, never API secrets.
+
+Trade record maintenance (43 candidate): Open Settings → Updates → Maintenance → Trade record recovery. The same panel is available in LIVE Trading statistics. Choose the venue and Check / continue. No new strategy or trading mode is introduced.
+
+The check covers unresolved LIVE records from the last 45 days, not only the policy's recent 300. It saves an initial SQLite backup and per-run before/after evidence. It uses a bounded background task, a persistent queue and a retry cooldown. A stopped app resumes the check only when requested. PAPER records, display baselines and loss limits are not reset.
+
+This task does not submit/cancel orders, close positions or start trading. Already-running engines still reevaluate their existing policies using repaired records: pause new entries first if you want to review the result before trading continues.
+
+For Binance, a missing local exit ID now triggers historical order, fill, conditional-order and income queries. A known entry and a complete isolated position cycle establish the actual closing fills, realized PnL and entry/exit fees, including multiple close orders. Mixed entries are not arbitrarily allocated. History-window progress is shown; keeping this panel open continues after each request budget. Restarting resumes saved pages. A new check refreshes delayed provider evidence.
+
+Missing exit-order ownership cannot be reconstructed merely from matching prices or timestamps. Current broker history adapters do not yet provide full historical order/cost/lot recovery. Missing evidence, unsupported APIs and query failures remain visible, never certified as zero losses or success. Statement import, full daily-account reconciliation and conditional resumption with unresolved historical attribution are NOT implemented in this candidate. Completing this check is not an authorization to trade.'''),
     ('remote', 'Mobile remote management', '''On the PC, open Settings → Alerts / Reports → Remote management. Enable status sharing and choose each optional permission. Start / resume and detailed summaries are off unless explicitly permitted. Save the approved venue / mode / settings scope.
 
 Sign in to daltrading in your mobile browser and open My NoahAI. PC login and browser login are separate sessions. Check the latest received time. A sleeping, disconnected or closed PC cannot act on a command.
@@ -53,7 +65,7 @@ Unlinking a PC revokes its remote connection. It does not close positions, stop 
 This English beta does not translate all trading-engine notifications. Original risk messages, numbers and error codes remain unchanged. Never interpret a missing translation as an absence of risk. Daily-risk summaries and exchange account PnL have different scopes; read the stated basis and timestamp.
 
 No API key, strategy source or account number should be included in a public support message.'''),
-    ('updates', 'Updates', '''v3.9.1.42 adds English beta presentation and remote controls with explicit PC permissions. The client installer is released separately from website updates.
+    ('updates', 'Updates', '''v3.9.1.43 improves direct difficulty navigation, consistent level labels and refresh after a verified settings save. Historical unresolved PnL records are not automatically repaired by this UI patch. v3.9.1.42 added English beta presentation and remote controls with explicit PC permissions. The client installer is released separately from website updates.
 
 Check for updates in Settings → Updates. Checking and downloading do not stop trading. Installation / restart requires safe engine shutdown and record persistence. Do not replace an active installation while orders are in flight. A source test is not evidence that a Windows installer has been verified.'''),
     ('support', 'Limits and support', '''English beta covers navigation, selected operating controls, remote management and this guide. Some advanced settings, generated explanations and original logs remain Korean. Choose Korean at any time; switching language does not reset trading data.

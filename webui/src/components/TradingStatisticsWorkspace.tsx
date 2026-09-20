@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from "react";
 
 import type { GatewayClient } from "../api";
 import type { RuntimeSnapshot, WorkspaceSnapshot } from "../types";
+import { RecordRecoveryPanel } from './RecordRecoveryPanel';
 
 type StatisticsPeriod = "today" | "7d" | "30d" | "all" | "custom";
 
@@ -230,5 +231,8 @@ export function TradingStatisticsWorkspace({
       {service === "blockchain" && statisticsMode === "live" && <button type="button" onClick={importTrades} disabled={loading}>{t("거래소 체결 동기화")}</button>}
       <span>{selectedSource === "all" ? `전체 ${service === "stock" ? "증권사" : "거래소"}` : `${sourceLabel} ${service === "stock" ? "증권사" : "거래소"}`}{t(" 기준 ")}{statisticsMode.toUpperCase()}{t(" 통계를 갱신했습니다. (청산 종목 ")}{groups.reduce((sum, group) => sum + Number((group.rows ?? []).length), 0)}{t("개, ")}{statisticsMode === "paper" ? `가상 청산 ${Number(statistics?.closed_count ?? 0)}건` : `거래소 확인 체결 ${executionCountText(Number(statistics?.execution_count ?? 0), statistics?.execution_history_status)}, NoahAI 청산 ${Number(statistics?.closed_count ?? 0)}건 · 대조 완료 ${Number(statistics?.reconciled_closed_count ?? 0)}건 · 미확정 ${Number(statistics?.unresolved_closed_count ?? 0)}건`}{t(", 누적 Fee ")}{footerFee}{selectedSource === "all" ? " 각 기관 기준통화" : ` ${feeEntries[0]?.[0] ?? "기준통화"}`})</span>
     </footer>
+    {statisticsMode === 'live' && <details><summary>{t('거래 기록 점검·복구')}</summary>
+      <RecordRecoveryPanel client={client} sources={sources} initialSource={selectedSource === 'all' ? defaultSource : selectedSource} />
+    </details>}
   </section>;
 }

@@ -170,6 +170,27 @@ def create_gateway_app(
             release_label=RELEASE_BUILD_LABEL,
         )
 
+    @app.get('/api/v1/maintenance/trade-records', dependencies=[Depends(require_token)])
+    def record_recovery_status(source: str = Query(max_length=32)):
+        return record_recovery_call(source, False)
+
+    @app.post('/api/v1/maintenance/trade-records', dependencies=[Depends(require_token), Depends(require_confirmed_intent)])
+    def record_recovery_start(payload: dict[str, Any]):
+        if set(payload) != {'source'} or not isinstance(payload['source'], str):
+            raise HTTPException(400, 'invalid_recovery_request')
+        return record_recovery_call(payload['source'], True)
+
+    def record_recovery_call(source, start):
+        method = getattr(services.runtime_bridge, 'record_recovery', None)
+        if not callable(method):
+            raise HTTPException(409, 'recovery_runtime_unavailable')
+        try:
+            return method(source, start=start)
+        except ValueError as exc:
+            raise HTTPException(400, str(exc)) from exc
+        except RuntimeError as exc:
+            raise HTTPException(409, str(exc)) from exc
+
     @app.get("/api/v1/session", dependencies=[Depends(require_token)])
     def session_snapshot() -> dict[str, Any]:
         return services.session_snapshot()

@@ -126,6 +126,44 @@ class HeadlessRuntimeBridge:
         self.factory = factory
         self._app: Any = None
         self._lock = threading.RLock()
+        self._record_recovery = None
+
+    def record_recovery(self, source: str, *, start: bool = False) -> dict[str, Any]:
+        from trading.record_recovery import RecordRecovery
+        from trading.record_recovery_adapters import RecoveryResolver
+        source = RecordRecovery.venue(source)
+        if self.account == 'local':
+            raise RuntimeError('recovery_login_required')
+        # GET status must not initialize brokers or open an authentication host.
+        if self._record_recovery is None and not start:
+            from path_utils import get_db_file_path
+            return RecordRecovery.read_status(get_db_file_path(), source)
+        if start:
+            if not _credential_status(self._settings()).get(source, False):
+                raise RuntimeError('recovery_credential_required')
+            app = self._app
+            if app is None:
+                # Constructing the full runtime also starts its AI optimizer.
+                # Maintenance must not initialize that as a hidden side effect.
+                raise RuntimeError('recovery_engine_not_ready')
+            recorder = getattr(app, 'recorder', None)
+            if recorder is None:
+                raise RuntimeError('recovery_ledger_unavailable')
+            # Never reconnect a Kiwoom host from a maintenance worker. Existing
+            # adapters only; connection setup remains the usual Settings path.
+            if source in STOCK_SOURCES:
+                controller = getattr(app, 'stock_runtime_controller', None)
+                broker = controller._canonical(source) if controller else source
+                client = getattr(controller, '_adapters', {}).get(broker)
+            else:
+                manager = getattr(app, 'exchange_manager', None)
+                client = manager.get_exchange_client(source) if manager else None
+            resolver = RecoveryResolver(recorder, client, source)
+            recovery = RecordRecovery(recorder, resolver)
+            result = recovery.start(source)
+            self._record_recovery = recovery
+            return result
+        return self._record_recovery.status(source)
 
     def set_account(self, account: str) -> None:
         normalized = str(account or "").strip()

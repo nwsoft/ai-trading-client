@@ -6,12 +6,15 @@ import { CRYPTO_SOURCES, STOCK_SOURCES } from "../venueSources";
 import { accountConnectionFailure } from "../accountConnection";
 import type { PlatformContract, SettingField, SettingsBackup, SettingsSnapshot } from "../types";
 import { UpdateCenter } from "./UpdateCenter";
+import { RecordRecoveryPanel } from './RecordRecoveryPanel';
 import { RemoteMonitorSettings } from "./RemoteMonitorSettings";
 import { LanguagePicker } from './LanguagePicker';
+import { STRATEGY_DIFFICULTY_PATH, strategyDifficultyLabel } from '../strategyDifficulty';
 
 interface Props {
   client: GatewayClient;
   open: boolean;
+  initialField?: string;
   onClose: () => void;
   onAskAssistant: (question: string, settingsSection?: string) => void;
   onOpenManual?: () => void;
@@ -229,7 +232,8 @@ function downloadText(name: string, content: string) {
   URL.revokeObjectURL(url);
 }
 
-export function SettingsCenter({ client, open, onClose, onAskAssistant, onOpenManual, onSettingsSaved }: Props) {
+export function SettingsCenter({ client, open, initialField, onClose, onAskAssistant, onOpenManual, onSettingsSaved }: Props) {
+  const focusedTarget = useRef(false);
   const [snapshot, setSnapshot] = useState<SettingsSnapshot | null>(null);
   const [draft, setDraft] = useState<Record<string, unknown>>({});
   const [activeSection, setActiveSection] = useState<SettingsSectionId>("general");
@@ -271,7 +275,7 @@ export function SettingsCenter({ client, open, onClose, onAskAssistant, onOpenMa
       .then((next) => {
         setSnapshot(next);
         setDraft(Object.fromEntries(next.fields.map((field) => [field.path, field.value])));
-        setActiveSection("general");
+        setActiveSection(initialField === STRATEGY_DIFFICULTY_PATH ? "ai_engine" : "general");
         setShowTechnicalFields(false);
         setReadinessOpen(false);
         setBackupOpen(false);
@@ -299,7 +303,20 @@ export function SettingsCenter({ client, open, onClose, onAskAssistant, onOpenMa
     client.settingsDiagnostics().then(setDiagnostics).catch(() => setDiagnostics(null));
     client.platform().then(setPlatform).catch(() => setPlatform(null));
     client.assistantStatus().then((next) => setAssistantStatus(next?.budget ?? next)).catch(() => setAssistantStatus(null));
-  }, [client, open]);
+    focusedTarget.current = false;
+  }, [client, open, initialField]);
+
+  useEffect(() => {
+    if (!open || busy || !snapshot || focusedTarget.current || initialField !== STRATEGY_DIFFICULTY_PATH || activeSection !== 'ai_engine') return;
+    const frame = window.requestAnimationFrame(() => {
+      const target = document.querySelector<HTMLElement>('[data-setting-path="ai_custom_features.profile"]');
+      if (!target) return;
+      target.scrollIntoView({ block: 'center' });
+      target.querySelector<HTMLSelectElement>('select')?.focus({ preventScroll: true });
+      focusedTarget.current = true;
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [open, busy, snapshot, initialField, activeSection]);
 
   useEffect(() => {
     if (!open || activeSection !== "notifications") return;
@@ -942,7 +959,7 @@ export function SettingsCenter({ client, open, onClose, onAskAssistant, onOpenMa
           <button className="settings-quick-start-open" type="button" onClick={openQuickStart}>{t("처음 사용 · 빠른 시작")}</button>
           <button className="settings-window-close" type="button" onClick={requestClose} aria-label={t("설정 창 닫기")} title={t("설정 닫기")}>×</button>
         </header>
-        <div className="settings-live-warning"><span>{t("v3.9.1.42 · LIVE는 별도 권한입니다 · PAPER OFF + 주문 대상/증권 LIVE + API 준비 + 가드레일")}</span><button type="button" onClick={() => onAskAssistant("실거래 전 필수 준비, PAPER와 LIVE의 차이, API 권한과 주문 가드레일을 현재 설정 기준으로 설명해줘.", activeSection)}>{t("실거래 필수 안내")}</button></div>
+        <div className="settings-live-warning"><span>{t("v3.9.1.43 · LIVE는 별도 권한입니다 · PAPER OFF + 주문 대상/증권 LIVE + API 준비 + 가드레일")}</span><button type="button" onClick={() => onAskAssistant("실거래 전 필수 준비, PAPER와 LIVE의 차이, API 권한과 주문 가드레일을 현재 설정 기준으로 설명해줘.", activeSection)}>{t("실거래 필수 안내")}</button></div>
         <section className={`settings-readiness-strip ${readinessOpen ? "open" : ""}`}>
           <header><strong>{t("AI 실행 준비도 진단")}</strong><button type="button" onClick={() => setReadinessOpen((value) => !value)}>{readinessOpen ? "상세 닫기" : t("상세 보기")}</button></header>
           {readinessOpen && <div className="readiness-grid"><span><b>{t("AI 키")}</b>{diagnostics?.ai?.configured ? "등록됨" : "미설정"}</span><span><b>{t("기본 Provider")}</b>{String(diagnostics?.ai?.provider || "—").toUpperCase()}</span><span><b>{t("거래 모드")}</b>{diagnostics?.trading?.paper_trading ? "PAPER" : diagnostics?.trading?.live_ready ? "LIVE 준비" : "LIVE 차단"}</span><span><b>{t("런타임")}</b>{diagnostics?.trading?.runtime_status || "확인 중"}</span><span><b>{t("회원 등급")}</b>{String(diagnostics?.membership?.user_grade || "확인 필요").toUpperCase()}</span><span><b>{t("회원 정책")}</b>{diagnostics?.membership?.policy_version || diagnostics?.membership?.status || "서버 확인 필요"}</span></div>}
@@ -1027,7 +1044,7 @@ export function SettingsCenter({ client, open, onClose, onAskAssistant, onOpenMa
             </section>}
             {activeSection === "general" && snapshot && <section className="settings-contract-status">
               <strong>{t("설정 정리 상태")}</strong>
-              <p>{t("앱 v3.9.1.42 · 설정 스키마 ")}{snapshot.schema_version}{t(" · 현재 모드 ")}{diagnostics?.trading?.paper_trading ? "PAPER" : "LIVE 확인 필요"}{t(" · 계정 설정 ")}{snapshot.account_scope}</p>
+              <p>{t("앱 v3.9.1.43 · 설정 스키마 ")}{snapshot.schema_version}{t(" · 현재 모드 ")}{diagnostics?.trading?.paper_trading ? "PAPER" : "LIVE 확인 필요"}{t(" · 계정 설정 ")}{snapshot.account_scope}</p>
               {snapshot.storage_status?.ok === false && <p className="error-text">{t("기존 settings.json의 문자 인코딩 또는 JSON 형식을 읽지 못했습니다. 원본 보호를 위해 저장이 차단됩니다. 파일을 삭제하지 말고 설정 백업 복구 또는 지원 로그 전달을 이용하세요.")}</p>}
               {snapshot.storage_status?.needs_normalization && <p>{t("기존 ")}{snapshot.storage_status.encoding}{t(" 설정을 호환해서 읽었습니다. 다음 검증 저장 시 UTF-8 정본으로 변환됩니다.")}</p>}
               <span>{t("기본 설정은 원본 화면의 사용자 항목이며, 고급 설정에는 정본 JSON의 기술 정책이 표시됩니다. 비밀값과 런타임 snapshot은 별도 보호 경로로 관리됩니다.")}</span>
@@ -1202,17 +1219,18 @@ export function SettingsCenter({ client, open, onClose, onAskAssistant, onOpenMa
             {activeSection === "update" && <section className="settings-update-panel">
               <strong>{t("버전 정보 · 클라이언트 업데이트")}</strong>
               <p>{t("업데이트 확인과 다운로드는 거래 엔진을 중지하지 않습니다. 설치·재시작은 거래 워커 정지와 기록 저장이 완료된 경우에만 진행합니다.")}</p>
-              <UpdateCenter client={client} accountScope={snapshot?.account_scope ?? ""} detailed currentVersion={platform?.release_version ? `v${platform.release_version}` : "v3.9.1.42"} />
+              <UpdateCenter client={client} accountScope={snapshot?.account_scope ?? ""} detailed currentVersion={platform?.release_version ? `v${platform.release_version}` : "v3.9.1.43"} />
               {!window.noahAI && <span>{t("브라우저 개발 실행에서는 데스크톱 업데이트를 사용할 수 없습니다.")}</span>}
+              <RecordRecoveryPanel client={client} />
             </section>}
             {busy && !snapshot ? <div className="empty-state">{t("설정 정본을 불러오는 중입니다.")}</div> : activeFields.map((field) => (
-              <label className={`setting-row risk-${field.risk} presentation-${field.presentation}`} key={field.path}>
+              <label data-setting-path={field.path} className={`setting-row risk-${field.risk} presentation-${field.presentation}`} key={field.path}>
                 <div><strong>{t(field.label)}</strong><p>{t(field.help)}</p>{showTechnicalFields && <code>{field.path}</code>}</div>
                 {field.kind === "boolean" ? (
                   <input type="checkbox" checked={Boolean(draft[field.path])} onChange={(event) => setDraft({ ...draft, [field.path]: event.target.checked })} />
                 ) : field.kind === "select" ? (
                   <select value={String(draft[field.path] ?? "")} onChange={(event) => updateDraftField(field.path, event.target.value)}>
-                    {field.options.map((option) => <option value={option} key={option}>{SETTING_OPTION_LABELS[option] ?? option}</option>)}
+                    {field.options.map((option) => <option value={option} key={option}>{field.path === STRATEGY_DIFFICULTY_PATH ? strategyDifficultyLabel(option) : t(SETTING_OPTION_LABELS[option] ?? option)}</option>)}
                   </select>
                 ) : field.kind === "model_select" ? (
                   <select value={String(draft[field.path] ?? "")} onChange={(event) => updateDraftField(field.path, event.target.value)}>

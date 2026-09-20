@@ -2422,13 +2422,13 @@ class Trader:
                 and not bool(profitability_report.get('enabled', True))
             )
             if profitability_blocked:
+                from trading.record_recovery import recovery_hint
                 self.log_event(
                     'trade',
                     f"⚠️ 바이낸스 기본/confirm 후보 수익성 정책 차단: "
                     f"{profitability_report.get('reasons', [])} · "
                     f"미대조 {profitability_report.get('unresolved_trades', 0)}/{len(recent_trades)}건. "
-                    "거래 통계에서 체결 동기화·미대조 사유를 확인하세요. "
-                    "기록 초기화나 전략 전환으로 우회하지 마세요.",
+                    f"{recovery_hint(profitability_report)}",
                     level='WARNING',
                 )
                 # 독립 커스텀 전략이 없으면 이후 후보는 모두 기본/confirm
