@@ -3,7 +3,7 @@
 현재 공개 버전: **v3.9.1.42** · updater **3.9.142** · Windows stable/latest.
 현재 공개 기반: v3.9.1.42 stable/latest. 서버 배포와 Client 설치본 검증은 구분합니다.
 
-현재 제품 버전: v3.9.1.43 · updater **3.9.143** · Record Recovery Maintenance and Strategy UX Patch.
+현재 소스 후보: v3.9.1.43 · updater **3.9.143** · Record Recovery Maintenance and Strategy UX Patch.
 추가: **한국어·영어 베타**. 로그인 폼 하단 또는 설정 → 일반에서 언어 선택. 저장된 선택 우선, 없으면 OS 선호 언어를 참고하며 미지원 언어는 한국어로 시작합니다. 핵심 UI, 영어 운영 매뉴얼, 명시적 AI 설명 언어와 daltrading 원격 영어 화면을 제공합니다. 고급 진단/알림/일부 화면은 한국어이며 전체 완역이 아닙니다. [영어 범위·검증·다음 단계](docs/V39142_ENGLISH_IMPLEMENTATION_PLAN.md).
 v42는 PC 승인 범위의 원격 시작·재개, 새 거래 일시정지, 동의형 위험·손익 요약과 상태 설명을 추가합니다. [실행 계획·검증](docs/V39142_REMOTE_CONTROL_PLAN.md). Client 설치기 빌드·릴리스는 사용자가 수행하며 이번 작업에서는 게시하지 않습니다. 이전 PnL/실계좌 대조 게이트는 별도로 유지합니다.
 
