@@ -668,7 +668,7 @@ class TestStockAnalysisService:
         assert recorder.save_ai_decision.call_count >= 2
         assert recorder.insert_analysis_log.call_count >= 1
 
-    def test_get_recorder_syncs_adapter_recorder_exchange(self):
+    def test_get_recorder_preserves_adapter_recorder_owner(self):
         from trading.stock_analysis_service import StockAnalysisService
 
         adapter = _make_mock_adapter()
@@ -679,9 +679,11 @@ class TestStockAnalysisService:
         recorder = svc._get_recorder()
 
         assert recorder is adapter.recorder
-        assert recorder.exchange == 'kiwoom'
+        assert recorder.exchange == 'binance'
+        svc._persist_xai_decision('005930', 'stock_analyze_symbol', {'action':'HOLD'})
+        assert recorder.save_ai_decision.call_args.kwargs['exchange'] == 'kiwoom'
 
-    def test_get_recorder_syncs_injected_recorder_exchange(self):
+    def test_get_recorder_preserves_injected_recorder_owner(self):
         from trading.stock_analysis_service import StockAnalysisService
 
         adapter = _make_mock_adapter()
@@ -692,7 +694,9 @@ class TestStockAnalysisService:
         recorder = svc._get_recorder()
 
         assert recorder is injected
-        assert recorder.exchange == 'kiwoom'
+        assert recorder.exchange == 'binance'
+        svc._persist_xai_decision('005930', 'stock_analyze_symbol', {'action':'HOLD'})
+        assert recorder.save_ai_decision.call_args.kwargs['exchange'] == 'kiwoom'
 
     # ------------------------------------------------------------------
     # ETF 자동매매 시나리오 테스트

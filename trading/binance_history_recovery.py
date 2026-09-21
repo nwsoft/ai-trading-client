@@ -84,15 +84,16 @@ def reconstruct_cycle(trade, fills, orders, anchors, start, end):
             if before+amount == 0:
                 finished = True
         before += amount
-    if not started or not finished or sum((number(r['qty']) for r in entry_fills), Decimal(0)) != quantity:
+    actual_quantity = sum((number(r['qty']) for r in entry_fills), Decimal(0))
+    if not started or not finished or actual_quantity <= 0:
         return None, 'position_cycle_incomplete'
-    if len(entry_fills) != len(entries) or sum((number(r['qty']) for r in exit_fills), Decimal(0)) != quantity:
+    if len(entry_fills) != len(entries) or sum((number(r['qty']) for r in exit_fills), Decimal(0)) != actual_quantity:
         return None, 'position_cycle_ambiguous'
-    # Every cycle order must be FILLED and its entire executed quantity present.
+    # Every cycle order must be terminal with all actually executed fills present.
     for order_id in {str(r['orderId']) for r in cycle}:
         order = order_map.get(order_id)
         group = [r for r in cycle if str(r['orderId']) == order_id]
-        if not order or order.get('status') != 'FILLED' or order.get('symbol') != symbol:
+        if not order or order.get('status') not in {'FILLED','CANCELED','EXPIRED','EXPIRED_IN_MATCH'} or order.get('symbol') != symbol:
             return None, 'order_history_incomplete'
         if order.get('positionSide') != position_side or any(r['side'] != order.get('side') for r in group):
             return None, 'history_identity_mismatch'
@@ -109,7 +110,7 @@ def reconstruct_cycle(trade, fills, orders, anchors, start, end):
         number(row['realizedPnl'])
     if any(number(r['realizedPnl']) != 0 for r in entry_fills):
         return None, 'position_cycle_ambiguous'
-    return {'entry': entry_fills, 'exit': exit_fills, 'currency': currency}, ''
+    return {'entry': entry_fills, 'exit': exit_fills, 'currency': currency, 'quantity': actual_quantity}, ''
 
 
 class BinanceHistoryRecovery:
@@ -119,6 +120,7 @@ class BinanceHistoryRecovery:
         if not key:
             raise ValueError('recovery_credential_required')
         self.scope = hashlib.sha256(key.encode()).hexdigest()
+        self.job_id = ''
         with self.db() as db:
             db.executescript('''
                 CREATE TABLE IF NOT EXISTS recovery_history_sessions(
@@ -131,22 +133,66 @@ class BinanceHistoryRecovery:
                 CREATE TABLE IF NOT EXISTS recovery_cycle_claims(
                   scope TEXT,symbol TEXT,fill_id TEXT,trade_id INTEGER,evidence TEXT,
                   PRIMARY KEY(scope,symbol,fill_id));
+                CREATE TABLE IF NOT EXISTS recovery_history_job_sessions(
+                  scope TEXT,job_id TEXT,symbol TEXT,start INTEGER,
+                  PRIMARY KEY(scope,job_id,symbol,start));
+                CREATE TABLE IF NOT EXISTS recovery_history_session_pages(
+                  scope TEXT,symbol TEXT,session_start INTEGER,kind TEXT,start INTEGER,end INTEGER,
+                  PRIMARY KEY(scope,symbol,session_start,kind,start,end));
+                CREATE TABLE IF NOT EXISTS recovery_cycle_repairs(
+                  scope TEXT,trade_id INTEGER,before_json TEXT,after_json TEXT,
+                  PRIMARY KEY(scope,trade_id));
             ''')
             if 'verified' not in {r[1] for r in db.execute('PRAGMA table_info(recovery_history_sessions)')}:
                 db.execute('ALTER TABLE recovery_history_sessions ADD COLUMN verified INTEGER DEFAULT 0')
+            columns = {r[1] for r in db.execute('PRAGMA table_info(recovery_history_sessions)')}
+            for name in ('attempt_job', 'refresh_kinds'):
+                if name not in columns:
+                    db.execute(f"ALTER TABLE recovery_history_sessions ADD COLUMN {name} TEXT NOT NULL DEFAULT ''")
 
     def begin_job(self, job_id):
         if not job_id:
             return
+        self.job_id = job_id
         with self.db() as db:
             previous = db.execute('SELECT job_id FROM recovery_history_runs WHERE scope=?',(self.scope,)).fetchone()
             if previous and previous[0] == job_id:
                 return
-            # Explicit new checks refresh provider data, including previously
-            # missing/delayed fills. Restarts of the SAME job keep checkpoints.
-            db.execute('DELETE FROM recovery_history_sessions WHERE scope=?',(self.scope,))
-            db.execute("UPDATE recovery_history_pages SET state='pending' WHERE scope=?",(self.scope,))
+            # Keep completed evidence and split-page checkpoints across jobs.
+            # Only deficient evidence for an attempted session is refreshed.
             db.execute('INSERT OR REPLACE INTO recovery_history_runs VALUES(?,?)',(self.scope,job_id))
+
+    def _plan_pages(self, db, symbol, start, end):
+        """Build a non-overlapping plan, including migration from v43 caches."""
+        for kind in ('fills','orders','algos','income'):
+            if db.execute('SELECT 1 FROM recovery_history_session_pages WHERE scope=? AND symbol=? AND session_start=? AND kind=?',
+                          (self.scope,symbol,start,kind)).fetchone():
+                continue
+            cached = db.execute("SELECT start,end FROM recovery_history_pages WHERE scope=? AND symbol=? AND kind=? AND start>=? AND end<=? AND state!='split' ORDER BY start,end DESC",
+                                (self.scope,symbol,kind,start,end)).fetchall()
+            left = start
+            ranges = []
+            for page in cached:
+                if page['start'] < left: continue
+                while left < page['start']:
+                    right = min(left+6*86400000-1,page['start']-1)
+                    ranges.append((left,right)); left=right+1
+                ranges.append((page['start'],page['end'])); left=page['end']+1
+            while left <= end:
+                right=min(left+6*86400000-1,end)
+                ranges.append((left,right)); left=right+1
+            for left,right in ranges:
+                db.execute('INSERT OR IGNORE INTO recovery_history_pages VALUES(?,?,?,?,?,?,NULL)',
+                           (self.scope,symbol,kind,left,right,'pending'))
+                db.execute('INSERT OR IGNORE INTO recovery_history_session_pages VALUES(?,?,?,?,?,?)',
+                           (self.scope,symbol,start,kind,left,right))
+
+    def _needs_refresh(self, symbol, start, reason):
+        kinds = 'income' if reason == 'income_reconciliation_required' else 'fills,orders,income'
+        with self.db() as db:
+            db.execute('UPDATE recovery_history_sessions SET refresh_kinds=? WHERE scope=? AND symbol=? AND start=?',
+                       (kinds,self.scope,symbol,start))
+        return reason
 
     @contextmanager
     def db(self):
@@ -173,6 +219,8 @@ class BinanceHistoryRecovery:
         # UTC-day buckets make subsequent trades reuse already downloaded pages.
         start = int(epoch // 86400 * 86400000)-86400000
         with self.db() as db:
+            db.execute('INSERT OR IGNORE INTO recovery_history_job_sessions VALUES(?,?,?,?)',
+                       (self.scope,self.job_id,symbol,start))
             session = db.execute('SELECT * FROM recovery_history_sessions WHERE scope=? AND symbol=? AND start=?',
                                  (self.scope,symbol,start)).fetchone()
         if not session:
@@ -183,18 +231,22 @@ class BinanceHistoryRecovery:
             with self.db() as db:
                 db.execute('INSERT INTO recovery_history_sessions(scope,symbol,start,end,anchor) VALUES(?,?,?,?,?)',
                            (self.scope,symbol,start,end,json.dumps(anchor)))
-                for kind in ('fills','orders','algos','income'):
-                    left = start
-                    while left <= end:
-                        right = min(left+6*86400000-1, end)
-                        db.execute('INSERT OR IGNORE INTO recovery_history_pages VALUES(?,?,?,?,?,?,NULL)',
-                                   (self.scope,symbol,kind,left,right,'pending'))
-                        left = right+1
+                self._plan_pages(db,symbol,start,end)
             raise HistoryPending()
         end = session['end']
         with self.db() as db:
-            page = db.execute("SELECT * FROM recovery_history_pages WHERE scope=? AND symbol=? AND start>=? AND end<=? AND state='pending' ORDER BY kind,start LIMIT 1",
-                              (self.scope,symbol,start,end)).fetchone()
+            self._plan_pages(db,symbol,start,end)
+            if session['attempt_job'] != self.job_id:
+                for kind in filter(None,session['refresh_kinds'].split(',')):
+                    db.execute("""UPDATE recovery_history_pages SET state='pending' WHERE scope=? AND symbol=? AND kind=?
+                        AND (start,end) IN (SELECT start,end FROM recovery_history_session_pages
+                          WHERE scope=? AND symbol=? AND session_start=? AND kind=?)""",
+                               (self.scope,symbol,kind,self.scope,symbol,start,kind))
+                db.execute("UPDATE recovery_history_sessions SET attempt_job=?,refresh_kinds='' WHERE scope=? AND symbol=? AND start=?",
+                           (self.job_id,self.scope,symbol,start))
+            page = db.execute("""SELECT p.* FROM recovery_history_pages p JOIN recovery_history_session_pages s
+                USING(scope,symbol,kind,start,end) WHERE s.scope=? AND s.symbol=? AND s.session_start=?
+                AND p.state='pending' ORDER BY p.kind,p.start LIMIT 1""",(self.scope,symbol,start)).fetchone()
         if page:
             rows = self.query(self.client.get_recovery_history_page, page['kind'], symbol, page['start'], page['end'])
             if not isinstance(rows, list) or any(not isinstance(r, dict) for r in rows):
@@ -206,9 +258,14 @@ class BinanceHistoryRecovery:
                         db.execute("UPDATE recovery_history_pages SET state='overflow' WHERE scope=? AND symbol=? AND kind=? AND start=? AND end=?",key)
                         return 'history_page_incomplete'
                     middle = (page['start']+page['end'])//2
+                    linked_sessions = [r[0] for r in db.execute('SELECT session_start FROM recovery_history_session_pages WHERE scope=? AND symbol=? AND kind=? AND start=? AND end=?', key)]
                     for left,right in ((page['start'],middle),(middle+1,page['end'])):
                         db.execute('INSERT OR IGNORE INTO recovery_history_pages VALUES(?,?,?,?,?,?,NULL)',
                                    (self.scope,symbol,page['kind'],left,right,'pending'))
+                        for linked_start in linked_sessions:
+                            db.execute('INSERT OR IGNORE INTO recovery_history_session_pages VALUES(?,?,?,?,?,?)',
+                                       (self.scope,symbol,linked_start,page['kind'],left,right))
+                    db.execute('DELETE FROM recovery_history_session_pages WHERE scope=? AND symbol=? AND kind=? AND start=? AND end=?',key)
                     db.execute("UPDATE recovery_history_pages SET state='split' WHERE scope=? AND symbol=? AND kind=? AND start=? AND end=?",key)
                 else:
                     db.execute("UPDATE recovery_history_pages SET state='complete',rows=? WHERE scope=? AND symbol=? AND kind=? AND start=? AND end=?", (json.dumps(rows),*key))
@@ -216,8 +273,10 @@ class BinanceHistoryRecovery:
         data = {}
         with self.db() as db:
             for kind in ('fills','orders','algos','income'):
-                pages = db.execute("SELECT * FROM recovery_history_pages WHERE scope=? AND symbol=? AND kind=? AND start>=? AND end<=? AND state='complete' ORDER BY start,end DESC",
-                                   (self.scope,symbol,kind,start,end)).fetchall()
+                pages = db.execute("""SELECT p.* FROM recovery_history_pages p JOIN recovery_history_session_pages s
+                    USING(scope,symbol,kind,start,end) WHERE s.scope=? AND s.symbol=? AND s.session_start=?
+                    AND s.kind=? AND p.state='complete' ORDER BY p.start,p.end DESC""",
+                                   (self.scope,symbol,start,kind)).fetchall()
                 # Check coverage explicitly: no missing/corrupt cursor = success.
                 through = start-1
                 result = {}
@@ -246,6 +305,7 @@ class BinanceHistoryRecovery:
             # plan, not trade records; the next explicit attempt takes a new one.
             with self.db() as db:
                 db.execute('DELETE FROM recovery_history_sessions WHERE scope=? AND symbol=? AND start=?', (self.scope,symbol,start))
+                db.execute('DELETE FROM recovery_history_session_pages WHERE scope=? AND symbol=? AND session_start=?', (self.scope,symbol,start))
             return 'position_anchor_changed'
         if not session['verified']:
             with self.db() as db:
@@ -253,8 +313,9 @@ class BinanceHistoryRecovery:
                            (self.scope,symbol,start))
         proof, reason = reconstruct_cycle(trade,data['fills'],data['orders'],current,start,end)
         if reason:
-            return reason
-        return self.apply(trade, proof, data['income'], start, end)
+            return self._needs_refresh(symbol,start,reason)
+        reason = self.apply(trade, proof, data['income'], start, end)
+        return self._needs_refresh(symbol,start,reason) if reason else ''
 
     def apply(self, trade, proof, income, start, end):
         entry, exits = proof['entry'], proof['exit']
@@ -272,7 +333,7 @@ class BinanceHistoryRecovery:
         entry_fee = sum((number(r['commission']) for r in entry),Decimal(0))
         exit_fee = sum((number(r['commission']) for r in exits),Decimal(0))
         net = gross-entry_fee-exit_fee
-        qty = number(trade['quantity'])
+        qty = number(proof['quantity'])
         exit_price = sum((number(r['price'])*number(r['qty']) for r in exits),Decimal(0))/qty
         entry_price = sum((number(r['price'])*number(r['qty']) for r in entry),Decimal(0))/qty
         closed = datetime.fromtimestamp(max(int(r['time']) for r in exits)/1000,timezone.utc).isoformat()
@@ -298,7 +359,7 @@ class BinanceHistoryRecovery:
                     for field,native in (('quantity','qty'),('fee','commission'),('realized_pnl','realizedPnl'))):
                     return 'execution_storage_incomplete'
             latest = db.execute('SELECT * FROM trade_log WHERE id=?',(trade['id'],)).fetchone()
-            if not latest or any(latest[k] != trade[k] for k in ('exchange','symbol','order_id','entry_time','quantity','side','position_owner','execution_mode','exit_order_id','exit_time')):
+            if not latest or any(latest[k] != trade[k] for k in ('exchange','symbol','order_id','entry_time','entry_price','quantity','side','position_owner','execution_mode','exit_order_id','exit_time')):
                 return 'record_identity_changed'
             if db.execute('SELECT COUNT(*) FROM trade_log WHERE exchange=? AND symbol=? AND order_id=?',
                           ('binance',trade['symbol'],trade['order_id'])).fetchone()[0] != 1:
@@ -318,11 +379,14 @@ class BinanceHistoryRecovery:
                            (self.scope,trade['symbol'],str(fill['id']),trade['id'],evidence))
             # Multi-order closes keep the singular column NULL: no fake exchange
             # order ID. The claim table stores every actual order/fill instead.
-            db.execute('''UPDATE trade_log SET exit_order_id=?,exit_price=?,exit_time=?,
+            db.execute('''UPDATE trade_log SET exit_order_id=?,exit_price=?,exit_time=?,quantity=?,entry_price=?,
                 gross_pnl=?,net_pnl=?,pnl=?,pnl_percent=?,entry_fee=?,exit_fee=?,fees=?,
                 entry_fee_asset=?,exit_fee_asset=?,fee_asset=?,settlement_currency=?,
                 pnl_source='exchange_realized_pnl',reconciliation_status='exchange_confirmed'
-                WHERE id=?''', (exit_ids[0] if len(exit_ids)==1 else None,float(exit_price),closed,
+                WHERE id=?''', (exit_ids[0] if len(exit_ids)==1 else None,float(exit_price),closed,float(qty),float(entry_price),
                 float(gross),float(net),float(net),float(net/(entry_price*qty)*100),float(entry_fee),float(exit_fee),
                 float(entry_fee+exit_fee),proof['currency'],proof['currency'],proof['currency'],proof['currency'],trade['id']))
+            after = dict(db.execute('SELECT * FROM trade_log WHERE id=?',(trade['id'],)).fetchone())
+            db.execute('INSERT OR REPLACE INTO recovery_cycle_repairs VALUES(?,?,?,?)',
+                       (self.scope,trade['id'],json.dumps(trade),json.dumps(after)))
         return ''

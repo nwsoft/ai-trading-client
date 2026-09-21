@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import type { GatewayClient } from "../api";
 import type { RuntimeSnapshot, WorkspaceSnapshot } from "../types";
 import { RecordRecoveryPanel } from './RecordRecoveryPanel';
+import { ExecutionEvidenceNote, executionEvidenceCount } from './ExecutionEvidenceNote';
 
 type StatisticsPeriod = "today" | "7d" | "30d" | "all" | "custom";
 
@@ -32,11 +33,7 @@ function holdText(value: unknown) {
 }
 
 function executionCountText(count: number, status: string | undefined) {
-  if (status === "unsupported") return "확인 불가";
-  if (status === "not_checked") return "확인 전";
-  if (status === "stored_only") return `${count.toLocaleString()}건 (저장 원장)`;
-  if (status === "partial") return `${count.toLocaleString()}건 (저장 범위)`;
-  return `${count.toLocaleString()}건`;
+  return executionEvidenceCount(count,status);
 }
 
 export function TradingStatisticsWorkspace({
@@ -204,6 +201,7 @@ export function TradingStatisticsWorkspace({
       <article className="fees"><span>{t("기간 Fee")}</span><strong>{totalFees}</strong></article>
     </div>
     <div className="legacy-stat-operating"><b>{statisticsMode === "paper" ? "모의 운용" : "실제 운용"}</b><span>{statisticsMode === "paper" ? `가상 청산 ${Number(statistics?.closed_count ?? 0).toLocaleString()}건` : `${service === "stock" ? "증권사" : "거래소"} 확인 체결 ${executionCountText(Number(statistics?.execution_count ?? 0), statistics?.execution_history_status)}`} | {statisticsMode === "paper" ? "가상 " : ""}{t("체결금액 ")}{currencyText(statistics?.notional_by_currency)}{t(" | 평균 보유시간 ")}{holdText(statistics?.avg_hold_minutes)}{t(" (유효 ")}{statistics?.valid_hold_count ?? 0}/{statistics?.closed_count ?? 0}{t("건)")}</span></div>
+    {statisticsMode === 'live' && <ExecutionEvidenceNote status={statistics?.execution_history_status} rows={statistics?.execution_rows ?? []} count={Number(statistics?.execution_count ?? 0)} />}
     <div className="legacy-stat-table">
       <div className="legacy-stat-header">
         {[service === "stock" ? "종목" : "코인", "총 거래", "익절", "손절", "승률", "평균 순수익률", "연결 청산 총손익", "순손익", "수수료·세금", "최대 순수익", "최대 순손실"].map((label) => <b key={label}>{label}</b>)}

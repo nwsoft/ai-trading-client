@@ -400,6 +400,8 @@ class Recorder:
                 """)
 
                 # 코인 평가 테이블
+                from trading.decision_storage import ensure_schema
+                ensure_schema(conn)
 
                 # 코인 선택 세션 테이블
                 cursor.execute("""
@@ -708,6 +710,7 @@ class Recorder:
                 """)
 
                 conn.commit()
+
 
                 # 스키마 보강: ai_optimization에 optimization_data 컬럼이 없으면 추가
                 try:
@@ -1370,12 +1373,16 @@ class Recorder:
                 conn.commit()
 
                 inserted_id = cursor.lastrowid
-                log_event('trade', f"✅ 거래 로그 삽입 완료: ID={inserted_id}", exchange=event_exchange, level='INFO')
+                log_event('position', f"✅ 거래 로그 삽입 완료: ID={inserted_id}", exchange=event_exchange, level='INFO',
+                          execution_mode=str(getattr(trade_log,'execution_mode','unknown')),
+                          details={'symbol':trade_log.symbol, 'ledger_id':inserted_id, 'order_id':trade_log.order_id,
+                                   'actual_order': None if trade_log.execution_mode=='live' else False,
+                                   'event_kind':'position_recorded'})
 
                 # 🔥 삽입 후 확인
                 cursor.execute("SELECT * FROM trade_log WHERE id = ?", (inserted_id,))
                 saved_row = cursor.fetchone()
-                log_event('trade', f"[DEBUG] 저장된 행: {saved_row}", exchange=event_exchange, level='INFO')
+                log_event('trade', f"[DEBUG] 저장된 행: {saved_row}", exchange=event_exchange, level='DEBUG')
 
                 return inserted_id
 
@@ -3659,56 +3666,67 @@ class Recorder:
         try:
             with sqlite3.connect(self.db_path) as conn:
                 cursor = conn.cursor()
-                cursor.execute("""
-                    INSERT INTO ai_decisions (symbol, decision_type, decision_json, user_feedback)
-                    VALUES (?, ?, ?, ?)
-                """, (symbol, decision_type, json.dumps(decision_data, ensure_ascii=False), user_feedback))
+                from trading.decision_storage import save
+                event_meta = save(conn, symbol, decision_type, decision_data, user_feedback, exchange)
                 conn.commit()
+
+                if event_meta.get('storage_status') == 'quarantined':
+                    log_event('system', 'AI 판단 기록의 기관·모드 근거 충돌: 원본 별도 보존, 학습 제외. 설정 → 업데이트 → 유지관리 · 저장소에서 확인하세요.',
+                              exchange=exchange, level='WARNING')
+                    return event_meta
 
                 event_exchange = str(
                     exchange or decision_data.get('exchange') or self.exchange or ''
                 ).strip().lower()
                 log_event(
                     'trade', f"[{symbol}] AI 결정 내역 저장 완료: {decision_type}",
-                    exchange=event_exchange, level='INFO',
+                    exchange=event_exchange, level='DEBUG',
                 )
 
         except Exception as e:
             event_exchange = str(exchange or self.exchange or '').strip().lower()
             log_event('trade', f"AI 결정 내역 저장 오류: {e}", exchange=event_exchange, level='ERROR')
 
-    def get_ai_decisions(self, symbol: Optional[str] = None, limit: int = 50) -> List[dict]:
+    def get_ai_decisions(self, symbol: Optional[str] = None, limit: int = 50,
+                         *, exchange: Optional[str] = None, execution_mode: Optional[str] = None) -> List[dict]:
         """AI 결정 내역 조회"""
         try:
             with sqlite3.connect(self.db_path) as conn:
                 cursor = conn.cursor()
 
-                if symbol:
-                    cursor.execute("""
-                        SELECT id, symbol, decision_type, decision_json, user_feedback, created_at
-                        FROM ai_decisions
-                        WHERE symbol = ?
-                        ORDER BY created_at DESC
-                        LIMIT ?
-                    """, (symbol, limit))
-                else:
-                    cursor.execute("""
-                        SELECT id, symbol, decision_type, decision_json, user_feedback, created_at
-                        FROM ai_decisions
-                        ORDER BY created_at DESC
-                        LIMIT ?
-                    """, (limit,))
+                conditions, params = [], []
+                for key, value in (('symbol',symbol),('exchange',exchange),('execution_mode',execution_mode)):
+                    if value:
+                        conditions.append(f'{key}=?'); params.append(value)
+                where = ' WHERE '+' AND '.join(conditions) if conditions else ''
+                ordering = 'event_time' if exchange else 'created_at'
+                cursor.execute(f"""SELECT id,symbol,decision_type,decision_json,user_feedback,created_at,
+                    exchange,execution_mode,event_time,strategy_version_id,reason_code,repeat_count,last_event_time,
+                    contract_version,asset_class,instrument_type,decision_status,actual_order,order_id,ledger_id,event_kind
+                    FROM ai_decisions {where} ORDER BY {ordering} DESC,id DESC LIMIT ?""", [*params,max(1,min(int(limit),1000))])
 
                 results = []
                 for row in cursor.fetchall():
-                    decision_data = json.loads(row[3]) if row[3] else {}
+                    try:
+                        decision_data = json.loads(row[3]) if row[3] else {}
+                        parse_status = 'ok'
+                    except (ValueError,TypeError):
+                        decision_data = {}; parse_status = 'invalid_original_retained'
                     results.append({
                         'id': row[0],
                         'symbol': row[1],
                         'decision_type': row[2],
                         'decision_data': decision_data,
                         'user_feedback': row[4],
-                        'created_at': row[5]
+                        'created_at': row[5],
+                        'exchange': row[6], 'execution_mode': row[7], 'event_time': row[8],
+                        'strategy_version_id': row[9], 'reason_code': row[10],
+                        'repeat_count': row[11], 'last_event_time': row[12],
+                        'contract_version': row[13], 'asset_class': row[14],
+                        'instrument_type': row[15], 'decision_status': row[16],
+                        'actual_order': None if row[17] is None else bool(row[17]),
+                        'order_id': row[18], 'ledger_id': row[19], 'event_kind': row[20],
+                        'parse_status': parse_status,
                     })
 
                 return results

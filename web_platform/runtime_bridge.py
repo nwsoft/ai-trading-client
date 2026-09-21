@@ -903,6 +903,8 @@ scoped_pool(list(getattr(self._app, "active_custom_strategy_pool", []) or []), a
     def shutdown(self) -> dict[str, Any]:
         """Prepare the sidecar for process exit. Safe and idempotent."""
         with self._lock:
+            if self._record_recovery is not None:
+                self._record_recovery.cancel()
             if self._app is None:
                 return {"safe_to_exit": True, "already_complete": True, "running_sources": []}
             result = self._app.shutdown()

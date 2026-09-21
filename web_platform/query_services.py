@@ -1585,13 +1585,28 @@ class AccountQueryService:
         )
         path = Path(source_path)
         public_source = str(path)
-        if not path.exists():
+        compact_path = path.parent / 'learning.sqlite3'
+        if not path.exists() and not compact_path.exists():
             return {"records": [], "source": public_source, "status": "empty"}
         try:
-            page_records, has_more, known_total, complete_records = self._recent_json_array_page(
-                path, offset=safe_offset, limit=safe_limit,
-            )
-        except (OSError, ValueError, json.JSONDecodeError):
+            if compact_path.exists():
+                from trading.learning_storage import LearningStore
+                store = LearningStore(path.parent,initialize=False)
+                known_total = store.count(normalized_source)
+                if known_total or not path.exists():
+                    page_records = store.recent(normalized_source, safe_limit, safe_offset)
+                    has_more = safe_offset + len(page_records) < known_total
+                    complete_records = None
+                    public_source = str(compact_path)
+                else:
+                    page_records, has_more, known_total, complete_records = self._recent_json_array_page(
+                        path, offset=safe_offset, limit=safe_limit,
+                    )
+            else:
+                page_records, has_more, known_total, complete_records = self._recent_json_array_page(
+                    path, offset=safe_offset, limit=safe_limit,
+                )
+        except (OSError, ValueError, json.JSONDecodeError, sqlite3.Error):
             return {"records": [], "source": public_source, "status": "invalid"}
         safe_records = list(page_records)
         summary_records = list(complete_records) if complete_records is not None else safe_records
@@ -1690,7 +1705,7 @@ class AccountQueryService:
         }
 
     def _stock_learning_snapshot(self, source: str, offset: int, limit: int) -> dict[str, Any]:
-        """Read the broker-owned analysis authority, filtering BEFORE pagination.
+        """Read broker-owned stock/ETF analysis and auto-decision evidence.
 
         Stock analysis is persisted in ai_decisions, not crypto learning JSON.
         Historical payloads without an explicit broker remain unattributed.
@@ -1703,15 +1718,41 @@ class AccountQueryService:
                 connection.create_function("noah_source", 1, _normalize_source, deterministic=True)
                 document = "CASE WHEN json_valid(decision_json) THEN decision_json ELSE '{}' END"
                 owner = f"noah_source(COALESCE(json_extract({document}, '$.broker'), json_extract({document}, '$.exchange'), ''))"
-                where = f"decision_type = 'stock_analyze_symbol' AND {owner} = ?"
-                total = connection.execute(f"SELECT COUNT(*) FROM ai_decisions WHERE {where}", (source,)).fetchone()[0]
+                decision_types = "('stock_analyze_symbol','stock_auto_trade_symbol','stock_auto_exit_symbol')"
+                where = f"decision_type IN {decision_types} AND {owner} = ?"
+                params = (source,)
+                columns = {row[1] for row in connection.execute('PRAGMA table_info(ai_decisions)')}
+                if 'exchange' in columns:
+                    # Preserve not-yet-migrated rows, without parsing every crypto
+                    # decision. The type/venue index scopes the legacy fallback.
+                    where = f"decision_type IN {decision_types} AND (exchange = ? OR (exchange IS NULL AND {owner} = ?))"
+                    params = (source,source)
+                def selected(column: str, fallback: str = 'NULL') -> str:
+                    return column if column in columns else fallback
+                total = connection.execute(f"SELECT COUNT(*) FROM ai_decisions WHERE {where}", params).fetchone()[0]
+                event_total = connection.execute(
+                    f"SELECT COALESCE(SUM({selected('repeat_count','1')}),0) FROM ai_decisions WHERE {where}", params,
+                ).fetchone()[0]
                 rows = connection.execute(
-                    f"SELECT id, symbol, created_at, decision_json FROM ai_decisions WHERE {where} ORDER BY id DESC LIMIT ? OFFSET ?",
-                    (source, limit, offset),
+                    f"""SELECT id,symbol,created_at,decision_type,decision_json,
+                        {selected('execution_mode')} AS execution_mode,
+                        {selected('asset_class')} AS asset_class,
+                        {selected('instrument_type')} AS instrument_type,
+                        {selected('decision_status')} AS decision_status,
+                        {selected('reason_code')} AS reason_code,
+                        {selected('actual_order')} AS actual_order,
+                        {selected('order_id')} AS order_id,
+                        {selected('repeat_count','1')} AS repeat_count
+                        FROM ai_decisions WHERE {where} ORDER BY id DESC LIMIT ? OFFSET ?""",
+                    (*params, limit, offset),
                 ).fetchall()
                 summary_rows = connection.execute(
-                    f"SELECT created_at, json_extract({document}, '$.confidence') AS confidence, json_extract({document}, '$.signal') AS signal FROM ai_decisions WHERE {where}",
-                    (source,),
+                    f"""SELECT created_at,json_extract({document}, '$.confidence') AS confidence,
+                        COALESCE(json_extract({document}, '$.signal'),json_extract({document}, '$.action'),
+                                 {selected('decision_status')}) AS signal,
+                        {selected('repeat_count','1')} AS repeat_count
+                        FROM ai_decisions WHERE {where} ORDER BY id DESC LIMIT 10000""",
+                    params,
                 )
                 today = datetime.now().astimezone().date()
                 counts = {"LONG": 0, "SHORT": 0, "HOLD": 0}
@@ -1722,26 +1763,40 @@ class AccountQueryService:
                     # though its serialized value has no timezone suffix.
                     epoch = self._epoch_seconds(row["created_at"])
                     day = datetime.fromtimestamp(epoch).date() if epoch is not None else None
-                    today_count += int(day == today)
-                    weekly_count += int(day is not None and today - timedelta(days=6) <= day <= today)
+                    weight = max(1, int(row["repeat_count"] or 1))
+                    today_count += weight * int(day == today)
+                    weekly_count += weight * int(day is not None and today - timedelta(days=6) <= day <= today)
                     signal = str(row["signal"] or "").upper()
-                    if signal in counts:
-                        counts[signal] += 1
+                    normalized_signal = 'LONG' if signal in {'BUY','LONG'} else 'SHORT' if signal in {'SELL','SHORT'} else 'HOLD' if signal in {'HOLD','SKIP','OBSERVED'} else ''
+                    if normalized_signal:
+                        counts[normalized_signal] += weight
                     if row["confidence"] is not None:
-                        confidence_total += _number(row["confidence"])
-                        confidence_count += 1
+                        confidence_total += _number(row["confidence"]) * weight
+                        confidence_count += weight
             records = []
             for row in reversed(rows):
                 decision = _safe_json(row["decision_json"])
                 decision = decision if isinstance(decision, dict) else {}
-                records.append({"symbol": row["symbol"], "timestamp": row["created_at"],
-                                "exchange": source, "signal": decision.get("signal") or "기록 없음",
-                                "confidence": decision.get("confidence"), "reasoning": decision.get("reasoning"),
+                signal = decision.get("signal") or decision.get("action") or row["decision_status"] or "기록 없음"
+                xai = decision.get('xai_contract') if isinstance(decision.get('xai_contract'),dict) else {}
+                records.append({"id": row["id"], "symbol": row["symbol"], "timestamp": row["created_at"],
+                                "exchange": source, "signal": signal,
+                                "confidence": decision.get("confidence"),
+                                "reasoning": decision.get("reasoning") or xai.get('why') or decision.get('reason'),
+                                "decision_type": row["decision_type"],
+                                "execution_mode": row["execution_mode"] or decision.get('execution_mode') or 'unknown',
+                                "asset_class": row["asset_class"] or decision.get('asset_class') or 'securities',
+                                "instrument_type": row["instrument_type"] or decision.get('instrument_type') or ('etf' if decision.get('is_etf') is True else 'stock' if decision.get('is_etf') is False else 'unknown'),
+                                "decision_status": row["decision_status"] or decision.get('decision_status'),
+                                "reason_code": row["reason_code"] or decision.get('reason_code') or 'unknown',
+                                "actual_order": row["actual_order"] if row["actual_order"] is not None else decision.get('actual_order'),
+                                "order_id": row["order_id"] or decision.get('order_id'),
+                                "repeat_count": max(1,int(row["repeat_count"] or 1)),
                                 **{key: decision.get(key) for key in ("rsi", "macd", "trend", "market")}})
             payload.update({"records": records, "status": "ok" if records else "empty",
-                            "summary": {"total_count": total, "today_count": today_count, "weekly_count": weekly_count,
+                            "summary": {"total_count": int(event_total or 0), "stored_row_count": total, "today_count": today_count, "weekly_count": weekly_count,
                                         "signal_counts": counts, "average_confidence": confidence_total / confidence_count if confidence_count else None,
-                                        "complete": True},
+                                        "complete": total <= 10000, "sample_count": min(total,10000)},
                             "pagination": {"offset": offset, "limit": limit, "returned": len(records),
                                            "has_more": offset + len(records) < total, "total_count": total}})
         except (OSError, sqlite3.Error) as exc:

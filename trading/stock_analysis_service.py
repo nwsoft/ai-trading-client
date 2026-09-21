@@ -812,8 +812,16 @@ class StockAnalysisService:
         self.recorder = recorder
         self._paper_settings = dict(paper_settings or {})
         self._paper_persistence_enabled = paper_settings is not None
+        self._active_execution_mode = ExecutionMode.LEARNING.value
+        self._instrument_type_cache: Dict[str, str] = {}
+        try:
+            setattr(self.adapter, '_noah_execution_mode', self._active_execution_mode)
+        except Exception:
+            pass
         self.log_event = lambda category, msg, level='INFO': log_event(
-            category, msg, exchange=self.broker_name, level=level
+            category, msg, exchange=self.broker_name, level=level,
+            execution_mode=self._active_execution_mode,
+            details={'asset_class':'securities', 'instrument_type':'stock_or_etf'}
         )
         # 레짐 캐시: 5분 유효 (코인 trader.py 방식과 동일)
         self._regime_cache: Optional[str] = None
@@ -1232,20 +1240,12 @@ class StockAnalysisService:
     def _get_recorder(self) -> Optional[Any]:
         """Recorder 인스턴스를 지연 로드한다."""
         if self.recorder is not None:
-            try:
-                self.recorder.exchange = self.broker_name
-            except Exception:
-                pass
             return self.recorder
 
         # 어댑터에 이미 recorder가 연결된 경우 우선 사용
         try:
             adapter_recorder = getattr(self.adapter, 'recorder', None)
             if adapter_recorder is not None:
-                try:
-                    adapter_recorder.exchange = self.broker_name
-                except Exception:
-                    pass
                 self.recorder = adapter_recorder
                 return self.recorder
         except Exception:
@@ -1654,25 +1654,76 @@ class StockAnalysisService:
             logger.debug("analysis_log 저장 실패 (%s): %s", self.broker_name, exc)
 
     def _persist_xai_decision(self, symbol: str, decision_type: str, payload: Dict[str, Any]) -> None:
-        """XAI 성격의 의사결정 스냅샷을 ai_decisions에 저장한다."""
+        """Persist one broker-independent XAI envelope around stock/ETF evidence."""
         recorder = self._get_recorder()
         if recorder is None:
             return
 
         try:
+            from trading.event_contract import execution_mode_key
+            evidence = dict(payload or {})
+            validation = dict(evidence.get('validation') or {}) if isinstance(evidence.get('validation'),dict) else {}
+            result = dict(evidence.get('result') or {}) if isinstance(evidence.get('result'),dict) else {}
+            raw_mode = evidence.get('execution_mode') or validation.get('execution_mode') or self._active_execution_mode
+            mode = execution_mode_key(raw_mode)
+            if mode == 'unknown' and not str(decision_type).startswith(('stock_auto_trade','stock_auto_exit')):
+                mode = ExecutionMode.LEARNING.value
+            symbol_key = str(symbol or '').strip().upper()
+            explicit_asset = str(evidence.get('instrument_type') or evidence.get('asset_class') or '').lower()
+            if explicit_asset in {'stock','etf'}:
+                instrument_type = explicit_asset
+            elif isinstance(evidence.get('is_etf'),bool):
+                instrument_type = 'etf' if evidence['is_etf'] else 'stock'
+            else:
+                instrument_type = self._instrument_type_cache.get(symbol_key,'securities')
+            action = str(evidence.get('decision_status') or evidence.get('action') or evidence.get('signal')
+                         or validation.get('status') or 'observed').lower()
+            reason_code = str(evidence.get('reason_code') or evidence.get('reason') or validation.get('reason')
+                              or validation.get('status') or ('analysis_completed' if decision_type=='stock_analyze_symbol' else action))
+            order_id = evidence.get('order_id') or result.get('order_id') or result.get('id')
+            actual_order = evidence.get('actual_order')
+            if not isinstance(actual_order,bool):
+                if mode in {ExecutionMode.PAPER.value,ExecutionMode.LEARNING.value} or 'blocked' in reason_code:
+                    actual_order = False
+                elif mode == ExecutionMode.LIVE.value and order_id is not None:
+                    actual_order = True
+                else:
+                    # A failed/timeout response is not proof that no order was
+                    # submitted. Nor does a generic success prove acceptance.
+                    actual_order = None
+            evidence.update({
+                'broker': evidence.get('broker') or self.broker_name,
+                'execution_mode': mode,
+                'asset_class': 'securities',
+                'instrument_type': instrument_type,
+                'event_kind': 'decision',
+                'status': action,
+                'decision_status': action,
+                'reason_code': reason_code,
+                'actual_order': actual_order,
+                'order_id': str(order_id) if order_id is not None else None,
+                'xai_contract': {
+                    'schema_version': 1,
+                    'decision': action,
+                    'why': str(evidence.get('reasoning') or evidence.get('reason') or reason_code),
+                    'constraints': validation,
+                    'outcome': result,
+                    'actual_order': actual_order,
+                },
+            })
             try:
                 recorder.save_ai_decision(
                     symbol,
                     decision_type,
-                    payload,
+                    evidence,
                     exchange=self.broker_name,
                 )
             except TypeError:
                 # Compatibility for injected legacy/test recorders. Production
                 # Recorder accepts the explicit owner above.
-                recorder.save_ai_decision(symbol, decision_type, payload)
-        except Exception:
-            pass
+                recorder.save_ai_decision(symbol, decision_type, evidence)
+        except Exception as exc:
+            logger.warning('stock XAI persistence failed (%s): %s', self.broker_name, type(exc).__name__)
 
     def _emit_analysis_log(self, stage: str, payload: Dict[str, Any]) -> None:
         """분석 핵심 결과를 로그 스트림/UI에 남긴다."""
@@ -2202,6 +2253,7 @@ class StockAnalysisService:
                     'broker': self.broker_name,
                     'symbol': symbol,
                     'market': result.get('market'),
+                    'is_etf': bool(result.get('is_etf', False)),
                     'signal': ('LONG' if self._to_float(result.get('score')) >= 70 and self._to_float(result.get('momentum')) >= 0
                                else 'SHORT' if self._to_float(result.get('score')) <= 30 and self._to_float(result.get('momentum')) < 0 else 'HOLD'),
                     'rsi': result.get('rsi'),
@@ -3016,6 +3068,10 @@ class StockAnalysisService:
                 decision_type='stock_auto_exit_symbol',
                 payload={
                     'broker': self.broker_name,
+                    'execution_mode': execution_mode,
+                    'is_etf': bool(analysis.get('is_etf')),
+                    'reason_code': exit_decision.get('reason') or 'auto_exit',
+                    'result': order_result if isinstance(order_result, dict) else {},
                     'symbol': symbol,
                     'action': 'SELL',
                     'reasoning': exit_decision.get('reason', ''),
@@ -3103,6 +3159,12 @@ class StockAnalysisService:
             execution_mode = 'mock'
         else:
             execution_mode = 'live_api'
+        from trading.event_contract import execution_mode_key
+        self._active_execution_mode = execution_mode_key(execution_mode)
+        try:
+            setattr(self.adapter, '_noah_execution_mode', self._active_execution_mode)
+        except Exception:
+            pass
         normalized_asset_mode = normalize_asset_mode(asset_mode)
 
         # ── api_type/api_version 조합 방어 검증 (실행 경로) ──────────────────
@@ -3389,6 +3451,7 @@ class StockAnalysisService:
                 continue
 
             is_etf = bool(analysis.get('is_etf', False))
+            self._instrument_type_cache[symbol] = 'etf' if is_etf else 'stock'
             if not asset_mode_matches(normalized_asset_mode, is_etf):
                 decisions.append({
                     'symbol': symbol,
@@ -4450,6 +4513,7 @@ class StockAnalysisService:
             decision_type='stock_auto_trade_cycle',
             payload={
                 'broker': self.broker_name,
+                'execution_mode': execution_mode,
                 'reasoning': (
                     f"symbols={len(normalized_symbols)}, orders_executed={executed_orders}, "
                     f"execution_mode={execution_mode}, asset_mode={normalized_asset_mode}"

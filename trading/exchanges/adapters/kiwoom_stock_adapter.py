@@ -94,8 +94,13 @@ class KiwoomStockAdapter(StockExchange):
         # Metadata and quote reads share opt10001. Reuse only a successful
         # positive quote for one second, never a failure or a prior session.
         self._basic_info_cache: Dict[str, Any] = {}
+        self._noah_execution_mode = 'unknown'
         from log_system.log_adapter import log_event
-        self.log_event = lambda category, msg, level='INFO': log_event(category, msg, exchange='kiwoom', level=level)
+        self.log_event = lambda category, msg, level='INFO': log_event(
+            category, msg, exchange='kiwoom', level=level,
+            execution_mode=self._noah_execution_mode,
+            details={'asset_class':'securities','instrument_type':'stock_or_etf'},
+        )
         
         # ETF 코드 범위 (한국거래소 기준)
         # 범위 기반 판별이 prefix 기반보다 정확함

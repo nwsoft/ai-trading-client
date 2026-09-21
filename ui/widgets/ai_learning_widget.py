@@ -492,7 +492,7 @@ class AILearningWidget(CTkFrame):
             except Exception:
                 pass
 
-            if os.path.exists(data_file):
+            if os.path.exists(data_file) or os.path.exists(os.path.join(os.path.dirname(data_file), 'learning.sqlite3')):
                 self.logger.info("[DEBUG] 상태 데이터 파일 읽기")
                 data = self._load_json_list_safely(data_file)
 
@@ -634,11 +634,11 @@ class AILearningWidget(CTkFrame):
             except Exception:
                 pass
 
-            if os.path.exists(data_file):
+            if os.path.exists(data_file) or os.path.exists(os.path.join(os.path.dirname(data_file), 'learning.sqlite3')):
                 # 변경 없으면 스킵
                 try:
                     mtime = os.path.getmtime(data_file)
-                    if self._last_data_mtime is not None and mtime == self._last_data_mtime:
+                    if self._last_data_mtime is not None and mtime == self._last_data_mtime and not os.path.exists(os.path.join(os.path.dirname(data_file), 'learning.sqlite3')):
                         self.logger.info("[DEBUG] 파일 변경 없음 - 렌더링 생략")
                         return
                 except Exception:
@@ -741,11 +741,11 @@ class AILearningWidget(CTkFrame):
                     self.data_path_label.configure(text=f"데이터 파일: {self._shorten_path(self._data_file_path)}")
             except Exception:
                 pass
-            if os.path.exists(data_file):
+            if os.path.exists(data_file) or os.path.exists(os.path.join(os.path.dirname(data_file), 'learning.sqlite3')):
                 # 변경 없으면 스킵
                 try:
                     mtime = os.path.getmtime(data_file)
-                    if self._last_data_mtime is not None and mtime == self._last_data_mtime:
+                    if self._last_data_mtime is not None and mtime == self._last_data_mtime and not os.path.exists(os.path.join(os.path.dirname(data_file), 'learning.sqlite3')):
                         self.logger.info("[DEBUG] refresh: 파일 변경 없음 - 렌더링 생략")
                         return
                 except Exception:
@@ -803,6 +803,9 @@ class AILearningWidget(CTkFrame):
 
     def _load_json_list_safely(self, data_file: str, retries: int = 3, delay_sec: float = 0.12) -> List[Dict]:
         """쓰기 중간 상태를 고려해 JSON 리스트를 안전하게 읽습니다."""
+        if os.path.exists(os.path.join(os.path.dirname(data_file), 'learning.sqlite3')):
+            from trading.learning_storage import LearningStore
+            return LearningStore(os.path.dirname(data_file),initialize=False).recent(getattr(self,'exchange_name','') or '',limit=10000)
         last_error: Optional[Exception] = None
         for attempt in range(retries):
             try:

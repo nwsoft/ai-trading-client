@@ -36,6 +36,7 @@ class RecordRecovery:
     def __init__(self, recorder, resolver, *, now=time.time, request_budget=60, delay=0.25):
         self.recorder, self.resolver, self.now = recorder, resolver, now
         self.request_budget, self.delay = request_budget, delay
+        self.cancelled = threading.Event()
         self.path = Path(recorder.db_path).resolve()
         self.journal = self.path.with_name('record_recovery.sqlite3')
         with self._locks_guard:
@@ -51,6 +52,9 @@ class RecordRecovery:
                     reason TEXT NOT NULL DEFAULT '', before_json TEXT, after_json TEXT,
                     PRIMARY KEY(job_id,trade_id));
             ''')
+            columns = {r[1] for r in db.execute('PRAGMA table_info(jobs)')}
+            for name, definition in (('retry_count','INTEGER NOT NULL DEFAULT 0'),('next_retry_at','REAL NOT NULL DEFAULT 0'),('retryable','INTEGER NOT NULL DEFAULT 0')):
+                if name not in columns: db.execute(f'ALTER TABLE jobs ADD COLUMN {name} {definition}')
         self.journal.chmod(0o600)
 
     @contextmanager
@@ -105,17 +109,24 @@ class RecordRecovery:
         recovered = sum(r['n'] for r in rows if r['state'] == 'recovered')
         pending = sum(r['n'] for r in rows if r['state'] == 'pending')
         state = job['state']
-        if state == 'running' and job['lease_until'] < self.now():
+        if state in {'running','retry_wait'} and job['lease_until'] < self.now():
             state = 'interrupted'
         history_pages = {}
         if venue == 'binance':
             with closing(sqlite3.connect(self.path.as_uri()+'?mode=ro', uri=True, timeout=2)) as ledger:
-                if ledger.execute("SELECT 1 FROM sqlite_master WHERE name='recovery_history_runs'").fetchone():
-                    counts = ledger.execute('''SELECT p.state,COUNT(*) FROM recovery_history_pages p
-                        JOIN recovery_history_runs r ON r.scope=p.scope WHERE r.job_id=? GROUP BY p.state''',
+                if ledger.execute("SELECT 1 FROM sqlite_master WHERE name='recovery_history_job_sessions'").fetchone():
+                    counts = ledger.execute('''SELECT state,COUNT(*) FROM (
+                        SELECT DISTINCT p.scope,p.symbol,p.kind,p.start,p.end,p.state FROM recovery_history_pages p
+                        JOIN recovery_history_session_pages s USING(scope,symbol,kind,start,end)
+                        JOIN recovery_history_job_sessions j ON j.scope=s.scope AND j.symbol=s.symbol AND j.start=s.session_start
+                        WHERE j.job_id=? AND p.state!='split') GROUP BY state''',
                         (job['job_id'],)).fetchall()
                     history_pages = dict(counts)
         return {'source': venue, 'job_id': job['job_id'], 'state': state,
+                'background_continuation': True,
+                'retry_count': job['retry_count'] if 'retry_count' in job.keys() else 0,
+                'retryable': bool(job['retryable']) if 'retryable' in job.keys() else False,
+                'next_retry_at': job['next_retry_at'] if 'next_retry_at' in job.keys() else 0,
                 'total': total, 'processed': total-pending, 'recovered': recovered,
                 'remaining': total-recovered, 'pending': pending,
                 'reasons': {r['reason']: r['n'] for r in rows if r['reason'] and r['state'] != 'recovered'},
@@ -131,23 +142,23 @@ class RecordRecovery:
         try:
             with self._connect() as db:
                 db.execute('BEGIN IMMEDIATE')
-                if db.execute("SELECT 1 FROM jobs WHERE state='running' AND lease_until>?", (self.now(),)).fetchone():
+                if db.execute("SELECT 1 FROM jobs WHERE state IN ('running','retry_wait') AND lease_until>?", (self.now(),)).fetchone():
                     raise RuntimeError('recovery_already_running')
                 old = db.execute('SELECT * FROM jobs WHERE venue=?', (venue,)).fetchone()
-                if old and self.now()-old['updated'] < 30 and old['state'] not in {'paused', 'running'}:
+                if old and self.now()-old['updated'] < 30 and old['state'] not in {'paused', 'running', 'retry_wait'}:
                     raise RuntimeError('recovery_cooldown')
-                continuation = old and old['state'] in {'paused', 'running', 'failed'}
+                continuation = old and old['state'] in {'paused', 'running', 'failed', 'retry_wait'}
                 job_id = old['job_id'] if continuation else uuid.uuid4().hex
                 since = old['since'] if continuation else self.now()-45*86400
                 if not continuation:
                     # Keep previous per-row before/after audit evidence too.
-                    db.execute('INSERT OR REPLACE INTO jobs VALUES (?,?,?,?,?,?,NULL,NULL)',
+                    db.execute('INSERT OR REPLACE INTO jobs(venue,job_id,state,updated,lease_until,since,backup,error) VALUES (?,?,?,?,?,?,NULL,NULL)',
                                (venue, job_id, 'running', self.now(), self.now()+120, since))
                 else:
                     db.execute("UPDATE jobs SET state='running',updated=?,lease_until=?,error=NULL WHERE venue=?",
                                (self.now(), self.now()+120, venue))
             if background:
-                threading.Thread(target=self._run, args=(venue, job_id), daemon=True, name='record-recovery').start()
+                threading.Thread(target=self._background, args=(venue, job_id), daemon=True, name='record-recovery').start()
                 handed_off = True
             else:
                 handed_off = True
@@ -157,6 +168,51 @@ class RecordRecovery:
                 self.lock.release()
             raise
         return self.status(venue)
+
+    def cancel(self):
+        self.cancelled.set()
+
+    def _background(self, venue, job_id):
+        """One account lock for the entire explicitly requested operation.
+        Request budgets yield, transient failures retry at most twice. No UI
+        polling or open Settings window is required to advance the queue.
+        """
+        retries = 0
+        transient = {'income_reconciliation_required','position_anchor_changed','provider_query_failed'}
+        try:
+            while not self.cancelled.is_set():
+                self._run(venue,job_id,keep_lock=True)
+                state = self.status(venue)
+                pause = state['state']=='paused'
+                reasons = set(state['reasons'])
+                retry = (state['state']=='failed' and state['retryable']) or (
+                    state['state']=='needs_evidence' and bool(reasons & transient))
+                if not pause and (not retry or retries>=2): break
+                if retry:
+                    retries += 1
+                    delay = (5,15)[retries-1]
+                    with self._connect() as db:
+                        db.execute("UPDATE jobs SET state='retry_wait',retry_count=?,next_retry_at=?,lease_until=?,updated=? WHERE job_id=?",
+                                   (retries,self.now()+delay,self.now()+delay+120,self.now(),job_id))
+                        if state['state']=='needs_evidence':
+                            db.execute("UPDATE items SET state='pending' WHERE job_id=? AND state='unresolved' AND reason IN (?,?,?)",
+                                       (job_id,*sorted(transient)))
+                    if callable(getattr(self.resolver,'retry_pending_evidence',None)):
+                        self.resolver.retry_pending_evidence()
+                else:
+                    delay = 2
+                    # Keep the cross-process lease while yielding between
+                    # batches; this is still the same active operation.
+                    with self._connect() as db:
+                        db.execute("UPDATE jobs SET state='running',lease_until=?,updated=? WHERE job_id=?",
+                                   (self.now()+120,self.now(),job_id))
+                if self.cancelled.wait(delay): break
+                with self._connect() as db:
+                    db.execute("UPDATE jobs SET state='running',next_retry_at=0,lease_until=?,updated=? WHERE job_id=?",
+                               (self.now()+120,self.now(),job_id))
+        finally:
+            if self.cancelled.is_set(): self._finish(venue,'paused')
+            self.lock.release()
 
     def _prepare(self, venue, job_id):
         with self._connect() as db:
@@ -192,7 +248,7 @@ class RecordRecovery:
                                (job_id, row['id'], 'pending', json.dumps(record)))
             db.execute('UPDATE jobs SET backup=? WHERE job_id=?', (str(backup), job_id))
 
-    def _run(self, venue, job_id):
+    def _run(self, venue, job_id, *, keep_lock=False):
         try:
             if callable(getattr(self.resolver, 'begin_job', None)):
                 self.resolver.begin_job(job_id)
@@ -200,7 +256,7 @@ class RecordRecovery:
             requests = 0
             initial_queries = getattr(self.resolver, 'query_count', 0)
             started = time.monotonic()
-            while time.monotonic()-started < 90:
+            while time.monotonic()-started < 90 and not self.cancelled.is_set():
                 with self._connect() as db:
                     item = db.execute("SELECT trade_id,before_json FROM items WHERE job_id=? AND state='pending' ORDER BY trade_id DESC LIMIT 1", (job_id,)).fetchone()
                     db.execute('UPDATE jobs SET lease_until=?,updated=? WHERE job_id=?', (self.now()+120, self.now(), job_id))
@@ -218,6 +274,10 @@ class RecordRecovery:
                     before = json.loads(item['before_json'])
                     identity_changed = any(trade.get(key) != before.get(key) for key in (
                         'exchange','symbol','order_id','entry_time','quantity','entry_price','execution_mode','position_owner'))
+                    if (identity_changed and performance_evidence(trade)['performance_evidence_ready']
+                            and callable(getattr(self.resolver,'repaired_identity',None))
+                            and self.resolver.repaired_identity(before,trade)):
+                        identity_changed = False
                     if identity_changed:
                         reason = 'record_identity_changed'
                     elif performance_evidence(trade)['performance_evidence_ready']:
@@ -253,13 +313,18 @@ class RecordRecovery:
             self._finish(venue, 'paused')
         except Exception as exc:
             # No raw provider response, key, account number or traceback in UI.
-            self._finish(venue, 'failed', type(exc).__name__)
+            transient = (isinstance(exc,(TimeoutError,ConnectionError)) or
+                         type(exc).__name__ in {'ReadTimeout','ConnectTimeout'} or
+                         getattr(exc,'code',None) in {-1001,-1003,-1007} or
+                         getattr(exc,'status_code',None) in {429,500,502,503,504} or
+                         (isinstance(exc,RuntimeError) and str(exc)=='provider_history_query_failed'))
+            self._finish(venue, 'failed', type(exc).__name__, retryable=transient)
         finally:
-            self.lock.release()
+            if not keep_lock: self.lock.release()
 
-    def _finish(self, venue, state, error=''):
+    def _finish(self, venue, state, error='', *, retryable=False):
         with self._connect() as db:
-            db.execute('UPDATE jobs SET state=?,updated=?,lease_until=0,error=? WHERE venue=?', (state, self.now(), error, venue))
+            db.execute('UPDATE jobs SET state=?,updated=?,lease_until=0,next_retry_at=0,error=?,retryable=? WHERE venue=?', (state, self.now(), error, int(retryable), venue))
 
 
 def validate_fills(trade, rows):

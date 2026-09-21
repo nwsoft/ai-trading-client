@@ -1,10 +1,9 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-거래소별 학습 데이터 관리자
-- 바이낸스: ai_learning_data_binance.json
-- 업비트: ai_learning_data_upbit.json
-- 빗썸: ai_learning_data_bithumb.json
+계정·거래소별 학습 데이터 관리자.
+v44는 learning.sqlite3와 검증된 압축 세그먼트를 사용한다.
+ai_learning_data_<exchange>.json은 읽기 전용 이관 원본이다.
 """
 
 import os
@@ -58,7 +57,7 @@ class ExchangeLearningData:
 class ExchangeLearningManager:
     """거래소별 학습 데이터 관리자"""
 
-    def __init__(self, exchange: str = "binance"):
+    def __init__(self, exchange: str = "binance", *, data_dir: Optional[str] = None):
         """
         거래소별 학습 매니저 초기화
 
@@ -69,14 +68,26 @@ class ExchangeLearningManager:
         self.logger = logging.getLogger(f"{__name__}.{self.exchange}")
 
         # 거래소별 파일 경로 설정
-        self.db_path = self._get_exchange_learning_path()
+        self.db_path = os.path.join(data_dir,f'ai_learning_data_{self.exchange}.json') if data_dir else self._get_exchange_learning_path()
         self._journal_path = f"{self.db_path}.journal.jsonl"
         self._pending_checkpoint_entries = 0
         self._last_checkpoint_monotonic = time.monotonic()
         self._history_lock = threading.RLock()
 
         # 학습 데이터 로드
-        self.learning_history = self._load_learning_data()
+        from trading.learning_storage import LearningStore, RecentHistory
+        self._store = LearningStore(os.path.dirname(self.db_path))
+        self.migration_error = None
+        for legacy_path in (self.db_path,self._journal_path):
+            try:
+                self._store.import_legacy(legacy_path,self.exchange)
+            except (OSError,ValueError) as exc:
+                self.migration_error = type(exc).__name__
+                self.logger.error('%s legacy learning migration incomplete: %s',self.exchange,self.migration_error)
+        self.learning_history = RecentHistory(self._store, self.exchange, self._get_retention_limit())
+        if self._store.count(self.exchange)>10000:
+            from trading.learning_storage import schedule_archive
+            schedule_archive(self._store)
 
         # API 제한 설정 (거래소별)
         self.api_limits = self._get_api_limits()
@@ -94,29 +105,7 @@ class ExchangeLearningManager:
             from path_utils import get_app_data_dir
             data_dir = get_app_data_dir()
 
-            # 개발 환경에서 계정 하위 폴더 자동 보정
-            # (예: noahai_client/data/nwsoft/ 을 선호)
-            try:
-                base_name = os.path.basename(os.path.normpath(data_dir))
-                if base_name == 'data':
-                    # 1) 환경변수 우선
-                    preferred = os.getenv('NOAHAI_ACCOUNT', '').strip()
-                    candidate_dir = None
-                    if preferred:
-                        pd = os.path.join(data_dir, preferred)
-                        if os.path.isdir(pd):
-                            candidate_dir = pd
-                    # 2) 일반적으로 많이 쓰는 계정명 우선(nwsoft)
-                    if candidate_dir is None:
-                        subs = [d for d in os.listdir(data_dir) if os.path.isdir(os.path.join(data_dir, d))]
-                        if 'nwsoft' in subs:
-                            candidate_dir = os.path.join(data_dir, 'nwsoft')
-                        elif len(subs) == 1:
-                            candidate_dir = os.path.join(data_dir, subs[0])
-                    if candidate_dir:
-                        data_dir = candidate_dir
-            except Exception:
-                pass
+            # Only the authenticated account path is authoritative; never guess another account.
 
             # 거래소별 파일명 (계정별 폴더 사용)
             return os.path.join(data_dir, f'ai_learning_data_{self.exchange}.json')
@@ -158,89 +147,12 @@ class ExchangeLearningManager:
         return limits.get(self.exchange, limits["binance"])
 
     def _load_learning_data(self) -> List[Dict]:
-        """학습 데이터 로드"""
-        try:
-            if os.path.exists(self.db_path):
-                data = self._read_json_list_safe(self.db_path)
-                data.extend(self._read_learning_journal())
-                deduplicated: Dict[str, Dict] = {}
-                legacy: List[Dict] = []
-                for item in data:
-                    event_id = str(item.get('_learning_event_id') or '') if isinstance(item, dict) else ''
-                    if event_id:
-                        deduplicated[event_id] = item
-                    elif isinstance(item, dict):
-                        legacy.append(item)
-                data = legacy + list(deduplicated.values())
-                # JSON에서 datetime 객체로 변환
-                for item in data:
-                    try:
-                        ts = datetime.fromisoformat(item['timestamp'])
-                        if ts.tzinfo is None:
-                            ts = ts.replace(tzinfo=timezone.utc)
-                        item['timestamp'] = ts
-                    except Exception:
-                        pass
-                return data
-            else:
-                # 파일이 없으면 초기 파일 생성
-                self.logger.info(f"{self.exchange.upper()} 학습 데이터 파일이 없습니다. 초기 파일을 생성합니다: {self.db_path}")
-                initial_data = []
-                os.makedirs(os.path.dirname(self.db_path), exist_ok=True)
-                self._atomic_write_json(self.db_path, initial_data)
-                self.logger.info(f"{self.exchange.upper()} 초기 학습 데이터 파일 생성 완료")
-                return self._read_learning_journal()
-        except Exception as e:
-            self.logger.error(f"{self.exchange.upper()} 학습 데이터 로드 오류: {e}")
-            return []
+        """Compatibility reader; the runtime uses an indexed lazy view."""
+        return self._store.recent(self.exchange,self._get_retention_limit())
 
     def _save_learning_data(self):
-        """학습 데이터 저장 (일간 아카이브 자동 로테이션 포함)"""
-        try:
-            with self._history_lock:
-                # 1단계: 아카이브 로테이션 (상한 초과 데이터를 아카이브로 이동)
-                self._rotate_to_archive()
-            
-                # 2단계: 운영 파일은 최신 N개만 유지 (UI/판단 성능 보호)
-                max_entries = self._get_retention_limit()
-                if len(self.learning_history) > max_entries:
-                    self.learning_history = self.learning_history[-max_entries:]
-
-            # 3단계: datetime 객체를 문자열로 변환
-                data_to_save = []
-                for item in self.learning_history:
-                    item_copy = self._storage_entry(item)
-                # timestamp는 datetime 또는 이미 문자열일 수 있음
-                    try:
-                        ts = item.get('timestamp')
-                        if ts is None:
-                            ts_str = datetime.now(timezone.utc).isoformat()
-                        elif isinstance(ts, str):
-                            ts_str = ts
-                        else:
-                            # datetime 또는 유사 객체인 경우
-                            ts_str = ts.isoformat()
-                        item_copy['timestamp'] = ts_str
-                    except Exception:
-                        # 최후 폴백: 문자열 변환
-                        item_copy['timestamp'] = str(item.get('timestamp', datetime.now(timezone.utc).isoformat()))
-                    data_to_save.append(item_copy)
-
-            # 4단계: 저장 경로 확인 로그
-                self.logger.info(f"💾 {self.exchange.upper()} 학습 데이터 저장 경로: {self.db_path}")
-                self.logger.info(f"💾 저장할 데이터 개수: {len(data_to_save)}개")
-                self.logger.info(f"💾 보관 상한: {max_entries}개")
-
-                os.makedirs(os.path.dirname(self.db_path), exist_ok=True)
-                self._atomic_write_json(self.db_path, data_to_save)
-                self._truncate_file(self._journal_path)
-                self._pending_checkpoint_entries = 0
-                self._last_checkpoint_monotonic = time.monotonic()
-            self._checkpoint_global_aggregator()
-
-            self.logger.info(f"✅ {self.exchange.upper()} 학습 데이터 저장 완료")
-        except Exception as e:
-            self.logger.error(f"{self.exchange.upper()} 학습 데이터 저장 오류: {e}")
+        """Compatibility checkpoint: each event is already durably committed."""
+        return None
 
     def _get_retention_limit(self) -> int:
         """거래소 특성에 맞춘 학습 데이터 보관 상한(기본 10,000 이하)."""
@@ -264,26 +176,9 @@ class ExchangeLearningManager:
         return os.path.join(base_dir, archive_filename)
 
     def _rotate_to_archive(self):
-        """상한 초과 데이터를 일간 아카이브로 이동합니다."""
-        max_entries = self._get_retention_limit()
-        if len(self.learning_history) > max_entries:
-            excess_count = len(self.learning_history) - max_entries
-            # 제거될 데이터 (오래된 항목들)
-            archived_data = self.learning_history[:excess_count]
-            
-            archive_path = self._get_archive_path()
-            try:
-                os.makedirs(os.path.dirname(archive_path), exist_ok=True)
-                lock = _get_file_lock(archive_path)
-                with lock, open(archive_path, 'a', encoding='utf-8') as archive:
-                    for item in archived_data:
-                        archive.write(json.dumps(self._storage_entry(item), ensure_ascii=False) + '\n')
-                    archive.flush()
-                    os.fsync(archive.fileno())
-                self.logger.info(f"📦 {self.exchange.upper()} 일간 아카이브: {excess_count}개 항목을 {archive_path}로 이동")
-            except Exception as e:
-                self.logger.warning(f"⚠️ {self.exchange.upper()} 아카이브 로테이션 실패: {e}")
-                # 아카이브 실패는 무시 (운영 파일은 정상 저장됨)
+        """Schedule bounded compression; never truncate a legacy source."""
+        from trading.learning_storage import schedule_archive
+        schedule_archive(self._store)
 
     def record_criteria_adjustment(self, market_analysis: Dict, original_coins: List,
                                  adjusted_coins: List, adjustment_factor: float,
@@ -446,7 +341,15 @@ class ExchangeLearningManager:
         try:
             # 거래소 정보 추가
             learning_data = dict(learning_data or {})
-            learning_data['exchange'] = self.exchange
+            from trading.event_contract import metadata, input_issues
+            if input_issues('analysis', learning_data, self.exchange):
+                self._store.append(self.exchange, learning_data)
+                log_event('ai_learning', '학습 기록 기관·모드 충돌: 원본 별도 보존, 학습 제외', exchange=self.exchange, level='WARNING')
+                return False
+            learning_data.setdefault('exchange', self.exchange)
+            validation = learning_data.get('validation') or {}
+            learning_data.setdefault('execution_mode', validation.get('execution_mode', 'learning') if isinstance(validation, dict) else 'learning')
+            learning_data.update(metadata('analysis',learning_data,exchange=self.exchange))
             learning_data['api_limits'] = self.api_limits
             learning_data.setdefault('_learning_event_id', f"learning_{uuid4().hex}")
 
@@ -454,13 +357,11 @@ class ExchangeLearningManager:
             with self._history_lock:
                 self.learning_history.append(learning_data)
 
-                # 각 이벤트는 append-only 저널에 즉시 기록하고 큰 JSON 스냅샷은
-                # 묶어서 갱신한다. 종료/충돌 시에도 저널이 다음 시작에 병합된다.
+                # Each event commits to the indexed store; no full JSON rewrite.
                 self._persist_increment(learning_data)
                 history_size = len(self.learning_history)
             msg = f"🤖 {self.exchange.upper()} AI 학습 데이터 저장 (총 {history_size}개)"
-            self.logger.info(msg)
-            log_event('ai_learning', msg, exchange=self.exchange, level='INFO')
+            log_event('ai_learning', msg, exchange=self.exchange, level='DEBUG')
 
             # 글로벌 집계 파일에도 동시 기록(레거시/대시보드 호환)
             try:
@@ -474,8 +375,7 @@ class ExchangeLearningManager:
             signal = learning_data.get('signal', 'N/A')
             confidence = learning_data.get('confidence', 0)
             msg2 = f"📊 {self.exchange.upper()} 학습 데이터 추가: {symbol} - {signal} (신뢰도: {confidence:.2f})"
-            self.logger.info(msg2)
-            log_event('ai_learning', msg2, exchange=self.exchange, level='INFO')
+            log_event('ai_learning', msg2, exchange=self.exchange, level='DEBUG')
 
             emit_kpi_event(
                 event_type='learning_data_recorded',
@@ -549,10 +449,7 @@ class ExchangeLearningManager:
 
                 msg_path = f"💾 {self.exchange.upper()} 학습 데이터 저장 경로: {self.db_path}"
                 msg_count = f"💾 저장할 데이터 개수: {len(self.learning_history)}개"
-                self.logger.info(msg_path)
-                self.logger.info(msg_count)
-                log_event('ai_learning', msg_path, exchange=self.exchange, level='INFO')
-                log_event('ai_learning', msg_count, exchange=self.exchange, level='INFO')
+                log_event('ai_learning', f"학습 인사이트 조회: {len(recent_data)}개", exchange=self.exchange, level='DEBUG')
 
                 spot_metrics = [d.get('spot_trading_metrics', {}) for d in recent_data if d.get('spot_trading_metrics')]
                 if spot_metrics and self.exchange != 'binance':
@@ -562,8 +459,7 @@ class ExchangeLearningManager:
                     }
 
                 msg_done = f"✅ {self.exchange.upper()} 학습 데이터 저장 완료"
-                self.logger.info(msg_done)
-                log_event('ai_learning', msg_done, exchange=self.exchange, level='INFO')
+                log_event('ai_learning', msg_done, exchange=self.exchange, level='DEBUG')
 
             return insights
         except Exception as e:
@@ -597,46 +493,20 @@ class ExchangeLearningManager:
 
     # ---- 내부: 글로벌 집계 파일 관리 ----
     def _append_to_global_aggregator(self, learning_data: Dict) -> None:
-        """글로벌 단일 파일(ai_learning_data.json)에 엔트리 추가(호환성용).
-        - timestamp를 ISO 문자열로 강제 저장
-        - 과도한 파일 성장을 방지하기 위해 최대 5000개로 제한(앞쪽 삭제)
-        """
-        try:
-            # 글로벌 파일은 거래소별 파일과 동일한 디렉토리에 생성하여 경로 불일치 방지
-            base_dir = os.path.dirname(self.db_path)
-            agg_path = os.path.join(base_dir, 'ai_learning_data.journal.jsonl')
-            # 안전 변환: timestamp를 문자열(ISO)로 정규화
-            entry = dict(learning_data)
-            ts = entry.get('timestamp')
-            try:
-                if ts is None:
-                    ts_str = datetime.now(timezone.utc).isoformat()
-                elif isinstance(ts, str):
-                    ts_str = ts
-                else:
-                    # datetime 또는 유사 객체이면 isoformat 시도, 실패 시 str 폴백
-                    try:
-                        ts_str = ts.isoformat()  # type: ignore[attr-defined]
-                    except Exception:
-                        ts_str = str(ts)
-                entry['timestamp'] = ts_str
-            except Exception:
-                # 최후 폴백
-                entry['timestamp'] = str(ts or datetime.now(timezone.utc).isoformat())
-            self._append_jsonl(agg_path, self._storage_entry(entry))
-        except Exception:
-            # 집계 실패는 무시(주 파일에는 이미 저장됨)
-            pass
+        """The account-wide indexed view replaces duplicate global JSON writes."""
+        return None
 
     def _persist_increment(self, entry: Dict[str, Any]) -> None:
-        entry.setdefault('_learning_event_id', f"learning_{uuid4().hex}")
-        self._append_jsonl(self._journal_path, self._storage_entry(entry))
+        entry.setdefault("_learning_event_id", f"learning_{uuid4().hex}")
+        from trading.event_contract import metadata
+        kind = 'strategy_changed' if entry.get('learning_type')=='criteria_adjustment' else 'analysis'
+        for key,value in metadata(kind,{**entry,'event_time':entry.get('timestamp')},exchange=self.exchange).items():
+            entry.setdefault(key,value)
+        self._store.append(self.exchange, self._storage_entry(entry))
         self._pending_checkpoint_entries += 1
-        if (
-            self._pending_checkpoint_entries >= 100
-            or time.monotonic() - self._last_checkpoint_monotonic >= 300.0
-        ):
-            self._save_learning_data()
+        if self._pending_checkpoint_entries >= 1000:
+            self._pending_checkpoint_entries = 0
+            self._rotate_to_archive()
 
     def _read_learning_journal(self) -> List[Dict]:
         rows: List[Dict] = []
@@ -690,28 +560,8 @@ class ExchangeLearningManager:
             pass
 
     def _checkpoint_global_aggregator(self) -> None:
-        base_dir = os.path.dirname(self.db_path)
-        aggregate_path = os.path.join(base_dir, 'ai_learning_data.json')
-        journal_path = os.path.join(base_dir, 'ai_learning_data.journal.jsonl')
-        if not os.path.exists(journal_path):
-            return
-        journal_rows: List[Dict] = []
-        journal_lock = _get_file_lock(journal_path)
-        with journal_lock:
-            with open(journal_path, 'r', encoding='utf-8') as handle:
-                for line in handle:
-                    try:
-                        row = json.loads(line)
-                    except json.JSONDecodeError:
-                        continue
-                    if isinstance(row, dict):
-                        journal_rows.append(row)
-            if not journal_rows:
-                return
-            current = self._read_json_list_safe(aggregate_path) if os.path.exists(aggregate_path) else []
-            self._atomic_write_json(aggregate_path, (current + journal_rows)[-5000:])
-            with open(journal_path, 'w', encoding='utf-8'):
-                pass
+        """No duplicate global snapshot is written in v44."""
+        return None
 
     def _atomic_write_json(self, path: str, payload: List[Dict]) -> None:
         """JSON 파일을 임시 파일에 쓴 뒤 원자적으로 교체합니다."""
@@ -725,22 +575,10 @@ class ExchangeLearningManager:
             os.replace(tmp_path, path)
 
     def _read_json_list_safe(self, path: str) -> List[Dict]:
-        """JSON 리스트 파일을 안전하게 읽고, 깨진 경우 복구합니다."""
-        lock = _get_file_lock(path)
-        with lock:
-            try:
-                with open(path, 'r', encoding='utf-8') as f:
-                    loaded = json.load(f)
-                return loaded if isinstance(loaded, list) else []
-            except json.JSONDecodeError as e:
-                self.logger.warning(f"{self.exchange.upper()} 학습 데이터 JSON 손상 감지: {e}")
-                try:
-                    backup_path = f"{path}.corrupt.{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}"
-                    os.replace(path, backup_path)
-                    self.logger.warning(f"손상 파일 백업 완료: {backup_path}")
-                except Exception:
-                    pass
-                return []
+        """Read-only compatibility import; malformed source files remain intact."""
+        from trading.learning_storage import iter_legacy
+        from pathlib import Path
+        return list(iter_legacy(Path(path)))
 
     @staticmethod
     def _ensure_aware_timestamp(value: Any) -> datetime:
@@ -756,6 +594,18 @@ class ExchangeLearningManager:
         return datetime.now(timezone.utc)
 
 
+_MANAGERS: Dict[tuple, ExchangeLearningManager] = {}
+_MANAGERS_LOCK = threading.RLock()
+_MANAGER_INIT_LOCKS = {}
+
+
 def get_exchange_learning_manager(exchange: str) -> ExchangeLearningManager:
     """거래소별 학습 매니저 팩토리 함수"""
-    return ExchangeLearningManager(exchange)
+    from path_utils import get_app_data_dir
+    key = (os.path.realpath(get_app_data_dir()), str(exchange).lower())
+    with _MANAGERS_LOCK:
+        lock = _MANAGER_INIT_LOCKS.setdefault(key,threading.RLock())
+    with lock:
+        if key not in _MANAGERS:
+            _MANAGERS[key] = ExchangeLearningManager(exchange,data_dir=key[0])
+        return _MANAGERS[key]

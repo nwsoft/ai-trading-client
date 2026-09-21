@@ -6,6 +6,7 @@ import { CRYPTO_SOURCES, STOCK_SOURCES } from '../venueSources';
 const labels: Record<string, [string, string]> = {
   idle: ['점검 전', 'Not checked'], running: ['거래 기록 점검·복구 중', 'Checking trade records'],
   paused: ['조회량 제한 · 이어서 점검 가능', 'Request budget reached · continue available'],
+  retry_wait: ['일시적 조회·정산 지연 · 자동 재시도 대기', 'Temporary query / settlement delay · automatic retry pending'],
   interrupted: ['이전 점검 중단 · 이어서 점검 가능', 'Interrupted · continue available'],
   failed: ['조회 실패 · 잠시 후 다시 시도', 'Check failed · retry shortly'],
   checked: ['대상 기록 점검 완료 · 운용 조건은 별도 확인', 'Records checked · trading conditions still apply'],
@@ -72,7 +73,7 @@ export function RecordRecoveryPanel({ client, initialSource = 'binance', sources
       const revision = commandRevision.current;
       try {
         let next = await client.recordRecovery(source);
-        if (alive && id === sequence.current && revision === commandRevision.current && autoContinue.current && next.state === 'paused') {
+        if (alive && id === sequence.current && revision === commandRevision.current && autoContinue.current && next.state === 'paused' && !next.background_continuation) {
           next = await client.recordRecovery(source, true);
         }
         if (alive && id === sequence.current && revision === commandRevision.current) {
@@ -99,15 +100,17 @@ export function RecordRecoveryPanel({ client, initialSource = 'binance', sources
   return <section className="settings-parity-panel record-recovery" aria-label={localized('거래 기록 점검·복구', 'Trade record recovery')}>
     <h3>{localized('유지관리 · 거래 기록 점검·복구', 'Maintenance · Trade record recovery')}</h3>
     <p>{localized('최근 45일 LIVE 미확정 기록을 300건 제한 없이 점검합니다. 점검 건수는 현재 차단 표본 수와 다를 수 있습니다. PAPER 기록·통계 표시 기준·손실 한도는 변경하지 않습니다.', 'Checks unresolved LIVE records from the last 45 days, beyond the 300-record policy sample. The check count may differ from the currently blocked sample. PAPER records, display baselines and loss limits are unchanged.')}</p>
-    {source === 'binance' && <p>{localized('청산 번호가 없어도 과거 주문·체결·정산 내역을 조회해 복구합니다. 이 화면을 열어 두면 조회량 제한 후 자동으로 이어갑니다. 화면을 닫아도 진행 위치는 보존되며 다음 점검에서 이어집니다.', 'Missing close IDs are recovered from historical orders, fills and income evidence. Keep this panel open to continue automatically after each request budget. Closing the panel preserves checkpoints for the next check.')}</p>}
-    <label>{localized('거래소·증권사', 'Exchange / broker')} <select value={source} disabled={busy || status?.state === 'running'} onChange={e => setSource(e.target.value)}>
+    <p>{localized('한 번 실행하면 앱이 켜져 있는 동안 이 화면을 닫아도 조회량을 조절하며 이어갑니다. 일시적 오류·정산 지연은 최대 2회 자동 재시도합니다. 앱 종료 시 진행을 보존하고 다음 실행에서 이어갈 수 있습니다.', 'Start once: while the app is open, recovery continues with bounded queries even if you close this panel. Temporary errors or settlement delays retry at most twice. App exit preserves progress for your next check.')}</p>
+    {source === 'binance' && <p>{localized('청산 번호 누락·여러 주문으로 나눈 청산·기록 수량 불일치는 전체 체결 구간으로 재검증합니다. 진입 주문 소유권, 완전한 진입·청산 수량과 정산 근거가 확인될 때만 수정합니다.', 'Missing close IDs, multiple closing orders and quantity mismatches are checked against the full fill cycle. Repairs require proven entry ownership, complete entry/exit quantities and settlement evidence.')}</p>}
+    <label>{localized('거래소·증권사', 'Exchange / broker')} <select value={source} disabled={busy || ['running','retry_wait'].includes(status?.state)} onChange={e => setSource(e.target.value)}>
       {sources.map(s => <option key={s} value={s}>{s.toUpperCase()}</option>)}
     </select></label>
-    <button type="button" disabled={busy || status?.state === 'running'} onClick={() => void start()}>
+    <button type="button" disabled={busy || ['running','retry_wait'].includes(status?.state)} onClick={() => void start()}>
       {localized('거래 기록 점검·복구 실행 / 이어서 실행', 'Check / continue trade record recovery')}
     </button>
     <div role="status" aria-live="polite">
       <strong>{label(status?.state || 'idle')}</strong>
+      {Number(status?.retry_count) > 0 && <p>{localized('자동 재시도', 'Automatic retry')}: {status?.retry_count}/2</p>}
       {status?.state !== 'idle' && status && <p>{localized('처리', 'Processed')} {status.processed} / {status.total} · {localized('확인 완료', 'Verified')} {status.recovered} · {localized('미확정·대기', 'Unresolved / pending')} {status.remaining}</p>}
       {status?.backup_created && <small>{localized('최초 점검 전 DB 백업·작업별 변경 기록 보존', 'Initial database backup and per-run change evidence preserved')}</small>}
       {status?.history_pages && Object.keys(status.history_pages).length > 0 && <p>{localized('거래소 원장 조회 구간', 'Exchange history windows')}: {localized('완료', 'Complete')} {status.history_pages.complete || 0} · {localized('대기', 'Pending')} {status.history_pages.pending || 0}</p>}
@@ -116,6 +119,6 @@ export function RecordRecoveryPanel({ client, initialSource = 'binance', sources
     {Object.keys(status?.reasons || {}).length > 0 && <ul>{Object.entries(status?.reasons || {}).map(([reason, count]) => <li key={reason}>{label(reason)}: {String(count)}</li>)}</ul>}
     <p>{localized('API 조회만 수행하며 주문 제출·취소·청산·거래 시작은 하지 않습니다. 근거 없는 기록은 삭제하거나 수익으로 확정하지 않습니다. 점검 완료가 거래 재개 승인은 아닙니다.', 'Read-only provider queries: no orders, cancellations, position closing or trading start. Unproven records are never deleted or certified as profits. Completing a check does not authorize trading.')}</p>
     <p>{localized('이미 실행 중인 엔진은 복구된 기록을 다음 판단에 사용하므로 기존 진입 보류가 해제될 수 있습니다. 결과를 확인하기 전 새 거래를 원하지 않으면 먼저 기존 새 거래 일시정지를 사용하세요.', 'An already-running engine uses repaired records in its next evaluation, so an existing entry block may clear. Pause new entries first if you want to review the result before further trading.')}</p>
-    {status?.state === 'needs_evidence' && <p>{localized('위 사유를 확인하세요. 정산 지연·조회 중 포지션 변경은 잠시 후 새 점검으로 다시 조회할 수 있습니다. 혼합 진입·보존기간 초과·기관 과거 조회 미지원은 공식 주문·체결·수수료 근거가 더 필요합니다. 기록 초기화로 우회하지 마세요. 공식 파일 가져오기와 조건부 재개는 아직 제공하지 않습니다.', 'Check the reasons above. Delayed settlement or a changed position can be queried again in a new check. Mixed entries, expired retention or unsupported historical APIs require additional official evidence. Do not bypass this by resetting records. Statement import and conditional resumption are not yet available.')}</p>}
+    {status?.state === 'needs_evidence' && <p>{localized('추가 근거가 없으면 반복 실행해도 결과가 같을 수 있습니다. 정산 지연은 기관 정산 이후, 포지션 변경은 신규 진입 일시정지 이후 재점검하세요. 혼합 진입·보존기간 초과·기관 과거 조회 미지원은 반복 클릭으로 해결되지 않습니다. 미확정 내역은 보존하며 기록 초기화로 우회하지 않습니다. 공식 파일 가져오기와 조건부 재개는 아직 제공하지 않습니다.', 'Repeating a check without new evidence may give the same result. Retry settlement delays after provider settlement, and changed positions after pausing new entries. Mixed entries, expired retention and unsupported history cannot be fixed by repeated clicks. Unresolved records are preserved; do not reset them to bypass protection. Statement import and conditional resumption are not yet available.')}</p>}
   </section>;
 }

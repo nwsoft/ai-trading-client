@@ -189,6 +189,9 @@ def test_future_ccxt_venue_requires_native_conformance_contracts():
         "fee_contract": "fills",
         "time_sync_contract": "server_offset",
         "rate_limit_contract": "bounded_backoff",
+        "runtime_event_contract": "noahai.execution.v1",
+        "xai_contract": "noahai.xai.v1",
+        "execution_mode_contract": "learning_paper_live",
         "native_escape_hatches": ["protective_orders", "position_mode"],
     }
     assert validate_venue_onboarding_profile(profile) == (True, [])

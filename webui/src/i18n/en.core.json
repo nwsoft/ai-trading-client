@@ -13,7 +13,7 @@
   "⚙ 설정": "⚙ Settings", "처음 사용 · 빠른 시작": "First-time setup",
   "처음이면 빠른 시작에서 PAPER와 한 기관만 고르세요. 기존 설정은 그대로 두고 싶다면 탭별 설명을 따라 필요한 항목만 변경할 수 있습니다.": "New here? Start with PAPER and one venue in Quick Start. To keep your existing setup, use the tab guides and change only what you need.",
   "설정 창 닫기": "Close settings", "설정 닫기": "Close settings",
-  "v3.9.1.43 · LIVE는 별도 권한입니다 · PAPER OFF + 주문 대상/증권 LIVE + API 준비 + 가드레일": "v3.9.1.43 · LIVE requires separate authorization: PAPER off, LIVE venue enabled, API ready and guardrails passed",
+  "v3.9.1.44 · LIVE는 별도 권한입니다 · PAPER OFF + 주문 대상/증권 LIVE + API 준비 + 가드레일": "v3.9.1.44 · LIVE requires separate authorization: PAPER off, LIVE venue enabled, API ready and guardrails passed",
   "실거래 필수 안내": "LIVE safety guide", "AI 실행 준비도 진단": "AI readiness checks",
   "AI 키": "AI keys", "기본 Provider": "Default provider", "거래 모드": "Trading mode", "런타임": "Runtime",
   "회원 정책": "Membership policy", "설정 영역": "Settings sections",
@@ -134,5 +134,8 @@
   "상태 공유 켜짐": "Status sharing on", "상태 공유 꺼짐": "Status sharing off", "승인 기관·모드:": "Approved venues / modes:",
   "· 설정 변경 후에는 원격 권한을 다시 저장하세요.": "· Save remote permissions again after changing settings.",
   "정지 요청 · 처리 중 주문 확인 중": "Pause requested · Checking in-flight orders", "일시정지": "Paused",
-  "재개하지 못했습니다.": "Could not resume new entries.", "새 거래": "New entries"
+  "재개하지 못했습니다.": "Could not resume new entries.", "새 거래": "New entries",
+  "AI 판단·학습 근거": "AI decision and learning evidence",
+  "XAI 실행 근거": "XAI execution evidence",
+  "NoahAI XAI는 주식·ETF도 판단과 실행을 분리해 보여줍니다. LEARNING은 분석 판단, PAPER는 가상 체결, LIVE는 증권사 실제 주문이며 각 기록에 종목 유형·판단 근거·차단 사유·실제 주문 여부를 함께 남깁니다. 증권사별 기록은 기관 식별자로 분리하며 과거에 없던 근거는 추정하지 않습니다. 현재 국내 주식·국내 상장 ETF 범위이고, 미국 시세 조회만으로 해외주식 자동매매를 의미하지 않습니다.": "NoahAI XAI separates decisions from execution for stocks and ETFs. LEARNING records analysis decisions, PAPER records simulated fills, and LIVE may place actual broker orders. Each record carries the instrument type, decision evidence, block reason, and whether an actual order was placed. Broker records remain isolated and missing historical evidence is never inferred. The current scope is Korean stocks and Korea-listed ETFs; access to US quotes alone does not mean US-stock automated trading is supported."
 }

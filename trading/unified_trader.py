@@ -134,21 +134,9 @@ class UnifiedTrader:
         try:
             if verbose_only and not self._is_verbose_logging():
                 return
-            # 파일 로깅
-            if hasattr(self, 'logger') and self.logger:
-                if level == 'ERROR':
-                    self.logger.error(message)
-                elif level == 'WARNING':
-                    self.logger.warning(message)
-                else:
-                    self.logger.info(message)
-            # 대시보드 스트림
-            try:
-                from log_system.log_stream import get_log_stream
-                stream = get_log_stream()
-                stream.add_event(exchange, level, category, message)
-            except Exception:
-                pass
+            from log_system.log_adapter import log_event
+            log_event(category, message, exchange=exchange, level='DEBUG' if verbose_only else level,
+                      execution_mode=self._execution_mode(exchange).value)
         except Exception:
             pass
     def _get_ai_max_positions(self, exchange_name: str) -> int:
@@ -579,7 +567,10 @@ class UnifiedTrader:
 
         # 🔥 로그 시스템 통일을 위한 헬퍼 메서드
         from log_system.log_adapter import log_event
-        self.log_event = lambda category, msg, level='INFO', exchange=None: log_event(category, msg, exchange=exchange or self.current_exchange, level=level)
+        self.log_event = lambda category, msg, level='INFO', exchange=None: log_event(
+            category, msg, exchange=exchange or self.current_exchange, level=level,
+            execution_mode=self._execution_mode(exchange or self.current_exchange).value,
+        )
         self._recent_outcomes = {ex: deque(maxlen=self._winrate_window) for ex in self.enabled_exchanges}
         self._restore_paper_positions()
         self.log_event('system', f"UnifiedTrader 초기화 완료 - 현재 거래소: {self.current_exchange}")
@@ -1016,14 +1007,9 @@ class UnifiedTrader:
         **extra: Any,
     ) -> None:
         venue = str(exchange_name or '').strip().lower()
-        snapshot = {
-            'exchange': venue,
-            'symbol': str(symbol or ''),
-            'status': str(status or 'unknown'),
-            'reason': str(reason or ''),
-            'recorded_at': datetime.now(timezone.utc).isoformat(),
-            **extra,
-        }
+        execution_mode = self._execution_mode(venue).value if hasattr(self, 'settings') else 'unknown'
+        from trading.event_contract import runtime_decision
+        snapshot = runtime_decision(venue,str(symbol or ''),str(status or 'unknown'),str(reason or ''),execution_mode,**extra)
         if not isinstance(getattr(self, 'last_trade_decisions', None), dict):
             self.last_trade_decisions = {}
         self.last_trade_decisions.setdefault(venue, {})[str(symbol or '')] = snapshot
@@ -6265,6 +6251,10 @@ Response in JSON format:
             learning_data = {
                 'timestamp': datetime.now(timezone.utc).isoformat(),
                 'exchange': exchange_name,
+                'execution_mode': self._execution_mode(exchange_name).value,
+                '_learning_decision': signal_data.get('_learning_decision'),
+                '_learning_block_reason': signal_data.get('_learning_block_reason'),
+                '_learning_trade_plan': signal_data.get('_learning_trade_plan'),
                 'symbol': symbol,
                 'signal': signal_data.get('signal', 'HOLD'),
                 'confidence': signal_data.get('confidence', 0.0),
@@ -6292,10 +6282,10 @@ Response in JSON format:
 
             # AI 학습 데이터 저장: 거래소별 학습 매니저로 직접 기록
             try:
-                from .exchange_learning_manager import ExchangeLearningManager
+                from .exchange_learning_manager import get_exchange_learning_manager
                 elm = self._learning_managers.get(exchange_name)
                 if elm is None:
-                    elm = ExchangeLearningManager(exchange_name)
+                    elm = get_exchange_learning_manager(exchange_name)
                     self._learning_managers[exchange_name] = elm
                 elm.add_learning_data(learning_data)
             except Exception:
@@ -8577,11 +8567,13 @@ Response in JSON format:
     def _get_recent_learning_entries_unified(self, exchange_name: str, symbol: str, limit: int = 80) -> List[Dict[str, Any]]:
         """저장된 learning_data에서 심볼 기준 최근 항목을 읽는다."""
         try:
-            from .exchange_learning_manager import ExchangeLearningManager
+            from .exchange_learning_manager import get_exchange_learning_manager
             elm = self._learning_managers.get(exchange_name)
             if elm is None:
-                elm = ExchangeLearningManager(exchange_name)
+                elm = get_exchange_learning_manager(exchange_name)
                 self._learning_managers[exchange_name] = elm
+            if hasattr(elm, '_store'):
+                return elm._store.recent(exchange_name, max(1, int(limit)), symbol=symbol)
             history = list(getattr(elm, 'learning_history', []) or [])
             target = str(symbol or '').upper()
             filtered = [

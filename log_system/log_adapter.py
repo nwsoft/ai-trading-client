@@ -154,13 +154,23 @@ def configure_account_logging(*, sources: list[str] | tuple[str, ...] | set[str]
             _ACCOUNT_LOG_SINK_IDS.clear()
             common = {
                 "format": "{time:YYYY-MM-DD HH:mm:ss} | {level: <8} - {message}",
-                "level": normalized_level,
+                "level": 'DEBUG',
                 "rotation": LOG_ROTATION_SIZE,
-                "retention": LOG_RETENTION,
+                # Closed account files move to verified compressed archives.
+                # A time-based deletion must not race that preservation step.
+                "retention": None,
                 "encoding": "utf-8",
                 "enqueue": True,
             }
-            _ACCOUNT_LOG_SINK_IDS.append(loguru_logger.add(str(main_path), **common))
+            from log_system.storage_policy import diagnostic_filter, read_policy, debug_lease
+            root = main_path.parent.parent
+            if normalized_level == 'DEBUG' and 'debug_expires_at' not in read_policy(root):
+                debug_lease(root,24)
+            source_tags = {alias for source in normalized_sources for alias in {
+                'mirae':('mirae','miraeasset'), 'kis':('kis','koreainvestment')}.get(source,(source,))}
+            _ACCOUNT_LOG_SINK_IDS.append(loguru_logger.add(str(main_path), filter=lambda record: (
+                not any(f'(ex={alias})' in str(record.get('message','')).lower() for alias in source_tags) and diagnostic_filter(root,record)
+            ), **common))
             for source in normalized_sources:
                 file_source = {"mirae": "miraeAsset", "kis": "koreaInvestment"}.get(source, source)
                 event_aliases = {
@@ -172,7 +182,7 @@ def configure_account_logging(*, sources: list[str] | tuple[str, ...] | set[str]
                 _ACCOUNT_LOG_SINK_IDS.append(loguru_logger.add(
                     str(source_path),
                     filter=lambda record, aliases=event_aliases: (
-                        any(f"(ex={alias})" in str(record.get("message", "")).lower() for alias in aliases)
+                        any(f"(ex={alias})" in str(record.get("message", "")).lower() for alias in aliases) and diagnostic_filter(root,record)
                     ),
                     **common,
                 ))
@@ -286,7 +296,8 @@ class _StreamForwardHandler(logging.Handler):
             pass
 
 
-def log_event(category: str, message: str, *, exchange: Optional[str] = None, level: str = "INFO", logger: Optional[logging.Logger] = None):
+def log_event(category: str, message: str, *, exchange: Optional[str] = None, level: str = "INFO", logger: Optional[logging.Logger] = None,
+              execution_mode: str = 'unknown', details: Optional[dict] = None):
     """카테고리 기반 단일 호출 로깅.
     - LogStreamService 버퍼에 이벤트 적재 (UI 표시용)
     - 표준 logger에도 동일 레벨 기록 (파일 저장용)
@@ -296,6 +307,11 @@ def log_event(category: str, message: str, *, exchange: Optional[str] = None, le
         lvl = level.upper()
         if lvl not in _VALID_LEVELS:
             lvl = "INFO"
+        from log_system.event_audit import is_important, persist
+        important = is_important(category, lvl, str(message))
+        event = None
+        if important:
+            event = persist(category, str(message), lvl, exchange, execution_mode, details)
 
         # 파일 sink(loguru)가 시간/레벨 포맷을 붙이므로 메시지는 본문만 유지한다.
         # (기존 중복 포맷: "YYYY.. | INFO - YYYY.. | INFO - ..." 제거)
@@ -306,6 +322,15 @@ def log_event(category: str, message: str, *, exchange: Optional[str] = None, le
             if trimmed == formatted_message:
                 break
             formatted_message = trimmed
+        if event:
+            formatted_message = (f"[v{event['app_version']} session={event['session_id']} "
+                                 f"mode={event['execution_mode']} event={event['event_kind']} "
+                                 f"asset={event.get('asset_class') or 'unknown'}/{event.get('instrument_type') or 'unknown'} "
+                                 f"symbol={event.get('symbol') or '-'} "
+                                 f"decision={event.get('decision_status') or 'unknown'} "
+                                 f"strategy={event.get('strategy_key') or '-'}@{event.get('strategy_version_id') or '-'} "
+                                 f"order={event.get('order_id') or '-'} actual_order={event.get('actual_order')} "
+                                 f"ledger={event.get('ledger_id') or '-'} reason={event.get('reason_code') or 'unknown'}] {formatted_message}")
         if exchange and "(ex=" not in formatted_message:
             formatted_message = f"{formatted_message} (ex={exchange})"
 
@@ -316,7 +341,7 @@ def log_event(category: str, message: str, *, exchange: Optional[str] = None, le
         now = time.time()
         with _DUP_STATE_LOCK:
             state = _DUP_STATE.get(dedup_key)
-            if state and (now - float(state.get('last_ts', 0.0)) <= _DUP_WINDOW_SEC):
+            if not important and state and (now - float(state.get('last_ts', 0.0)) <= _DUP_WINDOW_SEC):
                 state['last_ts'] = now
                 state['suppressed'] = int(state.get('suppressed', 0)) + 1
                 return
@@ -336,7 +361,7 @@ def log_event(category: str, message: str, *, exchange: Optional[str] = None, le
         # LogStream 적재 (UI 표시용) - 원본 메시지 전송
         try:
             if summary_line:
-                get_log_stream().add_event(exchange or '', 'WARNING', 'system', summary_line)
+                get_log_stream().add_event(exchange or '', 'INFO', 'system', summary_line)
             get_log_stream().add_event(exchange or '', lvl, category, message)
         except Exception:
             pass
@@ -348,13 +373,14 @@ def log_event(category: str, message: str, *, exchange: Optional[str] = None, le
             if hasattr(lg, 'info') and hasattr(lg, 'bind'):
                 # loguru 사용
                 if summary_line:
-                    getattr(lg, 'warning', lg.info)(f"{summary_line}{f' (ex={exchange})' if exchange else ''}")
+                    lg.info(f"{summary_line}{f' (ex={exchange})' if exchange else ''}")
+                lg = lg.bind(_audit_required=important, _audit_persisted=bool(event and event.get('_audit_persisted')))
                 log_fn = getattr(lg, lvl.lower(), lg.info)
                 log_fn(formatted_message)
             else:
                 # 표준 logging 사용
                 if summary_line:
-                    getattr(lg, 'warning', lg.info)(
+                    lg.info(
                         f"{summary_line}{f' (ex={exchange})' if exchange else ''}",
                         extra={"_from_log_event": True},
                     )

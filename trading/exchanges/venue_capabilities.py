@@ -10,6 +10,12 @@ from __future__ import annotations
 from typing import Any
 
 
+COMMON_RUNTIME_CONTRACT = {
+    "runtime_event_contract": "noahai.execution.v1",
+    "xai_contract": "noahai.xai.v1",
+    "execution_mode_contract": "learning_paper_live",
+}
+
 _VENUES: dict[str, dict[str, Any]] = {
     "upbit": {"market_type": "spot", "quote_currency": "KRW", "can_short": False, "can_leverage": False, "adapter_family": "ccxt", "order_amount_unit": "quote_on_market_buy", "requires_contract_size": False, "onboarding_status": "live_ready", "paper_supported": True, "live_supported": True},
     "bithumb": {"market_type": "spot", "quote_currency": "KRW", "can_short": False, "can_leverage": False, "adapter_family": "ccxt", "order_amount_unit": "base", "requires_contract_size": False, "onboarding_status": "live_ready", "paper_supported": True, "live_supported": True},
@@ -128,7 +134,7 @@ def normalize_venue(value: Any) -> str:
 def venue_capabilities(value: Any) -> dict[str, Any]:
     venue = normalize_venue(value)
     base = _VENUES.get(venue, {"market_type": "unknown", "quote_currency": "", "can_short": False, "can_leverage": False})
-    return {"venue": venue, **base}
+    return {"venue": venue, **COMMON_RUNTIME_CONTRACT, **base}
 
 
 def venue_service(value: Any) -> str:
@@ -156,6 +162,7 @@ def validate_venue_onboarding_profile(profile: dict[str, Any]) -> tuple[bool, li
         "position_mode_contract", "protective_order_contract",
         "reconciliation_contract", "client_order_id_contract",
         "fee_contract", "time_sync_contract", "rate_limit_contract",
+        "runtime_event_contract", "xai_contract", "execution_mode_contract",
     }
     missing = sorted(
         key for key in required

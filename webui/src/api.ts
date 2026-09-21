@@ -16,6 +16,7 @@ import type {
 
 export interface GatewayClient {
   recordRecovery: (source: string, start?: boolean) => Promise<Record<string, any>>;
+  storageMaintenance: (action?: 'optimize' | 'debug', hours?: number) => Promise<Record<string, any>>;
   displayPreferences: () => Promise<{locale: string; saved: boolean}>;
   saveDisplayPreferences: (locale: string) => Promise<{locale: string; saved: boolean}>;
   remoteStatus: () => Promise<Record<string, any>>;
@@ -369,6 +370,9 @@ export function createGatewayClient(): GatewayClient {
     recordRecovery: (source, start = false) => start
       ? mutate<Record<string, any>>("POST", "/api/v1/maintenance/trade-records", { source })
       : get<Record<string, any>>(`/api/v1/maintenance/trade-records?source=${encodeURIComponent(source)}`),
+    storageMaintenance: (action, hours) => action
+      ? mutate<Record<string, any>>('POST', '/api/v1/maintenance/storage', action === 'debug' ? { action, hours } : { action })
+      : get<Record<string, any>>('/api/v1/maintenance/storage'),
     portfolioAnalysis: (mode = "live") => get<Record<string, any>>(`/api/v1/portfolio/analysis?statistics_mode=${mode}`),
     savePortfolioSnapshot: () => mutate<Record<string, any>>("POST", "/api/v1/portfolio/snapshot", {}),
     alphaArena: () => get<Record<string, any>>("/api/v1/alpha-arena"),

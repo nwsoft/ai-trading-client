@@ -1,3 +1,15 @@
+## v44 복구 후속 검증 — 2026-09-21
+
+최종 Python **3,027 passed / 8 skipped / 3 subtests**, 추가 복구 회귀 18개 포함. Web build 74 modules PASS, updater scheduler 6 passed, 문서/소스 계약/동기화 guard PASS.
+
+기존 청산 번호의 분할체결·수량 수정·이어하기·체크포인트·체결 표시를 추가 시험했습니다. 최신 결과는 [복구 완료 경로 보고](../reports/v39144-recovery-completion-verification.md)가 정본이며 아래 3,009건 등 이전 실행 수치는 해당 단계 기록입니다. 실제 고객 API와 Windows 설치본은 별도 검증입니다.
+
+## 2026-09-21 - v3.9.1.44 소스 후보 / 공개 v3.9.1.43
+
+후속 보강본: Python **3,009 passed / 8 skipped / 3 subtests**, Node **6 passed**, Node 22.23.1 기반 TypeScript/Vite **73 modules PASS**. Teayu 원본을 바꾸지 않은 사본+합성 표본 250만 판단 이관·리포트 동등성, 7기관 7만 학습·압축 복원 PASS. 한/영 실제 유지관리 컴포넌트(응답은 fixture)의 경고·최적화·DEBUG 켜기/끄기·390px 배치를 확인했습니다. [전체 근거와 미검증 범위](../reports/v39144-storage-verification.md). Windows 설치기·실계정 장시간 시험·배포 완료를 뜻하지 않습니다. 아래 이전 버전 수치는 당시 기록입니다.
+
+v3.9.1.44 공통 실행·XAI 계약과 저장소 변경은 [검증 보고](../reports/v39144-storage-verification.md)와 [외부 게이트](V39144_STORAGE_TEST_PLAN.md)를 따릅니다. v3.9.1.43 공개 자산은 보존하며 Windows v44 설치본 검증은 미완료입니다.
+
 ## 2026-09-20 - v3.9.1.42 원격 운용 제어
 
 **언어 UI 후속 재검증:** Client **2,821 passed / 8 skipped / 3 subtests**, Node **51 passed**, app/node TypeScript + Web build PASS. 로그인 450×680 한/영 배치·입력 보존, 일반 설정 언어 전환/저장 확인. Server는 이번 후속에서 변경하지 않았으며 이전 clean worktree **125 passed / 3 subtests**, Node **7 passed** 증거를 유지합니다. [언어 범위/잔여 게이트](V39142_ENGLISH_IMPLEMENTATION_PLAN.md) · [최종 보고](../reports/v39142-english-verification.md). 다음 문단은 영어 추가 전 원격 기능 검증 기록입니다.

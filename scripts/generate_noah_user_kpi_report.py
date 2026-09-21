@@ -180,8 +180,10 @@ def build_payload(
     )
     max_drawdown = to_float(max_dd_row[0] if max_dd_row else 0.0)
 
+    decision_columns = {row[1] for row in cur.execute('PRAGMA table_info(ai_decisions)')}
+    decision_count = 'COALESCE(SUM(repeat_count),0)' if 'repeat_count' in decision_columns else 'COUNT(*)'
     decision_count_row = tuple(
-        cur.execute(f"SELECT COUNT(*) FROM ai_decisions {decision_where}", decision_params).fetchone()
+        cur.execute(f"SELECT {decision_count} FROM ai_decisions {decision_where}", decision_params).fetchone()
     )
     total_decisions = int(decision_count_row[0] or 0)
 
@@ -215,7 +217,7 @@ def build_payload(
 
     decision_rows = cur.execute(
         f"""
-        SELECT COALESCE(decision_type, 'unknown') AS decision_type, COUNT(*) AS cnt
+        SELECT COALESCE(decision_type, 'unknown') AS decision_type, {decision_count} AS cnt
         FROM ai_decisions
         {decision_where}
         GROUP BY COALESCE(decision_type, 'unknown')

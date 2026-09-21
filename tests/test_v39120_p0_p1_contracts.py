@@ -193,13 +193,13 @@ def test_upbit_ticker_cache_prevents_concurrent_style_request_burst():
     assert calls == ["BTC/KRW"]
 
 
-def test_learning_events_use_append_journal_before_large_checkpoint(tmp_path, monkeypatch):
+def test_learning_events_use_incremental_store_without_large_checkpoint(tmp_path, monkeypatch):
     path = tmp_path / "ai_learning_data_upbit.json"
     monkeypatch.setattr(ExchangeLearningManager, "_get_exchange_learning_path", lambda self: str(path))
     manager = ExchangeLearningManager("upbit")
     manager.add_learning_data({"timestamp": datetime.now(timezone.utc), "symbol": "BTC/KRW", "signal": "HOLD", "confidence": 0.5})
-    assert json.loads(path.read_text(encoding="utf-8")) == []
-    journal_rows = [json.loads(line) for line in (tmp_path / "ai_learning_data_upbit.json.journal.jsonl").read_text(encoding="utf-8").splitlines()]
+    assert not path.exists()
+    journal_rows = manager._store.recent('upbit')
     assert len(journal_rows) == 1
     assert journal_rows[0]["_learning_event_id"].startswith("learning_")
     reloaded = ExchangeLearningManager("upbit")

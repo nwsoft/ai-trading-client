@@ -223,7 +223,7 @@ class Trader:
 
         # 🔥 로그 시스템 통일을 위한 헬퍼 메서드
         from log_system.log_adapter import log_event
-        self.log_event = lambda category, msg, level='INFO', exchange='binance': log_event(category, msg, exchange=exchange, level=level)
+        self.log_event = lambda category, msg, level='INFO', exchange='binance': log_event(category, msg, exchange=exchange, level=level, execution_mode=self._execution_mode().value)
         print(f"🔧 Trader logger 레벨을 INFO로 설정: {self.logger.level}")
         # 기본 settings 적용
         self.settings = settings or {}
@@ -1245,7 +1245,7 @@ class Trader:
             if verbose_only and not self._is_verbose_logging():
                 return
             # 🔥 중복 제거: self.log_event로 통일
-            self.log_event(category, message, exchange=exchange, level=level)
+            self.log_event(category, message, exchange=exchange, level='DEBUG' if verbose_only else level)
         except Exception:
             pass
 
@@ -2926,6 +2926,19 @@ class Trader:
                             trade_plan: Optional[Dict[str, Any]] = None,
                         ) -> None:
                             """LEARNING 결과를 최종 게이트 상태와 함께 한 번 기록한다."""
+                            from trading.event_contract import runtime_decision
+                            recorder = getattr(self,'recorder',None)
+                            if callable(getattr(recorder,'save_ai_decision',None)):
+                                try:
+                                    recorder.save_ai_decision(symbol,'trade_runtime::binance',runtime_decision(
+                                        'binance',symbol,decision,reason_text,execution_mode.value,
+                                        reason_code=decision,signal=signal_data.get('signal'),
+                                        strategy_key=signal_data.get('_selected_custom_strategy_key'),
+                                        strategy_version_id=signal_data.get('_selected_custom_strategy_version_id'),
+                                        trade_plan=trade_plan,actual_order=False),exchange='binance')
+                                except Exception as exc:
+                                    # Diagnostic persistence cannot interrupt position management.
+                                    self.log_event('system',f'판단 기록 저장 실패: {type(exc).__name__}',exchange='binance',level='ERROR')
                             if execution_mode != ExecutionMode.LEARNING:
                                 return
                             learning_payload = dict(signal_data)
@@ -8806,6 +8819,10 @@ Response in JSON format:
             learning_data = {
                 'timestamp': datetime.now(timezone.utc).isoformat(),
                 'exchange': exchange_name,
+                'execution_mode': self._execution_mode().value,
+                '_learning_decision': signal_data.get('_learning_decision'),
+                '_learning_block_reason': signal_data.get('_learning_block_reason'),
+                '_learning_trade_plan': signal_data.get('_learning_trade_plan'),
                 'symbol': symbol,
                 'signal': signal_data.get('signal', 'HOLD'),
                 'confidence': signal_data.get('confidence', 0.0),
@@ -8833,9 +8850,9 @@ Response in JSON format:
 
             # AI 학습 데이터 저장: 거래소별 학습 매니저로 직접 기록
             try:
-                from .exchange_learning_manager import ExchangeLearningManager
+                from .exchange_learning_manager import get_exchange_learning_manager
                 if self._learning_manager is None:
-                    self._learning_manager = ExchangeLearningManager(exchange_name)
+                    self._learning_manager = get_exchange_learning_manager(exchange_name)
                 elm = self._learning_manager
                 elm.add_learning_data(learning_data)
             except Exception:
@@ -8991,9 +9008,11 @@ Response in JSON format:
     def _get_recent_learning_entries(self, symbol: str, exchange_name: str, limit: int = 80) -> List[Dict[str, Any]]:
         """저장된 learning_data에서 심볼 기준 최근 항목을 읽는다."""
         try:
-            from .exchange_learning_manager import ExchangeLearningManager
+            from .exchange_learning_manager import get_exchange_learning_manager
             if self._learning_manager is None:
-                self._learning_manager = ExchangeLearningManager(exchange_name)
+                self._learning_manager = get_exchange_learning_manager(exchange_name)
+            if hasattr(self._learning_manager, '_store'):
+                return self._learning_manager._store.recent(exchange_name, max(1, int(limit)), symbol=symbol)
             history = list(getattr(self._learning_manager, 'learning_history', []) or [])
             target = str(symbol or '').upper()
             filtered = [

@@ -928,7 +928,7 @@ Compare current signal with recent loss patterns and decide. Respond in JSON:
 
             # 최근 AI 의사결정을 신호 프록시로 활용
             decisions = recorder.get_ai_decisions(limit=200) or []
-            total_signals = len(decisions)
+            total_signals = sum(int(d.get('repeat_count') or 1) for d in decisions)
 
             feedback_items = [d for d in decisions if (d.get('user_feedback') or '').strip()]
             successful = sum(1 for d in feedback_items if 'good' in str(d.get('user_feedback', '')).lower() or '정확' in str(d.get('user_feedback', '')))

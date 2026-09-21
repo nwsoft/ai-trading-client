@@ -20,6 +20,7 @@ class RecoveryResolver:
         self.query_count = 0
         self.history = None
         self.job_id = ''
+        self.discovering = set()
 
     def begin_job(self, job_id):
         self.job_id = job_id
@@ -27,17 +28,53 @@ class RecoveryResolver:
     def _queried(self):
         self.query_count += 1
 
+    def retry_pending_evidence(self):
+        if self.history is not None:
+            with self.history.db() as db:
+                db.execute("""UPDATE recovery_history_sessions SET attempt_job=''
+                    WHERE scope=? AND refresh_kinds!='' AND (symbol,start) IN
+                    (SELECT symbol,start FROM recovery_history_job_sessions WHERE scope=? AND job_id=?)""",
+                           (self.history.scope,self.history.scope,self.job_id))
+
+    def repaired_identity(self, before, after):
+        """Recognize our atomic provider correction after a process interruption."""
+        if self.venue!='binance' or not callable(getattr(self.client,'get_recovery_history_page',None)):
+            return False
+        if self.history is None:
+            self.history=BinanceHistoryRecovery(self.recorder,self.client,self._queried)
+        import json
+        with self.history.db() as db:
+            row=db.execute('SELECT before_json,after_json FROM recovery_cycle_repairs WHERE scope=? AND trade_id=?',
+                           (self.history.scope,after['id'])).fetchone()
+        if not row: return False
+        original=json.loads(row['before_json'])
+        return json.loads(row['after_json'])==after and all(original.get(k)==before.get(k) for k in (
+            'exchange','symbol','order_id','entry_time','quantity','entry_price','execution_mode','position_owner'))
+
     def _discover_close(self, trade):
         if self.venue != 'binance' or not callable(getattr(self.client, 'get_recovery_history_page', None)):
             return 'missing_exit_order_evidence'
+        self.discovering.add(trade['id'])
         if self.history is None:
             self.history = BinanceHistoryRecovery(self.recorder, self.client, self._queried)
         self.history.begin_job(self.job_id)
         return self.history.recover(trade)
 
+    def _expand_incomplete_order(self, trade, reason):
+        # Exact order quantities are not necessarily the whole position: one
+        # position can have several closing orders. Expand evidence, never
+        # weaken quantity/ownership checks or match by proximity.
+        if (self.venue == 'binance' and reason in {'partial_or_quantity_mismatch', 'exchange_fill_not_found'}
+                and callable(getattr(self.client, 'get_recovery_history_page', None))):
+            self.discovering.add(trade['id'])
+            return self._discover_close(trade)
+        return reason
+
     def __call__(self, venue, trade):
         if venue != self.venue:
             raise ValueError('recovery_scope_mismatch')
+        if trade['id'] in self.discovering:
+            return self._discover_close(trade)
         if not trade.get('exit_order_id'):
             if venue == 'binance' and self.client is not None:
                 proof = BinanceCloseEvidence(self.recorder, self.client)
@@ -54,7 +91,7 @@ class RecoveryResolver:
                         updated = dict(db.execute('SELECT * FROM trade_log WHERE id=?', (trade['id'],)).fetchone())
                     if updated.get('exit_order_id'):
                         return self(venue, updated)
-                    return 'owned_protection_pending'
+                    return self._discover_close(trade)
             return self._discover_close(trade)
         # Never match by price/time/quantity alone, or invent entry costs.
         if venue in STOCK_VENUES:
@@ -81,7 +118,7 @@ class RecoveryResolver:
                 return reason
             entry_rows, reason = validate_fills(entry, entry_rows)
             if reason:
-                return reason
+                return self._expand_incomplete_order(trade, reason)
             costs = [(float(row['fee']['cost']), str(row['fee'].get('currency') or '').upper())
                      if isinstance(row.get('fee'), dict)
                      else (float(row['commission']), str(row.get('commission_asset') or row.get('commissionAsset') or '').upper())
@@ -103,7 +140,7 @@ class RecoveryResolver:
             return reason
         fills, reason = validate_fills(trade, rows)
         if reason:
-            return reason
+            return self._expand_incomplete_order(trade, reason)
         self.recorder.save_exchange_execution_history(venue, fills, source='maintenance_exact_order', reconcile=False)
         self.recorder.reconcile_trade_log_with_executions(venue, trade_ids=[trade['id']])
         return 'provider_pnl_or_cost_evidence_incomplete'

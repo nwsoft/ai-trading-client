@@ -61,8 +61,13 @@ class ShinhanStockAdapter(StockExchange):
         self.sandbox: bool = bool(kwargs.get('sandbox', False))
         self.partner_profile: Dict[str, Any] = dict(kwargs.get('partner_profile', {}) or {})
         self.logger = logging.getLogger(__name__)
+        self._noah_execution_mode = 'unknown'
         from log_system.log_adapter import log_event
-        self.log_event = lambda category, msg, level='INFO': log_event(category, msg, exchange='shinhan', level=level)
+        self.log_event = lambda category, msg, level='INFO': log_event(
+            category, msg, exchange='shinhan', level=level,
+            execution_mode=self._noah_execution_mode,
+            details={'asset_class':'securities','instrument_type':'stock_or_etf'},
+        )
 
         # ETF 코드 범위 (한국거래소 기준 — 키움과 동일 범위 공유)
         self.etf_code_ranges = [

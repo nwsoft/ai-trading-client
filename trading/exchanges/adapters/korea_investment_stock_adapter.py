@@ -43,8 +43,11 @@ class KoreaInvestmentStockAdapter(MiraeAssetStockAdapter):
             and 5 <= len(str(symbol or '').strip()) <= 8
         ]
         from log_system.log_adapter import log_event
+        self._noah_execution_mode = 'unknown'
         self.log_event = lambda category, msg, level="INFO": log_event(
-            category, msg, exchange="koreaInvestment", level=level
+            category, msg, exchange="koreaInvestment", level=level,
+            execution_mode=self._noah_execution_mode,
+            details={'asset_class':'securities','instrument_type':'stock_or_etf'},
         )
 
     def _base_url(self) -> str:

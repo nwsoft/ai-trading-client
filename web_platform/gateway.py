@@ -174,6 +174,24 @@ def create_gateway_app(
     def record_recovery_status(source: str = Query(max_length=32)):
         return record_recovery_call(source, False)
 
+    @app.get('/api/v1/maintenance/storage', dependencies=[Depends(require_token)])
+    def storage_status():
+        from trading.storage_maintenance import maintenance
+        return maintenance(services.data_dir).status()
+
+    @app.post('/api/v1/maintenance/storage', dependencies=[Depends(require_token), Depends(require_confirmed_intent)])
+    def storage_action(payload: dict[str, Any]):
+        from trading.storage_maintenance import maintenance
+        from log_system.storage_policy import debug_lease
+        action = payload.get('action')
+        if action == 'optimize' and set(payload) == {'action'}:
+            return maintenance(services.data_dir).start()
+        if action == 'debug' and set(payload) == {'action','hours'} and type(payload['hours']) is int:
+            try: debug_lease(services.data_dir,payload['hours'])
+            except ValueError as exc: raise HTTPException(400,str(exc)) from exc
+            return maintenance(services.data_dir).status()
+        raise HTTPException(400,'invalid_storage_action')
+
     @app.post('/api/v1/maintenance/trade-records', dependencies=[Depends(require_token), Depends(require_confirmed_intent)])
     def record_recovery_start(payload: dict[str, Any]):
         if set(payload) != {'source'} or not isinstance(payload['source'], str):
