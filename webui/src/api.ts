@@ -68,7 +68,7 @@ export interface GatewayClient {
   deleteLifeGoal: (id: string) => Promise<Record<string, unknown>>;
   logs: (service?: "blockchain" | "stock", source?: string, lines?: number) => Promise<LogSnapshot>;
   runtimeCommand: (command: "trading.start" | "trading.stop" | "coins.select" | "coins.analyze" | "stocks.analyze" | "trades.import", source: string, closeAll?: boolean, symbol?: string, liveConfirmation?: boolean) => Promise<Record<string, unknown>>;
-  askAssistant: (question: string, service: string, explanationLevel: "beginner" | "standard" | "advanced", mode?: "guide" | "deep_analysis", recentMessages?: Array<{ role: "user" | "assistant"; content: string }>, settingsSection?: string, dataScope?: "private" | "public_general") => Promise<Record<string, any>>;
+  askAssistant: (question: string, service: string, explanationLevel: "beginner" | "standard" | "advanced", mode?: "guide" | "deep_analysis", recentMessages?: Array<{ role: "user" | "assistant"; content: string }>, settingsSection?: string, dataScope?: "private" | "public_general", consultation?: { conversation_kind: "strategy"; strategy_service: "blockchain" | "stock"; strategy_preferences: Record<string, string> }) => Promise<Record<string, any>>;
   assistantStatus: () => Promise<Record<string, any>>;
   analyzeChart: (fileName: string, imageDataUrl: string, service: "blockchain" | "stock" | "portfolio" | "ai_analyst") => Promise<Record<string, any>>;
   auditExport: () => Promise<Record<string, any>>;
@@ -342,7 +342,7 @@ export function createGatewayClient(): GatewayClient {
         symbol,
         live_confirmation: liveConfirmation,
       }),
-    askAssistant: (question, service, explanationLevel, mode = "guide", recentMessages = [], settingsSection, dataScope = "private") =>
+    askAssistant: (question, service, explanationLevel, mode = "guide", recentMessages = [], settingsSection, dataScope = "private", consultation) =>
       mutate<Record<string, any>>("POST", "/api/v1/assistant/ask", {
         question,
         service,
@@ -351,6 +351,7 @@ export function createGatewayClient(): GatewayClient {
         recent_messages: recentMessages,
         settings_section: service === "settings" ? settingsSection || null : null,
         data_scope: dataScope,
+        ...consultation,
       }),
     assistantStatus: () => get<Record<string, any>>("/api/v1/assistant/status"),
     analyzeChart: (fileName, imageDataUrl, service) =>

@@ -239,6 +239,9 @@ def create_gateway_app(
                 recent_messages=[item.model_dump() for item in body.recent_messages],
                 settings_section=body.settings_section,
                 data_scope=body.data_scope,
+                **({'conversation_kind': 'strategy', 'strategy_service': body.strategy_service,
+                    'strategy_preferences': body.strategy_preferences}
+                   if body.conversation_kind == 'strategy' else {}),
                 **({'output_locale': 'en'} if request.headers.get('x-noahai-locale') == 'en' else {}),
             )
         except ValueError as exc:

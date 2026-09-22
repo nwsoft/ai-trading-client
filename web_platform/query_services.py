@@ -1646,14 +1646,13 @@ class AccountQueryService:
                 return None
 
         def normalize_learning_records(records: list[Any], *, collect_summary: bool) -> list[dict[str, Any]]:
+            from trading.indicator_evidence import indicator_snapshot
             normalized: list[dict[str, Any]] = []
             for raw in records:
                 if not isinstance(raw, dict):
                     continue
                 row = dict(raw)
-                row.setdefault("rsi", row.get("RSI"))
-                row.setdefault("macd", row.get("MACD"))
-                row.setdefault("trend", row.get("market_trend"))
+                row.update(indicator_snapshot(row))
                 normalized.append(row)
                 if not collect_summary:
                     continue
@@ -1774,6 +1773,7 @@ class AccountQueryService:
                         confidence_total += _number(row["confidence"]) * weight
                         confidence_count += weight
             records = []
+            from trading.indicator_evidence import indicator_snapshot
             for row in reversed(rows):
                 decision = _safe_json(row["decision_json"])
                 decision = decision if isinstance(decision, dict) else {}
@@ -1792,7 +1792,8 @@ class AccountQueryService:
                                 "actual_order": row["actual_order"] if row["actual_order"] is not None else decision.get('actual_order'),
                                 "order_id": row["order_id"] or decision.get('order_id'),
                                 "repeat_count": max(1,int(row["repeat_count"] or 1)),
-                                **{key: decision.get(key) for key in ("rsi", "macd", "trend", "market")}})
+                                "market": decision.get("market"),
+                                **indicator_snapshot(decision)})
             payload.update({"records": records, "status": "ok" if records else "empty",
                             "summary": {"total_count": int(event_total or 0), "stored_row_count": total, "today_count": today_count, "weekly_count": weekly_count,
                                         "signal_counts": counts, "average_confidence": confidence_total / confidence_count if confidence_count else None,

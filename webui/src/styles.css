@@ -1886,8 +1886,9 @@ button, input, select, textarea {
 body.dashboard-surface,
 body.dashboard-surface #root { height: 100vh; height: 100dvh; min-height: 0; overflow: hidden; }
 
-.legacy-coin-workspace { height: 100%; min-height: 0; display: grid; grid-template-rows: auto auto minmax(44px, 76px) minmax(190px, .75fr) auto minmax(170px, .65fr) auto; gap: 10px; padding: 16px 26px; overflow: hidden; }
+.legacy-coin-workspace { height: 100%; min-height: 0; display: grid; grid-template-rows: auto auto minmax(76px, 120px) minmax(190px, .75fr) auto minmax(170px, .65fr) auto; gap: 10px; padding: 16px 26px; overflow: hidden; }
 .legacy-coin-notices { min-height: 0; display: grid; gap: 5px; overflow-y: auto; scrollbar-gutter: stable; }
+.legacy-coin-notices .inline-notice { margin: 0; }
 .legacy-coin-heading { color: #d8e1ec; text-align: center; font-size: 12px; font-weight: 700; }
 .legacy-section-title { padding: 9px 14px; border-radius: 10px; background: #303030; color: #f8fafc; text-align: center; font-size: 14px; font-weight: 800; }
 .legacy-section-title.compact { margin: 12px; padding: 7px 12px; font-size: 12px; }

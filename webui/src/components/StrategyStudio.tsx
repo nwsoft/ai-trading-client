@@ -860,6 +860,12 @@ export function StrategyStudio({ client, service, source = "", onAskAssistant, o
       setMessage("AI 답변에서 참고할 내용을 직접 확인하거나 수정한 뒤 적용하세요.");
       return;
     }
+    if (!sourceValue.trim() && !sourceReferenceInput.trim() && !sourceFile) {
+      setSourceKind("text"); setSourceValue(reviewed); setConfirmedSupplement("");
+      setAssistantDraftText(""); onAssistantDraftConsumed?.();
+      await analyzeSource("", reviewed);
+      return;
+    }
     const nextSupplement = mergeConfirmedSupplement(confirmedSupplement, [
       `사용자 확인 · AI 어시스턴트에서 가져와 검토한 보완 답변: ${reviewed}`,
     ]);
@@ -970,14 +976,14 @@ export function StrategyStudio({ client, service, source = "", onAskAssistant, o
     }
   }
 
-  async function analyzeSource(supplementOverride?: string) {
-    if (!sourceReferenceInput.trim() && !sourceValue.trim() && !sourceFile) { setMessage("전략 설명·Pine·URL을 입력하거나 파일을 선택하세요."); return; }
+  async function analyzeSource(supplementOverride?: string, reviewedTextOverride?: string) {
+    if (!reviewedTextOverride && !sourceReferenceInput.trim() && !sourceValue.trim() && !sourceFile) { setMessage("전략 설명·Pine·URL을 입력하거나 파일을 선택하세요."); return; }
     setBusy(true); setMessage(""); setDraftValidationIssues([]);
     try {
-      let value = sourceReferenceInput.trim() || sourceValue;
+      let value = reviewedTextOverride ?? (sourceReferenceInput.trim() || sourceValue);
       let encoding = "text";
       let fileName = "";
-      if (sourceFile) {
+      if (sourceFile && !reviewedTextOverride) {
         const bytes = new Uint8Array(await sourceFile.arrayBuffer());
         let binary = "";
         for (let offset = 0; offset < bytes.length; offset += 0x8000) {
@@ -987,7 +993,7 @@ export function StrategyStudio({ client, service, source = "", onAskAssistant, o
       }
       const supplement = typeof supplementOverride === "string" ? supplementOverride : confirmedSupplement;
       const result = await client.analyzeStrategySource({
-        source_kind: sourceKind,
+        source_kind: reviewedTextOverride ? "text" : sourceKind,
         value,
         encoding,
         file_name: fileName,
@@ -1275,7 +1281,7 @@ export function StrategyStudio({ client, service, source = "", onAskAssistant, o
       <h2>{t("NoahAI 전략 스튜디오")}</h2>
       <p className="strategy-studio-alias">{t("Strategy Studio · 기존 AI 커스텀")}</p>
       <p>{t("TradingView·Pine·기존 전략의 익숙한 표현은 유지하고, 원문 근거·검증·PAPER·체결 감사를 더하는 AI 전략 운영체제입니다. 배우기 → 만들기 → 검증 → 실행 → 개선 흐름을 연결합니다.")}</p>
-      <div className="legacy-strategy-status"><strong>{t("사용 AI 및 정밀 분석 역할은 설정의 AI 엔진/API를 따릅니다.")}</strong><span>{t("사용 모드: ")}{strategyDifficultyLabel(featureProfile)}</span><small>{t("설정 경로: AI 엔진/API → 전략 스튜디오 사용 난이도")}</small><button className={`guided-start ${guidedCompletedOnce ? "revisit" : "first"}`} type="button" onClick={openGuidedTour}>{guidedCompletedOnce ? "5분 따라 만들기 다시 보기" : t("처음 사용 · 5분 따라 만들기")}</button><button className="mentor" type="button" onClick={() => setMentorOpen((current) => !current)}>{t("AI 멘토 인터뷰")}</button><button className="getting-started" type="button" onClick={() => onAskAssistant?.("전략 스튜디오를 처음부터 PAPER까지 사용하는 순서를 현재 설정 기준으로 안내해줘.")}>{t("처음 사용법 AI에게 묻기")}</button><a className="strategy-hub-link" href={STRATEGY_HUB_URL} target="_blank" rel="noreferrer" title={t("로그인 없이 공개 전략과 검증 여권을 둘러봅니다.")}>{t("전략 둘러보기")}</a><a className="strategy-hub-link" href={STRATEGY_HUB_LIBRARY_URL} target="_blank" rel="noreferrer" title={t("daltrading 로그인 후 취득한 전략과 라이선스를 확인합니다.")}>{t("내 전략 라이선스")}</a><a className="strategy-hub-link" href={STRATEGY_HUB_GUIDE_URL} target="_blank" rel="noreferrer">{t("제출·다운로드 안내")}</a><button type="button" onClick={onOpenSettings}>{t("AI 모델 설정 열기")}</button></div>
+      <div className="legacy-strategy-status"><strong>{t("사용 AI 및 정밀 분석 역할은 설정의 AI 엔진/API를 따릅니다.")}</strong><span>{t("사용 모드: ")}{strategyDifficultyLabel(featureProfile)}</span><small>{t("설정 경로: AI 엔진/API → 전략 스튜디오 사용 난이도")}</small><button className={`guided-start ${guidedCompletedOnce ? "revisit" : "first"}`} type="button" onClick={openGuidedTour}>{guidedCompletedOnce ? "5분 따라 만들기 다시 보기" : t("처음 사용 · 5분 따라 만들기")}</button><button type="button" disabled={!onAskAssistant} onClick={() => onAskAssistant?.(`[NOAH_STRATEGY_CONSULTATION] ${t("시장 상황과 내 목적에 맞는 전략을 함께 설계하고 싶습니다. 모호한 조건은 하나씩 질문해 주세요.")}`)}>{t("AI와 전략 상담")}</button><button className="mentor" type="button" onClick={() => setMentorOpen((current) => !current)}>{t("AI 멘토 인터뷰")}</button><button className="getting-started" type="button" onClick={() => onAskAssistant?.("전략 스튜디오를 처음부터 PAPER까지 사용하는 순서를 현재 설정 기준으로 안내해줘.")}>{t("처음 사용법 AI에게 묻기")}</button><a className="strategy-hub-link" href={STRATEGY_HUB_URL} target="_blank" rel="noreferrer" title={t("로그인 없이 공개 전략과 검증 여권을 둘러봅니다.")}>{t("전략 둘러보기")}</a><a className="strategy-hub-link" href={STRATEGY_HUB_LIBRARY_URL} target="_blank" rel="noreferrer" title={t("daltrading 로그인 후 취득한 전략과 라이선스를 확인합니다.")}>{t("내 전략 라이선스")}</a><a className="strategy-hub-link" href={STRATEGY_HUB_GUIDE_URL} target="_blank" rel="noreferrer">{t("제출·다운로드 안내")}</a><button type="button" onClick={onOpenSettings}>{t("AI 모델 설정 열기")}</button></div>
       <details className="strategy-help-difference"><summary>{t("두 도움 기능의 차이")}</summary><p>{t("AI 멘토 인터뷰는 투자 경험·목표·위험 허용도 등 8문항을 묻고 관리형 전략 후보 2~3개를 만듭니다. 실행 계약을 통과한 후보도 자동 저장·승인·PAPER·LIVE로 넘어가지 않습니다.")}<br />{t("처음 사용법 AI에게 묻기는 현재 화면과 프로필을 기준으로 입력 → XAI 검토 → 저장 → 승인 → 적용 가능한 과거검증 → PAPER 순서만 안내합니다.")}</p></details>
       <div className="legacy-strategy-badges"><div><span>{t("승인 없는 실행")}</span><b className="negative">{t("차단")}</b></div><div><span>{t("전략 버전")}</span><b>{t("최대 10개")}</b></div><div><span>{t("가드레일")}</span><b className="positive">{t("항상 우선")}</b></div><div><span>{t("출금 API")}</span><b className="warning">{t("지원 안 함")}</b></div></div>
       {guidedOpen && <div className="strategy-guided-backdrop" role="presentation"><article className="strategy-guided-dialog" role="dialog" aria-modal="true" aria-labelledby="strategy-guided-title">

@@ -2074,15 +2074,21 @@ class Evaluator:
             # 호출하지 않는다. 캐시가 없는 경우 미산출(None)로 남기며,
             # 선정된 종목의 캔들은 후속 실시간 분석 단계에서 검증한다.
             snapshot_only = bool(coin.get('_selection_snapshot_only', False))
-            technical_score = None if snapshot_only else base_scores.get('technical_base', 60)
+            technical_score = None
             try:
                 symbol = coin.get('symbol', '')
                 technical_indicators = coin.get('_selection_technical_indicators')
                 if technical_indicators is None and symbol and not snapshot_only:
                     technical_indicators = self.calculate_technical_indicators(symbol)
                 if technical_indicators:
-                    rsi_15m = technical_indicators.get('rsi_15m', 50)
-                    rsi_1h = technical_indicators.get('rsi_1h', 50)
+                    import math
+                    raw_15m = technical_indicators.get('rsi_15m')
+                    raw_1h = technical_indicators.get('rsi_1h')
+                    if isinstance(raw_15m, bool) or isinstance(raw_1h, bool):
+                        raise ValueError('invalid_selection_rsi')
+                    rsi_15m, rsi_1h = float(raw_15m), float(raw_1h)
+                    if not all(math.isfinite(v) and 0 <= v <= 100 for v in (rsi_15m, rsi_1h)):
+                        raise ValueError('invalid_selection_rsi')
                     avg_rsi = (rsi_15m + rsi_1h) / 2
                     if 30 <= avg_rsi <= 70:
                         technical_score = 80
@@ -2094,7 +2100,7 @@ class Evaluator:
                         technical_score = 60
                     self.logger.debug(f"기술적 점수: RSI {avg_rsi:.1f} → {technical_score}")
             except Exception as e:
-                technical_score = None if snapshot_only else base_scores.get('technical_base', 60)
+                technical_score = None
                 self.logger.debug(f"기술적 지표 계산 실패: {e}")
 
             # 6. 리스크 점수 (변동성과 거래량 종합)

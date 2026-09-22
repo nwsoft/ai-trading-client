@@ -81,6 +81,15 @@ def build_ai_custom_knowledge(
     header = f"NoahAI입니다. {RELEASE_BUILD_LABEL}의 AI 커스텀 기준으로 안내합니다.\n"
     profile = _profile_status(settings)
 
+    if _topic(message, "전략 상담", "AI와 전략", "워뇨띠", "버핏", "대회 우승", "strategy consultation"):
+        return header + (
+            "Web UI AI 어시스턴트의 `전략 상담 · 외부 AI` 또는 전략 스튜디오의 `AI와 전략 상담`을 누르세요. "
+            "전송할 때 설정된 외부 AI 비용·한도를 사용합니다. 일반 개념은 예산 없이 설명하고 맞춤 초안은 목적·상품·예산·손실 허용 범위·기간·레버리지를 하나씩 확인합니다. "
+            "조건을 확인한 초안만 검토 영역으로 전달하며 사용자 검토·재분석·버전 저장·승인·과거재생/PAPER 절차는 유지됩니다. 대화만으로 거래하지 않습니다. "
+            "공개 원칙·해석·사용자 변형을 구분하며 비공개 매매법이나 최신 우승/수익률을 추측하지 않습니다. 실시간 웹 검색은 없고 원문·자막이 필요할 수 있습니다. "
+            "미지원 규칙이나 부족한 근거는 검증에서 보류합니다. 설정 기본값이나 AI 제안을 사용자 동의로 취급하지 않습니다."
+        )
+
     root_settings = dict(settings or {})
     sizing_policy = dict(root_settings.get("position_sizing_policy") or {})
     sizing_mode = str(sizing_policy.get("mode") or "legacy_venue").strip().lower()

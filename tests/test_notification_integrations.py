@@ -10,6 +10,7 @@ from fastapi.testclient import TestClient
 from config.settings import _preserve_sensitive_values
 from trading import notifications
 from trading.risk_manager import RiskManager
+from trading.exchanges.venue_capabilities import SUPPORTED_VENUES, CRYPTO_VENUES
 from trading.notifications import (
     NotificationDeliveryError,
     NotificationDispatcher,
@@ -90,6 +91,60 @@ def test_status_never_returns_notification_credentials():
     assert "discord.com/api/webhooks" not in serialized
     assert "123456789:abcdefghijklmnopqrstuvwxyzABCDE" not in serialized
     assert "-1001234567890" not in serialized
+
+
+@pytest.mark.parametrize('payload', [[], 'ok', 1, False, None])
+def test_invalid_success_response_is_not_delivery_confirmation(payload, monkeypatch):
+    monkeypatch.setattr(notifications, 'urlopen', lambda *a, **kw: _Response(payload))
+    with pytest.raises(NotificationDeliveryError, match='notification_response_invalid'):
+        notifications._request_json('https://example.invalid/fixture', {}, 1)
+
+
+def test_unexpected_channel_failure_does_not_drop_other_channel(monkeypatch, caplog):
+    from unittest.mock import Mock
+    dispatcher = NotificationDispatcher()
+    dispatcher._settings = _settings()
+    monkeypatch.setattr(notifications, '_deliver_discord', Mock(side_effect=ValueError('private-secret')))
+    telegram = Mock()
+    monkeypatch.setattr(notifications, '_deliver_telegram', telegram)
+    dispatcher._deliver(NotificationMessage('report', 'fixture', 'fixture'))
+    telegram.assert_called_once()
+    assert 'private-secret' not in caplog.text
+
+
+@pytest.mark.parametrize('venue', sorted(SUPPORTED_VENUES))
+@pytest.mark.parametrize('event', sorted(notifications.SUPPORTED_EVENTS))
+def test_all_venues_events_deliver_to_both_channels_with_bounded_retry(venue, event, monkeypatch):
+    dispatcher = NotificationDispatcher()
+    cfg = _settings()
+    cfg['notification_integrations']['events'] = {key: True for key in notifications.SUPPORTED_EVENTS}
+    cfg['notification_integrations']['retry_count'] = 1
+    dispatcher._settings = cfg
+    attempts = {'discord': [], 'telegram': []}
+    def request(url, payload, timeout):
+        channel = 'discord' if 'discord.com' in url else 'telegram'
+        attempts[channel].append(payload)
+        if len(attempts[channel]) == 1:
+            raise NotificationDeliveryError('notification_network_error')
+        return {'id': 'fixture'} if channel == 'discord' else {'ok': True, 'result': {'message_id': 1}}
+    monkeypatch.setattr(notifications, '_request_json', request)
+    monkeypatch.setattr(notifications.time, 'sleep', lambda _: None)
+    item = NotificationMessage(event, 'fixture', 'fixture', source=venue, execution_mode='live')
+    assert dispatcher.publish(item)
+    generation, queued = dispatcher._queue.get_nowait()
+    dispatcher._deliver(queued, generation=generation)
+    assert len(attempts['discord']) == len(attempts['telegram']) == 2
+    assert f'· {venue.upper()}' in attempts['telegram'][-1]['text']
+    assert '[LIVE]' in attempts['discord'][-1]['content']
+    assert not dispatcher.publish(item)  # successful event is still deduplicated
+
+
+def test_empty_204_is_not_telegram_success(monkeypatch):
+    monkeypatch.setattr(notifications, 'urlopen', lambda *a, **kw: _Response(status=204))
+    assert notifications._request_json('https://example.invalid/fixture', {}, 1) == {}
+    with pytest.raises(NotificationDeliveryError):
+        notifications._deliver_telegram(_settings()['notification_integrations']['channels']['telegram'],
+                                        NotificationMessage('test', 'fixture', 'fixture'), 1)
 
 
 @pytest.mark.parametrize(
@@ -198,8 +253,9 @@ def test_dispatcher_rejects_report_when_no_configured_channel_is_enabled():
     ("current_balance", "expected_stop", "expected_event"),
     [(89.0, True, "guardrail_stop"), (94.0, False, "loss_warning")],
 )
+@pytest.mark.parametrize('venue', sorted(CRYPTO_VENUES))
 def test_daily_loss_events_are_queued_without_changing_guardrail_result(
-    monkeypatch, current_balance, expected_stop, expected_event,
+    monkeypatch, current_balance, expected_stop, expected_event, venue,
 ):
     manager = RiskManager(
         object(),
@@ -209,7 +265,8 @@ def test_daily_loss_events_are_queued_without_changing_guardrail_result(
     manager.daily_initial_balance = 100.0
     manager.max_daily_loss_percent = 10.0
     monkeypatch.setattr(manager, "_get_live_equity_snapshot", lambda _source: {
-        "valid": True, "equity": current_balance, "currency": "KRW",
+        "valid": True, "equity": current_balance,
+        "currency": "KRW" if venue in {'upbit', 'bithumb', 'coinone'} else "USDT",
     })
     monkeypatch.setattr(
         manager,
@@ -220,11 +277,14 @@ def test_daily_loss_events_are_queued_without_changing_guardrail_result(
     events = []
     monkeypatch.setattr(notifications, "publish_notification", lambda event_type, *_args, **kwargs: events.append((event_type, kwargs)) or True)
 
-    result = manager.check_daily_loss_limit(source="upbit", execution_mode="live")
+    result = manager.check_daily_loss_limit(source=venue, execution_mode="live")
 
     assert result is expected_stop
     assert events[0][0] == expected_event
-    assert events[0][1]["source"] == "upbit"
+    assert events[0][1]["source"] == venue
+    decision = manager._last_daily_loss_decision[venue]
+    assert decision.loss_rate == pytest.approx(100-current_balance)
+    assert decision.realized_pnl == pytest.approx(current_balance-100)
 
 
 def test_reset_preserves_notification_credentials_but_uses_new_defaults():
@@ -295,6 +355,36 @@ def test_notification_credentials_save_reread_refresh_and_stay_write_only(tmp_pa
     assert stored["notification_integrations"]["channels"]["discord"]["webhook_url"].startswith("https://discord.com/")
     assert "abcdefghijklmnopqrstuvwxyzABCDE" not in serialized
     assert configured[-1]["notification_integrations"]["channels"]["discord"]["webhook_url"].endswith("abcdefghijklmnopqrstuvwxyzABCDE")
+
+
+def test_regime_modes_legacy_defaults_save_and_reload_do_not_change_trading(tmp_path, monkeypatch):
+    import web_platform.application_services as service_module
+    stored = {'paper_trading': True, 'notification_integrations': {'enabled': False}}
+    configured = []
+    monkeypatch.setattr(service_module, 'get_app_data_dir', lambda: str(tmp_path))
+    monkeypatch.setattr(service_module, 'set_current_user_account', lambda _account: None)
+    monkeypatch.setattr(service_module, 'load_settings', lambda **_kwargs: deepcopy(stored))
+    def save(changes):
+        for path, value in changes.items():
+            _write_path(stored, path, value)
+        return True
+    monkeypatch.setattr(service_module, 'patch_settings_paths', save)
+    monkeypatch.setattr(notifications, 'configure_notifications', lambda settings, **kw: configured.append(deepcopy(settings)))
+    services = ApplicationServices(account='fixture', runtime_bridge=None)
+    before = services.settings_snapshot()
+    prefix = 'notification_integrations.market_regime_modes.'
+    fields = {field['path']: field for field in before['fields']}
+    for mode in ('paper', 'live', 'learning'):
+        assert fields[prefix+mode]['value'] is True
+        assert fields[prefix+mode]['section'] == 'notifications'
+        assert fields[prefix+mode]['presentation'] == 'primary'
+    after = services.update_settings(expected_revision=before['revision'], changes={prefix+'paper': False})
+    assert after['save_receipt']['verified']
+    fields = {field['path']: field for field in services.settings_snapshot()['fields']}
+    assert fields[prefix+'paper']['value'] is False
+    assert fields[prefix+'live']['value'] is True
+    assert stored['paper_trading'] is True
+    assert stored['notification_integrations']['enabled'] is False
 
 
 class _NotificationServices:

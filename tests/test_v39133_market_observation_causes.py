@@ -116,6 +116,22 @@ def test_optional_market_number_preserves_missing_and_explicit_zero():
     assert optional_market_number('-1.5%') == -1.5
 
 
+@pytest.mark.parametrize('venue', ['binance', 'upbit', 'bithumb', 'coinone', 'bybit', 'bitget', 'okx'])
+def test_regime_missing_volume_is_not_valid_zero(venue, monkeypatch):
+    monkeypatch.setattr('trading.runtime_observability.emit_runtime_status', Mock())
+    rows = [{'close': 100} for _ in range(20)]
+    trader = trader_for(venue, lambda *a, **kw: rows)
+    def observe():
+        return (trader._analyze_market_regime_binance_fast() if venue == 'binance'
+                else trader._compute_current_market_conditions_unified_fast(venue, 'BTCUSDT'))
+    assert observe() == 'unknown'
+    for row in rows:
+        row['volume'] = 0
+    assert observe() == 'normal'
+    messages = ' '.join(str(call) for call in trader.log_event.call_args_list)
+    assert ('RSI=50.0' if venue == 'binance' else 'RSI: 50.00') in messages
+
+
 @pytest.mark.parametrize('venue', ['upbit', 'bithumb', 'bybit', 'bitget', 'okx'])
 def test_candle_manager_retains_failure_without_repeating_catalog_query(venue):
     ccxt = SimpleNamespace(markets={}, load_markets=Mock(side_effect=TimeoutError('private-api-url')),
@@ -158,3 +174,44 @@ def test_coinone_failure_does_not_fall_through_to_unsupported_ccxt():
     rows = manager.get_klines('BTCUSDT', '15m', 20, 'coinone')
     assert not rows and rows.reason == 'coinone_chart_query_failed'
     ccxt.fetch_ohlcv.assert_not_called()
+
+
+@pytest.mark.parametrize('adapter_class', [MiraeAssetStockAdapter, KoreaInvestmentStockAdapter, ShinhanStockAdapter, KiwoomStockAdapter])
+@pytest.mark.parametrize('value,expected', [(2, 'bull'), (-2, 'bear'), (1.2, 'volatile'), (0, 'range'), (None, 'unknown'), (True, 'unknown'), ('NaN', 'unknown')])
+def test_all_brokers_proxy_regime_boundaries(adapter_class, value, expected):
+    adapter = object.__new__(adapter_class)
+    adapter.get_realtime_price = lambda *a: {'change_rate': value}
+    assert detect_market_regime(adapter) == expected
+
+
+@pytest.mark.parametrize('adapter_class', [MiraeAssetStockAdapter, KoreaInvestmentStockAdapter, ShinhanStockAdapter, KiwoomStockAdapter])
+@pytest.mark.parametrize('invalid', ['duplicate_dates', 'missing_close'])
+def test_invalid_index_history_cannot_claim_five_session_return(adapter_class, invalid):
+    adapter = object.__new__(adapter_class)
+    rows = [{'date': f'2026-09-{10+i:02}', 'close': 100+i} for i in range(7)]
+    if invalid == 'duplicate_dates':
+        for row in rows:
+            row['date'] = '2026-09-16'
+    else:
+        rows[-2]['close'] = None
+    adapter.get_index_history = lambda *a, **kw: rows
+    adapter.get_realtime_price = lambda *a: {'change_rate': 0}
+    assert detect_market_regime(adapter) == 'range'
+    assert adapter._regime_data_reason == 'proxy_stock_quotes'
+
+
+@pytest.mark.parametrize('venue', ['binance', 'upbit', 'bithumb', 'coinone', 'bybit', 'bitget', 'okx'])
+@pytest.mark.parametrize('expected', ['bull', 'bear', 'volatile', 'normal'])
+def test_all_crypto_regime_calculation_directions(venue, expected, monkeypatch):
+    monkeypatch.setattr('trading.runtime_observability.emit_runtime_status', Mock())
+    rows = candles()
+    for i, row in enumerate(rows):
+        row[4] = 100 + i * (1 if expected == 'bull' else -1 if expected == 'bear' else 0)
+    if expected in {'bull', 'bear'}:
+        rows[-1][5] = 100
+    elif expected == 'volatile':
+        rows[-1][4] = 103
+    trader = trader_for(venue, lambda *a, **kw: rows)
+    result = (trader._analyze_market_regime_binance_fast() if venue == 'binance'
+              else trader._evaluate_current_market_conditions_unified_fast(venue, 'BTCUSDT'))
+    assert result == expected

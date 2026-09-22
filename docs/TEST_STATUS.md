@@ -1,3 +1,29 @@
+## v3.9.1.45 최종 회귀 — 2026-09-22 (미배포 소스)
+
+전략 상담 후속까지 포함한 최신 전체 회귀: **3,357 passed / 8 skipped / 3 subtests passed**, 기존 경고 2개, 55.07초. Node **51 passed**, app/node TypeScript 및 Vite **74 modules PASS**(기존 대형 chunk 경고). 아래 3,320건은 지표 패치까지의 이전 실행이다.
+
+`tests/test_v39145_strategy_dialogue.py` **37 passed**: 구조화 AI 응답 실패/누락/모호함, 사용자 원문과 AI 제안/첨부 자료 분리, 공부와 초안 구분, 조건 기억, 기본 보호 경로와 비용 상한, Provider 실패 시 전달 보류, Gateway 명시 의도, 로컬 사용법 안내, 코인/주식 비중 표현의 기존 결정형 규칙 컴파일. 컴파일 성공은 전략 승인·PAPER/LIVE 실행이 아니다.
+
+`tests/webui_strategy_dialogue_smoke.cjs`: 실제 React 코인/주식 × 1440/900px 4경로 PASS. Studio에서 시작한 빈 초안과 Assistant에서 직접 시작한 기존 원문 보완 모두 시험. 모호한 단계에 전달 버튼 없음 → 검토 초안 전달 → 사용자 확인 뒤 source-analysis만 호출. API 요청의 시장/보호 경로/이전 조건 및 원문·보완문 보존 확인. 각 경로 pageerror 0, 전략 저장/승인/설정/주문 요청 0. 900px은 기존 데스크톱 최소 폭에 따른 가로 스크롤이며 모바일 완전 대응을 뜻하지 않는다.
+
+외부 AI/API 응답은 fixture이고 실제 Provider 답변 품질·최신 공개 전략 내용·현재 시장의 추천 성과는 시험하지 않았다. 실제 Provider/Windows 게이트는 [v45 검증 원장](V39145_INDICATOR_TEST_PLAN.md)에 미완료로 남긴다. 인앱 매뉴얼 11탭 재생성과 문서 정합·sync guard PASS. 공개 v44 자산·고객 DB는 변경하지 않았으며 v45 설치기 빌드/게시는 수행하지 않았다.
+
+Python **3,320 passed / 8 skipped / 3 subtests passed**, 기존 경고 2개, 54.28초. Node updater/번역/전략·재생 **51 passed**. TypeScript/Vite **74 modules PASS**(기존 대형 chunk 경고). 원본 node_modules 대신 같은 lock 기반 격리 설치를 사용했으며 원본 의존성 폴더는 변경하지 않았다.
+
+추가 지표 회귀 46건: 7코인×3모드 생산→SQLite→조회, JSON/compact 중첩 근거, 유효 0·음수 MACD·누락/bool/NaN/Inf, 4증권사×주식/ETF 조회, 기술점수의 두 RSI 근거와 네트워크 금지, 시작 시 최소 유지시간 0/None/300 해석. 첫 전체 실행의 실패 1건은 v45 Windows 검증 원장 누락이었고 정식 원장을 추가한 뒤 전체 재실행했다. 기존 테스트를 약화하지 않았다.
+
+`tests/webui_indicator_evidence_smoke.cjs`: 실제 React+모의 API에서 1440px/900px의 기술점수 미산출/유효값, 학습 0/-0.1826/DOWN/과거 기록 없음 확인. 설명 추가 시 표가 잘리던 배치를 수정하고 표 행 가시 영역까지 검증. pageerror 0, 설정/주문 요청 0. 900px은 기존 데스크톱 최소 폭에 따른 가로 스크롤 범위이며 모바일 완전 대응 증거가 아니다.
+
+문서/버전 정합성·사용자 안내 sync guard PASS. 공개 기반 v44 / 소스 후보 v45 / updater 3.9.145를 분리했다. 인앱 매뉴얼 11탭 재추출. 고객 자료는 읽기 전용, 공개 manifest/해시 변경 없음. [원인과 검증](../reports/market-regime-notification-audit-20260922.md), [Windows·실기관 게이트](V39145_INDICATOR_TEST_PLAN.md). 설치기 빌드·게시·현재 고객 API·실메신저 수신은 미검증이다.
+
+## 당시 시장국면·알림 후속 — 2026-09-22 (미배포 소스)
+
+최종 전체 Python **3,274 passed / 8 skipped / 3 subtests passed**, 기존 경고 2개, 54.67초. 직전 3,103건 이후 확장 입력·발송 시험에서 발견한 결함을 수정하고 재실행했다. 11기관×3모드 감지·발행과 모드 선택의 8이벤트 격리, 11기관×8이벤트의 양 채널 발송/재시도, 7거래소 손실 경고 계산, 4증권사 시세·날짜·모드 경계, 시세 실패 캐시·정렬·30분 계산·전략 국면 범위 회귀 포함. 실제 사용자 API·메신저 수신을 재현한 결과는 아니다. Node updater/번역/전략·재생 관련 **51 passed**.
+
+Node 22.23.1 격리 설치의 TypeScript/Vite **74 modules PASS**. 실제 설정 컴포넌트+가짜 API의 1440px/900px 모드 선택·저장 요청 PASS, pageerror 0. 원본 node_modules의 실행 권한/선택 의존성 누락으로 임시 폴더에 같은 package-lock 기반 npm ci를 사용했다. 설치기 빌드·배포·실채널 전달·실시장 분류 정확도 검증은 미완료. [상세 보고](../reports/market-regime-notification-audit-20260922.md).
+
+사용자 노출 변경 동기화 guard PASS, 11탭 매뉴얼 정본 재추출. 별도 doc_consistency_check에는 기존 공개버전 안내(v43)/로컬 공개 manifest(v44) 불일치 3건이 남는다. 이 상태를 공개 배포 완료로 판정하지 않는다. CHANGELOG 날짜 형식으로 실패한 전체 회귀 1건은 제목/미배포 하위 항목 구조를 수정한 뒤 위 최종 실행에서 통과했다.
+
 ## v44 복구 후속 검증 — 2026-09-21
 
 최종 Python **3,027 passed / 8 skipped / 3 subtests**, 추가 복구 회귀 18개 포함. Web build 74 modules PASS, updater scheduler 6 passed, 문서/소스 계약/동기화 guard PASS.

@@ -939,19 +939,19 @@ class AILearningWidget(CTkFrame):
             else:
                 reason_val = str(reason_val)
 
-            # RSI, MACD, trend robust 매핑 (fixed 버전과 동일하게 fallback, trend도 4자리)
+            # Same evidence contract as Web UI. Volatility is not RSI and
+            # trend strength is not MACD; never relabel missing measurements.
+            from trading.indicator_evidence import indicator_snapshot
+            evidence = indicator_snapshot(item)
             rsi_val = safe_num(
-                item.get('rsi', item.get('RSI', item.get('market_volatility', None))),
+                evidence['rsi'],
                 lambda x: f"{float(x):.4f}"
             )
             macd_val = safe_num(
-                item.get('macd', item.get('MACD', item.get('trend_strength', None))),
+                evidence['macd'],
                 lambda x: f"{float(x):.4f}"
             )
-            # trend: trend, trend_strength, 없으면 N/A, 있으면 4자리 제한
-            trend_val = item.get('trend', None)
-            if trend_val is None or trend_val == '':
-                trend_val = item.get('trend_strength', None)
+            trend_val = evidence['trend']
             if trend_val is None or trend_val == '':
                 trend_val = "N/A"
             else:

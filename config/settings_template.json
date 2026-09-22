@@ -513,6 +513,11 @@
       "mirae": true,
       "kis": true
     },
+    "market_regime_modes": {
+      "paper": true,
+      "live": true,
+      "learning": true
+    },
     "loss_warning_percent": 5.0,
     "cooldown_seconds": 300,
     "timeout_seconds": 5,

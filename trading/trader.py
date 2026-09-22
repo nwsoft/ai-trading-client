@@ -1692,9 +1692,10 @@ class Trader:
                 1,
                 int(self.settings.get("market_regime_confirmations", 2) or 2),
             )
+            configured_dwell = self.settings.get("market_regime_min_dwell_seconds", 600)
             min_dwell = max(
                 0,
-                int(self.settings.get("market_regime_min_dwell_seconds", 600) or 600),
+                int(600 if configured_dwell is None else configured_dwell),
             )
 
             if not hasattr(self, 'last_market_analysis_time'):
@@ -1743,7 +1744,8 @@ class Trader:
                     try:
                         from trading.notifications import publish_market_regime_change
                         if transition:
-                            publish_market_regime_change("binance", self.last_market_regime, current_regime)
+                            publish_market_regime_change("binance", self.last_market_regime, current_regime,
+                                                         execution_mode=self._execution_mode().value)
                     except Exception:
                         pass
 
@@ -1958,7 +1960,7 @@ class Trader:
                     continue
 
                 prices = [kline_number(k, "close") for k in klines]
-                volumes = [kline_number(k, "volume") for k in klines]
+                volumes = [kline_number(k, "volume", float('nan')) for k in klines]
                 if not all(math.isfinite(p) and p > 0 for p in prices) or not all(math.isfinite(v) and v >= 0 for v in volumes):
                     observation_problem(self, 'binance', 'invalid_candle_values', symbol=symbol)
                     continue
@@ -1971,7 +1973,7 @@ class Trader:
                     losses.append(max(-change, 0))
                 if len(gains) >= 5:
                     ag, al = sum(gains[-5:]) / 5, sum(losses[-5:]) / 5
-                    rsi = 100 if al == 0 else 100 - (100 / (1 + ag / al))
+                    rsi = (50 if ag == 0 else 100) if al == 0 else 100 - (100 / (1 + ag / al))
                 else:
                     rsi = 50
 
@@ -8812,6 +8814,7 @@ Response in JSON format:
     def _generate_ai_learning_data(self, exchange_name: str, symbol: str, signal_data: Dict[str, Any]):
         """AI 학습 데이터 생성 (바이낸스용)"""
         try:
+            from .indicator_evidence import indicator_snapshot
             # datetime, timezone은 이미 모듈 레벨에서 임포트되어 있음 (Line 13)
             perf = self._collect_symbol_performance_snapshot(symbol=symbol, exchange_name=exchange_name)
 
@@ -8846,6 +8849,7 @@ Response in JSON format:
                 'recent_win_rate': perf.get('recent_win_rate', 0.0),
                 'recent_loss_rate': perf.get('recent_loss_rate', 0.0),
                 'recent_trade_count': perf.get('recent_trade_count', 0),
+                **indicator_snapshot(signal_data),
             }
 
             # AI 학습 데이터 저장: 거래소별 학습 매니저로 직접 기록

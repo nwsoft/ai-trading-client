@@ -290,7 +290,7 @@ function DesktopApp() {
 
   useEffect(() => {
     const mode = session?.authenticated ? "dashboard" : "login";
-    const displayVersion = platform?.release_version || "3.9.1.44";
+    const displayVersion = platform?.release_version || "3.9.1.45";
     document.title = session?.authenticated ? `Noah AI Client - 대시보드 Beta v${displayVersion}` : "NoahAI Finance Decision OS - 로그인";
     document.body.classList.toggle("dashboard-surface", Boolean(session?.authenticated));
     window.noahAI?.window?.setMode(mode).catch(() => undefined);
@@ -367,9 +367,14 @@ function DesktopApp() {
   }
 
   function sendAssistantAnswerToStrategy(answer: string) {
-    if (!assistantReturnTarget || !answer.trim()) return;
-    setStrategyAssistantDraft({ id: Date.now(), service: assistantReturnTarget.service, text: answer.trim() });
-    returnFromStrategyAssistant();
+    const target = assistantReturnTarget?.service ?? (activeService === "stock" ? "stock" : activeService === "blockchain" ? "blockchain" : null);
+    if (!target || !answer.trim()) return;
+    setStrategyAssistantDraft({ id: Date.now(), service: target, text: answer.trim() });
+    setActiveService(target);
+    setActiveFeature(`${target}.ai_custom`);
+    setAssistantService(target);
+    setAssistantQuestion("");
+    setAssistantReturnTarget(null);
   }
 
   function openManualTarget(service: string, featureId: string) {
@@ -457,7 +462,7 @@ function DesktopApp() {
       {activeSurface === "ai_learning" && <LegacyAILearningWorkspace client={client} service={activeService as "blockchain" | "stock"} source={chartSource} sources={activeSourceTabs} />}
       {activeSurface === "ai_report" && <LegacyAIReportWorkspace client={client} service={activeService as "blockchain" | "stock"} source={chartSource} sources={activeSourceTabs} onAskAssistant={(question) => openAssistant(question, activeService)} />}
       {Object.entries(visitedAssistants).map(([contextKey, context]) => <div key={`${session?.account}:${contextKey}`} hidden={activeSurface !== "assistant" || contextKey !== assistantContextKey}>
-        <AssistantWorkspace client={client} service={context.service} initialQuestion={contextKey === assistantContextKey ? assistantQuestion : ""} settingsSection={context.service === "settings" ? context.section : ""} onOpenSettings={() => setSettingsOpen(true)} onChartAnalysis={() => setActiveFeature(activeService === "stock" ? "stock.info" : activeService === "ai_analyst" ? "ai_analyst.workspace" : "blockchain.coin_info")} onReturn={assistantReturnTarget ? returnFromStrategyAssistant : undefined} returnLabel={assistantReturnTarget ? "전략 스튜디오로 돌아가기 · 입력 유지" : undefined} onSendToStrategy={assistantReturnTarget ? sendAssistantAnswerToStrategy : undefined} />
+        <AssistantWorkspace client={client} service={context.service} initialQuestion={contextKey === assistantContextKey ? assistantQuestion : ""} settingsSection={context.service === "settings" ? context.section : ""} onOpenSettings={() => setSettingsOpen(true)} onChartAnalysis={() => setActiveFeature(activeService === "stock" ? "stock.info" : activeService === "ai_analyst" ? "ai_analyst.workspace" : "blockchain.coin_info")} onReturn={assistantReturnTarget ? returnFromStrategyAssistant : undefined} returnLabel={assistantReturnTarget ? "전략 스튜디오로 돌아가기 · 입력 유지" : undefined} strategyService={activeService === "stock" ? "stock" : "blockchain"} onSendToStrategy={assistantReturnTarget || activeService === "blockchain" || activeService === "stock" ? sendAssistantAnswerToStrategy : undefined} />
       </div>)}
       {activeSurface === "ai_analyst" && <AIAnalystWorkspace client={client} onOpenAssistant={(question = "") => openAssistant(question, "ai_analyst")} onOpenSummary={() => setActiveFeature("ai_analyst.summary")} onOpenScenario={() => setActiveFeature("ai_analyst.scenario")} />}
       {activeSurface === "ai_analyst_scenario" && <AIAnalystScenarioWorkspace client={client} />}
@@ -474,7 +479,7 @@ function DesktopApp() {
     </section>
     <footer className="statusbar legacy-statusbar">
       <span className="legacy-status-left">{legacyStatusLabel(runtime, chartSource, statusClock)}</span>
-      <div className="legacy-release-update"><span className="legacy-release">{platform?.release_label ?? "v3.9.1.44"}</span><UpdateCenter client={client} accountScope={session?.account ?? ""} onOpenGuide={() => openManual("updates")} /></div>
+      <div className="legacy-release-update"><span className="legacy-release">{platform?.release_label ?? "v3.9.1.45"}</span><UpdateCenter client={client} accountScope={session?.account ?? ""} onOpenGuide={() => openManual("updates")} /></div>
       <div className="legacy-ai-summary"><span className="legacy-ai-record" title={aiRecord}>{aiRecord}</span><button className="legacy-record-button" type="button" onClick={() => void refreshAiRecord()}><AppIcon name="record" />{t("기록")}</button></div>
     </footer>
     <SettingsCenter client={client} open={settingsOpen} initialField={settingsInitialField} onClose={() => { setSettingsOpen(false); setSettingsInitialField(undefined); }} onAskAssistant={(question, settingsSection) => openAssistant(question, "settings", settingsSection)} onOpenManual={() => { setSettingsOpen(false); openManual("settings"); }} onSettingsSaved={async () => { setSettingsRevision((value) => value + 1); await refreshRuntimeFromSettings(); }} />

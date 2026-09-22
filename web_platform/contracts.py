@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from typing import Any, Literal
+from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -249,6 +249,9 @@ class AssistantQueryContract(StrictContract):
         "advanced", "alpha", "system", "update",
     ] | None = None
     data_scope: Literal["private", "public_general"] = "private"
+    conversation_kind: Literal["general", "strategy"] = "general"
+    strategy_service: Literal["blockchain", "stock"] = "blockchain"
+    strategy_preferences: dict[str, Annotated[str, Field(max_length=500)]] = Field(default_factory=dict, max_length=6)
 
 
 class RuntimeCommandContract(StrictContract):

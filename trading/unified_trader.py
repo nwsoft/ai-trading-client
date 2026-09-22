@@ -5755,11 +5755,12 @@ class UnifiedTrader:
                     exchange_name,
                     'BTCUSDT',
                 )
+                configured_dwell = self.settings.get('market_regime_min_dwell_seconds', 600)
                 confirmed_regime, _ = self._regime_stabilizer.observe(
                     exchange_name,
                     observed_regime,
                     confirmations=max(1, int(self.settings.get('market_regime_confirmations', 2) or 2)),
-                    min_dwell_seconds=max(0, int(self.settings.get('market_regime_min_dwell_seconds', 600) or 600)),
+                    min_dwell_seconds=max(0, int(600 if configured_dwell is None else configured_dwell)),
                 )
                 self.last_market_regime_by_exchange[exchange_name] = confirmed_regime
                 selected = self.select_trading_coins_unified(exchange_name)
@@ -6245,6 +6246,7 @@ Response in JSON format:
         - 기존에는 ai_manager가 없으면 반환했으나, 신호/분석 히스토리는 항상 남겨야 하므로 제거.
         """
         try:
+            from .indicator_evidence import indicator_snapshot
             perf = self._collect_symbol_performance_snapshot_unified(exchange_name=exchange_name, symbol=symbol)
 
             # 학습 데이터 생성
@@ -6278,6 +6280,7 @@ Response in JSON format:
                 'recent_win_rate': perf.get('recent_win_rate', 0.0),
                 'recent_loss_rate': perf.get('recent_loss_rate', 0.0),
                 'recent_trade_count': perf.get('recent_trade_count', 0),
+                **indicator_snapshot(signal_data),
             }
 
             # AI 학습 데이터 저장: 거래소별 학습 매니저로 직접 기록
@@ -6520,7 +6523,8 @@ Response in JSON format:
             current_time = time.time()
             check_interval = max(60, int(self.settings.get('market_regime_check_interval_seconds', 300) or 300))
             confirmations = max(1, int(self.settings.get('market_regime_confirmations', 2) or 2))
-            min_dwell = max(0, int(self.settings.get('market_regime_min_dwell_seconds', 600) or 600))
+            configured_dwell = self.settings.get('market_regime_min_dwell_seconds', 600)
+            min_dwell = max(0, int(600 if configured_dwell is None else configured_dwell))
 
             last_analysis_time = self.last_market_analysis_time_by_exchange.get(exchange_name)
             if last_analysis_time is None:
@@ -6567,7 +6571,8 @@ Response in JSON format:
                     try:
                         from trading.notifications import publish_market_regime_change
                         if transition:
-                            publish_market_regime_change(exchange_name, last_regime, current_regime)
+                            publish_market_regime_change(exchange_name, last_regime, current_regime,
+                                                         execution_mode=self._execution_mode(exchange_name).value)
                     except Exception:
                         pass
 
@@ -6641,7 +6646,8 @@ Response in JSON format:
                     self.logger.info(f"{exchange_name} 시장 상황 변경 감지: {last_regime} → {current_regime}")
                     try:
                         from trading.notifications import publish_market_regime_change
-                        publish_market_regime_change(exchange_name, last_regime, current_regime)
+                        publish_market_regime_change(exchange_name, last_regime, current_regime,
+                                                     execution_mode=self._execution_mode(exchange_name).value)
                     except Exception:
                         pass
 
@@ -6873,7 +6879,7 @@ Response in JSON format:
                 return 'unknown'
 
             prices = [kline_number(k, "close") for k in klines]
-            volumes = [kline_number(k, "volume") for k in klines]
+            volumes = [kline_number(k, "volume", float('nan')) for k in klines]
             if not all(math.isfinite(p) and p > 0 for p in prices) or not all(math.isfinite(v) and v >= 0 for v in volumes):
                 observation_problem(self, exchange_name, 'invalid_candle_values', symbol=symbol)
                 return 'unknown'
@@ -6895,7 +6901,7 @@ Response in JSON format:
                 avg_loss = sum(losses[-10:]) / 10
 
                 if avg_loss == 0:
-                    rsi = 100
+                    rsi = 50 if avg_gain == 0 else 100
                 else:
                     rs = avg_gain / avg_loss
                     rsi = 100 - (100 / (1 + rs))

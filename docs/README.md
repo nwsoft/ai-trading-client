@@ -1,10 +1,10 @@
-## 현재 v3.9.1.44 소스 후보 / 공개 v3.9.1.43
+## 현재 v3.9.1.45 소스 후보 / 공개 v3.9.1.44
 
 [원격 사용법](REMOTE_MANAGEMENT_GUIDE_V39142.md) · [실행 계획·시험](V39142_REMOTE_CONTROL_PLAN.md). Client 빌드·릴리스는 사용자가 수행합니다. 이전 버전 문서는 당시 상태를 보존합니다.
 
 # NoahAI Client 공식 문서
 
-현재 공개 버전: **v3.9.1.40** · updater **3.9.140** · stable/latest.  
+현재 공개 버전: **v3.9.1.44** · updater **3.9.144** · stable/latest.  
 설치기·blockmap·`latest.yml`·`release-manifest.json` 게시가 확인됐습니다. 특수 Windows 환경·기관별 실계정·장시간 운용 검증은 공개 배포와 분리해 계속 관리합니다.
 
 현재 소스 후보: **v3.9.1.41** · updater **3.9.141** · **Windows 새 빌드·게시 미완료**. [v41 시장 트렌드/XAI 검증 계획](V39141_MARKET_TREND_XAI_TEST_PLAN.md). [PnL 재감사](V39139_PNL_TRUST_AUDIT.md)에서 주문 소유권·실계정 미완료 게이트를 확인하세요.

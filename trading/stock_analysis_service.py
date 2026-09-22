@@ -396,16 +396,22 @@ def detect_market_regime(adapter: Any) -> str:
                 dated_rows.append((date_key, index, row))
             if all(item[0] for item in dated_rows):
                 ordered_history = [item[2] for item in sorted(dated_rows, key=lambda item: item[0])]
+                # Repeated dates are not distinct trading sessions. Do not
+                # label duplicate/conflicting rows as a five-session return.
+                if len({item[0] for item in dated_rows}) != len(dated_rows):
+                    ordered_history = []
+            elif any(item[0] for item in dated_rows):
+                ordered_history = []  # Partially dated history has no reliable order.
 
         closes = []
-        for row in ordered_history:
-            try:
-                value = row.get('close') if isinstance(row, dict) else row
-                close = float(value or 0)
-                if math.isfinite(close) and close > 0:
-                    closes.append(close)
-            except (TypeError, ValueError):
-                continue
+        for row in ordered_history[-6:]:
+            value = row.get('close') if isinstance(row, dict) else row
+            close = optional_market_number(value)
+            if close is None or close <= 0:
+                # Skipping a missing close would silently extend the window.
+                closes = []
+                break
+            closes.append(close)
         if len(closes) >= 6:
             adapter._regime_data_reason = 'kospi_history'
             recent = closes[-6:]
@@ -446,8 +452,8 @@ def detect_market_regime(adapter: Any) -> str:
                         p = adapter.get_realtime_price(sym) or {}
                         if not p or p.get('status') in {'error', 'unavailable'} or p.get('change_rate') is None:
                             continue
-                        cr = float(p['change_rate'])
-                        if not math.isfinite(cr):
+                        cr = optional_market_number(p['change_rate'])
+                        if cr is None:
                             continue
                         changes.append(cr)
                 except Exception:
@@ -1292,7 +1298,10 @@ class StockAnalysisService:
         if previous_regime and regime != previous_regime:
             try:
                 from trading.notifications import publish_market_regime_change
-                publish_market_regime_change(self.broker_name, previous_regime, regime)
+                mode = str(getattr(self, '_active_execution_mode', 'learning') or 'learning')
+                mode = {'live_api': 'live', 'mock': 'paper'}.get(mode, mode)
+                publish_market_regime_change(self.broker_name, previous_regime, regime,
+                                             execution_mode=mode)
             except Exception:
                 pass
 

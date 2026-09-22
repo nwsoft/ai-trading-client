@@ -108,6 +108,22 @@ def _source_enabled(config: dict[str, Any], source: str) -> bool:
     return all(matches) if matches else True
 
 
+def _regime_mode_enabled(config: dict[str, Any], mode: str) -> bool:
+    """Only filter market-regime events; absent keys preserve legacy delivery.
+
+    Unknown provenance must not be guessed as LIVE. Legacy callers remain
+    compatible until the user explicitly selects modes.
+    """
+    modes = config.get("market_regime_modes")
+    if not isinstance(modes, dict):
+        return True
+    normalized = str(mode or "").strip().lower()
+    normalized = {"live_api": "live", "mock": "paper"}.get(normalized, normalized)
+    if normalized not in {"paper", "live", "learning"}:
+        return all(bool(modes.get(key, True)) for key in ("paper", "live", "learning"))
+    return bool(modes.get(normalized, True))
+
+
 def _channel_ready(settings: dict[str, Any] | None, channel: str) -> bool:
     config = _channel_config(settings, channel)
     if not bool(config.get("enabled", False)):
@@ -163,12 +179,16 @@ def _request_json(url: str, payload: dict[str, Any] | None, timeout: float) -> d
     if status < 200 or status >= 300:
         raise NotificationDeliveryError("notification_remote_error")
     if not raw:
-        return {"ok": True}
+        if status == 204:
+            return {}  # HTTP success without a Telegram-style delivery receipt.
+        raise NotificationDeliveryError("notification_response_invalid")
     try:
         value = json.loads(raw.decode("utf-8"))
     except (UnicodeDecodeError, json.JSONDecodeError) as exc:
         raise NotificationDeliveryError("notification_response_invalid") from exc
-    return value if isinstance(value, dict) else {"ok": True}
+    if not isinstance(value, dict):
+        raise NotificationDeliveryError("notification_response_invalid")
+    return value
 
 
 def _format_message(item: NotificationMessage) -> str:
@@ -232,6 +252,9 @@ def notification_status(settings: dict[str, Any] | None) -> dict[str, Any]:
         },
         "exchanges": {
             key: _source_enabled(config, key) for key in sorted(SUPPORTED_VENUES)
+        },
+        "market_regime_modes": {
+            key: _regime_mode_enabled(config, key) for key in ("paper", "live", "learning")
         },
     }
 
@@ -334,6 +357,7 @@ class NotificationDispatcher:
             not bool(config.get("enabled", False))
             or not _event_enabled(config, item.event_type)
             or not _source_enabled(config, item.source)
+            or (item.event_type == "market_regime_change" and not _regime_mode_enabled(config, item.execution_mode))
             or not any(_channel_ready(settings, channel) for channel in SUPPORTED_CHANNELS)
         ):
             return False
@@ -386,6 +410,8 @@ class NotificationDispatcher:
         config = _configuration(settings)
         if not config.get("enabled", False) or not _event_enabled(config, item.event_type) or not _source_enabled(config, item.source):
             return
+        if item.event_type == "market_regime_change" and not _regime_mode_enabled(config, item.execution_mode):
+            return
         timeout = float(config.get("timeout_seconds", 5) or 5)
         retry_count = _bounded_int(config.get("retry_count"), 2, 3)
         for channel in sorted(SUPPORTED_CHANNELS):
@@ -411,6 +437,11 @@ class NotificationDispatcher:
                         LOGGER.warning("%s 알림 전송 실패 (%s)", channel, str(exc))
                         break
                     time.sleep(min(2.0, 0.4 * (2 ** attempt)))
+                except Exception as exc:
+                    # Isolate an unexpected channel failure, do not drop the
+                    # other configured destination or leak exception payloads.
+                    LOGGER.warning("%s 알림 처리 실패 (%s)", channel, type(exc).__name__)
+                    break
 
     def shutdown(self, timeout: float = 1.5) -> None:
         self._stopping = True
@@ -452,7 +483,8 @@ def publish_notification(
     ))
 
 
-def publish_market_regime_change(source: str, previous: str | None, current: str | None) -> bool:
+def publish_market_regime_change(source: str, previous: str | None, current: str | None,
+                                *, execution_mode: str = "") -> bool:
     """Publish a semantic transition, never an initial observation or retry.
 
     Reselection can remain pending over many observation cycles. Its lifetime
@@ -466,7 +498,8 @@ def publish_market_regime_change(source: str, previous: str | None, current: str
     return publish_notification(
         "market_regime_change", "시장국면 변화 감지",
         f"{venue.upper()} 시장국면이 {old}에서 {new}(으)로 변경되었습니다. 신규 후보와 기존 포지션의 위험 조건을 확인하세요.",
-        source=venue, severity="warning", dedupe_key=f"regime:{venue}:{old}:{new}",
+        source=venue, execution_mode=execution_mode, severity="warning",
+        dedupe_key=f"regime:{venue}:{execution_mode}:{old}:{new}",
     )
 
 

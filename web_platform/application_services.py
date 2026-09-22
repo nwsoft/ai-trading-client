@@ -381,6 +381,7 @@ EDITABLE_SETTINGS: tuple[EditableSetting, ...] = (
     EditableSetting("notification_integrations.events.loss_warning", "LIVE 손실 경고", "알림·리포트", "boolean", "확인된 LIVE 손실률이 경고 기준에 도달하면 보냅니다. 증권사는 위험 판정에 손실률 근거가 있을 때만 발송하며, 미확인 손익을 0원으로 추정하지 않습니다."),
     EditableSetting("notification_integrations.events.risk_data_unavailable", "LIVE 위험 데이터 확인 실패", "알림·리포트", "boolean", "잔고·포지션 응답이 무효할 때 손실률을 추정하지 않고 LIVE 신규 진입 보류 사실을 알립니다."),
     EditableSetting("notification_integrations.events.market_regime_change", "시장국면 변화", "알림·리포트", "boolean", "상승·하락·횡보·고변동 등 시장국면이 바뀌면 알림을 보냅니다."),
+    *(EditableSetting(f"notification_integrations.market_regime_modes.{mode}", f"시장국면 알림 · {label}", "알림·리포트", "boolean", "실행 중인 기관의 시장국면 변화 수신만 선택합니다. 분석·거래를 시작하거나 전략 조건·LIVE 위험 경고를 변경하지 않습니다.") for mode, label in (("paper", "PAPER"), ("live", "LIVE"), ("learning", "학습·관찰"))),
     EditableSetting("notification_integrations.events.runtime_failure", "실행 오류", "알림·리포트", "boolean", "거래 워커 시작·정지·실행 중 오류 또는 안전 종료 실패를 알립니다."),
     EditableSetting("notification_integrations.events.update_available", "새 업데이트 안내", "알림·리포트", "boolean", "설치 가능한 새 버전을 확인하면 앱 화면과 활성화된 Discord·Telegram 채널로 한 번 안내합니다."),
     EditableSetting("notification_integrations.loss_warning_percent", "손실 경고 기준(%)", "알림·리포트", "number", "일일 손실 가드레일 중단 한도 전에 먼저 알릴 손실률입니다.", 0.1, 100.0, risk="high"),
@@ -2048,7 +2049,9 @@ class ApplicationServices:
                 f"• Discord: {'ON' if discord else 'OFF'} · Telegram: {'ON' if telegram else 'OFF'}\n"
                 f"• 반복 방지: {int(_read_path(settings, 'notification_integrations.cooldown_seconds') or 0)}초\n\n"
                 "일일 손실 중단·손실 경고·위험 데이터 실패 알림은 LIVE 실계좌에만 적용하며 LEARNING·PAPER 손실을 LIVE로 꾸며 보내지 않습니다. "
-                "시장국면·실행 오류·업데이트 알림은 별도 이벤트 선택과 기관별 허용을 함께 확인하세요."
+                "시장국면·실행 오류·업데이트 알림은 별도 이벤트 선택과 기관별 허용을 함께 확인하세요. "
+                "시장국면은 PAPER/LIVE/학습·관찰별 수신을 선택하며, 실행 중 확정된 변화만 알립니다. "
+                "정지 기관을 시작하거나 전략 규칙을 바꾸지 않습니다. 전략 스튜디오의 국면 범위는 전략별 선언을 따르며 기관 시장 알림과 구분합니다."
             )
         if section_key == "advanced":
             sizing = str(_read_path(settings, "position_sizing_policy.mode") or "legacy_venue")
@@ -2096,7 +2099,7 @@ class ApplicationServices:
         """Deterministic NoahAI settings help for beginner and safety flows."""
         normalized = str(question or "").lower().replace(" ", "")
         scoped_answer = self._settings_section_support_answer(settings_section or "", question, settings)
-        if any(token in normalized for token in ("ai커스텀", "전략스튜디오", "프라이빗전략", "noahstrategy", "전략버전", "백테스트")):
+        if any(token in normalized for token in ("ai커스텀", "전략스튜디오", "프라이빗전략", "noahstrategy", "전략버전", "백테스트", "전략상담", "워뇨띠", "버핏", "대회우승", "strategyconsultation")):
             return build_ai_custom_knowledge(question, settings)
         if any(token in normalized for token in (
             "투자금", "진입금액", "거래금액", "notional", "노셔널", "복리", "성과회복", "레버리지",
@@ -2557,6 +2560,9 @@ class ApplicationServices:
         settings_section: str | None = None,
         data_scope: str = "private",
         output_locale: str = "ko",
+        conversation_kind: str = "general",
+        strategy_service: str = "blockchain",
+        strategy_preferences: dict[str, str] | None = None,
     ) -> dict[str, Any]:
         """Answer product-operation questions from the shipped, versioned knowledge base.
 
@@ -2564,6 +2570,12 @@ class ApplicationServices:
         remains a separate analyst command so a help question cannot accidentally
         trigger a costly or trade-adjacent model call.
         """
+        if conversation_kind == 'strategy' and (
+            mode != 'deep_analysis' or data_scope != 'private'
+            or service not in {'blockchain', 'stock', 'ai_custom'}
+            or strategy_service not in {'blockchain', 'stock'}
+        ):
+            raise ValueError('strategy_dialogue_requires_explicit_private_analysis')
         settings = load_settings(persist_migrations=False) or {}
         requested_data_scope = "public_general" if str(data_scope or "").strip().lower() == "public_general" else "private"
         public_general_request = mode == "deep_analysis" and requested_data_scope == "public_general"
@@ -2632,6 +2644,7 @@ class ApplicationServices:
                 "highvol", "고변동", "가드레일", "설정", "api", "회원", "등급", "다중거래소",
                 "여러거래소", "다중증권사", "여러증권사", "투자금", "진입금액", "거래금액",
                 "notional", "노셔널", "복리", "성과회복", "레버리지",
+                "전략상담", "워뇨띠", "버핏", "대회우승", "strategyconsultation",
             )
             answer = (
                 self._settings_support_answer(question, settings)
@@ -2672,6 +2685,23 @@ class ApplicationServices:
                 context["settings_section"] = str(settings_section or "")
             if operational_context is not None and not public_general_request:
                 context["authoritative_operational_evidence"] = operational_context
+            if conversation_kind == 'strategy':
+                from web_platform.strategy_dialogue import FIELDS, PUBLIC_REFERENCES
+                preferences = {key: value[:500] for key, value in (strategy_preferences or {}).items()
+                               if key in FIELDS and isinstance(value, str)}
+                context['strategy_consultation'] = {
+                    'previous_user_quotes': preferences,
+                    'purpose': 'discussion and unapproved draft only',
+                    'source_catalog': PUBLIC_REFERENCES,
+                    'web_search_available': False,
+                }
+                if service == 'ai_custom':
+                    context['authoritative_operational_evidence'] = self._assistant_operational_context(
+                        service=strategy_service, question=question,
+                    )
+                screen_evidence = self._market_trend_screen_evidence(question)
+                if screen_evidence is not None:
+                    context['market_screen_evidence'] = screen_evidence
             if bool(context_policy.get("include_market_snapshot", True)) and not public_general_request:
                 context["runtime"] = sanitize_settings(self.runtime_snapshot())
             if not public_general_request and bool(context_policy.get("include_market_snapshot", True)) and service in {"blockchain", "stock", "portfolio", "ai_analyst"}:
@@ -2699,6 +2729,10 @@ class ApplicationServices:
             explanation_cap = {"beginner": 700, "standard": 1200, "advanced": 2200}.get(explanation_level, 1200)
             configured_cap = max(200, min(int(token_policy.get("max_output_tokens", 1200) or 1200), 4000))
             max_tokens = min(explanation_cap, configured_cap)
+            if conversation_kind == 'strategy':
+                # Structured quotes + draft need room even in beginner prose;
+                # never exceed the user's configured output/cost cap.
+                max_tokens = configured_cap
             explanation_instruction = {
                 "beginner": (
                     "초보자가 바로 따라 할 수 있는 쉬운 한국어를 사용하세요. 전문용어는 먼저 풀어 쓰고, "
@@ -2715,6 +2749,9 @@ class ApplicationServices:
                 context['assistant_policy']['output_locale'] = 'en'
                 explanation_instruction = explanation_instruction.replace('쉬운 한국어', '쉬운 영어')
                 explanation_instruction += ' Respond in English. Preserve identifiers, original evidence, numbers, units, uncertainty and all safety boundaries. Do not translate or regenerate executable strategy rules.'
+            if conversation_kind == 'strategy':
+                from web_platform.strategy_dialogue import SYSTEM_POLICY
+                explanation_instruction += '\n' + SYSTEM_POLICY
             try:
                 result = self.interactive_ai.ask(
                     settings=settings,
@@ -2778,6 +2815,19 @@ class ApplicationServices:
                     "cache_hit": False,
                     "budget": self.interactive_ai.status(settings),
                 }
+            if conversation_kind == 'strategy':
+                from web_platform.strategy_dialogue import normalize_dialogue
+                if result.get('provider_failed'):
+                    result['strategy_consultation'] = {'status': 'provider_unavailable', 'draft_text': '',
+                                                       'auto_saved': False, 'auto_approved': False, 'order_submitted': False}
+                else:
+                    consultation = normalize_dialogue(
+                        str(result.get('answer') or ''), question=question,
+                        recent=[*safe_recent_messages, *({'role': 'user', 'content': value} for value in preferences.values())],
+                        locale=output_locale,
+                    )
+                    result['answer'] = consultation.pop('answer')
+                    result['strategy_consultation'] = consultation
             result.update({
                 "schema_version": "1.0.0",
                 "service": service,
@@ -3010,6 +3060,8 @@ class ApplicationServices:
                     "value": (
                         self._notification_venue_value(settings, descriptor.path)
                         if descriptor.path.startswith("notification_integrations.exchanges.")
+                        else (_read_path(settings, descriptor.path) is not False)
+                        if descriptor.path.startswith("notification_integrations.market_regime_modes.")
                         else sanitize_settings(_read_path(settings, descriptor.path), descriptor.path)
                     ),
                     "default_value": sanitize_settings(_read_path(defaults, descriptor.path), descriptor.path),
