@@ -72,7 +72,7 @@ def test_canonical_venue_registry_drives_runtime_statistics_and_ui_inventory():
         item["client_id"]: item["onboarding_status"]
         for item in generated_registry["venues"]
     }
-    assert onboarding["coinone"] == "source_ready_account_e2e_required"
+    assert onboarding["coinone"] == "live_ready"
     assert all(
         status == "live_ready"
         for venue, status in onboarding.items()

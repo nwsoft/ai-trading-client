@@ -355,7 +355,9 @@ def test_dashboard_defaults_to_legacy_log_workspace_and_real_audit_record() -> N
     source_workspace = (ROOT / "webui" / "src" / "components" / "LegacyFeatureWorkspaces.tsx").read_text(encoding="utf-8")
     assert "if (!credentialsConfigured)" in source_workspace
     assert "API 키를 설정한 뒤 연결을 확인하세요." in source_workspace
-    assert "credentialsConfigured\n        ? client.logs(service, source, 100)" in source_workspace
+    # Public KRW PAPER/LEARNING logs are available without private credentials.
+    assert "startCredentialsReady\n        ? client.logs(service, source, 100)" in source_workspace
+    assert "credentialsConfigured || publicMarketExecution" in source_workspace
     assert 'lines: []' in source_workspace
     assert "미연결 상태에서는 과거 로그를 현재 연결 기록처럼 표시하지 않습니다." in source_workspace
     assert "client.refreshAccounts([source], false)" in source_workspace
@@ -471,11 +473,12 @@ def test_coin_and_exchange_tabs_use_dedicated_legacy_workspaces() -> None:
         assert label in workspaces
     for label in ["API 인증 완료", "API 인증 실패", "계정 조회 실패", "앱 문자 처리 오류"]:
         assert label in connection_helper
-    assert "credentialsConfigured\n        ? client.logs(service, source, 100)" in workspaces
+    assert "startCredentialsReady\n        ? client.logs(service, source, 100)" in workspaces
     assert "client.refreshAccounts([source], true)" in workspaces
     assert "client.refreshAccounts([source], false)" in workspaces
     assert "7_000" in workspaces
-    assert "commandBusy || !enabled || !credentialsConfigured" in workspaces
+    assert "commandBusy || (!running && (!enabled || !startCredentialsReady || liveUnavailable))" in workspaces
+    assert 'action === "start" && !startCredentialsReady' in workspaces
     assert "accountBusy || !credentialsConfigured" in workspaces
     assert "sourceLogConsoleRef" in workspaces
     assert "consoleElement.scrollTop = consoleElement.scrollHeight" in workspaces

@@ -6,16 +6,34 @@ import os
 from pathlib import Path
 import threading
 import time
+import shutil
+import logging
 
 _instances = {}
 _registry_lock = threading.Lock()
 VENUES = {'binance','bybit','okx','bitget','upbit','bithumb','coinone','kiwoom','kis','mirae','shinhan'}
 
 
+def storage_entry_reason(directory):
+    """Reserve headroom for evidence writes; this is not a disk-full guarantee.
+
+    Called only on new exposure, never on exits/protective management.
+    Missing mount/permission information must not be interpreted as free space.
+    """
+    path=Path(directory)
+    while not path.exists() and path.parent!=path:
+        path=path.parent
+    try:
+        return 'storage_free_space_low' if shutil.disk_usage(path).free < 64*1024*1024 else ''
+    except OSError:
+        return 'storage_capacity_unavailable'
+
+
 class EntryPause:
     def __init__(self, directory):
         self.path=Path(directory)/'remote_entry_pause.json'
         self.lock=threading.RLock();self.active={};self.paused=set();self.receipts={}
+        self.last_block_reason={}
         try:
             data=json.loads(self.path.read_text())
             if isinstance(data,dict):
@@ -62,7 +80,11 @@ class EntryPause:
     @contextmanager
     def permit(self, source):
         with self.lock:
-            allowed=source not in self.paused
+            reason=storage_entry_reason(self.path.parent)
+            if reason and reason!=self.last_block_reason.get(source):
+                logging.getLogger(__name__).warning('%s 신규 진입 보류: %s · PC 여유 공간 확인 필요, 기존 보호/청산 유지',source,reason)
+            self.last_block_reason[source]=reason or ('remote_entries_paused' if source in self.paused else '')
+            allowed=not self.last_block_reason[source]
             if allowed:self.active[source]=self.active.get(source,0)+1
         try: yield allowed
         finally:
@@ -91,7 +113,7 @@ def entry_submission(source, *, stock=False):
             venue={'miraeasset':'mirae','koreainvestment':'kis'}.get(venue,venue)
             with gate().permit(venue) as allowed:
                 if not allowed:
-                    return (False,{},['remote_entries_paused']) if stock else False
+                    return (False,{},[gate().last_block_reason.get(venue,'remote_entries_paused')]) if stock else False
                 return fn(self,*args,**kwargs)
         return execute
     return decorate

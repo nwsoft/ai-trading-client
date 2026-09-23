@@ -1,3 +1,65 @@
+## 2026-09-24 — Coinone 공통 PAPER/LIVE 조건 최종 소스 시험
+
+현재 소스 후보 v3.9.1.46 / 공개 설치본 v3.9.1.45. Coinone 전용 승인 차단 제거 후 실제 주문 없이 모의 API·런타임 및 Chromium 버튼을 확인했습니다. 실제 계좌 시험은 테스터가 진행합니다. 아래 미지원/개방 대기는 정책 변경 전 이력입니다.
+
+- 최종 네트워크 차단 전체 회귀: **3,724 passed / 8 skipped / 3 subtests passed**, 73.26초. 기존 deprecation 경고 2개. 새 주문 규격 15개와 국내 현물 LIVE 시작 6조합 포함. 건너뛴 항목을 PASS로 간주하지 않음.
+- Chromium QA fixture **36개 경우 통과**: Upbit/Bithumb/Coinone × LEARNING/PAPER/LIVE × API 키 유무 × 900/1440px. 키 없는 공개시세 시작 허용, 키 없는 LIVE 비활성, 확인 취소 시 요청 0건, 승인 시 정확한 기관과 LIVE 확인값 전달. 실제 백엔드/주문 미연결이며 화면 전체 레이아웃 인증 아님.
+- TypeScript app/node·Vite 74모듈 빌드 PASS. 격리된 임시 의존성으로 검사하며 사용자 node_modules 보존. 기존 큰 chunk 경고 유지. Windows/Electron 설치기를 만든 것은 아님.
+- 매뉴얼 11개 섹션 정본 내보내기, 문서/버전 정합 및 Python-Web 등록부 일치 PASS. 현행 매뉴얼·FAQ·영문 안내·릴리스 노트 수정. daltrading 서버 배포/등록부 갱신은 이 작업에서 하지 않음.
+- 실제 계좌 주문·Windows 장시간·Telegram 수신을 완료했다는 뜻이 아니며 이전 잔여 증권 과거 lot 복구 등 다른 피드백을 이번 Coinone 변경으로 완료 처리하지 않음. [원인/변경 기록](../reports/v39145-cross-venue-feedback-audit-20260923.md).
+
+## 2026-09-24 — v46 부분청산·자료 묶음·기관 이력 후속 시험 (미배포)
+
+- 전체 네트워크 차단 회귀: **3,704 passed / 8 skipped / 3 subtests passed**, 73.11초, 기존 경고 2개. 신규 집중 48개. 증권 공통 fixture는 진입 조회에도 매도 체결을 반환하던 잘못을 수정해 실제 매수 근거를 공급했으며 수량/가격/비용 기준을 완화하지 않음.
+- 이후 부분청산 숫자의 비정상/무한값 차단 보강 후 관련 복구·쓰기 **131 passed**, 14.28초. 폴더 선택 문구 번역 후 TypeScript/Vite 재통과. 전체 회귀 수치를 이후 수정까지 다시 실행한 결과로 확대하지 않음.
+- 고객 2.88GB 전체 사본 재시험: 3,777,311 판단 행, 11기관 판단 1,100건·청산 20·체결 20, 유지관리 9,100행/양보 9회. 최대 점유 36.58ms/대기 45.2ms, 3.71초, quick_check/원본 불변 PASS. 네트워크 차단·실주문 없음.
+- WebUI 실제 Chromium 한·영 × 900/1440px: 두 파일 요청/자료별 분석 범위/패널 overflow 없음/pageerror 0. API fixture이며 전체 모바일 화면 시험 아님. TypeScript app/Vite 74 modules PASS(기존 큰 chunk 경고); 격리 의존성 사용, 원래 node_modules 보존.
+- 매뉴얼 11섹션 내보내기·문서/버전 정합 PASS. Coinone 실계좌 조회 시도는 **허용 IP 거절**. 실제 주문·Windows 설치본·Telegram 수신 PASS 아님. 증권 과거 lot 귀속/비용·연속조회 완결 및 Coinone LIVE 개방은 남아 있음. [상세 보고](../reports/v39145-cross-venue-feedback-audit-20260923.md).
+
+### 앞선 저장·조회 후속 시험 (이력)
+
+- 네트워크 차단 `scripts/diagnose_v39145_feedback_contracts.py tests -q`: **3,656 passed / 8 skipped / 3 subtests passed**, 71.66초, 기존 경고 2개. 신규 `test_v39146_write_coordination.py` 56개: 우선순위/느린 유지관리 롤백/커서/진입·체결·주문 재처리/11기관 완료 상태/3선물 수량·방향·손익/4증권 실패와 빈 목록 분리. 증권 mock은 명시적 조회 계약을 공급하도록 갱신했고 기대 주문 판단을 약화하지 않았다.
+- 고객 **2,878,898,176바이트·3,777,311 판단 행 DB 전체 사본**에서 11기관 판단 1,100건·청산 20건·체결 20건과 유지관리 경합. 전부 저장/quick_check 통과, 원본 크기/mtime 보존. 이관 9,100행·양보 9회, 최대 점유 37.61ms/대기 66.94ms, 3.64초. `scripts/verify_v39146_customer_storage.py`로 재현. 단일 macOS 프로세스 짧은 시험이며 전체 행 이관·50GB 압축 병행·Windows 장시간 시험이 아니다.
+- TypeScript app/node·Vite 74 modules 통과. 격리 QA 사본의 정상 의존성 사용, 원래 node_modules 변경 없음. 큰 chunk 경고/Node 20 환경 한계 유지.
+- 실제 Chromium 유지관리: 한·영 × 900/1280/1600px 6조합, 점유/대기 숫자·정상 양보 문구/pageerror 0 확인, 이미지 확인. 전체 대시보드 모바일 대응 시험은 아니다. 최초 영어 기본값에서 한국어 문구를 기다린 시험은 실패했고 명시적 양쪽 언어로 재검증했다.
+- 매뉴얼 11섹션/문서 정합 PASS. 설치본·실제 계좌/메신저 검증·배포는 수행하지 않았다. 구현 자체의 잔여 항목도 UPDATE_PLAN/검증 원장에 유지한다.
+
+## 2026-09-23 — v3.9.1.46 피드백 수정 검증 (아래는 당시 이력)
+
+이번 최종 소스 전체: 네트워크 차단 `scripts/diagnose_v39145_feedback_contracts.py tests -q` **3,600 passed / 8 skipped / 3 subtests passed**, 67.51초, 기존 경고 2개. 이후 재시작 시험에서 Recorder를 실제 재생성하도록 시험만 강화하여 신규 30개 집중 재실행. 매뉴얼 11섹션 내보내기 및 문서 정합 PASS.
+
+Teayu 공유본 후속 구현: Coinone 지원 제한/설정·409·시작 UI 정합, DB 잠금 실패 판단·청산 영속 재처리/중복 방지, 현물 실제 보유 대조, 원문 전략 빈 진입식 차단. 신규 시험 30개. 고객 원장 2개와 활성 전략 3개는 읽기 전용 입력이며 잔고는 시험 응답으로 공급했다. 실제 거래소 대조가 아니다.
+
+Chromium 900/1280/1600px × Coinone LIVE/PAPER/LEARNING 9조합 통과. LIVE 미지원 버튼/안내, PAPER·학습 버튼 활성, 실제 API 오류 변환, 카드 overflow와 pageerror 확인. TypeScript app/node + Vite 74 modules 빌드 통과(큰 chunk 경고). 로컬 Rollup optional 의존성 누락으로 격리 QA 의존성을 사용했고 기존 node_modules는 변경하지 않음. Node 20 실행 결과이며 권장 Node 22+ 릴리스 환경 시험과 다름.
+
+미완료: Coinone LIVE 실계좌 E2E, 과거 현물 원장 복구, 전체 저장 경로 장시간 경합/Windows, 실제 메신저 수신. [구현·증거·남은 조건](../reports/v39145-cross-venue-feedback-audit-20260923.md).
+
+학습 대용량 후속 구현 최종: 네트워크 차단 `scripts/diagnose_v39145_feedback_contracts.py tests -q` **3,570 passed / 8 skipped / 3 subtests passed**, 56.15초, 기존 경고 2개. 신규 저장소 시험 11개를 포함한다. Teayu 과거 OKX 보관 파일 사본 **1,133,898,244 → 112,160,234바이트**, 원문 해제 SHA-256 일치. 고객 원본/DB 변경 없음. 같은 자료 100건 XAI 원문 왕복 일치, 새 근거 본문 119,486바이트. 최근 N건의 요청 구간 조회, 유지관리 실제 용량 감소·실패/중단 원문 보존·충돌/재시도 검증. TypeScript app `--noEmit`, 매뉴얼 11섹션 재생성 및 문서 정합 PASS. Windows 실잠금/장시간·50GB 전체 사용자 폴더·실계좌·실메신저를 시험했다고 확대하지 않는다.
+
+현물 잔여 자산 후속 최종: **3,559 passed / 8 skipped / 3 subtests passed**, 55.61초, 기존 경고 2개. 신규 현물 시험 **56 passed**: 실제 평가 함수를 통과하는 3기관 잔고/마켓/ticker/관리 원장/손실/기준 DB 재시작 경로와 설치 CCXT Coinone active=None 파서. 실계좌 응답은 fixture이며 Windows/실메신저 확인은 아니다. 매뉴얼 11섹션 재생성 및 문서 정합 PASS. [원인과 수정 범위](../reports/v39145-cross-venue-feedback-audit-20260923.md).
+
+버전 정정 후 재실행: 제품/Windows 리소스/Web inventory/fallback/패키지 3.9.1.46·3.9.146, 공개 기반 45. 전체 **3,503 passed / 8 skipped / 3 subtests passed**, 54.58초, 기존 경고 2개. TypeScript/Vite 빌드 및 버전 정합·사용자 노출 문서 동기화 검사 PASS. 공개 설치기/manifest 수정이나 실제 수신 검증은 하지 않았다.
+
+이전 검증의 누락: v45 관찰 시험은 정상 후보를 공급하고 감지 함수를 직접 호출해 사용자 시작 검사·실제 워커 기동을 통과하지 않았다. v46에서도 시작 경계/관찰/전송 계약 시험을 전체 고객 E2E라고 표현하지 않는다. [46 실제 환경 체크리스트](V39146_RUNTIME_BOUNDARY_TEST_PLAN.md)의 미완료 상태를 배포 판단에 반영한다.
+
+네트워크 차단 전체 시험 **3,503 passed / 8 skipped / 3 subtests passed**, 기존 경고 2개. 보호·진단 집중 시험 108 passed / 2 skipped. skipped에는 실제 주문이 필요한 선택형 통합시험이 포함되므로 전체 실기관 검증 완료를 뜻하지 않는다.
+
+동일 package-lock의 격리 Node 22 환경에서 TypeScript app/node 및 Vite 74 modules 빌드 통과(대형 chunk 경고). 실제 CSS/Chromium 카드 폭290/430/500px에서 설명 폭270/410/480px 확보 및 이미지 확인. 기존 사용자 node_modules/설정/DB는 변경하지 않았다.
+
+동일 수정본 격리 preview `127.0.0.1:4197`에서 `tests/webui_regime_modes_smoke.cjs` 1440/900px 통과. 모든 API/외부 요청을 가로채고 PAPER/LIVE/학습 체크박스·PAPER OFF 저장의 해당 필드만 전송되는지, pageerror 0을 확인했다. 900px 전체 대시보드는 기존 데스크톱 최소 폭으로 가로 스크롤이 남으며 이번 시험은 모든 화면의 모바일 대응 완료가 아니다. 인앱 매뉴얼 11섹션 재생성 및 `doc_consistency_check.py` PASS.
+
+7코인 기관 모드·분석 경로, 11기관 원장 저장/알림 transport, 4증권×주식/ETF 부분청산 귀속, 실제 설치 CCXT의 Bybit/OKX 요청 라우팅과 Binance 조회 실패·재발주 보류를 시험한다. 외부 API/Telegram은 모의 응답이며 실제 주문/수신·Windows 설치본·장시간 운용 검증은 아니다. [원인/구현/남은 조건](../reports/v39145-cross-venue-feedback-audit-20260923.md).
+
+## 공개자료 연구 전략 파일 — 2026-09-23 (앱 버전·배포 변경 없음)
+
+`scripts/build_aoa_research_strategies.py`로 `output/strategies/aoa-research-20260923/`에 미승인 `.noahstrategy` 3종을 생성했다. 원본 PDF·CSV 5개·서한의 SHA-256을 보존하고, 추가 EMA/RSI/봉 주기/위험 조건을 `research_hypothesis`로 표시했다. 패키지 여권은 비어 있으며 원본 트레이더의 성과·승인·공식 제휴를 상속하지 않는다. 사용자 계정에 등록하지 않았다.
+
+추가 테스트 `tests/test_aoa_research_strategies.py` **38 passed**. 패키지→브라우저 JSON 변환→실제 Web 서비스 가져오기→격리 저장, 양방향 진입/청산, 이전 봉·시세 누락, 잘못된 시간봉, 위험 설정, 변조 차단, 미승인 적용 차단. 최초 숫자 표기(1.0/1) 불일치를 패키지 생성 단계에서 수정하고 SHA 검증 자체는 변경하지 않았다. 관련 패키지·전략 상담·재생·근거 회귀 합계 **108 passed**, 기존 Starlette 경고 1개.
+
+Binance 공개 USD-M 시세로 2024-01-01 UTC 시작 1,000봉씩 3전략×BTC/ETH 6회 재생. EMA 워밍업 200봉, 모의 거래 31건, 차트 데이터 6건 생성. **5/6조합은 비용 차감 후 손실**. 실거래·PAPER 운용·수익성 검증 통과가 아니다. 24봉 강제청산은 재생 시험 가정이며 파일의 실시간 규칙에는 없다. 펀딩·호가 체결·계좌 비중·실시간 보호정책은 재생하지 않으므로 완전한 LIVE/PAPER 동등성이나 계좌 수익률로 해석하지 않는다.
+
+파일 해시·실제 Node JSON 변환 후 무결성·캔들 정렬·진입 가격·비용 합산은 `artifact_verification.json`, 원시 봉/재생 결과는 출력 폴더에 보존한다. 지정가 우선 라우팅·피라미딩·분할청산/트레일링 결합은 이 기본형 범위 밖이다. Windows 설치본 UI·기관 실주문·지속 PAPER는 미검증이며 기존 거래 엔진·사용자 DB·설정·배포 버전은 변경하지 않았다.
+
 ## v3.9.1.45 최종 회귀 — 2026-09-22 (미배포 소스)
 
 전략 상담 후속까지 포함한 최신 전체 회귀: **3,357 passed / 8 skipped / 3 subtests passed**, 기존 경고 2개, 55.07초. Node **51 passed**, app/node TypeScript 및 Vite **74 modules PASS**(기존 대형 chunk 경고). 아래 3,320건은 지표 패치까지의 이전 실행이다.

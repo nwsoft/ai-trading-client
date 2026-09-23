@@ -1,4 +1,6 @@
 {
+  "전략 버전 근거 미기록 · 손익 대조와 별도": "Strategy-version evidence not recorded; separate from PnL reconciliation",
+  "시장국면 알림은 실행 중인 기관의 변화가 확정될 때 전송합니다. 알림 ON은 분석 시작이 아닙니다. PAPER·LIVE 외에 학습·관찰 수신과 기관별 스위치도 확인하고 변경 내용을 저장하세요. 국면 유지·확정 대기·필터 차단·전송 실패는 해당 기관 로그에서 구분할 수 있습니다.": "Market-regime alerts are sent when a change is confirmed for a running venue. Enabling alerts does not start analysis. Check Learning, Paper, Live and venue switches, then save. Venue logs distinguish unchanged regimes, pending confirmation, filtered alerts and delivery failures.",
   "사용자": "User",
   "운영 화면을 불러오는 중입니다.": "Loading your workspace…",
   "주요 서비스": "Services",

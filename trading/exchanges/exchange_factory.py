@@ -124,6 +124,15 @@ def _normalize_stock_broker_key(broker: str) -> str:
 
 class ExchangeFactory:
     """통합 거래소 팩토리 클래스"""
+    @staticmethod
+    def _bind_runtime_log(adapter, exchange_name, settings):
+        from log_system.log_adapter import log_event
+        from trading.execution_mode import resolve_crypto_execution_mode
+        def emit(category, message, level='INFO'):
+            return log_event(category, message, exchange=exchange_name, level=level,
+                             execution_mode=resolve_crypto_execution_mode(settings, exchange_name).value)
+        adapter.log_event = emit
+        return adapter
     
     _futures_adapters = {
         'binance': BinanceFuturesAdapter,
@@ -157,15 +166,16 @@ class ExchangeFactory:
         
         if exchange_name == 'binance':
             testnet = settings.get('use_testnet', False)
-            return adapter_class(api_key, secret_key, testnet=testnet)
+            adapter = adapter_class(api_key, secret_key, testnet=testnet)
         elif exchange_name == 'okx':
             passphrase = settings.get('okx_passphrase', '')
-            return adapter_class(api_key, secret_key, passphrase)
+            adapter = adapter_class(api_key, secret_key, passphrase)
         elif exchange_name == 'bitget':
             password = settings.get('bitget_password', '')
-            return adapter_class(api_key, secret_key, password)
+            adapter = adapter_class(api_key, secret_key, password)
         else:
-            return adapter_class(api_key, secret_key)
+            adapter = adapter_class(api_key, secret_key)
+        return cls._bind_runtime_log(adapter, exchange_name, settings)
     
     @classmethod
     def create_spot_exchange(cls, exchange_name: str, settings: Dict[str, Any]) -> Optional[SpotExchange]:
@@ -188,10 +198,8 @@ class ExchangeFactory:
             seeder = getattr(adapter, 'seed_order_symbols', None)
             if callable(seeder):
                 seeder(configured)
-            return adapter
-        if exchange_name == 'coinone':
-            kwargs['live_e2e_verified'] = bool(settings.get('coinone_live_e2e_verified', False))
-        return adapter_class(api_key, secret_key, **kwargs)
+            return cls._bind_runtime_log(adapter, exchange_name, settings)
+        return cls._bind_runtime_log(adapter_class(api_key, secret_key, **kwargs), exchange_name, settings)
     
     @classmethod
     def create_stock_exchange(cls, exchange_name: str, settings: Dict[str, Any]) -> Optional[StockExchange]:

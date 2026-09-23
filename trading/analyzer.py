@@ -1706,7 +1706,15 @@ class Analyzer:
             self.logger.error(f"시장 분석 중 오류: {e}")
             return []
 
-    def analyze_symbol(self, symbol: str) -> Optional[AnalysisResult]:
+    def analyze_symbol(self, symbol: str, exchange_name: Optional[str] = None) -> Optional[AnalysisResult]:
+        previous_context = self._exchange_context
+        self._exchange_context = str(exchange_name or 'binance').lower()
+        try:
+            return self._analyze_symbol_in_context(symbol, self._exchange_context)
+        finally:
+            self._exchange_context = previous_context
+
+    def _analyze_symbol_in_context(self, symbol: str, exchange_name: str) -> Optional[AnalysisResult]:
         """개별 심볼 분석"""
         try:
             self.logger.info(f"[{symbol}] 분석 시작")
@@ -1725,7 +1733,8 @@ class Analyzer:
 
             # 신호 생성 (기존 시스템 사용)
             # symbol은 이미 "BTCUSDT" 형태이므로 그대로 사용
-            signal_result = self.generate_trading_signal(symbol)
+            signal_result = self.generate_trading_signal(symbol, exchange_name=exchange_name)
+            self._exchange_context = exchange_name
 
             # 반환값이 딕셔너리인 경우 처리
             if isinstance(signal_result, dict):
@@ -1813,7 +1822,7 @@ class Analyzer:
                     indicator_limit,
                     exchange_name=exchange_context,
                 )
-            if not klines and self.binance_client and hasattr(self.binance_client, 'get_klines'):
+            if not klines and exchange_context == 'binance' and self.binance_client and hasattr(self.binance_client, 'get_klines'):
                 klines = self._get_klines(symbol, '5m', indicator_limit)
 
             if not klines:

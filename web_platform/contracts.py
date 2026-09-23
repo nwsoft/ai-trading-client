@@ -182,6 +182,11 @@ class StrategyHistoricalValidationContract(StrictContract):
     limit: int = Field(default=500, ge=100, le=1000)
 
 
+class StrategySourceAttachmentContract(StrictContract):
+    name: str = Field(min_length=1, max_length=255)
+    value: str = Field(min_length=1, max_length=34_000_000)
+
+
 class StrategySourceAnalyzeContract(StrictContract):
     source_kind: Literal["auto", "text", "pine", "pdf", "image", "video", "youtube", "tradingview", "url"] = "auto"
     value: str = Field(min_length=1, max_length=40_000_000)
@@ -189,6 +194,7 @@ class StrategySourceAnalyzeContract(StrictContract):
     file_name: str = Field(default="", max_length=255)
     supplemental_text: str = Field(default="", max_length=20_000)
     authoring_mode: Literal["source_faithful", "guided_clarification", "noah_delegate"] = "source_faithful"
+    files: list[StrategySourceAttachmentContract] = Field(default_factory=list, max_length=40)
 
 
 class StrategyDraftValidationContract(StrictContract):

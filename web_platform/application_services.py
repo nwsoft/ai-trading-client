@@ -421,6 +421,7 @@ EDITABLE_SETTINGS: tuple[EditableSetting, ...] = (
 
 SETTINGS_TEMPLATE_PATH = Path(__file__).resolve().parents[1] / "config" / "settings_template.json"
 EXCLUDED_WEB_SETTINGS: dict[str, str] = {
+    "coinone_live_e2e_verified": "폐기된 내부 설정입니다. Coinone도 공통 PAPER/LIVE 설정·API 인증·위험 제한을 사용합니다.",
     "_settings_schema_version": "설정 마이그레이션이 관리하는 내부 버전입니다.",
     "_ai_custom_runtime_safe_default_v3900_applied": "안전 마이그레이션 완료 표식입니다.",
     "_trade_scope_user_confirmed_v3905": "별도 LIVE 범위 확인 절차가 관리합니다.",
@@ -2154,7 +2155,7 @@ class ApplicationServices:
             "binance": ("바이낸스", "선물 읽기·주문 권한만 사용하고 출금 권한은 켜지 않습니다."),
             "upbit": ("업비트", "자산조회·주문조회 후 필요할 때만 주문 권한을 추가하고 출금 권한은 켜지 않습니다."),
             "bithumb": ("빗썸", "자산·주문 조회와 주문 권한을 분리해 확인하고 출금 권한은 켜지 않습니다."),
-            "coinone": ("코인원", "조회·주문 최소 권한만 사용하며 출금 권한은 켜지 않습니다. LIVE는 실계좌 E2E 승인 전까지 차단됩니다."),
+            "coinone": ("코인원", "조회·주문 최소 권한만 사용하며 출금 권한은 켜지 않습니다. LIVE는 공통 실행 확인·API 인증·위험 제한을 따릅니다."),
             "bybit": ("Bybit", "읽기와 계약 주문 권한만 사용하고 출금·Transfer 권한은 켜지 않습니다."),
             "okx": ("OKX", "API Key·Secret·Passphrase와 거래 계정 모드를 함께 확인하고 출금 권한은 켜지 않습니다."),
             "bitget": ("Bitget", "API Key·Secret·Password와 선물 주문 범위를 확인하고 출금 권한은 켜지 않습니다."),
@@ -2195,7 +2196,7 @@ class ApplicationServices:
                 f"현재 서버 회원등급: {str(user.get('user_grade') or '확인 필요')}\n"
                 f"정책 버전: {str(policy.get('policy_version') or '서버 확인 필요')}\n"
                 "레퍼럴 등급의 해외 거래소는 서버 활성화와 확인 완료된 UID 귀속이 모두 맞아야 API 설정·선택·거래 시작이 허용됩니다. pending/rejected/expired 해외 거래소는 차단됩니다. "
-                "Upbit·Bithumb·Coinone 국내 현물은 레퍼럴 UID 없이 무료 경로이며, 공개 코인 선택·분석과 PAPER는 API 키 없이 공개 KRW 시세와 로컬 가상 원장으로 실행합니다. 실제 잔고·주문·체결 동기화에는 인증이 필요하고 Coinone LIVE는 실계좌 E2E 전까지 별도로 차단됩니다. "
+                "Upbit·Bithumb·Coinone 국내 현물은 레퍼럴 UID 없이 무료 경로이며, 공개 코인 선택·분석과 PAPER는 API 키 없이 공개 KRW 시세와 로컬 가상 원장으로 실행합니다. 실제 잔고·주문·체결 동기화에는 인증이 필요하며 LIVE는 공통 실행 확인·위험 제한을 따릅니다. "
                 "전략 제작·로컬 분석·PAPER 검증·내보내기·공유 준비는 회원등급과 무관하게 동일합니다. 실제 계정의 집중운용은 1개, 관리형 다중포지션은 무료 최대 3개·코인 유료 최대 5개이며 위험 가드레일이 더 작게 제한할 수 있습니다. "
                 "회원 상태는 실행 명령 전에 서버에서 다시 확인하며, 일시적 네트워크 오류와 서버의 명시적 세션 종료를 구분합니다."
             )
@@ -4481,13 +4482,16 @@ class ApplicationServices:
     def analyze_strategy_source(
         self, *, source_kind: str, value: str, encoding: str = "text", file_name: str = "",
         supplemental_text: str = "", authoring_mode: str = "source_faithful",
+        files: list[dict[str, str]] | None = None,
     ) -> dict[str, Any]:
         settings = load_settings(persist_migrations=False) or {}
         source_value = str(value or "")
         temporary_path = ""
+        bundle_paths = []
+        if files and encoding != 'text': raise ValueError('자료 묶음과 단일 파일 업로드를 동시에 지정할 수 없습니다.')
         public_name = Path(str(file_name or "uploaded-strategy.txt").replace("\\", "/")).name
         if encoding == "base64":
-            allowed_suffixes = {".txt", ".md", ".pine", ".pinescript", ".pdf", ".png", ".jpg", ".jpeg", ".webp", ".bmp", ".mp4", ".mov", ".mkv", ".avi", ".webm"}
+            allowed_suffixes = {".txt", ".md", ".pine", ".pinescript", ".pdf", ".png", ".jpg", ".jpeg", ".webp", ".bmp", ".mp4", ".mov", ".mkv", ".avi", ".webm", ".csv", ".tsv", ".xlsx", ".docx"}
             suffix = Path(public_name).suffix.lower()
             if suffix not in allowed_suffixes:
                 raise ValueError("지원하지 않는 전략 파일 형식입니다.")
@@ -4507,6 +4511,30 @@ class ApplicationServices:
             raise ValueError("텍스트·URL 입력은 500,000자 이하여야 합니다.")
 
         try:
+            bundle_items = []
+            if files:
+                from trading.strategy_source_bundle import MAX_FILES, MAX_BYTES
+                if len(files) > MAX_FILES: raise ValueError('자료는 최대 40개입니다.')
+                total = 0
+                for item in files:
+                    name = Path(str(item.get('name','')).replace('\\','/')).name
+                    suffix = Path(name).suffix.lower()
+                    if suffix not in {'.txt','.md','.pine','.pinescript','.pdf','.png','.jpg','.jpeg','.webp','.bmp','.mp4','.mov','.mkv','.avi','.webm','.csv','.tsv','.xlsx','.docx'}:
+                        raise ValueError(f'지원하지 않는 파일: {name}')
+                    encoded = item.get('value','')
+                    if len(encoded) > 34_000_000: raise ValueError('개별 파일은 24MiB 이하입니다.')
+                    raw = base64.b64decode(encoded, validate=True)
+                    total += len(raw)
+                    if not raw or len(raw) > 24*1024*1024 or total > MAX_BYTES:
+                        raise ValueError('개별 24MiB, 전체 64MiB 제한을 확인하세요.')
+                    upload_dir = self.data_dir / 'cache' / 'strategy_uploads'
+                    upload_dir.mkdir(parents=True, exist_ok=True)
+                    fd, path = tempfile.mkstemp(prefix='bundle_', suffix=suffix, dir=upload_dir)
+                    bundle_paths.append((path,name))
+                    with os.fdopen(fd,'wb') as handle: handle.write(raw)
+                    bundle_items.append({'value':path, 'name':name, 'kind':'auto'})
+                if value.strip() and value != 'selected-files':
+                    bundle_items.append({'value':value, 'name':'사용자 설명', 'kind':source_kind})
             premium = AIProviderRouter.from_settings(settings, workload="premium").client_facade()
             transcription = AIProviderRouter.from_settings(settings, workload="transcription").client_facade()
             premium_client = self.interactive_ai.budgeted_client(
@@ -4524,19 +4552,32 @@ class ApplicationServices:
                 model=str(getattr(transcription, "model", "") or ""),
             ) if transcription.is_ready() else None
             transcription_cfg = dict(settings.get("ai_custom_transcription") or {})
-            result = StrategySourceIngestor(
+            ingestor = StrategySourceIngestor(
                 premium_client,
                 transcription_client=transcription_client,
                 transcription_enabled=bool(transcription_cfg.get("enabled", True)),
                 transcription_model=str(transcription_cfg.get("model") or "gpt-4o-mini-transcribe"),
                 audio_max_duration_minutes=int(transcription_cfg.get("max_duration_minutes", 45) or 45),
                 audio_max_file_mb=int(transcription_cfg.get("max_file_mb", 24) or 24),
-            ).analyze(
+            )
+            extra = {}
+            if bundle_items:
+                from trading.strategy_source_bundle import extract_bundle
+                extra['extracted_source'] = extract_bundle(ingestor, bundle_items)
+            result = ingestor.analyze(
                 source_value,
                 source_kind,
                 supplemental_text=supplemental_text,
                 authoring_mode=authoring_mode,
+                **extra,
             )
+            if bundle_items:
+                result['source_manifest'] = extra['extracted_source'].evidence['sources']
+                if not extra['extracted_source'].evidence['coverage_complete']:
+                    result['ready_for_execution'] = False
+                    result.setdefault('missing_conditions', []).append('자료 일부가 누락·축약되었습니다. 출처별 범위를 확인하고 나누어 재분석하세요.')
+                for path, name in bundle_paths:
+                    result = self._replace_source_path(result, path, name)
             if temporary_path:
                 result = self._replace_source_path(result, temporary_path, public_name)
             result["provider_called"] = bool(result.get("ai_analyzed"))
@@ -4552,6 +4593,8 @@ class ApplicationServices:
             })
             return sanitize_settings(result)
         finally:
+            for path, _ in bundle_paths:
+                Path(path).unlink(missing_ok=True)
             if temporary_path:
                 try:
                     Path(temporary_path).unlink(missing_ok=True)
@@ -5579,7 +5622,11 @@ class ApplicationServices:
             raise ValueError("지원하지 않는 실행 대상입니다.")
         if command == "trading.start":
             settings = load_settings(persist_migrations=False) or {}
-            if not bool(settings.get("paper_trading", True)) and payload.get("live_confirmation") is not True:
+            from trading.execution_mode import resolve_crypto_execution_mode
+            from trading.exchanges.venue_capabilities import CRYPTO_VENUES
+            requested_mode = (resolve_crypto_execution_mode(settings, source).value if source in CRYPTO_VENUES
+                              else ('paper' if settings.get('paper_trading', True) else 'live'))
+            if requested_mode == 'live' and payload.get("live_confirmation") is not True:
                 raise RuntimeError("live_start_confirmation_required")
         membership = self.refresh_membership_status(force=True)
         # Membership gates new analysis/start/import work.  A stop command is a

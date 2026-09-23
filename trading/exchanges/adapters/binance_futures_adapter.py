@@ -83,6 +83,11 @@ class BinanceFuturesAdapter(FuturesExchange):
             self.log_event('system', f"바이낸스 계정 정보 조회 실패: {e}", level='ERROR')
             return {}
     
+    def get_positions_result(self):
+        if not self.is_connected or not self.client:
+            return {'status':'unavailable','positions':None}
+        return self.client.get_positions_result()
+
     def get_positions(self) -> List[Dict[str, Any]]:
         if not self.is_connected or not self.client:
             return []

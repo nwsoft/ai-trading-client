@@ -1833,7 +1833,7 @@ class BinanceClient:
             self.logger.error(f"미체결 주문 조회 오류: {e}")
             return []
 
-    def get_open_algo_orders(self, symbol: Optional[str] = None) -> List[Dict]:
+    def get_open_algo_orders(self, symbol: Optional[str] = None, *, strict: bool = False) -> List[Dict]:
         """🔥 Algo Order 조회 (TP/SL 주문 검증용)
         
         Args:
@@ -1843,6 +1843,8 @@ class BinanceClient:
             Algo Order 리스트
         """
         if not self._has_api_keys():
+            if strict:
+                raise RuntimeError('protection_credentials_unavailable')
             self.log_event('order', "Algo Order 조회 건너뜀: API 키 없음", level='DEBUG')
             return []
         try:
@@ -1857,11 +1859,17 @@ class BinanceClient:
                 return result
             elif isinstance(result, dict) and "code" in result:
                 self.log_event('order', f"Algo Order 조회 오류: {result}", level='ERROR')
+                if strict:
+                    raise RuntimeError('protection_query_failed')
                 return []
             else:
+                if strict:
+                    raise RuntimeError('protection_response_invalid')
                 return []
         except Exception as e:
             self.log_event('order', f"Algo Order 조회 오류: {e}", level='ERROR')
+            if strict:
+                raise
             return []
 
     def _get_futures_signed(self, path: str, params: dict) -> dict:
@@ -2643,12 +2651,14 @@ class BinanceClient:
             # 따라서 quantity 자동 조회 로직도 불필요함
             self.log_event('order', f"[{symbol}] 🔧 TP/SL closePosition=True 사용 (수량 미전송, Binance API 규칙 준수)")
 
-            # 🔥 1단계: 기존 TP/SL 주문 확인 및 취소 (-4130 오류 방지)
+            # 1단계: 기존 보호주문 조회·보존. 조회 실패 후 생성하지 않는다.
             try:
                 # 일반 주문 조회
-                open_orders = self.get_open_orders(symbol=symbol)
+                open_orders = self.client.futures_get_open_orders(symbol=symbol)
+                if not isinstance(open_orders, list):
+                    raise RuntimeError('protection_response_invalid')
                 # Algo Order 조회
-                open_algo_orders = self.get_open_algo_orders(symbol=symbol)
+                open_algo_orders = self.get_open_algo_orders(symbol=symbol, strict=True)
                 
                 # 🔥 디버깅: 조회 결과 로깅
                 self.log_event('order', f"[{symbol}] 🔍 주문 조회 결과 - 일반 주문: {len(open_orders)}개, Algo Order: {len(open_algo_orders)}개")
@@ -2680,62 +2690,15 @@ class BinanceClient:
                 
                 # 기존 TP/SL 주문 취소
                 if tp_orders_to_cancel or sl_orders_to_cancel:
-                    self.log_event('order', f"[{symbol}] 🔧 기존 TP/SL 주문 취소 시작 (TP: {len(tp_orders_to_cancel)}개, SL: {len(sl_orders_to_cancel)}개)")
-                    
-                    # 일반 주문 취소 (Algo Order 제외)
-                    for order in tp_orders_to_cancel + sl_orders_to_cancel:
-                        # Algo Order는 별도 처리하므로 제외 (algoId가 있으면 Algo Order)
-                        if 'algoId' in order:
-                            continue
-                        if 'orderId' in order:
-                            try:
-                                order_id = order.get('orderId')
-                                self.client.futures_cancel_order(symbol=symbol, orderId=order_id)
-                                self.log_event('order', f"[{symbol}] ✅ 기존 TP/SL 주문 취소 완료: {order_id} ({order.get('type')})")
-                            except Exception as e:
-                                # -2011: Order does not exist (이미 취소됨)
-                                if '-2011' not in str(e):
-                                    self.log_event('order', f"[{symbol}] ⚠️ 기존 TP/SL 주문 취소 실패: {e}", level='WARNING')
-                    
-                    # Algo Order 취소 (별도 처리)
-                    for algo_order in open_algo_orders:
-                        # 🔥 Binance Algo Order API는 'type' 대신 'orderType' 필드 사용
-                        algo_type = (algo_order.get('orderType') or algo_order.get('type', '')).upper()
-                        if algo_type in ('TAKE_PROFIT_MARKET', 'TAKE_PROFIT', 'STOP_MARKET', 'STOP'):
-                            algo_id = algo_order.get('algoId') or algo_order.get('orderId')
-                            if algo_id:
-                                try:
-                                    # DELETE /fapi/v1/algoOrder
-                                    params = {
-                                        'symbol': symbol,
-                                        'algoId': algo_id,
-                                        'timestamp': self.get_synced_timestamp(),
-                                        'recvWindow': self.config.recv_window
-                                    }
-                                    qs, sig = self._build_signed_query(params)
-                                    url = f"{self._futures_base_url()}/fapi/v1/algoOrder?{qs}&signature={sig}"
-                                    headers = {"X-MBX-APIKEY": self.config.api_key}
-                                    import requests
-                                    resp = requests.delete(url, headers=headers, timeout=self.config.timeout)
-                                    result = resp.json()
-                                    if isinstance(result, dict) and result.get('code') == 200:
-                                        self.log_event('order', f"[{symbol}] ✅ 기존 Algo Order 취소 완료: {algo_id} ({algo_type})")
-                                    else:
-                                        # -2011: Order does not exist (이미 취소됨)
-                                        if result.get('code') != -2011:
-                                            self.log_event('order', f"[{symbol}] ⚠️ 기존 Algo Order 취소 실패: {result}", level='WARNING')
-                                except Exception as e:
-                                    # -2011: Order does not exist (이미 취소됨)
-                                    if '-2011' not in str(e):
-                                        self.log_event('order', f"[{symbol}] ⚠️ 기존 Algo Order 취소 실패: {e}", level='WARNING')
-                    
-                    # 취소 완료 대기 (타이밍 이슈 방지)
-                    time.sleep(0.5)
-                    self.log_event('order', f"[{symbol}] ✅ 기존 TP/SL 주문 취소 완료")
+                    # A symbol match is not ownership. Never replace/cancel
+                    # existing protection as an implicit side effect of create.
+                    self.log_event('order', f'[{symbol}] 기존 보호주문 보존 · 소유 주문별 교체 확인 필요', level='WARNING')
+                    return None, None
                 else:
                     self.log_event('order', f"[{symbol}] 기존 TP/SL 주문 없음", level='DEBUG')
             except Exception as e:
-                self.log_event('order', f"[{symbol}] ⚠️ 기존 TP/SL 주문 확인/취소 중 오류 (계속 진행): {e}", level='WARNING')
+                self.log_event('order', f"[{symbol}] ⚠️ 기존 TP/SL 주문 확인 실패 · 중복 발주 보류: {type(e).__name__}", level='WARNING')
+                return None, None
             
             # 🔥 2단계: TP 가격 방향 및 거리 검증 (-2021 오류 방지)
             try:

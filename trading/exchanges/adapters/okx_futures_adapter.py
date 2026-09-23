@@ -224,6 +224,10 @@ class OkxFuturesAdapter(FuturesExchange):
             self.logger.error(f"계정 정보 조회 실패: {e}")
             return {}
     
+    def get_positions_result(self):
+        from ..position_snapshot import ccxt_snapshot
+        return ccxt_snapshot(self)
+
     def get_positions(self) -> List[Dict[str, Any]]:
         if not self.is_connected or not self.exchange:
             return []
@@ -662,8 +666,8 @@ class OkxFuturesAdapter(FuturesExchange):
         **kwargs: Any
     ) -> Dict[str, Any]:
         """포지션 진입 직후 서버-사이드 TP/SL(보험) 설정 (OKX).
-        - OKX는 create_order()에 takeProfit/stopLoss를 첨부하거나 tp/slTriggerPx를 직접 지정해 포지션에 TP/SL 트리거를 붙일 수 있습니다.
-        - 여기서는 ccxt 표준 파라미터(takeProfit/stopLoss) + 트리거타입(mark) + reduceOnly/positionSide/marginMode를 사용합니다.
+        - 기존 포지션 청산용 OCO를 사용합니다. conditional에 양쪽 가격을
+          전달하면 SL만 적용될 수 있으므로 OCO를 명시합니다.
         """
         if not self.is_connected or not self.exchange:
             return {'status': 'error', 'error': '연결되지 않음'}
@@ -680,13 +684,18 @@ class OkxFuturesAdapter(FuturesExchange):
                             break
                 except Exception:
                     amt = None
-            if amt is None:
-                amt = 0.001
+            from trading.protection_snapshot import positive
+            if not positive(amt):
+                raise ValueError('protection_quantity_not_confirmed')
             amt = self._round_amount(symbol, float(amt))
 
             # 가격 정밀도 라운딩
             tp_price = self._round_price(symbol, float(take_profit))
             sl_price = self._round_price(symbol, float(stop_loss))
+            if not all(positive(value) for value in (amt, tp_price, sl_price)):
+                raise ValueError('invalid_protection_quantity_or_prices')
+            if str(position_side).upper() not in ('LONG', 'SHORT'):
+                raise ValueError('invalid_position_side')
 
             close_side = 'sell' if str(position_side).upper() == 'LONG' else 'buy'
             pos_side = 'long' if str(position_side).upper() == 'LONG' else 'short'
@@ -714,7 +723,7 @@ class OkxFuturesAdapter(FuturesExchange):
 
             order = self.exchange.create_order(  # type: ignore
                 symbol=norm_symbol,
-                type='conditional',
+                type='oco',
                 side=close_side,
                 amount=amt,
                 price=None,

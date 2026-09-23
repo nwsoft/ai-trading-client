@@ -44,7 +44,7 @@ def test_stock_sell_closes_fifo_lot_and_emits_holdable_event(monkeypatch):
     recorder = MagicMock()
     opened_at = datetime(2026, 7, 24, 1, 0, tzinfo=timezone.utc)
     recorder.execute_query.side_effect = [
-        [(41, 70000.0, 3.0, opened_at.isoformat(), "BUY-1", 100.0)],
+        [(41, 70000.0, 3.0, opened_at.isoformat(), "BUY-1", 100.0, 'strategy', 'v1')],
         [],
     ]
     service = make_service(recorder)
@@ -81,7 +81,7 @@ def test_stock_partial_sell_preserves_remaining_open_lot(monkeypatch):
     recorder = MagicMock()
     opened_at = datetime(2026, 7, 24, 1, 0, tzinfo=timezone.utc)
     recorder.execute_query.side_effect = [
-        [(41, 70000.0, 5.0, opened_at.isoformat(), "BUY-1", 100.0)],
+        [(41, 70000.0, 5.0, opened_at.isoformat(), "BUY-1", 100.0, 'strategy', 'v1')],
         [],
     ]
     recorder.insert_trade_log.return_value = 42

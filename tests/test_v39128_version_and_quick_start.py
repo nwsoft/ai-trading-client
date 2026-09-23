@@ -99,9 +99,8 @@ def test_manual_current_support_and_release_boundaries_match_runtime_registry():
     for venue in stocks:
         assert venue["display_name"] in contents["stocks"]
 
-    assert "Coinone: 시세·PAPER·통계·Strategy Studio 준비. 실제 계정 E2E 전 LIVE 차단" in contents["live"]
-    assert "암호화폐 LIVE 준비 경로: Binance, Bybit, OKX, Bitget, Upbit, Bithumb" in contents["live"]
-    assert "암호화폐 LIVE 준비 경로: Binance, Bybit, OKX, Bitget, Upbit, Bithumb, Coinone" not in contents["live"]
+    assert "Coinone: PAPER/LIVE 공통 실행 조건 적용" in contents["live"]
+    assert "암호화폐 LIVE 준비 경로: Binance, Bybit, OKX, Bitget, Upbit, Bithumb, Coinone" in contents["live"]
     assert "유안타·LS증권·대신·NH투자증권은 확장 검토 대상" in contents["stocks"]
     from config.app_version import PUBLIC_RELEASE_VERSION
     assert (

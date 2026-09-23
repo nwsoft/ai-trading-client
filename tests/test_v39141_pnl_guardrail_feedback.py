@@ -80,7 +80,7 @@ def test_loss_alert_requires_verified_net_not_estimated_gross(ledger, monkeypatc
     manager.daily_initial_balance = 100
     manager.max_daily_loss_percent = 10
     monkeypatch.setattr(manager, '_get_live_equity_snapshot', lambda _: {'valid': True, 'equity': 88})
-    monkeypatch.setattr(manager, '_managed_unrealized_pnl', lambda _: (True, 0, ''))
+    monkeypatch.setattr(manager, '_managed_unrealized_pnl', lambda _, **kw: (True, 0, ''))
     events = []
     monkeypatch.setattr(notifications, 'publish_notification', lambda *a, **k: events.append(a) or True)
     decision = manager.evaluate_daily_loss_limit(venue, execution_mode='live')
@@ -108,10 +108,12 @@ def test_database_failure_is_not_zero_daily_loss(ledger, monkeypatch):
 def test_managed_positions_require_valid_price_in_all_live_modes(monkeypatch, mode):
     ledger = SimpleNamespace(get_open_managed_trades=lambda *a, **k: [
         {'symbol': 'TEST', 'entry_price': 100, 'quantity': 1, 'side': 'LONG', 'execution_mode': mode}])
-    exchange = SimpleNamespace(get_current_price=lambda *a: 90)
+    position = {'symbol':'TEST','side':'LONG','size':1,'unrealized_pnl':-10}
+    provider = SimpleNamespace(get_positions_result=lambda:{'status':'success','positions':[position]})
+    exchange = SimpleNamespace(get_exchange_client=lambda *a:provider)
     manager = RiskManager(object(), ledger, exchange_manager=exchange)
     assert manager._managed_unrealized_pnl('bybit')[:2] == (True, -10)
-    exchange.get_current_price = lambda *a: float('nan')
+    position['unrealized_pnl'] = float('nan')
     assert manager._managed_unrealized_pnl('bybit')[0] is False
 
 

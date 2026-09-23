@@ -657,7 +657,7 @@ class CustomStrategyPipeline:
                 reasons.append("independent_entry_signal_missing")
             if not branch_directions and not (has_expression or has_conditions):
                 reasons.append("independent_executable_entry_missing")
-        elif not has_executable_entry and grounding_status == "compiler_authoritative":
+        elif not has_executable_entry and DeclarativeStrategyEngine.requires_source_entry(rules):
             # Do not present an uncompiled Pine/document entry as if its source
             # logic were being forward-tested. A user may explicitly replace
             # it with a declared Noah-base overlay in a new version.

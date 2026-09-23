@@ -624,21 +624,33 @@ class ShinhanStockAdapter(StockExchange):
             self.log_event('system', f'신한 잔고 조회 실패: {e}', level='ERROR')
             return {'status': 'error', 'error': str(e)}
 
-    def get_positions(self) -> List[Dict[str, Any]]:
+    def get_positions_result(self):
+        from ..position_snapshot import stock_snapshot
+        return stock_snapshot(self)
+
+    def get_positions(self, *, strict=False) -> List[Dict[str, Any]]:
         """보유 종목 조회."""
         try:
             if not self.is_connected:
+                if strict: raise RuntimeError("position_provider_unavailable")
                 return []
             if not self.account_no:
+                if strict: raise RuntimeError("position_provider_unavailable")
                 return []
             data = self._get('/v1/account/domestic/holdings', params={'accNo': self.account_no})
+            if strict and (not isinstance(data, dict) or not any(isinstance(data.get(k), list) for k in ('holdings','hldsList'))):
+                raise ValueError('position_list_missing')
             items = data.get('holdings') or data.get('hldsList') or []
+            if strict:
+                from ..position_snapshot import validate_quantities
+                validate_quantities(items, ('holdCnt', 'quantity'))
             return [
                 self._parse_position(item)
                 for item in items
                 if self._to_int(item.get('holdCnt') or item.get('quantity')) > 0
             ]
         except Exception as e:
+            if strict: raise
             self.log_event('system', f'신한 보유종목 조회 실패: {e}', level='ERROR')
             return []
 

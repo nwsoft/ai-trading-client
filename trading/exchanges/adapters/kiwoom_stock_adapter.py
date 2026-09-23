@@ -1027,13 +1027,19 @@ class KiwoomStockAdapter(StockExchange):
                 "error": f"잔고 조회 중 오류 발생: {str(e)}"
             }
     
-    def get_positions(self) -> List[Dict[str, Any]]:
+    def get_positions_result(self):
+        from ..position_snapshot import stock_snapshot
+        return stock_snapshot(self)
+
+    def get_positions(self, *, strict=False) -> List[Dict[str, Any]]:
         """보유 종목 조회 (주식 포지션)"""
         try:
             if not self.is_connected:
+                if strict: raise RuntimeError("position_provider_unavailable")
                 return []
 
             if not self.account_no:
+                if strict: raise RuntimeError("position_provider_unavailable")
                 return []
 
             raw = self._call_block_request(
@@ -1045,6 +1051,8 @@ class KiwoomStockAdapter(StockExchange):
                 output='계좌평가잔고개별합산',
                 next=0,
             )
+            if strict and (raw is None or (isinstance(raw, dict) and not isinstance(raw.get('multi'), list))):
+                raise ValueError("position_response_missing")
             records = self._extract_records(raw)
             if isinstance(raw, dict):
                 multi = raw.get('multi')
@@ -1053,12 +1061,16 @@ class KiwoomStockAdapter(StockExchange):
 
             positions = []
             for record in records:
+                if strict:
+                    from ..position_snapshot import validate_quantities
+                    validate_quantities([record], ('보유수량', '매매가능수량', 'quantity'))
                 position = self._parse_position_record(record)
                 if position.get('code') and position.get('quantity', 0) > 0:
                     positions.append(position)
             return positions
             
         except Exception as e:
+            if strict: raise
             self.log_event('system', f"보유 종목 조회 실패: {e}", level='ERROR')
             return []
     

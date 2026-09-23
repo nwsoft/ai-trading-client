@@ -253,6 +253,8 @@ class KiwoomProcessProxy(StockExchange):
 
     def get_balance(self) -> Dict[str, Any]: return self._call("get_balance")
     def get_positions(self) -> List[Dict[str, Any]]: return self._call("get_positions")
+    def get_positions_result(self) -> Dict[str, Any]: return self._call("get_positions_result")
+    def get_recovery_order_fills(self, symbol, order_id, epoch): return self._call('get_recovery_order_fills',symbol,order_id,epoch)
     def get_stock_list(self, market: str = "ALL") -> List[Dict[str, Any]]: return self._call("get_stock_list", market)
     def get_etf_list(self) -> List[Dict[str, Any]]: return self._call("get_etf_list")
     def is_etf(self, symbol: str) -> bool: return bool(self._call("is_etf", symbol))

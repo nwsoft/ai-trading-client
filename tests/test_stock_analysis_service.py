@@ -193,6 +193,7 @@ class TestAssetModeHelpers:
 
 def _make_mock_adapter():
     adapter = MagicMock()
+    adapter.get_positions_result.side_effect = lambda: {'status':'success', 'positions':adapter.get_positions()}
     adapter.broker_name = 'mock'
     adapter.is_connected = True
     adapter.get_balance.return_value = {

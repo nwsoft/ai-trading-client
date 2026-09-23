@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import time
 from trading.event_contract import metadata, hold_key, canonical_json, input_issues
 
 COLUMNS = {
@@ -53,14 +54,19 @@ def save(conn, symbol, kind, data, feedback=None, exchange=None):
     return meta
 
 
-def backfill_batch(conn, limit=1000):
+def backfill_batch(conn, limit=1000, *, budget_seconds=None):
     # Serialize read-cursor/write-cursor across processes, not just UI jobs.
     if not conn.in_transaction:
         conn.execute('BEGIN IMMEDIATE')
     row = conn.execute("SELECT cursor FROM storage_migrations WHERE name='decision_metadata_v1'").fetchone()
     cursor = int(row[0]) if row else 0
     rows = conn.execute("SELECT id,decision_type,decision_json,created_at FROM ai_decisions WHERE id>? ORDER BY id LIMIT ?", (cursor, limit)).fetchall()
+    started = time.monotonic()
+    processed = 0
+    last_id = cursor
     for ident, kind, raw, created in rows:
+        if processed and budget_seconds is not None and time.monotonic()-started >= budget_seconds:
+            break
         try:
             data = json.loads(raw)
             if not isinstance(data, dict): data = {}
@@ -69,6 +75,8 @@ def backfill_batch(conn, limit=1000):
         meta = metadata(kind, data, historical=True, created_at=created)
         conn.execute(f"UPDATE ai_decisions SET {','.join(name+'=?' for name in meta)},last_event_time=? WHERE id=? AND exchange IS NULL",
                      [*meta.values(), meta['event_time'], ident])
-    if rows:
-        conn.execute("INSERT INTO storage_migrations(name,cursor) VALUES('decision_metadata_v1',?) ON CONFLICT(name) DO UPDATE SET cursor=MAX(cursor,excluded.cursor)", (rows[-1][0],))
-    return len(rows)
+        processed += 1
+        last_id = ident
+    if processed:
+        conn.execute("INSERT INTO storage_migrations(name,cursor) VALUES('decision_metadata_v1',?) ON CONFLICT(name) DO UPDATE SET cursor=MAX(cursor,excluded.cursor)", (last_id,))
+    return processed

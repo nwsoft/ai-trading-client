@@ -406,9 +406,26 @@ class DeclarativeStrategyEngine:
 
     @classmethod
     def evaluate_entry(cls, rules: Dict[str, Any], context: Dict[str, Any]) -> Dict[str, Any]:
+        spec = dict(rules.get("executable_entry") or {})
+        if cls.requires_source_entry(rules) and not any(spec.get(k) for k in ("all", "any", "expression")):
+            return {"allowed": False, "bypassed": False, "reason": "source_entry_conditions_missing"}
         return cls._evaluate_spec(
             rules, context, section="executable_entry",
             empty_reason="no_declarative_entry", empty_allowed=True,
+        )
+
+    @staticmethod
+    def requires_source_entry(rules: Dict[str, Any]) -> bool:
+        """An edit/override is not evidence that document entry rules compiled.
+
+        Legacy Noah-base risk overlays without original entry material retain
+        their existing contract; source-backed versions must retain conditions.
+        """
+        status = dict(rules.get("source_grounding") or {}).get("status")
+        source = dict(rules.get("source_evidence") or {})
+        return status == "compiler_authoritative" or (
+            status == "user_declared_override" and bool(source.get("text"))
+            and bool(rules.get("entry"))
         )
 
     @classmethod

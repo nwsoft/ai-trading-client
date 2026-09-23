@@ -353,6 +353,7 @@ class CustomStrategyWidget(ctk.CTkScrollableFrame):
         )
         self.reference_entry.pack(side="left", fill="x", expand=True, padx=(0, 8))
         ctk.CTkButton(path_row, text="파일 선택", width=100, height=38, command=self._choose_file).pack(side="right")
+        ctk.CTkButton(path_row, text="폴더 선택", width=100, height=38, command=self._choose_folder).pack(side="right",padx=4)
 
         input_label_row = ctk.CTkFrame(source_card, fg_color="transparent")
         input_label_row.pack(fill="x", padx=16, pady=(0, 4))
@@ -961,17 +962,40 @@ class CustomStrategyWidget(ctk.CTkScrollableFrame):
         ).pack(side="right")
 
     def _choose_file(self):
-        path = filedialog.askopenfilename(
+        paths = filedialog.askopenfilenames(
             title="전략 자료 선택",
             filetypes=[
-                ("지원 파일", "*.md *.pdf *.pine *.txt *.png *.jpg *.jpeg *.webp *.mp4 *.mov *.mkv *.avi"),
+                ("지원 파일", "*.md *.pdf *.pine *.txt *.csv *.tsv *.xlsx *.docx *.png *.jpg *.jpeg *.webp *.mp4 *.mov *.mkv *.avi"),
                 ("모든 파일", "*.*"),
             ],
         )
-        if path:
+        if paths:
             self.reference_entry.delete(0, "end")
-            self.reference_entry.insert(0, path)
+            self.reference_entry.insert(0, paths[0] if len(paths)==1 else 'noah-bundle:'+json.dumps(list(paths),ensure_ascii=False))
             self.kind_combo.set("자동 판별")
+
+    def _choose_folder(self):
+        from pathlib import Path
+        folder=filedialog.askdirectory(title="전략 자료 폴더 선택")
+        if not folder: return
+        paths=[]
+        total=0
+        supported={'.md','.txt','.pine','.pdf','.csv','.tsv','.xlsx','.docx','.png','.jpg','.jpeg','.webp','.mp4','.mov','.mkv','.avi'}
+        for path in Path(folder).rglob('*'):
+            if not path.is_file(): continue
+            if path.is_symlink() or path.suffix.lower() not in supported:
+                messagebox.showerror('자료 확인','폴더에 지원하지 않는 파일 또는 링크가 있습니다. 사용할 자료만 별도 폴더에 넣어 주세요.')
+                return
+            size=path.stat().st_size
+            total+=size
+            paths.append(str(path))
+            if len(paths)>40 or size>24*1024*1024 or total>64*1024*1024:
+                messagebox.showerror('자료 제한','최대 40개 · 파일당 24MiB · 전체 64MiB입니다. 자료를 나누어 주세요.')
+                return
+        if paths:
+            self.reference_entry.delete(0,'end')
+            self.reference_entry.insert(0,'noah-bundle:'+json.dumps(sorted(paths),ensure_ascii=False))
+            self.kind_combo.set('자동 판별')
 
     def _ask_assistant(self, topic: str) -> None:
         """AI 커스텀 화면의 현재 맥락을 어시스턴트 질문으로 넘긴다."""

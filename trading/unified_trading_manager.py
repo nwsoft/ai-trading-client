@@ -9,6 +9,7 @@ from typing import Dict, List, Optional, Any
 from .exchanges.exchange_factory import ExchangeFactory
 from .exchanges.interfaces.exchange_interface import ExchangeInterface
 from .execution_optimizer import ExecutionOptimizer
+from .execution_mode import resolve_crypto_execution_mode, ExecutionMode
 
 class UnifiedTradingManager:
     """통합 거래 매니저"""
@@ -84,7 +85,7 @@ class UnifiedTradingManager:
         public_paper_spot = (
             ttype == 'spot'
             and name in {'upbit', 'bithumb', 'coinone'}
-            and bool(self.settings.get('paper_trading', True))
+            and resolve_crypto_execution_mode(self.settings, name) != ExecutionMode.LIVE
         )
         if not self._has_valid_api_keys(name) and not public_paper_spot:
             return None

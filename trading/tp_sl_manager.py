@@ -62,7 +62,9 @@ class TpSlManager:
             self.binance_client.client.futures_get_open_orders(symbol=symbol) or []
         )
         algo_getter = getattr(self.binance_client, "get_open_algo_orders", None)
-        algo = list(algo_getter(symbol=symbol) or []) if callable(algo_getter) else []
+        if not callable(algo_getter):
+            raise RuntimeError('protection_algo_query_unavailable')
+        algo = list(algo_getter(symbol=symbol, strict=True) or [])
         tp_orders = []
         sl_orders = []
         for order in normal + algo:
@@ -118,177 +120,19 @@ class TpSlManager:
         return None, None
 
     def validate_tp_sl(
-        self,
-        symbol: str,
-        side: str,
-        tp_price: float,
-        sl_price: float,
-        price_prec: int,
+        self, symbol: str, side: str, tp_price: float, sl_price: float, price_prec: int,
     ) -> bool:
-        """
-        현재 오픈오더 상태를 기반으로 TP/SL이 정상적으로 설정되었는지 검증하고,
-        필요 시 비정상 주문 정리 + TP/SL 재설정을 시도한다.
-
-        - 기존 trader.execute_single_trade 내 TP/SL 검증/재설정/기타 주문 정리 로직을 그대로 이관.
-        - Trader._retry_tp_sl_setup()을 호출해 재설정을 수행한다.
-        """
-        if not self.binance_client:
-            return False
-
-        verification_passed = False
-        tp_sl_verified = False
-
+        """Read-only validation. Never cancel unrelated orders to pass a check."""
+        from trading.protection_snapshot import assess_protection
         try:
-            # 재시도 로직: 최대 3회, 각 시도마다 대기 시간 증가
-            for verify_attempt in range(3):
-                wait_time = 2.0 + (verify_attempt * 1.0)  # 2초, 3초, 4초
-                time.sleep(wait_time)
-
-                snapshot = self._protective_order_snapshot(symbol)
-                tp_orders = snapshot["tp"]
-                sl_orders = snapshot["sl"]
-                other_orders = snapshot["other"]
-
-                # 엄격한 검증: 정확히 1:1 + 모든 옵션 확인
-                if len(tp_orders) == 1 and len(sl_orders) == 1:
-                    tp_order = tp_orders[0]
-                    sl_order = sl_orders[0]
-
-                    tp_valid = self._protective_order_is_open(tp_order)
-                    sl_valid = self._protective_order_is_open(sl_order)
-
-                    if tp_valid and sl_valid:
-                        if self.logger:
-                            self.logger.info(
-                                f"[{symbol}] ✅ TP/SL 완벽 설정 완료 - 검증 통과 "
-                                f"(TP:{tp_price:.5f}, SL:{sl_price:.5f}) [시도 {verify_attempt+1}/3]"
-                            )
-                        tp_sl_verified = True
-                        verification_passed = True
-                        break
-                    else:
-                        if self.logger:
-                            self.logger.warning(
-                                f"[{symbol}] ⚠️ TP/SL 옵션 검증 실패 (시도 {verify_attempt+1}/3): "
-                                f"TP_valid={tp_valid}, SL_valid={sl_valid}"
-                            )
-                else:
-                    if self.logger:
-                        self.logger.warning(
-                            f"[{symbol}] ⚠️ TP/SL 수량 검증 실패 (시도 {verify_attempt+1}/3): "
-                            f"TP {len(tp_orders)}개, SL {len(sl_orders)}개 (정확히 1:1 필요)"
-                        )
-
-            # 모든 재시도 실패 시 재설정 시도
-            if not verification_passed and hasattr(self.trader, "_retry_tp_sl_setup"):
-                if self.logger:
-                    self.logger.warning(
-                        f"[{symbol}] ⚠️ TP/SL 검증 실패 (3회 시도 후) - 재설정 시도"
-                    )
-                retry_success = self.trader._retry_tp_sl_setup(
-                    symbol, side, tp_price, sl_price, price_prec
-                )
-                if retry_success:
-                    # 재설정 후 재검증 (1회)
-                    time.sleep(2.0)
-                    retry_snapshot = self._protective_order_snapshot(symbol)
-                    tp_orders_retry = retry_snapshot["tp"]
-                    sl_orders_retry = retry_snapshot["sl"]
-                    if len(tp_orders_retry) == 1 and len(sl_orders_retry) == 1:
-                        tp_sl_verified = True
-                        verification_passed = True
-                        if self.logger:
-                            self.logger.info(f"[{symbol}] ✅ TP/SL 재설정 후 검증 통과")
-                    else:
-                        if self.logger:
-                            self.logger.warning(
-                                f"[{symbol}] ⚠️ TP/SL 재설정 후 검증 실패: "
-                                f"TP {len(tp_orders_retry)}개, SL {len(sl_orders_retry)}개"
-                            )
-
-            # 기타 주문이 있으면 정리 시도 (원래 trader 코드 그대로)
-            if not verification_passed:
-                snapshot = self._protective_order_snapshot(symbol)
-                tp_orders = snapshot["tp"]
-                sl_orders = snapshot["sl"]
-                other_orders = snapshot["other"]
-
-                if len(other_orders) > 0:
-                    if self.logger:
-                        self.logger.warning(
-                            f"[{symbol}] ⚠️ 기타 주문 발견:\n"
-                            f"- TP 주문: {len(tp_orders)}개 {[o.get('stopPrice', 'N/A') for o in tp_orders]}\n"
-                            f"- SL 주문: {len(sl_orders)}개 {[o.get('stopPrice', 'N/A') for o in sl_orders]}\n"
-                            f"- 기타 주문: {len(other_orders)}개"
-                        )
-                    try:
-                        if len(other_orders) > 0:
-                            if self.logger:
-                                self.logger.info(
-                                    f"[{symbol}] 🔄 비정상 주문 정리 후 TP/SL 재설정 시도"
-                                )
-                            # 기타 주문만 선별 취소
-                            try:
-                                open_orders2 = self.binance_client.client.futures_get_open_orders(
-                                    symbol=symbol
-                                )
-                                others2 = [
-                                    o for o in open_orders2
-                                    if o.get("type") not in (
-                                        "TAKE_PROFIT",
-                                        "TAKE_PROFIT_MARKET",
-                                        "STOP",
-                                        "STOP_MARKET",
-                                    )
-                                ]
-                                if others2:
-                                    if hasattr(self.binance_client, "cancel_orders"):
-                                        self.binance_client.cancel_orders(
-                                            symbol, [o["orderId"] for o in others2]
-                                        )
-                                    else:
-                                        for o in others2:
-                                            self.binance_client.client.futures_cancel_order(
-                                                symbol=symbol,
-                                                orderId=o["orderId"],
-                                            )
-                                    if self.logger:
-                                        self.logger.info(
-                                            f"[{symbol}] 기타 주문 {len(others2)}개 정리 완료"
-                                        )
-                            except Exception as cleanup_e:
-                                if self.logger:
-                                    self.logger.warning(
-                                        f"[{symbol}] 기타 주문 정리 중 오류: {cleanup_e}"
-                                    )
-
-                            # 정리 후 TP/SL 재설정 재시도
-                            if hasattr(self.trader, "_retry_tp_sl_setup"):
-                                retry_success2 = self.trader._retry_tp_sl_setup(
-                                    symbol, side, tp_price, sl_price, price_prec
-                                )
-                                if retry_success2:
-                                    if self.logger:
-                                        self.logger.info(
-                                            f"[{symbol}] ✅ 비정상 주문 정리 후 TP/SL 재설정 성공"
-                                        )
-                                    verification_passed = True
-                                else:
-                                    if self.logger:
-                                        self.logger.warning(
-                                            f"[{symbol}] ⚠️ 비정상 주문 정리 후 TP/SL 재설정 실패"
-                                        )
-                    except Exception as e_cleanup:
-                        if self.logger:
-                            self.logger.warning(
-                                f"[{symbol}] ⚠️ 비정상 주문 정리 중 예외 발생: {e_cleanup}"
-                            )
-
-            return verification_passed or tp_sl_verified
-
-        except Exception as e:
+            snapshot = self._protective_order_snapshot(symbol)
+            state = assess_protection(
+                snapshot["tp"] + snapshot["sl"], symbol=symbol, position_side=side,
+            )
+            return state["status"] == "verified"
+        except Exception as exc:
             if self.logger:
-                self.logger.error(f"[{symbol}] TP/SL 검증 중 예외 발생: {e}")
+                self.logger.warning(f"[{symbol}] 보호주문 검증 실패 · 주문 보존 ({type(exc).__name__})")
             return False
 
     # --- 비파괴적인 상태 점검용 (비교/감시 전용) -----------------------------
@@ -342,7 +186,7 @@ class TpSlManager:
 
         - 기존 `_retry_tp_sl_setup()` 로직을 점진적으로 이관하는 용도
         """
-        return True
+        return self.trader._tp_sl_watchdog(symbol, position, 0)
 
     def watchdog_check_and_repair(
         self,
@@ -355,5 +199,4 @@ class TpSlManager:
 
         - 기존 `_tp_sl_watchdog()` 로직을 점진적으로 이관하는 용도
         """
-        return True
-
+        return self.trader._tp_sl_watchdog(symbol, position, check_idx)

@@ -2,7 +2,7 @@ import { localized, t } from '../i18n';
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import type { GatewayClient } from "../api";
-import { sourcesForService, STOCK_SOURCES } from "../venueSources";
+import { sourcesForService, STOCK_SOURCES, venueProfile } from "../venueSources";
 import { accountConnectionFailure, accountConnectionView } from "../accountConnection";
 import type { RuntimeSnapshot, WorkspaceSnapshot } from "../types";
 import { LogHelpDialog } from "./LogHelpDialog";
@@ -858,6 +858,9 @@ export function SourceWorkspace({ client, runtime, service, source, onOpenManual
   ).toLowerCase();
   const liveMode = sourceExecutionMode === "live";
   const paperMode = sourceExecutionMode === "paper";
+  const liveUnavailable = liveMode && !Boolean(venueProfile(source)?.live_supported ?? true);
+  const publicMarketExecution = service === "blockchain" && !liveMode && ["upbit", "bithumb", "coinone"].includes(source);
+  const startCredentialsReady = credentialsConfigured || publicMarketExecution;
   const executionModeLabel = liveMode ? "LIVE" : paperMode ? "PAPER" : "LEARNING";
   useEffect(() => {
     // 기관/모드 전환 시 LIVE와 PAPER 내역 모두 요약 상태로 시작한다.
@@ -867,7 +870,7 @@ export function SourceWorkspace({ client, runtime, service, source, onOpenManual
   function refreshStored() {
     Promise.all([
       client.workspace(service, `${service}.source_workspaces`, source),
-      credentialsConfigured
+      startCredentialsReady
         ? client.logs(service, source, 100)
         : Promise.resolve({ schema_version: "1.0.0", service, source, lines: [], captured_at: new Date().toISOString() }),
     ])
@@ -920,7 +923,7 @@ export function SourceWorkspace({ client, runtime, service, source, onOpenManual
     return () => { active = false; stop(); };
   }, [client, source, credentialsConfigured]);
   useEffect(() => {
-    if (!credentialsConfigured) return;
+    if (!startCredentialsReady) return;
     let active = true;
     const loadLogs = () => client.logs(service, source, 200).then((nextLogs) => {
       if (!active) return;
@@ -933,7 +936,7 @@ export function SourceWorkspace({ client, runtime, service, source, onOpenManual
     const stopLogs = startSequentialPoll(loadLogs, 1_000);
     const stopWorkspace = startSequentialPoll(loadWorkspace, 5_000);
     return () => { active = false; stopLogs(); stopWorkspace(); };
-  }, [client, service, source, credentialsConfigured]);
+  }, [client, service, source, startCredentialsReady]);
 
   async function refreshAccount() {
     if (!credentialsConfigured) {
@@ -953,15 +956,19 @@ export function SourceWorkspace({ client, runtime, service, source, onOpenManual
     finally { setAccountBusy(false); }
   }
   async function command(action: "start" | "stop") {
+    if (action === "start" && liveUnavailable) {
+      setMessage(t("이 기관은 현재 버전에서 LIVE 주문을 지원하지 않습니다. PAPER 또는 분석·학습을 이용하세요. API 연결이나 설정 변경으로 실계좌 검증을 대신할 수 없습니다."));
+      return;
+    }
     const learningMode = !liveMode && !paperMode;
     const wording = learningMode
       ? action === "start" ? "분석·학습 시작" : "분석·학습 정지"
       : action === "start" ? "거래 시작" : "거래 정지";
-    if (!credentialsConfigured) {
+    if (action === "start" && !startCredentialsReady) {
       setMessage(`${source.toUpperCase()} API 키를 설정한 뒤 연결을 확인하세요.`);
       return;
     }
-    if (!enabled) {
+    if (action === "start" && !enabled) {
       setMessage(`${source.toUpperCase()} 사용을 설정에서 먼저 켜세요.`);
       return;
     }
@@ -1108,8 +1115,9 @@ export function SourceWorkspace({ client, runtime, service, source, onOpenManual
   return <section className="legacy-exchange-workspace">
     <div className="legacy-exchange-left">
       <article className="legacy-exchange-card exchange-control">
+        {liveUnavailable && <p role="status">{t("LIVE 주문 미지원 · 실계좌 검증 후 지원 예정입니다. 현재 PAPER 또는 분석·학습을 이용할 수 있습니다.")}</p>}
         <header className="source-card-header"><div className="source-card-title"><span className="source-card-mark control" aria-hidden="true">C</span><div><small>{service === "stock" ? "BROKER CONTROL" : "EXCHANGE CONTROL"}</small><h3>{sourceLabel}{t(" 제어")}</h3></div></div><span className={`source-operation-status ${running ? "live" : "stopped"}`}>{controlStateText}</span></header>
-        <div className="exchange-control-actions"><button className={running ? "stop" : "start"} disabled={commandBusy || !enabled || !credentialsConfigured} type="button" onClick={() => command(running ? "stop" : "start")}>{commandBusy ? "⏳ 처리 중" : learningMode ? running ? `■ ${sourceLabel} 분석·학습 정지` : `▶ ${sourceLabel} 분석·학습 시작` : running ? `■ ${sourceLabel} 거래 정지` : `▶ ${sourceLabel} 거래 시작`}</button>{service === "stock" && <button className="refresh" disabled={accountBusy || !credentialsConfigured} type="button" onClick={refreshAccount}>{t("새로고침")}</button>}<div className={connectionClass}><i aria-hidden="true" /><strong>{connectionText}</strong></div></div>
+        <div className="exchange-control-actions"><button className={running ? "stop" : "start"} disabled={commandBusy || (!running && (!enabled || !startCredentialsReady || liveUnavailable))} type="button" onClick={() => command(running ? "stop" : "start")}>{commandBusy ? "⏳ 처리 중" : !running && liveUnavailable ? `${sourceLabel} LIVE 미지원` : learningMode ? running ? `■ ${sourceLabel} 분석·학습 정지` : `▶ ${sourceLabel} 분석·학습 시작` : running ? `■ ${sourceLabel} 거래 정지` : `▶ ${sourceLabel} 거래 시작`}</button>{service === "stock" && <button className="refresh" disabled={accountBusy || !credentialsConfigured} type="button" onClick={refreshAccount}>{t("새로고침")}</button>}<div className={connectionClass}><i aria-hidden="true" /><strong>{connectionText}</strong></div></div>
         {membershipAccess?.allowed === false && <div className="membership-source-status" role="status"><strong>{t("거래 권한 승인 필요 · ")}{sourceLabel}</strong><span>{membershipAccess.label}{t(". daltrading에서 승인 상태를 확인하거나 관리자에게 승인을 요청하세요. API 인증과 거래 권한은 별개입니다.")}</span></div>}
         {!credentialsConfigured ? <button className="inline-settings-link" type="button" onClick={onOpenSettings}>{t("설정에서 API 연결하기")}</button> : paperMode ? <div className={`runtime-strategy-status ${appliedCustomStrategies.length ? "applied" : observingCustomStrategies.length ? "observing" : "empty"}`} role="status"><strong>{appliedCustomStrategies.length ? `전략 스튜디오 적용: ${appliedCustomStrategyNames}` : observingCustomStrategies.length ? `PAPER 전진검증 후보 ${observingCustomStrategies.length}개` : "전략 스튜디오 실행 풀 없음"}</strong><span>{appliedCustomStrategies.length ? `적용 중 버전은 PAPER에서 자동 실행 · 재적용 불필요${observingCustomStrategies.length ? ` · 전진검증 후보 ${observingCustomStrategies.length}개 별도` : ""}` : observingCustomStrategies.length ? "최종 적용 전략과 별도 PAPER 검증 중" : "현재 적용·검증 전략이 없습니다. 기본 NoahAI PAPER 운용은 계속됩니다."}</span></div> : <small>{t("전략 스튜디오 사용 여부는 설정의 실행 계약을 따릅니다.")}</small>}
       </article>
@@ -1133,8 +1141,8 @@ export function SourceWorkspace({ client, runtime, service, source, onOpenManual
         <label><input type="checkbox" checked={hideDebug} onChange={(event) => setHideDebug(event.target.checked)} />{t("디버그 로그 숨김")}</label>
         <label><input type="checkbox" checked={hideSystem} onChange={(event) => setHideSystem(event.target.checked)} />{t("시스템 로그 숨김")}</label>
       </div>
-      <div className="source-log-connection-slot">{!credentialsConfigured && <div className="inline-notice">{source.toUpperCase()}{t(" API 키를 설정한 뒤 연결하세요. 미연결 상태에서는 과거 로그를 현재 연결 기록처럼 표시하지 않습니다.")}</div>}</div>
-      <div className="legacy-log-console" ref={sourceLogConsoleRef}>{filteredLogs.map((line, index) => <div key={`${line.source}:${index}`}><code>{line.message}</code></div>)}{!filteredLogs.length && <div className="empty-state">{credentialsConfigured ? `표시할 ${service === "stock" ? "증권사" : "거래소"} 로그가 없습니다.` : "API 키 연결 필요"}</div>}</div>
+      <div className="source-log-connection-slot">{!startCredentialsReady && <div className="inline-notice">{source.toUpperCase()}{t(" API 키를 설정한 뒤 연결하세요. 미연결 상태에서는 과거 로그를 현재 연결 기록처럼 표시하지 않습니다.")}</div>}</div>
+      <div className="legacy-log-console" ref={sourceLogConsoleRef}>{filteredLogs.map((line, index) => <div key={`${line.source}:${index}`}><code>{line.message}</code></div>)}{!filteredLogs.length && <div className="empty-state">{startCredentialsReady ? `표시할 ${service === "stock" ? "증권사" : "거래소"} 로그가 없습니다.` : "API 키 연결 필요"}</div>}</div>
       <div className="legacy-log-toolbar compact"><button type="button" onClick={() => setLogHelpOpen(true)}>{t("로그도움말")}</button><button type="button" onClick={() => { clearMarkerRef.current = logs.at(-1)?.message ?? ""; setLogs([]); }}>{t("로그지우기")}</button><button type="button" onClick={() => { clearMarkerRef.current = ""; refreshStored(); }}>{t("새로고침")}</button></div>
       <div className="source-log-message-slot" role="status">{message && <div className="inline-notice">{message}</div>}</div>
     </article>

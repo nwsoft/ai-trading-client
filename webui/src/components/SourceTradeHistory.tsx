@@ -51,7 +51,7 @@ export function SourceTradeHistory({ mode, source, history, loading, failed, chi
           {loading ? <div className="empty-state">{t("LIVE 거래내역 조회 중…")}</div> : unavailable ? <div className="empty-state" role="status">{t("LIVE 거래내역을 확인하지 못했습니다. 거래가 없다는 뜻은 아닙니다. 연결·저장 원장을 확인하고 새로고침하세요.")}</div> : !rows.length ? <div className="empty-state">{t("이 기관에 저장된 LIVE 종료 기록이 없습니다.")}</div> : rows.map((row, index) => <div className="source-live-history-row" key={`${row.id}-${index}`}>
             <div className="source-live-history-summary"><b>{row.symbol}</b><span>{row.side || "방향 미기록"}{t(" · 종료")}</span><strong className={row.net_pnl == null ? "" : row.net_pnl < 0 ? "negative" : "positive"}>{row.evidence === "confirmed" ? amount(row.net_pnl, row.currency) : "손익 미확정"}</strong></div>
             <small>{row.exit_time} · {evidenceLabels[row.evidence] ?? "대조 전"}</small>
-            <details><summary>{t("거래 근거")}</summary><div>{t("진입 ")}{row.entry_time || "미기록"}<br />{t("진입가 ")}{amount(row.entry_price, row.currency)}{t(" → 청산가 ")}{amount(row.exit_price, row.currency)}{t(" · 수량 ")}{amount(row.quantity)}<br />{row.strategy_key && row.version_id ? `전략 스튜디오 · ${row.strategy_key} · ${row.version_id}` : "전략 귀속 미기록"}</div></details>
+            <details><summary>{t("거래 근거")}</summary><div>{t("진입 ")}{row.entry_time || "미기록"}<br />{t("진입가 ")}{amount(row.entry_price, row.currency)}{t(" → 청산가 ")}{amount(row.exit_price, row.currency)}{t(" · 수량 ")}{amount(row.quantity)}<br />{row.strategy_key && row.version_id ? `전략 스튜디오 · ${row.strategy_key} · ${row.version_id}` : t("전략 버전 근거 미기록 · 손익 대조와 별도")}</div></details>
           </div>)}
         </div>
       </>}

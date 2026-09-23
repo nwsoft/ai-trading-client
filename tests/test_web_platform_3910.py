@@ -392,8 +392,9 @@ def test_runtime_bridge_coin_selection_exposes_partial_and_data_unavailable_stat
 
 def test_runtime_bridge_coin_analysis_reuses_engine_analyzer_without_order(monkeypatch):
     class Analyzer:
-        def analyze_symbol(self, symbol):
+        def analyze_symbol(self, symbol, exchange_name=None):
             assert symbol == "BTCUSDT"
+            assert exchange_name == "binance"
             return {
                 "symbol": symbol,
                 "signal": "LONG",
@@ -1594,6 +1595,8 @@ def test_live_runtime_start_requires_explicit_live_confirmation():
     bridge._settings = lambda: {
         "paper_trading": False,
         "enabled_exchanges": ["binance"],
+        "trade_enabled_exchanges": ["binance"],
+        "_trade_scope_user_confirmed_v3905": True,
         "binance_api_key": "key",
         "binance_secret_key": "secret",
     }

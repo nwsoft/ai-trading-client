@@ -719,6 +719,18 @@ scoped_pool(list(getattr(self._app, "active_custom_strategy_pool", []) or []), a
             return result
         methods = (("open_orders", "get_open_orders"),) if source in {"upbit", "bithumb", "coinone"} else (("positions", "get_positions"), ("open_orders", "get_open_orders"))
         for key, method_name in methods:
+            checked = getattr(client, 'get_positions_result', None) if key == 'positions' else None
+            if callable(checked):
+                try:
+                    position_result = checked()
+                    valid = isinstance(position_result, dict) and position_result.get('status') == 'success' and isinstance(position_result.get('positions'), list)
+                    result[key] = _runtime_safe(position_result['positions']) if valid else None
+                    result[f'{key}_status'] = 'success' if valid else 'error'
+                    if not valid:
+                        result[f'{key}_error'] = '현재 보유 조회 실패 · 0개로 간주하지 않습니다.'
+                except Exception:
+                    result[key], result[f'{key}_status'] = None, 'error'
+                continue
             method = getattr(client, method_name, None)
             if not callable(method):
                 result[f"{key}_status"] = "unsupported"
@@ -738,8 +750,10 @@ scoped_pool(list(getattr(self._app, "active_custom_strategy_pool", []) or []), a
         settings = self._settings()
         has_credentials = _credential_status(settings).get(source, False)
         if command == "trading.start":
-            execution_mode = "paper" if bool(settings.get("paper_trading", True)) else "live"
-            if not venue_supports_execution(source, execution_mode):
+            execution_mode = (resolve_crypto_execution_mode(settings, source).value
+                              if source in CRYPTO_SOURCES else
+                              ("paper" if bool(settings.get("paper_trading", True)) else "live"))
+            if execution_mode != "learning" and not venue_supports_execution(source, execution_mode):
                 raise RuntimeError(f"venue_{execution_mode}_onboarding_required:{source}")
             # 국내 KRW 현물 PAPER는 공개 시세와 NoahAI 로컬 가상 원장만 사용한다.
             # 개인 잔고·주문 권한이 필요하지 않으므로 API 키를 강제하지 않는다.
@@ -787,7 +801,7 @@ scoped_pool(list(getattr(self._app, "active_custom_strategy_pool", []) or []), a
             analyze = getattr(analyzer, "analyze_symbol", None)
             if not callable(analyze):
                 raise RuntimeError("coin_analyzer_unavailable")
-            result = analyze(symbol)
+            result = analyze(symbol, exchange_name=source)
             if result is None:
                 raise RuntimeError(f"coin_analysis_unavailable:{symbol}")
             return {

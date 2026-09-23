@@ -166,6 +166,16 @@ class StockRuntimeController:
                 result[f"{key}_status"] = "unsupported"
                 continue
             try:
+                if key == "positions" and callable(getattr(adapter, "get_positions_result", None)):
+                    snapshot = adapter.get_positions_result()
+                    if not isinstance(snapshot, dict) or snapshot.get("status") != "success" or not isinstance(snapshot.get("positions"), list):
+                        result[key] = None
+                        result[f"{key}_status"] = "error"
+                        result[f"{key}_error"] = "positions_unavailable"
+                        continue
+                    result[key] = snapshot["positions"]
+                    result[f"{key}_status"] = "success"
+                    continue
                 result[key] = method() or empty
                 result[f"{key}_status"] = "success"
             except Exception as exc:

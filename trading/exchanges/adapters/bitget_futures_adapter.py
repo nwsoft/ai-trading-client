@@ -190,6 +190,10 @@ class BitgetFuturesAdapter(FuturesExchange):
             self.log_event('system', f"계정 정보 조회 실패: {e}", level='ERROR')
             return {}
     
+    def get_positions_result(self):
+        from ..position_snapshot import ccxt_snapshot
+        return ccxt_snapshot(self)
+
     def get_positions(self) -> List[Dict[str, Any]]:
         if not self.is_connected or not self.exchange:
             return []
@@ -504,19 +508,25 @@ class BitgetFuturesAdapter(FuturesExchange):
                             break
                 except Exception:
                     amt = None
-            if amt is None:
-                amt = 0.001
+            from trading.protection_snapshot import positive
+            if not positive(amt):
+                raise ValueError('protection_quantity_not_confirmed')
             amt = self._round_amount(symbol, float(amt))
 
             # 가격 정밀도 라운딩
             tp_price = self._round_price(symbol, float(take_profit))
             sl_price = self._round_price(symbol, float(stop_loss))
+            if not all(positive(value) for value in (amt, tp_price, sl_price)):
+                raise ValueError('invalid_protection_quantity_or_prices')
+            if str(position_side).upper() not in ('LONG', 'SHORT'):
+                raise ValueError('invalid_position_side')
 
             close_side = 'sell' if str(position_side).upper() == 'LONG' else 'buy'
 
             # 공통 파라미터
             common: Dict[str, Any] = {
                 'reduceOnly': True,
+                'triggerType': {'mark': 'mark_price', 'last': 'fill_price', 'index': 'index_price'}[str(trigger_price_type).lower()],
             }
 
             # TP 플랜 주문
@@ -524,7 +534,6 @@ class BitgetFuturesAdapter(FuturesExchange):
             try:
                 tp_params = dict(common)
                 tp_params['takeProfitPrice'] = tp_price
-                tp_params['tpTriggerBy'] = str(trigger_price_type)
                 tp_result = self.exchange.create_order(  # type: ignore
                     symbol=norm_symbol,
                     type='market',
@@ -542,7 +551,6 @@ class BitgetFuturesAdapter(FuturesExchange):
             try:
                 sl_params = dict(common)
                 sl_params['stopLossPrice'] = sl_price
-                sl_params['slTriggerBy'] = str(trigger_price_type)
                 sl_result = self.exchange.create_order(  # type: ignore
                     symbol=norm_symbol,
                     type='market',
@@ -555,12 +563,14 @@ class BitgetFuturesAdapter(FuturesExchange):
                 self.logger.warning(f"Bitget SL 플랜 주문 실패(계속): {e}")
                 sl_result = {'error': str(e)}
 
-            ok_tp = isinstance(tp_result, dict) and ('id' in tp_result or 'orderId' in tp_result or not tp_result.get('error'))
-            ok_sl = isinstance(sl_result, dict) and ('id' in sl_result or 'orderId' in sl_result or not sl_result.get('error'))
+            ok_tp = isinstance(tp_result, dict) and bool(tp_result.get('id') or tp_result.get('orderId')) and not tp_result.get('error')
+            ok_sl = isinstance(sl_result, dict) and bool(sl_result.get('id') or sl_result.get('orderId')) and not sl_result.get('error')
 
-            status = 'success' if ok_tp or ok_sl else 'error'
+            status = 'success' if ok_tp and ok_sl else ('partial' if ok_tp or ok_sl else 'error')
             return {
                 'status': status,
+                'tp_order_id': (tp_result.get('id') or tp_result.get('orderId')) if ok_tp else None,
+                'sl_order_id': (sl_result.get('id') or sl_result.get('orderId')) if ok_sl else None,
                 'tp_order': tp_result,
                 'sl_order': sl_result,
                 'tp_price': tp_price,

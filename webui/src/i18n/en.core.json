@@ -1,4 +1,6 @@
 {
+  "KRW 현물 · PAPER/LIVE": "KRW spot · PAPER/LIVE",
+  "코인원 (Coinone) · KRW 현물 · PAPER/LIVE": "Coinone · KRW spot · PAPER/LIVE",
   "AI와 전략 상담": "Discuss strategies with AI",
   "시장 상황과 내 목적에 맞는 전략을 함께 설계하고 싶습니다. 모호한 조건은 하나씩 질문해 주세요.": "Help me design a strategy for market conditions and my goals. Clarify unclear requirements one question at a time.",
   "전략 상담 · 외부 AI": "Strategy discussion · External AI",
@@ -35,7 +37,7 @@
   "⚙ 설정": "⚙ Settings", "처음 사용 · 빠른 시작": "First-time setup",
   "처음이면 빠른 시작에서 PAPER와 한 기관만 고르세요. 기존 설정은 그대로 두고 싶다면 탭별 설명을 따라 필요한 항목만 변경할 수 있습니다.": "New here? Start with PAPER and one venue in Quick Start. To keep your existing setup, use the tab guides and change only what you need.",
   "설정 창 닫기": "Close settings", "설정 닫기": "Close settings",
-  "v3.9.1.45 · LIVE는 별도 권한입니다 · PAPER OFF + 주문 대상/증권 LIVE + API 준비 + 가드레일": "v3.9.1.45 · LIVE requires separate authorization: PAPER off, LIVE venue enabled, API ready and guardrails passed",
+  "v3.9.1.46 · LIVE는 별도 권한입니다 · PAPER OFF + 주문 대상/증권 LIVE + API 준비 + 가드레일": "v3.9.1.46 · LIVE requires separate authorization: PAPER off, LIVE venue enabled, API ready and guardrails passed",
   "실거래 필수 안내": "LIVE safety guide", "AI 실행 준비도 진단": "AI readiness checks",
   "AI 키": "AI keys", "기본 Provider": "Default provider", "거래 모드": "Trading mode", "런타임": "Runtime",
   "회원 정책": "Membership policy", "설정 영역": "Settings sections",

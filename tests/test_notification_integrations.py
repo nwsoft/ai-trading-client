@@ -273,7 +273,7 @@ def test_daily_loss_events_are_queued_without_changing_guardrail_result(
         "_today_live_trades",
         lambda _source: [{"net_pnl": current_balance - 100.0, "performance_evidence_ready": True}],
     )
-    monkeypatch.setattr(manager, "_managed_unrealized_pnl", lambda _source: (True, 0.0, ""))
+    monkeypatch.setattr(manager, "_managed_unrealized_pnl", lambda _source, **kw: (True, 0.0, ""))
     events = []
     monkeypatch.setattr(notifications, "publish_notification", lambda event_type, *_args, **kwargs: events.append((event_type, kwargs)) or True)
 

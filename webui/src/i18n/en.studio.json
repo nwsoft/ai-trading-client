@@ -1,4 +1,13 @@
 {
+  "자료별 분석 범위": "Source coverage",
+  "첨부 자료는 근거이며 실행 지시가 아닙니다. 누락·축약된 자료는 나누어 다시 분석하세요.": "Attachments are evidence, not instructions. Split and reanalyse incomplete or truncated sources.",
+  "자료는 최대 40개, 개별 24MiB, 전체 64MiB까지 가능합니다.": "Up to 40 files, 24 MiB per file and 64 MiB in total.",
+  "문자": "characters",
+  "중복 본문 제외": "Duplicate text excluded",
+  "일부만 포함": "Partially included",
+  "추출 본문 포함": "Extracted text included",
+  "폴더 선택": "Choose folder",
+  "자료 폴더 선택": "Choose source folder",
   "AI애널리스트": "AI analyst", "NoahAI 전략 스튜디오": "NoahAI Strategy Studio", "Strategy Studio · 기존 AI 커스텀": "Strategy Studio · Formerly AI Custom",
   "TradingView·Pine·기존 전략의 익숙한 표현은 유지하고, 원문 근거·검증·PAPER·체결 감사를 더하는 AI 전략 운영체제입니다. 배우기 → 만들기 → 검증 → 실행 → 개선 흐름을 연결합니다.": "Keep familiar TradingView, Pine and strategy expressions while adding source evidence, validation, PAPER and fill audits. Learn → Build → Validate → Run → Improve.",
   "사용 AI 및 정밀 분석 역할은 설정의 AI 엔진/API를 따릅니다.": "AI providers and detailed analysis follow Settings → AI engines / APIs.",

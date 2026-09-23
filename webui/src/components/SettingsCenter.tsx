@@ -43,7 +43,7 @@ const QUICK_START_SOURCES: Record<QuickStartAsset, Array<{ id: string; label: st
     { id: "binance", label: "바이낸스", detail: "USDT 선물" },
     { id: "upbit", label: "업비트", detail: "KRW 현물" },
     { id: "bithumb", label: "빗썸", detail: "KRW 현물" },
-    { id: "coinone", label: "코인원", detail: "KRW 현물 · 실계좌 검증 전" },
+    { id: "coinone", label: "코인원", detail: "KRW 현물 · PAPER/LIVE" },
     { id: "bybit", label: "바이비트", detail: "USDT 선물" },
     { id: "bitget", label: "비트겟", detail: "USDT 선물" },
     { id: "okx", label: "OKX", detail: "USDT 선물" },
@@ -100,7 +100,7 @@ const SETTING_OPTION_LABELS: Record<string, string> = {
   binance: "바이낸스 (Binance) · 선물",
   upbit: "업비트 (Upbit) · 현물",
   bithumb: "빗썸 (Bithumb) · 현물",
-  coinone: "코인원 (Coinone) · KRW 현물 · 실계좌 검증 전",
+  coinone: "코인원 (Coinone) · KRW 현물 · PAPER/LIVE",
   bybit: "바이비트 (Bybit) · 선물",
   okx: "OKX · 선물",
   bitget: "비트겟 (Bitget) · 선물",
@@ -960,7 +960,7 @@ export function SettingsCenter({ client, open, initialField, onClose, onAskAssis
           <button className="settings-quick-start-open" type="button" onClick={openQuickStart}>{t("처음 사용 · 빠른 시작")}</button>
           <button className="settings-window-close" type="button" onClick={requestClose} aria-label={t("설정 창 닫기")} title={t("설정 닫기")}>×</button>
         </header>
-        <div className="settings-live-warning"><span>{t("v3.9.1.45 · LIVE는 별도 권한입니다 · PAPER OFF + 주문 대상/증권 LIVE + API 준비 + 가드레일")}</span><button type="button" onClick={() => onAskAssistant("실거래 전 필수 준비, PAPER와 LIVE의 차이, API 권한과 주문 가드레일을 현재 설정 기준으로 설명해줘.", activeSection)}>{t("실거래 필수 안내")}</button></div>
+        <div className="settings-live-warning"><span>{t("v3.9.1.46 · LIVE는 별도 권한입니다 · PAPER OFF + 주문 대상/증권 LIVE + API 준비 + 가드레일")}</span><button type="button" onClick={() => onAskAssistant("실거래 전 필수 준비, PAPER와 LIVE의 차이, API 권한과 주문 가드레일을 현재 설정 기준으로 설명해줘.", activeSection)}>{t("실거래 필수 안내")}</button></div>
         <section className={`settings-readiness-strip ${readinessOpen ? "open" : ""}`}>
           <header><strong>{t("AI 실행 준비도 진단")}</strong><button type="button" onClick={() => setReadinessOpen((value) => !value)}>{readinessOpen ? "상세 닫기" : t("상세 보기")}</button></header>
           {readinessOpen && <div className="readiness-grid"><span><b>{t("AI 키")}</b>{diagnostics?.ai?.configured ? "등록됨" : "미설정"}</span><span><b>{t("기본 Provider")}</b>{String(diagnostics?.ai?.provider || "—").toUpperCase()}</span><span><b>{t("거래 모드")}</b>{diagnostics?.trading?.paper_trading ? "PAPER" : diagnostics?.trading?.live_ready ? "LIVE 준비" : "LIVE 차단"}</span><span><b>{t("런타임")}</b>{diagnostics?.trading?.runtime_status || "확인 중"}</span><span><b>{t("회원 등급")}</b>{String(diagnostics?.membership?.user_grade || "확인 필요").toUpperCase()}</span><span><b>{t("회원 정책")}</b>{diagnostics?.membership?.policy_version || diagnostics?.membership?.status || "서버 확인 필요"}</span></div>}
@@ -1045,7 +1045,7 @@ export function SettingsCenter({ client, open, initialField, onClose, onAskAssis
             </section>}
             {activeSection === "general" && snapshot && <section className="settings-contract-status">
               <strong>{t("설정 정리 상태")}</strong>
-              <p>{t("앱 v3.9.1.45 · 설정 스키마 ")}{snapshot.schema_version}{t(" · 현재 모드 ")}{diagnostics?.trading?.paper_trading ? "PAPER" : "LIVE 확인 필요"}{t(" · 계정 설정 ")}{snapshot.account_scope}</p>
+              <p>{t("앱 v3.9.1.46 · 설정 스키마 ")}{snapshot.schema_version}{t(" · 현재 모드 ")}{diagnostics?.trading?.paper_trading ? "PAPER" : "LIVE 확인 필요"}{t(" · 계정 설정 ")}{snapshot.account_scope}</p>
               {snapshot.storage_status?.ok === false && <p className="error-text">{t("기존 settings.json의 문자 인코딩 또는 JSON 형식을 읽지 못했습니다. 원본 보호를 위해 저장이 차단됩니다. 파일을 삭제하지 말고 설정 백업 복구 또는 지원 로그 전달을 이용하세요.")}</p>}
               {snapshot.storage_status?.needs_normalization && <p>{t("기존 ")}{snapshot.storage_status.encoding}{t(" 설정을 호환해서 읽었습니다. 다음 검증 저장 시 UTF-8 정본으로 변환됩니다.")}</p>}
               <span>{t("기본 설정은 원본 화면의 사용자 항목이며, 고급 설정에는 정본 JSON의 기술 정책이 표시됩니다. 비밀값과 런타임 snapshot은 별도 보호 경로로 관리됩니다.")}</span>
@@ -1159,6 +1159,7 @@ export function SettingsCenter({ client, open, initialField, onClose, onAskAssis
             </section>}
             {activeSection === "notifications" && <section className="notification-settings-panel">
               <RemoteMonitorSettings client={client} />
+              <p>{t("시장국면 알림은 실행 중인 기관의 변화가 확정될 때 전송합니다. 알림 ON은 분석 시작이 아닙니다. PAPER·LIVE 외에 학습·관찰 수신과 기관별 스위치도 확인하고 변경 내용을 저장하세요. 국면 유지·확정 대기·필터 차단·전송 실패는 해당 기관 로그에서 구분할 수 있습니다.")}</p>
               <header><div><strong>{t("외부 알림 연결 · 거래 엔진과 독립 실행")}</strong><p>{t("메시지 발송은 별도 큐에서 처리되어 느린 메신저가 거래·설정·가드레일을 기다리게 하지 않습니다. PC와 NoahAI가 꺼져 있으면 로컬 알림은 발송되지 않습니다.")}</p></div><button type="button" onClick={() => onAskAssistant("Discord 웹훅 또는 Telegram 봇을 NoahAI 외부 알림에 연결하는 과정을 초보자 기준으로 한 단계씩 안내해줘. 비밀값을 채팅에 붙여 넣으라고 하지 말고 설정 화면 입력칸을 사용하게 안내해줘.", activeSection)}>{t("AI 연결 도우미")}</button></header>
               <div className="notification-channel-grid">
                 <article className={snapshot?.credential_status?.["notification:discord"] ? "ready" : ""}>
@@ -1220,7 +1221,7 @@ export function SettingsCenter({ client, open, initialField, onClose, onAskAssis
             {activeSection === "update" && <section className="settings-update-panel">
               <strong>{t("버전 정보 · 클라이언트 업데이트")}</strong>
               <p>{t("업데이트 확인과 다운로드는 거래 엔진을 중지하지 않습니다. 설치·재시작은 거래 워커 정지와 기록 저장이 완료된 경우에만 진행합니다.")}</p>
-              <UpdateCenter client={client} accountScope={snapshot?.account_scope ?? ""} detailed currentVersion={platform?.release_version ? `v${platform.release_version}` : "v3.9.1.45"} />
+              <UpdateCenter client={client} accountScope={snapshot?.account_scope ?? ""} detailed currentVersion={platform?.release_version ? `v${platform.release_version}` : "v3.9.1.46"} />
               {!window.noahAI && <span>{t("브라우저 개발 실행에서는 데스크톱 업데이트를 사용할 수 없습니다.")}</span>}
               <RecordRecoveryPanel client={client} />
               <StorageMaintenancePanel client={client} />

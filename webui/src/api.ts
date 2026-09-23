@@ -151,6 +151,9 @@ export function userFacingGatewayError(detail: unknown, status: number): string 
   if (chartMessages[code]) return chartMessages[code];
   const sourceLabel = source ? source.toUpperCase() : "선택한 연결";
   const runtimeMessages: Record<string, string> = {
+    venue_live_onboarding_required: `${sourceLabel} LIVE 주문은 현재 배포의 실계좌 검증이 완료되지 않아 지원되지 않습니다. API 연결이나 E2E 설정 스위치로 활성화되지 않습니다. PAPER 또는 분석·학습을 이용할 수 있으며 LIVE 지원 업데이트가 필요합니다.`,
+    venue_paper_onboarding_required: `${sourceLabel} PAPER 실행은 현재 기관 지원 범위에 없습니다. 지원 상태를 확인하세요.`,
+    runtime_command_rejected: `${sourceLabel} 실행을 시작하지 못했습니다. 해당 기관의 실행 상태와 최초 오류를 확인하세요. 연결 성공은 분석·거래 시작 완료를 뜻하지 않습니다.`,
     membership_exchange_approval_required: `${sourceLabel}은 현재 계정에 승인되지 않은 해외 거래소입니다. daltrading에서 레퍼럴 UID 승인 상태를 확인하거나 관리자에게 거래소 권한 승인을 요청하세요. API 키 인증 완료와 거래 권한은 별개입니다.`,
     membership_exchange_not_approved: `${sourceLabel} 거래 권한이 현재 계정에 없습니다. daltrading의 거래소 승인 상태를 확인하거나 관리자에게 승인을 요청하세요. API 키 인증 완료와 거래 권한은 별개입니다.`,
     membership_exchange_approval_pending: `${sourceLabel} 레퍼럴 UID 승인을 확인 중입니다. 승인 완료 전에는 거래 엔진을 시작할 수 없습니다. daltrading 승인 상태를 확인하거나 관리자에게 문의하세요.`,

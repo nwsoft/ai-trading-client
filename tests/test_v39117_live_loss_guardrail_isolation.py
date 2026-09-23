@@ -85,7 +85,7 @@ def test_live_guardrail_uses_venue_pnl_not_raw_balance_change(monkeypatch):
         "valid": True, "equity": 20.0, "currency": "USDT",
     })
     monkeypatch.setattr(manager, "_today_live_trades", lambda _source: [])
-    monkeypatch.setattr(manager, "_managed_unrealized_pnl", lambda _source: (True, 0.0, ""))
+    monkeypatch.setattr(manager, "_managed_unrealized_pnl", lambda _source, **kw: (True, 0.0, ""))
     monkeypatch.setattr(
         notifications,
         "publish_notification",
@@ -111,7 +111,7 @@ def test_real_live_loss_emits_mode_and_venue_specific_stop(monkeypatch, venue):
         "currency": "KRW" if venue in {"upbit", "bithumb"} else "USDT",
     })
     monkeypatch.setattr(manager, "_today_live_trades", lambda _source: [{"net_pnl": -12.0, "performance_evidence_ready": True}])
-    monkeypatch.setattr(manager, "_managed_unrealized_pnl", lambda _source: (True, 0.0, ""))
+    monkeypatch.setattr(manager, "_managed_unrealized_pnl", lambda _source, **kw: (True, 0.0, ""))
     monkeypatch.setattr(
         notifications,
         "publish_notification",

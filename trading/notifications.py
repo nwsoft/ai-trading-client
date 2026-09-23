@@ -353,13 +353,15 @@ class NotificationDispatcher:
             settings = deepcopy(self._settings)
             generation = self._generation
         config = _configuration(settings)
-        if (
-            not bool(config.get("enabled", False))
-            or not _event_enabled(config, item.event_type)
-            or not _source_enabled(config, item.source)
-            or (item.event_type == "market_regime_change" and not _regime_mode_enabled(config, item.execution_mode))
-            or not any(_channel_ready(settings, channel) for channel in SUPPORTED_CHANNELS)
-        ):
+        rejection = next((reason for failed, reason in (
+            (not bool(config.get('enabled', False)), 'notifications_disabled'),
+            (not _event_enabled(config, item.event_type), 'event_disabled'),
+            (not _source_enabled(config, item.source), 'venue_disabled'),
+            (item.event_type == 'market_regime_change' and not _regime_mode_enabled(config, item.execution_mode), 'mode_disabled'),
+            (not any(_channel_ready(settings, channel) for channel in SUPPORTED_CHANNELS), 'channel_not_ready'),
+        ) if failed), '')
+        if rejection:
+            LOGGER.info('알림 미발송: event=%s mode=%s reason=%s (ex=%s)', item.event_type, item.execution_mode, rejection, item.source)
             return False
         dedupe = item.dedupe_key or f"{item.event_type}:{item.source}:{item.title}"
         cooldown = _bounded_int(config.get("cooldown_seconds"), 300, 86400)
@@ -368,10 +370,12 @@ class NotificationDispatcher:
             if generation != self._generation:
                 return False
             if cooldown and dedupe in self._last_sent and now - self._last_sent[dedupe] < cooldown:
+                LOGGER.info('알림 미발송: event=%s reason=cooldown (ex=%s)', item.event_type, item.source)
                 return False
             self._last_sent[dedupe] = now
         try:
             self._queue.put_nowait((generation, item))
+            LOGGER.info('알림 전송 대기: event=%s mode=%s (ex=%s)', item.event_type, item.execution_mode, item.source)
             return True
         except queue.Full:
             with self._lock:
@@ -427,6 +431,7 @@ class NotificationDispatcher:
                         _deliver_discord(channel_config, item, timeout)
                     else:
                         _deliver_telegram(channel_config, item, timeout)
+                    LOGGER.info('알림 전송 확인: channel=%s event=%s mode=%s (ex=%s)', channel, item.event_type, item.execution_mode, item.source)
                     break
                 except NotificationDeliveryError as exc:
                     if attempt >= retry_count or str(exc) in {
@@ -434,13 +439,13 @@ class NotificationDispatcher:
                         "telegram_chat_id_invalid", "telegram_chat_id_missing",
                         "notification_credential_rejected",
                     }:
-                        LOGGER.warning("%s 알림 전송 실패 (%s)", channel, str(exc))
+                        LOGGER.warning("%s 알림 전송 실패 (%s) event=%s (ex=%s)", channel, str(exc), item.event_type, item.source)
                         break
                     time.sleep(min(2.0, 0.4 * (2 ** attempt)))
                 except Exception as exc:
                     # Isolate an unexpected channel failure, do not drop the
                     # other configured destination or leak exception payloads.
-                    LOGGER.warning("%s 알림 처리 실패 (%s)", channel, type(exc).__name__)
+                    LOGGER.warning("%s 알림 처리 실패 (%s) event=%s (ex=%s)", channel, type(exc).__name__, item.event_type, item.source)
                     break
 
     def shutdown(self, timeout: float = 1.5) -> None:

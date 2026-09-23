@@ -708,10 +708,15 @@ class MiraeAssetStockAdapter(StockExchange):
             self.log_event('system', f'{self._broker_label()} 잔고 조회 실패: {e}', level='ERROR')
             return {'status': 'error', 'error': str(e)}
 
-    def get_positions(self) -> List[Dict[str, Any]]:
+    def get_positions_result(self):
+        from ..position_snapshot import stock_snapshot
+        return stock_snapshot(self)
+
+    def get_positions(self, *, strict=False) -> List[Dict[str, Any]]:
         """보유 종목 조회."""
         try:
             if not self.is_connected or not self.account_no:
+                if strict: raise RuntimeError("position_provider_unavailable")
                 return []
             data = self._get(
                 '/uapi/domestic-stock/v1/trading/inquire-balance',
@@ -722,13 +727,19 @@ class MiraeAssetStockAdapter(StockExchange):
                     'FUND_STTL_ICLD_YN': 'N', 'FNCG_AMT_AUTO_RDPT_YN': 'N', 'PRCS_DVSN': '00',
                 },
             )
+            if strict and (not isinstance(data, dict) or not any(isinstance(data.get(k), list) for k in ('output1','holdings'))):
+                raise ValueError('position_list_missing')
             items = data.get('output1') or data.get('holdings') or []
+            if strict:
+                from ..position_snapshot import validate_quantities
+                validate_quantities(items, ('hldg_qty', 'quantity'))
             return [
                 self._parse_position(item)
                 for item in items
                 if self._to_int(item.get('hldg_qty') or item.get('quantity')) > 0
             ]
         except Exception as e:
+            if strict: raise
             self.log_event('system', f'{self._broker_label()} 보유종목 조회 실패: {e}', level='ERROR')
             return []
 

@@ -73,6 +73,9 @@ class RecoveryResolver:
     def __call__(self, venue, trade):
         if venue != self.venue:
             raise ValueError('recovery_scope_mismatch')
+        if venue in STOCK_VENUES:
+            from trading.stock_history_recovery import recover_exact_orders
+            return recover_exact_orders(self.recorder,self.client,venue,trade,self._queried)
         if trade['id'] in self.discovering:
             return self._discover_close(trade)
         if not trade.get('exit_order_id'):

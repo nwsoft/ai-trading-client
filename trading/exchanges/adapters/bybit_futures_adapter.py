@@ -219,6 +219,10 @@ class BybitFuturesAdapter(FuturesExchange):
             self.log_event('system', f"계정 정보 조회 실패: {e}", level='ERROR')
             return {}
     
+    def get_positions_result(self):
+        from ..position_snapshot import ccxt_snapshot
+        return ccxt_snapshot(self)
+
     def get_positions(self) -> List[Dict[str, Any]]:
         if not self.is_connected or not self.exchange:
             return []
@@ -494,53 +498,60 @@ class BybitFuturesAdapter(FuturesExchange):
         **kwargs: Any
     ) -> Dict[str, Any]:
         """포지션 진입 직후 서버-사이드 TP/SL(보험) 설정.
-        - Bybit ccxt는 create_order()에 takeProfit/stopLoss 트리거를 첨부하면
-          내부적으로 v5 Position Trading Stop 엔드포인트로 라우팅합니다.
-        - 가능한 한 포지션 수량을 사용하고, 없으면 현재 포지션 contracts를 조회해 사용합니다.
+        - flat takeProfitPrice/stopLossPrice와 tradingStopEndpoint를 사용합니다.
+          nested takeProfit/stopLoss는 일반 시장가 주문이므로 사용하지 않습니다.
+        - 실제 포지션의 방향·positionIdx·수량을 확인하고 추정 수량은 쓰지 않습니다.
         - 실패 시 예외를 삼키지 않고 호출자에게 반환합니다(호출자 단에서 경고 처리).
         """
         if not self.is_connected or not self.exchange:
             return {'status': 'error', 'error': '연결되지 않음'}
         try:
             norm_symbol = self._normalize_symbol(symbol)
-            # 수량 보정: 미지정이면 포지션에서 추론
-            amt = quantity
-            if amt is None:
-                try:
-                    positions = self.exchange.fetch_positions()  # type: ignore
-                    for p in positions:
-                        if p.get('symbol') == norm_symbol and float(p.get('contracts') or 0) > 0:
-                            amt = float(p.get('contracts'))
-                            break
-                except Exception:
-                    amt = None
-            if amt is None:
-                # 최후 폴백: 아주 작은 값(거래소에서 무시/반려될 수 있음)
-                amt = 0.001
+            from trading.protection_snapshot import positive
+            wanted_side = str(position_side).lower()
+            if wanted_side not in ('long', 'short'):
+                raise ValueError('invalid_position_side')
+            positions = self.exchange.fetch_positions([norm_symbol])
+            matches = [p for p in positions if p.get('symbol') == norm_symbol
+                       and str(p.get('side', '')).lower() == wanted_side
+                       and positive(p.get('contracts'))]
+            if len(matches) != 1:
+                raise ValueError('protection_position_not_confirmed')
+            position = matches[0]
+            index = (position.get('info') or {}).get('positionIdx')
+            if str(index) not in ('0', '1' if wanted_side == 'long' else '2'):
+                raise ValueError('protection_position_index_not_confirmed')
+            amt = positive(position['contracts']) if quantity is None else positive(quantity)
+            if amt is None or amt > positive(position['contracts']) + 1e-10:
+                raise ValueError('protection_quantity_not_confirmed')
 
             # 가격 정밀도 라운딩
             tp_price = self._round_price(symbol, float(take_profit))
             sl_price = self._round_price(symbol, float(stop_loss))
+            if not positive(tp_price) or not positive(sl_price):
+                raise ValueError('invalid_protection_prices')
 
-            close_side = 'sell' if str(position_side).upper() == 'LONG' else 'buy'
-
+            trigger = {'mark': 'MarkPrice', 'last': 'LastPrice', 'index': 'IndexPrice'}.get(str(trigger_price_type).lower())
+            if trigger is None:
+                raise ValueError('invalid_protection_trigger_source')
+            market = self.exchange.market(norm_symbol)
+            market_id = str(market.get('id') or '').strip()
+            if not market_id:
+                raise ValueError('protection_market_not_confirmed')
             params: Dict[str, Any] = {
-                # 트리거 기준: 마크 가격(지원됨)
-                'triggerPriceType': str(trigger_price_type).lower(),
-                # 첨부형 TP/SL 트리거
-                'takeProfit': {'triggerPrice': tp_price},
-                'stopLoss': {'triggerPrice': sl_price},
+                'category': str((market.get('info') or {}).get('category') or 'linear'),
+                'symbol': market_id,
+                'tradingStopEndpoint': True,
+                'takeProfit': self.exchange.price_to_precision(norm_symbol, tp_price),
+                'stopLoss': self.exchange.price_to_precision(norm_symbol, sl_price),
+                'tpTriggerBy': trigger,
+                'slTriggerBy': trigger,
+                'positionIdx': int(index),
             }
-
-            # create_order는 내부적으로 position trading stop으로 라우팅됨
-            order = self.exchange.create_order(  # type: ignore
-                symbol=norm_symbol,
-                type='market',
-                side=close_side,
-                amount=amt,
-                price=None,
-                params=params,
-            )
+            size = self.exchange.amount_to_precision(norm_symbol, amt)
+            params.update({'tpslMode': 'Partial', 'tpSize': size, 'slSize': size,
+                           'tpOrderType': 'Market', 'slOrderType': 'Market'})
+            order = self.exchange.privatePostV5PositionTradingStop(params)  # type: ignore
             # ccxt는 order 파싱을 수행하므로 표준 구조를 최대한 따름
             return {
                 'status': 'success',

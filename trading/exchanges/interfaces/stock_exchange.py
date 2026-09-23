@@ -16,6 +16,10 @@ class StockExchange(ExchangeInterface):
     def __init__(self, exchange_name: str):
         super().__init__(exchange_name, TradingType.STOCK)
         self.exchange_name = exchange_name
+
+    def get_recovery_order_fills(self, symbol: str, order_id: str, epoch: float):
+        from trading.stock_history_recovery import order_fills
+        return order_fills(self, symbol, order_id, epoch)
     
     # ===== 주식/ETF 특화 메서드 =====
     

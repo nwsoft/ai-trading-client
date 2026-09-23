@@ -58,6 +58,8 @@ class TradeLog:
     settlement_currency: Optional[str] = None
     pnl_source: str = "legacy_unverified"
     reconciliation_status: str = "legacy_unverified"
+    strategy_key: Optional[str] = None
+    strategy_version_id: Optional[str] = None
 
 
 @dataclass
@@ -95,6 +97,12 @@ class OptimizationLog:
 
 
 class Recorder:
+    def _write_connection(self, *, operation, timeout=5):
+        from trading.write_coordination import connection
+        background = operation in {'save_ai_decision', 'insert_analysis_log', 'insert_optimization_log',
+            'save_ai_trade_analysis', 'save_coin_selection', 'record_coin_change', 'cleanup_old_logs'}
+        return connection(self.db_path, operation=operation, priority=10 if background else 0, timeout=timeout)
+
     def __init__(self, db_path: Optional[str] = None, log_path: Optional[str] = None, binance_client: Optional[Any] = None, exchange: Optional[str] = None, *args, **kwargs):
         # exchange 인자 우선, 없으면 기본값 'binance'
         self.exchange = exchange or getattr(self, 'exchange', None) or 'binance'
@@ -127,6 +135,9 @@ class Recorder:
 
         # 데이터베이스 초기화
         self.init_database()
+
+        from trading.recorder_write_queue import schedule
+        schedule(self)
 
         logger.info("Recorder 초기화 완료")
 
@@ -185,6 +196,9 @@ class Recorder:
                 return
 
             # 2) trade_log 기반 백필 준비 (legacy exchange NULL -> binance)
+            cursor.execute('CREATE TABLE IF NOT EXISTS storage_migrations(name TEXT PRIMARY KEY, cursor INTEGER NOT NULL DEFAULT 0)')
+            if cursor.execute("SELECT 1 FROM storage_migrations WHERE name='exchange_stats_fee_v1' AND cursor=1").fetchone():
+                return
             trade_cols = set(self._get_table_columns(cursor, 'trade_log'))
             if not trade_cols:
                 return
@@ -269,6 +283,8 @@ class Recorder:
                     level='WARNING'
                 )
             else:
+                cursor.execute("INSERT INTO storage_migrations(name,cursor) VALUES('exchange_stats_fee_v1',1) ON CONFLICT(name) DO UPDATE SET cursor=1")
+                conn.commit()
                 log_event(
                     'trade',
                     "✅ exchange_trade_stats fee 백필/검증 완료",
@@ -290,7 +306,7 @@ class Recorder:
     def init_database(self):
         """데이터베이스 초기화"""
         try:
-            with sqlite3.connect(self.db_path) as conn:
+            with self._write_connection(operation='init_database') as conn:
                 cursor = conn.cursor()
 
                 # 거래 로그 테이블
@@ -726,6 +742,8 @@ class Recorder:
                     cursor.execute("PRAGMA table_info(trade_log)")
                     cols = [row[1] for row in cursor.fetchall()]
                     required_columns = {
+                        'strategy_key': 'TEXT',
+                        'strategy_version_id': 'TEXT',
                         'exchange': 'TEXT',
                         'order_id': 'TEXT',
                         'exit_order_id': 'TEXT',
@@ -840,6 +858,8 @@ class Recorder:
                 slippage=0.0,
                 exchange=exchange,
                 order_id=order_id,
+                strategy_key=getattr(position, 'custom_strategy_key', None) or trade_params.get('_selected_custom_strategy_key'),
+                strategy_version_id=getattr(position, 'custom_strategy_version_id', None) or trade_params.get('_selected_custom_strategy_version_id'),
                 fee_asset=str(trade_params.get('entry_fee_asset') or '').strip().upper() or None,
                 fee_source=str(trade_params.get('fee_source') or 'exchange_order'),
                 position_owner='noahai',
@@ -850,7 +870,7 @@ class Recorder:
                         getattr(position, 'spot_baseline_quantity', 0.0),
                     ) or 0.0
                 ),
-                entry_fee=max(0.0, float(trade_params.get('entry_fee', 0.0) or 0.0)),
+                entry_fee=(max(0.0, float(trade_params['entry_fee'])) if trade_params.get('entry_fee') is not None else None),
                 entry_fee_asset=str(trade_params.get('entry_fee_asset') or '').strip().upper() or None,
                 settlement_currency=(
                     str(trade_params.get('settlement_currency') or '').strip().upper()
@@ -1027,14 +1047,22 @@ class Recorder:
         fees: float,
         slippage: float,
         exit_order_id: Optional[str],
+        closed_at=None,
+        _write_token=None,
     ) -> bool:
         """Close every persisted scale-in row without duplicating aggregate PnL."""
         clean_ids = list(dict.fromkeys(str(value) for value in entry_order_ids if value))
         if not clean_ids:
             return False
+        closed_at = closed_at or datetime.now()
+        payload=dict(symbol=symbol,exchange=exchange,entry_order_ids=clean_ids,exit_price=exit_price,
+            reason=reason,fees=fees,slippage=slippage,exit_order_id=exit_order_id,closed_at=closed_at)
         try:
             placeholders = ",".join("?" for _ in clean_ids)
-            with sqlite3.connect(self.db_path) as conn:
+            with self._write_connection(operation='_close_managed_entry_group') as conn:
+                from trading.recorder_write_queue import begin_receipt,finish_receipt
+                if begin_receipt(conn,_write_token): return True
+                if not _write_token: conn.execute('BEGIN IMMEDIATE')
                 rows = conn.execute(
                     f"""
                     SELECT id, entry_price, quantity, UPPER(COALESCE(side, 'LONG'))
@@ -1046,11 +1074,13 @@ class Recorder:
                     """,
                     (symbol, str(exchange or '').lower(), *clean_ids),
                 ).fetchall()
+                if len(rows)!=len(clean_ids):
+                    return False
                 total_notional = sum(
                     max(0.0, float(row[1] or 0.0) * float(row[2] or 0.0))
                     for row in rows
                 )
-                closed_at = self._to_db_datetime(datetime.now())
+                closed_at = self._to_db_datetime(closed_at)
                 for trade_id, entry_price, quantity, side in rows:
                     entry = float(entry_price or 0.0)
                     qty = float(quantity or 0.0)
@@ -1065,7 +1095,9 @@ class Recorder:
                         """
                         UPDATE trade_log
                         SET exit_price = ?, exit_time = ?, pnl = ?, pnl_percent = ?,
-                            reason = ?, fees = ?, slippage = ?, exit_order_id = ?
+                            reason = ?, fees = ?, slippage = ?, exit_order_id = ?,
+                            net_pnl = NULL, pnl_source = 'estimated_close_price',
+                            reconciliation_status = 'pending_exchange_reconciliation'
                         WHERE id = ?
                         """,
                         (
@@ -1075,6 +1107,7 @@ class Recorder:
                             trade_id,
                         ),
                     )
+                finish_receipt(conn,_write_token)
                 conn.commit()
             log_event(
                 'trade',
@@ -1084,6 +1117,9 @@ class Recorder:
             )
             return bool(rows)
         except Exception as e:
+            if _write_token: raise
+            from trading.recorder_write_queue import is_busy,enqueue
+            if is_busy(e): enqueue(self,'_close_managed_entry_group',payload)
             log_event(
                 'trade',
                 f"NoahAI 분할 진입 일괄 청산 원장 오류: {e}",
@@ -1289,10 +1325,12 @@ class Recorder:
         except Exception as e:
             log_event('trade', f"최적화 결과 로그 기록 오류: {e}", exchange=self.exchange, level='ERROR')
 
-    def log_risk_event(self, symbol: str, risk_type: str, risk_level: str, description: str, impact_score: float):
+    def log_risk_event(self, symbol: str, risk_type: str, risk_level: str, description: str, impact_score: float, *, _write_token=None):
         """리스크 이벤트 로그"""
         try:
-            with sqlite3.connect(self.db_path) as conn:
+            with self._write_connection(operation='log_risk_event') as conn:
+                from trading.recorder_write_queue import begin_receipt, finish_receipt
+                if begin_receipt(conn,_write_token): return True
                 cursor = conn.cursor()
                 cursor.execute("""
                     INSERT INTO risk_log (symbol, risk_type, risk_level, description, impact_score, timestamp)
@@ -1305,21 +1343,37 @@ class Recorder:
                     impact_score,
                     self._to_db_datetime(datetime.now())
                 ))
+                finish_receipt(conn,_write_token)
                 conn.commit()
 
             log_event('trade', f"리스크 이벤트 로그 기록: {symbol} - {risk_type} ({risk_level})", exchange=self.exchange, level='WARNING')
 
         except Exception as e:
             log_event('trade', f"리스크 이벤트 로그 기록 오류: {e}", exchange=self.exchange, level='ERROR')
+            if _write_token: raise
+            from trading.recorder_write_queue import enqueue,is_busy
+            if is_busy(e): enqueue(self,'log_risk_event',dict(symbol=symbol,risk_type=risk_type,risk_level=risk_level,description=description,impact_score=impact_score))
 
-    def insert_trade_log(self, trade_log: TradeLog) -> Optional[int]:
+    def insert_trade_log(self, trade_log: TradeLog, *, _write_token=None) -> Optional[int]:
         """거래 로그 삽입"""
         event_exchange = str(
             getattr(trade_log, 'exchange', None) or self.exchange or ''
         ).strip().lower()
         try:
             logger = self._logger
-            with sqlite3.connect(self.db_path) as conn:
+            with self._write_connection(operation='insert_trade_log') as conn:
+                from trading.recorder_write_queue import begin_receipt, finish_receipt
+                if begin_receipt(conn, _write_token):
+                    return True
+                if _write_token and trade_log.order_id:
+                    existing = conn.execute('''SELECT id,quantity,entry_time FROM trade_log
+                        WHERE exchange=? AND symbol=? AND order_id=? AND execution_mode=?''',
+                        (trade_log.exchange, trade_log.symbol, trade_log.order_id, trade_log.execution_mode)).fetchall()
+                    if existing:
+                        if len(existing) != 1 or existing[0][1] != trade_log.quantity or existing[0][2] != self._to_db_datetime(trade_log.entry_time):
+                            return False
+                        finish_receipt(conn, _write_token)
+                        return existing[0][0]
                 cursor = conn.cursor()
 
                 # 🔥 디버깅: 삽입할 데이터 출력
@@ -1342,8 +1396,8 @@ class Recorder:
                         spot_baseline_quantity, gross_pnl, net_pnl, entry_fee,
                         exit_fee, entry_fee_asset, exit_fee_asset,
                         settlement_currency, pnl_source,
-                        reconciliation_status
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        reconciliation_status, strategy_key, strategy_version_id
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """, (
                     trade_log.symbol, trade_log.entry_price, trade_log.exit_price,
                     trade_log.quantity, trade_log.leverage, trade_log.pnl,
@@ -1369,7 +1423,10 @@ class Recorder:
                     getattr(trade_log, 'settlement_currency', None),
                     str(getattr(trade_log, 'pnl_source', 'legacy_unverified') or 'legacy_unverified'),
                     str(getattr(trade_log, 'reconciliation_status', 'legacy_unverified') or 'legacy_unverified'),
+                    getattr(trade_log, 'strategy_key', None),
+                    getattr(trade_log, 'strategy_version_id', None),
                 ))
+                finish_receipt(conn, _write_token)
                 conn.commit()
 
                 inserted_id = cursor.lastrowid
@@ -1388,11 +1445,19 @@ class Recorder:
 
         except Exception as e:
             # 스키마 불일치의 경우 즉시 보정 후 1회 재시도
+            if _write_token:
+                raise
+            from trading.recorder_write_queue import is_busy, enqueue
+            if is_busy(e):
+                try:
+                    enqueue(self, 'insert_trade_log', {'trade_log':asdict(trade_log)})
+                except Exception as queue_error:
+                    log_event('trade', f'진입 기록 재처리 보존 실패: {type(queue_error).__name__}', exchange=event_exchange, level='ERROR')
             log_event('trade', f"거래 로그 삽입 오류: {e}", exchange=event_exchange, level='ERROR')
             msg = str(e)
             try:
                 if 'no column named exchange' in msg or 'has no column named exchange' in msg:
-                    with sqlite3.connect(self.db_path) as conn:
+                    with self._write_connection(operation='insert_trade_log') as conn:
                         # 커서 생성 및 사용을 각 try 블록 내에서 안전하게 처리
                         try:
                             c2 = conn.cursor()
@@ -1430,7 +1495,7 @@ class Recorder:
     def save_ai_trade_analysis(self, trade_log_id: Optional[int], symbol: str, analysis: Dict, analysis_type: str):
         """AI 거래 분석 결과 저장 (통합 버전) - ai_trade_analysis 테이블 사용"""
         try:
-            with sqlite3.connect(self.db_path) as conn:
+            with self._write_connection(operation='save_ai_trade_analysis') as conn:
                 cursor = conn.cursor()
 
                 # ai_trade_analysis 테이블이 없으면 생성
@@ -1554,7 +1619,7 @@ class Recorder:
 
         for attempt in range(max_retries):
             try:
-                with sqlite3.connect(self.db_path, timeout=20.0) as conn:
+                with self._write_connection(operation='save_trade_log', timeout=20.0) as conn:
                     # WAL 모드 활성화로 동시 접근 개선
                     conn.execute("PRAGMA journal_mode=WAL")
                     conn.execute("PRAGMA synchronous=NORMAL")
@@ -1641,7 +1706,7 @@ class Recorder:
     def insert_analysis_log(self, analysis_log: AnalysisLog):
         """분석 로그 삽입"""
         try:
-            with sqlite3.connect(self.db_path) as conn:
+            with self._write_connection(operation='insert_analysis_log') as conn:
                 cursor = conn.cursor()
                 cursor.execute("""
                     INSERT INTO analysis_log (
@@ -1663,7 +1728,7 @@ class Recorder:
     def insert_optimization_log(self, optimization_log: OptimizationLog):
         """최적화 로그 삽입"""
         try:
-            with sqlite3.connect(self.db_path) as conn:
+            with self._write_connection(operation='insert_optimization_log') as conn:
                 cursor = conn.cursor()
                 cursor.execute("""
                     INSERT INTO ai_optimization (
@@ -1754,6 +1819,7 @@ class Recorder:
         *,
         source: str = 'exchange_api',
         reconcile: bool = True,
+        _write_token: Optional[str] = None,
     ) -> Dict[str, int]:
         """거래소 실제 체결 원장을 중복 없이 저장한다.
 
@@ -1766,7 +1832,10 @@ class Recorder:
             return result
 
         try:
-            with sqlite3.connect(self.db_path, timeout=20.0) as conn:
+            with self._write_connection(operation='save_exchange_execution_history', timeout=20.0) as conn:
+                from trading.recorder_write_queue import begin_receipt, finish_receipt
+                if begin_receipt(conn, _write_token):
+                    return result
                 cursor = conn.cursor()
                 for trade in trades:
                     if not isinstance(trade, dict):
@@ -1940,6 +2009,7 @@ class Recorder:
                         result['inserted'] += 1
                     else:
                         result['skipped'] += 1
+                finish_receipt(conn, _write_token)
                 conn.commit()
             # TP/SL 보험 주문이나 거래소 화면에서 체결된 청산은 포지션 소멸을
             # 먼저 감지해 trade_log를 닫을 수 있다. 이때 응답 주문 ID가 없더라도
@@ -1949,6 +2019,14 @@ class Recorder:
                 self.link_unresolved_trade_closes_with_executions(venue)
                 self.reconcile_trade_log_with_executions(venue)
         except Exception as exc:
+            if _write_token:
+                raise
+            from trading.recorder_write_queue import is_busy, enqueue
+            if is_busy(exc):
+                try:
+                    enqueue(self, 'save_exchange_execution_history', dict(exchange=exchange,trades=trades,source=source,reconcile=reconcile))
+                except Exception as deferred_error:
+                    log_event('trade', f'체결 근거 재처리 보존 실패: {type(deferred_error).__name__}', exchange=venue, level='ERROR')
             log_event(
                 'trade',
                 f"거래소 체결 원장 저장 오류({venue}): {exc}",
@@ -1996,7 +2074,7 @@ class Recorder:
             return 0
         linked = 0
         try:
-            with sqlite3.connect(self.db_path, timeout=20.0) as conn:
+            with self._write_connection(operation='link_unresolved_trade_closes_with_executions', timeout=20.0) as conn:
                 conn.row_factory = sqlite3.Row
                 trades = conn.execute(
                     """
@@ -2130,7 +2208,7 @@ class Recorder:
             raise ValueError('reconciliation_batch_too_large')
         id_clause = '' if selected_ids is None else ' AND id IN (' + ','.join('?' for _ in selected_ids) + ')'
         try:
-            with sqlite3.connect(self.db_path, timeout=20.0) as conn:
+            with self._write_connection(operation='reconcile_trade_log_with_executions', timeout=20.0) as conn:
                 conn.row_factory = sqlite3.Row
                 rows = conn.execute(
                     """
@@ -2380,7 +2458,7 @@ class Recorder:
         if not venue or not isinstance(capability, dict):
             return False
         try:
-            with sqlite3.connect(self.db_path, timeout=20.0) as conn:
+            with self._write_connection(operation='save_exchange_execution_capability', timeout=20.0) as conn:
                 conn.execute(
                     """
                     INSERT INTO exchange_execution_capability (
@@ -2423,6 +2501,7 @@ class Recorder:
         order: Dict[str, Any],
         *,
         source: str,
+        _write_token: Optional[str] = None,
     ) -> bool:
         """주문 접수와 확정 체결을 분리해 주문 ID별 복구 기준을 보존한다."""
         venue = str(exchange or '').strip().lower()
@@ -2435,7 +2514,10 @@ class Recorder:
             return False
         try:
             raw_json = json.dumps(order, ensure_ascii=False, default=str)
-            with sqlite3.connect(self.db_path, timeout=20.0) as conn:
+            with self._write_connection(operation='save_exchange_order_receipt', timeout=20.0) as conn:
+                from trading.recorder_write_queue import begin_receipt, finish_receipt
+                if begin_receipt(conn, _write_token):
+                    return True
                 conn.execute(
                     """
                     INSERT INTO exchange_order_receipt (
@@ -2448,12 +2530,22 @@ class Recorder:
                         requested_quantity = CASE
                             WHEN excluded.requested_quantity > 0 THEN excluded.requested_quantity
                             ELSE exchange_order_receipt.requested_quantity END,
-                        status = COALESCE(excluded.status, exchange_order_receipt.status),
+                        status = CASE
+                            WHEN lower(exchange_order_receipt.status) IN ('filled','closed') THEN exchange_order_receipt.status
+                            WHEN lower(excluded.status) IN ('filled','closed') THEN excluded.status
+                            WHEN lower(exchange_order_receipt.status) IN ('canceled','cancelled','rejected','expired') THEN exchange_order_receipt.status
+                            WHEN lower(exchange_order_receipt.status) IN ('partially_filled','partiallyfilled')
+                                 AND lower(COALESCE(excluded.status,'')) IN ('new','open','pending','') THEN exchange_order_receipt.status
+                            ELSE COALESCE(excluded.status, exchange_order_receipt.status) END,
                         confirmed = MAX(exchange_order_receipt.confirmed, excluded.confirmed),
                         submitted_at = COALESCE(exchange_order_receipt.submitted_at, excluded.submitted_at),
                         last_checked_at = CURRENT_TIMESTAMP,
                         source = excluded.source,
-                        raw_json = excluded.raw_json
+                        raw_json = CASE
+                            WHEN lower(exchange_order_receipt.status) IN ('filled','closed') AND lower(COALESCE(excluded.status,'')) NOT IN ('filled','closed') THEN exchange_order_receipt.raw_json
+                            WHEN lower(exchange_order_receipt.status) IN ('canceled','cancelled','rejected','expired') AND lower(COALESCE(excluded.status,'')) NOT IN ('filled','closed') THEN exchange_order_receipt.raw_json
+                            WHEN lower(exchange_order_receipt.status) IN ('partially_filled','partiallyfilled') AND lower(COALESCE(excluded.status,'')) IN ('new','open','pending','') THEN exchange_order_receipt.raw_json
+                            ELSE excluded.raw_json END
                     """,
                     (
                         venue, order_id, symbol,
@@ -2469,9 +2561,18 @@ class Recorder:
                         str(source or 'order_receipt'), raw_json,
                     ),
                 )
+                finish_receipt(conn, _write_token)
                 conn.commit()
             return True
         except Exception as exc:
+            if _write_token:
+                raise
+            from trading.recorder_write_queue import is_busy, enqueue
+            if is_busy(exc):
+                try:
+                    enqueue(self, 'save_exchange_order_receipt', dict(exchange=exchange,order=order,source=source))
+                except Exception as deferred_error:
+                    log_event('trade', f'주문 접수 재처리 보존 실패: {type(deferred_error).__name__}', exchange=venue, level='ERROR')
             log_event('trade', f"주문 접수 원장 저장 오류({venue}): {exc}", exchange=venue, level='ERROR')
             return False
 
@@ -2861,7 +2962,7 @@ class Recorder:
             today = datetime.now().date()
             stats = self.get_performance_stats(1)
 
-            with sqlite3.connect(self.db_path) as conn:
+            with self._write_connection(operation='update_daily_stats') as conn:
                 cursor = conn.cursor()
                 cursor.execute("""
                     INSERT OR REPLACE INTO performance_stats (
@@ -2884,7 +2985,7 @@ class Recorder:
     def save_exchange_trade_stats(self, exchange: str, stats: Dict[str, Any]):
         """거래소별 거래 통계 저장"""
         try:
-            with sqlite3.connect(self.db_path) as conn:
+            with self._write_connection(operation='save_exchange_trade_stats') as conn:
                 cursor = conn.cursor()
 
                 table_cols = set(self._get_table_columns(cursor, 'exchange_trade_stats'))
@@ -2975,13 +3076,19 @@ class Recorder:
         pnl_source: str = 'estimated_close_price',
         reconciliation_status: str = 'pending_exchange_reconciliation',
         settlement_currency: Optional[str] = None,
+        _write_token: Optional[str] = None,
     ):
         """개별 거래 로그 업데이트 (종료 정보)"""
+        retry_payload = dict(locals())
+        retry_payload.pop('self')
         try:
             logger = self._logger
             log_event('trade', f"[DEBUG] update_trade_log 호출: symbol={symbol}, exit_price={exit_price}, exit_time={exit_time}, pnl_percent={pnl_percent}, pnl_usdt={pnl_usdt}, exit_reason={exit_reason}", exchange=self.exchange, level='INFO')
 
-            with sqlite3.connect(self.db_path) as conn:
+            with self._write_connection(operation='update_trade_log') as conn:
+                from trading.recorder_write_queue import begin_receipt, finish_receipt
+                if begin_receipt(conn, _write_token):
+                    return True
                 cursor = conn.cursor()
 
                 # Symbol-only matching can close another venue's row or a
@@ -3130,6 +3237,7 @@ class Recorder:
                         trade_id,
                     ))
 
+                    finish_receipt(conn, _write_token)
                     conn.commit()
 
                     # 업데이트 후 확인
@@ -3150,6 +3258,15 @@ class Recorder:
                     return False
 
         except Exception as e:
+            if _write_token:
+                raise
+            from trading.recorder_write_queue import is_busy, enqueue
+            if is_busy(e):
+                try:
+                    enqueue(self, 'update_trade_log', retry_payload)
+                    log_event('trade', f'{symbol} 청산 기록 저장 대기 · 원본 보존 후 자동 재처리. 저장 완료 전 손익 대조 필요', exchange=exchange or self.exchange, level='ERROR')
+                except Exception as queue_error:
+                    log_event('trade', f'{symbol} 청산 재처리 근거 저장 실패: {type(queue_error).__name__}. 거래 기록 대조 필요', exchange=exchange or self.exchange, level='ERROR')
             log_event('trade', f"❌ {symbol} 거래 로그 업데이트 실패: {e}", exchange=self.exchange, level='ERROR')
             import traceback
             log_event('trade', f"❌ 상세 오류: {traceback.format_exc()}", exchange=self.exchange, level='ERROR')
@@ -3170,14 +3287,39 @@ class Recorder:
         reason: str,
         pnl_source: str,
         reconciliation_status: str,
+        closed_at=None,
+        _write_token=None,
     ) -> bool:
         """Split one verified partial close from its still-open entry lot."""
+        import math
+        try:
+            amounts=[float(v) for v in (closed_quantity,exit_price,gross_pnl,exit_fee)]
+        except (ValueError,TypeError):
+            return False
+        if not all(math.isfinite(v) for v in amounts) or amounts[0]<=0 or amounts[1]<=0 or amounts[3]<0:
+            return False
         venue = str(exchange or '').strip().lower()
         qty = max(0.0, float(closed_quantity or 0.0))
         if not venue or qty <= 0 or not entry_order_id:
             return False
+        closed_at = closed_at or datetime.now()
+        payload = {k:v for k,v in locals().copy().items() if k in (
+            'symbol','exchange','entry_order_id','exit_order_id','closed_quantity','exit_price','gross_pnl',
+            'exit_fee','fee_asset','reason','pnl_source','reconciliation_status','closed_at')}
         try:
-            with sqlite3.connect(self.db_path, timeout=20.0) as conn:
+            with self._write_connection(operation='record_partial_trade_close', timeout=20.0) as conn:
+                from trading.recorder_write_queue import begin_receipt, finish_receipt
+                if begin_receipt(conn, _write_token): return True
+                if not _write_token: conn.execute('BEGIN IMMEDIATE')
+                if exit_order_id:
+                    previous = conn.execute('''SELECT quantity,exit_price,gross_pnl,exit_fee FROM trade_log
+                        WHERE lower(exchange)=? AND symbol=? AND order_id=? AND exit_order_id=? AND exit_time IS NOT NULL''',
+                        (venue,symbol,str(entry_order_id),str(exit_order_id))).fetchall()
+                    if previous:
+                        if len(previous)!=1 or tuple(previous[0]) != (qty,float(exit_price),float(gross_pnl),float(exit_fee)):
+                            return False
+                        finish_receipt(conn,_write_token)
+                        return True
                 conn.row_factory = sqlite3.Row
                 row = conn.execute(
                     """
@@ -3194,14 +3336,16 @@ class Recorder:
                 if qty >= open_qty - max(1e-8, open_qty * 0.001):
                     return False
                 ratio = qty / open_qty
-                entry_fee_total = max(0.0, float(row['entry_fee'] if row['entry_fee'] is not None else row['fees'] or 0.0))
-                allocated_entry_fee = entry_fee_total * ratio
-                remaining_entry_fee = entry_fee_total - allocated_entry_fee
+                # Legacy aggregate fees do not prove an entry commission.
+                entry_fee_total = float(row['entry_fee']) if row['entry_fee'] is not None else None
+                allocated_entry_fee = entry_fee_total * ratio if entry_fee_total is not None else None
+                remaining_entry_fee = entry_fee_total - allocated_entry_fee if entry_fee_total is not None else None
                 settlement = str(row['settlement_currency'] or '').upper() or self._settlement_currency(symbol, venue)
                 entry_fee_ccy = str(row['entry_fee_asset'] or row['fee_asset'] or '').upper()
                 exit_fee_ccy = str(fee_asset or '').upper()
                 fee_convertible = (
-                    (allocated_entry_fee <= 0 or (settlement and entry_fee_ccy == settlement))
+                    allocated_entry_fee is not None and allocated_entry_fee >= 0
+                    and (allocated_entry_fee == 0 or (settlement and entry_fee_ccy == settlement))
                     and (float(exit_fee or 0.0) <= 0 or (settlement and exit_fee_ccy == settlement))
                 )
                 net_pnl = (
@@ -3221,26 +3365,31 @@ class Recorder:
                     'exchange','order_id','exit_order_id','model_version','strategy_variant','fee_asset',
                     'fee_source','position_owner','execution_mode','spot_baseline_quantity','gross_pnl',
                     'net_pnl','entry_fee','exit_fee','entry_fee_asset','exit_fee_asset',
-                    'settlement_currency','pnl_source','reconciliation_status',
+                    'settlement_currency','pnl_source','reconciliation_status','strategy_key','strategy_version_id',
                 ]
                 values = [
                     row['symbol'], row['entry_price'], float(exit_price), qty, row['leverage'], display_pnl,
-                    pnl_percent, row['entry_time'], self._to_db_datetime(datetime.now()), reason, row['side'],
-                    row['tp_price'], row['sl_price'], allocated_entry_fee + float(exit_fee or 0.0),
+                    pnl_percent, row['entry_time'], self._to_db_datetime(closed_at), reason, row['side'],
+                    row['tp_price'], row['sl_price'], allocated_entry_fee + float(exit_fee) if allocated_entry_fee is not None else None,
                     row['slippage'], row['exchange'], row['order_id'], str(exit_order_id or '') or None,
                     row['model_version'], row['strategy_variant'], fee_asset or row['fee_asset'],
                     'exchange_fill', row['position_owner'], row['execution_mode'], row['spot_baseline_quantity'],
                     float(gross_pnl), net_pnl, allocated_entry_fee, float(exit_fee or 0.0),
                     entry_fee_ccy or None, exit_fee_ccy or None, settlement or None,
-                    pnl_source, reconciliation_status,
+                    pnl_source, reconciliation_status if net_pnl is not None else 'entry_fee_evidence_missing',row['strategy_key'],row['strategy_version_id'],
                 ]
                 conn.execute(
                     f"INSERT INTO trade_log ({', '.join(columns)}) VALUES ({', '.join('?' for _ in values)})",
                     tuple(values),
                 )
+                finish_receipt(conn,_write_token)
                 conn.commit()
             return True
         except sqlite3.Error as exc:
+            if _write_token: raise
+            from trading.recorder_write_queue import is_busy, enqueue
+            if is_busy(exc) and exit_order_id:
+                enqueue(self,'record_partial_trade_close',payload)
             log_event('trade', f"부분청산 원장 기록 오류({venue}/{symbol}): {exc}", exchange=venue, level='ERROR')
             return False
 
@@ -3316,7 +3465,7 @@ class Recorder:
         """주식/ETF 브로커·자산유형 통계 저장"""
         try:
             target_date = stat_date or datetime.now().strftime('%Y-%m-%d')
-            with sqlite3.connect(self.db_path) as conn:
+            with self._write_connection(operation='save_stock_trade_stats') as conn:
                 cursor = conn.cursor()
                 cursor.execute(
                     """
@@ -3396,10 +3545,12 @@ class Recorder:
             log_event('trade', f"주식 통계 조회 실패: {e}", exchange=self.exchange, level='ERROR')
             return []
 
-    def save_stock_execution_metric(self, metric: Dict[str, Any]) -> bool:
+    def save_stock_execution_metric(self, metric: Dict[str, Any], *, _write_token=None) -> bool:
         """주식 자동매매 주문 실행 품질 메트릭 저장."""
         try:
-            with sqlite3.connect(self.db_path) as conn:
+            with self._write_connection(operation='save_stock_execution_metric') as conn:
+                from trading.recorder_write_queue import begin_receipt,finish_receipt
+                if begin_receipt(conn,_write_token):return True
                 cursor = conn.cursor()
                 cursor.execute(
                     """
@@ -3421,10 +3572,14 @@ class Recorder:
                         str(metric.get('decision_type') or 'entry'),
                     ),
                 )
+                finish_receipt(conn,_write_token)
                 conn.commit()
             return True
         except Exception as e:
             log_event('trade', f"실행 메트릭 저장 실패: {e}", exchange=self.exchange, level='ERROR')
+            if _write_token:raise
+            from trading.recorder_write_queue import enqueue,is_busy
+            if is_busy(e):enqueue(self,'save_stock_execution_metric',{'metric':metric})
             return False
 
     def load_stock_execution_metrics(self, broker: Optional[str] = None, days: int = 7) -> List[Dict[str, Any]]:
@@ -3496,7 +3651,7 @@ class Recorder:
     ) -> bool:
         """중복 주문 방지 키 저장."""
         try:
-            with sqlite3.connect(self.db_path) as conn:
+            with self._write_connection(operation='save_stock_order_idempotency') as conn:
                 cursor = conn.cursor()
                 cursor.execute(
                     """
@@ -3526,7 +3681,7 @@ class Recorder:
     ) -> Dict[str, Any]:
         """명령을 원자적으로 선점한다. 기존 명령이면 재제출 권한을 주지 않는다."""
         try:
-            with sqlite3.connect(self.db_path, timeout=20.0) as conn:
+            with self._write_connection(operation='claim_crypto_order_command', timeout=20.0) as conn:
                 cursor = conn.cursor()
                 cursor.execute(
                     """
@@ -3559,10 +3714,23 @@ class Recorder:
 
     def update_crypto_order_command(
         self, command_id: str, *, status: str, exchange_order_id: str = "",
-        error_class: str = "", error_message: str = "", increment_attempt: bool = False,
+        error_class: str = "", error_message: str = "", increment_attempt: bool = False, _write_token=None,
     ) -> bool:
+        payload = dict(command_id=command_id,status=status,exchange_order_id=exchange_order_id,
+                       error_class=error_class,error_message=error_message,increment_attempt=increment_attempt)
         try:
-            with sqlite3.connect(self.db_path, timeout=20.0) as conn:
+            with self._write_connection(operation='update_crypto_order_command', timeout=20.0) as conn:
+                from trading.recorder_write_queue import begin_receipt, finish_receipt
+                if begin_receipt(conn,_write_token): return True
+                if not _write_token: conn.execute('BEGIN IMMEDIATE')
+                previous=conn.execute('SELECT status,exchange_order_id FROM crypto_order_commands WHERE command_id=?',(str(command_id),)).fetchone()
+                if previous is None: return False
+                if previous[1] and exchange_order_id and str(previous[1])!=str(exchange_order_id): return False
+                # Late retry of an earlier uncertain status must not erase an
+                # acknowledged order or permit a second submission.
+                if previous[0] in {'confirmed','filled','submitted','accepted'} and status in {'pending','submitting','ambiguous','failed','rejected','unknown'}:
+                    finish_receipt(conn,_write_token)
+                    return True
                 conn.execute(
                     """
                     UPDATE crypto_order_commands
@@ -3575,31 +3743,29 @@ class Recorder:
                      str(error_message or "")[:1000], 1 if increment_attempt else 0,
                      str(command_id)),
                 )
+                finish_receipt(conn,_write_token)
                 conn.commit()
             return True
         except Exception as exc:
+            if _write_token: raise
+            from trading.recorder_write_queue import is_busy, enqueue
+            if is_busy(exc): enqueue(self,'update_crypto_order_command',payload)
             log_event('trade', f"암호화폐 주문 명령 갱신 실패: {exc}", exchange=self.exchange, level='ERROR')
             return False
 
     def cleanup_old_logs(self, days: int = 90):
-        """오래된 로그 정리"""
+        """Prune diagnostic logs only; financial and risk evidence is retained."""
         try:
-            cutoff_date = datetime.now() - timedelta(days=days)
+            cutoff_date = self._to_db_datetime(datetime.now() - timedelta(days=days))
 
-            with sqlite3.connect(self.db_path) as conn:
+            with self._write_connection(operation='cleanup_old_logs') as conn:
                 cursor = conn.cursor()
-
-                # 오래된 거래 로그 삭제
-                cursor.execute("DELETE FROM trade_log WHERE exit_time < ?", (cutoff_date,))
 
                 # 오래된 분석 로그 삭제
                 cursor.execute("DELETE FROM analysis_log WHERE timestamp < ?", (cutoff_date,))
 
                 # 오래된 최적화 로그 삭제
                 cursor.execute("DELETE FROM ai_optimization WHERE timestamp < ?", (cutoff_date,))
-
-                # 오래된 리스크 로그 삭제
-                cursor.execute("DELETE FROM risk_log WHERE timestamp < ?", (cutoff_date,))
 
                 conn.commit()
 
@@ -3661,13 +3827,18 @@ class Recorder:
     def save_ai_decision(
         self, symbol: str, decision_type: str, decision_data: dict,
         user_feedback: Optional[str] = None, *, exchange: Optional[str] = None,
+        _write_token: Optional[str] = None,
     ):
         """AI 결정 내역을 데이터베이스에 저장"""
         try:
-            with sqlite3.connect(self.db_path) as conn:
+            with self._write_connection(operation='save_ai_decision') as conn:
+                from trading.recorder_write_queue import begin_receipt, finish_receipt
+                if begin_receipt(conn, _write_token):
+                    return True
                 cursor = conn.cursor()
                 from trading.decision_storage import save
                 event_meta = save(conn, symbol, decision_type, decision_data, user_feedback, exchange)
+                finish_receipt(conn, _write_token)
                 conn.commit()
 
                 if event_meta.get('storage_status') == 'quarantined':
@@ -3684,8 +3855,21 @@ class Recorder:
                 )
 
         except Exception as e:
+            if _write_token:
+                raise
+            from trading.recorder_write_queue import is_busy, enqueue
+            if is_busy(e):
+                try:
+                    enqueue(self, 'save_ai_decision', dict(symbol=symbol, decision_type=decision_type,
+                        decision_data=decision_data, user_feedback=user_feedback, exchange=exchange))
+                except Exception as queue_error:
+                    log_event('trade', f'AI 판단 재처리 근거 저장 실패: {type(queue_error).__name__}', exchange=exchange or self.exchange, level='ERROR')
             event_exchange = str(exchange or self.exchange or '').strip().lower()
             log_event('trade', f"AI 결정 내역 저장 오류: {e}", exchange=event_exchange, level='ERROR')
+        finally:
+            if not _write_token:
+                from trading.recorder_write_queue import schedule
+                schedule(self)
 
     def get_ai_decisions(self, symbol: Optional[str] = None, limit: int = 50,
                          *, exchange: Optional[str] = None, execution_mode: Optional[str] = None) -> List[dict]:
@@ -3738,7 +3922,7 @@ class Recorder:
     def record_coin_change(self, old_coins: List[str], new_coins: List[str], reason: str = 'dynamic_replacement'):
         """코인 교체 기록 저장"""
         try:
-            with sqlite3.connect(self.db_path) as conn:
+            with self._write_connection(operation='record_coin_change') as conn:
                 cursor = conn.cursor()
                 cursor.execute('''
                     CREATE TABLE IF NOT EXISTS coin_change_log (
@@ -3773,7 +3957,7 @@ class Recorder:
         try:
             exchange_key = str(exchange or self.exchange or 'binance').strip().lower()
             status_key = str(selection_status or 'scored').strip().lower()
-            with sqlite3.connect(self.db_path) as conn:
+            with self._write_connection(operation='save_coin_selection') as conn:
                 cursor = conn.cursor()
 
                 # 1. 코인 선택 세션 정보 저장
@@ -3843,7 +4027,7 @@ class Recorder:
         검증한다.
         """
         try:
-            with sqlite3.connect(self.db_path) as conn:
+            with self._write_connection(operation='migrate_database_schema') as conn:
                 cursor = conn.cursor()
 
                 cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='trade_log'")
@@ -3937,7 +4121,7 @@ class Recorder:
         try:
             log_event('trade', f"🔍 [DEBUG] update_trade_log 호출: symbol={symbol}, exit_price={exit_price}, entry_time={entry_time}, pnl_percent={pnl_percent}, pnl={pnl}, reason={reason}", exchange=self.exchange, level='INFO')
 
-            with sqlite3.connect(self.db_path) as conn:
+            with self._write_connection(operation='update_trade_on_exit') as conn:
                 cursor = conn.cursor()
 
                 # 거래소·주문 ID·방향까지 사용해 동일 심볼의 다른 거래소/재진입을
@@ -4022,7 +4206,7 @@ class Recorder:
             log_event('trade', f"❌ 상세 오류: {traceback.format_exc()}", exchange=self.exchange, level='ERROR')
             # 폴백 시도
             try:
-                with sqlite3.connect(self.db_path) as conn:
+                with self._write_connection(operation='update_trade_on_exit') as conn:
                     cursor = conn.cursor()
                     cursor.execute(
                         """

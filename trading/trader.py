@@ -544,430 +544,50 @@ class Trader:
             return raw_pnl_percent  # 오류 시 원시 수익률 반환
 
     def _tp_sl_watchdog(self, symbol: str, position: Position, check_idx: int) -> bool:
-        """
-        실시간 모니터링 중 주기적으로 TP/SL 존재여부를 점검하고,
-        비정상(없거나 개수가 1:1이 아님)이면 즉시 복구한다.
-        """
-        try:
-            # 과도한 재설정 방지(디바운스) - 더 짧게 조정
-            st = self.tp_sl_watchdog_state.get(symbol, {"last_fix": 0, "checks": 0})
-            now = time.time()
-            if now - st.get("last_fix", 0) < 5:  # 최근 5초 내 조치했으면 skip (10초 → 5초)
-                self.log_event('monitor', f"[{symbol}] ⏳ TP/SL watchdog cool-down 중")
-                return True
-
-            # 🔥 Algo Order API로 생성된 TP/SL은 별도 조회 필요
-            open_orders = self.binance_client.client.futures_get_open_orders(symbol=symbol)
-            open_algo_orders = self.binance_client.get_open_algo_orders(symbol=symbol)
-            
-            # 🔥 주문 타입 필터링 통일: 검증 로직과 동일하게 처리
-            tp_orders = [o for o in open_orders if o.get('type') in ('TAKE_PROFIT', 'TAKE_PROFIT_MARKET')]
-            sl_orders = [o for o in open_orders if o.get('type') in ('STOP', 'STOP_MARKET')]
-            
-            # Algo Order에서 TP/SL 추가
-            for algo_order in open_algo_orders:
-                # 🔥 Binance Algo Order API는 'type' 대신 'orderType' 필드 사용
-                algo_type = (algo_order.get('orderType') or algo_order.get('type', '')).upper()
-                if algo_type in ('TAKE_PROFIT_MARKET', 'TAKE_PROFIT'):
-                    tp_orders.append(algo_order)
-                elif algo_type in ('STOP_MARKET', 'STOP'):
-                    sl_orders.append(algo_order)
-
-            if len(tp_orders) == 1 and len(sl_orders) == 1:
-                # 🔥 추가 검증: 주문 상태 확인 (Algo Order는 status가 없을 수 있음)
-                tp_order = tp_orders[0]
-                sl_order = sl_orders[0]
-                tp_status_ok = tp_order.get('status') in ('NEW', 'PENDING') or 'status' not in tp_order
-                sl_status_ok = sl_order.get('status') in ('NEW', 'PENDING') or 'status' not in sl_order
-                if tp_status_ok and sl_status_ok:
-                    self.log_event('order', f"[{symbol}] 🛡️ TP/SL watchdog OK (check#{check_idx}): TP 1, SL 1")
-                    st["checks"] = st.get("checks", 0) + 1
-                    self.tp_sl_watchdog_state[symbol] = st
-                    return True
-                else:
-                    self.log_event('order', f"[{symbol}] ⚠️ TP/SL watchdog: 주문 상태 이상 (TP:{tp_order.get('status', 'N/A')}, SL:{sl_order.get('status', 'N/A')})", level='WARNING')
-
-            # 비정상 → TP/SL만 선별 취소 후 재설정 (다른 주문 보호)
-            self.log_event('order', f"[{symbol}] ⚠️ TP/SL watchdog detected abnormal state (check#{check_idx}): TP={len(tp_orders)}, SL={len(sl_orders)} → 중복 주문 감지! 재설정 시도", level='WARNING')
-            try:
-                if open_orders:
-                    # 🔥 TP/SL만 선별 취소 (다른 주문 보호) - 문제 1 해결
-                    tp_sl_to_cancel = [o for o in open_orders if o.get('type') in ('TAKE_PROFIT', 'TAKE_PROFIT_MARKET', 'STOP', 'STOP_MARKET')]
-                    if tp_sl_to_cancel:
-                        for order in tp_sl_to_cancel:
-                            try:
-                                self.binance_client.client.futures_cancel_order(symbol=symbol, orderId=order['orderId'])
-                                self.log_event('order', f"[{symbol}] TP/SL watchdog: 기존 주문 취소 {order['orderId']} ({order.get('type')})")
-                            except Exception as e:
-                                self.log_event('order', f"[{symbol}] TP/SL 주문 취소 실패: {e}", level='WARNING')
-                        time.sleep(0.5)
-                    else:
-                        self.log_event('order', f"[{symbol}] TP/SL watchdog: 취소할 TP/SL 주문 없음")
-            except Exception as e:
-                self.log_event('order', f"[{symbol}] TP/SL 정리 실패(무시하고 재설정 진행): {e}", level='WARNING')
-
-            # 재설정 가격 계산 (position 저장값 우선, 없으면 설정값으로 계산)
-            try:
-                info = self.binance_client.get_symbol_info_direct(symbol) or {}
-                # 🔥 get_symbol_info_direct는 camelCase (pricePrecision)를 반환하므로 둘 다 시도
-                price_prec = int(info.get('pricePrecision') or info.get('price_precision') or 2)
-                # 저가 코인 보호
-                entry = float(position.entry_price)
-                if 0.001 <= entry <= 0.02:
-                    min_prec_needed = max(4, len(str(entry).split('.')[-1].rstrip('0')))
-                    if price_prec < min_prec_needed:
-                        price_prec = min_prec_needed
-            except Exception:
-                price_prec = 2
-                # 예외 시에도 진입가 기반 최소 정밀도 계산
-                try:
-                    entry = float(position.entry_price)
-                    if 0.001 <= entry <= 0.02:
-                        price_prec = max(4, len(str(entry).split('.')[-1].rstrip('0')))
-                except:
-                    pass
-
-            entry = float(position.entry_price)
-            
-            # 🔥 백업 TP/SL 계산 (동적 임계값보다 높게)
-            if position.tp_price is not None and position.sl_price is not None:
-                # 이미 백업 TP/SL이 설정되어 있으면 그대로 사용
-                tp_price = float(position.tp_price)
-                sl_price = float(position.sl_price)
-            else:
-                # 백업 TP/SL이 없으면 동적으로 계산 (백업용이므로 넓게)
-                try:
-                    # settings.json에서 백업 TP/SL 설정 읽기
-                    backup_cfg = self.settings.get('backup_tp_sl_settings', {})
-                    multipliers = backup_cfg.get('multipliers', {})
-                    safety_limits = backup_cfg.get('safety_limits', {})
-                    volatility_thresholds = backup_cfg.get('volatility_thresholds', {})
-                    
-                    # 기본값 (폴백)
-                    high_mult = float(multipliers.get('high_volatility', 3.0))
-                    medium_mult = float(multipliers.get('medium_volatility', 2.5))
-                    low_mult = float(multipliers.get('low_volatility', 2.0))
-                    tp_min = float(safety_limits.get('tp_min', 0.01))
-                    tp_max = float(safety_limits.get('tp_max', 0.05))
-                    sl_min = float(safety_limits.get('sl_min', 0.008))
-                    sl_max = float(safety_limits.get('sl_max', 0.03))
-                    high_threshold = float(volatility_thresholds.get('high', 0.02))
-                    medium_threshold = float(volatility_thresholds.get('medium', 0.01))
-                    
-                    # 동적 임계값 가져오기 (실시간 모니터링용)
-                    dynamic_thresholds = self._calculate_dynamic_thresholds(symbol)
-                    base_tp = dynamic_thresholds.get('profit_threshold', 0.0018)  # 소수 단위
-                    base_sl = dynamic_thresholds.get('loss_threshold', 0.002)    # 소수 단위
-                    
-                    # 시장 변동성 기반 백업 multiplier (settings.json에서 읽음)
-                    volatility = dynamic_thresholds.get('volatility', 0.01)
-                    if volatility > high_threshold:  # 높은 변동성
-                        backup_multiplier = high_mult
-                    elif volatility > medium_threshold:  # 중간 변동성
-                        backup_multiplier = medium_mult
-                    else:  # 낮은 변동성
-                        backup_multiplier = low_mult
-                    
-                    # 백업 TP/SL 계산 (동적 임계값보다 높게)
-                    backup_tp = base_tp * backup_multiplier
-                    backup_sl = base_sl * backup_multiplier
-                    
-                    # 안전 범위 제한 (settings.json에서 읽음)
-                    backup_tp = max(tp_min, min(backup_tp, tp_max))
-                    backup_sl = max(sl_min, min(backup_sl, sl_max))
-                    
-                    if position.side == PositionSide.LONG:
-                        tp_price = entry * (1 + backup_tp)
-                        sl_price = entry * (1 - backup_sl)
-                    else:
-                        tp_price = entry * (1 - backup_tp)
-                        sl_price = entry * (1 + backup_sl)
-                    
-                    self.log_event('order', f"[{symbol}] 🔧 watchdog 백업 TP/SL 계산: 동적임계값 TP={base_tp:.4f}, SL={base_sl:.4f} → 백업 TP={backup_tp:.4f}, SL={backup_sl:.4f} (multiplier={backup_multiplier:.1f}x, 설정: high={high_mult}x/{high_threshold:.2%}, medium={medium_mult}x/{medium_threshold:.2%}, low={low_mult}x)")
-                except Exception as e:
-                    # 폴백: 기본값 2배
-                    self.log_event('order', f"[{symbol}] ⚠️ watchdog 백업 TP/SL 계산 실패, 기본 2배 사용: {e}", level='WARNING')
-                    tp_pct = float(self.settings.get('default_tp', 0.0018)) * 2.0  # 기본값 2배
-                    sl_pct = float(self.settings.get('default_sl', 0.0020)) * 2.0
-                    if position.side == PositionSide.LONG:
-                        tp_price = entry * (1 + tp_pct)
-                        sl_price = entry * (1 - sl_pct)
-                    else:
-                        tp_price = entry * (1 - tp_pct)
-                        sl_price = entry * (1 + sl_pct)
-
-            # 틱/정밀도 스냅
-            tp_price = round(tp_price, price_prec)
-            sl_price = round(sl_price, price_prec)
-
-            qty = float(position.quantity)
-            position_side = 'LONG' if position.side == PositionSide.LONG else 'SHORT'
-
-            # 🔥 BinanceClient.place_tp_sl_orders() 사용 (Algo Order API 대응, v3.8.9.5+)
-            tp_sl_result = []
-            try:
-                # side 인자는 엔트리 관점: LONG이면 BUY, SHORT면 SELL
-                entry_side = 'BUY' if position_side == 'LONG' else 'SELL'
-                
-                # 🔥 BinanceClient.place_tp_sl_orders() 사용 (재시도 로직 포함)
-                for retry in range(3):  # 최대 3회 재시도
-                    try:
-                        self.log_event('order', f"[{symbol}] 🔄 TP/SL 주문 생성 시도 (재시도 {retry+1}/3): TP={tp_price:.8f}, SL={sl_price:.8f}")
-                        tp_order_result, sl_order_result = self._place_owned_binance_protection(
-                            symbol=symbol,
-                            position_side=position_side,
-                            take_profit=tp_price,
-                            stop_loss=sl_price,
-                            quantity=None,  # closePosition=True이므로 수량 불필요
-                            price_precision=price_prec
-                        )
-                        
-                        # 결과 파싱
-                        tp_order = tp_order_result.get('order', {}) if isinstance(tp_order_result, dict) else tp_order_result
-                        sl_order = sl_order_result.get('order', {}) if isinstance(sl_order_result, dict) else sl_order_result
-                        
-                        # 성공 여부 확인
-                        tp_success = self.binance_client.is_order_success(tp_order_result) if tp_order_result else False
-                        sl_success = self.binance_client.is_order_success(sl_order_result) if sl_order_result else False
-                        
-                        if tp_success and sl_success:
-                            # orderId 추출 (Algo Order는 algoId 사용)
-                            tp_order_id = tp_order_result.get('order_id') if isinstance(tp_order_result, dict) else None
-                            sl_order_id = sl_order_result.get('order_id') if isinstance(sl_order_result, dict) else None
-                            if not tp_order_id and isinstance(tp_order, dict):
-                                tp_order_id = tp_order.get('orderId') or tp_order.get('algoId')
-                            if not sl_order_id and isinstance(sl_order, dict):
-                                sl_order_id = sl_order.get('orderId') or sl_order.get('algoId')
-                            self.log_event('order', f"[{symbol}] ✅ TP/SL 주문 성공: TP={tp_order_id}, SL={sl_order_id}")
-                            tp_sl_result = [tp_order, sl_order]
-                            break
-                        else:
-                            error_msg = ""
-                            if not tp_success:
-                                error_msg += f"TP: {tp_order_result.get('error', 'Unknown')} "
-                            if not sl_success:
-                                error_msg += f"SL: {sl_order_result.get('error', 'Unknown')} "
-                            position_closed = any(
-                                isinstance(result, dict)
-                                and result.get("code") == "position_not_open"
-                                for result in (tp_order_result, sl_order_result)
-                            )
-                            if position_closed:
-                                self.log_event(
-                                    'order',
-                                    f"[{symbol}] ⚠️ 열린 포지션 미확인 - 불필요한 TP/SL 재시도 중단",
-                                    level='WARNING',
-                                )
-                                break
-                            self.log_event('order', f"[{symbol}] ❌ TP/SL 주문 실패 (재시도 {retry+1}/3): {error_msg}", level='ERROR')
-                            if retry < 2:
-                                time.sleep(1.0)  # 재시도 전 대기
-                    except Exception as e:
-                        self.log_event('order', f"[{symbol}] ❌ TP/SL 주문 생성 예외 (재시도 {retry+1}/3): {e}", level='ERROR')
-                        import traceback
-                        self.log_event('order', f"[{symbol}] 상세 오류: {traceback.format_exc()}", level='ERROR')
-                        if retry < 2:
-                            time.sleep(1.0)
-                
-                # 최종 결과 확인
-                if not tp_sl_result or len(tp_sl_result) < 2 or not tp_sl_result[0] or not tp_sl_result[1]:
-                    tp_sl_result = [None, None]
-            except Exception as e:
-                self.log_event('order', f"[{symbol}] ❌ TP/SL 주문 설정 실패: {e}", level='ERROR')
-                import traceback
-                self.log_event('order', f"[{symbol}] ❌ TP/SL 주문 상세 오류: {traceback.format_exc()}", level='ERROR')
-                tp_sl_result = [None, None]
-
-            # 🔥 재설정 후 즉시 재검증 (재시도 로직)
-            verification_passed = False
-            for verify_attempt in range(2):  # 최대 2회 재검증
-                wait_time = 1.0 + (verify_attempt * 0.5)  # 1초, 1.5초
-                time.sleep(wait_time)
-                
-                # 🔥 Algo Order API로 생성된 TP/SL은 별도 조회 필요
-                open_orders = self.binance_client.client.futures_get_open_orders(symbol=symbol)
-                open_algo_orders = self.binance_client.get_open_algo_orders(symbol=symbol)
-                
-                tp_orders = [o for o in open_orders if o.get('type') in ('TAKE_PROFIT', 'TAKE_PROFIT_MARKET')]
-                sl_orders = [o for o in open_orders if o.get('type') in ('STOP', 'STOP_MARKET')]
-                
-                # Algo Order에서 TP/SL 추가
-                for algo_order in open_algo_orders:
-                    # 🔥 Binance Algo Order API는 'type' 대신 'orderType' 필드 사용
-                    algo_type = (algo_order.get('orderType') or algo_order.get('type', '')).upper()
-                    if algo_type in ('TAKE_PROFIT_MARKET', 'TAKE_PROFIT'):
-                        tp_orders.append(algo_order)
-                    elif algo_type in ('STOP_MARKET', 'STOP'):
-                        sl_orders.append(algo_order)
-
-                if len(tp_orders) == 1 and len(sl_orders) == 1:
-                    # 추가 검증: 주문 상태 확인 (Algo Order는 status가 없을 수 있음)
-                    tp_order = tp_orders[0]
-                    sl_order = sl_orders[0]
-                    tp_status_ok = tp_order.get('status') in ('NEW', 'PENDING') or 'status' not in tp_order
-                    sl_status_ok = sl_order.get('status') in ('NEW', 'PENDING') or 'status' not in sl_order
-                    if tp_status_ok and sl_status_ok:
-                        self.log_event('order', f"[{symbol}] ✅ TP/SL watchdog 복구 완료 (TP:{tp_orders[0].get('stopPrice', tp_orders[0].get('triggerPrice', '?'))}, SL:{sl_orders[0].get('stopPrice', sl_orders[0].get('triggerPrice', '?'))}) [검증 시도 {verify_attempt+1}/2]")
-                        st["last_fix"] = now
-                        st["checks"] = st.get("checks", 0) + 1
-                        self.tp_sl_watchdog_state[symbol] = st
-                        # 🔥 상태 변경 시 파일 백업 시도
-                        self._save_tp_sl_watchdog_backup()
-                        # position에도 저장(다음에 계산 없이 재사용)
-                        position.tp_price = tp_price
-                        position.sl_price = sl_price
-                        verification_passed = True
-                        break
-            
-            if not verification_passed:
-                self.log_event('order', f"[{symbol}] ❌ TP/SL watchdog 복구 실패: TP={len(tp_orders)}, SL={len(sl_orders)}", level='ERROR')
-                st["last_fix"] = now
-                self.tp_sl_watchdog_state[symbol] = st
-                # 🔥 상태 변경 시 파일 백업 시도
-                self._save_tp_sl_watchdog_backup()
-                return False
-            
-            return True
-
-        except Exception as e:
-            self.log_event('order', f"[{symbol}] TP/SL watchdog 오류: {e}", level='ERROR')
+        """Bounded read-before-repair verification; preserve external orders."""
+        if self._execution_mode() != ExecutionMode.LIVE:
             return False
-
-    def _start_monitoring(self, symbol: str, position: Position, manual: bool = False):
-        """모니터링 시작 헬퍼 함수 (심볼별 개별 관리)"""
+        from trading.protection_snapshot import assess_protection, positive
+        states = getattr(self, 'tp_sl_watchdog_state', {})
+        self.tp_sl_watchdog_state = states
+        now = time.monotonic()
+        previous = states.get(symbol, {})
+        if now - previous.get('checked_monotonic', -float('inf')) < 20:
+            return getattr(position, 'protection_status', '') == 'verified'
+        states[symbol] = {**previous, 'checked_monotonic': now}
         try:
-            self.log_event('monitor', f"[{symbol}] 🔍 모니터링 시작 시도 - position: {position.symbol if position else 'None'}")
-            # 안전망: 모니터링 시작 시점에도 WebSocket 구독 보장
-            try:
-                self._ensure_ws_subscriptions(symbol)
-            except Exception:
-                pass
-
-            # 심볼별 개별 모니터링 플래그 설정
-            if symbol not in self.monitoring_flags:
-                self.monitoring_flags[symbol] = threading.Event()
-
-            # 🔥 모니터링 시작 전 플래그 명확히 클리어
-            self.monitoring_flags[symbol].clear()
-            self.log_event('monitor', f"[{symbol}] 🔧 모니터링 플래그 클리어 완료")
-
-            monitoring_thread = threading.Thread(
-                target=self.start_realtime_monitoring,
-                args=(symbol, position),
-                daemon=True
-            )
-            monitoring_thread.start()
-
-            # 스레드 핸들 저장 (깔끔한 종료를 위해)
-            self.monitoring_threads[symbol] = monitoring_thread
-
-            mode_text = " (수동 모니터링)" if manual else ""
-            self.log_event('monitor', f"[{symbol}] 실시간 모니터링 스레드 시작됨{mode_text}")
-            self.log_event('monitor', f"[{symbol}] ✅ 모니터링 스레드 시작 완료{mode_text}")
-
-            # 🔥 모니터링 시작 후 거래 플래그 해제 (다른 코인 거래 허용)
-            self._reset_trade_flag(symbol)
-
-        except Exception as e:
-            self.log_event('monitor', f"[{symbol}] ❌ 모니터링 시작 실패: {e}", level='ERROR')
-
-    def _is_dual_side(self):
-        """포지션 모드 감지 (헤지/원웨이)"""
-        try:
-            r = self.binance_client.client.futures_get_position_mode()
-            # {'dualSidePosition': True/False}
-            return bool(r.get('dualSidePosition'))
-        except Exception:
-            return True  # 기본적으로 헤지모드 가정
+            orders = list(self.binance_client.client.futures_get_open_orders(symbol=symbol))
+            orders += list(self.binance_client.get_open_algo_orders(symbol=symbol, strict=True))
+            state = assess_protection(orders, symbol=symbol, position_side=position.side.value,
+                                      quantity=position.quantity)
+            position.protection_status = state['status']
+            if state['status'] == 'verified':
+                return True
+            if orders or getattr(position, 'position_owner', None) != NOAH_POSITION_OWNER:
+                self.log_event('monitor', f'[{symbol}] 보호주문 일부 미확인/충돌 · 기존 주문 보존, 자동 재발주 보류', level='WARNING')
+                return False
+            tp, sl = positive(position.tp_price), positive(position.sl_price)
+            if not tp or not sl:
+                self.log_event('monitor', f'[{symbol}] 보호 가격 근거 없음 · 기본값 재발주 금지', level='WARNING')
+                return False
+            self._place_owned_binance_protection(entry_order_id=position.entry_order_id,
+                symbol=symbol, position_side=position.side.value, take_profit=tp, stop_loss=sl,
+                quantity=None)
+            position.protection_status = 'submitted_unverified'
+            self.log_event('monitor', f'[{symbol}] 보호주문 재접수 시도 · 다음 조회에서 확인', level='WARNING')
+            return False
+        except Exception as exc:
+            position.protection_status = 'query_failed'
+            self.log_event('monitor', f'[{symbol}] 보호주문 조회 실패 · 기존 주문 유지, 재발주하지 않음 ({type(exc).__name__})', level='WARNING')
+            return False
 
     def _retry_tp_sl_setup(self, symbol: str, side: str, tp_price: float, sl_price: float, price_prec: int):
-        """TP/SL 재설정 (검증 실패 시 호출) - 원자성 보장 강화"""
-        try:
-            self.logger.info(f"[{symbol}] 🔄 TP/SL 재설정 시작...")
-            tp_order_id = None
-            sl_order_id = None
-
-            # 🔥 TP/SL만 선별 취소 (다른 주문은 유지)
-            try:
-                open_orders = self.binance_client.client.futures_get_open_orders(symbol=symbol)
-                tp_sl_to_cancel = [o for o in open_orders if o.get('type') in ('TAKE_PROFIT', 'TAKE_PROFIT_MARKET', 'STOP', 'STOP_MARKET')]
-                
-                if tp_sl_to_cancel:
-                    for order in tp_sl_to_cancel:
-                        try:
-                            self.binance_client.client.futures_cancel_order(symbol=symbol, orderId=order['orderId'])
-                            self.logger.info(f"[{symbol}] 기존 TP/SL 주문 취소: {order['orderId']} ({order.get('type')})")
-                        except Exception as e:
-                            self.logger.warning(f"[{symbol}] TP/SL 주문 취소 실패: {e}")
-                    time.sleep(1.0)
-                else:
-                    self.logger.info(f"[{symbol}] 취소할 TP/SL 주문 없음")
-            except Exception as e:
-                self.logger.warning(f"[{symbol}] TP/SL 주문 조회 실패: {e}")
-                # 폴백: 전체 취소 (최후의 수단)
-                try:
-                    self.binance_client.cancel_all_orders(symbol)
-                    time.sleep(1.0)
-                except:
-                    pass
-
-            position_side = 'LONG' if side == 'BUY' else 'SHORT'
-
-            # 🔥 BinanceClient.place_tp_sl_orders() 사용 (Algo Order API 대응, v3.8.9.5+)
-            try:
-                tp_order_result, sl_order_result = self._place_owned_binance_protection(
-                    symbol=symbol,
-                    position_side=position_side,
-                    take_profit=tp_price,
-                    stop_loss=sl_price,
-                    quantity=None,  # closePosition=True이므로 수량 불필요
-                    price_precision=price_prec
-                )
-                
-                # 결과 파싱
-                tp_order = tp_order_result.get('order', {}) if isinstance(tp_order_result, dict) else tp_order_result
-                sl_order = sl_order_result.get('order', {}) if isinstance(sl_order_result, dict) else sl_order_result
-                
-                # 성공 여부 확인
-                tp_success = self.binance_client.is_order_success(tp_order_result) if tp_order_result else False
-                sl_success = self.binance_client.is_order_success(sl_order_result) if sl_order_result else False
-                
-                if tp_success and sl_success:
-                    # orderId 추출 (Algo Order는 algoId 사용)
-                    tp_order_id = tp_order_result.get('order_id') if isinstance(tp_order_result, dict) else None
-                    sl_order_id = sl_order_result.get('order_id') if isinstance(sl_order_result, dict) else None
-                    if not tp_order_id and isinstance(tp_order, dict):
-                        tp_order_id = tp_order.get('orderId') or tp_order.get('algoId')
-                    if not sl_order_id and isinstance(sl_order, dict):
-                        sl_order_id = sl_order.get('orderId') or sl_order.get('algoId')
-                    self.logger.info(f"[{symbol}] ✅ TP/SL 재설정 완료 (TP:{tp_order_id}, SL:{sl_order_id})")
-                    return True
-                else:
-                    error_msg = ""
-                    if not tp_success:
-                        error_msg += f"TP: {tp_order_result.get('error', 'Unknown')} "
-                    if not sl_success:
-                        error_msg += f"SL: {sl_order_result.get('error', 'Unknown')} "
-                    raise Exception(f"TP/SL 주문 생성 실패: {error_msg}")
-
-            except Exception as create_e:
-                self.logger.error(f"[{symbol}] ❌ TP/SL 재설정 중 주문 생성 실패: {create_e}")
-                import traceback
-                self.logger.error(f"[{symbol}] 상세 오류: {traceback.format_exc()}")
-                # 🔥 원자성 보장: 부분 생성된 주문이 있으면 최후 방어로 취소 시도
-                for rollback_id, label in ((tp_order_id, "TP"), (sl_order_id, "SL")):
-                    if not rollback_id:
-                        continue
-                    try:
-                        self.binance_client.client.futures_cancel_order(symbol=symbol, orderId=rollback_id)
-                        self.logger.info(f"[{symbol}] {label} 주문 롤백 완료: {rollback_id}")
-                    except Exception as cancel_e:
-                        self.logger.warning(f"[{symbol}] {label} 주문 롤백 실패: {cancel_e}")
-                return False
-
-        except Exception as e:
-            self.logger.error(f"[{symbol}] ❌ TP/SL 재설정 실패: {e}")
+        """Only repair an owned position using its recorded exit policy."""
+        position = self.active_positions.get(symbol)
+        if position is None:
+            self.log_event('monitor', f'[{symbol}] 보호주문 재확인 대기 · 진입 원장/포지션 연결 후 watchdog가 확인합니다', level='WARNING')
             return False
+        return self._tp_sl_watchdog(symbol, position, 0)
 
     def _tp_sl_order_params(self, side, tp_price, sl_price, price_prec, quantity=None):
         """
@@ -1321,6 +941,8 @@ class Trader:
                 order_id=str(order_id) if order_id is not None else None,
                 model_version=model_version,
                 strategy_variant=strategy_variant,
+                strategy_key=getattr(self.active_positions.get(symbol), 'custom_strategy_key', None),
+                strategy_version_id=getattr(self.active_positions.get(symbol), 'custom_strategy_version_id', None),
                 fee_asset=fee_asset,
                 fee_source=fee_source,
                 position_owner=NOAH_POSITION_OWNER,
@@ -1730,6 +1352,8 @@ class Trader:
                     confirmations=confirmations,
                     min_dwell_seconds=min_dwell,
                 )
+                from trading.runtime_observability import emit_regime_observation
+                emit_regime_observation(self, 'binance', observed_regime, current_regime, regime_changed)
 
                 # 🔥 시간 업데이트 플래그: 재선택 실행/연기 여부에 따라 결정
                 should_update_time = False
@@ -4663,178 +4287,25 @@ class Trader:
                     if tp_sl_result and tp_sl_result[0] and tp_sl_result[1]:
                         self.logger.info(f"[{symbol}] TP/SL 주문 API 호출 완료 (TP:{tp_price:.8f}, SL:{sl_price:.8f}) - 검증 대기 중...")
 
-                        # 🔥 TP/SL 사후 검증 강화: 재시도 로직으로 개선
+                        # One evidence contract for initial verification and watchdog.
+                        from trading.protection_snapshot import assess_protection
                         try:
-                            # 재시도 로직: 최대 3회, 각 시도마다 대기 시간 증가
-                            verification_passed = False
                             for verify_attempt in range(3):
-                                wait_time = 2.0 + (verify_attempt * 1.0)  # 2초, 3초, 4초
-                                time.sleep(wait_time)
-                                
-                                # 🔥 Algo Order API로 생성된 TP/SL은 별도 조회 필요
+                                time.sleep(2.0 + verify_attempt)
                                 open_orders = self.binance_client.client.futures_get_open_orders(symbol=symbol)
-                                open_algo_orders = self.binance_client.get_open_algo_orders(symbol=symbol)
-                                
-                                # 일반 주문에서 TP/SL 필터링
-                                tp_orders = [o for o in open_orders if o.get('type') in ('TAKE_PROFIT', 'TAKE_PROFIT_MARKET')]
-                                sl_orders = [o for o in open_orders if o.get('type') in ('STOP', 'STOP_MARKET')]
-                                
-                                # Algo Order에서 TP/SL 필터링 (orderType 필드 확인)
-                                for algo_order in open_algo_orders:
-                                    # 🔥 Binance Algo Order API는 'type' 대신 'orderType' 필드 사용
-                                    algo_type = (algo_order.get('orderType') or algo_order.get('type', '')).upper()
-                                    if algo_type in ('TAKE_PROFIT_MARKET', 'TAKE_PROFIT'):
-                                        tp_orders.append(algo_order)
-                                    elif algo_type in ('STOP_MARKET', 'STOP'):
-                                        sl_orders.append(algo_order)
-                                
-                                other_orders = [o for o in open_orders if o.get('type') not in ('TAKE_PROFIT', 'TAKE_PROFIT_MARKET', 'STOP', 'STOP_MARKET')]
-
-                                # 🔥 엄격한 검증: 정확히 1:1 + 모든 옵션 확인
-                                if len(tp_orders) == 1 and len(sl_orders) == 1:
-                                    # 각 주문의 상세 옵션 검증
-                                    tp_order = tp_orders[0]
-                                    sl_order = sl_orders[0]
-
-                                    # 필수 옵션 검증 (Algo Order는 status가 없거나 PENDING일 수 있음)
-                                    # Algo Order는 'status' 필드가 없을 수 있으므로 유연하게 처리
-                                    tp_status_ok = tp_order.get('status') in ('NEW', 'PENDING') or 'status' not in tp_order
-                                    sl_status_ok = sl_order.get('status') in ('NEW', 'PENDING') or 'status' not in sl_order
-                                    
-                                    # workingType은 Algo Order에서 다를 수 있으므로 유연하게 처리
-                                    tp_working_type_ok = tp_order.get('workingType') == 'MARK_PRICE' or 'workingType' not in tp_order
-                                    sl_working_type_ok = sl_order.get('workingType') == 'MARK_PRICE' or 'workingType' not in sl_order
-                                    
-                                    tp_valid = tp_status_ok and tp_working_type_ok
-                                    sl_valid = sl_status_ok and sl_working_type_ok
-
-                                    if tp_valid and sl_valid:
-                                        self.logger.info(f"[{symbol}] ✅ TP/SL 완벽 설정 완료 - 검증 통과 (TP:{tp_price:.5f}, SL:{sl_price:.5f}) [시도 {verify_attempt+1}/3]")
-                                        tp_sl_verified = True
-                                        verification_passed = True
-                                        break  # 검증 성공 시 루프 종료
-                                    else:
-                                        self.logger.warning(f"[{symbol}] ⚠️ TP/SL 옵션 검증 실패 (시도 {verify_attempt+1}/3): TP_valid={tp_valid}, SL_valid={sl_valid}")
-                                else:
-                                    self.logger.warning(f"[{symbol}] ⚠️ TP/SL 수량 검증 실패 (시도 {verify_attempt+1}/3): TP {len(tp_orders)}개, SL {len(sl_orders)}개 (정확히 1:1 필요)")
-                            
-                            # 모든 재시도 실패 시 재설정 시도
-                            if not verification_passed:
-                                self.logger.warning(f"[{symbol}] ⚠️ TP/SL 검증 실패 (3회 시도 후) - 재설정 시도")
-                                retry_success = self._retry_tp_sl_setup(symbol, side, tp_price, sl_price, price_prec)
-                                if retry_success:
-                                    # 재설정 후 재검증 (1회)
-                                    time.sleep(2.0)
-                                    open_orders_retry = self.binance_client.client.futures_get_open_orders(symbol=symbol)
-                                    open_algo_orders_retry = self.binance_client.get_open_algo_orders(symbol=symbol)
-                                    
-                                    tp_orders_retry = [o for o in open_orders_retry if o.get('type') in ('TAKE_PROFIT', 'TAKE_PROFIT_MARKET')]
-                                    sl_orders_retry = [o for o in open_orders_retry if o.get('type') in ('STOP', 'STOP_MARKET')]
-                                    
-                                    # Algo Order에서도 TP/SL 추가
-                                    for algo_order in open_algo_orders_retry:
-                                        # 🔥 Binance Algo Order API는 'type' 대신 'orderType' 필드 사용
-                                        algo_type = (algo_order.get('orderType') or algo_order.get('type', '')).upper()
-                                        if algo_type in ('TAKE_PROFIT_MARKET', 'TAKE_PROFIT'):
-                                            tp_orders_retry.append(algo_order)
-                                        elif algo_type in ('STOP_MARKET', 'STOP'):
-                                            sl_orders_retry.append(algo_order)
-                                    if len(tp_orders_retry) == 1 and len(sl_orders_retry) == 1:
-                                        tp_sl_verified = True
-                                        self.logger.info(f"[{symbol}] ✅ TP/SL 재설정 후 검증 통과")
-                                    else:
-                                        self.logger.warning(f"[{symbol}] ⚠️ TP/SL 재설정 후 검증 실패: TP {len(tp_orders_retry)}개, SL {len(sl_orders_retry)}개")
-
-                            # 기타 주문이 있으면 정리
-                            if len(other_orders) > 0:
-                                self.logger.warning(f"""
-                                [{symbol}] ⚠️ 기타 주문 발견:
-                                - TP 주문: {len(tp_orders)}개 {[o.get('stopPrice', 'N/A') for o in tp_orders]}
-                                - SL 주문: {len(sl_orders)}개 {[o.get('stopPrice', 'N/A') for o in sl_orders]}
-                                - 기타 주문: {len(other_orders)}개
-                                """)
-                                # 🚧 안전 조치: 기타 주문 존재 시 전체 취소 후 TP/SL 재설정 시도
-                                try:
-                                    if len(other_orders) > 0:
-                                        self.logger.info(f"[{symbol}] 🔄 비정상 주문 정리 후 TP/SL 재설정 시도")
-                                        # 기타 주문만 선별 취소
-                                        try:
-                                            open_orders2 = self.binance_client.client.futures_get_open_orders(symbol=symbol)
-                                            others2 = [o for o in open_orders2 if o.get('type') not in ('TAKE_PROFIT','TAKE_PROFIT_MARKET','STOP','STOP_MARKET')]
-                                            if others2:
-                                                if hasattr(self.binance_client, 'cancel_orders'):
-                                                    self.binance_client.cancel_orders(symbol, [o['orderId'] for o in others2])
-                                                else:
-                                                    self.binance_client.cancel_all_orders(symbol)
-                                        except Exception:
-                                            pass
-                                        time.sleep(0.5)
-                                        # 재설정 - 기존 TP/SL 취소 후 새로 생성
-                                        self.logger.info(f"[{symbol}] 🔄 기존 TP/SL 취소 후 재설정 시작")
-                                        try:
-                                            # 🔥 TP/SL만 선별 취소 (다른 주문은 유지)
-                                            open_orders_before = self.binance_client.client.futures_get_open_orders(symbol=symbol)
-                                            tp_sl_to_cancel = [o for o in open_orders_before if o.get('type') in ('TAKE_PROFIT', 'TAKE_PROFIT_MARKET', 'STOP', 'STOP_MARKET')]
-                                            
-                                            if tp_sl_to_cancel:
-                                                for order in tp_sl_to_cancel:
-                                                    try:
-                                                        self.binance_client.client.futures_cancel_order(symbol=symbol, orderId=order['orderId'])
-                                                        self.logger.info(f"[{symbol}] 기존 TP/SL 주문 취소: {order['orderId']} ({order.get('type')})")
-                                                    except Exception as e:
-                                                        self.logger.warning(f"[{symbol}] TP/SL 주문 취소 실패: {e}")
-                                                time.sleep(0.5)
-                                            else:
-                                                self.logger.info(f"[{symbol}] 취소할 TP/SL 주문 없음")
-                                        except Exception as e:
-                                            self.logger.warning(f"[{symbol}] 기존 주문 취소 실패: {e}")
-
-                                        # TP/SL 재설정 직접 실행 (BinanceClient.place_tp_sl_orders() 사용, v3.8.9.5+)
-                                        tp_reset = []
-                                        try:
-                                                # 🔥 BinanceClient.place_tp_sl_orders() 사용 (Algo Order API 대응)
-                                                tp_order_result, sl_order_result = self._place_owned_binance_protection(
-                                                    entry_order_id=order_result.get('order_id'),
-                                                    symbol=symbol,
-                                                    position_side=position_side,
-                                                    take_profit=tp_price,
-                                                    stop_loss=sl_price,
-                                                    quantity=None,  # closePosition=True이므로 수량 불필요
-                                                    price_precision=price_prec
-                                                )
-                                                
-                                                # 결과 파싱
-                                                tp_order = tp_order_result.get('order', {}) if isinstance(tp_order_result, dict) else tp_order_result
-                                                sl_order = sl_order_result.get('order', {}) if isinstance(sl_order_result, dict) else sl_order_result
-                                                
-                                                if tp_order and sl_order:
-                                                    tp_reset = [tp_order, sl_order]
-                                                else:
-                                                    tp_reset = [None, None]
-                                                    if not tp_order:
-                                                        self.logger.error(f"[{symbol}] TP 재설정 실패: {tp_order_result}")
-                                                    if not sl_order:
-                                                        self.logger.error(f"[{symbol}] SL 재설정 실패: {sl_order_result}")
-                                        except Exception as e:
-                                                self.logger.error(f"[{symbol}] TP/SL 재설정 실패: {e}")
-                                                import traceback
-                                                self.logger.error(f"[{symbol}] TP/SL 재설정 상세 오류: {traceback.format_exc()}")
-                                                tp_reset = [None, None]
-                                        # 재설정 결과 확인
-                                        if tp_reset and tp_reset[0] and tp_reset[1]:
-                                            self.logger.info(f"[{symbol}] ✅ TP/SL 재설정 성공")
-                                            tp_sl_verified = True
-                                        else:
-                                            self.logger.warning(f"[{symbol}] ⚠️ TP/SL 재설정 실패: {tp_reset}")
-                                    else:
-                                        pass
-                                except Exception as e:
-                                    self.logger.warning(f"[{symbol}] TP/SL 재설정 중 오류: {e}")
-                                # 유지: 초기값 False에서만 갱신
-
-                        except Exception as e:
-                            self.logger.warning(f"[{symbol}] TP/SL 사후 검증 중 오류: {e}")
-                            # 유지: 초기값 False에서만 갱신
+                                algo_orders = self.binance_client.get_open_algo_orders(symbol=symbol, strict=True)
+                                evidence = assess_protection(
+                                    list(open_orders) + list(algo_orders), symbol=symbol,
+                                    position_side=position_side, quantity=quantity,
+                                    expected_ids={'tp': tp_order_id, 'sl': sl_order_id})
+                                if evidence['status'] == 'verified':
+                                    tp_sl_verified = True
+                                    self.log_event('order', f'[{symbol}] TP/SL 거래소 확인 완료 · 소유 주문 ID 대조')
+                                    break
+                            if not tp_sl_verified:
+                                self.log_event('order', f'[{symbol}] 보호주문 확인 대기 · 기존 주문 보존, watchdog 재확인', level='WARNING')
+                        except Exception as exc:
+                            self.log_event('order', f'[{symbol}] 보호주문 조회 실패 · 생성 실패로 단정하지 않음 ({type(exc).__name__})', level='WARNING')
 
                         # 🔍 모듈화 전환 준비: TpSlManager 기반의 비파괴적 상태 점검 결과를 함께 로그로 남김 (동작에는 영향 X)
                         try:
@@ -4859,7 +4330,7 @@ class Trader:
                                 # 일반 주문 조회
                                 open_orders = self.binance_client.client.futures_get_open_orders(symbol=symbol)
                                 # Algo Order 조회
-                                open_algo_orders = self.binance_client.get_open_algo_orders(symbol=symbol)
+                                open_algo_orders = self.binance_client.get_open_algo_orders(symbol=symbol, strict=True)
                                 
                                 # TP/SL 주문 필터링
                                 tp_orders_actual = [o for o in open_orders if o.get('type') in ('TAKE_PROFIT', 'TAKE_PROFIT_MARKET')]
@@ -5046,21 +4517,26 @@ class Trader:
                             # 🔥 실제 주문 존재 확인 및 내부 상태 동기화
                             try:
                                 time.sleep(0.5)  # 주문 처리 대기
+                                from trading.protection_snapshot import assess_protection
                                 open_orders = self.binance_client.client.futures_get_open_orders(symbol=symbol)
-                                tp_orders = [o for o in open_orders if o.get('type') in ('TAKE_PROFIT', 'TAKE_PROFIT_MARKET')]
-                                sl_orders = [o for o in open_orders if o.get('type') in ('STOP', 'STOP_MARKET')]
-
-                                if tp_orders and sl_orders:
-                                    position.tp_price = float(tp_orders[0]['stopPrice'])
-                                    position.sl_price = float(sl_orders[0]['stopPrice'])
+                                algo_orders = self.binance_client.get_open_algo_orders(symbol=symbol, strict=True)
+                                protection = assess_protection(
+                                    list(open_orders) + list(algo_orders), symbol=symbol,
+                                    position_side=position.side.value, quantity=position.quantity,
+                                    expected_ids={'tp': tp_order_id, 'sl': sl_order_id})
+                                position.protection_status = protection['status']
+                                if protection['status'] == 'verified':
+                                    position.tp_price = protection['tp'][0]['price']
+                                    position.sl_price = protection['sl'][0]['price']
                                     self.log_event('monitor', f"[{symbol}] ✅ TP/SL 실제 주문 확인: TP={position.tp_price:.5f}, SL={position.sl_price:.5f}")
 
                                     # 대시보드 강제 리프레시
                                     if hasattr(self.dashboard, 'update_status_display'):
                                         self.dashboard.update_status_display(force_refresh=True)
                                 else:
-                                    self.log_event('monitor', f"[{symbol}] ⚠️ TP/SL 주문이 실제로 생성되지 않음", level='WARNING')
+                                    self.log_event('monitor', f"[{symbol}] ⚠️ TP/SL 보호 확인 필요: {protection['status']} · TP {len(protection['tp'])} / SL {len(protection['sl'])}", level='WARNING')
                             except Exception as e:
+                                position.protection_status = 'query_failed'
                                 self.log_event('monitor', f"[{symbol}] ⚠️ TP/SL 주문 확인 중 오류: {e}", level='WARNING')
                         else:
                             self.log_event('monitor', f"[{symbol}] ⚠️ TP/SL 검증 실패했지만 모니터링 시작", level='WARNING')
@@ -7978,10 +7454,9 @@ class Trader:
                     self.log_event('system', f"[{symbol}] ✅ TP/SL 정상 설정됨 - 포지션은 TP/SL 체결까지 유지 (정상 동작)")
                 # TP/SL이 있으면 체결 대기/폴백 타임아웃 후 시장가 강제청산 로직도 가능
 
-            # 열린 오더도 모두 취소
-            self.log_event('system', "🔄 열린 오더 취소 시작...")
-            self.cancel_all_open_orders()
-            self.log_event('system', "✅ 포지션/오더 정리 완료")
+            # Still-open positions retain their protection. Closed positions
+            # are cleaned up by close_position; never cancel every symbol here.
+            self.log_event('system', "✅ 정지 점검 완료 · 미청산 포지션 보호주문 유지")
 
         except Exception as e:
             self.log_event('system', f"❌ 포지션/오더 정리 실패: {e}", level='ERROR')
@@ -7989,26 +7464,19 @@ class Trader:
             self.log_event('system', f"❌ 포지션/오더 정리 실패 상세: {traceback.format_exc()}", level='ERROR')
 
     def _has_attached_tp_sl(self, symbol: str) -> bool:
-        """TP/SL이 연결되어 있는지 확인 (Algo Order 포함)"""
+        """Verify both protective legs, including Algo orders, without mutation."""
+        from trading.protection_snapshot import assess_protection
         try:
-            # 일반 주문 조회
-            open_orders = self.binance_client.client.futures_get_open_orders(symbol=symbol)
-            tp_orders = [o for o in open_orders if o.get('type') in ('TAKE_PROFIT', 'TAKE_PROFIT_MARKET')]
-            sl_orders = [o for o in open_orders if o.get('type') in ('STOP', 'STOP_MARKET')]
-            
-            # Algo Order 조회 추가
-            open_algo_orders = self.binance_client.get_open_algo_orders(symbol=symbol)
-            for algo_order in open_algo_orders:
-                # 🔥 Binance Algo Order API는 'type' 대신 'orderType' 필드 사용
-                algo_type = (algo_order.get('orderType') or algo_order.get('type', '')).upper()
-                if algo_type in ('TAKE_PROFIT_MARKET', 'TAKE_PROFIT'):
-                    tp_orders.append(algo_order)
-                elif algo_type in ('STOP_MARKET', 'STOP'):
-                    sl_orders.append(algo_order)
-            
-            return len(tp_orders) > 0 and len(sl_orders) > 0
-        except Exception:
-            return False
+            position = self.active_positions.get(symbol)
+            if position is None:
+                return False
+            orders = list(self.binance_client.client.futures_get_open_orders(symbol=symbol))
+            orders += list(self.binance_client.get_open_algo_orders(symbol=symbol, strict=True))
+            state = assess_protection(orders, symbol=symbol, position_side=position.side.value,
+                                      quantity=position.quantity)
+            return state['status'] == 'verified'
+        except Exception as exc:
+            raise RuntimeError('protection_query_failed') from exc
 
     def _close_position_market(self, symbol: str):
         """시장가로 포지션 청산"""

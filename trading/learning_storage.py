@@ -20,10 +20,14 @@ from pathlib import Path
 
 from trading.event_contract import canonical_json
 
+_EVIDENCE_CODEC = b'NOAH-XAI-2\x00'
+
 
 def iter_legacy(path: Path):
-    if path.name.endswith('.jsonl'):
-        with path.open(encoding='utf-8') as handle:
+    opener = gzip.open if path.name.endswith('.gz') else open
+    name = path.name.removesuffix('.gz')
+    if name.endswith('.jsonl'):
+        with opener(path, 'rt', encoding='utf-8') as handle:
             for line in handle:
                 if line.strip():
                     value = json.loads(line)  # damaged input is reported, never silently skipped
@@ -31,7 +35,7 @@ def iter_legacy(path: Path):
                     yield value
         return
     decoder = json.JSONDecoder()
-    with path.open(encoding='utf-8-sig') as handle:
+    with opener(path, 'rt', encoding='utf-8-sig') as handle:
         buffer = ''; started = False; ended = False
         expect_value = True; allow_end = True
         while True:
@@ -117,7 +121,7 @@ class LearningStore:
             if isinstance(value, (dict, list)) or (isinstance(value,str) and len(value)>256):
                 body = canonical_json(value)
                 digest = hashlib.sha256(body.encode()).hexdigest()
-                conn.execute('INSERT OR IGNORE INTO evidence VALUES (?,?)', (digest, body))
+                self._put_evidence(value, conn)
                 references[key] = digest
             else: compact[key] = value
         compact['_xai_refs'] = references
@@ -133,11 +137,85 @@ class LearningStore:
     def expand(self, compact, conn):
         value = dict(compact)
         for key, digest in value.pop('_xai_refs', {}).items():
-            row = conn.execute('SELECT body FROM evidence WHERE hash=?', (digest,)).fetchone()
-            if not row or hashlib.sha256(row[0].encode()).hexdigest() != digest:
-                raise ValueError('learning_evidence_missing_or_corrupt')
-            value[key] = json.loads(row[0])
+            value[key] = self._get_evidence(digest, conn)
         return value
+
+    def _put_evidence(self, value, conn):
+        body = canonical_json(value)
+        digest = hashlib.sha256(body.encode()).hexdigest()
+        if not conn.execute('SELECT 1 FROM evidence WHERE hash=?', (digest,)).fetchone():
+            conn.execute('INSERT OR IGNORE INTO evidence VALUES (?,?)',
+                         (digest, self._encode_evidence(value, conn)))
+        return digest
+
+    def _encode_evidence(self, value, conn):
+        body = canonical_json(value)
+        if len(body.encode()) < 1024:
+            return body  # Retain legacy small-object format and avoid gzip overhead.
+        def child(item):
+            if isinstance(item, (dict, list, str)) and len(canonical_json(item).encode()) >= 1024:
+                return ['ref', self._put_evidence(item, conn)]
+            return ['value', item]
+        if isinstance(value, dict):
+            tree = ['dict', [[k, child(v)] for k,v in value.items()]]
+        elif isinstance(value, list):
+            tree = ['list', [child(v) for v in value]]
+        else:
+            tree = ['value', value]
+        return _EVIDENCE_CODEC + gzip.compress(canonical_json(tree).encode(), compresslevel=6, mtime=0)
+
+    def _get_evidence(self, digest, conn, visiting=None):
+        visiting = set() if visiting is None else visiting
+        if digest in visiting or len(visiting) > 100:
+            raise ValueError('learning_evidence_cycle')
+        row = conn.execute('SELECT body FROM evidence WHERE hash=?', (digest,)).fetchone()
+        if not row:
+            raise ValueError('learning_evidence_missing_or_corrupt')
+        body = row[0]
+        try:
+            if isinstance(body, bytes):
+                if not body.startswith(_EVIDENCE_CODEC): raise ValueError('unknown_codec')
+                visiting.add(digest)
+                def decode(node):
+                    kind, item = node
+                    if kind == 'value': return item
+                    if kind == 'ref': return self._get_evidence(item, conn, visiting)
+                    if kind == 'dict': return {k: decode(v) for k,v in item}
+                    if kind == 'list': return [decode(v) for v in item]
+                    raise ValueError('unknown_node')
+                value = decode(json.loads(gzip.decompress(body[len(_EVIDENCE_CODEC):])))
+                visiting.remove(digest)
+                original = canonical_json(value)
+            else:
+                original = body
+                value = json.loads(body)
+            if hashlib.sha256(original.encode()).hexdigest() != digest:
+                raise ValueError('checksum')
+            return value
+        except Exception as exc:
+            raise ValueError('learning_evidence_missing_or_corrupt') from exc
+
+    def compact_evidence(self, batch=100):
+        """Lossless, bounded migration. Existing archive references keep their hash.
+
+        Freed SQLite pages are reused by subsequent writes; no online VACUUM or
+        false claim that logical compression instantly shrinks the physical DB.
+        """
+        with closing(self.connect()) as conn, conn:
+            conn.execute('BEGIN IMMEDIATE')
+            state = conn.execute("SELECT value FROM state WHERE key='evidence_compaction_cursor'").fetchone()
+            cursor = int(state[0]) if state else 0
+            rows = conn.execute("SELECT rowid,hash,body FROM evidence WHERE rowid>? AND typeof(body)='text' AND length(CAST(body AS BLOB))>=1024 ORDER BY rowid LIMIT ?", (cursor,batch)).fetchall()
+            for rowid, digest, body in rows:
+                if hashlib.sha256(body.encode()).hexdigest() != digest:
+                    raise ValueError('learning_evidence_missing_or_corrupt')
+                value = json.loads(body)
+                conn.execute('UPDATE evidence SET body=? WHERE hash=?', (self._encode_evidence(value,conn),digest))
+                if canonical_json(self._get_evidence(digest,conn)) != canonical_json(value):
+                    raise ValueError('learning_evidence_roundtrip_failed')
+            if rows:
+                conn.execute("INSERT OR REPLACE INTO state VALUES('evidence_compaction_cursor',?)", (str(rows[-1][0]),))
+            return len(rows)
 
     def recent(self, exchange='', limit=10000, offset=0, symbol=None):
         with closing(self.connect()) as conn:
@@ -166,7 +244,7 @@ class LearningStore:
                 if count <= skip: continue
                 # Identity includes record ordinal, preserving repeated equal legacy rows.
                 value.setdefault('_learning_event_id', 'legacy_' + hashlib.sha256(
-                    canonical_json([path.name, count, value]).encode()).hexdigest())
+                    canonical_json([path.name.removesuffix('.gz'), count, value]).encode()).hexdigest())
                 self.append(exchange, value, conn=conn, historical=True)
                 imported += 1
                 if count % 100 == 0:
@@ -228,7 +306,17 @@ class RecentHistory(Sequence):
         self.store, self.exchange, self.limit = store, exchange, limit
 
     def __len__(self): return min(self.limit, self.store.count(self.exchange))
-    def __getitem__(self, key): return self.store.recent(self.exchange, self.limit)[key]
+    def __getitem__(self, key):
+        count = len(self)
+        if isinstance(key, slice):
+            indices = range(*key.indices(count))
+            if not indices: return []
+            low, high = min(indices), max(indices)
+            rows = self.store.recent(self.exchange, high-low+1, offset=count-high-1)
+            return [rows[i-low] for i in indices]
+        index = key if key >= 0 else count+key
+        if index < 0 or index >= count: raise IndexError('learning history index out of range')
+        return self.store.recent(self.exchange, 1, offset=count-index-1)[0]
     def __iter__(self): return iter(self.store.recent(self.exchange, self.limit))
     def append(self, entry): pass  # The manager commits once through _persist_increment.
 
@@ -246,6 +334,7 @@ def schedule_archive(store):
     def run():
         try:
             start = time.monotonic()
+            store.compact_evidence(batch=20)
             while time.monotonic()-start < 10 and store.archive():
                 time.sleep(.01)
             ARCHIVE_ERRORS.pop(key,None)

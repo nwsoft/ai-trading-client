@@ -79,7 +79,9 @@ def test_77_zombie_lots_do_not_become_current_unrealized_loss():
         {'symbol':'OLDUSDT','side':'SELL','quantity':100,'entry_price':1,'execution_mode':'live'}]*77)
     client=SimpleNamespace(get_positions_result=lambda:{'status':'success','positions':[]})
     risk=RiskManager(client,ledger)
-    assert risk._managed_unrealized_pnl('binance') == (True,0,'')
+    result = risk._managed_unrealized_pnl('binance')
+    assert result[:2] == (False,0)
+    assert '대조 필요' in result[2]  # Flat is not proof of the missing realized result.
     client.get_positions_result=lambda:{'status':'error','positions':[]}
     assert risk._managed_unrealized_pnl('binance')[0] is False
 

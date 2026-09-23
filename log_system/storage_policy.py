@@ -60,7 +60,7 @@ def disk_usage(root):
     return {
         'log_bytes': size((root/'logs').glob('*')),
         'log_archive_bytes': size((root/'log_archives').glob('*.gz')),
-        'db_bytes': size(root.glob('*.db*')) + size(root.glob('event_audit.sqlite3*')),
+        'db_bytes': size(root.glob('*.db*')) + size(root.glob('event_audit.sqlite3*')) + size(root.glob('*.pending_writes.sqlite3*')),
         'learning_bytes': size(root.glob('ai_learning_data*')) + size(root.glob('learning.sqlite3*')) + size((root/'learning_segments').glob('*')),
     }
 

@@ -1331,10 +1331,10 @@ td { color: #c8d4e5; }
 .manual-deep-links .manual-action-button { background: #204a78; border-color: #4b79a8; }
 .manual-modal > footer { display: flex; justify-content: space-between; align-items: center; gap: 10px; padding-top: 10px; background: #101a2c; }
 .manual-close-button { min-width: 100px; height: 34px; padding: 0 14px; border: 0; border-radius: 7px; background: #2775aa; color: #fff; cursor: pointer; }
-.runtime-strategy-status { width: 100%; min-height: 36px; display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: 3px 10px; padding: 7px 9px; border: 1px solid #28547a; border-radius: 7px; background: #102943; color: #dbeafe; overflow: hidden; }
-.runtime-strategy-status strong { display: inline-flex; align-items: center; gap: 6px; font-size: 10px; overflow-wrap: anywhere; }
+.runtime-strategy-status { width: 100%; min-width: 0; min-height: 36px; display: grid; grid-template-columns: minmax(0, 1fr); align-items: start; gap: 6px; padding: 9px; border: 1px solid #28547a; border-radius: 7px; background: #102943; color: #dbeafe; overflow: hidden; }
+.runtime-strategy-status strong { min-width: 0; display: block; font-size: 12px; line-height: 1.5; overflow-wrap: anywhere; }
 .runtime-strategy-status strong::before { width: 6px; height: 6px; flex: 0 0 6px; border-radius: 50%; background: currentColor; box-shadow: 0 0 7px currentColor; content: ""; }
-.runtime-strategy-status span { min-width: 0; color: #8ec5f4; font-size: 9px; line-height: 1.45; overflow-wrap: anywhere; }
+.runtime-strategy-status span { min-width: 0; color: #8ec5f4; font-size: 12px; line-height: 1.5; word-break: keep-all; overflow-wrap: anywhere; }
 .runtime-strategy-status.applied { border-color: #16805a; background: #0b2a20; color: #86efac; }
 .runtime-strategy-status.observing { border-color: #31537b; background: #102943; color: #7dd3fc; }
 .runtime-strategy-status.empty { border-color: #80631f; background: #2d230d; color: #facc15; }
@@ -3239,3 +3239,7 @@ html[lang="en"] button { white-space: normal; overflow-wrap: break-word; }
 .record-recovery [role="status"] { display: grid; gap: 8px; padding: 12px; background: #111f33; border-radius: 8px; }
 .record-recovery small { font-size: 12px; line-height: 1.5; color: #b4c9e1; }
 .record-recovery ul { margin: 0; padding-left: 20px; }
+/* Evidence list must remain readable with long local document names. */
+.strategy-source-manifest { min-width:0; overflow-wrap:anywhere; padding:12px; border:1px solid #385269; border-radius:8px; }
+.strategy-source-manifest > div { padding:6px 0; }
+.strategy-source-manifest span, .strategy-source-manifest small { display:block; }

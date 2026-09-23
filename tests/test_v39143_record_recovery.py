@@ -61,6 +61,14 @@ def test_common_contract_isolates_paper_and_venue(tmp_path, venue):
 @pytest.mark.parametrize('venue', VENUES)
 def test_complete_provider_evidence_common_ledger_contract(tmp_path, venue):
     r, tid, fill, client, job = make(tmp_path, venue)
+    if venue in {'kis', 'kiwoom', 'shinhan', 'mirae'}:
+        # A broker close requires independent entry evidence as well as the
+        # sell. Reusing a sell fill as a buy is not complete provider evidence.
+        client.get_recovery_order_fills = lambda symbol, order, epoch: [{
+            **fill, 'order': order, 'id': f'fill-{order}',
+            'side': 'buy' if order == 'entry-1' else 'sell',
+            'price': 100 if order == 'entry-1' else fill['price'],
+        }]
     assert job.start(venue, background=False)['recovered'] == 1
     # Synthetic contract proof is not a claim that every production adapter
     # exposes historical fills, provider gross PnL, fees or taxes.

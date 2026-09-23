@@ -729,7 +729,7 @@ class UnifiedTrader:
         """거래소별 지원 심볼만 남기는 사전 필터.
         - CCXT 기반(bybit/okx/bitget/upbit/bithumb/coinone): adapter.exchange.markets 기준으로 확인
         - Binance: 네이티브 futures_exchange_info 기반으로 확인
-        실패/미연결 시 원본을 그대로 반환(보수적)
+        실패/미연결·명시적 거래 중단 마켓은 후보로 반환하지 않는다.
         """
         try:
             if not coins:
@@ -776,9 +776,17 @@ class UnifiedTrader:
                                 norm = bithumb_normalizer(sym)
                     except Exception:
                         pass
-                    return bool(norm and norm in markets)
-                except Exception:
+                    market = markets.get(norm) if norm else None
+                    if not isinstance(market, dict) or market.get('active') is False:
+                        return False
+                    if name in {'upbit', 'bithumb', 'coinone'}:
+                        if market.get('spot') is False or market.get('contract') is True:
+                            return False
+                        if market.get('quote') and market['quote'] != 'KRW':
+                            return False
                     return True
+                except Exception:
+                    return False
 
             def _normalize_for_exchange(sym: str) -> str:
                 try:
@@ -1938,13 +1946,13 @@ class UnifiedTrader:
                 elif paper:
                     mode_text = 'PAPER'
                 else:
-                    mode_text = 'REAL'
+                    mode_text = execution_mode.value.upper()
 
                 self.logger.info(f"거래 모드: {mode_text} (ex={exchange_name})")
             except Exception:
                 paper = execution_mode == ExecutionMode.PAPER
                 demo = False
-                mode_text = 'REAL'
+                mode_text = execution_mode.value.upper()
 
             # 1. 거래소별 선택 코인 사용 (거래소 간 코인 오염 방지)
             selected_store = getattr(self, 'selected_coins', {}) or {}
@@ -3143,7 +3151,7 @@ class UnifiedTrader:
                     if crypto_command_id and self.recorder:
                         self.recorder.update_crypto_order_command(crypto_command_id, status='rejected')
                     get_opportunity_coordinator().release(opportunity_auth)
-                    return {'status': 'skipped', 'reason': 'remote_entries_paused'}
+                    return {'status': 'skipped', 'reason': remote_entry_gate().last_block_reason.get(exchange_name,'remote_entries_paused')}
                 try:
                     # 데모 모드: 고성능 시뮬레이션
                     if demo and hasattr(self, 'demo_trader'):
@@ -4142,154 +4150,46 @@ class UnifiedTrader:
         return True
 
     def _verify_and_repair_tp_sl(self, exchange_name: str, interval_sec: int = 20) -> None:
-        """진입 후 TP/SL 서버-사이드 주문 누락 시 재발주.
-        - binance: binance_client.get_open_orders 사용, type으로 TP/SL 판별
-        - bybit/okx/bitget: CCXT 어댑터 fetch_open_orders 사용, type/info 휴리스틱 판별
-        """
-        try:
-            if self._execution_mode(exchange_name) == ExecutionMode.PAPER:
-                return
-            positions = self.active_positions.get(exchange_name, {}) or {}
-            if not positions:
-                return
-            if not hasattr(self, '_last_tp_sl_verify'):
-                self._last_tp_sl_verify = {}
-            # 정적 분석기용 사전 바인딩 (경로별 변수 사용 안정화)
-            bc = None  # type: ignore[assignment]
-            adapter = None  # type: ignore[assignment]
-            now = time.time()
-            for symbol, pos in positions.items():
-                key = (exchange_name, symbol)
-                last = self._last_tp_sl_verify.get(key, 0)
-                if now - last < interval_sec:
+        """Reconcile complete provider snapshots; never repair on a failed read."""
+        if self._execution_mode(exchange_name) != ExecutionMode.LIVE:
+            return
+        if exchange_name not in ('okx', 'bybit', 'bitget'):
+            return
+        from trading.protection_snapshot import ccxt_protection_orders, assess_protection, positive
+        self._last_tp_sl_verify = getattr(self, '_last_tp_sl_verify', {})
+        for symbol, pos in list((self.active_positions.get(exchange_name) or {}).items()):
+            key = (exchange_name, symbol)
+            now = time.monotonic()
+            if now - self._last_tp_sl_verify.get(key, -float('inf')) < max(20, interval_sec):
+                continue
+            self._last_tp_sl_verify[key] = now
+            try:
+                adapter = self.unified_manager.get_exchange(exchange_name, 'futures')
+                if adapter is None:
+                    raise RuntimeError('adapter_unavailable')
+                orders = ccxt_protection_orders(adapter, exchange_name, symbol)
+                side = getattr(getattr(pos, 'side', None), 'value', '')
+                state = assess_protection(orders, symbol=symbol, position_side=side, quantity=pos.quantity)
+                pos.protection_status = state['status']
+                if state['status'] == 'verified':
                     continue
-                self._last_tp_sl_verify[key] = now
-                open_orders: list[dict] = []
-                # 바이낸스는 trader.py에서 처리 (문서 가이드라인 준수)
-                if False and exchange_name == 'binance':
-                    # bc = getattr(self.exchange_manager, 'binance_client', None) if hasattr(self, 'exchange_manager') else None
-                    # if not bc or not hasattr(bc, 'get_open_orders'):
-                    #     continue
-                    # try:
-                    #     open_orders = bc.get_open_orders(symbol) or []
-                    # except Exception:
-                    #     open_orders = []
-                    # # 유형 판별
-                    # types = {str(o.get('type', '')).upper() for o in open_orders if isinstance(o, dict)}
-                    continue  # 바이낸스는 스킵
-                elif exchange_name in ('bybit', 'okx', 'bitget'):
-                    # CCXT 어댑터 경로
-                    adapter = None
-                    try:
-                        adapter = self.unified_manager.get_exchange(exchange_name, 'futures') if hasattr(self, 'unified_manager') and self.unified_manager else None
-                    except Exception:
-                        adapter = None
-                    if not adapter or not hasattr(adapter, 'get_open_orders'):
-                        continue
-                    try:
-                        oo = adapter.get_open_orders(symbol)
-                        # dict list로 정규화
-                        open_orders = [dict(x) for x in (oo or [])]
-                    except Exception:
-                        open_orders = []
-                    # 정밀 판별: 거래소별 필드 우선 → 휴리스틱 보조
-                    def _ccxt_tp_sl_present(ex: str, orders: list[dict]) -> bool:
-                        try:
-                            ex = ex.lower()
-                            for o in orders:
-                                t = str(o.get('type', '')).lower()
-                                info = o.get('info') or {}
-                                s = str(info).lower()
-                                if ex == 'bybit':
-                                    # stopOrderType, takeProfit/stopLoss, triggerPrice 등
-                                    if any(k in info for k in ('takeProfit','stopLoss','triggerPrice','tpSlMode','tpslMode','triggerBy')):
-                                        return True
-                                    if any(k in t for k in ('stop','conditional','take','profit')):
-                                        return True
-                                    if 'tp' in s or ('stop' in s and 'loss' in s):
-                                        return True
-                                elif ex == 'okx':
-                                    # tpTriggerPx/slTriggerPx/tpOrdPx/slOrdPx, tdMode, reduceOnly
-                                    if any(k in info for k in ('tpTriggerPx','slTriggerPx','tpOrdPx','slOrdPx','tdMode')):
-                                        return True
-                                    if 'reduceonly' in s:
-                                        return True
-                                    if any(k in t for k in ('conditional','stop','take','profit')):
-                                        return True
-                                elif ex == 'bitget':
-                                    # takeProfitPrice/stopLossPrice/planType/triggerType/triggerPrice
-                                    if any(k in info for k in ('takeProfitPrice','stopLossPrice','planType','triggerType','triggerPrice','presetTakeProfitPrice','presetStopLossPrice')):
-                                        return True
-                                    if any(k in t for k in ('plan','stop','take','profit')):
-                                        return True
-                                else:
-                                    # 보조 휴리스틱
-                                    if any(k in t for k in ('take','profit','stop','conditional')):
-                                        return True
-                                    if 'tp' in s or ('stop' in s and 'loss' in s):
-                                        return True
-                            return False
-                        except Exception:
-                            return False
-
-                    if _ccxt_tp_sl_present(exchange_name, open_orders):
-                        continue
-                else:
-                    # 기타 거래소는 현재 미지원
+                # Do not cancel/adopt external orders or replace a partial pair.
+                if orders or getattr(pos, 'position_owner', None) != NOAH_POSITION_OWNER:
+                    self.logger.warning(f"{exchange_name} {symbol} 보호주문 일부 미확인·충돌: 자동 재발주 보류 (ex={exchange_name})")
                     continue
-                # 가격 계산
-                entry = float(getattr(pos, 'entry_price', 0) or 0)
-                if entry <= 0:
-                    cp = 0.0
-                    try:
-                        cp = float(self.exchange_manager.get_current_price(symbol, exchange_name) or 0)
-                    except Exception:
-                        cp = 0.0
-                    if cp <= 0:
-                        continue
-                    entry = cp
-                tp_pct = float(self.settings.get('default_tp', 0.0018)) if isinstance(self.settings, dict) else 0.0018
-                sl_pct = float(self.settings.get('default_sl', 0.0020)) if isinstance(self.settings, dict) else 0.0020
-                try:
-                    snap = self.position_sizing_snapshots.get((exchange_name, symbol))
-                    if snap:
-                        tp_pct = float(snap.get('tp_percent', tp_pct) or tp_pct)
-                        sl_pct = float(snap.get('sl_percent', sl_pct) or sl_pct)
-                except Exception:
-                    pass
-                if getattr(pos, 'side', None) == PositionSide.LONG:
-                    tp_price = entry * (1 + tp_pct)
-                    sl_price = entry * (1 - sl_pct)
-                    pos_side = 'LONG'
-                else:
-                    tp_price = entry * (1 - tp_pct)
-                    sl_price = entry * (1 + sl_pct)
-                    pos_side = 'SHORT'
-                try:
-                    # 바이낸스는 trader.py에서 처리 (문서 가이드라인 준수)
-                    if False and exchange_name == 'binance':
-                        # if bc and hasattr(bc, 'place_tp_sl_orders'):
-                        #     bc.place_tp_sl_orders(symbol=symbol, position_side=pos_side, take_profit=tp_price, stop_loss=sl_price, quantity=None)
-                        continue
-                    else:
-                        if adapter and hasattr(adapter, 'place_insurance_tp_sl'):
-                            if exchange_name == 'okx':
-                                # 🔥 포지션 수량을 quantity로 전달
-                                position_qty = abs(float(getattr(pos, 'quantity', 0) or 0))
-                                result = adapter.place_insurance_tp_sl(symbol=symbol, position_side=pos_side, take_profit=tp_price, stop_loss=sl_price, quantity=position_qty, trigger_price_type='mark', margin_mode='cross')
-                            else:
-                                # 🔥 포지션 수량을 quantity로 전달
-                                position_qty = abs(float(getattr(pos, 'quantity', 0) or 0))
-                                result = adapter.place_insurance_tp_sl(symbol=symbol, position_side=pos_side, take_profit=tp_price, stop_loss=sl_price, quantity=position_qty, trigger_price_type='mark')
-                            if isinstance(result, dict) and result.get('status') != 'success':
-                                raise Exception(result.get('error', 'unknown'))
-                    self.logger.info(f"🛡️ 재발주: {exchange_name} {symbol} TP/SL(TP:{tp_price:.6f}, SL:{sl_price:.6f})")
-                except Exception as e:
-                    self.logger.warning(f"TP/SL 재발주 실패: {exchange_name} {symbol}: {e}")
-        except Exception as exc:
-            self.logger.warning(
-                f"TP/SL 검증·복구 전체 실패: {exchange_name}: {exc}"
-            )
+                tp, sl = positive(getattr(pos, 'tp_price', None)), positive(getattr(pos, 'sl_price', None))
+                if not tp or not sl or side not in ('LONG', 'SHORT'):
+                    self.logger.warning(f"{exchange_name} {symbol} 보호주문 가격 근거 없음: 재발주 보류 (ex={exchange_name})")
+                    continue
+                result = adapter.place_insurance_tp_sl(
+                    symbol=symbol, position_side=side, take_profit=tp, stop_loss=sl,
+                    quantity=abs(float(pos.quantity)), trigger_price_type='mark')
+                # Acceptance is not verification; next bounded read confirms it.
+                pos.protection_status = 'submitted_unverified' if isinstance(result, dict) and result.get('status') == 'success' else 'submission_failed'
+                self.logger.warning(f"{exchange_name} {symbol} 보호주문 상태: {pos.protection_status} (ex={exchange_name})")
+            except Exception as exc:
+                pos.protection_status = 'query_failed'
+                self.logger.warning(f"{exchange_name} {symbol} 보호주문 확인 실패 · 재발주하지 않음: {type(exc).__name__} (ex={exchange_name})")
 
     def _extract_tp_sl_from_open_orders(self, exchange_name: str, open_orders: List[Dict[str, Any]]) -> Tuple[Optional[float], Optional[float]]:
         """거래소별 오픈오더에서 TP/SL 가격을 추출"""
@@ -6559,6 +6459,8 @@ Response in JSON format:
                     confirmations=confirmations,
                     min_dwell_seconds=min_dwell,
                 )
+                from trading.runtime_observability import emit_regime_observation
+                emit_regime_observation(self, exchange_name, observed_regime, current_regime, regime_changed)
                 last_regime = self.last_market_regime_by_exchange.get(exchange_name)
                 pending_regime = self._pending_regime_reselection_by_exchange.get(exchange_name, '')
 

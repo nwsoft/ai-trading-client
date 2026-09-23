@@ -1746,6 +1746,19 @@ class StockAnalysisService:
     # 포트폴리오 요약
     # ------------------------------------------------------------------
 
+    def _confirmed_positions(self) -> List[Dict[str, Any]]:
+        checked = getattr(self.adapter, 'get_positions_result', None)
+        if callable(checked):
+            result = checked()
+            if not isinstance(result, dict) or result.get('status') != 'success' or not isinstance(result.get('positions'), list):
+                raise RuntimeError('positions_unavailable')
+            return result['positions']
+        # Compatibility for in-memory PAPER/testing adapters.
+        positions = self.adapter.get_positions()
+        if not isinstance(positions, list):
+            raise RuntimeError('positions_unavailable')
+        return positions
+
     def get_portfolio_summary(self, asset_mode: str = 'all') -> Dict[str, Any]:
         """잔고 + 보유종목 통합 요약."""
         try:
@@ -1759,10 +1772,7 @@ class StockAnalysisService:
             if hasattr(self.adapter, 'get_balance'):
                 balance = self.adapter.get_balance() or {}
 
-            positions = []
-            if hasattr(self.adapter, 'get_positions'):
-                positions = self.adapter.get_positions() or []
-
+            positions = self._confirmed_positions()
             positions = filter_positions_by_asset_mode(positions, asset_mode)
 
             portfolio = summarize_portfolio(positions)
@@ -1781,7 +1791,7 @@ class StockAnalysisService:
             return portfolio
         except Exception as exc:
             logger.error("포트폴리오 요약 실패 (%s): %s", self.broker_name, exc)
-            return {'broker': self.broker_name, 'error': str(exc)}
+            return {'broker': self.broker_name, 'error': str(exc), 'positions_status': 'error', 'positions': None}
 
     # ------------------------------------------------------------------
     # ETF 분석
@@ -2340,6 +2350,8 @@ class StockAnalysisService:
         execution_mode: str = 'live',
         order_result: Optional[Dict[str, Any]] = None,
         close_reason: str = '',
+        strategy_key: Optional[str] = None,
+        strategy_version_id: Optional[str] = None,
     ) -> Optional[Dict[str, Any]]:
         """자동매매 체결을 포지션 생명주기로 저장하고 KPI를 전송한다."""
         recorder = self._get_recorder()
@@ -2406,6 +2418,8 @@ class StockAnalysisService:
                     settlement_currency='KRW',
                     pnl_source='pending_broker_close',
                     reconciliation_status='open',
+                    strategy_key=strategy_key,
+                    strategy_version_id=strategy_version_id,
                 )
                 inserted_id = recorder.insert_trade_log(log_row)
                 entry_identity = order_id or f'trade-log:{inserted_id}'
@@ -2438,7 +2452,7 @@ class StockAnalysisService:
             open_rows = recorder.execute_query(
                 """
                 SELECT id, entry_price, quantity, entry_time, order_id,
-                       COALESCE(entry_fee, fees, 0)
+                       COALESCE(entry_fee, fees, 0), strategy_key, strategy_version_id
                 FROM trade_log
                 WHERE symbol = ?
                   AND exchange = ?
@@ -2465,6 +2479,8 @@ class StockAnalysisService:
                 opened_at_raw,
                 entry_order_id,
                 entry_fees,
+                entry_strategy_key,
+                entry_strategy_version_id,
             ) in open_rows:
                 if quantity_to_close <= 1e-9:
                     break
@@ -2583,6 +2599,8 @@ class StockAnalysisService:
                     settlement_currency='KRW',
                     pnl_source='broker_lot_accounting',
                     reconciliation_status='broker_order_linked',
+                    strategy_key=entry_strategy_key,
+                    strategy_version_id=entry_strategy_version_id,
                 )
                 recorder.insert_trade_log(closed_lot)
                 emitted = emit_position_reduced(
@@ -2746,24 +2764,27 @@ class StockAnalysisService:
         except Exception:
             logger.warning('증권 위험 알림 처리 실패 · 위험 판정은 유지합니다.')
 
-    def _sync_runtime_state_snapshot(self) -> Dict[str, int]:
+    def _sync_runtime_state_snapshot(self) -> Dict[str, Any]:
         """재시작/순환 시작 시점의 포지션/미체결 스냅샷을 기록한다."""
         positions: List[Dict[str, Any]] = []
         open_orders: List[Dict[str, Any]] = []
+        positions_ok = True
+        orders_ok = True
         try:
-            if hasattr(self.adapter, 'get_positions'):
-                positions = self.adapter.get_positions() or []
+            positions = self._confirmed_positions()
         except Exception:
-            positions = []
+            positions_ok = False
         try:
             if hasattr(self.adapter, 'get_open_orders'):
                 open_orders = self.adapter.get_open_orders() or []
         except Exception:
-            open_orders = []
+            orders_ok = False
 
         snapshot = {
-            'positions': len(positions),
-            'open_orders': len(open_orders),
+            'positions': len(positions) if positions_ok else None,
+            'positions_status': 'success' if positions_ok else 'error',
+            'open_orders': len(open_orders) if orders_ok else None,
+            'open_orders_status': 'success' if orders_ok else 'error',
         }
         self._persist_xai_decision(
             symbol=f"{self.broker_name}_PORTFOLIO",
@@ -2931,10 +2952,9 @@ class StockAnalysisService:
             positions = [dict(value) for value in self._paper_positions().values()]
         else:
             try:
-                if hasattr(self.adapter, 'get_positions'):
-                    positions = self.adapter.get_positions() or []
+                positions = self._confirmed_positions()
             except Exception:
-                positions = []
+                return ([{'action': 'SKIP', 'reason': 'exit_positions_unavailable'}], 0)
         positions = filter_positions_by_asset_mode(positions, asset_mode)
 
         for position in positions:
@@ -4324,6 +4344,8 @@ class StockAnalysisService:
                         asset_class='etf' if bool(analysis.get('is_etf')) else 'stock',
                         execution_mode=execution_mode,
                         order_result=order_result if isinstance(order_result, dict) else {},
+                        strategy_key=candidate.strategy_key,
+                        strategy_version_id=candidate.strategy_version_id,
                     )
                 if recorder is not None and execution_mode in {ExecutionMode.LIVE.value, 'live_api'}:
                     try:

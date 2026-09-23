@@ -1,4 +1,5 @@
 from pathlib import Path
+import pytest
 
 from membership_policy import membership_position_cap, referral_allowed_exchanges
 from trading.exchanges.adapters.coinone_spot_adapter import CoinoneSpotAdapter
@@ -35,16 +36,16 @@ def test_domestic_free_scope_does_not_open_unverified_foreign_venues():
     }
 
 
-def test_coinone_is_paper_ready_and_live_fails_closed():
+def test_coinone_uses_common_paper_live_contract_but_requires_order_credentials():
     registry = {row["client_id"]: row for row in public_venue_registry()["venues"]}
     assert registry["coinone"]["paper_supported"] is True
-    assert registry["coinone"]["live_supported"] is False
+    assert registry["coinone"]["live_supported"] is True
     assert venue_supports_execution("coinone", "paper") is True
-    assert venue_supports_execution("coinone", "live") is False
+    assert venue_supports_execution("coinone", "live") is True
 
     adapter = CoinoneSpotAdapter("", "", live_e2e_verified=False)
     result = adapter.place_order("ETH/KRW", "buy", 0.01)
-    assert result["error_code"] == "coinone_live_e2e_required"
+    assert result["error_code"] == "credential_required"
     assert adapter.get_order_status("order-without-symbol") == {}
     assert "종목" in adapter.last_error
 
@@ -64,6 +65,7 @@ def test_coinone_credentials_are_part_of_the_canonical_runtime_status():
     configured = _credential_status({
         "coinone_api_key": "read-trade-key",
         "coinone_secret_key": "secret",
+        "coinone_live_e2e_verified": True,  # User input cannot approve provider E2E.
     })
     assert empty["coinone"] is False
     assert configured["coinone"] is True
@@ -102,7 +104,8 @@ def test_krw_spot_public_selection_and_analysis_do_not_require_private_credentia
 
     class Analyzer:
         @staticmethod
-        def analyze_symbol(symbol):
+        def analyze_symbol(symbol, *, exchange_name):
+            assert exchange_name in ('upbit', 'bithumb', 'coinone')
             return {"symbol": symbol, "signal": "HOLD"}
 
     class FakeApp:
@@ -126,21 +129,32 @@ def test_krw_spot_public_selection_and_analysis_do_not_require_private_credentia
         assert analyzed["order_submitted"] is False
 
 
-def test_coinone_live_remains_blocked_before_account_e2e_even_with_keys():
-    bridge = HeadlessRuntimeBridge(account="tester", factory=lambda _account: object())
+@pytest.mark.parametrize('venue',['upbit','bithumb','coinone'])
+@pytest.mark.parametrize('old_flag',[False,True])
+def test_domestic_live_start_uses_common_confirmation_and_credentials(venue,old_flag):
+    class FakeApp:
+        def __init__(self): self.started=[]
+        def start_source(self,source): self.started.append(source);return True
+        def running_crypto_exchanges(self): return self.started
+    app=FakeApp()
+    bridge = HeadlessRuntimeBridge(account="tester", factory=lambda _account: app)
     bridge._settings = lambda: {
         "paper_trading": False,
-        "enabled_exchanges": ["coinone"],
-        "trade_enabled_exchanges": ["coinone"],
-        "coinone_api_key": "key",
-        "coinone_secret_key": "secret",
+        "enabled_exchanges": [venue],
+        "trade_enabled_exchanges": [venue],
+        "_trade_scope_user_confirmed_v3905": True,
+        f"{venue}_api_key": "key",
+        f"{venue}_secret_key": "secret",
+        "coinone_live_e2e_verified": old_flag,
     }
-    try:
-        bridge.execute("trading.start", {"source": "coinone", "live_confirmation": True})
-    except RuntimeError as exc:
-        assert str(exc) == "venue_live_onboarding_required:coinone"
-    else:
-        raise AssertionError("Coinone LIVE must remain fail-closed before account E2E")
+    with pytest.raises(RuntimeError,match='live_start_confirmation_required'):
+        bridge.execute('trading.start',{'source':venue})
+    assert app.started==[]
+    assert bridge.execute('trading.start',{'source':venue,'live_confirmation':True})['running_sources']==[venue]
+    settings=bridge._settings();settings[f'{venue}_api_key']=''
+    bridge._settings=lambda:settings
+    with pytest.raises(RuntimeError,match='credential_required'):
+        bridge.execute('trading.start',{'source':venue,'live_confirmation':True})
 
 
 def test_unified_manager_allows_public_clients_only_for_krw_spot_paper(monkeypatch):
@@ -168,6 +182,8 @@ def test_unified_manager_allows_public_clients_only_for_krw_spot_paper(monkeypat
     live = UnifiedTradingManager({
         "paper_trading": False,
         "enabled_exchanges": ["coinone"],
+        "trade_enabled_exchanges": ["coinone"],
+        "_trade_scope_user_confirmed_v3905": True,
     })
     assert live.get_exchange("coinone", "spot") is None
     assert created == [("upbit", True), ("bithumb", True), ("coinone", True)]

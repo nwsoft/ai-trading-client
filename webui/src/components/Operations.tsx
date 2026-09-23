@@ -170,7 +170,7 @@ export function LegacyTradingLogWorkspace({
     (source) => allowedSources.includes(source)
       && runtime?.credential_status?.[source]
       && !runtime?.running_sources.includes(source)
-      && (runtime?.live_trading !== true || venueProfile(source)?.live_supported !== false),
+      && (runtime?.live_trading !== true || Boolean(venueProfile(source)?.live_supported ?? true)),
   );
   const stoppableSources = (runtime?.running_sources ?? []).filter((source) => allowedSources.includes(source));
   const sourceNoun = service === "stock" ? "증권사" : "거래소";

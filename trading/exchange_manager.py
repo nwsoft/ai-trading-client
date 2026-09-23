@@ -683,6 +683,23 @@ class ExchangeManager:
             self.logger.error(f"{exchange_name} 가격 조회 오류: {e}")
             return 0.0
 
+    def get_spot_asset_valuations(self, assets, exchange_name):
+        """Risk-only typed valuation; keep the legacy float price API intact."""
+        from trading.spot_valuation import SpotValuation
+        venue = self._normalize_exchange_name(exchange_name)
+        unavailable = {a: {'status': 'market_query_failed', 'price': None} for a in assets}
+        if venue not in {'upbit', 'bithumb', 'coinone'} or not self._is_exchange_enabled(venue):
+            return unavailable
+        try:
+            client = self._get_or_create_exchange_client(venue)
+            if not client or (not client.is_connected and not client.connect()):
+                return unavailable
+            if not hasattr(self, '_spot_valuation'):
+                self._spot_valuation = SpotValuation()
+            return self._spot_valuation.values(venue, client.exchange, assets)
+        except Exception:
+            return unavailable
+
     def get_24h_ticker(self, symbol: str, exchange_name: Optional[str] = None) -> Dict[str, Any]:
         """24시간 티커 데이터 조회"""
         try:

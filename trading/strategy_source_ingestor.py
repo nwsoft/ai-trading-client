@@ -89,6 +89,8 @@ class StrategySourceIngestor:
                 return "tradingview"
             return "url"
         suffix = Path(raw).suffix.lower()
+        if suffix in {'.csv', '.tsv', '.xlsx', '.docx'}:
+            return 'document'
         if suffix == ".pdf":
             return "pdf"
         if suffix in {".png", ".jpg", ".jpeg", ".webp", ".bmp"}:
@@ -100,7 +102,19 @@ class StrategySourceIngestor:
         return "text"
 
     def extract(self, value: str, kind: str = "auto") -> ExtractedStrategySource:
+        if str(value).startswith('noah-bundle:'):
+            from .strategy_source_bundle import extract_bundle,MAX_BYTES
+            paths = json.loads(str(value)[12:])
+            if not isinstance(paths,list) or not 1 <= len(paths) <= 40: raise ValueError('자료는 1~40개입니다.')
+            if any(not Path(p).is_file() or Path(p).stat().st_size>24*1024*1024 for p in paths) or sum(Path(p).stat().st_size for p in paths)>MAX_BYTES:
+                raise ValueError('파일 크기/경로를 확인하세요.')
+            return extract_bundle(self,[{'value':p,'name':Path(p).name,'kind':'auto'} for p in paths])
         resolved = self.detect_kind(value, kind)
+        if resolved == 'document':
+            from .strategy_source_bundle import office_text
+            path = Path(value)
+            text = office_text(path) if path.suffix.lower() in {'.xlsx','.docx'} else path.read_text(encoding='utf-8-sig')
+            return ExtractedStrategySource('document', str(path), path.name, text, [], {'file_sha256':hashlib.sha256(path.read_bytes()).hexdigest()})
         if resolved in {"text", "pine"}:
             raw_value = str(value or "").strip()
             path = Path(raw_value)
@@ -1254,6 +1268,7 @@ class StrategySourceIngestor:
         *,
         supplemental_text: str = "",
         authoring_mode: str = "source_faithful",
+        extracted_source: Optional[ExtractedStrategySource] = None,
     ) -> Dict[str, Any]:
         from .custom_strategy_advisor import (
             build_clarification_questions,
@@ -1261,7 +1276,7 @@ class StrategySourceIngestor:
             build_validation_issue_details,
         )
 
-        source = self.extract(value, kind)
+        source = deepcopy(extracted_source) if extracted_source is not None else self.extract(value, kind)
         original_source = deepcopy(source)
         normalized_authoring_mode = str(authoring_mode or "source_faithful").strip().lower()
         if normalized_authoring_mode not in {
@@ -1436,6 +1451,9 @@ class StrategySourceIngestor:
                 + ", ".join(rejected_ai_paths)
             )
         missing = [key for key in self.REQUIRED_RULES if not rules.get(key)]
+        if source.kind == 'bundle' and source.evidence.get('coverage_complete') is not True:
+            missing.append('source_coverage_incomplete')
+            rules.setdefault('compiler_issues', []).append('source_coverage_incomplete')
         for issue in list(rules.get("compiler_issues") or []):
             if issue not in missing:
                 missing.append(issue)
@@ -1494,6 +1512,7 @@ class StrategySourceIngestor:
             "name": str(result.get("name") or source.title or "사용자 전략"),
             "summary": str(result.get("summary") or "소스에서 확인 가능한 조건만 추출했습니다."),
             "source": source_payload,
+            "source_manifest": source.evidence.get('sources', []) if source.kind == 'bundle' else [],
             "rules": rules,
             "engine_settings": engine,
             "missing_conditions": missing,

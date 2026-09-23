@@ -2,10 +2,10 @@
 # -*- coding: utf-8 -*-
 """Coinone KRW spot adapter.
 
-CCXT owns common public data, balance normalization and limit orders.  Coinone
-V2.1 is used only for gaps that must be reconciled against the venue order
-ledger.  LIVE submission stays fail-closed until an operator records a real
-account E2E pass in settings; PAPER/public market data never needs that flag.
+CCXT owns common public data and balance normalization. Coinone V2.1 handles
+native orders and venue order-ledger reconciliation.
+LIVE uses the common explicit-start, authorization and risk gates;
+PAPER/public market data never requires private credentials.
 """
 
 from __future__ import annotations
@@ -16,6 +16,8 @@ import hmac
 import json
 import logging
 import uuid
+import math
+import re
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
@@ -26,7 +28,7 @@ from ..order_constraints import prepare_ccxt_order_quantity
 
 
 class CoinoneSpotAdapter(SpotExchange):
-    """Hybrid CCXT/Coinone V2.1 adapter with an explicit LIVE readiness gate."""
+    """Hybrid CCXT/Coinone V2.1 adapter under the common execution contract."""
 
     API_BASE = "https://api.coinone.co.kr"
 
@@ -38,7 +40,8 @@ class CoinoneSpotAdapter(SpotExchange):
         self.logger = logging.getLogger(__name__)
         self.last_error = ""
         self.last_auth_guidance = ""
-        self.live_e2e_verified = bool(kwargs.get("live_e2e_verified", False))
+        # Legacy live_e2e_verified input is ignored. A user setting is neither
+        # an execution permission nor evidence of a real-account test.
         self._last_execution_capabilities: Dict[str, Any] = {}
         from log_system.log_adapter import log_event
 
@@ -98,7 +101,7 @@ class CoinoneSpotAdapter(SpotExchange):
         data = response.json()
         if not isinstance(data, dict):
             raise RuntimeError("코인원 응답 형식이 올바르지 않습니다")
-        if str(data.get("result") or "success").lower() not in {"success", "true"}:
+        if data.get('result') != 'success' or str(data.get('error_code', '0')) != '0':
             raise RuntimeError(str(data.get("error_msg") or data.get("error_code") or "coinone_api_error"))
         return data
 
@@ -114,7 +117,7 @@ class CoinoneSpotAdapter(SpotExchange):
             self.exchange.load_markets()
             self.is_connected = True
             self.last_error = ""
-            self.log_event("system", "코인원 연결 성공 (LIVE 주문은 실계좌 E2E 승인 후 활성화)")
+            self.log_event("system", "코인원 시세 연결 성공 (PAPER/LIVE 실행 모드·API 인증·공통 주문 가드레일 별도 확인)")
             return True
         except Exception as exc:
             self.last_error = str(exc)
@@ -214,12 +217,17 @@ class CoinoneSpotAdapter(SpotExchange):
         client_order_id: Optional[str] = None,
     ) -> Dict[str, Any]:
         normalized = self._normalize_symbol(symbol)
-        if not self.live_e2e_verified:
-            return {
-                "status": "error", "symbol": normalized, "side": side,
-                "error": "코인원 LIVE는 시장가·부분체결·수수료 실계좌 E2E 승인 전까지 차단됩니다",
-                "error_code": "coinone_live_e2e_required",
-            }
+        if str(side).lower() not in {'buy','sell'} or str(order_type).upper() not in {'MARKET','LIMIT'}:
+            return {'status':'error','error_code':'invalid_order_parameters'}
+        try: quantity = float(quantity)
+        except (ValueError, TypeError):
+            return {'status':'error','error_code':'invalid_quantity'}
+        if not math.isfinite(quantity) or quantity <= 0:
+            return {'status':'error','error_code':'invalid_quantity'}
+        if client_order_id and not re.fullmatch(r'[a-z0-9_.-]{1,150}',str(client_order_id)):
+            return {'status':'error','error_code':'invalid_client_order_id'}
+        if not self.api_key or not self.secret_key:
+            return {'status':'error','error_code':'credential_required','error':'코인원 주문에는 API 인증이 필요합니다'}
         if not self.is_connected or self.exchange is None:
             return {"status": "error", "error": "코인원 거래소가 연결되지 않았습니다"}
         try:
@@ -238,11 +246,11 @@ class CoinoneSpotAdapter(SpotExchange):
                 "type": order_kind,
             }
             if client_order_id:
-                payload["user_order_id"] = str(client_order_id)[:36]
+                payload["user_order_id"] = str(client_order_id)
             if order_kind == "LIMIT":
                 if not price or float(price) <= 0:
                     return {"status": "error", "error": "코인원 지정가 주문에는 가격이 필요합니다"}
-                payload.update(qty=str(constraint["quantity"]), price=str(float(price)))
+                payload.update(qty=str(constraint["quantity"]), price=str(float(price)), post_only=False)
             elif side_kind == "BUY":
                 amount = float(constraint.get("notional") or 0.0)
                 if amount <= 0:
@@ -262,7 +270,9 @@ class CoinoneSpotAdapter(SpotExchange):
             }
         except Exception as exc:
             self.last_error = str(exc)
-            return {"status": "error", "error": str(exc), "symbol": normalized, "side": side}
+            return {"status": "unknown", "error": type(exc).__name__, "symbol": normalized, "side": side,
+                    'clientOrderId':client_order_id, '_execution_confirmed':False,
+                    'error_code':'order_submission_unconfirmed', 'retry_safe':False}
 
     @staticmethod
     def _normalize_native_order(row: Dict[str, Any], symbol: str = "") -> Dict[str, Any]:
@@ -271,6 +281,8 @@ class CoinoneSpotAdapter(SpotExchange):
         original_qty = float(row.get("original_qty") or row.get("qty") or executed_qty or 0.0)
         order_id = str(row.get("order_id") or row.get("id") or "")
         status = str(row.get("status") or "").lower()
+        status = ('closed' if status == 'filled' else 'canceled' if 'canceled' in status
+                  else 'open' if status in {'live','partially_filled','triggered','not_triggered'} else status)
         raw_timestamp = row.get("ordered_at") or row.get("timestamp") or 0
         try:
             timestamp = int(float(raw_timestamp))
@@ -284,13 +296,38 @@ class CoinoneSpotAdapter(SpotExchange):
             "symbol": CoinoneSpotAdapter._normalize_symbol(symbol or str(row.get("symbol") or "BTC/KRW")),
             "side": str(row.get("side") or "").lower(), "status": status,
             "amount": original_qty, "filled": executed_qty,
-            "remaining": max(0.0, original_qty - executed_qty),
+            "remaining": float(row['remain_qty']) if row.get('remain_qty') is not None else (0.0 if status in {'closed','canceled'} else max(0.0,original_qty-executed_qty)),
             "average": average, "price": float(row.get("price") or average or 0.0),
-            "cost": float(row.get("executed_amount") or (average * executed_qty)),
-            "fee": {"cost": float(row.get("fee") or 0.0), "currency": str(row.get("fee_currency") or "KRW")},
+            "cost": float(row.get("traded_amount") or row.get("executed_amount") or (average * executed_qty)),
+            "fee": {"cost": float(row['fee']), "currency": str(row.get("fee_currency") or "KRW")} if row.get('fee') is not None else None,
             "timestamp": timestamp,
             "info": row,
         }
+
+    def get_order_by_client_id(self, client_order_id: str, symbol: str):
+        """Resolve an uncertain submission by its original identity; never resubmit."""
+        base, quote = self._symbol_parts(symbol)
+        data = self._private_post('/v2.1/order/detail', {'user_order_id':client_order_id,
+            'quote_currency':quote,'target_currency':base})
+        if not isinstance(data.get('order'),dict): raise ValueError('order_response_missing')
+        return self._normalize_native_order(data['order'],symbol)
+
+    def get_open_orders_result(self, symbol: Optional[str] = None):
+        try:
+            payload = {}
+            if symbol:
+                base, quote = self._symbol_parts(symbol)
+                payload = {'quote_currency':quote,'target_currency':base}
+            data = self._private_post('/v2.1/order/active_orders',payload)
+            rows = data.get('active_orders')
+            if not isinstance(rows,list): raise ValueError('open_orders_response_missing')
+            orders = []
+            for row in rows:
+                target = symbol or f"{row['target_currency']}/{row['quote_currency']}"
+                orders.append(self._normalize_native_order({'status':'LIVE',**row},target))
+            return {'status':'success','orders':orders}
+        except Exception as exc:
+            return {'status':'error','orders':None,'reason':type(exc).__name__}
 
     def get_order_status(self, order_id: str, symbol: Optional[str] = None) -> Dict[str, Any]:
         if not symbol:
@@ -322,17 +359,48 @@ class CoinoneSpotAdapter(SpotExchange):
             return False
 
     def get_open_orders(self, symbol: Optional[str] = None) -> List[Dict[str, Any]]:
-        if not symbol:
-            return []
-        try:
-            base, quote = self._symbol_parts(symbol)
-            data = self._private_post("/v2.1/order/active_orders", {
-                "quote_currency": quote, "target_currency": base,
-            })
-            return [self._normalize_native_order(dict(row), symbol) for row in list(data.get("active_orders") or [])]
-        except Exception as exc:
-            self.last_error = str(exc)
-            return []
+        result = self.get_open_orders_result(symbol)
+        if result['status'] != 'success':
+            self.last_error = str(result['reason'])
+            raise RuntimeError('coinone_open_orders_unconfirmed')
+        return result['orders']
+
+    def get_recovery_order_fills(self, symbol: str, order_id: str, epoch: float):
+        """Bounded native history scan with exact identity and explicit costs.
+
+        Full pages must be exhausted: returning a partial scan as complete can
+        certify an incomplete close. No order submission happens here.
+        """
+        import time
+        base,quote = self._symbol_parts(symbol)
+        end = min(int(time.time()*1000),int((epoch+86400)*1000))
+        start = max(0,int((epoch-86400)*1000))
+        if start > end: raise ValueError('history_time_invalid')
+        payload = dict(quote_currency=quote,target_currency=base,from_ts=start,to_ts=end,size=100)
+        found,seen,cursors = [],set(),set()
+        for _ in range(20):
+            data = self._private_post('/v2.1/order/completed_orders',payload)
+            rows = data.get('completed_orders')
+            if not isinstance(rows,list): raise RuntimeError('history_response_missing')
+            for row in rows:
+                identity = str(row.get('trade_id') or '')
+                if not identity: raise RuntimeError('history_fill_identity_missing')
+                if identity in seen: raise RuntimeError('history_page_duplicate')
+                seen.add(identity)
+                if str(row.get('order_id')) != str(order_id): continue
+                if str(row.get('target_currency','')).lower()!=base or str(row.get('quote_currency','')).lower()!=quote:
+                    raise RuntimeError('history_symbol_mismatch')
+                if not isinstance(row.get('is_ask'),bool): raise RuntimeError('history_side_missing')
+                found.append({'id':identity,'order':str(order_id),'symbol':self._normalize_symbol(symbol),
+                    'side':'sell' if row['is_ask'] else 'buy','amount':row.get('qty'),'price':row.get('price'),
+                    'timestamp':row.get('timestamp'),'fee':{'cost':row.get('fee'),'currency':row.get('fee_currency')},
+                    '_execution_confirmed':True,'info':row})
+            if len(rows)<100: return found
+            cursor=str(rows[-1].get('trade_id') or '')
+            if not cursor or cursor in cursors: raise RuntimeError('history_page_incomplete')
+            cursors.add(cursor)
+            payload['to_trade_id']=cursor
+        raise RuntimeError('history_page_incomplete')
 
     def get_trade_history(
         self, symbol: Optional[str] = None, limit: int = 100,
@@ -357,8 +425,8 @@ class CoinoneSpotAdapter(SpotExchange):
         caps = build_execution_capabilities(self.exchange)
         caps.update(self._last_execution_capabilities)
         caps.update({
-            "live_order_receipt": self.live_e2e_verified,
-            "account_e2e_verified": self.live_e2e_verified,
+            "live_order_receipt": True,
+            "account_e2e_verified": False,
             "history_reason": caps.get("history_reason") or "coinone_v2_1_reconciliation_required",
         })
         return caps

@@ -84,9 +84,9 @@ export const VENUE_REGISTRY = {
       "adapter_family": "ccxt_hybrid",
       "order_amount_unit": "quote_on_market_buy",
       "requires_contract_size": false,
-      "onboarding_status": "source_ready_account_e2e_required",
+      "onboarding_status": "live_ready",
       "paper_supported": true,
-      "live_supported": false
+      "live_supported": true
     },
     {
       "id": "bybit",

@@ -65,6 +65,8 @@ class DailyLossDecision:
     loss_amount: float = 0.0
     loss_rate: float = 0.0
     reason: str = ""
+    valuation_scope: str = "account"
+    unvalued_assets: List[Dict[str, Any]] = field(default_factory=list)
     checked_at: float = field(default_factory=time.time)
 
 
@@ -403,6 +405,7 @@ class RiskManager:
                 'status': 'balance_query_failed', 'reason': str(exc),
             }
         if not isinstance(payload, dict) or str(payload.get('status') or '').lower() != 'success':
+            payload = payload if isinstance(payload, dict) else {}
             return {
                 'valid': False,
                 'source': venue,
@@ -420,29 +423,7 @@ class RiskManager:
         account_info = payload.get('account_info') if isinstance(payload.get('account_info'), dict) else {}
         equity = 0.0
         if venue in {'upbit', 'bithumb', 'coinone'}:
-            missing_prices: List[str] = []
-            for asset, raw_amount in balance.items():
-                amount = self._risk_number(raw_amount)
-                if amount <= 0:
-                    continue
-                asset_name = str(asset or '').strip().upper()
-                if asset_name == currency:
-                    equity += amount
-                    continue
-                try:
-                    price = float(manager.get_current_price(f'{asset_name}/{currency}', venue) or 0.0)
-                except Exception:
-                    price = 0.0
-                if price <= 0:
-                    missing_prices.append(asset_name)
-                    continue
-                equity += amount * price
-            if missing_prices:
-                return {
-                    'valid': False, 'source': venue, 'currency': currency, 'equity': equity,
-                    'status': 'spot_valuation_incomplete',
-                    'reason': f"현물 보유자산 가격 확인 실패: {', '.join(sorted(set(missing_prices))[:8])}",
-                }
+            return self._get_spot_risk_snapshot(venue, balance)
         else:
             # Binance 원본 계정 응답은 totalMarginBalance가 현재 계정 equity에
             # 가장 가깝다. 통합 어댑터의 flat balance는 USDT total을 사용한다.
@@ -472,13 +453,94 @@ class RiskManager:
         }
 
     def _today_live_trades(self, source: str) -> List[Dict[str, Any]]:
+        db_path = getattr(self.database_manager, 'db_path', None)
+        if isinstance(db_path, (str, os.PathLike)):
+            from trading.recorder_write_queue import unresolved_closes
+            pending = unresolved_closes(db_path, source)
+            if pending:
+                raise RuntimeError(f'청산 원장 저장 재처리/대조 {pending}건 대기: 확인 전 신규 진입 보류')
         today = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
         getter = getattr(self.database_manager, 'get_daily_actual_trades', None)
         if not callable(getter):
             raise RuntimeError('daily ledger reader unavailable')
         return list(getter(today, exchange=source, execution_mode='live', strict=True) or [])
 
-    def _managed_unrealized_pnl(self, source: str) -> Tuple[bool, float, str]:
+    def _get_spot_risk_snapshot(self, venue, balance):
+        """Priced capital is not a claim that unsupported assets are worth zero.
+
+        Only assets absent from a successfully refreshed same-venue catalogue
+        AND absent from the verified open managed ledger may be set aside.
+        Explicitly suspended markets, failed prices and failed ownership stay blocked.
+        """
+        result = dict(valid=False, source=venue, currency='KRW', equity=0.0,
+                      status='spot_valuation_incomplete', unvalued_assets=[],
+                      valuation_scope='account', reason='')
+        amounts = {}
+        try:
+            if not balance:
+                raise ValueError('empty')
+            for asset, raw in balance.items():
+                if isinstance(raw, dict):
+                    raw = next(raw[k] for k in ('total', 'balance', 'free') if k in raw)
+                amount = float(raw)
+                if not math.isfinite(amount) or amount < 0:
+                    raise ValueError('invalid')
+                if amount > 0:
+                    name = str(asset).strip().upper()
+                    amounts[name] = amounts.get(name, 0.0) + amount
+        except Exception:
+            result['reason'] = '현물 잔고 수량 응답 확인 필요'
+            return result
+        result['balance_quantities'] = dict(amounts)
+        result['equity'] = amounts.pop('KRW', 0.0)
+        provider = getattr(self.exchange_manager, 'get_spot_asset_valuations', None)
+        try:
+            if callable(provider):
+                values = provider(list(amounts), venue)
+            else:
+                # Compatibility does not allow exclusions without market proof.
+                values = {a: {'status': 'priced', 'price': self.exchange_manager.get_current_price(f'{a}/KRW', venue)} for a in amounts}
+        except Exception:
+            values = {}
+        unresolved = []
+        for asset, amount in amounts.items():
+            value = values.get(asset, {}) if isinstance(values, dict) else {}
+            try:
+                price = float(value.get('price'))
+            except (TypeError, ValueError):
+                price = 0.0
+            if value.get('status') == 'priced' and math.isfinite(price) and price > 0:
+                result['equity'] += price * amount
+            else:
+                unresolved.append(dict(asset=asset, quantity=amount, value=None,
+                                       status=value.get('status', 'price_query_failed')))
+        result['unvalued_assets'] = unresolved
+        if unresolved:
+            from trading.spot_position_policy import spot_base_asset
+            try:
+                rows = self.database_manager.get_open_managed_trades(venue, strict=True)
+                if not isinstance(rows, list) or any(not isinstance(r, dict) or not r.get('symbol') for r in rows):
+                    raise ValueError('invalid_managed_ledger')
+                # Unknown historical modes are not safe to exclude.
+                owned = {spot_base_asset(r['symbol']) for r in rows
+                         if str(r.get('execution_mode', '')).lower() not in {'paper', 'learning', 'demo', 'mock'}}
+            except Exception:
+                result['reason'] = '미평가 자산의 NoahAI 관리 원장 조회 실패: 신규 진입 보류'
+                return result
+            blocked = [v for v in unresolved if v['status'] != 'no_supported_market' or v['asset'] in owned]
+            if blocked:
+                result['reason'] = '현물 평가 근거 확인 필요: ' + ', '.join(
+                    f"{v['asset']} ({'managed_position_unpriced' if v['asset'] in owned else v['status']})" for v in blocked[:8])
+                return result
+            result['valuation_scope'] = 'priced_assets_only'
+            result['reason'] = '거래소 지원 마켓 없는 비관리 잔여 자산 미평가 보존: ' + ', '.join(v['asset'] for v in unresolved)
+        if not math.isfinite(result['equity']) or result['equity'] <= 0:
+            result['reason'] = '유효한 현물 위험 기준 자산 없음'
+            return result
+        result.update(valid=True, status='priced_assets_only' if unresolved else 'success')
+        return result
+
+    def _managed_unrealized_pnl(self, source: str, *, account_snapshot=None) -> Tuple[bool, float, str]:
         getter = getattr(self.database_manager, 'get_open_managed_trades', None)
         if not callable(getter):
             # 구형 Binance 경로의 호환 계산. 통합 거래소에 Binance 포지션을
@@ -495,28 +557,41 @@ class RiskManager:
             if isinstance(row, dict)
             and str(row.get('execution_mode') or 'live').strip().lower() in {'live', 'live_api', 'optimized', 'manual'}
         ]
-        if source == 'binance':
+        if source in {'binance', 'bybit', 'okx', 'bitget'}:
             # Local open rows are historical intent, not proof that a position
             # still exists. A confirmed flat account must not value zombie lots.
-            getter = getattr(self.binance_client, 'get_positions_result', None)
+            provider = self.binance_client
+            if source != 'binance':
+                try:
+                    provider = self.exchange_manager.get_exchange_client(source)
+                except Exception:
+                    return False, 0.0, f'{source} 현재 포지션 공급자 확인 실패'
+            getter = getattr(provider, 'get_positions_result', None)
             if not callable(getter):
-                return False, 0.0, 'Binance 현재 포지션 확인 API 없음'
+                return False, 0.0, f'{source} 현재 포지션 확인 API 없음'
             try:
                 snapshot = getter()
                 if not isinstance(snapshot, dict) or snapshot.get('status') != 'success' or not isinstance(snapshot.get('positions'), list):
-                    return False, 0.0, 'Binance 현재 포지션 조회 실패'
+                    return False, 0.0, f'{source} 현재 포지션 조회 실패'
                 actual = snapshot['positions']
                 if not actual:
-                    return True, 0.0, ''
+                    return (False, 0.0, '현재 포지션 없음 · 과거 관리 원장 청산 대조 필요') if live_rows else (True, 0.0, '')
                 total = 0.0
+                matched = set()
+                def symbol_key(value):
+                    return str(value).upper().split(':')[0].replace('/', '').replace('-', '')
                 for pos in actual:
                     def field(key):
                         return pos.get(key) if isinstance(pos, dict) else getattr(pos, key, None)
                     symbol, side = str(field('symbol')), str(field('side')).upper()
-                    owned = [r for r in live_rows if r.get('symbol') == symbol and
+                    owned = [r for r in live_rows if symbol_key(r.get('symbol')) == symbol_key(symbol) and
                              ('SHORT' if str(r.get('side')).upper() in ('SELL','SHORT') else 'LONG') == side]
                     if not owned:
                         continue  # account/manual position outside NoahAI scope
+                    identity = (symbol_key(symbol), side)
+                    if identity in matched:
+                        return False, 0.0, f'{symbol} 중복 포지션 응답 대조 필요'
+                    matched.add(identity)
                     size = float(field('size'))
                     qty = sum(float(r.get('quantity') or 0) for r in owned)
                     if not math.isfinite(size) or size <= 0 or not math.isclose(qty, size, rel_tol=1e-6, abs_tol=1e-8):
@@ -525,23 +600,69 @@ class RiskManager:
                     if not math.isfinite(pnl):
                         return False, 0.0, f'{symbol} 거래소 미실현 손익 확인 필요'
                     total += pnl
+                expected = {(symbol_key(r.get('symbol')), 'SHORT' if str(r.get('side')).upper() in ('SELL','SHORT') else 'LONG') for r in live_rows}
+                if expected - matched:
+                    return False, 0.0, '현재 포지션에 없는 관리 원장 · 청산/수동 거래 대조 필요'
                 return True, total, ''
             except Exception:
-                return False, 0.0, 'Binance 현재 포지션 손익 응답 검증 실패'
+                return False, 0.0, f'{source} 현재 포지션 손익 응답 검증 실패'
         if not live_rows:
             return True, 0.0, ''
         manager = getattr(self, 'exchange_manager', None)
         if manager is None:
             return False, 0.0, '거래소별 현재가 공급자를 사용할 수 없습니다.'
+        if source in {'upbit', 'bithumb', 'coinone'}:
+            # A historic open lot is not evidence of a present account holding.
+            # Reuse the same validated balance used for equity, not another
+            # provider call that can race with a fill between two snapshots.
+            from trading.spot_position_policy import spot_base_asset
+            snapshot = account_snapshot if account_snapshot is not None else self._get_live_equity_snapshot(source)
+            amounts = snapshot.get('balance_quantities') if isinstance(snapshot, dict) else None
+            if not isinstance(snapshot, dict) or not snapshot.get('valid') or not isinstance(amounts, dict):
+                return False, 0.0, '현물 보유 수량 확인 실패: 손실률 계산 보류'
+            required, baselines = {}, {}
+            try:
+                for row in live_rows:
+                    asset = spot_base_asset(row.get('symbol', ''))
+                    qty = float(row.get('quantity') or 0)
+                    baseline = float(row.get('spot_baseline_quantity') or 0)
+                    if not asset or not math.isfinite(qty) or qty <= 0 or not math.isfinite(baseline) or baseline < 0:
+                        raise ValueError('invalid_quantity')
+                    required[asset] = required.get(asset, 0) + qty
+                    baselines[asset] = max(baselines.get(asset, 0), baseline)
+                for asset, qty in required.items():
+                    held = float(amounts.get(asset, 0))
+                    if not math.isfinite(held) or held < 0:
+                        raise ValueError('invalid_balance')
+                    if held + max(1e-8, qty * 1e-8) < qty + baselines[asset]:
+                        return False, 0.0, (f'현물 보유 수량과 관리 원장 불일치: {asset}. '
+                            '미실현 손실로 확정하지 않습니다. 설정 → 업데이트 → 유지관리 → 거래 기록 점검·복구에서 '
+                            '청산·수동 거래·출금 근거를 대조하세요. 기록 초기화는 하지 마세요.')
+            except (ValueError, TypeError):
+                return False, 0.0, '현물 원장/보유 수량 값 검증 실패'
+        spot_values = None
+        if source in {'upbit', 'bithumb', 'coinone'} and callable(getattr(manager, 'get_spot_asset_valuations', None)):
+            from trading.spot_position_policy import spot_base_asset
+            try:
+                spot_values = manager.get_spot_asset_valuations(
+                    list({spot_base_asset(r.get('symbol', '')) for r in live_rows}), source)
+            except Exception:
+                return False, 0.0, '관리 현물 포지션 가격 조회 실패'
         total = 0.0
         for row in live_rows:
             symbol = str(row.get('symbol') or '').strip()
+            if spot_values is not None and '/' in symbol and symbol.split('/', 1)[1].upper() != 'KRW':
+                return False, 0.0, f'관리 현물 원장의 가격 기준통화 확인 필요: {symbol}'
             entry = self._risk_number(row.get('entry_price'))
             quantity = self._risk_number(row.get('quantity'))
-            if not symbol or entry <= 0 or quantity <= 0:
+            if not symbol or not math.isfinite(entry) or not math.isfinite(quantity) or entry <= 0 or quantity <= 0:
                 return False, 0.0, f'관리 포지션 원장 필수값 누락: {symbol or "unknown"}'
             try:
-                current = float(manager.get_current_price(symbol, source) or 0.0)
+                if spot_values is not None:
+                    value = spot_values.get(spot_base_asset(symbol), {})
+                    current = float(value.get('price') or 0.0) if value.get('status') == 'priced' else 0.0
+                else:
+                    current = float(manager.get_current_price(symbol, source) or 0.0)
             except Exception:
                 current = 0.0
             if not math.isfinite(current) or current <= 0:
@@ -549,6 +670,8 @@ class RiskManager:
             side = str(row.get('side') or 'LONG').strip().upper()
             sign = -1.0 if side in {'SHORT', 'SELL'} else 1.0
             total += (current - entry) * quantity * sign
+        if not math.isfinite(total):
+            return False, 0.0, '관리 포지션 미실현 손익 유효성 확인 실패'
         return True, float(total), ''
 
     def evaluate_daily_loss_limit(
@@ -596,7 +719,7 @@ class RiskManager:
                 publish_notification(
                     'risk_data_unavailable',
                     'LIVE 위험 데이터 확인 실패',
-                    f'잔고·포지션 데이터를 확인하지 못해 손실률을 계산하지 않았습니다. 신규 진입만 보류하고 기존 포지션 보호 상태를 유지합니다. 원인: {reason}',
+                    f'잔고·포지션 평가 근거가 부족해 손실률을 계산하지 않았습니다. 신규 진입만 보류하며 기존 포지션 보호·청산 경로는 중지하지 않습니다. 원인: {reason}',
                     source=venue,
                     execution_mode='live',
                     severity='warning',
@@ -607,6 +730,16 @@ class RiskManager:
             return decision
 
         current_equity = float(snapshot.get('equity') or 0.0)
+        valuation_scope = snapshot.get('valuation_scope', 'account')
+        unvalued_assets = snapshot.get('unvalued_assets', [])
+        equity_label = '확인된 평가 가능 자산' if unvalued_assets else '현재 자산'
+        if unvalued_assets:
+            notice = tuple(v['asset'] for v in unvalued_assets)
+            notices = getattr(self, '_spot_valuation_notices', {})
+            if notices.get(venue) != notice:
+                self.logger.warning(f"{venue.upper()} {snapshot['reason']}. 0원·손실 확정이 아니며 계좌 총평가액과 구분합니다.")
+                notices[venue] = notice
+                self._spot_valuation_notices = notices
         try:
             trades = self._today_live_trades(venue)
             unresolved = sum(not isinstance(row, dict) or row.get('performance_evidence_ready') is not True
@@ -638,7 +771,10 @@ class RiskManager:
             except Exception:
                 pass
             return decision
-        unrealized_valid, unrealized_pnl, unrealized_reason = self._managed_unrealized_pnl(venue)
+        if venue in {'upbit', 'bithumb', 'coinone'}:
+            unrealized_valid, unrealized_pnl, unrealized_reason = self._managed_unrealized_pnl(venue, account_snapshot=snapshot)
+        else:
+            unrealized_valid, unrealized_pnl, unrealized_reason = self._managed_unrealized_pnl(venue)
         if not unrealized_valid:
             decision = DailyLossDecision(
                 blocked=True,
@@ -687,7 +823,8 @@ class RiskManager:
                 try:
                     initial_equity = load_or_create(
                         getattr(self.database_manager, 'db_path', None), today.date().isoformat(),
-                        venue, currency, scope, initial_equity)
+                        venue, currency, scope, initial_equity,
+                        basis='first_verified_priced_assets_adjusted' if unvalued_assets else 'first_verified_observation_adjusted')
                 except Exception:
                     decision = DailyLossDecision(blocked=True, status='risk_data_unavailable', source=venue,
                         execution_mode=mode, currency=currency, reason='일일 위험 기준 자산 저장/복원 실패')
@@ -718,12 +855,14 @@ class RiskManager:
             unrealized_pnl=unrealized_pnl,
             loss_amount=loss_amount,
             loss_rate=loss_rate,
-            reason='일일 손실 한도 초과' if stop_trading else '',
+            reason='일일 손실 한도 초과' if stop_trading else (snapshot.get('reason', '') if unvalued_assets else ''),
+            valuation_scope=valuation_scope,
+            unvalued_assets=unvalued_assets,
         )
         self._last_daily_loss_decision[venue] = decision
         self.logger.info(
             f"[LIVE 일일 손실 체크] 거래소={venue} 기준자산={initial_equity:.4f} {currency}, "
-            f"현재자산={current_equity:.4f} {currency}, 실현={realized_pnl:.4f}, "
+            f"{equity_label}={current_equity:.4f} {currency}, 실현={realized_pnl:.4f}, "
             f"미실현={unrealized_pnl:.4f}, 손실률={loss_rate:.2f}%, "
             f"한도={self.max_daily_loss_percent:.2f}%, 중단={'예' if stop_trading else '아니오'}"
         )
@@ -740,7 +879,7 @@ class RiskManager:
                     'LIVE 일일 손실 가드레일 거래 중단',
                     f'NoahAI 당일 청산 순손익 {realized_pnl:.4f} + 관리 포지션 미실현 {unrealized_pnl:.4f} = {total_pnl:.4f} {currency}, '
                     f'손실률 {loss_rate:.2f}%가 중단 한도 {self.max_daily_loss_percent:.2f}%를 초과했습니다. '
-                    f'당일 고정 위험 기준 자산 {initial_equity:.4f}, 현재 자산 {current_equity:.4f} {currency}. '
+                    f'당일 고정 위험 기준 자산 {initial_equity:.4f}, {equity_label} {current_equity:.4f} {currency}. '
                     '최초 확인 시점의 조정 기준이며 거래소 계좌 일별 PnL과 범위가 다릅니다.',
                     source=venue,
                     execution_mode='live',

@@ -29,7 +29,7 @@ Windows 키움 OpenAPI+ 연결과 장시간 운용을 대신하지 않습니다.
 표시 기준
 • Binance·Bybit·OKX·Bitget: 선물 포지션
 • Upbit·Bithumb·Coinone: KRW 현물 보유자산. 신규 SHORT·레버리지 없음
-• Coinone: KRW 현물 PAPER·공개시세 준비. 실계좌 E2E 전 LIVE 차단
+• Coinone: PAPER/LIVE 공통 실행 조건 적용 · KRW 현물
 • PAPER: 가상 포지션·가상 PnL, 실잔고와 분리
 
 전략 제작·PAPER 검증은 회원등급과 무관하게 같은 조건입니다.
@@ -52,8 +52,8 @@ def build_live_trading_guide(build_label: str) -> str:
 1. 지금 가능한 범위와 검증 경계
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-• 암호화폐 LIVE 준비 경로: Binance, Bybit, OKX, Bitget, Upbit, Bithumb
-• Coinone: 시세·PAPER·통계·Strategy Studio 준비. 실제 계정 E2E 전 LIVE 차단
+• 암호화폐 LIVE 준비 경로: Binance, Bybit, OKX, Bitget, Upbit, Bithumb, Coinone
+• Coinone: PAPER/LIVE 공통 실행 조건 적용
 • 증권 경로: 키움증권, 신한증권, 미래에셋증권, 한국투자증권 KIS
 • 자동 회귀 통과는 소스 계약 검증입니다. 사용자별 API 권한·허용 IP·실제 주문·취소·체결,
   Windows 키움 OCX와 24~72시간 갱신 지속성을 자동으로 증명하지 않습니다.
@@ -112,8 +112,8 @@ def build_live_trading_guide(build_label: str) -> str:
 • Upbit·Bithumb·Coinone은 KRW 현물 「보유자산」을 표시합니다. 레버리지와 신규 SHORT가 없습니다.
   내부 분석의 SHORT는 NoahAI가 매수해 관리 중인 LONG의 청산 신호로만 해석하고,
   수동·에어드롭 보유자산은 자동 매도하지 않습니다.
-• Coinone은 현재 공개시세·PAPER·통계·Strategy Studio만 지원합니다. 실계좌 주문·체결 대조
-  E2E를 통과하기 전에는 API 키가 정상이어도 LIVE 시작과 실제 주문을 차단합니다.
+• Coinone도 공통 PAPER/LIVE 조건을 사용합니다. LIVE는 API 인증·실제 주문 대상 선택·
+  명시적 시작 확인·위험 제한이 필요합니다. 별도 E2E 승인 스위치는 사용하지 않습니다.
 • 업비트 시장가 매수는 KRW 총액, 시장가 매도는 보유 코인 수량 계약입니다.
   빗썸과 해외 선물 주문 단위를 업비트 규격으로 바꾸지 않습니다.
 • PAPER에서는 LIVE 포지션 대신 엔진의 가상 포지션과 가상 PnL을 표시합니다.

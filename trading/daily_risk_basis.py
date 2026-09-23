@@ -11,7 +11,7 @@ def credential_scope(settings, client, venue):
     return hashlib.sha256(('risk-basis-v1:'+venue+':'+key).encode()).hexdigest() if key else None
 
 
-def load_or_create(db_path, day, venue, currency, scope, proposed):
+def load_or_create(db_path, day, venue, currency, scope, proposed, *, basis='first_verified_observation_adjusted'):
     if not scope or not db_path:
         raise ValueError('일일 위험 기준의 계정 식별자/저장소 확인 필요')
     if not math.isfinite(proposed) or proposed <= 0:
@@ -22,7 +22,7 @@ def load_or_create(db_path, day, venue, currency, scope, proposed):
             initial_equity REAL NOT NULL, basis TEXT NOT NULL,
             PRIMARY KEY(day,venue,currency,credential_scope))''')
         conn.execute('''INSERT OR IGNORE INTO daily_risk_basis VALUES (?,?,?,?,?,?)''',
-                     (day,venue,currency,scope,proposed,'first_verified_observation_adjusted'))
+                     (day,venue,currency,scope,proposed,basis))
         value = float(conn.execute('''SELECT initial_equity FROM daily_risk_basis
             WHERE day=? AND venue=? AND currency=? AND credential_scope=?''',
             (day,venue,currency,scope)).fetchone()[0])
