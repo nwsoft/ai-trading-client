@@ -21,7 +21,7 @@ DOCS = ROOT / "docs"
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from config.app_version import RELEASE_HIGHLIGHT, RELEASE_VERSION
+from config.app_version import PUBLIC_RELEASE_VERSION, RELEASE_HIGHLIGHT, RELEASE_VERSION
 
 TARGETS: Dict[str, Path] = {
     "app_version": ROOT / "config" / "app_version.py",
@@ -1060,14 +1060,17 @@ def check_strategy_policy_alignment(text_map: Dict[str, str]) -> List[str]:
 
 
 def check_whitepaper_release_identity(text_map: Dict[str, str]) -> List[str]:
-    """Compare only the current identity box; preserve dated release history."""
+    """Compare the current identity box with source-controlled version constants.
+
+    The build creates the candidate release manifest before the release is public,
+    so that generated file cannot identify the currently published version.
+    """
     current = text_map.get('technical_whitepaper', '').split('\n## 20', 1)[0]
-    try:
-        public_version = json.loads(text_map.get('release_manifest', '')).get('version')
-    except (ValueError, TypeError):
-        return ['[WHITEPAPER] 공개 manifest를 확인할 수 없습니다.']
     errors = []
-    for label, expected in (('현재 소스 후보', RELEASE_VERSION), ('현재 공개 기반', public_version)):
+    for label, expected in (
+        ('현재 소스 후보', RELEASE_VERSION),
+        ('현재 공개 기반', PUBLIC_RELEASE_VERSION),
+    ):
         found = re.search(re.escape(label) + r': NoahAI Client v(\d+\.\d+\.\d+\.\d+)', current)
         if not found or found.group(1) != expected:
             errors.append(f'[WHITEPAPER] {label}: 코드/manifest 기준 v{expected}와 다릅니다.')
