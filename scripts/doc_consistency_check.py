@@ -197,9 +197,9 @@ def check_release_surface_alignment(text_map: Dict[str, str]) -> List[str]:
     if RELEASE_VERSION == '3.9.1.47':
         required = {
             'manual_widget': ('v3.9.1.47 최신 업데이트', '미완성 초안 보관'),
-            'user_guide': ('현재 소스 후보 버전: **v3.9.1.47**', '현재 공개 버전: **v3.9.1.46**'),
-            'readme': ('현재 소스 후보: v3.9.1.47', '현재 공개 기반: v3.9.1.46'),
-            'release_notes': ('v3.9.1.47', '3.9.147', '공개 v3.9.1.46'),
+            'user_guide': ('현재 소스 후보 버전: **v3.9.1.47**', f'현재 공개 버전: **v{PUBLIC_RELEASE_VERSION}**'),
+            'readme': ('현재 소스 후보: v3.9.1.47', f'현재 공개 기반: v{PUBLIC_RELEASE_VERSION}'),
+            'release_notes': ('v3.9.1.47', '3.9.147', f'공개 v{PUBLIC_RELEASE_VERSION}'),
             'test_status': ('v3.9.1.47', '모의 응답', 'Windows'),
             'deploy_checklist': ('v3.9.1.47', '실제 워커'),
             'architecture': ('v3.9.1.47', '기존 버전'),
@@ -627,7 +627,7 @@ def check_release_surface_alignment(text_map: Dict[str, str]) -> List[str]:
             "docs_readme": ("v3.9.1.0 Web UI 1:1 전환 진행 중 · 배포 불가", "35개", "pending_windows_rebuild"),
             "deploy_checklist": ("v3.9.1.0 Web UI Internal Integration Candidate", "Gateway", "build_web_ui_windows.ps1", "publish_ready=false", "pending_windows_rebuild"),
             "master_documentation": ("v3.9.1.0 Web UI 1:1 전환 진행 중", "WEB_UI_1_TO_1_PARITY_EXECUTION_PLAN", "배포 불가"),
-            "build_guide": ("v3.9.1.0 Web UI Internal Integration Candidate", "Node `>=22.12.0`", "publish_web_ui_windows_release.ps1", "built_windows_unverified", "publish_ready=false"),
+            "build_guide": ("v3.9.1.0 Web UI Internal Integration Candidate", "Node `>=22.12.0`", "build_and_release_windows.ps1", "external validation"),
             "ai_custom_architecture": ("v3.9.1.0 Web UI Internal Integration Candidate", "버전 diff/rollback", "pending_windows_rebuild"),
             "assistant_guide": ("v3.9.1.0 Web UI Internal Integration Candidate", "백테스트/PAPER", ".noahstrategy"),
             "trading_flow": ("v3.9.1.0 Web UI Internal Integration Candidate", "실패 폐쇄", "PAPER/Windows E2E"),

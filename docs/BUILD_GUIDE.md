@@ -95,7 +95,7 @@ gh auth status
 
 `py -3.11-32` 대신 별도 x86 환경을 쓸 때는 `NOAHAI_PYTHON_X86`에 해당 python.exe의 절대경로를 지정합니다. 일반 사용자는 x86 Python을 설치할 필요가 없습니다. 호스트 EXE가 설치기에 포함됩니다.
 
-## Windows 빌드 → 실제 검증 → 릴리즈
+## Windows 빌드 → 자동 검증 → 릴리즈
 
 ```powershell
 # 1. 전체 자동 검사와 두 아키텍처 빌드
@@ -104,8 +104,8 @@ powershell -ExecutionPolicy Bypass -File .\scripts\build_windows.ps1
 # 2. 일반 사용자용 stable/latest 게시
 powershell -ExecutionPolicy Bypass -File .\scripts\release_windows.ps1
 
-# 3. 자동업데이트에 노출하지 않을 테스트 후보만 명시적으로 prerelease 게시
-powershell -ExecutionPolicy Bypass -File .\scripts\release_windows.ps1 -AllowPendingExternalGates
+# 3. 빌드와 stable/latest 게시를 한 번에 수행
+powershell -ExecutionPolicy Bypass -File .\scripts\build_and_release_windows.ps1
 ```
 
 일반 사용자용 빌드·stable/latest 게시를 한 번에 수행하려면:
@@ -114,16 +114,16 @@ powershell -ExecutionPolicy Bypass -File .\scripts\release_windows.ps1 -AllowPen
 powershell -ExecutionPolicy Bypass -File .\scripts\build_and_release_windows.ps1
 ```
 
-테스트 후보를 한 번에 만들 때만 `-AllowPendingExternalGates`를 붙입니다. 직접 stable/latest를 게시하는 정본은 `scripts/publish_web_ui_windows_release.ps1 -ConfirmExternalGates -AllowPendingExternalGates -PublishStableWithPendingExternalGates`입니다. `SkipTests`, `SkipEngineBuild`, `AllowMissingKiwoomHost`는 공식 릴리즈에서 사용하지 않습니다.
+`build_and_release_windows.ps1`은 전체 회귀, Web 빌드와 감사, x64 엔진 smoke, 키움 x86 PE·인증 IPC, NSIS 설치기, 해시·업데이트 메타데이터와 Git provenance가 모두 통과해야 게시합니다. 실계좌 주문, 키움 OCX 로그인, 실제 업그레이드 조작과 장시간 운용은 빌드 시스템이 재현할 수 없는 external validation으로 manifest에 기록하지만 stable 릴리즈를 차단하지 않습니다. 별도 확인·override 옵션은 필요하지 않습니다. `SkipTests`, `SkipEngineBuild`, `AllowMissingKiwoomHost`는 공식 릴리즈에서 사용하지 않습니다.
 
 산출물:
 
 ```text
 deploy/web-engine/NoahAIEngine.exe                 x64
 deploy/web-engine/NoahAIKiwoomHost.exe             x86, PE 0x14c
-deploy/web-release/NoahAI-3.9.1.45-Setup.exe
-deploy/web-release/NoahAI-3.9.1.45-Setup.exe.blockmap
-deploy/web-release/latest.yml                      updater 3.9.145
+deploy/web-release/NoahAI-3.9.1.47-Setup.exe
+deploy/web-release/NoahAI-3.9.1.47-Setup.exe.blockmap
+deploy/web-release/latest.yml                      updater 3.9.147
 deploy/release-manifest.json
 ```
 

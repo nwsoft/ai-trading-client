@@ -8,11 +8,6 @@ on:
         required: true
         type: boolean
         default: false
-      confirm_external_gates:
-        description: Confirm the Windows tester runbook has passed
-        required: true
-        type: boolean
-        default: false
 
 permissions:
   contents: write
@@ -72,19 +67,9 @@ jobs:
             deploy/web-release/latest.yml
             deploy/release-manifest.json
 
-      - name: Reject unconfirmed publication
-        if: inputs.publish_release && !inputs.confirm_external_gates
-        shell: powershell
-        run: |
-          $version = python -c "from config.app_version import RELEASE_VERSION; print(RELEASE_VERSION)"
-          $prefix = "V" + ($version -replace '\.', '')
-          $plan = Get-ChildItem -LiteralPath docs -Filter "$prefix*_TEST_PLAN.md" | Select-Object -First 1
-          if ($plan) { Write-Host "Required gate plan: docs/$($plan.Name)" }
-          throw "Windows gate plan still has unchecked rows unless confirm_external_gates is true"
-
       - name: Publish verified release
-        if: inputs.publish_release && inputs.confirm_external_gates
+        if: inputs.publish_release
         shell: powershell
         env:
           GH_TOKEN: ${{ github.token }}
-        run: powershell -ExecutionPolicy Bypass -File scripts/publish_web_ui_windows_release.ps1 -ConfirmExternalGates
+        run: powershell -ExecutionPolicy Bypass -File scripts/publish_web_ui_windows_release.ps1

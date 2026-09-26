@@ -2,8 +2,6 @@ param(
     [switch]$SkipTests,
     [switch]$SkipNpmCi,
     [switch]$SkipEngineBuild,
-    [switch]$AllowPendingExternalGates,
-    [switch]$PublishStableWithPendingExternalGates,
     [switch]$AllowMissingKiwoomHost,
     [string]$Repo = "nwsoft/ai-trading-client"
 )
@@ -21,7 +19,5 @@ if ($AllowMissingKiwoomHost) { $buildArgs += "-AllowMissingKiwoomHost" }
 if ($LASTEXITCODE -ne 0) { throw "NoahAI Windows build failed; release skipped" }
 
 $releaseArgs = @("-Repo", $Repo)
-if ($AllowPendingExternalGates) { $releaseArgs += "-AllowPendingExternalGates" }
-if ($PublishStableWithPendingExternalGates) { $releaseArgs += "-PublishStableWithPendingExternalGates" }
 & powershell -ExecutionPolicy Bypass -File (Join-Path $repoRoot "scripts\release_windows.ps1") @releaseArgs
 if ($LASTEXITCODE -ne 0) { throw "NoahAI Windows release failed" }

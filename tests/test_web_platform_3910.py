@@ -1487,8 +1487,8 @@ def test_web_desktop_shell_is_version_aligned_and_fail_closed():
     assert (ROOT / "noahai_web_engine.spec").exists()
     build_script = (ROOT / "scripts" / "build_web_ui_windows.ps1").read_text(encoding="utf-8")
     assert 'Filter "NoahAI-$version-Setup.exe.blockmap"' in build_script
-    assert 'build_status = "built_windows_unverified"' in build_script
-    assert 'publish_ready = $false' in build_script
+    assert 'build_status = "windows_automated_checks_passed"' in build_script
+    assert 'publish_ready = (-not $SkipTests' in build_script
     assert "source_fingerprint = $sourceFingerprint" in build_script
     assert 'legacy_single_exe_updater = "retired_after_v3.9.0.10"' in build_script
     publish_script = (ROOT / "scripts" / "publish_web_ui_windows_release.ps1").read_text(encoding="utf-8")

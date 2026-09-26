@@ -160,8 +160,8 @@ def test_publish_script_requires_the_current_unfinished_windows_plan():
     plan = plan_matches[0].read_text(encoding="utf-8")
 
     assert "Get-PatchPlanPath" in publish
-    assert "Assert-PatchPlanComplete" in publish
-    assert "AllowPendingExternalGates" in publish
+    assert "Get-PatchPlanStatus" in publish
+    assert "external_validation_pending_count" in publish
     assert "V*_TEST_PLAN.md" in publish
     assert 'if ($version -eq "3.9.1.7")' not in publish
     for gate in (

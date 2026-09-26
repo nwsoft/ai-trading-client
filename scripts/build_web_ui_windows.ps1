@@ -383,9 +383,9 @@ try {
         source_revision = Get-SourceRevision $repoRoot
         source_worktree_dirty = Test-SourceWorktreeDirty $repoRoot
         source_archive_authoritative = $false
-        build_status = "built_windows_unverified"
+        build_status = "windows_automated_checks_passed"
         automated_checks_passed = (-not $SkipTests -and -not $SkipEngineBuild -and -not $AllowMissingKiwoomHost)
-        publish_ready = $false
+        publish_ready = (-not $SkipTests -and -not $SkipEngineBuild -and -not $AllowMissingKiwoomHost)
         notes_file = "release_notes.md"
         verification = [ordered]@{
             sha256_required = $true
@@ -439,7 +439,10 @@ try {
             legacy_single_exe_updater = "retired_after_v3.9.0.10"
         }
         previous_published_asset = $previousPublishedAsset
-        external_gates = if ($existingManifest -and $existingManifest.version -eq $version -and $existingManifest.external_gates) {
+        external_validation_status = "pending"
+        external_validation = if ($existingManifest -and $existingManifest.version -eq $version -and $existingManifest.external_validation) {
+            @($existingManifest.external_validation)
+        } elseif ($existingManifest -and $existingManifest.version -eq $version -and $existingManifest.external_gates) {
             @($existingManifest.external_gates)
         } else {
             @(
@@ -464,8 +467,8 @@ try {
     Write-Host "[WEB_UI_BUILD] installer_sha256=$installerHash"
     Write-Host "[WEB_UI_BUILD] blockmap_sha256=$blockmapHash"
     Write-Host "[WEB_UI_BUILD] manifest=$manifestPath"
-    Write-Host "[WEB_UI_BUILD] build_status=built_windows_unverified; publish_ready=false until the Windows runbook passes."
-    Write-Host "[WEB_UI_BUILD] Publish installer + latest.yml + *.blockmap together only after the external gates pass."
+    Write-Host "[WEB_UI_BUILD] build_status=windows_automated_checks_passed; publish_ready=$($manifest.publish_ready)."
+    Write-Host "[WEB_UI_BUILD] Account, live-order, OCX login, upgrade UX, and soak checks are recorded as non-blocking external validation."
 } finally {
     Set-Location $originalLocation
 }

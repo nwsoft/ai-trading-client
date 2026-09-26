@@ -8,7 +8,7 @@
 """
 
 RELEASE_VERSION = "3.9.1.47"
-PUBLIC_RELEASE_VERSION = "3.9.1.46"
+PUBLIC_RELEASE_VERSION = "3.9.1.47"
 RELEASE_DATE = "2026-09-24"
 RELEASE_HIGHLIGHT = "전략 등록·기존 버전 보완 및 손익 대조 차단 안내 개선"
 RELEASE_PATCH = "Strategy Repair and Reconciliation Diagnostics Patch"
