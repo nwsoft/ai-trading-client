@@ -58,15 +58,19 @@ PROFILE_FEATURES: Dict[str, Dict[str, bool]] = {
     },
 }
 
+# Research adds analysis depth, never a new order permission or risk budget.
+PROFILE_FEATURES["research"] = deepcopy(PROFILE_FEATURES["lab"])
+
 # Level is presentation/operation-policy depth, never an execution entitlement.
 # The lab profile exposes Level 4 bounded policy controls while all hard account,
 # order, approval and loss guardrails remain owned by the runtime.
-PROFILE_VIEW_LEVEL = {"beginner": 1, "standard": 2, "advanced": 3, "lab": 4}
+PROFILE_VIEW_LEVEL = {"beginner": 1, "standard": 2, "advanced": 3, "lab": 4, "research": 5}
 PROFILE_LABELS = {
     "beginner": "초보자",
     "standard": "일반",
     "advanced": "고급",
     "lab": "실험실",
+    "research": "연구실",
 }
 FEATURE_KEYS = tuple(next(iter(PROFILE_FEATURES.values())).keys())
 
@@ -102,7 +106,7 @@ def resolve_ai_custom_features(settings_or_feature_settings: Any) -> Dict[str, A
         features["team_sharing"] = False
     # webhook은 외부 신호 입력용 운영 기능이다. 운영 endpoint와 실제 E2E를
     # 이해하는 실험실 프로필에서만 노출하며 지정 거래소 연결을 대체하지 않는다.
-    if profile != "lab":
+    if profile not in {"lab", "research"}:
         features["signed_webhook"] = False
     return {
         "profile": profile,

@@ -175,11 +175,14 @@ class StrategyHistoricalValidationContract(StrictContract):
     scope: Literal["binance", "unified"]
     strategy_key: str = Field(min_length=1, max_length=160)
     version_id: str = Field(min_length=1, max_length=200)
-    asset_class: Literal["crypto", "stock"] = "crypto"
+    asset_class: Literal["crypto", "stock", "etf"] = "crypto"
     source: str = Field(default="", max_length=40)
     market_type: Literal["spot", "futures"] | None = None
     symbol: str = Field(default="BTCUSDT", min_length=3, max_length=24)
     limit: int = Field(default=500, ge=100, le=1000)
+    range_start_ms: int | None = Field(default=None, ge=0)
+    range_end_ms: int | None = Field(default=None, ge=0)
+    holding_bars: int = Field(default=12, ge=1, le=500)
 
 
 class StrategySourceAttachmentContract(StrictContract):
@@ -188,6 +191,8 @@ class StrategySourceAttachmentContract(StrictContract):
 
 
 class StrategySourceAnalyzeContract(StrictContract):
+    drive_api_key: str = Field(default='', max_length=512, repr=False)
+    drive_access_token: str = Field(default='', max_length=4096, repr=False)
     source_kind: Literal["auto", "text", "pine", "pdf", "image", "video", "youtube", "tradingview", "url"] = "auto"
     value: str = Field(min_length=1, max_length=40_000_000)
     encoding: Literal["text", "base64"] = "text"

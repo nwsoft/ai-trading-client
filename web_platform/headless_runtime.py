@@ -577,7 +577,8 @@ class HeadlessTradingRuntime:
             if not self.selected_coins:
                 self.select_trading_coins()
             return self.start_trading_loop()
-        return bool(self.unified_trader.start_trading(normalized))
+        checked_start = getattr(self.unified_trader, 'start_trading_checked', None)
+        return bool(checked_start(normalized) if callable(checked_start) else self.unified_trader.start_trading(normalized))
 
     def stop_source(self, source: str, *, close_all: bool = False) -> bool:
         normalized = str(source or "").strip().lower()
@@ -594,6 +595,8 @@ class HeadlessTradingRuntime:
             source="binance",
         )
         if daily_loss.blocked:
+            if daily_loss.status == 'risk_data_unavailable' and getattr(daily_loss, 'reason_code', '') == 'managed_position_reconciliation_required':
+                raise RuntimeError('risk_data_unavailable:managed_position_reconciliation_required')
             raise RuntimeError(
                 "risk_data_unavailable"
                 if daily_loss.status == "risk_data_unavailable"

@@ -652,7 +652,7 @@ class CustomStrategyWidget(ctk.CTkScrollableFrame):
         ctk.CTkLabel(result_header, text="2. XAI 분석 결과와 적용값", font=self._font(16, "bold"), text_color="#f8fafc").pack(side="left")
         self.strategy_view_combo = ctk.CTkComboBox(
             result_header,
-            values=["Level 1 이해·시험", "Level 2 핵심값", "Level 3 전체 IR", "Level 4 전문가 운용"],
+            values=["Level 1 이해·시험", "Level 2 핵심값", "Level 3 전체 IR", "Level 4 전문가 운용", "Level 5 연구실"],
             width=155,
             height=30,
             state="readonly",
@@ -660,7 +660,8 @@ class CustomStrategyWidget(ctk.CTkScrollableFrame):
         )
         self.strategy_view_combo.set("Level 1 이해·시험")
         self.strategy_view_combo.set(
-            "Level 4 전문가 운용" if self.strategy_view_level == 4
+            "Level 5 연구실" if self.strategy_view_level == 5
+            else "Level 4 전문가 운용" if self.strategy_view_level == 4
             else "Level 3 전체 IR" if self.strategy_view_level == 3
             else "Level 2 핵심값" if self.strategy_view_level == 2
             else "Level 1 이해·시험"
@@ -708,7 +709,7 @@ class CustomStrategyWidget(ctk.CTkScrollableFrame):
         self.version_rows.pack(fill="x", padx=12, pady=(0, 12))
 
     def _on_strategy_view_changed(self, value: str):
-        level = 4 if "Level 4" in str(value) else 3 if "Level 3" in str(value) else 2 if "Level 2" in str(value) else 1
+        level = 5 if "Level 5" in str(value) else 4 if "Level 4" in str(value) else 3 if "Level 3" in str(value) else 2 if "Level 2" in str(value) else 1
         self._set_strategy_view_level(level)
 
     def _mark_custom_risk_policy(self) -> None:
@@ -732,7 +733,7 @@ class CustomStrategyWidget(ctk.CTkScrollableFrame):
 
     def _set_strategy_view_level(self, level: int):
         """한 IR을 사용자 숙련도에 따라 단계적으로 표시한다."""
-        self.strategy_view_level = int(level) if int(level) in {1, 2, 3, 4} else 1
+        self.strategy_view_level = int(level) if int(level) in {1, 2, 3, 4, 5} else 1
         advanced_card = getattr(self, "advanced_card", None)
         result_card = getattr(self, "result_card", None)
         if advanced_card is not None and result_card is not None:
@@ -745,7 +746,7 @@ class CustomStrategyWidget(ctk.CTkScrollableFrame):
                 advanced_card.pack_forget()
         expert_policy = getattr(self, "expert_policy_frame", None)
         if expert_policy is not None:
-            if self.strategy_view_level == 4:
+            if self.strategy_view_level >= 4:
                 if not expert_policy.winfo_manager():
                     expert_policy.pack(fill="x", padx=16, pady=(0, 8), before=self.risk_row)
             elif expert_policy.winfo_manager():
@@ -1314,7 +1315,7 @@ class CustomStrategyWidget(ctk.CTkScrollableFrame):
         else:
             lines.extend([
                 "",
-                "[Level 4 · 전문가 운용 정책 + 전체 Noah Strategy IR]",
+                "[Level 5 · 연구실 + 전문가 운용 정책 + 전체 Noah Strategy IR]" if self.strategy_view_level == 5 else "[Level 4 · 전문가 운용 정책 + 전체 Noah Strategy IR]",
                 json.dumps(ir_projection, ensure_ascii=False, indent=2),
                 "",
                 "하드 가드레일은 해제되지 않으며, 전략 위험예산·최대비중·레버리지 상한·국면 이탈 대응만 새 버전에 저장합니다.",
@@ -2232,6 +2233,19 @@ class CustomStrategyWidget(ctk.CTkScrollableFrame):
             f"승격 준비 {'예' if lab.get('promotion_ready') else '아니오'} · 백테스트만으로 자동 승격 안 함\n"
             f"{period_summary}"
         ) if lab else "검증 연구소 상세 없음"
+        research_summary = ""
+        if self.strategy_view_level >= 5:
+            from trading.strategy_research import replay_cost_sensitivity
+            research = replay_cost_sensitivity(metrics)
+            research_summary = "\n[Level 5 · 같은 거래의 비용 민감도]\n"
+            if research["status"] == "completed":
+                research_summary += "\n".join(
+                    f"비용 {row['cost_multiplier']:g}배: 순수익률 {row['net_return_percent']:+.4f}% · MDD {row['max_drawdown_percent']:.4f}%"
+                    for row in research["scenarios"]
+                )
+            else:
+                research_summary += "비용 근거 없음 · 누락을 0으로 계산하지 않습니다."
+            research_summary += "\n동일 진입·청산의 비용만 비교하며, 새로운 체결·펀딩 재현이나 LIVE 권한이 아닙니다.\n"
         messagebox.showinfo(
             "자동 검증 결과",
             f"결과: {'통과' if passed else '미통과'}\n"
@@ -2246,7 +2260,7 @@ class CustomStrategyWidget(ctk.CTkScrollableFrame):
             f"거래당 기대값: {float(metrics.get('expectancy_percent', 0.0) or 0.0):+.3f}%\n"
             f"최대 낙폭: {float(metrics.get('max_drawdown_percent', 0.0) or 0.0):.2f}%\n"
             f"국면별: {regime_summary}\n\n"
-            f"[검증 연구소]\n{lab_summary}\n\n"
+            f"[검증 연구소]\n{lab_summary}\n{research_summary}\n"
             "비용 가정은 진입·청산 수수료, 양방향 슬리피지, 왕복 스프레드를 포함합니다.\n"
             "실전 체결 품질과 수익을 보장하지 않는 보조 검증입니다.",
         )

@@ -46,7 +46,9 @@ class NoahStrategyIR:
         "timeframes": sorted(DeclarativeStrategyEngine.ALLOWED_TIMEFRAMES),
         "operators": sorted(DeclarativeStrategyEngine.OPERATORS),
         "condition_groups": ["all", "any", "expression", "and", "or"],
+        "temporal_conditions": ["all_for", "any_within", "became_true", "became_false", "after", "latched"],
         "states": [
+            "numeric_state",
             "position",
             "previous_value",
             "cooldown",
@@ -87,6 +89,8 @@ class NoahStrategyIR:
     @classmethod
     def _reference_capabilities(cls, reference: Any) -> Dict[str, List[str]]:
         if isinstance(reference, Mapping):
+            if 'state_variable' in reference:
+                return {'data_fields':[], 'indicator_names':[], 'indicator_sources':[], 'timeframes':[], 'states':['numeric_state']}
             if "user_indicator" in reference:
                 return {
                     "data_fields": [], "indicator_names": [],
@@ -342,7 +346,8 @@ class NoahStrategyIR:
                     return
                 nodes.append({
                     "node_id": f"group_{_sha256({'path': path, 'node': node})[:16]}",
-                    "node_type": "boolean_group",
+                    "node_type": "temporal" if node_type == 'temporal' else "boolean_group",
+                    **({'bars':node.get('bars')} if node_type == 'temporal' else {}),
                     "path": path,
                     "section": section,
                     "operator": str(node.get("operator") or node.get("op") or "").lower(),
@@ -357,6 +362,15 @@ class NoahStrategyIR:
             if spec.get("expression") is not None:
                 add_expression_nodes(spec.get("expression"), f"{section}.expression")
 
+        if canonical_rules.get('numeric_state'):
+            from .numeric_strategy_state import validate as validate_numeric_state
+            state_errors=validate_numeric_state(canonical_rules['numeric_state'])
+            requirements['states'].append('numeric_state')
+            nodes.append({'node_id':'numeric_state_'+_sha256(canonical_rules['numeric_state'])[:16],
+                'node_type':'numeric_state','path':'numeric_state','payload':deepcopy(canonical_rules['numeric_state']),
+                'support_status':'unsupported' if state_errors else 'supported',
+                'support_reason':','.join(state_errors) or 'supported',
+                'evidence':cls._node_evidence(canonical_rules,section='entry',condition=canonical_rules['numeric_state'])})
         user_indicator_validation = UserIndicatorLanguage.validate_definitions(
             canonical_rules.get("user_indicators")
         )
@@ -506,8 +520,8 @@ class NoahStrategyIR:
                 "Noah Strategy IR 표시 불가: " + ", ".join(validation["errors"])
             )
         normalized_level = int(level)
-        if normalized_level not in {1, 2, 3, 4}:
-            raise ValueError("Progressive Strategy UI level은 1, 2, 3, 4만 허용합니다.")
+        if normalized_level not in {1, 2, 3, 4, 5}:
+            raise ValueError("Progressive Strategy UI level은 1부터 5까지 허용합니다.")
         rules = dict(ir.get("canonical_rules") or {})
         support = dict(ir.get("support") or {})
         contract = dict(ir.get("strategy_contract") or {})
@@ -556,7 +570,7 @@ class NoahStrategyIR:
         base["nodes"] = deepcopy(list(ir.get("nodes") or []))
         base["capability_profile"] = deepcopy(dict(ir.get("capability_profile") or {}))
         base["canonical_rules"] = deepcopy(rules)
-        if normalized_level == 4:
+        if normalized_level >= 4:
             base["expert_operation_policy"] = {
                 "risk_policy_preset": str(
                     rules.get("risk_policy_preset") or "custom"
@@ -581,6 +595,14 @@ class NoahStrategyIR:
                     "position_reconciliation",
                     "emergency_stop",
                 ],
+            }
+        if normalized_level == 5:
+            base["research_policy"] = {
+                "read_only": True,
+                "cost_multipliers": [1.0, 1.5, 2.0],
+                "sample": "fixed_historical_trades",
+                "grants_execution_permission": False,
+                "missing_evidence": "unavailable_not_zero",
             }
         return base
 

@@ -2139,6 +2139,7 @@ class UnifiedTrader:
                 indicator_pool = list(strategy_pool) + [
                     item for item in paper_strategy_pool if item not in strategy_pool
                 ]
+                from .numeric_strategy_state import runtime_store
                 analysis = enrich_advanced_indicator_context(
                     analysis,
                     indicator_pool,
@@ -2148,6 +2149,9 @@ class UnifiedTrader:
                         limit=limit,
                         exchange_name=exchange_name,
                     ),
+                    state_scope={'venue':exchange_name,'symbol':symbol,'mode':self._execution_mode(exchange_name).value},
+                    state_store=runtime_store(getattr(self,'recorder',None)),
+                    state_pool=strategy_pool,
                 )
                 runtime_strategy_context = dict(
                     (
@@ -4356,15 +4360,18 @@ class UnifiedTrader:
                 "close": current_price,
                 "signal": position.side.value,
             })
+            from .numeric_strategy_state import runtime_store
             context = enrich_advanced_indicator_context(
                 context,
-                rules,
+                {'rules':rules,'strategy_key':position.custom_strategy_key,'version_id':position.custom_strategy_version_id},
                 lambda timeframe, limit: self.exchange_manager.get_klines(
                     position.symbol,
                     interval=timeframe,
                     limit=limit,
                     exchange_name=exchange_name,
                 ),
+                state_scope={'venue':exchange_name,'symbol':position.symbol,'mode':position.execution_mode},
+                state_store=runtime_store(getattr(self,'recorder',None)),
             )
             result = DeclarativeStrategyEngine.evaluate_exit(rules, context)
             if result.get("allowed", False):
@@ -5627,6 +5634,15 @@ class UnifiedTrader:
         학습 범위에만 포함된 거래소도 분석·학습 루프를 시작한다. 실제 주문은
         execute_trading_cycle_unified의 주문 단계에서 별도로 차단한다.
         """
+        # Keep legacy bool callers compatible; the web facade uses the checked
+        # wrapper below so a normal refusal is not reduced to a generic 409.
+        failures = getattr(self, '_start_failures', None)
+        if failures is None:
+            self._start_failures = failures = {}
+        failures.pop(exchange_name, None)
+        def reject(code):
+            failures[exchange_name] = code
+            return False
         try:
             trade_enabled = self._is_trade_enabled(exchange_name)
             learning_enabled = self._is_learning_enabled(exchange_name)
@@ -5634,10 +5650,10 @@ class UnifiedTrader:
                 self.logger.warning(
                     f"⚠️ {exchange_name} 실행 시작 취소 - 거래·학습 활성 범위에 없습니다."
                 )
-                return False
+                return reject('runtime_source_not_enabled')
             if not self._ensure_exchange_initialized(exchange_name):
                 self.logger.warning(f"⚠️ {exchange_name} 실행 시작 취소 - 거래소 초기화 실패")
-                return False
+                return reject('exchange_initialization_failed')
 
             # 이미 실행 중이면 중복 스레드 생성 방지
             if self.monitoring_flags.get(exchange_name, False):
@@ -5668,7 +5684,7 @@ class UnifiedTrader:
                     self.last_coin_selection_time_by_exchange[exchange_name] = time.time()
             if not selected:
                 self.logger.warning(f"⚠️ {exchange_name} 거래 시작 취소 - 선택된 코인 없음")
-                return False
+                return reject('trading_candidates_unavailable')
 
             self.monitoring_flags[exchange_name] = True
             self.trading_cycles[exchange_name] = True
@@ -5695,7 +5711,14 @@ class UnifiedTrader:
 
         except Exception as e:
             self.logger.error(f"❌ {exchange_name} 거래 시작 실패: {e}")
-            return False
+            return reject('runtime_start_exception')
+
+    def start_trading_checked(self, exchange_name: str):
+        result = self.start_trading(exchange_name)
+        if result is False:
+            code = (getattr(self, '_start_failures', {}) or {}).get(exchange_name, 'runtime_command_rejected')
+            raise RuntimeError(f'{code}:{exchange_name}')
+        return result
 
     def stop_trading(self, exchange_name: str, close_all: bool = False):
         """거래소별 거래 중지

@@ -258,6 +258,8 @@ class Trader:
         # 모니터링 관련 (심볼별 개별 관리로 개선)
         self.monitoring_flags = {}  # 심볼별 모니터링 플래그
         self.monitoring_threads = {}  # 심볼별 모니터링 스레드 핸들
+        self._monitoring_lock = threading.RLock()
+        self._pending_monitoring = {}
         # settings.json의 auto_trade_interval을 사용 (기본 10초)
         self.monitoring_interval = int(self.settings.get("auto_trade_interval", 10))
         self.price_data_points = {}  # 실시간 가격 데이터 저장
@@ -761,10 +763,13 @@ class Trader:
                     level='WARNING',
                 )
                 self._reset_trade_flag(symbol)
-                if symbol in self.monitoring_threads:
-                    del self.monitoring_threads[symbol]
-                if symbol in self.monitoring_flags:
-                    del self.monitoring_flags[symbol]
+                stop = self.monitoring_flags.get(symbol)
+                if hasattr(stop, 'set'):
+                    stop.set()
+                worker = self.monitoring_threads.get(symbol)
+                if not callable(getattr(worker, 'is_alive', None)) or not worker.is_alive():
+                    self.monitoring_threads.pop(symbol, None)
+                    self.monitoring_flags.pop(symbol, None)
 
             if zombie_symbols:
                 self.log_event('trade', f"✅ 좀비 플래그 정리 완료: {len(zombie_symbols)}개 심볼 - {zombie_symbols}")
@@ -2504,12 +2509,16 @@ class Trader:
                             item for item in paper_strategy_pool
                             if item not in strategy_pool
                         ]
+                        from .numeric_strategy_state import runtime_store
                         signal_data = enrich_advanced_indicator_context(
                             signal_data,
                             indicator_pool,
                             lambda timeframe, limit: self.binance_client.get_klines(
                                 symbol, timeframe, limit
                             ),
+                            state_scope={'venue':'binance','symbol':symbol,'mode':self._execution_mode().value},
+                            state_store=runtime_store(getattr(self,'recorder',None)),
+                            state_pool=strategy_pool,
                         )
                         runtime_strategy_context = dict(
                             getattr(self, '_custom_strategy_runtime_context', {}) or {}
@@ -4937,12 +4946,15 @@ class Trader:
                 "close": position.current_price,
                 "signal": position.side.value,
             })
+            from .numeric_strategy_state import runtime_store
             context = enrich_advanced_indicator_context(
                 context,
-                rules,
+                {'rules':rules,'strategy_key':position.custom_strategy_key,'version_id':position.custom_strategy_version_id},
                 lambda timeframe, limit: self.binance_client.get_klines(
                     position.symbol, timeframe, limit
                 ),
+                state_scope={'venue':'binance','symbol':position.symbol,'mode':position.execution_mode},
+                state_store=runtime_store(getattr(self,'recorder',None)),
             )
             result = DeclarativeStrategyEngine.evaluate_exit(rules, context)
             if result.get("allowed", False):
@@ -6061,7 +6073,35 @@ class Trader:
 
     # execute_enhanced_trade 메서드 제거됨 - execute_trades가 모든 기능을 포함
 
-    def start_realtime_monitoring(self, symbol: str, position: Position):
+    def _start_monitoring(self, symbol: str, position: Position, manual=False):
+        """Start one owned worker per symbol; never block order completion."""
+        with self._monitoring_lock:
+            previous = self.monitoring_threads.get(symbol)
+            if previous is not None and previous.is_alive():
+                if getattr(previous, '_noah_position', None) is not position:
+                    self._pending_monitoring[symbol] = position
+                    self.monitoring_flags[symbol].set()
+                return False
+            stop = threading.Event()
+            def run():
+                try:
+                    self.start_realtime_monitoring(symbol, position, stop_event=stop)
+                finally:
+                    with self._monitoring_lock:
+                        if self.monitoring_threads.get(symbol) is threading.current_thread():
+                            self.monitoring_threads.pop(symbol, None)
+                            self.monitoring_flags.pop(symbol, None)
+                            pending = self._pending_monitoring.pop(symbol, None)
+                            if pending is not None and self.active_positions.get(symbol) is pending:
+                                self._start_monitoring(symbol, pending)
+            worker = threading.Thread(target=run, name=f'binance-position-{symbol}', daemon=True)
+            worker._noah_position = position
+            self.monitoring_flags[symbol] = stop
+            self.monitoring_threads[symbol] = worker
+            worker.start()
+            return True
+
+    def start_realtime_monitoring(self, symbol: str, position: Position, *, stop_event=None):
         """실시간 포지션 모니터링: PnL 추적, TP/SL 워치독, 사용자 임의 청산 감지"""
         try:
             # 🔥 WebSocket 보장 및 간격 조정
@@ -6087,44 +6127,29 @@ class Trader:
             start_time = datetime.now()
 
             # 🔥 모니터링 중지 신호 체크 (심볼별 개별 관리)
-            while symbol in self.active_positions and not self.monitoring_flags.get(symbol, threading.Event()).is_set():
+            stop = stop_event or self.monitoring_flags.setdefault(symbol, threading.Event())
+            while self.active_positions.get(symbol) is position and not stop.is_set():
                 try:
                     # 🔥 포지션 존재 여부 추가 확인 (사용자 임의 청산 대응)
                     current_position_info = self._get_position_info_with_retry(symbol)
+                    if stop.is_set() or self.active_positions.get(symbol) is not position:
+                        break
                     if not isinstance(current_position_info, dict) or 'positionAmt' not in current_position_info:
                         self.log_event('monitor', f'[{symbol}] 포지션 조회 미확정 · 청산/취소로 간주하지 않음', level='WARNING')
-                        time.sleep(interval)
+                        stop.wait(interval)
                         continue
                     if not math.isfinite(float(current_position_info['positionAmt'])):
-                        time.sleep(interval)
+                        stop.wait(interval)
                         continue
                     if abs(float(current_position_info['positionAmt'])) == 0:
-                        self.log_event('monitor', f"[{symbol}] 포지션이 없음 - 사용자 임의 청산 감지", level='WARNING')
+                        self.log_event('monitor', f"[{symbol}] 거래소 무포지션 확인 · 청산 원인과 체결·손익 대조 필요", level='WARNING')
 
-                        # 🔥 남은 오픈오더 자동 정리 (autotrade.py와 동일)
-                        try:
-                            open_orders = self.binance_client.client.futures_get_open_orders(symbol=symbol)
-                            if open_orders:
-                                self.log_event('monitor', f"[{symbol}] 포지션 없음, 남은 오픈오더 정리: {len(open_orders)}개")
-                                for order in open_orders:
-                                    try:
-                                        cancel_result = self.binance_client.client.futures_cancel_order(
-                                            symbol=symbol,
-                                            orderId=order['orderId']
-                                        )
-                                        # 🔥 실제 취소 결과 확인
-                                        if cancel_result.get('status') == 'CANCELED':
-                                            self.log_event('monitor', f"[{symbol}] 오더 삭제 완료: {order['orderId']}")
-                                        else:
-                                            self.log_event('monitor', f"[{symbol}] 오더 삭제 실패: {cancel_result.get('status', 'UNKNOWN')}", level='WARNING')
-                                    except Exception as e:
-                                        self.log_event('monitor', f"[{symbol}] 오더 삭제 실패: {str(e)}", level='ERROR')
-                        except Exception as e:
-                            self.log_event('monitor', f"[{symbol}] 오더 정리 중 오류: {str(e)}", level='ERROR')
+                        # A flat snapshot does not grant ownership of other
+                        # open orders (manual entries may exist on this symbol).
+                        # Protective-order cleanup uses the owned order path.
 
                         # 🔥 TP/SL 청산 감지 시 통계 업데이트
-                        if symbol in self.active_positions:
-                            position = self.active_positions[symbol]
+                        if self.active_positions.get(symbol) is position:
 
                             # 안전한 현재가 확보 (정적 분석기 경고 제거)
                             try:
@@ -6152,7 +6177,7 @@ class Trader:
                                         exit_time=exit_time,
                                         pnl_percent=pnl_percent,
                                         pnl_usdt=pnl_usdt,
-                                        exit_reason="TP/SL 청산",
+                                        exit_reason="거래소 무포지션 확인 · 청산 근거 대조",
                                         position=position,  # 🔥 position 객체 전달하여 TP/SL 판단 정확도 향상
                                         exchange='binance',
                                         entry_order_id=getattr(position, 'entry_order_id', None),
@@ -6209,17 +6234,20 @@ class Trader:
                             # 거래 진입 플래그 해제
                             self.trade_entered[symbol] = False
 
-                            self.logger.info(f"✅ {symbol} TP/SL 청산 감지: PnL {pnl_percent:.2f}%")
+                            self.logger.info(f"{symbol} 무포지션 확인 · 확정 손익은 체결 대조 결과를 따릅니다.")
 
                             # active_positions에서 제거
                             # 참고: 오픈오더 정리는 이미 위에서 포지션 없음 감지 시 처리됨 (3864-3883줄)
-                            self.active_positions.pop(symbol, None)
+                            if self.active_positions.get(symbol) is position:
+                                self.active_positions.pop(symbol, None)
 
                         # 🔥 포지션 종료 (플래그는 모니터링 시작 시점에 이미 해제됨)
                         break
 
                     # 🔥 가격 조회 (WebSocket 보장 후)
                     current_price = self.binance_client.get_current_price_ws(symbol)
+                    if stop.is_set() or self.active_positions.get(symbol) is not position:
+                        break
 
                     # 가격 조회 실패 시 재시도 로직 강화
                     if current_price <= 0:
@@ -6229,13 +6257,13 @@ class Trader:
                             current_price = self.binance_client.get_current_price(symbol)
                             if current_price <= 0:
                                 self.log_event('monitor', f"[{symbol}] ❌ REST 폴백도 실패 - 모니터링 일시 중단", level='ERROR')
-                                time.sleep(5)  # 실패 시 더 긴 대기
+                                stop.wait(5)
                                 continue
                             else:
                                 self.log_event('monitor', f"[{symbol}] ✅ REST 폴백 성공: {current_price}")
                         except Exception as e:
                             self.log_event('monitor', f"[{symbol}] ❌ REST 폴백 예외: {e}", level='ERROR')
-                            time.sleep(5)
+                            stop.wait(5)
                             continue
 
                     current_time = datetime.now(timezone.utc)
@@ -6245,6 +6273,9 @@ class Trader:
                         'time': current_time,
                         'price': current_price
                     })
+                    # Runtime reversal checks use the last five samples, not
+                    # an ever-growing in-memory trading history.
+                    del self.price_data_points[symbol][:-256]
                     data_count += 1
 
                     # 🔇 과다 출력 방지: 데이터 포인트 추가 로그는 verbose 모드에서만
@@ -6313,11 +6344,11 @@ class Trader:
                             break
 
                     # 🔥 WebSocket 기반 간격으로 대기
-                    time.sleep(interval)
+                    stop.wait(interval)
 
                 except Exception as e:
                     self.log_event('monitor', f"[{symbol}] 모니터링 오류: {e}", level='ERROR')
-                    time.sleep(1)
+                    stop.wait(1)
 
             self.log_event('monitor', f"[{symbol}] 실시간 모니터링 종료")
             try:
@@ -7335,6 +7366,8 @@ class Trader:
     def stop_trading(self):
         """바이낸스 거래 중지"""
         try:
+            with self._monitoring_lock:
+                self._pending_monitoring.clear()
             # 모든 모니터링 플래그 중지
             for symbol in list(self.monitoring_flags.keys()):
                 if hasattr(self.monitoring_flags[symbol], 'set'):
@@ -7346,8 +7379,13 @@ class Trader:
                     thread.join(timeout=5)
 
             # 모니터링 관련 데이터 정리
-            self.monitoring_flags.clear()
-            self.monitoring_threads.clear()
+            # Keep timed-out workers registered: a restart must not create a
+            # second writer/closer while an old network request is still alive.
+            with self._monitoring_lock:
+                for symbol, thread in list(self.monitoring_threads.items()):
+                    if not thread.is_alive():
+                        self.monitoring_threads.pop(symbol, None)
+                        self.monitoring_flags.pop(symbol, None)
 
             if hasattr(self, 'logger') and self.logger:
                 self.logger.info("⏹️ 바이낸스 거래 중지 완료")
@@ -7360,6 +7398,10 @@ class Trader:
 
     def request_stop_trading(self) -> None:
         """Signal Binance monitors without joining them on the UI shutdown thread."""
+        lock = getattr(self, '_monitoring_lock', None)
+        if lock is not None:
+            with lock:
+                self._pending_monitoring.clear()
         for flag in list(getattr(self, 'monitoring_flags', {}).values()):
             if hasattr(flag, 'set'):
                 flag.set()
@@ -7373,6 +7415,7 @@ class Trader:
         5) 마지막으로 WebSocket 정리
         """
         try:
+            self.request_stop_trading()
             self.log_event('system', "🔄 우아한 정지 시작...")
 
             # 1) 신규 진입 차단

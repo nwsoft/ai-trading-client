@@ -2,8 +2,18 @@ import { useEffect, useRef, useState } from 'react';
 import type { GatewayClient } from '../api';
 import { localized } from '../i18n';
 import { CRYPTO_SOURCES, STOCK_SOURCES } from '../venueSources';
+import { accountConnectionView } from '../accountConnection';
+import { RecoveryStatementImport } from './RecoveryStatementImport';
 
 const labels: Record<string, [string, string]> = {
+  open_position_history_unsupported: ['미청산 원장의 청산 근거 자동 수집 미지원', 'Missing close discovery not supported'],
+  execution_time_outside_position: ['진입·체결 시각 대조 필요', 'Entry and execution time review required'],
+  execution_order_ambiguous: ['동일 시각 여러 주문의 체결 순서 근거 필요', 'Execution ordering at identical timestamps is ambiguous'],
+  entry_time_evidence_mismatch: ['원장과 내역의 진입 시각 불일치', 'Entry time differs from the local ledger'],
+  entry_price_evidence_mismatch: ['원장과 내역의 진입 가격 불일치', 'Entry price differs from the local ledger'],
+  exit_lot_allocation_required: ['여러 청산 가격의 진입별 배분 근거 필요', 'Evidence needed to allocate multiple exit prices to entries'],
+  cycle_gross_reconciliation_required: ['전체 포지션 손익과 체결 가격 계산 불일치', 'Position PnL and fill-price calculation disagree'],
+  execution_mode_evidence_missing: ['과거 기록의 LIVE/PAPER 근거 미기록 · 원본 실행 로그 확인 필요', 'Historical execution mode missing · original session evidence needed'],
   idle: ['점검 전', 'Not checked'], running: ['거래 기록 점검·복구 중', 'Checking trade records'],
   paused: ['조회량 제한 · 이어서 점검 가능', 'Request budget reached · continue available'],
   retry_wait: ['일시적 조회·정산 지연 · 자동 재시도 대기', 'Temporary query / settlement delay · automatic retry pending'],
@@ -20,6 +30,7 @@ const labels: Record<string, [string, string]> = {
   entry_order_not_in_history: ['조회한 원장에서 진입 주문을 찾지 못함', 'Entry order absent from downloaded history'],
   order_history_incomplete: ['체결 주문의 완료 상태·수량 확인 필요', 'Complete order status and quantity required'],
   history_identity_mismatch: ['기관 원장의 식별 정보가 서로 일치하지 않음', 'Provider history identities do not agree'],
+  history_storage_limit: ['자동 조회 근거의 보존 용량 한도 도달 · 공식 내역 파일 가져오기를 이용하세요', 'History evidence storage limit reached; import an official statement'],
   income_reconciliation_required: ['체결 실현손익과 거래소 정산 내역 대조 필요', 'Fill realized PnL does not yet reconcile with income history'],
   execution_storage_incomplete: ['체결 원장 저장 검증 실패 · 재점검 필요', 'Execution storage verification failed · retry required'],
   history_retention_exceeded: ['API 과거 조회 보존기간 초과 · 공식 내역 필요', 'API retention exceeded · official statements required'],
@@ -60,6 +71,7 @@ export function RecordRecoveryPanel({ client, initialSource = 'binance', sources
   const [status, setStatus] = useState<Record<string, any> | null>(null);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
+  const [connectionMessage, setConnectionMessage] = useState('');
   const sequence = useRef(0);
   const autoContinue = useRef(false);
   const commandRevision = useRef(0);
@@ -67,7 +79,7 @@ export function RecordRecoveryPanel({ client, initialSource = 'binance', sources
     const id = ++sequence.current;
     let alive = true;
     let timer: ReturnType<typeof setTimeout>;
-    setStatus(null); setError(''); setBusy(false);
+    setStatus(null); setError(''); setBusy(false); setConnectionMessage('');
     autoContinue.current = false;
     const poll = async () => {
       const revision = commandRevision.current;
@@ -97,14 +109,32 @@ export function RecordRecoveryPanel({ client, initialSource = 'binance', sources
     } catch (e) { autoContinue.current = false; if (id === sequence.current) setError(label(e instanceof Error ? e.message : String(e))); }
     finally { if (id === sequence.current) setBusy(false); }
   }
+  async function checkConnection() {
+    const id = sequence.current;
+    setBusy(true); setError(''); setConnectionMessage('');
+    try {
+      const result = await client.refreshAccounts([source], true);
+      if (id !== sequence.current) return;
+      const connection = accountConnectionView(result.sources?.[source] ?? result[source], source);
+      setConnectionMessage(connection.connected
+        ? localized('기관 연결을 확인했습니다. 아래 점검·복구를 실행하세요. 거래는 시작하지 않았습니다.', 'Connection checked. Run recovery below. Trading was not started.')
+        : `${connection.reason} ${localized('거래는 시작하지 않았습니다.', 'Trading was not started.')}`);
+    } catch (e) { if (id === sequence.current) setError(e instanceof Error ? e.message : String(e)); }
+    finally { if (id === sequence.current) setBusy(false); }
+  }
   return <section className="settings-parity-panel record-recovery" aria-label={localized('거래 기록 점검·복구', 'Trade record recovery')}>
     <h3>{localized('유지관리 · 거래 기록 점검·복구', 'Maintenance · Trade record recovery')}</h3>
-    <p>{localized('최근 45일 LIVE 미확정 기록을 300건 제한 없이 점검합니다. 점검 건수는 현재 차단 표본 수와 다를 수 있습니다. PAPER 기록·통계 표시 기준·손실 한도는 변경하지 않습니다.', 'Checks unresolved LIVE records from the last 45 days, beyond the 300-record policy sample. The check count may differ from the currently blocked sample. PAPER records, display baselines and loss limits are unchanged.')}</p>
+    {client.recoveryStatement && <RecoveryStatementImport key={source} client={client} source={source}/>}
+    <p>{localized('새 점검은 보관된 전체 기간의 LIVE 미확정 기록을 300건 제한 없이 확인합니다. 진행 중인 작업은 기존 범위에서 이어집니다. 거래소의 과거 조회 제한으로 근거를 확보하지 못한 기록은 미확정으로 보존합니다. PAPER 기록·손실 한도는 변경하지 않습니다.', 'A new check covers unresolved LIVE records across the entire stored history, beyond the 300-record policy sample. Existing jobs continue within their original range. Records outside exchange history availability remain unresolved. PAPER records and loss limits are unchanged.')}</p>
     <p>{localized('한 번 실행하면 앱이 켜져 있는 동안 이 화면을 닫아도 조회량을 조절하며 이어갑니다. 일시적 오류·정산 지연은 최대 2회 자동 재시도합니다. 앱 종료 시 진행을 보존하고 다음 실행에서 이어갈 수 있습니다.', 'Start once: while the app is open, recovery continues with bounded queries even if you close this panel. Temporary errors or settlement delays retry at most twice. App exit preserves progress for your next check.')}</p>
     {source === 'binance' && <p>{localized('청산 번호 누락·여러 주문으로 나눈 청산·기록 수량 불일치는 전체 체결 구간으로 재검증합니다. 진입 주문 소유권, 완전한 진입·청산 수량과 정산 근거가 확인될 때만 수정합니다.', 'Missing close IDs, multiple closing orders and quantity mismatches are checked against the full fill cycle. Repairs require proven entry ownership, complete entry/exit quantities and settlement evidence.')}</p>}
     <label>{localized('거래소·증권사', 'Exchange / broker')} <select value={source} disabled={busy || ['running','retry_wait'].includes(status?.state)} onChange={e => setSource(e.target.value)}>
       {sources.map(s => <option key={s} value={s}>{s.toUpperCase()}</option>)}
     </select></label>
+    <button type="button" disabled={busy || ['running','retry_wait'].includes(status?.state)} onClick={() => void checkConnection()}>
+      {localized('기관 연결 확인 · 거래 시작 안 함', 'Check connection · do not start trading')}
+    </button>
+    {connectionMessage && <p role="status">{connectionMessage}</p>}
     <button type="button" disabled={busy || ['running','retry_wait'].includes(status?.state)} onClick={() => void start()}>
       {localized('거래 기록 점검·복구 실행 / 이어서 실행', 'Check / continue trade record recovery')}
     </button>
@@ -113,12 +143,20 @@ export function RecordRecoveryPanel({ client, initialSource = 'binance', sources
       {Number(status?.retry_count) > 0 && <p>{localized('자동 재시도', 'Automatic retry')}: {status?.retry_count}/2</p>}
       {status?.state !== 'idle' && status && <p>{localized('처리', 'Processed')} {status.processed} / {status.total} · {localized('확인 완료', 'Verified')} {status.recovered} · {localized('미확정·대기', 'Unresolved / pending')} {status.remaining}</p>}
       {status?.backup_created && <small>{localized('최초 점검 전 DB 백업·작업별 변경 기록 보존', 'Initial database backup and per-run change evidence preserved')}</small>}
+      {Number(status?.verified_open) > 0 && <p>{localized('실제 보유 확인 · 미청산 유지', 'Confirmed open · not closed')}: {status?.verified_open}</p>}
       {status?.history_pages && Object.keys(status.history_pages).length > 0 && <p>{localized('거래소 원장 조회 구간', 'Exchange history windows')}: {localized('완료', 'Complete')} {status.history_pages.complete || 0} · {localized('대기', 'Pending')} {status.history_pages.pending || 0}</p>}
     </div>
     {error && <p role="alert">{error}</p>}
     {Object.keys(status?.reasons || {}).length > 0 && <ul>{Object.entries(status?.reasons || {}).map(([reason, count]) => <li key={reason}>{label(reason)}: {String(count)}</li>)}</ul>}
-    <p>{localized('API 조회만 수행하며 주문 제출·취소·청산·거래 시작은 하지 않습니다. 근거 없는 기록은 삭제하거나 수익으로 확정하지 않습니다. 점검 완료가 거래 재개 승인은 아닙니다.', 'Read-only provider queries: no orders, cancellations, position closing or trading start. Unproven records are never deleted or certified as profits. Completing a check does not authorize trading.')}</p>
+    {status?.next_actions && <section aria-label={localized('미확정 사유별 필요한 자료와 다음 조치', 'Required evidence and next steps')}>
+      {Object.entries(status.next_actions).map(([reason, value]) => { const action = value as any; return <div key={reason}>
+        <strong>{label(reason)}</strong><p>{localized(action.action_ko, action.action_en)}</p>
+        {action.retry_without_new_evidence === false && <small>{localized('새 근거 없이 반복 실행하지 마세요.', 'Do not repeat without new evidence.')}</small>}
+      </div>; })}
+    </section>}
+    {status && status.unresolved_items?.length > 0 && <details open><summary>{localized('미확정 거래별 사유 · 최근 최대 100건', 'Unresolved records · latest 100')}</summary><ul>{status.unresolved_items.map((item: any) => <li key={item.trade_id}>#{item.trade_id} · {item.symbol} · {item.exit_time} · {label(item.reason || item.state)}</li>)}</ul></details>}
+    <p>{localized('기관 API 조회 또는 검토해 가져온 파일을 사용하며 주문 제출·취소·청산·거래 시작은 하지 않습니다. 파일 출처와 API 출처는 구분해 보존합니다. 근거 없는 기록은 삭제하거나 수익으로 확정하지 않습니다. 점검 완료가 거래 재개 승인은 아닙니다.', 'Uses read-only provider queries or reviewed statement files; no orders, cancellations, position closing or trading start. File and API provenance remain distinct. Completing a check does not authorize trading.')}</p>
     <p>{localized('이미 실행 중인 엔진은 복구된 기록을 다음 판단에 사용하므로 기존 진입 보류가 해제될 수 있습니다. 결과를 확인하기 전 새 거래를 원하지 않으면 먼저 기존 새 거래 일시정지를 사용하세요.', 'An already-running engine uses repaired records in its next evaluation, so an existing entry block may clear. Pause new entries first if you want to review the result before further trading.')}</p>
-    {status?.state === 'needs_evidence' && <p>{localized('추가 근거가 없으면 반복 실행해도 결과가 같을 수 있습니다. 정산 지연은 기관 정산 이후, 포지션 변경은 신규 진입 일시정지 이후 재점검하세요. 혼합 진입·보존기간 초과·기관 과거 조회 미지원은 반복 클릭으로 해결되지 않습니다. 미확정 내역은 보존하며 기록 초기화로 우회하지 않습니다. 공식 파일 가져오기와 조건부 재개는 아직 제공하지 않습니다.', 'Repeating a check without new evidence may give the same result. Retry settlement delays after provider settlement, and changed positions after pausing new entries. Mixed entries, expired retention and unsupported history cannot be fixed by repeated clicks. Unresolved records are preserved; do not reset them to bypass protection. Statement import and conditional resumption are not yet available.')}</p>}
+    {status?.state === 'needs_evidence' && <p>{localized('추가 근거가 없으면 반복 실행해도 결과가 같을 수 있습니다. 정산 반영 후 재점검하거나 공식 체결 내역 CSV를 가져오세요. 파일도 완전한 진입·청산 구간과 주문·수량·비용을 확인해야 적용합니다. 혼합 보유·부족한 열은 미확정으로 보존하며 기록 초기화나 미확정 무시로 우회하지 않습니다.', 'Retry after settlement or import the official executions CSV. Files must prove complete entry/exit cycles, orders, quantities and costs. Mixed ownership and missing fields remain unresolved; resets and ignoring uncertainty are not recovery.')}</p>}
   </section>;
 }

@@ -16,6 +16,7 @@ import type {
 
 export interface GatewayClient {
   recordRecovery: (source: string, start?: boolean) => Promise<Record<string, any>>;
+  recoveryStatement?: (payload: Record<string, unknown>) => Promise<Record<string, any>>;
   storageMaintenance: (action?: 'optimize' | 'debug', hours?: number) => Promise<Record<string, any>>;
   displayPreferences: () => Promise<{locale: string; saved: boolean}>;
   saveDisplayPreferences: (locale: string) => Promise<{locale: string; saved: boolean}>;
@@ -55,6 +56,7 @@ export interface GatewayClient {
   strategyAction: (payload: Record<string, unknown>) => Promise<Record<string, unknown>>;
   runHistoricalValidation: (payload: Record<string, unknown>) => Promise<Record<string, unknown>>;
   analyzeStrategySource: (payload: Record<string, unknown>) => Promise<Record<string, any>>;
+  driveAuthorization: (action?: "connect" | "disconnect") => Promise<Record<string, any>>;
   validateStrategyDraft: (payload: Record<string, unknown>) => Promise<Record<string, any>>;
   strategyMentor: (profile: Record<string, unknown>) => Promise<Record<string, any>>;
   exportStrategyPackage: (scope: string, strategyKey: string, versionId: string) => Promise<Record<string, any>>;
@@ -106,7 +108,17 @@ const GATEWAY_ERROR_MESSAGES: Record<string, string> = {
 };
 
 export function userFacingGatewayError(detail: unknown, status: number): string {
+  // Some gateway endpoints return structured detail. Do not stringify the
+  // payload (it may contain account data), or discard its stable reason code.
+  if (detail && typeof detail === "object" && !Array.isArray(detail)) {
+    const item = detail as Record<string, unknown>;
+    const code = typeof item.code === "string" ? item.code : "";
+    const source = typeof item.source === "string" && /^(binance|okx|bybit|bitget|upbit|bithumb|coinone|kis|kiwoom|shinhan|mirae)$/.test(item.source) ? item.source : "";
+    detail = /^[a-z][a-z0-9_]{0,95}$/.test(code) ? `${code}${source ? `:${source}` : ""}` : "";
+  }
+  const conflictFallback = (code = "") => `현재 실행 상태 또는 요청 조건을 확인해야 합니다. 반복 클릭하거나 기록을 초기화하지 마세요. 이 화면의 실행 상태와 같은 시각의 실시간 로그를 확인하세요. 원인이 표시되지 않으면 기관·누른 버튼·발생 시각과 함께 로그를 지원 담당자에게 전달하세요. (상태 409${code ? ` · 지원 코드: ${code}` : " · 상세 사유 없음"})`;
   if (typeof detail !== "string" || !detail.trim()) {
+    if (status === 409) return conflictFallback();
     return `요청을 처리하지 못했습니다. 다시 시도하세요. (상태 ${status})`;
   }
   const normalized = detail.trim();
@@ -122,6 +134,12 @@ export function userFacingGatewayError(detail: unknown, status: number): string 
   }
   if (GATEWAY_ERROR_MESSAGES[normalized]) return GATEWAY_ERROR_MESSAGES[normalized];
   const [code, source = ""] = normalized.split(":", 2);
+  if (code === 'risk_data_unavailable' && source === 'managed_position_reconciliation_required') {
+    const recovery = normalized.endsWith(':recovery_unavailable')
+      ? '자동 점검을 시작하지 못했습니다. 아래 기관 연결 확인 후 점검·복구를 실행하세요.'
+      : '자동 점검을 요청했습니다. 아래 거래 기록 점검·복구에서 진행 상태와 결과를 확인하세요.';
+    return `LIVE 시작 보류 · 거래소 포지션과 앱 미청산 기록이 일치하지 않습니다. ${recovery} 청산 체결·손익 근거가 확인되어야 원장을 정리할 수 있습니다. 복구 후 시작 버튼을 다시 누르면 위험 기준을 재평가합니다. 기록 삭제·0원 정산·무시하고 시작은 하지 않습니다. (지원 코드: managed_position_reconciliation_required)`;
+  }
   if (code === "settings_save_failed") {
     const saveMessages: Record<string, string> = {
       permission_denied: "설정 파일 쓰기 권한이 없습니다. Windows 문서 폴더 보호 또는 보안 프로그램의 NoahAI 허용 여부를 확인하세요. (지원 코드: permission_denied)",
@@ -151,6 +169,24 @@ export function userFacingGatewayError(detail: unknown, status: number): string 
   if (chartMessages[code]) return chartMessages[code];
   const sourceLabel = source ? source.toUpperCase() : "선택한 연결";
   const runtimeMessages: Record<string, string> = {
+    account_snapshot_refresh_busy: "다른 계좌 새로고침이 진행 중입니다. 현재 조회가 끝난 뒤 계좌 상태를 확인하세요. 거래 시작 실패나 전략 오류를 뜻하지 않으며 새로고침을 반복할 필요는 없습니다.",
+    trading_candidates_unavailable: `${sourceLabel} 실행 시작 보류: 분석 가능한 종목 후보를 확보하지 못했습니다. 코인 정보에서 선정 결과·시세 조회 상태를 확인하세요. 전략을 다시 만들거나 거래 기록을 초기화할 문제가 아닙니다.`,
+    exchange_initialization_failed: `${sourceLabel} 실행 시작 보류: 기관 연결 초기화에 실패했습니다. API 연결 상태와 같은 시각의 초기화 로그를 확인하세요. 연결 성공과 분석·거래 시작 완료는 다릅니다.`,
+    runtime_start_exception: `${sourceLabel} 시작 처리 중 내부 오류가 발생했습니다. 같은 시각의 최초 오류 로그를 지원 담당자에게 전달하세요. 시작 완료로 간주하거나 반복 클릭하지 마세요.`,
+    binance_runtime_not_ready: "BINANCE 거래 엔진이 준비되지 않았습니다. 연결·초기화 상태와 같은 시각의 로그를 확인하세요.",
+    binance_worker_shutdown_timeout: "BINANCE 워커 종료를 아직 확인하지 못했습니다. 중복 시작하지 말고 실행 상태·로그와 주문·포지션을 확인하세요.",
+    runtime_shutdown_in_progress: "앱 종료 처리가 진행 중이라 새 실행 요청을 받지 않습니다. 종료 완료 후 다시 실행하세요. 종료 중인 앱에서 시작 버튼을 반복하지 마세요.",
+    runtime_shutdown_incomplete: "거래 워커의 안전 종료를 아직 확인하지 못했습니다. 실행 상태와 로그를 확인하고 종료를 다시 확인하세요. 주문·포지션 확인 없이 강제 종료하지 마세요.",
+    runtime_account_change_requires_restart: "로그인 계정이 변경되어 기존 거래 엔진을 재사용할 수 없습니다. 실행 상태와 포지션을 확인하고 앱을 정상 종료한 뒤 다시 로그인하세요.",
+    stock_runtime_controller_not_attached: "증권 실행 엔진이 연결되지 않았습니다. 앱을 정상 재시작한 뒤 계속되면 같은 시각의 로그를 전달하세요. API 키를 반복 변경할 문제가 아닙니다.",
+    headless_runtime_start_unavailable: "현재 거래 엔진에 시작 기능이 연결되지 않았습니다. 앱 구성·버전 확인이 필요합니다. 같은 시각의 로그를 전달하세요.",
+    headless_runtime_stop_unavailable: "현재 거래 엔진에 정지 기능이 연결되지 않았습니다. 정지 완료로 간주하지 말고 실행 상태와 주문·포지션을 확인한 뒤 지원 담당자에게 로그를 전달하세요.",
+    recovery_login_required: "거래 기록 점검·복구를 실행하려면 먼저 로그인하세요.",
+    recovery_credential_required: "거래소·증권사의 과거 체결을 조회할 API 연결이 필요합니다. 설정에서 해당 기관의 인증 정보를 확인하세요.",
+    recovery_engine_not_ready: "복구에 사용할 거래 엔진이 준비되지 않았습니다. 앱 연결 상태를 확인하세요. 복구를 위해 LIVE 거래를 시작할 필요는 없습니다.",
+    recovery_ledger_unavailable: "거래 원장을 열지 못해 복구를 시작하지 못했습니다. 기록을 삭제하지 말고 저장소 상태와 로그를 확인하세요.",
+    risk_data_unavailable: "LIVE 시작 보류: 손익·잔고·포지션의 확인 근거가 부족합니다. 설정 → 업데이트 → 거래 기록 점검·복구에서 미확정 거래와 사유를 확인하세요. 반복 시작으로 해결되지 않으며 기존 기록·위험 기준은 유지됩니다.",
+    daily_loss_limit_exceeded: "LIVE 시작 보류: 일일 손실 한도에 도달했습니다. 위험 상태와 당일 손익을 확인하세요. 기록 초기화나 반복 시작으로 해제하지 마세요.",
     venue_live_onboarding_required: `${sourceLabel} LIVE 주문은 현재 배포의 실계좌 검증이 완료되지 않아 지원되지 않습니다. API 연결이나 E2E 설정 스위치로 활성화되지 않습니다. PAPER 또는 분석·학습을 이용할 수 있으며 LIVE 지원 업데이트가 필요합니다.`,
     venue_paper_onboarding_required: `${sourceLabel} PAPER 실행은 현재 기관 지원 범위에 없습니다. 지원 상태를 확인하세요.`,
     runtime_command_rejected: `${sourceLabel} 실행을 시작하지 못했습니다. 해당 기관의 실행 상태와 최초 오류를 확인하세요. 연결 성공은 분석·거래 시작 완료를 뜻하지 않습니다.`,
@@ -187,7 +223,9 @@ export function userFacingGatewayError(detail: unknown, status: number): string 
     notification_channel_not_enabled: "설정에서 외부 알림과 하나 이상의 채널을 ON으로 저장한 뒤 다시 시도하세요.",
   };
   if (runtimeMessages[code]) return runtimeMessages[code];
+  if (status === 409 && /^[a-z][a-z0-9_]{0,95}$/.test(code)) return conflictFallback(code);
   if (/[가-힣]/.test(normalized) || /\s/.test(normalized)) return normalized;
+  if (status === 409) return conflictFallback();
   return `요청을 처리하지 못했습니다. 다시 시도하세요. (상태 ${status})`;
 }
 
@@ -247,7 +285,14 @@ export function createGatewayClient(): GatewayClient {
     }, timeoutMs);
     const payload = await response.json().catch(() => ({}));
     if (!response.ok) {
-      throw new Error(userFacingGatewayError(payload.detail, response.status));
+      let message = userFacingGatewayError(payload.detail, response.status);
+      if (path === '/api/v1/runtime/commands' && body && typeof body === 'object') {
+        const command = body as Record<string, unknown>;
+        if (typeof command.command_id === 'string' && /^[A-Za-z0-9_-]{16,80}$/.test(command.command_id)) {
+          message += ` (요청 ID: ${command.command_id})`;
+        }
+      }
+      throw new Error(message);
     }
     return payload as T;
   }
@@ -315,6 +360,7 @@ export function createGatewayClient(): GatewayClient {
     strategyAction: (payload) => mutate<Record<string, unknown>>("POST", "/api/v1/strategies/actions", payload),
     runHistoricalValidation: (payload) => mutate<Record<string, unknown>>("POST", "/api/v1/strategies/historical-validation", payload),
     analyzeStrategySource: (payload) => mutate<Record<string, any>>("POST", "/api/v1/strategies/source-analysis", payload),
+    driveAuthorization: (action) => action ? mutate<Record<string, any>>("POST", `/api/v1/strategies/drive/${action}`, {}) : get<Record<string, any>>("/api/v1/strategies/drive"),
     validateStrategyDraft: (payload) => mutate<Record<string, any>>("POST", "/api/v1/strategies/draft-validation", payload),
     strategyMentor: (profile) => mutate<Record<string, any>>("POST", "/api/v1/strategies/mentor", { profile }),
     exportStrategyPackage: (scope, strategyKey, versionId) => get<Record<string, any>>(
@@ -374,6 +420,7 @@ export function createGatewayClient(): GatewayClient {
     recordRecovery: (source, start = false) => start
       ? mutate<Record<string, any>>("POST", "/api/v1/maintenance/trade-records", { source })
       : get<Record<string, any>>(`/api/v1/maintenance/trade-records?source=${encodeURIComponent(source)}`),
+    recoveryStatement: payload => mutate<Record<string, any>>('POST','/api/v1/maintenance/trade-statements',payload),
     storageMaintenance: (action, hours) => action
       ? mutate<Record<string, any>>('POST', '/api/v1/maintenance/storage', action === 'debug' ? { action, hours } : { action })
       : get<Record<string, any>>('/api/v1/maintenance/storage'),

@@ -1,4 +1,5 @@
 import { strategyDifficultyLabel } from '../strategyDifficulty';
+import { preserveCompiledRules, asNoahBaseDraft } from '../strategySubmission';
 import { t } from '../i18n';
 import { useEffect, useMemo, useRef, useState } from "react";
 
@@ -80,7 +81,7 @@ const SAFE_USE_STEPS = [
   "다중 시간봉 규칙을 썼다면 규칙 안전성 검사를 통과합니다.",
   "검토한 전략을 새 버전으로 저장합니다.",
   "사용자가 저장 버전을 직접 승인합니다.",
-  "자체 진입조건 전략은 비용 포함 과거 시세 재생 검사를 확인하고, NoahAI 기본 진입 보조 전략은 과거재생 비대상을 확인합니다.",
+  "유효한 실행식과 사용자 승인이 있으면 PAPER를 선택할 수 있습니다. 과거 시세 백테스트는 비용·구간별 비교를 위한 선택 검사입니다.",
   "PAPER 전진검증을 시작해 실주문 없이 새 근거를 모읍니다.",
   "최소 3건·7일의 PAPER 결과를 확인한 뒤 사용자가 검증 버전을 최종 적용합니다.",
   "실계정 권한·가드레일·소액 E2E 확인 후에만 LIVE를 사용합니다.",
@@ -110,6 +111,12 @@ const LEVEL_GUIDE = [
     profile: "전문가·실험실 · 운용 정책까지 비교하려는 사용자",
     canDo: "Level 3 전체 기능에 안정형·표준형·적극형 운용 정책과 위험예산·최대 비중·레버리지·동시 포지션 요청·국면 이탈 대응을 더합니다. 계좌 마스터 상한 안에서만 실행됩니다.",
     scenario: "같은 승인 전략을 계정 위험에 맞는 운용 정책으로 비교하되, LIVE 승인·손실 중단·주문 규격·TP/SL·긴급 중지는 해제하지 못합니다.",
+  },
+  {
+    level: 5,
+    profile: "연구실 · 검증 근거와 민감도 비교",
+    canDo: "Level 4 기능에 저장된 백테스트의 비용 민감도와 구간외 평가·워크포워드 근거를 비교합니다. 주문 권한이나 위험 한도는 늘어나지 않습니다.",
+    scenario: "동일한 가상 거래에서 비용이 1·1.5·2배일 때 성과가 달라지는지 살펴봅니다. 새로운 체결 시뮬레이션이나 수익 보장이 아닙니다.",
   },
 ] as const;
 
@@ -170,15 +177,14 @@ const GUIDED_METHOD_COPY: Record<Exclude<GuidedStartMethod, "">, { title: string
   },
 };
 
-const levelView = (level: number) => level >= 4 ? "Level 4 전문가 운용" : level >= 3 ? "Level 3 전체 근거" : level === 2 ? "Level 2 핵심값" : "Level 1 이해·시험";
+const levelView = (level: number) => level >= 5 ? "Level 5 연구실" : level >= 4 ? "Level 4 전문가 운용" : level >= 3 ? "Level 3 전체 근거" : level === 2 ? "Level 2 핵심값" : "Level 1 이해·시험";
 
 function actionLabel(version: StrategyVersion) {
   if (version.active) return "적용 해제";
   if (version.paper_observing || version.status === "paper_observing") return "PAPER 일시정지";
   if (version.status === "paper_paused") return "PAPER 검증 재개";
   if (version.status === "analyzed") return "사용자 승인";
-  if (version.status === "approved") return historicalReplayApplicable(version) ? "과거 시세 재생 검사" : "PAPER 전진검증 시작";
-  if (version.status === "execution_rejected") return historicalReplayApplicable(version) ? "과거 시세 재생 다시 검사" : "PAPER 전진검증 시작";
+  if (["approved", "execution_rejected", "paper_rejected"].includes(version.status)) return "PAPER 전진검증 시작";
   if (version.status === "execution_validated" && version.execution_validation?.mode === "historical_replay") return "PAPER 전진검증 시작";
   if (version.status === "paper_validated") return "전략 적용";
   if (version.status === "execution_validated" && ["live_observation", "limited_live"].includes(String(version.execution_validation?.mode ?? ""))) return "전략 적용";
@@ -274,7 +280,7 @@ function venueCompatibilityText(service: "blockchain" | "stock", targetScope: st
   ];
 }
 
-function StrategyValidationEvidence({ version }: { version: StrategyVersion }) {
+function StrategyValidationEvidence({ version, research = false }: { version: StrategyVersion; research?: boolean }) {
   const lab = version.validation_lab && typeof version.validation_lab === "object" ? version.validation_lab : null;
   const performance = lab?.performance && typeof lab.performance === "object" ? lab.performance as Record<string, any> : null;
   const gate = lab?.minimum_quality_gate && typeof lab.minimum_quality_gate === "object" ? lab.minimum_quality_gate as Record<string, any> : null;
@@ -287,14 +293,26 @@ function StrategyValidationEvidence({ version }: { version: StrategyVersion }) {
       ?? version.paper_execution_readiness?.validation_subject
       ?? "source_preserved_not_executable",
   );
-  if (!lab && !evidence.length && !compatibility.length) return null;
+  const historical = version.execution_validation?.mode === "historical_replay";
+  if (!lab && !evidence.length && !compatibility.length && !historical) return null;
   const validationMetrics = version.execution_validation?.metrics && typeof version.execution_validation.metrics === "object"
     ? version.execution_validation.metrics as Record<string, any>
     : {};
   const source = String(validationMetrics.validation_source ?? validationMetrics.exchange ?? validationMetrics.broker ?? "기록된 검증 시세").toUpperCase();
   const marketType = String(validationMetrics.market_type ?? validationMetrics.asset_class ?? "").toUpperCase();
   return <details className="strategy-validation-evidence">
-    <summary>{t("검증 근거 보기 · ")}{lab ? t("과거 시세 재생") : "PAPER"}{evidence.length ? ` · 기관 ${evidence.length}곳` : ""}</summary>
+    <summary>{t("검증 근거 보기 · ")}{lab || historical ? t("과거 시세 재생") : "PAPER"}{evidence.length ? ` · 기관 ${evidence.length}곳` : ""}</summary>
+    {historical && <div className="inline-notice" data-testid="historical-assessment">
+      <strong>{t(validationMetrics.assessment_status === "no_trades" ? "거래 표본 없음 · 성과 판단 보류" : validationMetrics.assessment_status === "insufficient_sample" ? "거래 표본 부족 · 추가 관찰 필요" : validationMetrics.assessment_status === "unavailable" ? "평가 수치 확인 필요" : "과거 시세 백테스트 · 보조 평가")}</strong>
+      <p>{t("과거 성과 미달이나 표본 부족만으로 PAPER를 막지 않습니다. 실행 조건이 유효하면 PAPER를 선택할 수 있으며, LIVE 권한이나 검증 인증이 자동 부여되지는 않습니다.")}</p>
+      <p>{t("체결 가정: ")}{validationMetrics.assumptions?.entry_price === "signal_bar_close" ? <>{t("봉 종가 진입 · 단일 포지션 · 최대 ")}{validationMetrics.assumptions.maximum_holding_bars}{t("봉 보유 · 같은 봉 TP/SL은 손절 우선")}</> : t("구버전 가정 미기록 · 현재 가정을 과거 결과에 소급하지 않습니다.")}</p>
+      {typeof validationMetrics.requested_range_start_ms === "number" && typeof validationMetrics.requested_range_end_ms === "number" && Number.isFinite(validationMetrics.requested_range_start_ms) && Number.isFinite(validationMetrics.requested_range_end_ms) && <p>{t("요청 검사 기간 · UTC: ")}{new Date(validationMetrics.requested_range_start_ms).toISOString()} ~ {new Date(validationMetrics.requested_range_end_ms).toISOString()}<br />{t("시세에는 지표 준비 구간이 포함됩니다. 진입 평가는 요청 시작 이후에만 하며 실제 확보 기간은 아래에 표시합니다.")}</p>}
+    </div>}
+    {research && <section data-testid="research-evidence">
+      <h4>{t("Level 5 연구실 · 비용 민감도")}</h4>
+      <p>{t("저장된 동일 진입·청산에 비용만 바꾼 비교입니다. 새로운 체결·유동성·펀딩 재현이나 운용 권한이 아닙니다.")}</p>
+      {validationMetrics.research_cost_sensitivity?.status === "completed" && Array.isArray(validationMetrics.research_cost_sensitivity.scenarios) ? <table><thead><tr><th>{t("비용 배수")}</th><th>{t("순수익률")}</th><th>MDD</th></tr></thead><tbody>{validationMetrics.research_cost_sensitivity.scenarios.map((row: any) => <tr key={row.cost_multiplier}><td>{row.cost_multiplier}x</td><td>{metricNumber(row.net_return_percent)}%</td><td>{metricNumber(row.max_drawdown_percent)}%</td></tr>)}</tbody></table> : <p>{t("비용 근거가 있는 새 백테스트 결과가 필요합니다. 구형 기록의 누락 비용은 0으로 추정하지 않습니다.")}</p>}
+    </section>}
     <p className={subject === "custom_entry_logic" ? "strategy-evidence-pass" : "strategy-evidence-warning"}>{t("검증 대상: ")}{subject === "custom_entry_logic"
         ? "원문에서 구조화된 사용자 진입·청산 규칙"
         : subject === "noah_base_with_custom_risk_exit"
@@ -369,7 +387,7 @@ const READINESS_REASON_LABELS: Record<string, string> = {
   document_conditions_missing: "원문에서 확인되지 않은 필수 전략 조건이 남아 있습니다.",
   independent_entry_signal_missing: "독립 전략의 LONG/SHORT 방향이 없습니다.",
   independent_executable_entry_missing: "독립 전략의 실행 가능한 진입 조건이 없습니다.",
-  confirm_executable_entry_missing: "원문에서 실행 가능한 확인 조건을 만들지 못했습니다. 원문을 보완하거나 Level 3·4에서 NoahAI 기본 진입 + 사용자 위험·청산값 방식으로 명시적으로 저장하세요.",
+  confirm_executable_entry_missing: "원문에서 실행 가능한 확인 조건을 만들지 못했습니다. 아래 원문·규칙 보완하기로 재분석하거나, 기본 AI 진입 방식으로 새 버전 만들기를 선택하세요. 기존 성과는 승계되지 않습니다.",
   independent_exit_policy_cannot_inherit_noah: "독립 전략은 NoahAI 청산정책을 상속할 수 없습니다.",
   inherited_exit_policy_conflicts_with_strategy_rates: "NoahAI 청산 상속과 전략 고정 TP/SL이 동시에 선언됐습니다.",
   strategy_exit_rates_missing: "전략 자체 청산을 선택했지만 TP와 SL 한 쌍이 없습니다.",
@@ -397,6 +415,10 @@ export function StrategyStudio({ client, service, source = "", onAskAssistant, o
   const [catalog, setCatalog] = useState<StrategyCatalog | null>(null);
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
+  const [replaySymbol, setReplaySymbol] = useState("");
+  const [replayStart, setReplayStart] = useState("");
+  const [replayEnd, setReplayEnd] = useState("");
+  const [replayHolding, setReplayHolding] = useState("12");
   const [name, setName] = useState("새 AI 전략");
   const [scope, setScope] = useState<"binance" | "unified">("binance");
   const [executionTarget, setExecutionTarget] = useState(() => defaultExecutionTarget(service, source));
@@ -413,6 +435,15 @@ export function StrategyStudio({ client, service, source = "", onAskAssistant, o
     }));
   }
   const [sourceKind, setSourceKind] = useState("auto");
+  const [driveApiKey, setDriveApiKey] = useState("");
+  const [driveAccessToken, setDriveAccessToken] = useState("");
+  const [driveMessage, setDriveMessage] = useState("");
+  async function driveAction(action?: "connect" | "disconnect") {
+    try {
+      const result = await client.driveAuthorization(action);
+      setDriveMessage(result.connected ? "Drive 읽기 연결됨 · 앱 종료 시 해제됩니다." : result.pending ? "기본 브라우저에서 Google 승인을 마친 뒤 연결 확인을 누르세요." : action === "disconnect" ? "Drive 연결을 해제했습니다." : result.authorization_ready ? "Drive 미연결 · 공개 링크는 앱의 공개 자료 연결 설정으로 읽습니다." : "운영자의 Google Drive 앱 등록이 필요합니다. 내려받은 폴더 입력은 이용할 수 있습니다.");
+    } catch (error) { setDriveMessage(error instanceof Error ? error.message : "Drive 연결 확인 실패"); }
+  }
   const [sourceValue, setSourceValue] = useState("");
   const [sourceReferenceInput, setSourceReferenceInput] = useState("");
   const [sourceReference, setSourceReference] = useState("web-ui://strategy-studio");
@@ -531,12 +562,19 @@ export function StrategyStudio({ client, service, source = "", onAskAssistant, o
     })).filter((group) => group.versions.length) })).catch((error: unknown) => setMessage(error instanceof Error ? error.message : "전략을 불러오지 못했습니다.")).finally(() => setBusy(false));
   }
 
-  function loadVersionDraft(strategyKey: string) {
-    const group = catalog?.strategies.find((item) => item.strategy_key === strategyKey && item.scope === scope);
-    const version = group?.versions.at(-1);
+  function loadVersionDraft(strategyKey: string, selected?: StrategyVersion, selectedScope = scope, baseEntry = false) {
+    const group = catalog?.strategies.find((item) => item.strategy_key === strategyKey && item.scope === selectedScope);
+    const version = selected ?? group?.versions.at(-1);
+    if (!version) { setVersionTarget(strategyKey); return; }
+    if (baseEntry && !window.confirm("원문 진입 전략을 실행하는 대신 NoahAI 기본 진입과 사용자 위험·청산값을 사용하는 새 버전 초안을 만들까요? 기존 버전과 성과는 보존하며 검증 결과는 승계하지 않습니다.")) return;
     setVersionTarget(strategyKey);
-    if (!version) return;
-    const rules = version.rules ?? {};
+    const rules = baseEntry ? asNoahBaseDraft(version.rules ?? {}) : version.rules ?? {};
+    setScope(selectedScope);
+    setSourceFile(null); setSourceFiles([]); setSourceReferenceInput(""); setConfirmedSupplement("");
+    setSourceValue(String(rules.source_evidence?.text ?? ""));
+    setAuthoringMode(baseEntry ? "source_faithful" : "guided_clarification");
+    setClarificationAnswers({});
+    setDraftValidationIssues([]);
     setName(version.name);
     setRulesText(JSON.stringify(rules, null, 2));
     setExecutionTarget(String(rules.target_scope ?? allCompatibleTarget));
@@ -545,9 +583,11 @@ export function StrategyStudio({ client, service, source = "", onAskAssistant, o
     setPriority(String(rules.priority ?? 5));
     setSignalMode(String(rules.signal_mode ?? "confirm"));
     setEntrySignal(String(rules.entry_signal ?? "auto"));
-    setExitPolicyMode(String(rules.exit_policy?.mode ?? "inherit_noah_base"));
+    const declaredRates = Number(rules.engine_settings?.tp_percent ?? parseFloat(String(rules.take_profit ?? ""))) > 0
+      || Number(rules.engine_settings?.sl_percent ?? parseFloat(String(rules.stop_loss ?? ""))) > 0;
+    setExitPolicyMode(String(rules.exit_policy?.mode ?? (declaredRates || rules.signal_mode === "independent" ? "strategy_owned" : "inherit_noah_base")));
     setRiskPerTrade(String(rules.risk_model?.risk_per_trade_percent ?? 1));
-    setMaxMargin(String(rules.risk_model?.max_margin_usage_percent ?? 20));
+    setMaxMargin(String(rules.risk_model?.max_margin_usage_percent ?? (Number(rules.engine_settings?.position_size) > 0 ? Number(rules.engine_settings.position_size) * 100 : 20)));
     setLeverageCap(String(rules.risk_model?.max_leverage ?? 1));
     setMaxConcurrentPositions(String(rules.risk_model?.max_concurrent_positions ?? 3));
     setRiskPolicyPreset(["standard", "conservative", "active", "custom"].includes(String(rules.risk_policy_preset)) ? rules.risk_policy_preset : "custom");
@@ -556,8 +596,9 @@ export function StrategyStudio({ client, service, source = "", onAskAssistant, o
     setSourceReference(version.source_reference ?? "web-ui://strategy-version");
     setSourceKind("text");
     setSourceAnalysis(null);
-    setUserDeclaredOverride(false);
+    setUserDeclaredOverride(baseEntry);
     setMessage("기존 규칙을 새 버전 초안으로 불러왔습니다. 변경한 실행값은 사용자 선언을 확인한 뒤 저장하세요. 승인·검증·적용 이력은 승계되지 않습니다.");
+    if (!baseEntry) showRepairInstructions();
   }
 
   function changeExecutionTarget(nextTarget: string) {
@@ -683,7 +724,7 @@ export function StrategyStudio({ client, service, source = "", onAskAssistant, o
       const valueOf = (path: string, fallback: unknown) => snapshot.fields.find((item) => item.path === path)?.value ?? fallback;
       const rawProfile = String(snapshot.fields.find((item) => item.path === "ai_custom_features.profile")?.value || "standard");
       const normalizedProfile = rawProfile === "laboratory" ? "lab" : rawProfile;
-      const viewLevel = normalizedProfile === "beginner" ? 1 : normalizedProfile === "lab" ? 4 : normalizedProfile === "advanced" ? 3 : 2;
+      const viewLevel = normalizedProfile === "beginner" ? 1 : normalizedProfile === "research" ? 5 : normalizedProfile === "lab" ? 4 : normalizedProfile === "advanced" ? 3 : 2;
       setFeatureProfile(normalizedProfile);
       setPaperModeEnabled(Boolean(snapshot.fields.find((item) => item.path === "paper_trading")?.value));
       setParallelPaperEnabled(Boolean(valueOf("parallel_strategy_paper_validation.enabled", false)));
@@ -898,11 +939,30 @@ export function StrategyStudio({ client, service, source = "", onAskAssistant, o
   }
 
   async function applyClarificationAnswers(questions: Array<Record<string, any>>) {
-    const confirmedLines = questions.flatMap((item, index) => {
-      if (String(item.resolution || "") !== "user_answer") return [];
+    const confirmedLines: string[] = [];
+    for (const [index, item] of questions.entries()) {
+      if (String(item.resolution || "") !== "user_answer") continue;
       const answer = String(clarificationAnswers[clarificationKey(item, index)] || "").trim();
-      return answer ? [`사용자 확인 · ${String(item.title || item.field || "전략 조건")}: ${answer}`] : [];
-    });
+      if (!answer) continue;
+      if (item.answer_kind === "condition_definition") {
+        const target = String(item.answer_target || "");
+        if (!/^[A-Za-z_]\w{0,127}$/.test(target) || /[\r\n]/.test(answer) || answer.length > 4000) {
+          setMessage("조건 답변은 한 줄 비교식으로 입력하세요. 여러 조건은 AND/OR와 괄호로 연결할 수 있습니다.");
+          return;
+        }
+        // Do not prefix a boolean definition with prose: that made answers
+        // invisible to the deterministic compiler. Comparisons using == are
+        // expressions, not assignments. Preserve user intent without defaults.
+        const assignment = answer.match(/^([A-Za-z_]\w*)\s*=\s*(?!=)(.+)$/);
+        if (assignment && assignment[1].toLowerCase() !== target.toLowerCase()) {
+          setMessage(`'${target}'의 조건을 입력하세요. 다른 이름의 정의로 바꾸지 않습니다.`);
+          return;
+        }
+        confirmedLines.push(`${target} = ${assignment ? assignment[2] : answer}`);
+      } else {
+        confirmedLines.push(`사용자 확인 · ${String(item.title || item.field || "전략 조건")}: ${answer}`);
+      }
+    }
     if (!confirmedLines.length) {
       setMessage("먼저 한 개 이상의 질문에 자신의 전략 조건을 답해 주세요. AI 예시는 자동으로 선택되지 않습니다.");
       return;
@@ -915,12 +975,12 @@ export function StrategyStudio({ client, service, source = "", onAskAssistant, o
     await analyzeSource(nextSupplement);
   }
 
-  async function createStrategy() {
+  async function createStrategy(saveDraft = false) {
     setBusy(true);
     setDraftValidationIssues([]);
     try {
       const parsedRules = JSON.parse(rulesText) as Record<string, unknown>;
-      if (!parsedRules.decision_timeframe && !parsedRules.timeframe && !decisionTimeframe) {
+      if (!saveDraft && !parsedRules.decision_timeframe && !parsedRules.timeframe && !decisionTimeframe) {
         setDraftValidationIssues([{ code: "decision_timeframe_missing", title: "전략 판단 시간봉을 확인하세요", action: "원문이 사용하는 봉을 화면의 전략 판단 시간봉에서 선택하세요.", example: "1분 전략은 1m, 일봉 주식 전략은 1d" }]);
         setMessage("저장 전에 전략 판단 시간봉을 선택하세요.");
         setBusy(false);
@@ -929,7 +989,7 @@ export function StrategyStudio({ client, service, source = "", onAskAssistant, o
       const originalGrounding = parsedRules.source_grounding && typeof parsedRules.source_grounding === "object"
         ? parsedRules.source_grounding as Record<string, unknown>
         : {};
-      const rules = {
+      const rules = preserveCompiledRules(parsedRules, {
         ...parsedRules,
         decision_timeframe: parsedRules.decision_timeframe || parsedRules.timeframe || decisionTimeframe,
         execution_timeframe: parsedRules.execution_timeframe || parsedRules.decision_timeframe || parsedRules.timeframe || decisionTimeframe,
@@ -959,13 +1019,13 @@ export function StrategyStudio({ client, service, source = "", onAskAssistant, o
             base_compiler_contract_sha256: String(originalGrounding.compiler_contract_sha256 ?? ""),
           },
         } : {}),
-      };
+      }, userDeclaredOverride);
       const reference = sourceReference || sourceReferenceInput.trim() || "web-ui://strategy-studio";
       const finalValidation = await client.validateStrategyDraft({
         rules,
         compiler_issues: Array.isArray(parsedRules.compiler_issues) ? parsedRules.compiler_issues : [],
       });
-      if (finalValidation.ready !== true) {
+      if (finalValidation.ready !== true && !saveDraft) {
         const blockingDetails = Array.isArray(finalValidation.blocking_details)
           ? finalValidation.blocking_details.filter((item: unknown) => item && typeof item === "object")
           : [];
@@ -988,7 +1048,7 @@ export function StrategyStudio({ client, service, source = "", onAskAssistant, o
         setGuidedStep(4);
       }
       setDraftValidationIssues([]);
-      setMessage("전략 새 버전을 만들었습니다. XAI와 누락 조건을 확인한 뒤 승인하세요.");
+      setMessage(saveDraft ? "미승인 초안을 저장했습니다. 등록과 실행 승인은 별개이며 누락 조건을 보완하기 전에는 실행할 수 없습니다." : "전략 새 버전을 만들었습니다. XAI와 누락 조건을 확인한 뒤 승인하세요.");
       refresh();
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "전략 생성에 실패했습니다.");
@@ -1023,8 +1083,10 @@ export function StrategyStudio({ client, service, source = "", onAskAssistant, o
         file_name: fileName,
         supplemental_text: supplement,
         authoring_mode: authoringMode,
+        ...(value.startsWith("https://drive.google.com/") ? {drive_api_key: driveApiKey, drive_access_token: driveAccessToken} : {}),
         ...(files.length ? {files} : {}),
       });
+      setDriveApiKey(""); setDriveAccessToken("");
       const suggestion = (result.market_regime_suggestion ?? {}) as Record<string, unknown>;
       const suggestedRegimes = suggestion.auto_select === true
         ? normalizeMarketRegimes(suggestion.regimes)
@@ -1032,6 +1094,7 @@ export function StrategyStudio({ client, service, source = "", onAskAssistant, o
       setMarketRegimes(suggestedRegimes);
       setName(String(result.name ?? name));
       const analyzedSignalMode = String(result.rules?.signal_mode ?? "confirm");
+      setDecisionTimeframe(String(result.rules?.decision_timeframe ?? result.rules?.timeframe ?? decisionTimeframe));
       const rawExitPolicy = result.rules?.exit_policy;
       const analyzedExitPolicy = typeof rawExitPolicy === "object" && rawExitPolicy
         ? String(rawExitPolicy.mode ?? "inherit_noah_base")
@@ -1058,7 +1121,6 @@ export function StrategyStudio({ client, service, source = "", onAskAssistant, o
       setRulesText(JSON.stringify({
         ...(result.rules ?? STARTER_RULES),
         target_scope: executionTarget,
-        market_conditions: marketRegimeLabels(suggestedRegimes),
         market_regimes: suggestedRegimes,
         regime_scope: regimeScope,
       }, null, 2));
@@ -1138,13 +1200,10 @@ export function StrategyStudio({ client, service, source = "", onAskAssistant, o
     } catch (error) { setMessage(error instanceof Error ? error.message : "롤백에 실패했습니다."); setBusy(false); }
   }
 
-  async function runAction(version: StrategyVersion, targetScope: string, forcedAction?: "start_paper" | "restart_paper") {
+  async function runAction(version: StrategyVersion, targetScope: string, forcedAction?: "start_paper" | "restart_paper" | "validate") {
     const replayApplicable = historicalReplayApplicable(version);
-    const historicalValidation = !version.active && replayApplicable && ["approved", "execution_rejected"].includes(version.status);
-    const directPaperValidation = !version.active && !replayApplicable && ["approved", "execution_rejected"].includes(version.status);
-    const action = forcedAction ?? (historicalValidation
-      ? "validate"
-      : directPaperValidation
+    const directPaperValidation = !version.active && ["approved", "execution_rejected", "paper_rejected"].includes(version.status);
+    const action = forcedAction ?? (directPaperValidation
         ? "start_paper"
       : version.active
         ? "deactivate"
@@ -1158,7 +1217,7 @@ export function StrategyStudio({ client, service, source = "", onAskAssistant, o
               ? "start_paper"
               : "activate");
     const confirmationMessage = action === "validate"
-        ? `과거 시세 재생 검사를 실행할까요?\n\n저장된 전략 시간봉과 해당 기관의 완성된 캔들로 규칙·비용·손익·MDD를 계산합니다. 실제 사용 기간과 표본 수는 결과에 표시됩니다. 필요한 시세를 제공하지 않으면 검사를 중단합니다.`
+        ? `과거 시세 백테스트를 실행할까요?\n\n${replayStart || replayEnd ? `${replayStart} ~ ${replayEnd} UTC (종료 제외)` : "최근 최대 500개 완성 캔들"}로 계산하는 선택형 보조 평가입니다. 봉 종가 진입·단일 포지션·최대 ${replayHolding}봉 보유 가정이며 실거래 체결을 재현하지 않습니다. 실제 확보 기간·표본·비용은 결과에 표시합니다. 성과 미달이나 표본 부족만으로 PAPER를 막지 않습니다.`
         : action === "start_paper"
           ? version.status === "paper_paused"
             ? "PAPER 검증을 재개할까요?\n\n기존 검증 기간·가상 체결·거래소별 근거를 그대로 이어갑니다. 일시정지 동안의 시간과 신규 거래는 검증 기간에 포함하지 않습니다."
@@ -1179,6 +1238,11 @@ export function StrategyStudio({ client, service, source = "", onAskAssistant, o
     try {
       let updatedVersion: Record<string, unknown> | null = null;
       if (action === "validate") {
+        const rangeStart = replayStart ? Date.parse(`${replayStart}Z`) : null;
+        const rangeEnd = replayEnd ? Date.parse(`${replayEnd}Z`) : null;
+        if ((rangeStart !== null || rangeEnd !== null) && (rangeStart === null || rangeEnd === null || !Number.isFinite(rangeStart) || !Number.isFinite(rangeEnd) || rangeStart >= rangeEnd || rangeEnd > Date.now())) throw new Error("시작·종료를 모두 과거 UTC 시각으로 지정하세요.");
+        const holdingBars = Number(replayHolding);
+        if (!Number.isInteger(holdingBars) || holdingBars < 1 || holdingBars > 500) throw new Error("최대 보유 봉 수는 1~500 사이 정수여야 합니다.");
         const validationSource = service === "stock" ? source : (targetScope === "binance" ? "binance" : source);
         const validationMarketType = service === "stock" ? undefined : ["upbit", "bithumb", "coinone"].includes(validationSource) ? "spot" : "futures";
         updatedVersion = await client.runHistoricalValidation({
@@ -1188,8 +1252,11 @@ export function StrategyStudio({ client, service, source = "", onAskAssistant, o
           asset_class: service === "stock" ? "stock" : "crypto",
           source: validationSource,
           market_type: validationMarketType,
-          symbol: service === "stock" ? "005930" : ["upbit", "bithumb", "coinone"].includes(validationSource) ? "BTCKRW" : "BTCUSDT",
+          symbol: replaySymbol.trim().toUpperCase() || (service === "stock" ? "005930" : ["upbit", "bithumb", "coinone"].includes(validationSource) ? "BTCKRW" : "BTCUSDT"),
           limit: 500,
+          range_start_ms: rangeStart,
+          range_end_ms: rangeEnd,
+          holding_bars: holdingBars,
         });
         setMessage(`과거 시세 재생 검사 완료 · ${validationSource.toUpperCase()} ${validationMarketType ?? "현물"} 실제 시세로 PnL·MDD·비용을 계산했습니다. 이제 PAPER 전진검증을 시작하세요.`);
       } else {
@@ -1246,6 +1313,7 @@ export function StrategyStudio({ client, service, source = "", onAskAssistant, o
       value: group.strategy_key,
       label: `${group.versions.at(-1)?.name ?? group.strategy_key} · 다음 버전 v${Math.min(10, Number(group.versions.at(-1)?.version ?? 0) + 1)}`,
     })) ?? [], [catalog, scope]);
+  const compiledControlsLocked = !userDeclaredOverride && (() => { try { return ["compiler_authoritative", "trusted_template"].includes(JSON.parse(rulesText).source_grounding?.status); } catch { return false; } })();
   const analysisRules = (sourceAnalysis?.rules ?? {}) as Record<string, unknown>;
   const sourceDetails = (sourceAnalysis?.source ?? {}) as Record<string, any>;
   const sourceEvidence = (sourceDetails.evidence ?? {}) as Record<string, any>;
@@ -1307,7 +1375,7 @@ export function StrategyStudio({ client, service, source = "", onAskAssistant, o
       <p className="strategy-studio-alias">{t("Strategy Studio · 기존 AI 커스텀")}</p>
       <p>{t("TradingView·Pine·기존 전략의 익숙한 표현은 유지하고, 원문 근거·검증·PAPER·체결 감사를 더하는 AI 전략 운영체제입니다. 배우기 → 만들기 → 검증 → 실행 → 개선 흐름을 연결합니다.")}</p>
       <div className="legacy-strategy-status"><strong>{t("사용 AI 및 정밀 분석 역할은 설정의 AI 엔진/API를 따릅니다.")}</strong><span>{t("사용 모드: ")}{strategyDifficultyLabel(featureProfile)}</span><small>{t("설정 경로: AI 엔진/API → 전략 스튜디오 사용 난이도")}</small><button className={`guided-start ${guidedCompletedOnce ? "revisit" : "first"}`} type="button" onClick={openGuidedTour}>{guidedCompletedOnce ? "5분 따라 만들기 다시 보기" : t("처음 사용 · 5분 따라 만들기")}</button><button type="button" disabled={!onAskAssistant} onClick={() => onAskAssistant?.(`[NOAH_STRATEGY_CONSULTATION] ${t("시장 상황과 내 목적에 맞는 전략을 함께 설계하고 싶습니다. 모호한 조건은 하나씩 질문해 주세요.")}`)}>{t("AI와 전략 상담")}</button><button className="mentor" type="button" onClick={() => setMentorOpen((current) => !current)}>{t("AI 멘토 인터뷰")}</button><button className="getting-started" type="button" onClick={() => onAskAssistant?.("전략 스튜디오를 처음부터 PAPER까지 사용하는 순서를 현재 설정 기준으로 안내해줘.")}>{t("처음 사용법 AI에게 묻기")}</button><a className="strategy-hub-link" href={STRATEGY_HUB_URL} target="_blank" rel="noreferrer" title={t("로그인 없이 공개 전략과 검증 여권을 둘러봅니다.")}>{t("전략 둘러보기")}</a><a className="strategy-hub-link" href={STRATEGY_HUB_LIBRARY_URL} target="_blank" rel="noreferrer" title={t("daltrading 로그인 후 취득한 전략과 라이선스를 확인합니다.")}>{t("내 전략 라이선스")}</a><a className="strategy-hub-link" href={STRATEGY_HUB_GUIDE_URL} target="_blank" rel="noreferrer">{t("제출·다운로드 안내")}</a><button type="button" onClick={onOpenSettings}>{t("AI 모델 설정 열기")}</button></div>
-      <details className="strategy-help-difference"><summary>{t("두 도움 기능의 차이")}</summary><p>{t("AI 멘토 인터뷰는 투자 경험·목표·위험 허용도 등 8문항을 묻고 관리형 전략 후보 2~3개를 만듭니다. 실행 계약을 통과한 후보도 자동 저장·승인·PAPER·LIVE로 넘어가지 않습니다.")}<br />{t("처음 사용법 AI에게 묻기는 현재 화면과 프로필을 기준으로 입력 → XAI 검토 → 저장 → 승인 → 적용 가능한 과거검증 → PAPER 순서만 안내합니다.")}</p></details>
+      <details className="strategy-help-difference"><summary>{t("두 도움 기능의 차이")}</summary><p>{t("AI 멘토 인터뷰는 투자 경험·목표·위험 허용도 등 8문항을 묻고 관리형 전략 후보 2~3개를 만듭니다. 실행 계약을 통과한 후보도 자동 저장·승인·PAPER·LIVE로 넘어가지 않습니다.")}<br />{t("처음 사용법 AI에게 묻기는 현재 화면과 프로필을 기준으로 입력 → XAI 검토 → 저장 → 승인 → PAPER 순서를 안내합니다. 과거 백테스트는 별도 선택입니다.")}</p></details>
       <div className="legacy-strategy-badges"><div><span>{t("승인 없는 실행")}</span><b className="negative">{t("차단")}</b></div><div><span>{t("전략 버전")}</span><b>{t("최대 10개")}</b></div><div><span>{t("가드레일")}</span><b className="positive">{t("항상 우선")}</b></div><div><span>{t("출금 API")}</span><b className="warning">{t("지원 안 함")}</b></div></div>
       {guidedOpen && <div className="strategy-guided-backdrop" role="presentation"><article className="strategy-guided-dialog" role="dialog" aria-modal="true" aria-labelledby="strategy-guided-title">
         <header><div><span>{t("LEVEL 독립 안내 기능")}</span><h3 id="strategy-guided-title">{t("처음 사용 · 5분 따라 만들기")}</h3><p>{t("현재 Level ")}{featureViewLevel}{t("을 그대로 유지합니다. 따라하기는 설정·거래·가드레일을 자동 변경하지 않습니다.")}</p></div><button type="button" aria-label={t("5분 따라 만들기 닫기")} onClick={() => setGuidedOpen(false)}>{t("닫기")}</button></header>
@@ -1322,13 +1390,13 @@ export function StrategyStudio({ client, service, source = "", onAskAssistant, o
           {guidedStep === 3 && guidedMethodCopy && <><div className="strategy-guided-copy"><h4>{guidedMethodCopy.title}</h4><p>{guidedMethodCopy.description}</p></div><dl className="strategy-guided-summary"><div><dt>{t("현재 Level")}</dt><dd>Level {featureViewLevel}{t(" · 변경 없음")}</dd></div><div><dt>{t("자산")}</dt><dd>{service === "stock" ? t("주식·ETF") : t("암호화폐")}</dd></div><div><dt>{t("선호 빈도")}</dt><dd>{guidedFrequencyLabel}</dd></div><div><dt>{t("검토 위험")}</dt><dd>{t("거래당 최대 ")}{guidedAnswers.maxLossPercent}%</dd></div></dl><div className="strategy-guided-plain"><b>{t("다음에 확인할 내용")}</b><span>{guidedMethod === "noah" ? "NoahAI가 시장과 후보를 판단하고 조건 충돌 시 HOLD합니다. 이 경로는 커스텀 전략 생성 과정이 없으며 바로 완료할 수 있습니다." : guidedMethod === "example" ? "관리형 예제의 진입·청산·거래 금지 조건을 쉬운 설명과 실행 규칙으로 함께 확인합니다." : "가져온 원문에서 진입·청산·TP/SL·시장국면이 확인되는지 분석하고 모르는 조건은 실행하지 않습니다."}</span></div><div className="strategy-guided-actions"><button type="button" onClick={() => setGuidedStep(2)}>{t("이전")}</button>{guidedMethod === "noah" ? <><button type="button" disabled={busy} onClick={() => void prepareGuidedDraft("example")}>{t("전략도 만들기 · 관리형 예제로 전환")}</button><button className="primary-button" type="button" onClick={() => finishGuidedTour("기본 NoahAI 운용 경로를 확인했습니다. 커스텀 전략을 만들거나 적용하지 않았습니다.")}>{t("기본 NoahAI 사용 확인 완료")}</button></> : <button className="primary-button" disabled={busy} type="button" onClick={() => void prepareGuidedDraft()}>{guidedMethod === "example" ? "관리형 예제 불러오기" : "내 전략 입력하기"}</button>}</div></>}
           {guidedStep === 4 && <><div className="strategy-guided-copy"><h4>{t("안전한 전략 버전 만들기")}</h4><p>{t("분석·저장·승인을 각각 확인합니다. 현재 필요한 동작 하나만 아래에 표시합니다.")}</p></div>
             {guidedMethod === "import" && !sourceAnalysis && <div className="strategy-guided-import"><label>{t("전략 설명 또는 Pine Script")}<textarea value={sourceValue} onChange={(event) => { setSourceValue(event.target.value); setSourceFile(null); setSourceReferenceInput(""); setSourceReference(""); setSourceSummary(""); setSourceAnalysis(null); setConfirmedSupplement(""); setClarificationAnswers({}); }} placeholder={t("예: EMA200 위에서 RSI 30 이하 LONG, 손절 1%, 익절 2%")} /></label><label className="secondary-button">{t("문서·Pine·이미지·영상 파일 선택")}<input type="file" multiple accept=".md,.pdf,.pine,.txt,.csv,.tsv,.xlsx,.docx,image/*,video/*" onChange={(event) => chooseSourceFiles(event.target.files)} /></label><label className="legacy-file-picker">{t("폴더 선택")}<input type="file" multiple {...({webkitdirectory:""} as any)} aria-label={t("자료 폴더 선택")} onChange={(event) => chooseSourceFiles(event.target.files)} /></label>{sourceFile && <small>{t("선택 파일: ")}{sourceFiles.map(file=>file.name).join(", ")}</small>}</div>}
-            <div className="strategy-guided-checks"><div className={sourceAnalysis ? "done" : "current"}><b>1</b><span>{t("원문 분석과 실행 조건 확인")}</span></div><div className={guidedVersion ? "done" : sourceAnalysis ? "current" : ""}><b>2</b><span>{t("최종 재검증 후 비활성 버전 저장")}</span></div><div className={guidedVersion && guidedVersion.status !== "analyzed" ? "done" : guidedVersion ? "current" : ""}><b>3</b><span>{t("사용자 승인")}</span></div><div className={guidedVersion && !["analyzed", "approved", "execution_rejected"].includes(guidedVersion.status) ? "done" : guidedVersion && ["approved", "execution_rejected"].includes(guidedVersion.status) ? "current" : ""}><b>4</b><span>{guidedHistoricalReplayApplicable ? "과거 시세 재생 검사" : "과거재생 비대상 확인"}</span></div></div>
+            <div className="strategy-guided-checks"><div className={sourceAnalysis ? "done" : "current"}><b>1</b><span>{t("원문 분석과 실행 조건 확인")}</span></div><div className={guidedVersion ? "done" : sourceAnalysis ? "current" : ""}><b>2</b><span>{t("최종 재검증 후 비활성 버전 저장")}</span></div><div className={guidedVersion && guidedVersion.status !== "analyzed" ? "done" : guidedVersion ? "current" : ""}><b>3</b><span>{t("사용자 승인")}</span></div><div><b>선택</b><span>{guidedHistoricalReplayApplicable ? "과거 시세 백테스트 · PAPER 선행조건 아님" : "과거재생 비대상 확인"}</span></div></div>
             <SourceManifest items={sourceAnalysis?.source_manifest} />
             {busy && <div className="strategy-guided-processing" role="status"><strong>{t("원문과 실행 규칙을 대조하고 있습니다.")}</strong><span>{t("Pine·문서·영상 또는 외부 AI 정밀 분석은 1분 이상 걸릴 수 있습니다. 창을 닫아도 분석은 취소되지 않으며 완료 후 현재 초안에 반영됩니다.")}</span></div>}
             {sourceAnalysis && <div className={`strategy-guided-readiness ${analysisReady ? "ready" : "blocked"}`}><strong>{analysisReady ? "실행 규칙 구조화 완료" : `보완할 조건 ${guidedBlockingDetails.length || 1}개`}</strong><span>{analysisReady ? "저장 전 최종 재검증을 한 번 더 수행합니다." : "아래 조건을 원문에서 고친 뒤 다시 분석해야 합니다. 모르는 조건을 추측해서 저장하지 않습니다."}</span></div>}
             {guidedVersion && ["approved", "execution_rejected"].includes(guidedVersion.status) && !guidedHistoricalReplayApplicable && <div className="strategy-guided-plain"><b>{t("이 전략은 독립 과거재생 대상이 아닙니다.")}</b><span>{t("NoahAI가 진입 후보를 만들고 이 버전은 사용자 위험·청산 규칙을 적용합니다. 진입 규칙을 임의로 만들어 과거 성과를 표시하지 않고, 다음 PAPER 단계에서 실제 NoahAI 후보와 함께 전진검증합니다.")}</span></div>}
             {sourceAnalysis && !analysisReady && <div className="strategy-guided-fix-panel"><h5>{t("무엇을 고쳐야 하나요?")}</h5><ol>{guidedBlockingDetails.map((item, index) => <li key={`${item.code}:${index}`}><strong>{index + 1}. {item.title || item.code}</strong><span>{item.action || "원문 조건을 구체적으로 작성하세요."}</span>{item.example && <small>{t("입력 예시: ")}{item.example}</small>}{canInsertConfirmedSupplement(item.code) && <button type="button" onClick={() => void insertConfirmedSupplement(item.code)}>{t("화면 선택값을 보완 근거로 확정·재분석")}</button>}</li>)}</ol>{sourceFile ? <div className="strategy-guided-file-fix"><b>{t("파일 원문은 앱에서 덮어쓰지 않습니다.")}</b><span>{t("창을 닫으면 아래 본 화면의 「질문으로 함께 완성」에서 자신의 답변을 별도 근거로 추가할 수 있습니다. 지원하지 않는 Pine 동작은 원본을 수정해야 하며 AI가 비슷한 조건으로 바꾸지 않습니다.")}</span></div> : <label className="strategy-guided-source-fix">{t("수정할 원문")}<textarea value={sourceValue} onChange={(event) => { setSourceValue(event.target.value); setSourceAnalysis(null); setDraftValidationIssues([]); setConfirmedSupplement(""); setClarificationAnswers({}); setMessage("원문을 수정했습니다. 다시 분석해 변경된 조건을 확인하세요."); }} /></label>}<div className="strategy-guided-fix-actions">{onAskAssistant && <button type="button" onClick={() => onAskAssistant(`전략 스튜디오 최종 재검증에서 다음 항목이 차단됐어. 초보자가 원문을 어떻게 고치면 되는지 순서와 예시로 설명해줘: ${guidedBlockingDetails.map((item) => `${item.title} (${item.code})`).join(", ")}`)}>{t("이 조건을 AI에게 묻기")}</button>}<button type="button" onClick={() => { setGuidedOpen(false); setAuthoringMode("guided_clarification"); setMessage("본 화면의 질문 카드에서 답을 입력하거나 원문을 수정한 뒤 다시 분석하세요."); }}>{t("원문 다시 분석 준비 · 질문에 답하기")}</button></div></div>}
-            <div className="strategy-guided-actions"><button type="button" onClick={() => setGuidedStep(3)}>{t("이전")}</button>{!sourceAnalysis ? <button className="primary-button" disabled={busy || (!sourceFile && !sourceReferenceInput.trim() && !sourceValue.trim())} type="button" onClick={() => void analyzeSource()}>{busy ? "분석 중…" : t("AI 분석 및 전략 초안 만들기")}</button> : !guidedVersion ? <button className="primary-button" disabled={busy || !analysisReady} type="button" onClick={() => void createStrategy()}>{busy ? "재검증 중…" : t("최종 재검증 후 전략 버전 저장")}</button> : guidedVersion.status === "analyzed" ? <button className="primary-button" disabled={busy} type="button" onClick={() => void runAction(guidedVersion, scope)}>{t("사용자 승인")}</button> : ["approved", "execution_rejected"].includes(guidedVersion.status) && guidedHistoricalReplayApplicable ? <button className="primary-button" disabled={busy} type="button" onClick={() => void runAction(guidedVersion, scope)}>{guidedVersion.status === "execution_rejected" ? "과거 시세 재생 다시 검사" : "과거 시세 재생 검사"}</button> : <button className="primary-button" type="button" onClick={() => setGuidedStep(5)}>{t("PAPER 단계로 이동")}</button>}</div>
+            <div className="strategy-guided-actions"><button type="button" onClick={() => setGuidedStep(3)}>{t("이전")}</button>{!sourceAnalysis ? <button className="primary-button" disabled={busy || (!sourceFile && !sourceReferenceInput.trim() && !sourceValue.trim())} type="button" onClick={() => void analyzeSource()}>{busy ? "분석 중…" : t("AI 분석 및 전략 초안 만들기")}</button> : !guidedVersion ? <button className="primary-button" disabled={busy || !analysisReady} type="button" onClick={() => void createStrategy()}>{busy ? "재검증 중…" : t("최종 재검증 후 전략 버전 저장")}</button> : guidedVersion.status === "analyzed" ? <button className="primary-button" disabled={busy} type="button" onClick={() => void runAction(guidedVersion, scope)}>{t("사용자 승인")}</button> : <><button className="primary-button" disabled={busy} type="button" onClick={() => setGuidedStep(5)}>{t("PAPER 단계로 이동")}</button>{["approved", "execution_rejected"].includes(guidedVersion.status) && guidedHistoricalReplayApplicable && <button type="button" disabled={busy} onClick={() => void runAction(guidedVersion, scope, "validate")}>{t("과거 시세 백테스트 · 선택")}</button>}</>}</div>
             {draftValidationIssues.length > 0 && <div className="strategy-guided-warning"><strong>{t("저장 전 확인 필요")}</strong><span>{draftValidationIssues.map((item) => item.title || item.code).join(" · ")}</span><button type="button" onClick={showRepairInstructions}>{t("고칠 항목으로 이동")}</button></div>}
           </>}
           {guidedStep === 5 && <><div className="strategy-guided-copy"><h4>{guidedCompleted ? "따라 만들기 완료" : t("PAPER 전진검증 시작")}</h4><p>{guidedCompleted ? "언제든 다시 열어 같은 흐름을 연습할 수 있습니다." : "PAPER는 실주문 권한 없이 시장 시세로 가상 포지션과 거래 근거를 기록합니다."}</p></div>{guidedCompleted ? <div className="strategy-guided-complete"><strong>{guidedVersion ? `${guidedVersion.name} · PAPER 등록 확인` : "기본 NoahAI 운용 경로 확인"}</strong><span>Level {featureViewLevel}{t(", 계좌 설정, 저장된 전략과 기존 PAPER 원장은 변경하거나 삭제하지 않았습니다.")}</span></div> : <><div className="strategy-guided-plain"><b>{t("시작 전 확인")}</b><span>{t("검증 통과가 자동 LIVE 적용으로 이어지지 않습니다. 최소 거래 수와 활성 검증기간을 채운 뒤에도 사용자가 최종 적용을 별도로 승인해야 합니다.")}</span></div>{!paperModeEnabled && !parallelPaperEnabled && <div className="strategy-guided-warning"><strong>{t("현재 PAPER 실행 대기 상태")}</strong><span>{t("전체 PAPER 모드 또는 LIVE 중 독립 PAPER 병행검증을 먼저 켜야 새 가상 거래가 집계됩니다.")}</span><button type="button" onClick={onOpenSettings}>{t("PAPER 설정 열기")}</button></div>}<div className="strategy-guided-actions"><button type="button" onClick={() => setGuidedStep(4)}>{t("이전")}</button><button className="primary-button" disabled={busy || !guidedVersion || guidedVersion.paper_execution_readiness?.ready === false} type="button" onClick={() => guidedVersion && void runAction(guidedVersion, scope, "start_paper")}>{t("PAPER 전진검증 시작")}</button></div></>}</>}
@@ -1336,8 +1404,8 @@ export function StrategyStudio({ client, service, source = "", onAskAssistant, o
         <footer><button type="button" onClick={restartGuidedTour}>{t("따라하기 안내 초기화")}</button><span>{t("안내 초기화는 저장 전략·PAPER·거래·학습 데이터를 삭제하지 않습니다.")}</span><button type="button" onClick={() => setGuidedOpen(false)}>{t("닫기")}</button></footer>
       </article></div>}
       {mentorOpen && <article className="strategy-mentor-panel"><header><div><h3>{t("AI 멘토 구조화 인터뷰")}</h3><p>{t("답변은 로컬 전략 후보 추천에만 사용되며 자동 저장·승인·적용되지 않습니다.")}</p></div><button type="button" onClick={() => setMentorOpen(false)}>{t("닫기")}</button></header><div className="strategy-mentor-grid">{MENTOR_FIELDS.map((field) => <label key={field.key}>{field.label}<select value={String(mentorProfile[field.key] ?? "")} onChange={(event) => { const raw = event.target.value; setMentorProfile((current) => ({ ...current, [field.key]: raw === "true" ? true : raw === "false" ? false : raw })); }}>{field.options.map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>)}<label>{t("거래당 최대 허용 손실률")}<input type="number" min="0.05" max="5" step="0.05" value={String(mentorProfile.max_loss_percent ?? 0.5)} onChange={(event) => setMentorProfile((current) => ({ ...current, max_loss_percent: Number(event.target.value) }))} /><span>%</span></label></div><button className="primary-button" type="button" disabled={busy} onClick={() => void runMentor()}>{t("검토 후보 2~3개 만들기")}</button>{mentorCandidates.length > 0 && <div className="strategy-mentor-candidates">{mentorCandidates.map((candidate) => <section key={String(candidate.preset_key)}><h4>{String(candidate.name)}</h4><p>{String(candidate.summary)}</p><small>{String(candidate.why_fit)}{t(" · 거래하지 않을 때: ")}{String(candidate.when_not_to_trade)}</small><small>{candidate.executable_template === true ? "실행 규칙 구조화 완료 · 저장 전 검토 필요" : "교육용 후보 · 실행 조건 보완 필요"} · {String(candidate.venue_note ?? "거래소 능력에 따라 실행 방향이 제한됩니다.")}</small><button type="button" onClick={() => loadMentorCandidate(candidate)}>{t("이 후보를 입력 영역에 불러오기")}</button></section>)}</div>}</article>}
-      <div className="legacy-strategy-feature-location"><div><b>{t("전략 스튜디오 기능 위치 · 현재 선택: ")}{resultView}</b><button type="button" onClick={() => setShowLevelGuide((current) => !current)}>{showLevelGuide ? "Level 비교 닫기" : t("Level 1~4 비교·예시")}</button></div><p>{t("Level은 수익률·전략 품질·회원 등급이 아니라 화면 설명 깊이와 편집·운용 범위입니다. 단계를 바꿔도 전략이 자동 수정되거나 실행되지 않습니다.")}</p></div>
-      {showLevelGuide && <article className="legacy-level-guide" aria-label={t("전략 스튜디오 Level 1부터 Level 4 비교")}><header><div><h3>{t("Level 1~4 이용 범위와 예시")}</h3><p>{t("앱에 포함된 로컬 안내이므로 열어보는 데 AI API 비용이 들지 않습니다.")}</p></div><button type="button" onClick={onOpenDifficultySettings ?? onOpenSettings}>{t("사용 난이도 설정")}</button></header><div>{LEVEL_GUIDE.map((item) => <section className={featureViewLevel === item.level ? "current" : ""} key={item.level}><span>{strategyDifficultyLabel(["beginner", "standard", "advanced", "lab"][item.level - 1])}</span><h4>{t(item.profile)}</h4><p><b>{t("할 수 있는 것")}</b>{item.canDo}</p><p><b>{t("예시")}</b>{item.scenario}</p>{featureViewLevel === item.level && <small>{t("현재 설정에서 기본으로 열리는 단계")}</small>}</section>)}</div><footer>{t("TradingView·Pine 사용자는 보통 Level 2에서 실제 적용값을 먼저 확인한 뒤, 직접 규칙을 수정할 때만 Level 3으로 올리는 것이 안전합니다. Level 4는 하드 가드레일 해제 기능이 아닙니다.")}</footer></article>}
+      <div className="legacy-strategy-feature-location"><div><b>{t("전략 스튜디오 기능 위치 · 현재 선택: ")}{resultView}</b><button type="button" onClick={() => setShowLevelGuide((current) => !current)}>{showLevelGuide ? "Level 비교 닫기" : t("Level 1~5 비교·예시")}</button></div><p>{t("Level은 수익률·전략 품질·회원 등급이 아니라 화면 설명 깊이와 편집·운용 범위입니다. 단계를 바꿔도 전략이 자동 수정되거나 실행되지 않습니다.")}</p></div>
+      {showLevelGuide && <article className="legacy-level-guide" aria-label={t("전략 스튜디오 Level 1부터 Level 5 비교")}><header><div><h3>{t("Level 1~5 이용 범위와 예시")}</h3><p>{t("앱에 포함된 로컬 안내이므로 열어보는 데 AI API 비용이 들지 않습니다.")}</p></div><button type="button" onClick={onOpenDifficultySettings ?? onOpenSettings}>{t("사용 난이도 설정")}</button></header><div>{LEVEL_GUIDE.map((item) => <section className={featureViewLevel === item.level ? "current" : ""} key={item.level}><span>{strategyDifficultyLabel(["beginner", "standard", "advanced", "lab", "research"][item.level - 1])}</span><h4>{t(item.profile)}</h4><p><b>{t("할 수 있는 것")}</b>{t(item.canDo)}</p><p><b>{t("예시")}</b>{t(item.scenario)}</p>{featureViewLevel === item.level && <small>{t("현재 설정에서 기본으로 열리는 단계")}</small>}</section>)}</div><footer>{t("TradingView·Pine 사용자는 보통 Level 2에서 실제 적용값을 먼저 확인한 뒤, 직접 규칙을 수정할 때만 Level 3으로 올리는 것이 안전합니다. Level 4는 하드 가드레일 해제 기능이 아닙니다.")}</footer></article>}
       <div className="legacy-strategy-safe"><div><b>{t("안전 사용 순서")}</b><span>{t("AI 설정·엔진 ON → 멘토/자료 입력 → 권장 역할·XAI/규칙 확인 → 버전 저장·승인·과거 재생 또는 비대상 확인 → PAPER → 제한 LIVE")}</span></div><button type="button" onClick={() => setShowSafeSteps((current) => !current)}>{showSafeSteps ? "12단계 닫기" : t("12단계 자세히 · API 비용 없음")}</button></div>
       <div className={`strategy-paper-mode-notice ${paperModeEnabled || parallelPaperEnabled ? "paper" : "live"}`}><strong>{paperModeEnabled ? "현재 전체 PAPER 모드 · 전진검증 집계 가능" : parallelPaperEnabled ? "현재 LIVE · 독립 PAPER 병행검증 가능" : "현재 LIVE · 독립 PAPER 병행검증 꺼짐"}</strong><span>{paperModeEnabled ? "전체 PAPER는 거래소별 가상 실행 슬롯에서 전략 조건에 맞는 새 가상 청산과 관찰 시간을 집계합니다." : parallelPaperEnabled ? "병행 PAPER는 LIVE 시세만 공유하고 전략·버전·거래소별 가상자금·포지션·원장을 분리합니다. 거래소 주문 API를 소유하지 않으며 검증 통과도 자동 LIVE 적용되지 않습니다." : "전략을 검증 풀에 등록해도 현재는 대기합니다. 전체 PAPER로 전환하거나 설정에서 독립 PAPER 병행검증을 켜야 새 가상 청산과 관찰 시간이 증가합니다."}</span><button type="button" onClick={onOpenSettings}>{t("PAPER/LIVE 설정 열기")}</button></div>
       <article className="strategy-venue-compatibility" aria-label={t("현재 전략 실행 범위와 거래소 호환성")}>
@@ -1363,9 +1431,18 @@ export function StrategyStudio({ client, service, source = "", onAskAssistant, o
       <div ref={repairRef} tabIndex={-1} className={repairVisible ? "strategy-repair-focus" : ""}>
         {repairVisible && <><strong>{t("여기서 원문과 확인 답변을 고칩니다")}</strong><ol><li>{t("아래 입력 영역에서 원문 또는 보완 답변을 수정하세요.")}</li><li>{t("「AI 분석 및 전략 초안 만들기」를 누르세요.")}</li><li>{t("확인 항목이 해결되면 「최종 재검증 후 전략 버전 저장」을 누르고 따라 만들기를 다시 여세요.")}</li></ol>{draftValidationIssues.map((item, i) => <p key={i}><b>{item.title}</b> · {item.action}{item.example ? ` 예: ${item.example}` : ""}</p>)}</>}
       </div>
-      <div className="strategy-validation-settings"><label>{t("전략 판단 시간봉 ")}<select value={decisionTimeframe} onChange={(event) => { setDecisionTimeframe(event.target.value); try { const rules = JSON.parse(rulesText); setRulesText(JSON.stringify({ ...rules, decision_timeframe: event.target.value, execution_timeframe: event.target.value }, null, 2)); } catch { /* JSON editor reports invalid syntax on save */ } }}><option value="">{t("원문 시간봉 선택")}</option>{["1m", "3m", "5m", "15m", "30m", "1h", "4h", "1d"].map(tf => <option key={tf} value={tf}>{tf}</option>)}</select></label><span>{t("원문이 사용하는 시간봉을 확인하세요. 저장된 시간봉으로만 과거 재생하며, 증권사 분봉 공급이 없으면 일봉으로 대체하지 않습니다.")}</span></div>
+      <div className="strategy-validation-settings"><label>{t("전략 판단 시간봉 ")}<select value={decisionTimeframe} onChange={(event) => { setDecisionTimeframe(event.target.value); try { const rules = JSON.parse(rulesText); setRulesText(JSON.stringify({ ...rules, decision_timeframe: event.target.value, execution_timeframe: event.target.value }, null, 2)); } catch { /* JSON editor reports invalid syntax on save */ } }}><option value="">{t("원문 시간봉 선택")}</option>{["1m", "3m", "5m", "15m", "30m", "1h", "2h", "4h", "6h", "12h", "1d"].map(tf => <option key={tf} value={tf}>{tf}</option>)}</select></label><span>{t("원문이 사용하는 시간봉을 확인하세요. 저장된 시간봉으로만 과거 재생하며, 증권사 분봉 공급이 없으면 일봉으로 대체하지 않습니다.")}</span></div>
       <section className="source-ingestor legacy-source-ingestor">
         <StrategyBeginnerHelp />
+        <section aria-label="Drive 읽기 연결">
+          <p>{t("공개 공유 폴더는 주소를 입력하세요. 사용자 Google 로그인 없이 앱의 공개 자료 설정으로 읽습니다. 특정 계정에만 공유된 자료는 Drive 읽기 권한을 연결하세요. NoahAI 회원 로그인과 무관합니다.")}</p>
+          <p>{t("승인 화면은 기본 브라우저에서 열립니다. Drive 전체 읽기 권한을 요청하지만 앱은 입력한 폴더만 수집합니다. 원하지 않으면 내려받은 파일·폴더를 선택하세요. 연결 정보는 메모리에만 보관하며 앱 종료 후에는 다시 연결합니다.")}</p>
+          <button type="button" className="secondary-button" onClick={()=>void driveAction("connect")}>{t("Google Drive 읽기 연결")}</button>
+          <button type="button" className="secondary-button" onClick={()=>void driveAction()}>{t("Drive 연결 확인")}</button>
+          <button type="button" className="secondary-button" onClick={()=>void driveAction("disconnect")}>{t("Drive 연결 해제")}</button>
+          <p role="status">{t(driveMessage)}</p>
+        </section>
+        <details><summary>{t("Google Drive 폴더 읽기 · 선택 연결")}</summary><p>{t("고급 연결용 일회성 인증값입니다. 일반 사용자는 공개 폴더 주소 또는 위의 Drive 읽기 연결을 사용하세요. 운영자 설정이 없으면 내려받은 폴더를 선택할 수 있습니다. 아래 값은 설정·전략·AI 요청에 저장하지 않습니다.")}</p><label>Drive API key<input type="password" autoComplete="off" value={driveApiKey} onChange={e=>setDriveApiKey(e.target.value)} /></label><label>Drive access token<input type="password" autoComplete="off" value={driveAccessToken} onChange={e=>setDriveAccessToken(e.target.value)} /></label><small>{t("하위 폴더 5단계, 자료 40개, 개별 24MiB·전체 64MiB. 접근 불가·미지원·축약 자료는 누락 근거로 표시되며 자동 승인하지 않습니다.")}</small></details>
         <div className="legacy-source-title"><h3>{t("1. 전략 소스 입력")}</h3><div className="legacy-source-title-actions"><button className="secondary-button" type="button" disabled={busy} onClick={resetDraft}>{t("새로 시작 · 입력 초기화")}</button><select value={sourceKind} onChange={(event) => { setSourceKind(event.target.value); setSourceFile(null); setSourceReference(""); setSourceAnalysis(null); setConfirmedSupplement(""); setClarificationAnswers({}); }}><option value="auto">{t("자동 판별")}</option><option value="text">{t("텍스트/메모")}</option><option value="pine">Pine Script</option><option value="pdf">{t("PDF 문서")}</option><option value="image">{t("차트 이미지/OCR")}</option><option value="video">{t("로컬 영상")}</option><option value="youtube">{t("YouTube 링크")}</option><option value="tradingview">{t("TradingView 링크")}</option></select></div></div>
         {versionTarget && <label className="strategy-version-confirm"><input type="checkbox" checked={userDeclaredOverride} onChange={(event) => setUserDeclaredOverride(event.target.checked)} />{t("기존 규칙에서 변경한 실행값을 확인했습니다. 새 버전으로 저장하며 승인·검증·적용은 다시 진행합니다.")}</label>}
         {versionTarget && <button className="primary-button" type="button" disabled={busy || !userDeclaredOverride} onClick={() => void createStrategy()}>{t("변경값 재검증 후 다음 버전 저장")}</button>}
@@ -1396,6 +1473,9 @@ export function StrategyStudio({ client, service, source = "", onAskAssistant, o
           {featureViewLevel >= 3 && <label>{t("국면 기준")}<select value={regimeScope} onChange={(event) => setRegimeScope(event.target.value)}><option value="market">{t("전체 시장 기준 (권장)")}</option><option value="symbol">{t("종목별 기준")}</option><option value="both">{t("전체 시장+종목 모두")}</option></select></label>}
           {(featureViewLevel >= 3 || !!versionTarget) && <label>{t("우선순위")}<select value={priority} onChange={(event) => setPriority(event.target.value)}>{[10, 9, 8, 7, 6, 5, 4, 3, 2, 1].map((value) => <option key={value}>{value}</option>)}</select></label>}
         </div>
+        <label><input type="checkbox" checked={userDeclaredOverride} onChange={(event) => setUserDeclaredOverride(event.target.checked)} />{t("원문 분석값 대신 직접 변경한 운용값을 새 버전에 사용")}</label>
+        {compiledControlsLocked && <small>{t("원문 분석값을 그대로 저장합니다. 위험·역할·시장조건을 직접 바꾸려면 위 확인란을 선택하세요.")}</small>}
+        <fieldset disabled={compiledControlsLocked} style={{border:0,padding:0,minWidth:0}}>
         <fieldset className="legacy-market-regime-picker"><legend>{t("이 전략이 사용할 시장상황")}</legend><div>{MARKET_REGIME_OPTIONS.map((option) => <button key={option.value} type="button" className={marketRegimes.includes(option.value) ? "selected" : ""} aria-pressed={marketRegimes.includes(option.value)} onClick={() => toggleMarketRegime(option.value)}>{t(option.label)}</button>)}</div><small>{t("여러 국면을 직접 고를 수 있습니다. 잘 모르겠으면 첫 번째 권장값을 유지하세요. 소스 분석은 원문에 명시된 국면만 자동 선택합니다.")}</small></fieldset>
         <div className="legacy-signal-controls">
           <label>{t("전략 역할")}<select value={signalMode} onChange={(event) => { const next = event.target.value; setSignalMode(next); if (next === "independent") setExitPolicyMode("strategy_owned"); }}><option value="confirm">{t("기본 AI 후보 확인 (권장)")}</option><option value="independent" disabled={featureViewLevel < 3}>{t("내 전략이 진입 신호 생성 (고급)")}</option></select></label>
@@ -1412,12 +1492,13 @@ export function StrategyStudio({ client, service, source = "", onAskAssistant, o
           <label>{t("국면 이탈 시")}<select value={conflictFallback} onChange={(event) => { setConflictFallback(event.target.value); setRiskPolicyPreset("custom"); }}><option value={"기본 노아AI에 맡김"}>{t("기본 노아AI에 맡김")}</option><option value={"커스텀 신규 진입 일시정지"}>{t("커스텀 신규 진입 일시정지")}</option></select></label>
         </div> : <div className="inline-notice">{t("위험 운용값은 표준형으로 저장됩니다. 직접 조정은 Level 4 전문가 화면에서만 가능하며, 어떤 값도 계좌 마스터 상한이나 하드 가드레일을 높이지 못합니다.")}</div>}
         <small className="legacy-leverage-note">{service === "stock" ? "주식/ETF는 증권사 현물 주문만 사용하며 레버리지는 1배로 고정됩니다. 매도 신호는 보유 수량을 넘지 않습니다." : t("실제 레버리지는 위험예산÷손절거리로 계산되며 상한을 넘지 않습니다.")}</small>
+        </fieldset>
         </>}
         <div className="legacy-analysis-row"><small>{authoringMode === "noah_delegate" ? "기본 NoahAI 위임은 커스텀 전략을 저장하지 않습니다." : t("범위가 넓어도 거래소·증권사 데이터와 전략 성과는 서로 분리 기록됩니다.")}</small><button className="primary-button legacy-analysis-button" disabled={busy || authoringMode === "noah_delegate" || (!sourceFile && !sourceReferenceInput.trim() && !sourceValue.trim())} onClick={() => void analyzeSource()} type="button">{busy ? "추출·분석 중…" : authoringMode === "guided_clarification" ? "분석하고 보완 질문 받기" : t("AI 분석 및 전략 초안 만들기")}</button></div>
       </section>
     </article>
     <article className="panel studio-editor legacy-strategy-result-card">
-      <div className="panel-heading legacy-xai-heading"><div className="legacy-xai-title-group"><h3>{t("2. XAI 분석 결과와 적용값")}</h3><select value={resultView} onChange={(event) => setResultView(event.target.value)}><option value={"Level 1 이해·시험"}>{t("Level 1 이해·시험")}</option><option disabled={featureViewLevel < 2} value={"Level 2 핵심값"}>{t("Level 2 핵심값")}</option><option disabled={featureViewLevel < 3} value="Level 3 전체 근거">{t("Level 3 전체 IR")}</option><option disabled={featureViewLevel < 4} value="Level 4 전문가 운용">{t("Level 4 전문가 운용")}</option></select><small>{featureViewLevel < 3 ? t("Level 3은 설정에서 고급을 선택하면 열립니다.") : featureViewLevel < 4 ? "Level 4는 실험실에서 열리며 가드레일 해제 권한은 없습니다." : "Level 4 전문가 운용 정책을 사용할 수 있습니다."}</small></div><div className="legacy-xai-actions"><button type="button" disabled={!onAskAssistant} onClick={() => onAskAssistant?.(analysisAssistantPrompt)}>{t("이 결과 AI에게 묻기")}</button><span>{sourceAnalysis ? "분석 완료" : t("분석 전")}</span></div></div>
+      <div className="panel-heading legacy-xai-heading"><div className="legacy-xai-title-group"><h3>{t("2. XAI 분석 결과와 적용값")}</h3><select value={resultView} onChange={(event) => setResultView(event.target.value)}><option value={"Level 1 이해·시험"}>{t("Level 1 이해·시험")}</option><option disabled={featureViewLevel < 2} value={"Level 2 핵심값"}>{t("Level 2 핵심값")}</option><option disabled={featureViewLevel < 3} value="Level 3 전체 근거">{t("Level 3 전체 IR")}</option><option disabled={featureViewLevel < 4} value="Level 4 전문가 운용">{t("Level 4 전문가 운용")}</option><option disabled={featureViewLevel < 5} value="Level 5 연구실">{t("Level 5 연구실")}</option></select><small>{featureViewLevel < 3 ? t("Level 3은 설정에서 고급을 선택하면 열립니다.") : featureViewLevel < 4 ? "Level 4는 실험실에서 열리며 가드레일 해제 권한은 없습니다." : "Level 4 운용 정책을 사용할 수 있으며, 연구실에서는 Level 5 근거 비교가 추가됩니다."}</small></div><div className="legacy-xai-actions"><button type="button" disabled={!onAskAssistant} onClick={() => onAskAssistant?.(analysisAssistantPrompt)}>{t("이 결과 AI에게 묻기")}</button><span>{sourceAnalysis ? "분석 완료" : t("분석 전")}</span></div></div>
       <div className="legacy-xai-result">{sourceAnalysis ? <><strong>{String(sourceAnalysis.summary ?? "원본 분석 완료")}</strong><p>{t("원본 분석 기준 · 자료 읽기 ")}{String(sourceDetails.coverage_summary || "범위 확인 필요")}{t(" → 문서/IR ")}{sourceAnalysis.ready_for_review ? t("완료") : "보완 필요"}{t(" → 실행 규칙 ")}{analysisReady ? t("완료") : "보완 필요"} → PAPER {analysisReady ? "승인 후 후보" : "시작 불가"}</p><p>{t("누락 조건 ")}{missingConditions.length}{t("개 · ")}{sourceAnalysis.provider_called ? "외부 AI 정밀 분석" : "로컬 규칙 기반 1차 추출"}{t(" · 편집한 최종값은 저장 직전에 서버에서 다시 검증")}</p></> : <p>{t("원본을 분석하면 출처 근거, 명시된 조건, 누락 조건, 위험, 엔진 설정값이 표시됩니다.")}</p>}</div>
       {sourceAnalysis && !analysisReady && authoringMode !== "guided_clarification" && <div className="strategy-authoring-next"><div><b>{t("무엇을 써야 할지 모르겠나요?")}</b><span>{t("현재 분석 결과는 그대로 두고, 빠진 조건만 한 항목씩 질문받을 수 있습니다.")}</span></div><button type="button" onClick={() => { setAuthoringMode("guided_clarification"); setMessage("현재 분석에서 빠진 조건을 질문 카드로 열었습니다. 자신의 전략 기준만 답해 주세요."); }}>{t("빠진 조건을 질문으로 완성")}</button></div>}
       {sourceSummary && <div className="inline-notice">{sourceSummary}</div>}
@@ -1443,13 +1524,13 @@ export function StrategyStudio({ client, service, source = "", onAskAssistant, o
           <section className="legacy-xai-card"><h4>{t("엔진 적용값")}</h4><pre>{JSON.stringify(sourceAnalysis.engine_settings ?? analysisRules.engine_settings ?? {}, null, 2)}</pre></section>
           <section className="legacy-xai-card"><h4>{t("시장국면과 시험 시나리오")}</h4><p>{regimeSuggestionText}</p>{analysisScenarios.length > 0 ? <ul>{analysisScenarios.map((item: unknown, index: number) => <li key={index}>{readableDetail(item)}</li>)}</ul> : <p>{t("별도로 추출된 시험 시나리오가 없습니다.")}</p>}</section>
         </>}
-        {(resultView === "Level 3 전체 근거" || resultView === "Level 4 전문가 운용") && <>
+        {(["Level 3 전체 근거", "Level 4 전문가 운용", "Level 5 연구실"].includes(resultView)) && <>
           <section className="legacy-xai-card legacy-xai-wide"><h4>{t("원문-규칙 추적")}</h4><pre>{JSON.stringify(sourceTrace, null, 2)}</pre></section>
           <section className="legacy-xai-card legacy-xai-wide"><h4>{t("Noah Strategy IR 전체")}</h4><pre>{JSON.stringify(sourceAnalysis.strategy_ir ?? {}, null, 2)}</pre></section>
         </>}
       </div>}
-      {resultView === "Level 4 전문가 운용" && <section className="legacy-advanced-rule-editor"><header><div><b>{t("Level 4 전문가 운용 정책")}</b><small>{t("전략이 요청하는 범위를 정합니다. 최종값은 계좌 마스터 상한·시장·성과·거래소 규격 중 가장 안전한 값으로 다시 제한됩니다.")}</small></div></header><div className="form-grid legacy-strategy-identity"><label>{t("운용 정책")}<select value={riskPolicyPreset} onChange={(event) => { const key = event.target.value as keyof typeof RISK_POLICY_PRESETS; const preset = RISK_POLICY_PRESETS[key]; setRiskPolicyPreset(key); setRiskPerTrade(preset.riskPerTrade); setMaxMargin(preset.maxMargin); setLeverageCap(preset.leverageCap); setMaxConcurrentPositions(preset.maxPositions); setConflictFallback(preset.conflictFallback); }}><option value="conservative">{t("안정형")}</option><option value="standard">{t("표준형")}</option><option value="active">{t("적극형")}</option><option value="custom" disabled>{t("사용자 조정값")}</option></select></label><div><b>{t("전략 요청값")}</b><p>{t("거래당 ")}{riskPerTrade}% · {service === "stock" ? "종목 비중" : "증거금"} {maxMargin}{t("% · 레버리지 최대 ")}{service === "stock" ? "1" : leverageCap}{t("x · 동시 ")}{maxConcurrentPositions}{t("개")}</p></div><div><b>{t("현재 계좌 정책 상한")}</b><p>{t("거래당 ")}{accountRiskPolicy.riskPerTrade}% · {service === "stock" ? "종목 비중" : "증거금"} {accountRiskPolicy.maxMargin}{t("% · 기준 레버리지 ")}{service === "stock" ? "1" : accountRiskPolicy.defaultLeverage}{t("x · 동시 ")}{accountRiskPolicy.maxPositions}{t("개")}</p></div><div><b>{t("시장·성과 적용 전 허용값")}</b><p>{t("거래당 ")}{Math.min(Number(riskPerTrade) || 0, accountRiskPolicy.riskPerTrade)}% · {service === "stock" ? "종목 비중" : "증거금"} {Math.min(Number(maxMargin) || 0, accountRiskPolicy.maxMargin)}{t("% · 레버리지 최대 ")}{service === "stock" ? "1" : Math.min(Number(leverageCap) || 1, accountRiskPolicy.defaultLeverage)}{t("x · 동시 ")}{Math.min(Number(maxConcurrentPositions) || 1, accountRiskPolicy.maxPositions)}{t("개")}</p></div></div><p className="legacy-adapter-help">{t("현재 계좌 계산 방식: ")}{accountRiskPolicy.mode === "account_risk" ? t("NoahAI 자동 위험관리") : accountRiskPolicy.mode === "manual_notional" ? "수동 목표 거래 금액" : "기존 거래소별 호환"}{t(". 위 허용값도 시장·성과 제한과 거래소 규격이 더 낮으면 다시 축소되며, 주문 직전 XAI의 최종 Notional·예상손실·증거금·수량이 정본입니다. 계좌가 「수동 목표 거래 금액」이면 Notional은 고정되고, 「기존 거래소별 호환」이면 업데이트 전 수량 의미를 보존합니다. 전략 요청 위험이 최종 투자금에 반영되는 기본 모드는 「NoahAI 자동 위험관리」입니다. Level 5나 가드레일 해제 단계는 없습니다. 조절 불가: 사용자 승인·LIVE 명시 허용·일일 손실 중단·주문 최소금액/정밀도·TP/SL 보호·중복 주문 방지·포지션 대조·긴급 중지.")}</p></section>}
-      {(resultView === "Level 3 전체 근거" || resultView === "Level 4 전문가 운용") && <section className="legacy-advanced-rule-editor"><header><div><b>{t("고급 실행 규칙 편집")}</b><small>{t("기관 이름과 상품 유형을 분리하며, 선택 범위 밖 기관에서는 실행 후보가 되지 않습니다.")}</small></div></header><div className="form-grid legacy-strategy-identity"><label>{t("전략 버전 이름")}<input value={name} maxLength={160} onChange={(event) => setName(event.target.value)} /></label><div>{t("적용 실행 범위")}<fieldset className="venue-checkbox-picker"><legend>{t("거래소·증권사 복수 선택")}</legend><label><input type="checkbox" checked={executionTarget === allCompatibleTarget} onChange={(event) => { if (event.target.checked) changeExecutionTarget(allCompatibleTarget); }} />{t("호환되는 모든 기관")}</label>{compatibleVenueProfiles.map((profile) => {
+      {["Level 4 전문가 운용", "Level 5 연구실"].includes(resultView) && <section className="legacy-advanced-rule-editor"><header><div><b>{t("Level 4 전문가 운용 정책")}</b><small>{t("전략이 요청하는 범위를 정합니다. 최종값은 계좌 마스터 상한·시장·성과·거래소 규격 중 가장 안전한 값으로 다시 제한됩니다.")}</small></div></header><div className="form-grid legacy-strategy-identity"><label>{t("운용 정책")}<select value={riskPolicyPreset} onChange={(event) => { const key = event.target.value as keyof typeof RISK_POLICY_PRESETS; const preset = RISK_POLICY_PRESETS[key]; setRiskPolicyPreset(key); setRiskPerTrade(preset.riskPerTrade); setMaxMargin(preset.maxMargin); setLeverageCap(preset.leverageCap); setMaxConcurrentPositions(preset.maxPositions); setConflictFallback(preset.conflictFallback); }}><option value="conservative">{t("안정형")}</option><option value="standard">{t("표준형")}</option><option value="active">{t("적극형")}</option><option value="custom" disabled>{t("사용자 조정값")}</option></select></label><div><b>{t("전략 요청값")}</b><p>{t("거래당 ")}{riskPerTrade}% · {service === "stock" ? "종목 비중" : "증거금"} {maxMargin}{t("% · 레버리지 최대 ")}{service === "stock" ? "1" : leverageCap}{t("x · 동시 ")}{maxConcurrentPositions}{t("개")}</p></div><div><b>{t("현재 계좌 정책 상한")}</b><p>{t("거래당 ")}{accountRiskPolicy.riskPerTrade}% · {service === "stock" ? "종목 비중" : "증거금"} {accountRiskPolicy.maxMargin}{t("% · 기준 레버리지 ")}{service === "stock" ? "1" : accountRiskPolicy.defaultLeverage}{t("x · 동시 ")}{accountRiskPolicy.maxPositions}{t("개")}</p></div><div><b>{t("시장·성과 적용 전 허용값")}</b><p>{t("거래당 ")}{Math.min(Number(riskPerTrade) || 0, accountRiskPolicy.riskPerTrade)}% · {service === "stock" ? "종목 비중" : "증거금"} {Math.min(Number(maxMargin) || 0, accountRiskPolicy.maxMargin)}{t("% · 레버리지 최대 ")}{service === "stock" ? "1" : Math.min(Number(leverageCap) || 1, accountRiskPolicy.defaultLeverage)}{t("x · 동시 ")}{Math.min(Number(maxConcurrentPositions) || 1, accountRiskPolicy.maxPositions)}{t("개")}</p></div></div><p className="legacy-adapter-help">{t("현재 계좌 계산 방식: ")}{accountRiskPolicy.mode === "account_risk" ? t("NoahAI 자동 위험관리") : accountRiskPolicy.mode === "manual_notional" ? "수동 목표 거래 금액" : "기존 거래소별 호환"}{t(". 위 허용값도 시장·성과 제한과 거래소 규격이 더 낮으면 다시 축소되며, 주문 직전 XAI의 최종 Notional·예상손실·증거금·수량이 정본입니다. 계좌가 「수동 목표 거래 금액」이면 Notional은 고정되고, 「기존 거래소별 호환」이면 업데이트 전 수량 의미를 보존합니다. 전략 요청 위험이 최종 투자금에 반영되는 기본 모드는 「NoahAI 자동 위험관리」입니다. Level 5도 가드레일 해제 단계가 아닙니다. 조절 불가: 사용자 승인·LIVE 명시 허용·일일 손실 중단·주문 최소금액/정밀도·TP/SL 보호·중복 주문 방지·포지션 대조·긴급 중지.")}</p></section>}
+      {(["Level 3 전체 근거", "Level 4 전문가 운용", "Level 5 연구실"].includes(resultView)) && <section className="legacy-advanced-rule-editor"><header><div><b>{t("고급 실행 규칙 편집")}</b><small>{t("기관 이름과 상품 유형을 분리하며, 선택 범위 밖 기관에서는 실행 후보가 되지 않습니다.")}</small></div></header><div className="form-grid legacy-strategy-identity"><label>{t("전략 버전 이름")}<input value={name} maxLength={160} onChange={(event) => setName(event.target.value)} /></label><div>{t("적용 실행 범위")}<fieldset className="venue-checkbox-picker"><legend>{t("거래소·증권사 복수 선택")}</legend><label><input type="checkbox" checked={executionTarget === allCompatibleTarget} onChange={(event) => { if (event.target.checked) changeExecutionTarget(allCompatibleTarget); }} />{t("호환되는 모든 기관")}</label>{compatibleVenueProfiles.map((profile) => {
             const prefix = service === "stock" ? "broker" : "exchange";
             const selected = executionTarget.startsWith(prefix + ":") ? executionTarget.split(":")[1].split(",") : [];
             return <label key={profile.id}><input type="checkbox" checked={selected.includes(profile.client_id)} onChange={(event) => {
@@ -1458,21 +1539,50 @@ export function StrategyStudio({ client, service, source = "", onAskAssistant, o
               changeExecutionTarget(prefix + ":" + [...new Set(next)].sort().join(","));
             }} />{profile.display_name} · {profile.quote_currency}</label>;
           })}</fieldset></div></div><p className="legacy-adapter-help">{service === "stock" ? "전체 증권사 범위도 각 증권사의 주문 단위·거래시간·수수료·세금·성과를 따로 검증합니다. 특정 증권사를 선택하면 다른 증권사에서는 실행 후보가 되지 않습니다." : "전체 거래소 범위는 현물·선물 의미를 섞는다는 뜻이 아닙니다. 각 거래소의 SHORT·레버리지·계약수·최소주문·비용 능력을 통과한 경우에만 실행하고 성과는 기관·통화별로 분리합니다."}</p><label>{t("안전 선언형 규칙 JSON")}<textarea className="rule-editor" value={rulesText} spellCheck={false} onChange={(event) => { setRulesText(event.target.value); setUserDeclaredOverride(false); setDraftValidationIssues([]); }} /></label><label className={`legacy-rule-override-confirm ${userDeclaredOverride ? "checked" : ""}`}><input type="checkbox" checked={userDeclaredOverride} aria-describedby="legacy-rule-override-help" onChange={(event) => { setUserDeclaredOverride(event.target.checked); setDraftValidationIssues([]); }} /><span className="legacy-rule-override-copy"><strong>{t("직접 편집한 JSON을 사용자 선언 규칙으로 저장")}</strong><small>{t("위 JSON을 직접 수정한 경우에만 체크합니다. 원문 자동 변환 결과를 그대로 저장할 때는 체크할 필요가 없습니다.")}</small></span><b className="legacy-rule-override-state">{userDeclaredOverride ? "사용자 선언 확인됨" : "원문 자동 변환 유지"}</b></label><p id="legacy-rule-override-help" className="legacy-rule-override-help">{t("체크하지 않으면 원문과 실행값이 달라진 편집본은 저장 직전 차단됩니다. 체크해도 검증을 우회하지 않으며, 서버가 허용 필드·단위·위험·실행조건을 다시 검사하고 새 사용자 선언 해시를 기록합니다. 승인·과거 재생·PAPER·LIVE 적용은 여전히 각각 별도입니다.")}</p><p>{t("이 JSON은 AI 모델이나 별도 수익 엔진이 아니라, 허용된 지표·조건·위험 한도만 주문 계층에 전달하는 안전 규칙입니다. 임의 Python 실행, 파일·네트워크 접근, 출금 명령은 허용하지 않습니다.")}</p></section>}
-      <div className="legacy-result-save-row"><small>{saveDisabledReason || "현재 편집값을 공통 주문 계약으로 다시 검증한 뒤 비활성 버전으로 저장합니다."}</small><button className="primary-button" title={saveDisabledReason || "최종 규칙 재검증 후 비활성 전략 버전으로 저장"} disabled={Boolean(saveDisabledReason)} onClick={createStrategy} type="button">{t("최종 재검증 후 전략 버전 저장")}</button></div>
+      <div className="legacy-result-save-row"><small>{saveDisabledReason || "현재 편집값을 공통 주문 계약으로 다시 검증한 뒤 비활성 버전으로 저장합니다."}</small><button className="primary-button" title={saveDisabledReason || "최종 규칙 재검증 후 비활성 전략 버전으로 저장"} disabled={Boolean(saveDisabledReason)} onClick={() => void createStrategy()} type="button">{t("최종 재검증 후 전략 버전 저장")}</button></div>
       {draftValidationIssues.length > 0 && <section className="strategy-draft-validation-help" role="alert" aria-live="assertive"><header><div><strong>{t("저장 전에 확인할 항목 ")}{draftValidationIssues.length}{t("개")}</strong><span>{t("조건을 추측해서 실행하지 않도록 저장을 멈췄습니다. 원문을 보완한 뒤 다시 분석하는 방법이 가장 안전합니다.")}</span></div>{onAskAssistant && <button type="button" onClick={() => onAskAssistant(`전략 스튜디오 최종 재검증에서 다음 항목이 차단됐어. 초보자가 원문을 어떻게 고치면 되는지 순서와 예시로 설명해줘: ${draftValidationIssues.map((item) => `${item.title} (${item.code})`).join(", ")}`)}>{t("이 문제 AI에게 묻기")}</button>}</header><ol>{draftValidationIssues.map((item, index) => <li key={`${item.code}:${index}`}><div><b>{index + 1}. {item.title || "추가 확인 필요"}</b><p>{item.explanation || "원문과 실행 규칙을 다시 확인하세요."}</p><strong>{t("고치는 방법")}</strong><p>{item.action || "원문 조건을 구체적으로 작성한 뒤 다시 분석하세요."}</p>{item.example && <small>{t("입력 예시: ")}{item.example}</small>}<details><summary>{t("기술 코드 보기")}</summary><code>{item.code}</code></details></div></li>)}</ol><footer>{t("권장 순서: 원문 수정 → 「AI 분석 및 전략 초안 만들기」 → XAI 누락 조건 확인 → 「최종 재검증 후 전략 버전 저장」")}</footer></section>}
     </article>
     <article className="panel studio-panel">
       <div className="panel-heading"><div><span className="eyebrow">NOAH STRATEGY IR · PRIVATE</span><h2>{t("3. 내 프라이빗 전략 버전")}</h2></div><div className="toolbar"><span className="active-pool-count">{t("실행 풀 ")}{catalog?.strategies.filter((strategy) => strategy.versions.some((version) => version.active)).length ?? 0}/10</span>{featureViewLevel >= 2 && <label className="package-import">{t("전략 가져오기")}<input type="file" accept=".noahstrategy,application/json" onChange={(event) => { void importPackage(event.target.files?.[0] ?? null); event.currentTarget.value = ""; }} /></label>}<a className="secondary-button strategy-submit-link" href={STRATEGY_HUB_LIBRARY_URL} target="_blank" rel="noreferrer">{t("내 전략 라이선스")}</a><a className="secondary-button strategy-submit-link" href={STRATEGY_HUB_SUBMIT_URL} target="_blank" rel="noreferrer">{t("내 전략 제출")}</a><button className="secondary-button" onClick={refresh} type="button">{t("새로고침")}</button></div></div>
       <details className="strategy-import-help"><summary>{t("허브 제출·다운로드·외부 검증 기록 안내")}</summary><p>{t("「전략 둘러보기」는 공개 전략과 검증 여권을 보는 화면입니다. 「내 전략 라이선스」는 daltrading 회원 전용이며 브라우저에 로그인되어 있지 않으면 로그인한 뒤 자동으로 라이선스 화면으로 돌아옵니다. NoahAI 앱 로그인과 브라우저 로그인은 서로 다른 세션입니다. 내 전략 제출은 자동 업로드가 아닙니다. 공개할 버전의 「패키지 내보내기」로 파일을 받은 뒤 「내 전략 제출」에서 로그인하고 권리·공개 설명을 확인해 직접 제출합니다. daltrading 제출 화면의 거래소·증권사와 시장국면은 직접 입력이 아니라 체크박스로 선택합니다. 검증 실패 시 작성 내용과 선택값은 보존되고 브라우저 보안상 전략 파일만 다시 선택합니다. 허브 전략의 첫 무료 다운로드는 daltrading 계정에 취득 기록과 해당 버전의 영구·비독점 실행 라이선스를 발급하며 「내 전략 라이선스」에서 다시 받을 수 있습니다. 가져올 때만 운영체제 파일 선택창에서 .noahstrategy 파일을 찾습니다. 검증이 끝나면 현재 NoahAI 계정의 기본 전략 저장소(Documents/NoahAI/<계정>/custom_strategies)에 비활성 검토 버전으로 복사되므로 다음부터 파일을 다시 찾을 필요가 없습니다. 허브에서 받은 파일도 자동 적용되지 않으며 사용자 승인·과거 재생·PAPER를 다시 거칩니다.")}</p></details>
       {message && <div className="inline-notice">{message}</div>}
+      <button className="secondary-button" type="button" disabled={busy} onClick={() => void createStrategy(true)}>{t("미완성 초안 보관 · 실행 안 함")}</button>
+      <details className="strategy-import-help strategy-replay-options" data-testid="replay-options"><summary>{t("백테스트 기간·종목·보유 가정 선택")}</summary>
+        <p>{t("모든 Level에서 선택할 수 있습니다. 빈 날짜는 최근 시세, 지정 날짜는 UTC 시작 포함·종료 제외입니다. 워밍업 포함 최대 5,000봉이며 실제 확보 기간을 결과에 표시합니다. 증권사는 공급 가능한 일봉 범위만 지원합니다. 시간봉은 저장 전략의 실행 시간봉을 따릅니다.")}</p>
+        <div className="form-grid">
+          <label>{t("검사 종목")}<input aria-label="검사 종목" value={replaySymbol} maxLength={24} placeholder={service === "stock" ? "005930" : "BTCUSDT / BTCKRW"} onChange={e => setReplaySymbol(e.target.value)} /></label>
+          <label>{t("시작 UTC")}<input aria-label="시작 UTC" type="datetime-local" value={replayStart} onChange={e => setReplayStart(e.target.value)} /></label>
+          <label>{t("종료 UTC · 제외")}<input aria-label="종료 UTC · 제외" type="datetime-local" value={replayEnd} onChange={e => setReplayEnd(e.target.value)} /></label>
+          <label>{t("최대 보유 봉 수 · 검사 가정")}<input aria-label="최대 보유 봉 수 · 검사 가정" type="number" min={1} max={500} value={replayHolding} onChange={e => setReplayHolding(e.target.value)} /></label>
+        </div><p>{t("검사 가정 변경은 저장 전략의 청산 규칙이나 LIVE 운용값을 변경하지 않습니다. 보유 상한에 도달하면 해당 봉 종가로 모의 청산합니다.")}</p>
+      </details>
       <div className="strategy-list">
+        {catalog?.strategies.some((strategy) => strategy.versions.some((version) => (version.execution_readiness ?? version.paper_execution_readiness)?.ready === false)) && <aside className="inline-notice" role="status" data-testid="strategy-compatibility-help">
+          <strong>{t("기존 전략을 삭제하거나 처음부터 다시 만들지 마세요.")}</strong>
+          <label className="strategy-compatibility-select">{t("보완할 기존 버전 선택")}
+            <select value="" disabled={busy} onChange={(event) => {
+              const match = catalog.strategies.flatMap(group => group.versions.map(version => ({group, version})))
+                .find(({group, version}) => `${group.scope}:${version.version_id}` === event.target.value);
+              if (match) loadVersionDraft(match.group.strategy_key, match.version, match.group.scope);
+            }}>
+              <option value="">{t("전략을 선택하면 원문을 불러와 같은 전략의 새 버전으로 보완합니다")}</option>
+              {catalog.strategies.flatMap(group => group.versions.filter(version =>
+                (version.execution_readiness ?? version.paper_execution_readiness)?.ready === false
+              ).map(version => <option key={`${group.scope}:${version.version_id}`} value={`${group.scope}:${version.version_id}`}>
+                {version.name} · v{version.version} · {group.scope.toUpperCase()}{version.active ? " · 적용 중" : ""}
+              </option>))}
+            </select>
+          </label>
+          <p>{t("실행 조건 보완이 필요한 버전은 아래 「원문·규칙 보완하기」에서 기존 내용을 불러옵니다. 원문 확인 → 부족한 조건 답변 → 재분석 → 새 버전 저장 순서로 진행하세요. 기존 버전과 성과는 보존됩니다.")}</p>
+          <p>{t("엔진 미지원 조건은 같은 내용으로 반복 생성해도 해결되지 않습니다. 표시된 조건을 확인하고 지원 보강을 기다려야 하며, 조건을 빼거나 기본 AI 진입으로 바꾸는 것은 원래 전략의 복원이 아닙니다.")}</p>
+        </aside>}
         {!busy && !catalog?.strategies.length && <div className="empty-state"><strong>{t("저장된 프라이빗 전략이 없습니다.")}</strong><span>{t("위 입력 영역에서 원본 분석 → XAI 검토 → 버전 저장 순서로 만들 수 있습니다.")}</span><button className="primary-button" type="button" onClick={openGuidedTour}>{t("처음 사용 · 5분 따라 만들기")}</button></div>}
         {catalog?.strategies.map((strategy) => <article className="strategy-card" key={`${strategy.scope}:${strategy.strategy_key}`}>
           <header><div><span>{strategy.scope.toUpperCase()}</span><strong>{strategy.versions.at(-1)?.name ?? strategy.strategy_key}</strong><small>{strategy.strategy_key}</small></div><button className="danger-button" disabled={busy || strategy.versions.some((version) => version.active || version.paper_observing)} onClick={() => remove(strategy.scope, strategy.strategy_key)} type="button">{t("전략 전체 삭제")}</button></header>
-          <div className="version-list">{[...strategy.versions].reverse().map((version) => { const label = actionLabel(version); const replayApplicable = historicalReplayApplicable(version); const validationAction = !version.active && replayApplicable && ["approved", "execution_rejected"].includes(version.status); const directPaperAction = !version.active && !replayApplicable && ["approved", "execution_rejected"].includes(version.status); const action = validationAction ? "validate" : directPaperAction ? "start_paper" : version.active ? "deactivate" : (version.paper_observing || version.status === "paper_observing") ? "stop_paper" : version.status === "paper_paused" ? "start_paper" : version.status === "analyzed" ? "approve" : version.status === "execution_validated" && version.execution_validation?.mode === "historical_replay" ? "start_paper" : "activate"; const readiness = version.execution_readiness ?? version.paper_execution_readiness; const paperReady = readiness?.ready !== false; const canStartPaperDirectly = replayApplicable && paperReady && !version.active && !version.paper_observing && ["approved", "execution_rejected", "paper_rejected"].includes(version.status); const paperMetrics = version.paper_validation?.metrics ?? {}; const paperCompletion = String(version.paper_validation?.completion_status ?? (version.paper_validation?.passed ? "passed" : "in_progress")); const paperProgress = version.paper_progress ?? { trades: Number(version.paper_validation?.trades ?? 0), observation_days: Number(paperMetrics.observation_days ?? 0), required_trades: 3, required_days: 7 }; const attemptHistory = version.paper_validation_attempt_history ?? []; const legacyValidationHistory = version.paper_validation_history ?? []; const preservedHistory = attemptHistory.length ? attemptHistory : legacyValidationHistory.map((paper_validation) => ({ paper_validation, reason: "v3.9.1.22 이전 보존 근거" })); return <div className="version-row" key={version.version_id}>
+          <div className="version-list">{[...strategy.versions].reverse().map((version) => { const label = actionLabel(version); const replayApplicable = historicalReplayApplicable(version); const directPaperAction = !version.active && ["approved", "execution_rejected", "paper_rejected"].includes(version.status); const action = directPaperAction ? "start_paper" : version.active ? "deactivate" : (version.paper_observing || version.status === "paper_observing") ? "stop_paper" : version.status === "paper_paused" ? "start_paper" : version.status === "analyzed" ? "approve" : version.status === "execution_validated" && version.execution_validation?.mode === "historical_replay" ? "start_paper" : "activate"; const readiness = version.execution_readiness ?? version.paper_execution_readiness; const paperReady = readiness?.ready !== false; const canRunHistoricalReplay = replayApplicable && paperReady && !version.active && !version.paper_observing && ["approved", "execution_rejected", "execution_validated"].includes(version.status); const paperMetrics = version.paper_validation?.metrics ?? {}; const paperCompletion = String(version.paper_validation?.completion_status ?? (version.paper_validation?.passed ? "passed" : "in_progress")); const paperProgress = version.paper_progress ?? { trades: Number(version.paper_validation?.trades ?? 0), observation_days: Number(paperMetrics.observation_days ?? 0), required_trades: 3, required_days: 7 }; const attemptHistory = version.paper_validation_attempt_history ?? []; const legacyValidationHistory = version.paper_validation_history ?? []; const preservedHistory = attemptHistory.length ? attemptHistory : legacyValidationHistory.map((paper_validation) => ({ paper_validation, reason: "v3.9.1.22 이전 보존 근거" })); return <div className="version-row" key={version.version_id}>
             <div><b>v{version.version}</b><span className={`state-pill ${version.active ? "active" : ""}`}>{strategyStatusLabel(version)}</span><small className="strategy-version-created">{strategyVersionTime((version as any).created_at)}</small></div>
-            <div className="version-summary"><strong>{version.xai?.summary ?? "XAI 설명 준비 중"}</strong><span>{version.source_kind ?? "manual"} · {version.source_reference ?? "원본 직접 입력"} · {version.missing_conditions.length ? `확인 필요 ${version.missing_conditions.length}개` : "문서/IR 확인 완료"}{t(" · 실행 규칙 ")}{paperReady ? t("완료") : "보완 필요"}</span><small>{!paperReady ? `승인·PAPER·적용 차단 · ${(readiness?.reasons ?? []).map(readinessReason).join(" ")} ${version.active ? "현재 활성 버전에도 실행 조건 보완이 필요합니다. 누락 조건을 확인하고 새 버전을 검증하세요." : "이 보관 버전은 기본 NoahAI 거래를 차단하지 않습니다."}` : version.active ? `최종 적용됨 · 앱 PAPER에서는 가상 실행, LIVE에서는 승인 범위 실행${version.paper_validation ? ` · PAPER ${Number(version.paper_validation.trades ?? 0)}건` : ""}` : version.paper_observing || version.status === "paper_observing" ? `PAPER 검증 중 · ${Number(paperProgress.trades ?? 0)}/${Number(paperProgress.required_trades ?? 3)}건 · 활성 검증 ${Number(paperProgress.observation_days ?? 0).toFixed(1)}/${Number(paperProgress.required_days ?? 7)}일` : version.status === "paper_paused" ? `PAPER 일시정지 · 근거 보존 ${Number(paperProgress.trades ?? 0)}건 · 활성 검증 ${Number(paperProgress.observation_days ?? 0).toFixed(1)}일 · 재개 시 이어서 계산` : version.paper_validation ? `PAPER ${paperCompletion === "passed" ? "통과" : paperCompletion === "failed" ? "미통과" : "진행 근거"} · ${Number(version.paper_validation.trades ?? 0)}건` : version.execution_validation?.mode === "historical_replay" ? `과거재생 ${version.execution_validation.passed ? "최소 통과" : "미통과"} · PAPER 시작 필요` : !replayApplicable ? "과거재생 비대상 · NoahAI 기본 진입과 함께 PAPER에서 위험·청산 규칙 검증" : "PAPER 결과 없음"}</small><p className="strategy-evidence-warning">{replayApplicable ? "검증 대상: 구조화된 사용자 진입·청산 규칙" : "검증 대상: NoahAI 기본 진입 + 사용자 위험·청산값. 원문 전체 진입 전략의 검증 결과가 아닙니다."}</p><StrategyValidationEvidence version={version} /><StrategyVersionContract version={version} />{preservedHistory.length > 0 && <details><summary>{t("이전 PAPER 검증 시도 ")}{preservedHistory.length}{t("개 · 근거 보존")}</summary><pre className="json-summary">{JSON.stringify(preservedHistory, null, 2)}</pre></details>}{version.version > 1 && Boolean(version.version_diff?.changes?.length) && <details><summary>{t("이전 버전과 변경점 ")}{version.version_diff?.changes?.length}{t("개")}</summary><pre className="json-summary">{JSON.stringify(version.version_diff, null, 2)}</pre></details>}</div>
-            <div className="row-actions">{label && <button className="primary-button" title={!paperReady && action === "approve" ? "실행 규칙을 보완해야 승인할 수 있습니다." : undefined} disabled={busy || (!paperReady && ["approve", "validate", "start_paper", "activate"].includes(action))} onClick={() => runAction(version, strategy.scope)} type="button">{label}</button>}{canStartPaperDirectly && <button className="secondary-button" disabled={busy} onClick={() => runAction(version, strategy.scope, "start_paper")} type="button">{t("PAPER 전진검증 시작")}</button>}{version.status === "paper_paused" && <button className="secondary-button" disabled={busy} onClick={() => runAction(version, strategy.scope, "restart_paper")} type="button">{t("새 검증 시작")}</button>}{featureViewLevel >= 2 && <button className="secondary-button" disabled={busy} onClick={() => exportExecutionEvidence(strategy.scope, version)} title={t("이 버전의 PAPER 진입 국면·방향·가격·보유시간·수량 제한·비용·손익·TP/SL·Smart Exit 근거를 로컬 JSON으로 저장합니다.")} type="button">{t("검증 거래 내보내기")}</button>}{featureViewLevel >= 2 && <button className="secondary-button" disabled={busy} onClick={() => exportPackage(strategy.scope, version)} type="button">{t("패키지 내보내기")}</button>}<a className="secondary-button strategy-submit-link" href={STRATEGY_HUB_SUBMIT_URL} target="_blank" rel="noreferrer" title={t("패키지를 내보낸 뒤 daltrading 1단계에서 서버 분석, 2단계에서 추출 범위와 배포 권리를 확인합니다.")}>{t("허브에 제출")}</a>{!version.active && (version.paper_validation?.passed || (["live_observation", "limited_live"].includes(String(version.execution_validation?.mode ?? "")) && version.execution_validation?.passed)) && <button className="secondary-button" disabled={busy} onClick={() => rollback(strategy.scope, version)} type="button">{t("이 버전으로 롤백")}</button>}<button className="danger-button" disabled={busy || version.active || version.paper_observing} onClick={() => remove(strategy.scope, strategy.strategy_key, version.version_id)} type="button">{t("버전 삭제")}</button></div>
+            <div className="version-summary"><strong>{!paperReady ? "실행 조건 보완 필요 · 기존 설명과 검증 이력은 보존됩니다." : version.xai?.summary ?? "XAI 설명 준비 중"}</strong><span>{version.source_kind ?? "manual"} · {version.source_reference ?? "원본 직접 입력"} · {version.missing_conditions.length ? `확인 필요 ${version.missing_conditions.length}개` : "문서/IR 확인 완료"}{t(" · 실행 규칙 ")}{paperReady ? t("완료") : "보완 필요"}</span><small>{!paperReady ? `승인·PAPER·적용 차단 · ${(readiness?.reasons ?? []).map(readinessReason).join(" ")} ${version.active ? "현재 활성 버전에도 실행 조건 보완이 필요합니다. 누락 조건을 확인하고 새 버전을 검증하세요." : "이 보관 버전은 기본 NoahAI 거래를 차단하지 않습니다."}` : version.active ? `최종 적용됨 · 앱 PAPER에서는 가상 실행, LIVE에서는 승인 범위 실행${version.paper_validation ? ` · PAPER ${Number(version.paper_validation.trades ?? 0)}건` : ""}` : version.paper_observing || version.status === "paper_observing" ? `PAPER 검증 중 · ${Number(paperProgress.trades ?? 0)}/${Number(paperProgress.required_trades ?? 3)}건 · 활성 검증 ${Number(paperProgress.observation_days ?? 0).toFixed(1)}/${Number(paperProgress.required_days ?? 7)}일` : version.status === "paper_paused" ? `PAPER 일시정지 · 근거 보존 ${Number(paperProgress.trades ?? 0)}건 · 활성 검증 ${Number(paperProgress.observation_days ?? 0).toFixed(1)}일 · 재개 시 이어서 계산` : version.paper_validation ? `PAPER ${paperCompletion === "passed" ? "통과" : paperCompletion === "failed" ? "미통과" : "진행 근거"} · ${Number(version.paper_validation.trades ?? 0)}건` : version.execution_validation?.mode === "historical_replay" ? "과거 평가 기록 있음 · PAPER 선택 가능" : !replayApplicable ? "과거재생 비대상 · NoahAI 기본 진입과 함께 PAPER에서 위험·청산 규칙 검증" : "PAPER 결과 없음"}</small><p className="strategy-evidence-warning">{replayApplicable ? "검증 대상: 구조화된 사용자 진입·청산 규칙" : "검증 대상: NoahAI 기본 진입 + 사용자 위험·청산값. 원문 전체 진입 전략의 검증 결과가 아닙니다."}</p><StrategyValidationEvidence version={version} research={featureViewLevel >= 5} /><StrategyVersionContract version={version} />{preservedHistory.length > 0 && <details><summary>{t("이전 PAPER 검증 시도 ")}{preservedHistory.length}{t("개 · 근거 보존")}</summary><pre className="json-summary">{JSON.stringify(preservedHistory, null, 2)}</pre></details>}{version.version > 1 && Boolean(version.version_diff?.changes?.length) && <details><summary>{t("이전 버전과 변경점 ")}{version.version_diff?.changes?.length}{t("개")}</summary><pre className="json-summary">{JSON.stringify(version.version_diff, null, 2)}</pre></details>}</div>
+            <div className="row-actions">{!paperReady && <><button type="button" disabled={busy} onClick={() => loadVersionDraft(version.strategy_key, version, strategy.scope)}>{t("원문·규칙 보완하기")}</button><button type="button" disabled={busy} onClick={() => loadVersionDraft(version.strategy_key, version, strategy.scope, true)}>{t("기본 AI 진입 방식으로 새 버전 만들기")}</button></>}{label && <button className="primary-button" title={!paperReady && action === "approve" ? "실행 규칙을 보완해야 승인할 수 있습니다." : undefined} disabled={busy || (!paperReady && ["approve", "validate", "start_paper", "activate"].includes(action))} onClick={() => runAction(version, strategy.scope)} type="button">{label}</button>}{canRunHistoricalReplay && <button className="secondary-button" disabled={busy} onClick={() => runAction(version, strategy.scope, "validate")} type="button">{t("과거 시세 백테스트 · 선택")}</button>}{version.status === "paper_paused" && <button className="secondary-button" disabled={busy} onClick={() => runAction(version, strategy.scope, "restart_paper")} type="button">{t("새 검증 시작")}</button>}{featureViewLevel >= 2 && <button className="secondary-button" disabled={busy} onClick={() => exportExecutionEvidence(strategy.scope, version)} title={t("이 버전의 PAPER 진입 국면·방향·가격·보유시간·수량 제한·비용·손익·TP/SL·Smart Exit 근거를 로컬 JSON으로 저장합니다.")} type="button">{t("검증 거래 내보내기")}</button>}{featureViewLevel >= 2 && <button className="secondary-button" disabled={busy} onClick={() => exportPackage(strategy.scope, version)} type="button">{t("패키지 내보내기")}</button>}<a className="secondary-button strategy-submit-link" href={STRATEGY_HUB_SUBMIT_URL} target="_blank" rel="noreferrer" title={t("패키지를 내보낸 뒤 daltrading 1단계에서 서버 분석, 2단계에서 추출 범위와 배포 권리를 확인합니다.")}>{t("허브에 제출")}</a>{!version.active && (version.paper_validation?.passed || (["live_observation", "limited_live"].includes(String(version.execution_validation?.mode ?? "")) && version.execution_validation?.passed)) && <button className="secondary-button" disabled={busy} onClick={() => rollback(strategy.scope, version)} type="button">{t("이 버전으로 롤백")}</button>}<button className="danger-button" disabled={busy || version.active || version.paper_observing} onClick={() => remove(strategy.scope, strategy.strategy_key, version.version_id)} type="button">{t("버전 삭제")}</button></div>
           </div>; })}</div>
         </article>)}
       </div>

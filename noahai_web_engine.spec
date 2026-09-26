@@ -2,6 +2,20 @@
 """Independent PyInstaller policy for the UI-neutral Web engine sidecar."""
 
 import sys
+from pathlib import Path
+import json
+
+# Optional operator-owned public desktop application configuration. Never bundle
+# customer Google access/refresh tokens or a service-account private key.
+_drive_data = []
+_drive_config = Path('config/drive_client.json')
+if _drive_config.is_file():
+    _drive_document = json.loads(_drive_config.read_text(encoding='utf-8'))
+    if (not isinstance(_drive_document,dict) or set(_drive_document)-{'installed','public_api_key'}
+        or not isinstance(_drive_document.get('installed',{}),dict)
+        or set(_drive_document.get('installed',{}))-{'client_id','client_secret','project_id','auth_uri','token_uri','auth_provider_x509_cert_url','redirect_uris'}):
+        raise ValueError('Drive package accepts desktop app config only, never user tokens or service-account credentials')
+    _drive_data = [(str(_drive_config),'config')]
 
 
 block_cipher = None
@@ -30,7 +44,7 @@ a = Analysis(
         ("docs/REMOTE_MANAGEMENT_GUIDE_V39141.md", "docs"),
         ("icon.ico", "."),
         ("icon.png", "."),
-    ],
+    ] + _drive_data,
     hiddenimports=[
         "websockets", "websocket", "binance",
         "ccxt", "ccxt.binance", "ccxt.upbit", "ccxt.bithumb",

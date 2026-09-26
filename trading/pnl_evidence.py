@@ -73,4 +73,6 @@ def performance_evidence(row: Mapping[str, Any]) -> dict[str, Any]:
         'net_pnl': row.get('net_pnl'),
         'performance_evidence_ready': ready,
         'pnl_is_net': ready,
+        'evidence_origin': ('user_reviewed_statement' if row.get('pnl_source') in {'statement_isolated_cycle','statement_shared_fill_allocation'}
+                            else 'api_cycle_calculation' if row.get('pnl_source') in {'api_isolated_cycle','api_shared_fill_allocation'} else 'existing_ledger'),
     }

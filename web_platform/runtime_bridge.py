@@ -128,6 +128,19 @@ class HeadlessRuntimeBridge:
         self._lock = threading.RLock()
         self._record_recovery = None
 
+    def recovery_statement(self, payload: dict[str, Any], *, commit=False):
+        if self.account == 'local':
+            raise RuntimeError('recovery_login_required')
+        from trading.recovery_statement import import_statement
+        if not commit:
+            return import_statement(None,payload,commit=False)
+        recorder = getattr(self._app,'recorder',None)
+        if recorder is None:
+            from path_utils import get_db_file_path, get_log_dir
+            from trading.recorder import Recorder
+            recorder=Recorder(db_path=get_db_file_path(),log_path=get_log_dir())
+        return import_statement(recorder,payload,commit=commit)
+
     def record_recovery(self, source: str, *, start: bool = False) -> dict[str, Any]:
         from trading.record_recovery import RecordRecovery
         from trading.record_recovery_adapters import RecoveryResolver
@@ -139,14 +152,26 @@ class HeadlessRuntimeBridge:
             from path_utils import get_db_file_path
             return RecordRecovery.read_status(get_db_file_path(), source)
         if start:
-            if not _credential_status(self._settings()).get(source, False):
+            from path_utils import get_db_file_path, get_log_dir
+            import sqlite3
+            from pathlib import Path
+            path=Path(getattr(getattr(self._app,'recorder',None),'db_path',None) or get_db_file_path()).resolve()
+            has_statement=False
+            if path.exists():
+                with sqlite3.connect(path.as_uri()+'?mode=ro',uri=True) as db:
+                    if db.execute("SELECT 1 FROM sqlite_master WHERE name='recovery_statements'").fetchone():
+                        has_statement=bool(db.execute('SELECT 1 FROM recovery_statements WHERE venue=? LIMIT 1',(source,)).fetchone())
+            if not has_statement and not _credential_status(self._settings()).get(source, False):
                 raise RuntimeError('recovery_credential_required')
             app = self._app
-            if app is None:
+            if app is None and not has_statement:
                 # Constructing the full runtime also starts its AI optimizer.
                 # Maintenance must not initialize that as a hidden side effect.
                 raise RuntimeError('recovery_engine_not_ready')
             recorder = getattr(app, 'recorder', None)
+            if recorder is None and has_statement:
+                from trading.recorder import Recorder
+                recorder=Recorder(db_path=str(path),log_path=get_log_dir())
             if recorder is None:
                 raise RuntimeError('recovery_ledger_unavailable')
             # Never reconnect a Kiwoom host from a maintenance worker. Existing

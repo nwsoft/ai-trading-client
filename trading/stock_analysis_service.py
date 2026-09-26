@@ -2917,6 +2917,29 @@ class StockAnalysisService:
 
         return success, normalized_result, call_errors
 
+    def _enrich_strategy_context(self, context, pool, symbol, execution_mode, *, state_pool=None):
+        """Use the same completed daily bars and state scope for entry and exit."""
+        from trading.custom_strategy_validator import enrich_advanced_indicator_context
+        from trading.numeric_strategy_state import runtime_store
+        def strategy_candles(timeframe, limit):
+            if timeframe != '1d':
+                raise ValueError('stock_strategy_timeframe_unsupported:' + timeframe)
+            getter = getattr(self.adapter, 'get_daily_candles', None)
+            if not callable(getter):
+                return []
+            from datetime import datetime, timezone, timedelta
+            output = []
+            for row in getter(symbol, limit) or []:
+                day = datetime.strptime(str(row.get('date') or '').replace('-', ''), '%Y%m%d').replace(tzinfo=timezone(timedelta(hours=9)))
+                output.append({**row, 'timestamp': day.timestamp(),
+                               'close_timestamp': day.replace(hour=15, minute=30).timestamp()})
+            return output
+        return enrich_advanced_indicator_context(
+            context, pool, strategy_candles,
+            state_scope={'venue':self.broker_name,'symbol':symbol,'mode':execution_mode},
+            state_store=runtime_store(self._get_recorder()), state_pool=state_pool,
+        )
+
     def _run_auto_exit_cycle(
         self,
         *,
@@ -2995,10 +3018,13 @@ class StockAnalysisService:
                 try:
                     from trading.declarative_strategy_engine import DeclarativeStrategyEngine
 
-                    custom_exit_result = DeclarativeStrategyEngine.evaluate_exit(
-                        dict(custom_exit_plan.get('rules') or {}),
-                        dict(analysis),
-                    )
+                    exit_rules = dict(custom_exit_plan.get('rules') or {})
+                    exit_item = {'rules':exit_rules, 'strategy_key':custom_exit_plan.get('strategy_key'),
+                                 'version_id':custom_exit_plan.get('strategy_version_id')}
+                    from trading.numeric_strategy_state import identity
+                    exit_context = self._enrich_strategy_context(dict(analysis), [exit_item], symbol, execution_mode)
+                    exit_context['_numeric_state_identity'] = identity(exit_rules, exit_item)
+                    custom_exit_result = DeclarativeStrategyEngine.evaluate_exit(exit_rules, exit_context)
                 except Exception as exc:
                     custom_exit_result = {
                         'allowed': False,
@@ -3507,22 +3533,9 @@ class StockAnalysisService:
             paper_strategy_pool = list(
                 getattr(self, 'paper_validation_strategy_pool', []) or []
             )
-            from trading.custom_strategy_validator import enrich_advanced_indicator_context
-            def strategy_candles(timeframe, limit):
-                if timeframe != '1d':
-                    raise ValueError('stock_strategy_timeframe_unsupported:' + timeframe)
-                getter = getattr(self.adapter, 'get_daily_candles', None)
-                if not callable(getter):
-                    return []
-                from datetime import datetime, timezone, timedelta
-                output = []
-                for row in getter(symbol, limit) or []:
-                    day = datetime.strptime(str(row.get('date') or '').replace('-', ''), '%Y%m%d').replace(tzinfo=timezone(timedelta(hours=9)))
-                    output.append({**row, 'timestamp': day.timestamp(),
-                                   'close_timestamp': day.replace(hour=15, minute=30).timestamp()})
-                return output
-            custom_context = enrich_advanced_indicator_context(
-                custom_context, list(custom_strategy_pool or []) + paper_strategy_pool, strategy_candles,
+            custom_context = self._enrich_strategy_context(
+                custom_context, list(custom_strategy_pool or []) + paper_strategy_pool,
+                symbol, execution_mode, state_pool=list(custom_strategy_pool or []),
             )
             if observer is not None:
                 try:

@@ -68,6 +68,7 @@ class DailyLossDecision:
     valuation_scope: str = "account"
     unvalued_assets: List[Dict[str, Any]] = field(default_factory=list)
     checked_at: float = field(default_factory=time.time)
+    reason_code: str = ""
 
 
 class RiskManager:
@@ -785,6 +786,10 @@ class RiskManager:
                 current_equity=current_equity,
                 realized_pnl=realized_pnl,
                 reason=unrealized_reason,
+                reason_code=('managed_position_reconciliation_required' if unrealized_reason in {
+                    '현재 포지션 없음 · 과거 관리 원장 청산 대조 필요',
+                    '현재 포지션에 없는 관리 원장 · 청산/수동 거래 대조 필요',
+                } else 'position_evidence_unavailable'),
             )
             self._last_daily_loss_decision[venue] = decision
             try:
@@ -793,7 +798,9 @@ class RiskManager:
                 publish_notification(
                     'risk_data_unavailable',
                     'LIVE 포지션 손익 확인 실패',
-                    f'미실현 손익을 확인하지 못해 손실률을 계산하지 않았습니다. 신규 진입만 보류합니다. 원인: {unrealized_reason}',
+                    f'미실현 손익을 확인하지 못해 손실률을 계산하지 않았습니다. 신규 진입만 보류합니다. 원인: {unrealized_reason}. '
+                    '거래 시작 화면 또는 설정 → 업데이트 → 거래 기록 점검·복구에서 미청산 기록까지 확인하세요. '
+                    f'해결되지 않으면 화면의 진단 만들기로 Q&A에 전달하세요. 지원 코드: {decision.reason_code}',
                     source=venue,
                     execution_mode='live',
                     severity='warning',

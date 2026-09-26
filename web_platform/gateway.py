@@ -174,6 +174,23 @@ def create_gateway_app(
     def record_recovery_status(source: str = Query(max_length=32)):
         return record_recovery_call(source, False)
 
+    @app.post('/api/v1/maintenance/trade-statements', dependencies=[Depends(require_token), Depends(require_confirmed_intent)])
+    def recovery_statement(payload: dict[str, Any]):
+        import csv
+        method=getattr(services.runtime_bridge,'recovery_statement',None)
+        if not callable(method): raise HTTPException(409,'recovery_runtime_unavailable')
+        allowed={'action','source','content_base64','encoding','delimiter','mapping','timezone',
+                 'complete_cycles','reviewed_digest','confirmed_own_account','contract_size','linear_contract','time_format','number_format'}
+        if set(payload)-allowed or payload.get('action') not in {'preview','import'}:
+            raise HTTPException(400,'invalid_statement_request')
+        try:
+            return method(payload,commit=payload['action']=='import')
+        except (ValueError,UnicodeError,csv.Error) as exc:
+            code=str(exc) if str(exc).startswith(('statement_','unsupported_recovery_')) else 'statement_parse_failed'
+            raise HTTPException(400,code) from exc
+        except RuntimeError as exc:
+            raise HTTPException(409,str(exc)) from exc
+
     @app.get('/api/v1/maintenance/storage', dependencies=[Depends(require_token)])
     def storage_status():
         from trading.storage_maintenance import maintenance
@@ -596,6 +613,17 @@ def create_gateway_app(
             status = 429 if str(exc) == "interactive_ai_budget_exceeded" else 503
             raise HTTPException(status_code=status, detail=str(exc)) from exc
 
+    @app.get('/api/v1/strategies/drive', dependencies=[Depends(require_token)])
+    def drive_status():
+        try: return services.drive_authorization()
+        except ValueError as exc: raise HTTPException(status_code=400,detail=str(exc)) from exc
+
+    @app.post('/api/v1/strategies/drive/{action}',
+              dependencies=[Depends(require_token),Depends(require_confirmed_intent)])
+    def drive_action(action: str):
+        try: return services.drive_authorization(action)
+        except ValueError as exc: raise HTTPException(status_code=400,detail=str(exc)) from exc
+
     @app.post(
         "/api/v1/strategies/draft-validation",
         dependencies=[Depends(require_token), Depends(require_confirmed_intent)],
@@ -837,6 +865,9 @@ def create_gateway_app(
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         except RuntimeError as exc:
+            record_rejection = getattr(services, 'record_runtime_rejection', None)
+            if callable(record_rejection):
+                record_rejection(body.command_id, body.command, body.source, exc)
             raise HTTPException(status_code=409, detail=str(exc)) from exc
 
     @app.post(

@@ -8,7 +8,7 @@ import '../src/styles.css';
 
 let profile = 'standard';
 const snapshot = () => ({revision:'fixture', save_receipt:{verified:true}, schema_version:'1', account_scope:'QA_ONLY', fields:[
-  {path:'ai_custom_features.profile',label:'전략 스튜디오 사용 난이도',help:'화면 복잡도만 변경합니다. 변경 후 저장하세요.',section:'ai_engine',kind:'select',presentation:'primary',risk:'low',options:['beginner','standard','advanced','lab'],value:profile,default_value:'standard'},
+  {path:'ai_custom_features.profile',label:'전략 스튜디오 사용 난이도',help:'화면 복잡도만 변경합니다. 변경 후 저장하세요.',section:'ai_engine',kind:'select',presentation:'primary',risk:'low',options:['beginner','standard','advanced','lab','research'],value:profile,default_value:'standard'},
 ]});
 const client: any = {
   settings:async()=>snapshot(), settingsDiagnostics:async()=>({}), platform:async()=>({release_version:'3.9.1.43'}), assistantStatus:async()=>({}),

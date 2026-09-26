@@ -740,7 +740,8 @@ def test_ai_custom_restores_legacy_source_xai_version_flow_and_contract_values()
     assert "source_kind: sourceKind ||" not in studio
     assert "strategy_key: versionTarget || undefined" in studio
     assert "이 결과 AI에게 묻기" in studio
-    assert 'resultView === "Level 3 전체 근거"' in studio
+    assert '["Level 3 전체 근거", "Level 4 전문가 운용", "Level 5 연구실"].includes(resultView)' in studio
+    assert 'disabled={featureViewLevel < 5} value="Level 5 연구실"' in studio
     assert "고급 실행 규칙 편집" in studio
     assert "legacy-rule-override-confirm" in studio
     assert "직접 편집한 JSON을 사용자 선언 규칙으로 저장" in studio

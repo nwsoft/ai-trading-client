@@ -51,7 +51,7 @@ from trading.custom_strategy_pipeline import CustomStrategyPipeline
 from trading.custom_strategy_advisor import build_validation_issue_details
 from trading.declarative_strategy_engine import DeclarativeStrategyEngine
 from trading.life_finance import LifeFinanceManager, TransactionType
-from trading.custom_strategy_validator import run_historical_replay
+from trading.custom_strategy_validator import run_historical_replay, historical_quality_assessment
 from trading.strategy_validation_lab import run_validation_lab
 from .public_stock_data import PublicKoreanStockData
 from trading.strategy_source_ingestor import StrategySourceIngestor
@@ -389,7 +389,7 @@ EDITABLE_SETTINGS: tuple[EditableSetting, ...] = (
     *(EditableSetting(f"notification_integrations.exchanges.{venue}", f"{venue.upper()} 알림", "알림·리포트", "boolean", "이 기관에서 발생한 선택 이벤트를 보냅니다. API 연결·거래 권한과 별도입니다.") for venue in (*CRYPTO_VENUE_ORDER, *STOCK_VENUE_ORDER)),
     EditableSetting("ai_custom_runtime.enabled", "전략 스튜디오 런타임", "전략 스튜디오", "boolean", "승인과 검증을 통과한 전략만 실행 후보에 포함합니다.", risk="high"),
     EditableSetting("ai_custom_runtime.allow_limited_live", "제한 실거래 허용", "전략 스튜디오", "boolean", "PAPER·실행 검증을 통과한 전략의 제한 실거래만 허용합니다.", risk="critical"),
-    EditableSetting("ai_custom_features.profile", "전략 스튜디오 사용 난이도", "전략 스튜디오", "select", "처음에는 일반(권장)을 사용하세요. 실험실은 Level 4 전문가 운용 정책을 노출하지만 가드레일·실거래 권한을 해제하지 않습니다.", options=("beginner", "standard", "advanced", "lab")),
+    EditableSetting("ai_custom_features.profile", "전략 스튜디오 사용 난이도", "전략 스튜디오", "select", "Level 1·2는 쉬운 제작, 3·4는 상세 설계·운용, 5는 연구 비교입니다. 기존 단계 설정과 가드레일·실거래 권한은 유지됩니다.", options=("beginner", "standard", "advanced", "lab", "research")),
     EditableSetting("life_finance_sync_dir", "생활금융 동기화 폴더", "주식·증권", "text", "생활금융 자료를 동기화할 계정 전용 폴더입니다. 비워 두면 기본 위치를 사용합니다."),
     EditableSetting("life_finance_backup_dir", "생활금융 백업 폴더", "주식·증권", "text", "생활금융 백업을 저장할 계정 전용 폴더입니다. 비워 두면 기본 위치를 사용합니다."),
     EditableSetting("advanced_trading_layers.profitability_validation.enabled", "수익성 검증 (Profitability Gate)", "고급 매매 계층", "boolean", "최근 거래 KPI를 검사하고 일반 미달은 제한 회복 학습, Hard MDD는 신규 진입 차단으로 처리합니다.", risk="high"),
@@ -1283,6 +1283,8 @@ class ApplicationServices:
             self._remote_monitor.close()
             self._remote_monitor = None
         set_current_user_account(account)
+        if getattr(self,'_drive_authorization',None) is not None:
+            self._drive_authorization.disconnect()
         self.account = account
         # The LogStream singleton exists before login.  Establish a new
         # account/session boundary so another account's buffered diagnostics
@@ -4479,13 +4481,33 @@ class ApplicationServices:
             return [ApplicationServices._replace_source_path(item, absolute_path, public_name) for item in value]
         return public_name if isinstance(value, str) and value == absolute_path else value
 
+    def drive_authorization(self, action='status'):
+        from trading.drive_authorization import DriveAuthorization
+        with self._lock:
+            scope = (str(self.account),str(self.data_dir))
+            previous = getattr(self,'_drive_authorization',None)
+            if previous is None or getattr(self,'_drive_authorization_scope',None)!=scope:
+                if previous is not None: previous.disconnect()
+                self._drive_authorization = DriveAuthorization()
+                self._drive_authorization_scope = scope
+            manager = self._drive_authorization
+        if action=='connect': return manager.start()
+        if action=='disconnect': return manager.disconnect()
+        if action!='status': raise ValueError('지원하지 않는 Drive 작업입니다.')
+        return manager.status()
+
     def analyze_strategy_source(
         self, *, source_kind: str, value: str, encoding: str = "text", file_name: str = "",
         supplemental_text: str = "", authoring_mode: str = "source_faithful",
         files: list[dict[str, str]] | None = None,
+        drive_api_key: str = '', drive_access_token: str = '',
     ) -> dict[str, Any]:
         settings = load_settings(persist_migrations=False) or {}
         source_value = str(value or "")
+        if source_value.startswith('https://drive.google.com/'):
+            self.drive_authorization()
+            drive_api_key = drive_api_key or self._drive_authorization.config.get('api_key','')
+            drive_access_token = drive_access_token or self._drive_authorization.access_token()
         temporary_path = ""
         bundle_paths = []
         if files and encoding != 'text': raise ValueError('자료 묶음과 단일 파일 업로드를 동시에 지정할 수 없습니다.')
@@ -4554,6 +4576,7 @@ class ApplicationServices:
             transcription_cfg = dict(settings.get("ai_custom_transcription") or {})
             ingestor = StrategySourceIngestor(
                 premium_client,
+                drive_api_key=drive_api_key, drive_access_token=drive_access_token,
                 transcription_client=transcription_client,
                 transcription_enabled=bool(transcription_cfg.get("enabled", True)),
                 transcription_model=str(transcription_cfg.get("model") or "gpt-4o-mini-transcribe"),
@@ -4611,7 +4634,8 @@ class ApplicationServices:
         grounding_issues: list[str] = []
         current_digest = StrategySourceIngestor._execution_contract_digest(normalized)
         if grounding_status in {"compiler_authoritative", "trusted_template"}:
-            if not expected_digest or expected_digest != current_digest:
+            accepted_digests = {current_digest, StrategySourceIngestor._execution_contract_digest(normalized, legacy_numbers=True)}
+            if not expected_digest or expected_digest not in accepted_digests:
                 grounding_issues.append("source_grounding_stale_after_execution_edit")
         elif grounding_status == "user_declared_override":
             if grounding.get("confirmed_by_user") is not True:
@@ -5031,6 +5055,8 @@ class ApplicationServices:
         self, *, scope: str, strategy_key: str, version_id: str,
         asset_class: str = "crypto", source: str = "", market_type: str | None = None,
         symbol: str = "BTCUSDT", limit: int = 500,
+        range_start_ms: int | None = None, range_end_ms: int | None = None,
+        holding_bars: int = 12,
     ) -> dict[str, Any]:
         """Run the minimum historical rule check from market data, never user-entered results."""
         with self._lock:
@@ -5047,6 +5073,25 @@ class ApplicationServices:
             rules = dict(version.get("rules") or {})
         from trading.strategy_timeframes import strategy_timeframe_contract
         timeframe_contract = strategy_timeframe_contract(rules)
+        from trading.custom_strategy_validator import _required_history
+        from web_platform.market_data import interval_milliseconds
+        import time as replay_clock
+        dated = range_start_ms is not None or range_end_ms is not None
+        if isinstance(holding_bars, bool) or not isinstance(holding_bars, int) or not 1 <= holding_bars <= 500:
+            raise ValueError("최대 보유 봉 수는 1~500 사이 정수여야 합니다.")
+        if dated and (not isinstance(range_start_ms, int) or isinstance(range_start_ms, bool)
+                or not isinstance(range_end_ms, int) or isinstance(range_end_ms, bool)
+                or not 0 <= range_start_ms < range_end_ms <= int(replay_clock.time() * 1000)):
+            raise ValueError("시작·종료 시각을 모두 과거 UTC 시각으로 지정하세요.")
+        warmup_count = max(80, _required_history(rules))
+        def fetch_crypto(timeframe):
+            if not dated:
+                return self.historical_market_data.get_candles(normalized_source, expected_market_type, normalized_symbol, timeframe, limit)
+            fetch_range = getattr(self.historical_market_data, "get_candles_range", None)
+            if not callable(fetch_range):
+                raise ValueError("기간 지정 시세 공급이 연결되지 않았습니다. 최근 시세로 대체하지 않습니다.")
+            return fetch_range(normalized_source, expected_market_type, normalized_symbol, timeframe,
+                max(0, range_start_ms - warmup_count * interval_milliseconds(timeframe)), range_end_ms)
         validation_interval = timeframe_contract["decision_timeframe"]
         normalized_asset_class = str(asset_class or "crypto").strip().lower()
         if normalized_asset_class not in {"crypto", "stock", "etf"}:
@@ -5097,7 +5142,7 @@ class ApplicationServices:
             snapshot = self.stock_candle_snapshot(
                 source=normalized_source,
                 symbol=str(symbol or "005930").strip().upper(),
-                limit=limit,
+                limit=1000 if dated else limit,
             )
         else:
             normalized_source = normalized_source or ("binance" if scope == "binance" else "")
@@ -5123,20 +5168,24 @@ class ApplicationServices:
                 normalized_symbol = normalized_symbol.replace("KRW", "USDT")
             if not hasattr(self.historical_market_data, "get_candles"):
                 raise ValueError("거래소·시장유형별 공개 캔들 공급자가 연결되지 않았습니다.")
-            snapshot = self.historical_market_data.get_candles(
-                normalized_source, expected_market_type, normalized_symbol, validation_interval, limit,
-            )
+            snapshot = fetch_crypto(validation_interval)
         snapshots = {validation_interval: snapshot}
         for timeframe in timeframe_contract["required_timeframes"]:
             if timeframe != validation_interval:
-                snapshots[timeframe] = self.historical_market_data.get_candles(
-                    normalized_source, expected_market_type, normalized_symbol, timeframe, limit,
-                )
+                snapshots[timeframe] = fetch_crypto(timeframe)
         def closed_rows(item):
             # Only completed, unique, chronological candles can become evidence.
             if item.interval not in snapshots:
                 raise ValueError("요청한 시간봉과 시세 응답이 다릅니다.")
-            candles = {c.open_time: c for c in item.candles if c.closed}
+            candles = {c.open_time: c for c in item.candles if c.closed and (not dated or c.close_time < range_end_ms)}
+            if dated:
+                history = [c for c in candles.values() if c.open_time < range_start_ms]
+                selected = [c for c in candles.values() if c.open_time >= range_start_ms]
+                if len(history) < warmup_count - 1 or not selected:
+                    raise ValueError("선택 기간의 시세 또는 지표 워밍업 자료가 부족합니다. 기간을 줄이거나 공급 가능한 최근 기간을 선택하세요. 최근 시세로 대체 검증하지 않습니다.")
+                # Keep only the required lookback, especially for broker snapshots.
+                first = sorted(history, key=lambda c: c.open_time)[-(warmup_count - 1)].open_time
+                candles = {t: c for t, c in candles.items() if t >= first}
             return [[c.open_time, c.open, c.high, c.low, c.close, c.volume, c.close_time]
                     for c in sorted(candles.values(), key=lambda c: c.open_time)]
         if any(item.interval != tf or item.source != normalized_source for tf, item in snapshots.items()):
@@ -5179,13 +5228,15 @@ class ApplicationServices:
             fee_rate=fee_rate,
             slippage_bps=slippage_bps,
             spread_bps=spread_bps,
+            horizon=holding_bars,
+            entry_start_ms=range_start_ms,
         )
         minimum = int(getattr(pipeline, "min_paper_trades", 3) or 3)
-        passed = (
-            int(metrics.get("decisions", 0) or 0) >= minimum
-            and float(metrics.get("net_pnl_percent", 0.0) or 0.0) > 0
-            and float(metrics.get("max_drawdown_percent", 0.0) or 0.0) <= 10
-        )
+        assessment = historical_quality_assessment(metrics, minimum)
+        metrics.update(assessment)
+        from trading.strategy_research import replay_cost_sensitivity
+        metrics["research_cost_sensitivity"] = replay_cost_sensitivity(metrics)
+        passed = assessment["quality_passed"]
         metrics.update({
             "symbol": snapshot.symbol,
             "asset_class": normalized_asset_class,
@@ -5200,6 +5251,10 @@ class ApplicationServices:
             "range_ended_at": datetime.fromtimestamp(rows[-1][6] / 1000, tz=timezone.utc).isoformat() if rows else None,
             "time_zone": "UTC",
             "closed_candles_only": True,
+            "requested_range_start_ms": range_start_ms,
+            "requested_range_end_ms": range_end_ms,
+            "range_semantics": "start_inclusive_end_exclusive_UTC",
+            "warmup_bars": warmup_count,
             "quote_currency": (
                 "KRW" if normalized_asset_class == "crypto" and normalized_source in {"upbit", "bithumb", "coinone"}
                 else "USDT" if normalized_asset_class == "crypto" else "KRW"
@@ -5220,7 +5275,8 @@ class ApplicationServices:
             pipeline.record_execution_validation(
                 strategy_key, version_id,
                 decisions=int(metrics.get("decisions", 0) or 0),
-                guardrail_violations=0 if passed else 1,
+                # Performance rejection is not an observed safety violation.
+                guardrail_violations=0,
                 metrics=metrics,
                 mode="historical_replay",
             )
@@ -5647,10 +5703,22 @@ class ApplicationServices:
         try:
             result = self.runtime_bridge.execute(command, {"source": source, **payload})
         except RuntimeError as exc:
-            if command in {"trading.start", "trading.stop"}:
+            reason = str(exc).split(':', 1)[0]
+            if command == 'trading.start' and str(exc) == 'risk_data_unavailable:managed_position_reconciliation_required':
+                # Start remains refused. Launch only the bounded, resumable
+                # read-only provider recovery; never retry the trading command.
+                # Journal leases/cooldowns also apply to this path.
+                try:
+                    self.runtime_bridge.record_recovery(source, start=True)
+                except Exception as recovery_error:
+                    if str(recovery_error) != 'recovery_already_running':
+                        raise RuntimeError(f'{exc}:recovery_unavailable') from exc
+            if command in {"trading.start", "trading.stop"} and reason not in {'risk_data_unavailable', 'daily_loss_limit_exceeded', 'runtime_source_not_enabled', 'trading_candidates_unavailable'}:
                 try:
                     from trading.notifications import publish_notification
 
+                    # RiskManager already published the precise risk reason.
+                    # An intentional entry block is not a worker crash.
                     publish_notification(
                         "runtime_failure",
                         "거래 워커 명령 실패",
@@ -5734,6 +5802,20 @@ class ApplicationServices:
                 # worker/flush failure. No updater may proceed in this state.
                 self._accepting_runtime_commands = True
             return result
+
+    def record_runtime_rejection(self, command_id, command, source, error):
+        """All gateway refusals, including pre-bridge guards. No raw exceptions."""
+        reason = str(error).split(':',1)[0]
+        safe = re.fullmatch(r'(runtime|risk|daily|membership|credential|stock|headless|binance|exchange|trading|live|venue)_[a-z0-9_]{1,80}',reason)
+        try:
+            self._audit('runtime.command_rejected', {
+                'command_id':command_id, 'command':command, 'source':source,
+                'reason_code':reason if safe else 'runtime_command_failed',
+                **({'reason_detail':'managed_position_reconciliation_required'}
+                   if str(error).split(':')[1:2] == ['managed_position_reconciliation_required'] else {}),
+            })
+        except Exception:
+            pass  # A full disk must not turn a refusal into success.
 
     def _audit(self, event: str, payload: dict[str, Any]) -> None:
         self.audit_path.parent.mkdir(parents=True, exist_ok=True)

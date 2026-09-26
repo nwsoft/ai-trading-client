@@ -12,6 +12,36 @@ from .declarative_strategy_engine import DeclarativeStrategyEngine
 from .replay_visualization import build_replay_visualization
 
 
+def historical_quality_assessment(metrics: Dict[str, Any], minimum: int = 3) -> Dict[str, Any]:
+    """Performance evidence, not an execution-safety violation or LIVE grant."""
+    values = []
+    for key in ("decisions", "net_pnl_percent", "max_drawdown_percent"):
+        value = metrics.get(key)
+        try:
+            number = float(value) if not isinstance(value, bool) else float("nan")
+        except (TypeError, ValueError):
+            number = float("nan")
+        values.append(number)
+    count, pnl, drawdown = values
+    if (not all(math.isfinite(value) for value in values)
+            or count < 0 or not count.is_integer() or drawdown < 0):
+        return {"assessment_status": "unavailable", "quality_passed": False,
+                "quality_reasons": ["invalid_or_missing_metrics"]}
+    reasons = []
+    if count < max(1, minimum):
+        reasons.append("sample_too_small")
+    # No trades is not a loss or evidence that the strategy is invalid.
+    if count > 0 and pnl <= 0:
+        reasons.append("non_positive_total_pnl")
+    if drawdown > 10:
+        reasons.append("max_drawdown_excessive")
+    return {
+        "assessment_status": "no_trades" if count == 0 else "insufficient_sample" if count < max(1, minimum) else "completed",
+        "quality_passed": not reasons,
+        "quality_reasons": reasons,
+    }
+
+
 def _float(value: Any) -> float:
     try:
         number = float(value)
@@ -244,6 +274,7 @@ def enrich_advanced_indicator_context(
     context: Dict[str, Any],
     rules_or_pool: Any,
     candle_fetcher,
+    *, state_scope=None, state_store=None, state_pool=None,
 ) -> Dict[str, Any]:
     """Fetch each requested timeframe once and add evaluated/previous values."""
     enriched = dict(context or {})
@@ -261,10 +292,15 @@ def enrich_advanced_indicator_context(
     for timeframe in declared:
         grouped.setdefault(timeframe, [])
     contexts: Dict[str, Any] = {}
+    from .numeric_strategy_state import fields as state_fields, enrich_states
+    state_programs=[(item.get('rules') or item).get('numeric_state') for item in pool if isinstance(item,dict)]
+    state_programs=[p for p in state_programs if p]
 
     compared: List[Dict[str, Any]] = []
     for timeframe, items in grouped.items():
-        limit = min(600, max([int(item.get("period") or 0) + 5 for item in items] + [205 if timeframe in declared else 5]))
+        from .temporal_strategy_conditions import required_bars, required_fields
+        temporal_bars = max(required_bars(pool),400 if state_programs else 0)
+        limit = min(600, max([int(item.get("period") or 0) + 5 for item in items] + [205 + temporal_bars if timeframe in declared else 5]))
         try:
             rows = _candle_rows(candle_fetcher(timeframe, limit) or [])
             from trading.strategy_timeframes import timeframe_ms
@@ -276,6 +312,28 @@ def enrich_advanced_indicator_context(
             rows = []
         if timeframe in declared and len(rows) >= 80:
             contexts[timeframe] = _context(rows, len(rows) - 1, str(context.get("signal") or "HOLD"))
+            if temporal_bars:
+                keep = required_fields(pool) | {'_bar_timestamp'}
+                for program in state_programs:keep.update(state_fields(program))
+                def compact_bar(index):
+                    raw_fields={'open','high','low','close','volume','hour','weekday','_bar_timestamp'}
+                    if keep<=raw_fields:
+                        def raw_context(i):
+                            row=rows[i];dt=datetime.fromtimestamp(row['timestamp'],timezone.utc)
+                            return {**row,'_bar_timestamp':row['timestamp'],'hour':dt.hour,'weekday':dt.weekday()}
+                        full={**raw_context(index),'_previous':raw_context(index-1) if index else {}}
+                    else:full = _context(rows,index,'HOLD')
+                    # Recursive indicators may change their seed when the API
+                    # window rolls. Compare the source candle, not a freshly
+                    # seeded EMA, when recognizing an already processed bar.
+                    source_evidence = {}
+                    if state_programs:
+                        from .numeric_strategy_state import digest as state_digest
+                        source_evidence['_state_source_digest'] = state_digest({k:rows[index].get(k) for k in ('timestamp','open','high','low','close','volume')})
+                    return {**{key:full.get(key) for key in keep}, **source_evidence,
+                            '_previous':{key:full.get('_previous',{}).get(key) for key in keep}}
+                contexts[timeframe]['_closed_bar_contexts'] = [
+                    compact_bar(i) for i in range(max(0,len(rows)-temporal_bars),len(rows))]
         for reference in items:
             key = DeclarativeStrategyEngine.indicator_field_key(reference)
             runtime_value = _indicator_value(rows, reference) if rows else None
@@ -292,6 +350,8 @@ def enrich_advanced_indicator_context(
         enriched["_previous"] = previous
     enriched["_advanced_indicator_values"] = compared
     enriched["_strategy_timeframe_contexts"] = contexts
+    if state_programs:
+        enriched=enrich_states(enriched,rules_or_pool if state_pool is None else state_pool,state_scope,state_store)
     return enriched
 
 
@@ -302,6 +362,7 @@ def _enrich_replay_context(
     *,
     timeframe_rows: Optional[Dict[str, List[Dict[str, Any]]]] = None,
     cutoff_timestamp: Optional[float] = None,
+    state_store=None,
 ) -> Dict[str, Any]:
     def _fetch(timeframe: str, limit: int):
         from trading.strategy_timeframes import timeframe_ms
@@ -320,7 +381,18 @@ def _enrich_replay_context(
         context,
         rules,
         _fetch,
+        state_scope={'venue':'replay','symbol':'replay','mode':'replay'},state_store=state_store,
     )
+
+
+def _decision_close_timestamp(row, rules):
+    if row.get('close_timestamp') is not None:
+        return row['close_timestamp']
+    timeframe = rules.get('decision_timeframe') or rules.get('timeframe')
+    if row.get('timestamp') is not None and timeframe:
+        from .strategy_timeframes import timeframe_ms
+        return row['timestamp'] + timeframe_ms(timeframe)/1000
+    return row.get('timestamp')
 
 
 def _context(
@@ -356,6 +428,7 @@ def _context(
     timestamp = current_row.get("timestamp")
     dt = datetime.fromtimestamp(timestamp, tz=timezone.utc) if timestamp else None
     context = {
+        "_bar_timestamp": timestamp,
         "signal": signal,
         "confidence": min(
             1.0,
@@ -447,6 +520,7 @@ def run_historical_replay(
     spread_bps: float = 1.0,
     horizon: int = 12,
     base_timeframe: str = "15m",
+    entry_start_ms: int | None = None,
 ) -> Dict[str, Any]:
     """단일 포지션 방식의 조건 재생. 실전 수익 보장이 아닌 실행 가능성 보조 검증이다."""
     rows = _candle_rows(klines)
@@ -507,11 +581,15 @@ def run_historical_replay(
     trades: List[Dict[str, Any]] = []
     evaluated = 0
     direction_conflicts = 0
+    from .numeric_strategy_state import NumericStateStore
+    replay_state=NumericStateStore()
     next_available = warmup
     last_entry_index = len(rows) - max(1, horizon) - 1
 
     for index in range(warmup - 1, last_entry_index + 1):
         if index < next_available:
+            continue
+        if entry_start_ms is not None and (rows[index].get("timestamp") is None or rows[index]["timestamp"] * 1000 < entry_start_ms):
             continue
         if signal_mode == "independent" and branch_specs:
             matched_directions: List[str] = []
@@ -522,7 +600,8 @@ def run_historical_replay(
                     rules,
                     rows[:index + 1],
                     timeframe_rows=replay_timeframes,
-                    cutoff_timestamp=rows[index].get("close_timestamp") or rows[index].get("timestamp"),
+                    cutoff_timestamp=_decision_close_timestamp(rows[index], rules),
+                    state_store=replay_state,
                 )
                 branch_rules = dict(rules)
                 branch_rules["executable_entry"] = branch_spec
@@ -547,7 +626,8 @@ def run_historical_replay(
                 rules,
                 rows[:index + 1],
                 timeframe_rows=replay_timeframes,
-                cutoff_timestamp=rows[index].get("close_timestamp") or rows[index].get("timestamp"),
+                cutoff_timestamp=_decision_close_timestamp(rows[index], rules),
+                state_store=replay_state,
             )
             evaluated += 1
             if not DeclarativeStrategyEngine.evaluate_entry(rules, current_context).get("allowed", False):
@@ -588,7 +668,8 @@ def run_historical_replay(
                     rules,
                     rows[:future_index + 1],
                     timeframe_rows=replay_timeframes,
-                    cutoff_timestamp=rows[future_index].get("close_timestamp") or rows[future_index].get("timestamp"),
+                    cutoff_timestamp=_decision_close_timestamp(rows[future_index], rules),
+                    state_store=replay_state,
                 ),
             )
             if not explicit_exit.get("bypassed", False) and explicit_exit.get("allowed", False):
@@ -675,6 +756,9 @@ def run_historical_replay(
         "regime_results": regime_results,
         "trades": trades,
         "assumptions": {
+            "entry_price": "signal_bar_close",
+            "maximum_holding_bars": max(1, horizon),
+            "horizon_exit": "bar_close",
             "position_model": "single_non_overlapping",
             "same_bar_tp_sl_order": "stop_loss_first",
             "fee": "per_side",

@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 from copy import deepcopy
+import re
 from typing import Any, Dict, Iterable, List, Mapping
 
 
@@ -155,6 +156,12 @@ VALIDATION_ISSUE_GUIDANCE: Dict[str, Dict[str, str]] = {
         "action": "지표·비교값·방향을 원문에 추가하고 다시 분석하세요.",
         "example": "15분봉 RSI 35 이하일 때 NoahAI LONG 신호만 확인",
     },
+    "source_conditions_require_definition": {
+        "title": "원문 조건 일부를 실행식으로 변환하지 못했습니다",
+        "explanation": "ENTRY/EXIT 항목 중 지원되는 비교식은 보존했고, 모호하거나 미지원인 나머지 조건은 생략하지 않았습니다.",
+        "action": "분석 결과의 원문 행별 질문을 확인하세요. 수치 정의가 필요한 조건은 보완하고, 미지원 상태·지표는 엔진 지원 전까지 실행할 수 없습니다.",
+        "example": "ENTRY: 아래 rsi <= 30.5 처럼 지원 지표·비교값 명시. 원래 전략의 조건 변경은 새 버전으로 검증",
+    },
     "source_grounding_stale_after_execution_edit": {
         "title": "분석 후 실행 규칙이 변경됐습니다",
         "explanation": "현재 JSON이 분석한 원문과 달라 원문 근거 해시가 일치하지 않습니다.",
@@ -287,6 +294,7 @@ def build_clarification_questions(
     suggestion cannot silently satisfy an execution requirement.
     """
     questions: List[Dict[str, Any]] = []
+    definition_targets = set()
     for index, raw in enumerate(details):
         detail = dict(raw or {})
         code = str(detail.get("code") or "").strip()
@@ -297,7 +305,14 @@ def build_clarification_questions(
             if code.startswith("missing_required_rule:")
             else code if code in FIELD_GUIDANCE else ""
         )
-        answerable = field in FIELD_GUIDANCE
+        target = str(detail.get('answer_target') or '')
+        definition = (detail.get('answer_kind') == 'condition_definition'
+                      and bool(re.fullmatch(r'[A-Za-z_]\w{0,127}', target, re.ASCII)))
+        if definition:
+            if target in definition_targets:
+                continue
+            definition_targets.add(target)
+        answerable = field in FIELD_GUIDANCE or definition
         questions.append({
             "id": f"clarification-{index + 1}-{field or 'contract'}",
             "code": code,
@@ -315,6 +330,8 @@ def build_clarification_questions(
             ),
             "answer_required": answerable,
             "auto_executable": False,
+            **({'answer_kind': 'condition_definition', 'answer_target': target}
+               if definition else {}),
         })
     return questions
 

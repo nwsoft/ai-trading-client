@@ -2823,7 +2823,7 @@ class ModernSettingsWindow:
             profile_row, text="전략 스튜디오 사용 난이도", font=ctk.CTkFont(family="Segoe UI", size=13, weight="bold"),
         ).pack(side="left")
         self.ai_custom_feature_profile_combo = ctk.CTkComboBox(
-            profile_row, values=["초보자", "일반", "고급", "실험실"], state="readonly", width=120, height=30,
+            profile_row, values=["초보자", "일반", "고급", "실험실", "연구실"], state="readonly", width=120, height=30,
             command=self._on_ai_custom_feature_profile_changed,
         )
         self.ai_custom_feature_profile_combo.set("일반")
@@ -3315,7 +3315,7 @@ class ModernSettingsWindow:
         """숙련도 프로필을 개별 토글의 안전한 시작값으로 적용한다."""
         from trading.ai_custom_features import PROFILE_FEATURES
 
-        label_to_profile = {"초보자": "beginner", "일반": "standard", "고급": "advanced", "실험실": "lab"}
+        label_to_profile = {"초보자": "beginner", "일반": "standard", "고급": "advanced", "실험실": "lab", "연구실": "research"}
         label = str(
             selected_label
             or (self.ai_custom_feature_profile_combo.get() if hasattr(self, "ai_custom_feature_profile_combo") else "일반")
@@ -3327,12 +3327,13 @@ class ModernSettingsWindow:
                 variable.set(bool(value))
         webhook_switch = getattr(self, "ai_custom_feature_switches", {}).get("signed_webhook")
         if webhook_switch is not None:
-            webhook_switch.configure(state="normal" if profile == "lab" else "disabled")
+            webhook_switch.configure(state="normal" if profile in {"lab", "research"} else "disabled")
         help_texts = {
             "beginner": "초보자 · Level 1 요약, 원본 근거, PnL·MDD와 품질 경고만 우선 보여 줍니다.",
             "standard": "일반(권장) · Level 2 핵심값, 월·연도 성과표와 전략 패키지까지 사용합니다.",
             "advanced": "고급 · Level 3 전체 IR, Expression Graph와 제한형 사용자 지표를 직접 편집합니다.",
-            "lab": "실험실 · 고급 기능에 외부 서명 신호 검증을 추가합니다. 운영 endpoint가 준비됐다는 뜻은 아닙니다.",
+            "lab": "실험실 · Level 4 운용 설계. 운영 endpoint가 준비됐다는 뜻은 아닙니다.",
+            "research": "연구실 · Level 5 비용 민감도/검증 근거. 실거래 권한·가드레일은 바뀌지 않습니다.",
         }
         label_widget = getattr(self, "ai_custom_profile_help_label", None)
         if label_widget is not None:
@@ -3356,7 +3357,7 @@ class ModernSettingsWindow:
     def _collect_ai_custom_feature_settings(self) -> Dict[str, Any]:
         from trading.ai_custom_features import PROFILE_FEATURES
 
-        label_to_profile = {"초보자": "beginner", "일반": "standard", "고급": "advanced", "실험실": "lab"}
+        label_to_profile = {"초보자": "beginner", "일반": "standard", "고급": "advanced", "실험실": "lab", "연구실": "research"}
         label = self.ai_custom_feature_profile_combo.get() if hasattr(self, "ai_custom_feature_profile_combo") else "일반"
         profile = label_to_profile.get(str(label), "standard")
         overrides = {}
@@ -7473,7 +7474,7 @@ AI 최적화 시스템과 충돌 발생
                 feature_state = resolve_ai_custom_features(self.current_settings)
                 profile_label = {
                     'beginner': '초보자', 'standard': '일반',
-                    'advanced': '고급', 'lab': '실험실',
+                    'advanced': '고급', 'lab': '실험실', 'research': '연구실',
                 }.get(feature_state['profile'], '일반')
                 self.ai_custom_feature_profile_combo.set(profile_label)
                 for key, value in feature_state['features'].items():

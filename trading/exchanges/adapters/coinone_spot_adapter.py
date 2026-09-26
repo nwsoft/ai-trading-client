@@ -365,7 +365,24 @@ class CoinoneSpotAdapter(SpotExchange):
             raise RuntimeError('coinone_open_orders_unconfirmed')
         return result['orders']
 
+    def get_recovery_day_fills(self, symbol, epoch):
+        return self._recovery_fills(symbol,None,epoch,day=True)
+
+    def get_recovery_holding_quantity(self,symbol):
+        from trading.recovery_statement import decimal
+        if not self.is_connected or self.exchange is None:raise RuntimeError('provider_connection_required')
+        raw=self.exchange.fetch_balance()
+        info=raw.get('info') if isinstance(raw,dict) else None
+        if not isinstance(info,dict) or info.get('result')!='success' or not isinstance(raw.get('total'),dict):
+            raise RuntimeError('position_anchor_unavailable')
+        base=self._normalize_symbol(symbol).split('/')[0]
+        # Only the confirmed full account response can establish absent = zero.
+        return decimal(raw['total'].get(base,'0'))
+
     def get_recovery_order_fills(self, symbol: str, order_id: str, epoch: float):
+        return self._recovery_fills(symbol,order_id,epoch)
+
+    def _recovery_fills(self, symbol, order_id, epoch,day=False):
         """Bounded native history scan with exact identity and explicit costs.
 
         Full pages must be exhausted: returning a partial scan as complete can
@@ -374,7 +391,8 @@ class CoinoneSpotAdapter(SpotExchange):
         import time
         base,quote = self._symbol_parts(symbol)
         end = min(int(time.time()*1000),int((epoch+86400)*1000))
-        start = max(0,int((epoch-86400)*1000))
+        start = max(0,int((epoch if day else epoch-86400)*1000))
+        if day:end=min(end,int((epoch+86400)*1000)-1)
         if start > end: raise ValueError('history_time_invalid')
         payload = dict(quote_currency=quote,target_currency=base,from_ts=start,to_ts=end,size=100)
         found,seen,cursors = [],set(),set()
@@ -387,11 +405,11 @@ class CoinoneSpotAdapter(SpotExchange):
                 if not identity: raise RuntimeError('history_fill_identity_missing')
                 if identity in seen: raise RuntimeError('history_page_duplicate')
                 seen.add(identity)
-                if str(row.get('order_id')) != str(order_id): continue
+                if order_id is not None and str(row.get('order_id')) != str(order_id): continue
                 if str(row.get('target_currency','')).lower()!=base or str(row.get('quote_currency','')).lower()!=quote:
                     raise RuntimeError('history_symbol_mismatch')
                 if not isinstance(row.get('is_ask'),bool): raise RuntimeError('history_side_missing')
-                found.append({'id':identity,'order':str(order_id),'symbol':self._normalize_symbol(symbol),
+                found.append({'id':identity,'order':str(row.get('order_id') or ''),'symbol':self._normalize_symbol(symbol),
                     'side':'sell' if row['is_ask'] else 'buy','amount':row.get('qty'),'price':row.get('price'),
                     'timestamp':row.get('timestamp'),'fee':{'cost':row.get('fee'),'currency':row.get('fee_currency')},
                     '_execution_confirmed':True,'info':row})

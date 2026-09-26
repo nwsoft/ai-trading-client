@@ -181,6 +181,7 @@ class CustomStrategyPipeline:
         # active pool에 먼저 들어가야 하는 순환 의존이 있었다.
         self.paper_versions: Dict[str, str] = {}
         self.deletion_history: List[Dict[str, Any]] = []
+        self.archived_versions: Dict[str, List[Dict[str, Any]]] = {}
         self._load()
 
     @staticmethod
@@ -406,6 +407,7 @@ class CustomStrategyPipeline:
             self.active_versions = dict(payload.get("active_versions", {}) or {})
             self.paper_versions = dict(payload.get("paper_versions", {}) or {})
             self.deletion_history = list(payload.get("deletion_history", []) or [])[-100:]
+            self.archived_versions = dict(payload.get('archived_versions', {}) or {})
             if self._reconcile_runtime_version_maps():
                 self._save()
             try:
@@ -527,6 +529,7 @@ class CustomStrategyPipeline:
             "active_versions": self.active_versions,
             "paper_versions": self.paper_versions,
             "deletion_history": self.deletion_history[-100:],
+            "archived_versions": self.archived_versions,
             "updated_at": self._now(),
         }
         temp_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
@@ -646,6 +649,10 @@ class CustomStrategyPipeline:
             )
         ]
         reasons: List[str] = []
+        entry_contract = rules.get('entry_contract')
+        if entry_contract is not None:
+            if not DeclarativeStrategyEngine.noah_base_entry_confirmed(rules):
+                reasons.append('entry_contract_invalid')
         has_executable_entry = bool(branch_directions or has_expression or has_conditions)
         grounding_status = str(
             dict(rules.get("source_grounding") or {}).get("status") or ""
@@ -1180,6 +1187,10 @@ class CustomStrategyPipeline:
         if normalized_mode not in allowed_modes:
             raise ValueError(f"지원하지 않는 실행 검증 방식입니다: {normalized_mode}")
         passed = int(decisions) >= self.min_paper_trades and int(guardrail_violations) == 0
+        if normalized_mode == "historical_replay" and "quality_passed" in (metrics or {}):
+            # Keep the stored status contract, without fabricating risk violations.
+            # Legacy records without this field retain their original interpretation.
+            passed = passed and (metrics or {}).get("quality_passed") is True
         version["execution_validation"] = {
             "passed": passed,
             "decisions": int(decisions),
@@ -1187,7 +1198,11 @@ class CustomStrategyPipeline:
             "metrics": deepcopy(metrics or {}),
             "mode": normalized_mode,
             "recorded_at": self._now(),
-            "note": "백테스트 단독 근거가 아닌 관찰/제한운용의 체결·비용·PnL 품질을 포함",
+            "note": (
+                "과거 시세 백테스트의 성과 평가입니다. 성과 기준 미달은 안전 위반이 아니며, 실행 조건이 유효하면 PAPER를 선택할 수 있습니다."
+                if normalized_mode == "historical_replay"
+                else "관찰/제한운용의 체결·비용·PnL 품질을 포함"
+            ),
         }
         version["improvement_advice"] = build_improvement_advice(metrics)
         chart = version["execution_validation"]["metrics"].get("replay_visualization")
@@ -1440,4 +1455,4 @@ class CustomStrategyPipeline:
             removable = next((idx for idx, item in enumerate(versions) if item.get("version_id") not in {active_id, paper_id}), None)
             if removable is None:
                 break
-            versions.pop(removable)
+            self.archived_versions.setdefault(strategy_key, []).append(versions.pop(removable))

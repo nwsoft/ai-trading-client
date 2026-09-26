@@ -180,6 +180,9 @@ class ParallelStrategyPaperEngine:
                         "rules": dict(position.get("rules") or {}),
                         "_exit_only": True,
                     })
+            from .numeric_strategy_state import NumericStateStore, enrich_states, identity as state_identity
+            state_store=NumericStateStore(self._path.with_suffix('.state.sqlite3'))
+            context=enrich_states(dict(context),observing,{'venue':target,'symbol':symbol,'mode':'parallel_paper'},state_store)
             for strategy in observing:
                 result["evaluated"] += 1
                 identity = self._identity(strategy, target, symbol)
@@ -191,7 +194,7 @@ class ParallelStrategyPaperEngine:
                     sl = _float(existing.get("sl_fraction"), 0.0)
                     signed_return = ((price - entry) / entry) * (1.0 if side == "LONG" else -1.0)
                     exit_eval = DeclarativeStrategyEngine.evaluate_exit(
-                        dict(strategy.get("rules") or {}), dict(context)
+                        dict(strategy.get("rules") or {}), {**context,'_numeric_state_identity':state_identity(strategy.get('rules') or {},strategy)}
                     )
                     exit_reason = ""
                     if tp > 0 and signed_return >= tp:
@@ -272,7 +275,12 @@ class ParallelStrategyPaperEngine:
                     asset_class=asset_class, target=target, market_regime=market_regime,
                 )
                 side = str(candidate.final_signal or "HOLD").upper()
-                if not candidate.allowed or side not in {"LONG", "SHORT"}:
+                # A pool may intentionally delegate to base NoahAI when this
+                # PAPER strategy did not match. Such a fallback is not a
+                # validation trade for this strategy and must not be attributed.
+                if (not candidate.allowed or side not in {"LONG", "SHORT"}
+                    or candidate.strategy_key!=str(strategy.get('strategy_key') or '')
+                    or candidate.strategy_version_id!=str(strategy.get('version_id') or '')):
                     continue
                 if (str(target).lower() in _SPOT_VENUES or str(asset_class).lower() in {"stock", "etf"}) and side == "SHORT":
                     continue

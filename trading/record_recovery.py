@@ -1,7 +1,7 @@
 """Account-local, resumable maintenance. Never a trading permission override.
 
-The durable queue spans all unresolved LIVE outcomes in a 45-day window (not
-the policy's 300-row sample). Each row is checkpointed; requests are read-only,
+New durable queues span all stored unresolved LIVE outcomes (not the policy's
+300-row sample). Resumed jobs preserve their original range. Each row is checkpointed; requests are read-only,
 outside SQLite transactions. Unknown ownership is never inferred from time or
 quantity. API support and accounting/strategy readiness are separate facts.
 """
@@ -53,7 +53,7 @@ class RecordRecovery:
                     PRIMARY KEY(job_id,trade_id));
             ''')
             columns = {r[1] for r in db.execute('PRAGMA table_info(jobs)')}
-            for name, definition in (('retry_count','INTEGER NOT NULL DEFAULT 0'),('next_retry_at','REAL NOT NULL DEFAULT 0'),('retryable','INTEGER NOT NULL DEFAULT 0')):
+            for name, definition in (('retry_count','INTEGER NOT NULL DEFAULT 0'),('next_retry_at','REAL NOT NULL DEFAULT 0'),('retryable','INTEGER NOT NULL DEFAULT 0'),('scope_version','INTEGER NOT NULL DEFAULT 0')):
                 if name not in columns: db.execute(f'ALTER TABLE jobs ADD COLUMN {name} {definition}')
         self.journal.chmod(0o600)
 
@@ -105,8 +105,18 @@ class RecordRecovery:
                 return {'source': venue, 'state': 'idle', 'total': 0, 'processed': 0,
                         'recovered': 0, 'remaining': 0, 'reasons': {}, 'auto_started': False}
             rows = db.execute('SELECT state,reason,COUNT(*) AS n FROM items WHERE job_id=? GROUP BY state,reason', (job['job_id'],)).fetchall()
+            details = db.execute("SELECT trade_id,state,reason,before_json FROM items WHERE job_id=? AND state NOT IN ('recovered','verified_open') ORDER BY trade_id DESC LIMIT 100", (job['job_id'],)).fetchall()
+        unresolved_items = []
+        for item in details:
+            before = json.loads(item['before_json'] or '{}')
+            unresolved_items.append({'trade_id': item['trade_id'], 'symbol': before.get('symbol'),
+                'exit_time': before.get('exit_time'), 'state': item['state'], 'reason': item['reason']})
         total = sum(r['n'] for r in rows)
+        from trading.recovery_actions import recovery_action
+        actions = {r['reason']: recovery_action(r['reason']) for r in rows
+                   if r['reason'] and r['state'] not in {'recovered', 'verified_open'}}
         recovered = sum(r['n'] for r in rows if r['state'] == 'recovered')
+        verified_open = sum(r['n'] for r in rows if r['state'] == 'verified_open')
         pending = sum(r['n'] for r in rows if r['state'] == 'pending')
         state = job['state']
         if state in {'running','retry_wait'} and job['lease_until'] < self.now():
@@ -128,8 +138,10 @@ class RecordRecovery:
                 'retryable': bool(job['retryable']) if 'retryable' in job.keys() else False,
                 'next_retry_at': job['next_retry_at'] if 'next_retry_at' in job.keys() else 0,
                 'total': total, 'processed': total-pending, 'recovered': recovered,
-                'remaining': total-recovered, 'pending': pending,
-                'reasons': {r['reason']: r['n'] for r in rows if r['reason'] and r['state'] != 'recovered'},
+                'remaining': total-recovered-verified_open, 'pending': pending, 'verified_open': verified_open,
+                'reasons': {r['reason']: r['n'] for r in rows if r['reason'] and r['state'] not in {'recovered', 'verified_open'}},
+                'next_actions': actions,
+                'unresolved_items': unresolved_items, 'unresolved_items_limit': 100,
                 'since': job['since'], 'updated': job['updated'], 'error': job['error'] or '',
                 'backup_created': bool(job['backup']), 'auto_started': False,
                 'account_pnl_verified': False, 'resume_authorized': False, 'history_pages': history_pages}
@@ -149,7 +161,10 @@ class RecordRecovery:
                     raise RuntimeError('recovery_cooldown')
                 continuation = old and old['state'] in {'paused', 'running', 'failed', 'retry_wait'}
                 job_id = old['job_id'] if continuation else uuid.uuid4().hex
-                since = old['since'] if continuation else self.now()-45*86400
+                # The recent policy sample is not a recovery boundary. New jobs
+                # cover all retained closed records; old jobs resume their exact
+                # checkpoint and a subsequent job can expand their scope.
+                since = old['since'] if continuation else 0.0
                 if not continuation:
                     # Keep previous per-row before/after audit evidence too.
                     db.execute('INSERT OR REPLACE INTO jobs(venue,job_id,state,updated,lease_until,since,backup,error) VALUES (?,?,?,?,?,?,NULL,NULL)',
@@ -217,7 +232,7 @@ class RecordRecovery:
     def _prepare(self, venue, job_id):
         with self._connect() as db:
             job = db.execute('SELECT * FROM jobs WHERE job_id=?', (job_id,)).fetchone()
-        if job['backup']:
+        if job['backup'] and job['scope_version'] >= 2:
             return
         folder = self.path.parent / 'backups' / 'record_recovery'
         folder.mkdir(parents=True, exist_ok=True)
@@ -237,16 +252,17 @@ class RecordRecovery:
             backup.chmod(0o600)
         with self._ledger() as src, self._connect() as db:
             for row in src.execute('''SELECT * FROM trade_log WHERE LOWER(exchange)=?
-                AND exit_time IS NOT NULL AND recovery_epoch(exit_time)>=?
-                AND recovery_epoch(exit_time)<=?
-                AND LOWER(execution_mode) IN ('live','live_api','optimized','manual')
-                AND (LOWER(position_owner)='noahai' OR LOWER(reason) LIKE 'ai %'
-                     OR LOWER(reason) LIKE 'stock_auto_%') ORDER BY id''', (venue, job['since'], self.now())):
+                AND ((exit_time IS NOT NULL AND recovery_epoch(exit_time)>=?
+                    AND recovery_epoch(exit_time)<=?) OR
+                    (exit_time IS NULL AND order_id IS NOT NULL AND TRIM(order_id)!=''
+                     AND (LOWER(COALESCE(position_owner,''))='noahai' OR LOWER(COALESCE(reason,'')) LIKE 'ai %')))
+                AND LOWER(COALESCE(execution_mode,'')) IN ('live','live_api','optimized','manual','unknown','')
+                AND LOWER(COALESCE(reason,'')) != 'binance_import' ORDER BY id''', (venue, job['since'], self.now())):
                 record = dict(row)
-                if not performance_evidence(record)['performance_evidence_ready']:
+                if record['exit_time'] is None or not performance_evidence(record)['performance_evidence_ready']:
                     db.execute('INSERT OR IGNORE INTO items(job_id,trade_id,state,before_json) VALUES (?,?,?,?)',
                                (job_id, row['id'], 'pending', json.dumps(record)))
-            db.execute('UPDATE jobs SET backup=? WHERE job_id=?', (str(backup), job_id))
+            db.execute('UPDATE jobs SET backup=?,scope_version=2 WHERE job_id=?', (str(backup), job_id))
 
     def _run(self, venue, job_id, *, keep_lock=False):
         try:
@@ -280,8 +296,10 @@ class RecordRecovery:
                         identity_changed = False
                     if identity_changed:
                         reason = 'record_identity_changed'
-                    elif performance_evidence(trade)['performance_evidence_ready']:
+                    elif trade.get('exit_time') is not None and performance_evidence(trade)['performance_evidence_ready']:
                         reason = ''
+                    elif not str(trade.get('execution_mode') or '').strip():
+                        reason = 'execution_mode_evidence_missing'
                     else:
                         # Resolver is pinned to this account's runtime & adapter.
                         # It must not make a network request while a DB lock is held.
@@ -304,21 +322,24 @@ class RecordRecovery:
                             time.sleep(self.delay)
                     with self._ledger() as db:
                         after = dict(db.execute('SELECT * FROM trade_log WHERE id=?', (item['trade_id'],)).fetchone())
-                    ready = not identity_changed and performance_evidence(after)['performance_evidence_ready']
+                    ready = not identity_changed and after.get('exit_time') is not None and performance_evidence(after)['performance_evidence_ready']
                     reason = '' if ready else reason or after.get('reconciliation_status') or 'evidence_incomplete'
                 with self._connect() as db:
                     db.execute('UPDATE items SET state=?,reason=?,after_json=? WHERE job_id=? AND trade_id=?',
-                               ('unresolved' if reason else 'recovered', reason,
+                               ('verified_open' if reason == 'position_verified_open' else 'unresolved' if reason else 'recovered', reason,
                                 json.dumps(after) if row else None, job_id, item['trade_id']))
             self._finish(venue, 'paused')
         except Exception as exc:
             # No raw provider response, key, account number or traceback in UI.
-            transient = (isinstance(exc,(TimeoutError,ConnectionError)) or
-                         type(exc).__name__ in {'ReadTimeout','ConnectTimeout'} or
+            from trading.recorder_write_queue import is_busy
+            busy = is_busy(exc)
+            transient = (busy or isinstance(exc,(TimeoutError,ConnectionError)) or
+                         type(exc).__name__ in {'ReadTimeout','ConnectTimeout','RequestTimeout',
+                                               'NetworkError','RateLimitExceeded','ExchangeNotAvailable'} or
                          getattr(exc,'code',None) in {-1001,-1003,-1007} or
                          getattr(exc,'status_code',None) in {429,500,502,503,504} or
-                         (isinstance(exc,RuntimeError) and str(exc)=='provider_history_query_failed'))
-            self._finish(venue, 'failed', type(exc).__name__, retryable=transient)
+                         (isinstance(exc,RuntimeError) and str(exc) in {'provider_history_query_failed','provider_history_rate_limited'}))
+            self._finish(venue, 'failed', 'storage_busy_retryable' if busy else type(exc).__name__, retryable=transient)
         finally:
             if not keep_lock: self.lock.release()
 
@@ -327,8 +348,12 @@ class RecordRecovery:
             db.execute('UPDATE jobs SET state=?,updated=?,lease_until=0,next_retry_at=0,error=?,retryable=? WHERE venue=?', (state, self.now(), error, int(retryable), venue))
 
 
-def validate_fills(trade, rows):
-    """Only complete, exact-order, dated, finite provider evidence is writable."""
+def validate_fills(trade, rows, *, require_costs=True):
+    """Check complete exact-order fills; clock-only repair cannot certify costs.
+
+    ``require_costs=False`` is only for restoring the close marker while PnL
+    remains unknown. Every financial recovery must use the default strict mode.
+    """
     if not isinstance(rows, list) or len(rows) >= 1000:
         return [], 'history_page_incomplete'
     try:
@@ -359,8 +384,8 @@ def validate_fills(trade, rows):
         try:
             amount = float(row.get('amount') or row.get('quantity') or 0)
             price = float(row.get('price'))
-            fee_value = float(cost)
-            if not all(math.isfinite(n) for n in (amount, price, fee_value)) or amount <= 0 or price <= 0:
+            numbers = (amount, price, float(cost)) if require_costs else (amount, price)
+            if not all(math.isfinite(n) for n in numbers) or amount <= 0 or price <= 0:
                 raise ValueError()
         except (ValueError, TypeError):
             return [], 'fee_or_fill_data_incomplete'

@@ -92,8 +92,8 @@ def audit() -> tuple[list[str], dict[str, Any]]:
     if not response or response.options != ("saver", "standard", "premium"):
         errors.append("어시스턴트 저장 프리셋이 saver/standard/premium 정본과 다릅니다.")
     profile = descriptors.get("ai_custom_features.profile")
-    if not profile or profile.options != ("beginner", "standard", "advanced", "lab"):
-        errors.append("AI 커스텀 프로필이 beginner/standard/advanced/lab 정본과 다릅니다.")
+    if not profile or profile.options != ("beginner", "standard", "advanced", "lab", "research"):
+        errors.append("AI 커스텀 프로필이 beginner/standard/advanced/lab/research 정본과 다릅니다.")
 
     sections = {_settings_section(item) for item in ALL_EDITABLE_SETTINGS}
     if sections != SETTINGS_SECTION_IDS:

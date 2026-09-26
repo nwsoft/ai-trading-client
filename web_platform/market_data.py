@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+import math
 import threading
 import time
 from typing import Any
@@ -205,19 +206,70 @@ class MultiSourcePublicMarketData(BinancePublicMarketData):
             self._cache[cache_key] = (now, snapshot)
         return snapshot
 
-    def _request_rows(self, venue: str, market_type: str, symbol: str, interval: str, limit: int) -> list[Any]:
+    def get_candles_range(self, source: str, market_type: str, symbol: str, interval: str,
+                          start_ms: int, end_ms: int) -> CandleSnapshotContract:
+        """Bounded backward pagination. Never substitute recent data for a requested date.
+
+        Missing trading intervals are not filled with fabricated candles. The caller
+        checks warmup and records actual coverage. No account API or order methods.
+        """
+        venue = str(source).strip().lower()
+        symbol = str(symbol).upper().strip().replace('/', '').replace('_', '').replace('-', '')
+        if venue not in self.SOURCES or not SYMBOL_PATTERN.fullmatch(symbol):
+            raise ValueError("unsupported market source or symbol")
+        if market_type not in {"spot", "futures"} or (venue not in USDT_FUTURES_VENUES and market_type != "spot"):
+            raise ValueError("unsupported market type")
+        if interval not in BINANCE_INTERVALS | {"10m"} or interval.endswith("M"):
+            raise ValueError("기간 지정 검사는 고정 길이 시간봉만 지원합니다. 월봉을 30일로 대체하지 않습니다.")
+        step = interval_milliseconds(interval)
+        if not 0 <= start_ms < end_ms <= int(time.time() * 1000):
+            raise ValueError("검사 기간은 과거 시작 시각부터 종료 시각까지 지정하세요.")
+        if (end_ms - start_ms) / step > 5000:
+            raise ValueError("기간 지정 검사는 워밍업 포함 최대 5,000봉입니다. 기간을 줄이거나 시간봉을 바꾸세요.")
+        candles = {}
+        cursor = end_ms - 1
+        for _ in range(30):
+            rows = self._request_rows(venue, market_type, symbol, interval, 200, end_ms=cursor)
+            batch = self._normalize_rows(venue, market_type, symbol, interval, rows)
+            usable = [c for c in batch if c.open_time <= cursor]
+            if not usable:
+                break
+            oldest = min(c.open_time for c in usable)
+            for candle in usable:
+                if (not all(math.isfinite(getattr(candle, k)) for k in ("open", "high", "low", "close", "volume"))
+                        or min(candle.open, candle.high, candle.low, candle.close) <= 0 or candle.volume < 0
+                        or candle.high < max(candle.open, candle.close, candle.low)
+                        or candle.low > min(candle.open, candle.close)):
+                    raise PublicMarketDataError("historical_invalid_price")
+                if not candle.closed or candle.close_time >= end_ms or candle.open_time < start_ms:
+                    continue
+                previous = candles.get(candle.open_time)
+                if previous and any(getattr(previous, k) != getattr(candle, k) for k in ("open", "high", "low", "close", "volume", "close_time")):
+                    raise PublicMarketDataError("historical_candle_conflict")
+                candles[candle.open_time] = candle
+            if oldest <= start_ms:
+                break
+            if oldest >= cursor:
+                raise PublicMarketDataError("historical_pagination_stalled")
+            cursor = oldest - 1
+        else:
+            raise PublicMarketDataError("historical_pagination_limit")
+        return CandleSnapshotContract(source=venue, symbol=symbol, interval=interval,
+            candles=[c.model_copy(update={"sequence": i}) for i, c in enumerate(sorted(candles.values(), key=lambda c: c.open_time))])
+
+    def _request_rows(self, venue: str, market_type: str, symbol: str, interval: str, limit: int, *, end_ms: int | None = None) -> list[Any]:
         if venue == "binance":
             if interval not in BINANCE_INTERVALS:
                 raise ValueError("unsupported candle interval")
             url = BINANCE_FUTURES_KLINES_URL if market_type == "futures" else BINANCE_SPOT_KLINES_URL
-            response = self._session.get(url, params={"symbol": symbol, "interval": interval, "limit": limit}, timeout=(3.0, 8.0))
+            response = self._session.get(url, params={"symbol": symbol, "interval": interval, "limit": limit, **({"endTime": end_ms} if end_ms is not None else {})}, timeout=(3.0, 8.0))
             response.raise_for_status(); payload = response.json()
             if not isinstance(payload, list): raise PublicMarketDataError("binance_public_candles_invalid_payload")
             return payload
         if venue == "bybit":
             mapping = {"1m":"1","3m":"3","5m":"5","15m":"15","30m":"30","1h":"60","2h":"120","4h":"240","6h":"360","12h":"720","1d":"D","1w":"W","1M":"M"}
             if interval not in mapping: raise ValueError("unsupported candle interval")
-            response = self._session.get("https://api.bybit.com/v5/market/kline", params={"category":"linear" if market_type == "futures" else "spot","symbol":symbol,"interval":mapping[interval],"limit":limit}, timeout=(3.0,8.0))
+            response = self._session.get("https://api.bybit.com/v5/market/kline", params={"category":"linear" if market_type == "futures" else "spot","symbol":symbol,"interval":mapping[interval],"limit":limit, **({"end": end_ms} if end_ms is not None else {})}, timeout=(3.0,8.0))
             response.raise_for_status(); payload = response.json()
             if int(payload.get("retCode", -1)) != 0: raise PublicMarketDataError("bybit_public_candles_error")
             return list((payload.get("result") or {}).get("list") or [])
@@ -226,13 +278,14 @@ class MultiSourcePublicMarketData(BinancePublicMarketData):
             if interval not in mapping: raise ValueError("unsupported candle interval")
             base = symbol[:-4] if symbol.endswith("USDT") else symbol
             inst_id = f"{base}-USDT-SWAP" if market_type == "futures" else f"{base}-USDT"
-            response = self._session.get("https://www.okx.com/api/v5/market/candles", params={"instId":inst_id,"bar":mapping[interval],"limit":min(limit,300)}, timeout=(3.0,8.0))
+            response = self._session.get("https://www.okx.com/api/v5/market/" + ("history-candles" if end_ms is not None else "candles"), params={"instId":inst_id,"bar":mapping[interval],"limit":min(limit,300), **({"after": end_ms + 1} if end_ms is not None else {})}, timeout=(3.0,8.0))
             response.raise_for_status(); payload = response.json()
             if str(payload.get("code")) != "0": raise PublicMarketDataError("okx_public_candles_error")
             return list(payload.get("data") or [])
         if venue == "bitget":
             if interval not in BINANCE_INTERVALS - {"8h"}: raise ValueError("unsupported candle interval")
-            response = self._session.get("https://api.bitget.com/api/v2/mix/market/candles", params={"symbol":symbol,"productType":"USDT-FUTURES","granularity":interval,"limit":min(limit,1000)}, timeout=(3.0,8.0))
+            granularity = {"1d":"1D", "3d":"3D", "1w":"1W", "1M":"1M"}.get(interval, interval)
+            response = self._session.get("https://api.bitget.com/api/v2/mix/market/" + ("history-candles" if end_ms is not None else "candles"), params={"symbol":symbol,"productType":"USDT-FUTURES","granularity":granularity,"limit":min(limit,200 if end_ms is not None else 1000), **({"endTime": end_ms + 1} if end_ms is not None else {})}, timeout=(3.0,8.0))
             response.raise_for_status(); payload = response.json()
             if str(payload.get("code")) != "00000": raise PublicMarketDataError("bitget_public_candles_error")
             return list(payload.get("data") or [])
@@ -245,10 +298,20 @@ class MultiSourcePublicMarketData(BinancePublicMarketData):
             elif interval == "1d": url = "https://api.upbit.com/v1/candles/days"
             elif interval == "1w": url = "https://api.upbit.com/v1/candles/weeks"
             else: raise ValueError("unsupported candle interval")
-            response = self._session.get(url, params={"market":f"KRW-{base}","count":limit}, timeout=(3.0,8.0)); response.raise_for_status(); payload=response.json()
+            response = self._session.get(url, params={"market":f"KRW-{base}","count":limit, **({"to": utc_cursor(end_ms + 1)} if end_ms is not None else {})}, timeout=(3.0,8.0)); response.raise_for_status(); payload=response.json()
             if not isinstance(payload,list): raise PublicMarketDataError("upbit_public_candles_invalid_payload")
             return payload
         if venue == "bithumb":
+            if end_ms is not None:
+                minute_map = {"1m":1,"3m":3,"5m":5,"10m":10,"15m":15,"30m":30,"1h":60,"4h":240}
+                endpoint = f"minutes/{minute_map[interval]}" if interval in minute_map else {"1d":"days", "1w":"weeks"}.get(interval)
+                if not endpoint:
+                    raise ValueError("빗썸 기간 지정 검사에서 지원하지 않는 시간봉입니다. 다른 시간봉으로 대체하지 않습니다.")
+                response = self._session.get(f"https://api.bithumb.com/v1/candles/{endpoint}", params={"market":f"KRW-{base}","count":min(limit,200),"to":bithumb_cursor(end_ms + 1)}, timeout=(3.0,8.0))
+                response.raise_for_status(); payload = response.json()
+                if not isinstance(payload, list):
+                    raise PublicMarketDataError("bithumb_public_candles_invalid_payload")
+                return [[int(datetime_from_iso(row["candle_date_time_utc"]).timestamp()*1000), row["opening_price"], row["trade_price"], row["high_price"], row["low_price"], row["candle_acc_trade_volume"]] for row in payload]
             # v1.2 candlestick is capped at 200 rows. Use native v2.1
             # minute candles for 15m/4h instead of shrinking the sample by
             # resampling that legacy response.
@@ -276,7 +339,7 @@ class MultiSourcePublicMarketData(BinancePublicMarketData):
                 raise ValueError("Coinone 현물에서 지원하지 않는 시간봉입니다.")
             response = self._session.get(
                 f"https://api.coinone.co.kr/public/v2/chart/KRW/{base}",
-                params={"interval": interval, "size": min(limit, 500)}, timeout=(3.0, 8.0),
+                params={"interval": interval, "size": min(limit, 500), **({"timestamp": end_ms} if end_ms is not None else {})}, timeout=(3.0, 8.0),
             )
             response.raise_for_status()
             payload = response.json()
@@ -314,6 +377,18 @@ def datetime_from_iso(value: str):
     from datetime import datetime, timezone
     parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
     return parsed.replace(tzinfo=timezone.utc) if parsed.tzinfo is None else parsed
+
+
+def utc_cursor(timestamp_ms: int) -> str:
+    from datetime import datetime, timezone
+    return datetime.fromtimestamp(timestamp_ms / 1000, timezone.utc).isoformat(timespec="milliseconds")
+
+
+def bithumb_cursor(timestamp_ms: int) -> str:
+    # This endpoint accepts an offset-free KST cursor, unlike Upbit's UTC ISO.
+    # Never use the host timezone (Windows/macOS may be configured differently).
+    from datetime import datetime, timezone, timedelta
+    return datetime.fromtimestamp(timestamp_ms / 1000, timezone(timedelta(hours=9))).strftime("%Y-%m-%dT%H:%M:%S")
 
 
 def interval_milliseconds(interval: str) -> int:

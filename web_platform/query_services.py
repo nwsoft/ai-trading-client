@@ -1084,7 +1084,7 @@ class AccountQueryService:
                     f"THEN {raw_net_pnl_expression} ELSE NULL END"
                 )
                 provider_gross_expression = (
-                    f"CASE WHEN {pnl_source_expression} IN ('exchange_realized_pnl','broker_lot_accounting') "
+                    f"CASE WHEN {pnl_source_expression} IN ('exchange_realized_pnl','broker_lot_accounting','exchange_uniform_close_lot') "
                     f"THEN {gross_pnl_expression} ELSE NULL END"
                 )
                 if "entry_amount" in columns:

@@ -113,6 +113,86 @@ def reconstruct_cycle(trade, fills, orders, anchors, start, end):
     return {'entry': entry_fills, 'exit': exit_fills, 'currency': currency, 'quantity': actual_quantity}, ''
 
 
+def reconstruct_uniform_close_lot(trade, fills, orders, anchors, start, end):
+    """Multiple opening orders, one uniform-price full close, exact owned lot.
+
+    This is fill-price lot accounting, NOT the provider's per-lot realized PnL.
+    No FIFO assumption: every unit exits at the same price. All account-cycle
+    entry costs must independently reconcile to provider gross before use.
+    """
+    symbol, oid = str(trade['symbol']).upper(), str(trade.get('order_id') or '')
+    own = [r for r in fills if str(r.get('orderId')) == oid]
+    if not own:
+        return None, 'entry_order_not_in_history'
+    side = own[0].get('positionSide')
+    anchor = [r for r in anchors if r.get('symbol') == symbol and r.get('positionSide') == side]
+    if len(anchor) != 1 or side not in {'BOTH', 'LONG', 'SHORT'} or int(anchor[0].get('updateTime', end+1)) > end:
+        return None, 'position_anchor_changed'
+    selected = sorted((r for r in fills if r.get('positionSide') == side), key=lambda r: (int(r['time']), int(r['id'])))
+    if any(r.get('symbol') != symbol or r.get('side') not in {'BUY','SELL'} or number(r['qty']) <= 0 or not start <= int(r['time']) <= end for r in selected):
+        return None, 'history_identity_mismatch'
+    if len({str(r['id']) for r in selected}) != len(selected):
+        return None, 'history_identity_mismatch'
+    delta = lambda r: number(r['qty']) * (1 if r['side']=='BUY' else -1)
+    balance = number(anchor[0]['positionAmt']) - sum((delta(r) for r in selected), Decimal(0))
+    segment, target = [], None
+    for row in selected:
+        if balance == 0:
+            segment = []
+        segment.append(row)
+        balance += delta(row)
+        if balance == 0 and any(str(r['orderId']) == oid for r in segment):
+            if target is not None:
+                return None, 'position_cycle_ambiguous'
+            target = list(segment)
+    if not target:
+        return None, 'position_cycle_incomplete'
+    direction = 1 if str(trade['side']).upper() in {'LONG','BUY'} else -1
+    opening, closing, closing_started = [], [], False
+    for row in target:
+        if delta(row)*direction > 0:
+            if closing_started:
+                return None, 'position_cycle_ambiguous'
+            opening.append(row)
+        else:
+            closing_started = True
+            closing.append(row)
+    own = [r for r in opening if str(r['orderId']) == oid]
+    if not own or len({str(r['orderId']) for r in opening}) < 2 or not closing:
+        return None, 'position_cycle_ambiguous'
+    # A single price removes arbitrary FIFO/pro-rata exit-price choices.
+    if len({number(r['price']) for r in closing}) != 1 or len({str(r['orderId']) for r in closing}) != 1:
+        return None, 'exit_lot_allocation_required'
+    total = sum((number(r['qty']) for r in opening), Decimal(0))
+    qty = sum((number(r['qty']) for r in own), Decimal(0))
+    if total != sum((number(r['qty']) for r in closing), Decimal(0)) or qty != number(trade['quantity']):
+        return None, 'partial_or_quantity_mismatch'
+    # Reuse the strict single-cycle validator for terminal order, currency,
+    # side, fill completeness and anchor checks by grouping opening identity.
+    synthetic_oid = str(opening[0]['orderId'])
+    grouped = [{**r, 'orderId':synthetic_oid} if r in opening else r for r in fills]
+    order_map = {str(r.get('orderId')):r for r in orders}
+    for order_id in {str(r['orderId']) for r in opening}:
+        order = order_map.get(order_id)
+        group = [r for r in opening if str(r['orderId']) == order_id]
+        if not order or order.get('status') not in {'FILLED','CANCELED','EXPIRED','EXPIRED_IN_MATCH'} or order.get('symbol') != symbol or order.get('positionSide') != side or any(r['side'] != order.get('side') for r in group) or number(order['executedQty']) != sum((number(r['qty']) for r in group),Decimal(0)):
+            return None, 'order_history_incomplete'
+    grouped_orders = [r for r in orders if str(r['orderId']) not in {str(x['orderId']) for x in opening}]
+    grouped_orders.append({**order_map[synthetic_oid], 'executedQty':str(total)})
+    proof, reason = reconstruct_cycle({**trade,'order_id':synthetic_oid,'quantity':str(total)}, grouped, grouped_orders, anchors, start, end)
+    if reason:
+        return None, reason
+    exit_price = number(closing[0]['price'])
+    calculated = sum(((exit_price-number(r['price']))*number(r['qty'])*direction for r in opening),Decimal(0))
+    provider = sum((number(r['realizedPnl']) for r in closing),Decimal(0))
+    if abs(calculated-provider) > Decimal('0.00000001')*len(closing):
+        return None, 'cycle_gross_reconciliation_required'
+    own_gross = sum(((exit_price-number(r['price']))*number(r['qty'])*direction for r in own),Decimal(0))
+    return {'entry':own,'exit':closing,'account_entry':opening,'currency':proof['currency'],
+            'quantity':qty,'total_quantity':total,'lot_gross':own_gross,
+            'basis':'uniform_price_full_close_lot'}, ''
+
+
 class BinanceHistoryRecovery:
     def __init__(self, recorder, client, queried):
         self.recorder, self.client, self.queried = recorder, client, queried
@@ -142,6 +222,9 @@ class BinanceHistoryRecovery:
                 CREATE TABLE IF NOT EXISTS recovery_cycle_repairs(
                   scope TEXT,trade_id INTEGER,before_json TEXT,after_json TEXT,
                   PRIMARY KEY(scope,trade_id));
+                CREATE TABLE IF NOT EXISTS recovery_exit_lot_allocations(
+                  scope TEXT,symbol TEXT,fill_id TEXT,trade_id INTEGER,quantity TEXT,evidence TEXT,
+                  PRIMARY KEY(scope,symbol,fill_id,trade_id));
             ''')
             if 'verified' not in {r[1] for r in db.execute('PRAGMA table_info(recovery_history_sessions)')}:
                 db.execute('ALTER TABLE recovery_history_sessions ADD COLUMN verified INTEGER DEFAULT 0')
@@ -196,13 +279,10 @@ class BinanceHistoryRecovery:
 
     @contextmanager
     def db(self):
-        db = sqlite3.connect(self.recorder.db_path, timeout=2)
-        db.row_factory = sqlite3.Row
-        try:
-            with db:
-                yield db
-        finally:
-            db.close()
+        from trading.write_coordination import connection
+        with connection(self.recorder.db_path, operation='history_recovery_checkpoint', timeout=5, priority=20) as db:
+            db.row_factory = sqlite3.Row
+            yield db
 
     def query(self, method, *args):
         self.queried()
@@ -223,14 +303,23 @@ class BinanceHistoryRecovery:
                        (self.scope,self.job_id,symbol,start))
             session = db.execute('SELECT * FROM recovery_history_sessions WHERE scope=? AND symbol=? AND start=?',
                                  (self.scope,symbol,start)).fetchone()
+            if trade.get('exit_time') is None and session and session['attempt_job'] != self.job_id:
+                # A once-open lot may close after the previous job's end time.
+                # Recheck an unresolved lot against a fresh anchor/window, not
+                # an indefinitely frozen "verified" historical snapshot.
+                db.execute("UPDATE recovery_history_pages SET state='pending' WHERE scope=? AND symbol=? AND start>=? AND state!='split'",
+                           (self.scope,symbol,start))
+                db.execute('DELETE FROM recovery_history_session_pages WHERE scope=? AND symbol=? AND session_start=?', (self.scope,symbol,start))
+                db.execute('DELETE FROM recovery_history_sessions WHERE scope=? AND symbol=? AND start=?', (self.scope,symbol,start))
+                session = None
         if not session:
             anchor = self.query(self.client.get_recovery_position_anchor, symbol)
             end = int(self.client.get_synced_timestamp())
             if start < end - 89*86400000:
                 return 'history_retention_exceeded'
             with self.db() as db:
-                db.execute('INSERT INTO recovery_history_sessions(scope,symbol,start,end,anchor) VALUES(?,?,?,?,?)',
-                           (self.scope,symbol,start,end,json.dumps(anchor)))
+                db.execute('INSERT INTO recovery_history_sessions(scope,symbol,start,end,anchor,attempt_job) VALUES(?,?,?,?,?,?)',
+                           (self.scope,symbol,start,end,json.dumps(anchor),self.job_id))
                 self._plan_pages(db,symbol,start,end)
             raise HistoryPending()
         end = session['end']
@@ -312,6 +401,8 @@ class BinanceHistoryRecovery:
                 db.execute('UPDATE recovery_history_sessions SET verified=1 WHERE scope=? AND symbol=? AND start=?',
                            (self.scope,symbol,start))
         proof, reason = reconstruct_cycle(trade,data['fills'],data['orders'],current,start,end)
+        if reason == 'position_cycle_ambiguous':
+            proof, reason = reconstruct_uniform_close_lot(trade,data['fills'],data['orders'],current,start,end)
         if reason:
             return self._needs_refresh(symbol,start,reason)
         reason = self.apply(trade, proof, data['income'], start, end)
@@ -319,7 +410,8 @@ class BinanceHistoryRecovery:
 
     def apply(self, trade, proof, income, start, end):
         entry, exits = proof['entry'], proof['exit']
-        cycle = entry + exits
+        allocated = proof.get('basis') == 'uniform_price_full_close_lot'
+        cycle = proof.get('account_entry', entry) + exits
         # Income history provides an independent gross-PnL cross-check by tradeId.
         for fill in exits:
             expected = number(fill['realizedPnl'])
@@ -329,17 +421,23 @@ class BinanceHistoryRecovery:
                 return 'income_reconciliation_required'
             if any(r.get('asset') != proof['currency'] for r in linked) or sum((number(r['income']) for r in linked),Decimal(0)) != expected:
                 return 'income_reconciliation_required'
-        gross = sum((number(r['realizedPnl']) for r in exits),Decimal(0))
+        gross = number(proof['lot_gross']) if allocated else sum((number(r['realizedPnl']) for r in exits),Decimal(0))
         entry_fee = sum((number(r['commission']) for r in entry),Decimal(0))
         exit_fee = sum((number(r['commission']) for r in exits),Decimal(0))
         net = gross-entry_fee-exit_fee
         qty = number(proof['quantity'])
-        exit_price = sum((number(r['price'])*number(r['qty']) for r in exits),Decimal(0))/qty
+        total_qty = number(proof.get('total_quantity', qty))
+        if allocated:
+            exit_fee *= qty/total_qty
+            net = gross-entry_fee-exit_fee
+        exit_price = sum((number(r['price'])*number(r['qty']) for r in exits),Decimal(0))/total_qty
         entry_price = sum((number(r['price'])*number(r['qty']) for r in entry),Decimal(0))/qty
         closed = datetime.fromtimestamp(max(int(r['time']) for r in exits)/1000,timezone.utc).isoformat()
         exit_ids = sorted({str(r['orderId']) for r in exits})
         evidence = json.dumps({'start':start,'end':end,'entry_order':str(trade['order_id']),
-                               'exit_orders':exit_ids,'entry':entry,'exit':exits,'basis':'isolated_position_cycle'})
+                               'exit_orders':exit_ids,'entry':entry,'exit':exits,
+                               'account_entry':proof.get('account_entry', entry),
+                               'basis':proof.get('basis','isolated_position_cycle')})
         # Populate the existing execution ledger too, so statistics/notifications
         # do not see a certified close with no corresponding provider fills.
         normalized = [{**r,'order':str(r['orderId']),'quantity':r['qty'],
@@ -364,7 +462,12 @@ class BinanceHistoryRecovery:
             if db.execute('SELECT COUNT(*) FROM trade_log WHERE exchange=? AND symbol=? AND order_id=?',
                           ('binance',trade['symbol'],trade['order_id'])).fetchone()[0] != 1:
                 return 'entry_order_allocation_required'
-            for fill in cycle:
+            for fill in (entry + exits if allocated else cycle):
+                if db.execute("SELECT 1 FROM sqlite_master WHERE name='common_recovery_claims'").fetchone():
+                    from trading.recovery_statement import symbol_key
+                    if db.execute("SELECT 1 FROM common_recovery_claims WHERE venue='binance' AND symbol=? AND execution_id=? AND trade_id!=? LIMIT 1",
+                                  (symbol_key(trade['symbol']),str(fill['id']),trade['id'])).fetchone():
+                        return 'order_attribution_conflict'
                 owner = db.execute('SELECT trade_id FROM recovery_cycle_claims WHERE scope=? AND symbol=? AND fill_id=?',
                                    (self.scope,trade['symbol'],str(fill['id']))).fetchone()
                 if owner and owner[0] != trade['id']:
@@ -374,19 +477,36 @@ class BinanceHistoryRecovery:
                     AND exit_order_id=? AND execution_mode IN ('live','live_api','optimized','manual') LIMIT 1''',
                     (trade['id'],trade['symbol'],oid)).fetchone():
                     return 'order_attribution_conflict'
-            for fill in cycle:
+            # Never claim a whole shared exit for a single local lot. Persist
+            # per-fill allocated quantity; other/manual opening lots stay intact.
+            for fill in exits:
+                existing = db.execute('SELECT trade_id,quantity FROM recovery_exit_lot_allocations WHERE scope=? AND symbol=? AND fill_id=?',
+                                      (self.scope,trade['symbol'],str(fill['id']))).fetchall()
+                if not allocated and existing:
+                    return 'order_attribution_conflict'
+                portion = number(fill['qty'])*qty/total_qty
+                if sum((number(r['quantity']) for r in existing if r['trade_id'] != trade['id']),Decimal(0))+portion > number(fill['qty']):
+                    return 'order_attribution_conflict'
+            for fill in (entry if allocated else cycle):
                 db.execute('INSERT OR IGNORE INTO recovery_cycle_claims VALUES(?,?,?,?,?)',
                            (self.scope,trade['symbol'],str(fill['id']),trade['id'],evidence))
+            if allocated:
+                for fill in exits:
+                    db.execute('INSERT OR REPLACE INTO recovery_exit_lot_allocations VALUES(?,?,?,?,?,?)',
+                               (self.scope,trade['symbol'],str(fill['id']),trade['id'],str(number(fill['qty'])*qty/total_qty),evidence))
             # Multi-order closes keep the singular column NULL: no fake exchange
             # order ID. The claim table stores every actual order/fill instead.
             db.execute('''UPDATE trade_log SET exit_order_id=?,exit_price=?,exit_time=?,quantity=?,entry_price=?,
                 gross_pnl=?,net_pnl=?,pnl=?,pnl_percent=?,entry_fee=?,exit_fee=?,fees=?,
                 entry_fee_asset=?,exit_fee_asset=?,fee_asset=?,settlement_currency=?,
-                pnl_source='exchange_realized_pnl',reconciliation_status='exchange_confirmed'
-                WHERE id=?''', (exit_ids[0] if len(exit_ids)==1 else None,float(exit_price),closed,float(qty),float(entry_price),
+                pnl_source=?,reconciliation_status=?
+                WHERE id=?''', (exit_ids[0] if len(exit_ids)==1 and not allocated else None,float(exit_price),closed,float(qty),float(entry_price),
                 float(gross),float(net),float(net),float(net/(entry_price*qty)*100),float(entry_fee),float(exit_fee),
-                float(entry_fee+exit_fee),proof['currency'],proof['currency'],proof['currency'],proof['currency'],trade['id']))
+                float(entry_fee+exit_fee),proof['currency'],proof['currency'],proof['currency'],proof['currency'],
+                'exchange_uniform_close_lot' if allocated else 'exchange_realized_pnl',
+                'exact_fill_price_no_provider_pnl' if allocated else 'exchange_confirmed',trade['id']))
             after = dict(db.execute('SELECT * FROM trade_log WHERE id=?',(trade['id'],)).fetchone())
-            db.execute('INSERT OR REPLACE INTO recovery_cycle_repairs VALUES(?,?,?,?)',
+            db.execute('''INSERT INTO recovery_cycle_repairs VALUES(?,?,?,?)
+                       ON CONFLICT(scope,trade_id) DO UPDATE SET after_json=excluded.after_json''',
                        (self.scope,trade['id'],json.dumps(trade),json.dumps(after)))
         return ''

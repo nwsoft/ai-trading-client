@@ -521,6 +521,7 @@ class StrategyCustomizer:
         from trading.custom_strategy_validator import (
             collect_advanced_indicator_references,
             run_historical_replay,
+            historical_quality_assessment,
         )
 
         _, strategy = self._strategy_for_version(strategy_key, version_id)
@@ -598,11 +599,11 @@ class StrategyCustomizer:
             spread_bps=spread_bps,
         )
         minimum = int(getattr(self.custom_pipeline, "min_paper_trades", 3) or 3)
-        quality_pass = (
-            int(metrics.get("decisions", 0) or 0) >= minimum
-            and float(metrics.get("net_pnl_percent", 0.0) or 0.0) > 0.0
-            and float(metrics.get("max_drawdown_percent", 0.0) or 0.0) <= 10.0
-        )
+        assessment = historical_quality_assessment(metrics, minimum)
+        metrics.update(assessment)
+        from trading.strategy_research import replay_cost_sensitivity
+        metrics["research_cost_sensitivity"] = replay_cost_sensitivity(metrics)
+        quality_pass = assessment["quality_passed"]
         metrics.update({
             "symbol": selected_symbol,
             "exchange": validation_target or target or ("stock" if is_stock else "binance"),
@@ -613,7 +614,7 @@ class StrategyCustomizer:
             strategy_key,
             version_id,
             decisions=int(metrics.get("decisions", 0) or 0),
-            guardrail_violations=0 if quality_pass else 1,
+            guardrail_violations=0,
             metrics=metrics,
             mode="historical_replay",
         )

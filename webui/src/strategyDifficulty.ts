@@ -6,6 +6,7 @@ const profiles: Record<string, [number, string, string]> = {
   standard: [2, '일반', 'Standard'],
   advanced: [3, '고급', 'Advanced'],
   lab: [4, '실험실', 'Lab'],
+  research: [5, '연구실', 'Research'],
 };
 
 export function strategyDifficultyLabel(profile: string): string {

@@ -30,7 +30,7 @@ class DeclarativeStrategyEngine:
     }
     OPERATORS = {
         "eq", "ne", "gt", "gte", "lt", "lte", "in", "not_in",
-        "gt_field", "lt_field", "crosses_above", "crosses_below",
+        "gt_field", "lt_field", "gte_field", "lte_field", "eq_field", "ne_field", "crosses_above", "crosses_below",
     }
     REGIME_ALIASES = {
         "BULL": "bull", "BULLISH": "bull", "UPTREND": "bull", "TREND": "trend",
@@ -92,6 +92,10 @@ class DeclarativeStrategyEngine:
     @classmethod
     def _field_key(cls, reference: Any) -> Tuple[str, str]:
         if isinstance(reference, dict):
+            if 'state_variable' in reference:
+                from .numeric_strategy_state import NAME
+                name=reference.get('state_variable')
+                return ('state_'+name,'supported') if isinstance(name,str) and NAME.fullmatch(name) else ('','invalid_state_variable')
             if "user_indicator" in reference:
                 name = str(reference.get("user_indicator") or "").strip().lower()
                 if not UserIndicatorLanguage._NAME_RE.fullmatch(name):
@@ -112,7 +116,7 @@ class DeclarativeStrategyEngine:
             return False, field_reason
         if operator not in cls.OPERATORS:
             return False, f"unsupported_operator:{operator}"
-        if operator in {"gt_field", "lt_field", "crosses_above", "crosses_below"}:
+        if operator in {"gt_field", "lt_field", "gte_field", "lte_field", "eq_field", "ne_field", "crosses_above", "crosses_below"}:
             raw_value_field = condition.get("value_field", condition.get("value"))
             value_field, value_reason = cls._field_key(raw_value_field)
             if not value_field:
@@ -129,6 +133,25 @@ class DeclarativeStrategyEngine:
     def validate_rule_spec(cls, rules: Dict[str, Any]) -> Dict[str, Any]:
         """저장 전에 미지원 선언형 조건을 찾아 조용히 무시되는 일을 막는다."""
         errors: List[str] = []
+        from .numeric_strategy_state import validate as validate_state
+        errors.extend(validate_state((rules or {}).get('numeric_state')))
+        if (rules or {}).get('numeric_state') and str(rules.get('decision_timeframe') or rules.get('timeframe') or '') not in cls.ALLOWED_TIMEFRAMES:
+            errors.append('state_timeframe_required')
+        def state_refs(value):
+            if isinstance(value,dict):
+                if 'state_variable' in value and value['state_variable'] not in (((rules or {}).get('numeric_state') or {}).get('initial') or {}):
+                    errors.append('state_variable_undeclared:'+str(value['state_variable']))
+                for v in value.values():state_refs(v)
+            elif isinstance(value,list):
+                for v in value:state_refs(v)
+        state_refs(rules)
+        from .temporal_strategy_conditions import required_bars
+        if required_bars({key:(rules or {}).get(key) for key in ('executable_entry','executable_exit','independent_entries')}) and str((rules or {}).get('decision_timeframe') or (rules or {}).get('timeframe') or '') not in cls.ALLOWED_TIMEFRAMES:
+            errors.append('temporal_decision_timeframe_required')
+        declared = (rules or {}).get('source_declared_timeframe')
+        overridden = ((rules or {}).get('source_grounding') or {}).get('status') == 'user_declared_override'
+        if declared and not overridden and any(rules.get(key)!=declared for key in ('decision_timeframe','execution_timeframe')):
+            errors.append('source_timeframe_mismatch')
         for section in ("executable_entry", "executable_exit"):
             raw_spec = (rules or {}).get(section, {}) or {}
             if not isinstance(raw_spec, dict):
@@ -166,7 +189,9 @@ class DeclarativeStrategyEngine:
                     if not isinstance(branch_spec, dict):
                         errors.append(f"independent_entries.{direction}:invalid_spec")
                         continue
-                    branch_validation = cls.validate_rule_spec({"executable_entry": branch_spec})
+                    branch_validation = cls.validate_rule_spec({"executable_entry": branch_spec,
+                        'numeric_state':(rules or {}).get('numeric_state'),
+                        'decision_timeframe':(rules or {}).get('decision_timeframe') or (rules or {}).get('timeframe')})
                     errors.extend(
                         f"independent_entries.{direction}:{reason}"
                         for reason in branch_validation.get("errors", [])
@@ -196,6 +221,29 @@ class DeclarativeStrategyEngine:
                 errors.append(f"{path}:invalid_node")
                 return
             node_type = str(node.get("type") or "condition").lower()
+            if node_type == 'temporal':
+                operator = node.get('operator')
+                bars = node.get('bars')
+                children = node.get('children')
+                if operator not in {'all_for','any_within','became_true','became_false','after','latched'}:
+                    errors.append(f'{path}:unsupported_temporal_operator')
+                if type(bars) is not int or not 1 <= bars <= 100 or (str(operator).startswith('became_') and bars != 2):
+                    errors.append(f'{path}:temporal_bars_out_of_range')
+                if not isinstance(children,list) or len(children) != (2 if operator in {'after','latched'} else 1):
+                    errors.append(f'{path}:invalid_temporal_children')
+                    return
+                def historical_fields(value):
+                    if isinstance(value, dict):
+                        for key, item in value.items():
+                            if key in {'field','value_field'} and (isinstance(item,dict) or item in {'signal','confidence'}):
+                                errors.append(f'{path}:temporal_field_not_historical')
+                            historical_fields(item)
+                    elif isinstance(value,list):
+                        for item in value: historical_fields(item)
+                historical_fields(children)
+                for i, child in enumerate(children):
+                    visit(child,f'{path}.children[{i}]',depth+1)
+                return
             if node_type == "condition":
                 condition = dict(node.get("condition") or {
                     key: value for key, value in node.items() if key != "type"
@@ -218,6 +266,10 @@ class DeclarativeStrategyEngine:
                 visit(child, f"{path}.children[{index}]", depth + 1)
 
         visit(root, "root", 1)
+        if not errors:
+            from .temporal_strategy_conditions import required_bars
+            if required_bars(root)>300:
+                errors.append('temporal_total_history_limit')
         return {"valid": not errors, "errors": sorted(set(errors)), "node_count": count}
 
     @classmethod
@@ -225,6 +277,9 @@ class DeclarativeStrategyEngine:
         cls, node: Dict[str, Any], context: Dict[str, Any], path: str = "root"
     ) -> Tuple[bool, Dict[str, Any]]:
         node_type = str(node.get("type") or "condition").lower()
+        if node_type == 'temporal':
+            from .temporal_strategy_conditions import evaluate_temporal
+            return evaluate_temporal(cls, node, context, path)
         if node_type == "condition":
             condition = dict(node.get("condition") or {
                 key: value for key, value in node.items() if key != "type"
@@ -349,7 +404,7 @@ class DeclarativeStrategyEngine:
             actual = context.get("current_price", context.get("price"))
         expected = condition.get("value")
         value_field = ""
-        if operator in {"gt_field", "lt_field", "crosses_above", "crosses_below"}:
+        if operator in {"gt_field", "lt_field", "gte_field", "lte_field", "eq_field", "ne_field", "crosses_above", "crosses_below"}:
             value_field, value_reason = cls._field_key(
                 condition.get("value_field", expected)
             )
@@ -360,6 +415,17 @@ class DeclarativeStrategyEngine:
             return False, f"missing:{field}"
         left = cls._number(actual)
         right = cls._number(expected)
+        if value_field:
+            # Field-to-field price/indicator comparisons are numeric. Invalid
+            # strings must not compare lexicographically or as equal NaNs.
+            try:
+                if isinstance(actual, bool) or isinstance(expected, bool):
+                    raise ValueError('boolean_indicator')
+                left, right = float(actual), float(expected)
+                if not math.isfinite(left) or not math.isfinite(right):
+                    raise ValueError('nonfinite_indicator')
+            except (ValueError, TypeError, OverflowError):
+                return False, f"missing:{field}/{value_field}"
         if isinstance(left, float) and not math.isfinite(left):
             return False, f"missing:{field}"
         if isinstance(right, float) and not math.isfinite(right):
@@ -377,8 +443,14 @@ class DeclarativeStrategyEngine:
                 previous_expected = previous.get(value_field)
                 if previous_actual is None or previous_expected is None:
                     return False, f"missing:previous_{field}/{value_field}"
-                previous_left = cls._number(previous_actual)
-                previous_right = cls._number(previous_expected)
+                try:
+                    if isinstance(previous_actual, bool) or isinstance(previous_expected, bool):
+                        raise ValueError('boolean_indicator')
+                    previous_left, previous_right = float(previous_actual), float(previous_expected)
+                    if not math.isfinite(previous_left) or not math.isfinite(previous_right):
+                        raise ValueError('nonfinite_indicator')
+                except (ValueError, TypeError, OverflowError):
+                    return False, f"missing:previous_{field}/{value_field}"
                 passed = (
                     previous_left <= previous_right and left > right
                     if operator == "crosses_above"
@@ -399,6 +471,10 @@ class DeclarativeStrategyEngine:
                 "not_in": lambda: left not in right,
                 "gt_field": lambda: left > right,
                 "lt_field": lambda: left < right,
+                "gte_field": lambda: left >= right,
+                "lte_field": lambda: left <= right,
+                "eq_field": lambda: left == right,
+                "ne_field": lambda: left != right,
             }[operator]()
             return bool(passed), f"{field}={actual} {operator} {expected}"
         except Exception:
@@ -406,6 +482,8 @@ class DeclarativeStrategyEngine:
 
     @classmethod
     def evaluate_entry(cls, rules: Dict[str, Any], context: Dict[str, Any]) -> Dict[str, Any]:
+        if rules.get('entry_contract') is not None and not cls.noah_base_entry_confirmed(rules):
+            return {'allowed': False, 'bypassed': False, 'reason': 'entry_contract_invalid'}
         spec = dict(rules.get("executable_entry") or {})
         if cls.requires_source_entry(rules) and not any(spec.get(k) for k in ("all", "any", "expression")):
             return {"allowed": False, "bypassed": False, "reason": "source_entry_conditions_missing"}
@@ -415,12 +493,23 @@ class DeclarativeStrategyEngine:
         )
 
     @staticmethod
+    def noah_base_entry_confirmed(rules: Dict[str, Any]) -> bool:
+        policy = rules.get('entry_contract') or {}
+        return (isinstance(policy, dict) and policy.get('mode') == 'noah_base'
+                and policy.get('confirmed_by_user') is True
+                and rules.get('signal_mode', 'confirm') == 'confirm'
+                and not any(dict(rules.get('executable_entry') or {}).values())
+                and not rules.get('independent_entries'))
+
+    @staticmethod
     def requires_source_entry(rules: Dict[str, Any]) -> bool:
         """An edit/override is not evidence that document entry rules compiled.
 
         Legacy Noah-base risk overlays without original entry material retain
         their existing contract; source-backed versions must retain conditions.
         """
+        if DeclarativeStrategyEngine.noah_base_entry_confirmed(rules):
+            return False
         status = dict(rules.get("source_grounding") or {}).get("status")
         source = dict(rules.get("source_evidence") or {})
         return status == "compiler_authoritative" or (
@@ -461,6 +550,14 @@ class DeclarativeStrategyEngine:
             context = {**context, **{key: value for key, value in scoped.items() if key not in {"signal", "current_price", "confidence"}},
                        "_previous": {**dict(context.get("_previous") or {}), **dict(scoped.get("_previous") or {})}}
         context, indicator_status = cls._prepare_user_indicator_context(rules, context)
+        state_evidence=None
+        if rules.get('numeric_state'):
+            from .numeric_strategy_state import identity
+            key=context.get('_numeric_state_identity') or identity(rules)
+            state_evidence=(context.get('_numeric_state_results') or {}).get(key) or {}
+            if state_evidence.get('status')!='ready':
+                return {'allowed':False,'bypassed':False,'reason':state_evidence.get('reason') or 'state_runtime_unavailable'}
+            context={**context,**{'state_'+k:v for k,v in state_evidence['values'].items()}}
         if indicator_status != "supported":
             return {
                 "allowed": False, "bypassed": False,
@@ -480,6 +577,7 @@ class DeclarativeStrategyEngine:
                 "allowed": allowed,
                 "bypassed": False,
                 "expression": trace,
+                **({'numeric_state':state_evidence} if state_evidence else {}),
                 "reason": (
                     ("custom_entry_passed" if allowed else "custom_entry_not_met")
                     if section == "executable_entry"
@@ -500,6 +598,7 @@ class DeclarativeStrategyEngine:
             "bypassed": False,
             "all": all_results,
             "any": any_results,
+            **({'numeric_state':state_evidence} if state_evidence else {}),
             "reason": (
                 ("custom_entry_passed" if allowed else "custom_entry_not_met")
                 if section == "executable_entry"
@@ -641,6 +740,9 @@ class DeclarativeStrategyEngine:
                 })
                 continue
             evaluation_context = dict(context or {})
+            if rules.get('numeric_state'):
+                from .numeric_strategy_state import identity
+                evaluation_context['_numeric_state_identity']=identity(rules,item)
             evaluation_context["_market_regime"] = market_value
             evaluation_context["_symbol_market_regime"] = symbol_value
             evaluation_context["market_regime"] = effective_regime

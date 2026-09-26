@@ -71,7 +71,9 @@ def test_unrelated_same_symbol_fill_does_not_rewrite_pnl(tmp_path):
     row = recorder.execute_query(
         "SELECT pnl, reconciliation_status FROM trade_log WHERE id = ?", (trade_id,),
     )[0]
-    assert row == (10.0, "exchange_fill_not_found")
+    # Unrelated orders no longer trigger a whole-ledger reconciliation sweep.
+    # The pending owned row remains untouched and still excluded from PnL.
+    assert row == (10.0, "pending_exchange_reconciliation")
 
     stats = AccountQueryService(str(tmp_path / "trading.db")).trading_statistics(
         asset_class="crypto", source="binance", period="all",

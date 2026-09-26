@@ -101,7 +101,9 @@ class Recorder:
         from trading.write_coordination import connection
         background = operation in {'save_ai_decision', 'insert_analysis_log', 'insert_optimization_log',
             'save_ai_trade_analysis', 'save_coin_selection', 'record_coin_change', 'cleanup_old_logs'}
-        return connection(self.db_path, operation=operation, priority=10 if background else 0, timeout=timeout)
+        maintenance = operation in {'link_unresolved_trade_closes_with_executions', 'reconcile_trade_log_with_executions',
+                                    'recover_linked_close_time'}
+        return connection(self.db_path, operation=operation, priority=20 if maintenance else 10 if background else 0, timeout=timeout)
 
     def __init__(self, db_path: Optional[str] = None, log_path: Optional[str] = None, binance_client: Optional[Any] = None, exchange: Optional[str] = None, *args, **kwargs):
         # exchange 인자 우선, 없으면 기본값 'binance'
@@ -775,6 +777,7 @@ class Recorder:
                 try:
                     cursor.execute("CREATE INDEX IF NOT EXISTS idx_trade_exchange_exit_time ON trade_log(exchange, exit_time)")
                     cursor.execute("CREATE INDEX IF NOT EXISTS idx_trade_exit_time ON trade_log(exit_time DESC)")
+                    cursor.execute("CREATE INDEX IF NOT EXISTS idx_trade_exit_order_owner ON trade_log(LOWER(exchange), exit_order_id, UPPER(symbol))")
                     cursor.execute(
                         "CREATE INDEX IF NOT EXISTS idx_trade_exchange_normalized_exit_time "
                         "ON trade_log(LOWER(REPLACE(REPLACE(REPLACE(COALESCE(exchange, ''), '_', ''), '-', ''), ' ', '')), exit_time DESC)"
@@ -1834,10 +1837,9 @@ class Recorder:
         try:
             with self._write_connection(operation='save_exchange_execution_history', timeout=20.0) as conn:
                 from trading.recorder_write_queue import begin_receipt, finish_receipt
-                if begin_receipt(conn, _write_token):
-                    return result
+                already_applied = begin_receipt(conn, _write_token)
                 cursor = conn.cursor()
-                for trade in trades:
+                for trade in ([] if already_applied else trades):
                     if not isinstance(trade, dict):
                         result['skipped'] += 1
                         continue
@@ -2009,15 +2011,32 @@ class Recorder:
                         result['inserted'] += 1
                     else:
                         result['skipped'] += 1
-                finish_receipt(conn, _write_token)
+                if not already_applied:
+                    finish_receipt(conn, _write_token)
                 conn.commit()
             # TP/SL 보험 주문이나 거래소 화면에서 체결된 청산은 포지션 소멸을
             # 먼저 감지해 trade_log를 닫을 수 있다. 이때 응답 주문 ID가 없더라도
             # 시간·방향·수량 후보는 소유권 증거가 아니므로 미확정으로 남긴다.
             # 실제 주문 ID가 기록된 행만 기존 exact-order 대조를 수행한다.
             if reconcile:
-                self.link_unresolved_trade_closes_with_executions(venue)
-                self.reconcile_trade_log_with_executions(venue)
+                symbols = sorted({str(t.get('symbol') or '').upper() for t in trades if isinstance(t, dict)} - {''})
+                order_ids = sorted({str(t.get('order') or t.get('order_id') or '') for t in trades if isinstance(t, dict)} - {''})
+                # Read candidate IDs without holding the process-wide writer.
+                # Only affected symbols/orders need reevaluation after a fill.
+                with sqlite3.connect(self.db_path, timeout=20.0) as reader:
+                    missing_ids, exact_ids = [], []
+                    for symbol in symbols:
+                        missing_ids.extend(r[0] for r in reader.execute(
+                            "SELECT id FROM trade_log WHERE LOWER(exchange)=? AND UPPER(symbol)=? "
+                            "AND exit_time IS NOT NULL AND COALESCE(exit_order_id,'')=''", (venue, symbol)))
+                    for order_id in order_ids:
+                        exact_ids.extend(r[0] for r in reader.execute(
+                            "SELECT id FROM trade_log WHERE LOWER(exchange)=? AND exit_order_id=? AND exit_time IS NOT NULL",
+                            (venue, order_id)))
+                for offset in range(0, len(missing_ids), 25):
+                    self.link_unresolved_trade_closes_with_executions(venue, trade_ids=missing_ids[offset:offset+25])
+                for offset in range(0, len(exact_ids), 25):
+                    self.reconcile_trade_log_with_executions(venue, trade_ids=exact_ids[offset:offset+25])
         except Exception as exc:
             if _write_token:
                 raise
@@ -2058,6 +2077,7 @@ class Recorder:
         exchange: str,
         *,
         detection_grace_seconds: float = 120.0,
+        trade_ids=None,
     ) -> int:
         """Flag a plausible missing-order candidate, never certify ownership.
 
@@ -2072,6 +2092,15 @@ class Recorder:
         venue = str(exchange or '').strip().lower()
         if not venue:
             return 0
+        if trade_ids is None:
+            with sqlite3.connect(self.db_path, timeout=20.0) as reader:
+                ids = [r[0] for r in reader.execute("SELECT id FROM trade_log WHERE LOWER(exchange)=? AND exit_time IS NOT NULL AND COALESCE(exit_order_id,'')=''", (venue,))]
+            return sum(self.link_unresolved_trade_closes_with_executions(venue, detection_grace_seconds=detection_grace_seconds, trade_ids=ids[i:i+25]) for i in range(0, len(ids), 25))
+        selected_ids = list(dict.fromkeys(int(i) for i in trade_ids))
+        if not selected_ids:
+            return 0
+        if len(selected_ids) > 100:
+            raise ValueError('reconciliation_batch_too_large')
         linked = 0
         try:
             with self._write_connection(operation='link_unresolved_trade_closes_with_executions', timeout=20.0) as conn:
@@ -2086,14 +2115,14 @@ class Recorder:
                       AND COALESCE(exit_order_id, '') = ''
                       AND LOWER(COALESCE(reconciliation_status, '')) NOT LIKE 'exchange_confirmed%'
                       AND COALESCE(reconciliation_status, '') <> 'broker_order_linked'
+                      AND COALESCE(reconciliation_status, '') <> 'exact_fill_price_no_provider_pnl'
                       AND (
                         LOWER(COALESCE(position_owner, '')) = 'noahai'
                         OR LOWER(COALESCE(reason, '')) LIKE 'ai %'
                         OR LOWER(COALESCE(reason, '')) LIKE 'stock_auto_%'
                       )
-                    ORDER BY exit_time, id
-                    """,
-                    (venue,),
+                    """ + ' AND id IN (' + ','.join('?' for _ in selected_ids) + ') ORDER BY exit_time, id',
+                    (venue, *selected_ids),
                 ).fetchall()
                 used_order_ids = {
                     str(row[0])
@@ -2171,6 +2200,9 @@ class Recorder:
                     )
                 conn.commit()
         except sqlite3.Error as exc:
+            from trading.recorder_write_queue import is_busy
+            if is_busy(exc):
+                raise
             log_event(
                 'trade',
                 f"미확정 청산-체결 주문 연결 오류({venue}): {exc}",
@@ -2200,6 +2232,10 @@ class Recorder:
         if not venue:
             return 0
         reconciled = 0
+        if trade_ids is None:
+            with sqlite3.connect(self.db_path, timeout=20.0) as reader:
+                ids = [r[0] for r in reader.execute("SELECT id FROM trade_log WHERE LOWER(exchange)=? AND exit_time IS NOT NULL AND COALESCE(exit_order_id,'')<>''", (venue,))]
+            return sum(self.reconcile_trade_log_with_executions(venue, trade_ids=ids[i:i+25]) for i in range(0, len(ids), 25))
         # Maintenance uses small explicit batches, not a full ledger scan per fill.
         selected_ids = None if trade_ids is None else list(dict.fromkeys(int(i) for i in trade_ids))
         if selected_ids == []:
@@ -2212,10 +2248,7 @@ class Recorder:
                 conn.row_factory = sqlite3.Row
                 rows = conn.execute(
                     """
-                    SELECT id, symbol, side, quantity, entry_price, pnl, fees, entry_fee,
-                           fee_asset, entry_fee_asset, exit_fee_asset,
-                           settlement_currency, exit_order_id, gross_pnl, net_pnl,
-                           reconciliation_status
+                    SELECT *
                     FROM trade_log
                     WHERE LOWER(COALESCE(exchange, '')) = ?
                       AND exit_time IS NOT NULL
@@ -2330,6 +2363,14 @@ class Recorder:
                     notional = max(0.0, float(row['entry_price'] or 0.0) * expected_qty)
                     pnl_percent = display_pnl / notional * 100.0 if notional > 0 else 0.0
                     status = 'exchange_confirmed' if fee_convertible else 'exchange_confirmed_fee_conversion_required'
+                    final_values = (exit_price, display_pnl, pnl_percent, gross, net, entry_fee, exit_fee,
+                                    entry_fee + exit_fee, exit_fee_asset or None, entry_fee_asset or None,
+                                    exit_fee_asset or None, settlement or None, 'exchange_realized_pnl', status)
+                    final_fields = ('exit_price','pnl','pnl_percent','gross_pnl','net_pnl','entry_fee','exit_fee',
+                                    'fees','fee_asset','entry_fee_asset','exit_fee_asset','settlement_currency','pnl_source','reconciliation_status')
+                    if tuple(row[name] for name in final_fields) == final_values:
+                        reconciled += 1
+                        continue
                     conn.execute(
                         """
                         UPDATE trade_log
@@ -2348,6 +2389,9 @@ class Recorder:
                     reconciled += 1
                 conn.commit()
         except sqlite3.Error as exc:
+            from trading.recorder_write_queue import is_busy
+            if is_busy(exc):
+                raise
             log_event('trade', f"체결-청산 원장 대조 오류({venue}): {exc}", exchange=venue, level='ERROR')
         return reconciled
 
@@ -4078,6 +4122,7 @@ class Recorder:
                     ON trade_log(exchange, exit_time)
                 """)
                 cursor.execute("CREATE INDEX IF NOT EXISTS idx_trade_exit_time ON trade_log(exit_time DESC)")
+                cursor.execute("CREATE INDEX IF NOT EXISTS idx_trade_exit_order_owner ON trade_log(LOWER(exchange), exit_order_id, UPPER(symbol))")
                 cursor.execute(
                     "CREATE INDEX IF NOT EXISTS idx_trade_exchange_normalized_exit_time "
                     "ON trade_log(LOWER(REPLACE(REPLACE(REPLACE(COALESCE(exchange, ''), '_', ''), '-', ''), ' ', '')), exit_time DESC)"

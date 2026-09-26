@@ -1,6 +1,6 @@
 {
   "schema_version": "1.0.0",
-  "release_version": "3.9.1.46",
+  "release_version": "3.9.1.47",
   "transition_mode": "internal_full_migration",
   "commands_enabled": true,
   "services": [

@@ -66,6 +66,8 @@ class StrategySourceIngestor:
         transcription_model: str = "gpt-4o-mini-transcribe",
         audio_max_duration_minutes: int = 45,
         audio_max_file_mb: int = 24,
+        drive_api_key: str = '',
+        drive_access_token: str = '',
     ):
         self.ai_client = ai_client
         self.transcription_client = transcription_client or ai_client
@@ -74,6 +76,8 @@ class StrategySourceIngestor:
         self.transcription_model = str(transcription_model or "gpt-4o-mini-transcribe")
         self.youtube_audio_max_duration_seconds = max(1, int(audio_max_duration_minutes)) * 60
         self.youtube_audio_max_bytes = max(1, int(audio_max_file_mb)) * 1024 * 1024
+        self.drive_api_key = drive_api_key
+        self.drive_access_token = drive_access_token
 
     @staticmethod
     def detect_kind(value: str, explicit_kind: str = "auto") -> str:
@@ -102,6 +106,9 @@ class StrategySourceIngestor:
         return "text"
 
     def extract(self, value: str, kind: str = "auto") -> ExtractedStrategySource:
+        if kind in {'auto','url'} and urlparse(str(value)).netloc == 'drive.google.com':
+            from .strategy_drive_source import DriveCollector
+            return DriveCollector(api_key=self.drive_api_key, access_token=self.drive_access_token).extract(self,value)
         if str(value).startswith('noah-bundle:'):
             from .strategy_source_bundle import extract_bundle,MAX_BYTES
             paths = json.loads(str(value)[12:])
@@ -680,7 +687,8 @@ class StrategySourceIngestor:
     def _heuristic_rules(self, source: ExtractedStrategySource) -> Dict[str, Any]:
         text = source.text or ""
         lower = text.lower()
-        sentences = [item.strip() for item in re.split(r"[\n;.!?]+", text) if item.strip()]
+        # A decimal point is not a sentence boundary (RSI 30.5, RVOL 1.10).
+        sentences = [item.strip() for item in re.split(r"[\n;!?]+|(?<!\d)\.(?!\d)", text) if item.strip() and not item.lstrip().startswith(('#','//'))]
         entry_lines = [
             item for item in sentences
             if re.search(r"strategy\.entry|진입|매수|\bentry\b|longcondition|shortcondition", item, flags=re.I)
@@ -761,7 +769,9 @@ class StrategySourceIngestor:
             return None
 
         natural_branches: Dict[str, List[Dict[str, Any]]] = {"LONG": [], "SHORT": []}
-        for sentence in re.split(r"[,\n;.!?]+", text):
+        for sentence in re.split(r"[,\n;!?]+|(?<!\d)\.(?!\d)", text):
+            if sentence.lstrip().startswith(('#','//')):
+                continue
             condition = natural_rsi_condition(sentence)
             if not condition:
                 continue
@@ -785,6 +795,57 @@ class StrategySourceIngestor:
                 if direction and condition not in natural_branches[direction]:
                     natural_branches[direction].append(condition)
 
+        # Structured text often puts ENTRY on its own line. Compile only
+        # complete supported comparisons, retain every other clause as a gap.
+        # Never silently reduce "RSI < 30 AND an undefined sweep" to RSI alone.
+        from .declarative_strategy_engine import DeclarativeStrategyEngine
+        section = ''
+        gaps = []
+        section_lines = {'entry':[], 'exit':[]}
+        for line_number, raw in enumerate(text.splitlines(), 1):
+            line = raw.strip()
+            if not line or line.startswith(('#','//')):
+                continue
+            heading = re.match(r'^(ENTRY|EXIT|FILTERS?|RISK|CONTEXT|SMART_EXIT|EXECUTION|METADATA|진입 조건|청산 조건)\s*[:：]', line, re.I)
+            if heading:
+                section = {'entry':'entry','exit':'exit','진입 조건':'entry','청산 조건':'exit'}.get(heading.group(1).lower(), '')
+                continue
+            named_heading = re.fullmatch(r'([A-Z][A-Z_0-9 ]{2,})\s*:', line)
+            if named_heading and re.search(r'ENTRY|EXIT|TRIGGER|GATE|SETUP|CONDITION|CONFIRM|NO_TRADE', named_heading.group(1)):
+                # Named boolean blocks need a dependency/branch definition;
+                # they are not equivalent to one global AND list.
+                section = 'unresolved_definition'
+                gaps.append({'line':line_number,'section':section,'text':line,
+                             'reason':'named_condition_definition_required'})
+                continue
+            if not section:
+                continue
+            if re.fullmatch(r'=+|-{3,}|\d+\.\s+.+', line):
+                section = ''; continue
+            if re.match(r'^[A-Z_ ]{3,}\s*:', line):
+                section = ''; continue
+            clause = re.sub(r'^(?:[-*•]\s*|\d+[.)]\s*)', '', line).strip()
+            if clause.upper() == 'AND':
+                continue
+            if section in section_lines:
+                section_lines[section].append(clause)
+            match = re.fullmatch(r'([A-Za-z_][A-Za-z_0-9]*)\s*(<=|>=|<|>|==|!=)\s*(-?\d+(?:\.\d+)?)', clause)
+            if section in section_lines and match and match.group(1).lower() in DeclarativeStrategyEngine.ALLOWED_FIELDS - {'signal'}:
+                field, op, value = match.groups()
+                condition = {'field':field.lower(), 'operator':{'<':'lt','<=':'lte','>':'gt','>=':'gte','==':'eq','!=':'ne'}[op], 'value':float(value)}
+                target = executable if section == 'entry' else executable_exit
+                if condition not in target['all']:
+                    target['all'].append(condition)
+            else:
+                gaps.append({'line':line_number, 'section':section, 'text':clause,
+                             'reason':'source_condition_not_compiled'})
+        for field, clauses in section_lines.items():
+            if clauses:
+                rules[field] = ' | '.join(clauses)
+        if gaps:
+            rules['source_condition_gaps'] = gaps
+            rules['compiler_issues'].append('source_conditions_require_definition')
+
         rsi_match = re.search(r"(?:ta\.)?rsi\([^\)]*\)\s*(<=|>=|<|>)\s*(\d+(?:\.\d+)?)", text, flags=re.I)
         if rsi_match:
             op = {"<": "lt", "<=": "lte", ">": "gt", ">=": "gte"}[rsi_match.group(1)]
@@ -798,7 +859,7 @@ class StrategySourceIngestor:
         ):
             comparison, average_type, period = match.groups()
             field = f"{average_type.lower()}{period}"
-            operator = {"<": "lt_field", "<=": "lt_field", ">": "gt_field", ">=": "gt_field"}[comparison]
+            operator = {"<": "lt_field", "<=": "lte_field", ">": "gt_field", ">=": "gte_field"}[comparison]
             executable["all"].append({
                 "field": "current_price", "operator": operator, "value_field": field,
             })
@@ -811,7 +872,7 @@ class StrategySourceIngestor:
             left_type, left_period, comparison, right_type, right_period = match.groups()
             executable["all"].append({
                 "field": f"{left_type.lower()}{left_period}",
-                "operator": "lt_field" if comparison.startswith("<") else "gt_field",
+                "operator": {"<":"lt_field", "<=":"lte_field", ">":"gt_field", ">=":"gte_field"}[comparison],
                 "value_field": f"{right_type.lower()}{right_period}",
             })
         pine_operand = (
@@ -904,7 +965,7 @@ class StrategySourceIngestor:
                     operator, average_type, period = price_average.groups()
                     condition = {
                         "field": "current_price",
-                        "operator": "lt_field" if operator.startswith("<") else "gt_field",
+                        "operator": {"<":"lt_field", "<=":"lte_field", ">":"gt_field", ">=":"gte_field"}[operator],
                         "value_field": f"{average_type.lower()}{period}",
                     }
                 if condition is None:
@@ -994,6 +1055,30 @@ class StrategySourceIngestor:
         # 텍스트 자체가 충분한 경우에도 근거 문장을 보존한다.
         if not rules["entry"] and any(token in lower for token in ("cross", "돌파", "다이버전스")):
             rules["entry"] = "소스에 진입 단서가 있으나 정확한 AND/OR 조건은 사용자 확인 필요"
+        if not is_pine:
+            from .source_condition_compiler import compile_sections
+            structured = compile_sections(text)
+            if structured['present']:
+                if structured.get('numeric_state'):rules['numeric_state']=structured['numeric_state']
+                if structured.get('timeframe'):
+                    rules['decision_timeframe'] = structured['timeframe']
+                    rules['execution_timeframe'] = structured['timeframe']
+                    rules['source_declared_timeframe'] = structured['timeframe']
+                # Explicit sections supersede loose regex extraction. An OR
+                # branch must not become an AND list or an inferred direction.
+                rules['signal_mode'] = 'confirm'
+                rules['entry_signal'] = ''
+                rules.pop('independent_entries', None)
+                rules['compiler_issues'] = [issue for issue in rules['compiler_issues']
+                    if issue not in {'source_conditions_require_definition', 'dual_direction_conditions_not_separated'}]
+                rules.pop('source_condition_gaps', None)
+                for name in ('entry','exit'):
+                    if name in structured['declared']:
+                        rules[name] = ' | '.join(clause for _,clause in structured['sections'][name])
+                        rules['executable_'+name] = structured.get(name, {'all':[], 'any':[]})
+                if structured['gaps']:
+                    rules['source_condition_gaps'] = structured['gaps']
+                    rules['compiler_issues'].append('source_conditions_require_definition')
         return rules
 
     def _coverage_summary(self, source: ExtractedStrategySource) -> str:
@@ -1052,7 +1137,7 @@ class StrategySourceIngestor:
         return trace
 
     @staticmethod
-    def _execution_contract_digest(rules: Dict[str, Any]) -> str:
+    def _execution_contract_digest(rules: Dict[str, Any], *, legacy_numbers: bool = False) -> str:
         """Hash only fields that can change signal direction or order risk."""
         engine = dict(rules.get("engine_settings") or {})
         payload = {
@@ -1075,6 +1160,25 @@ class StrategySourceIngestor:
                 if key in engine
             },
         }
+        if 'entry_contract' in rules:
+            payload['entry_contract'] = rules['entry_contract']
+        if 'numeric_state' in rules:
+            payload['numeric_state']=rules['numeric_state']
+        if 'source_declared_timeframe' in rules:
+            payload['source_timeframe_contract'] = {key:rules.get(key) for key in
+                ('source_declared_timeframe','decision_timeframe','execution_timeframe')}
+        # JSON/JavaScript serializes 30.0 as 30. These are the same execution
+        # number, not an edit. Keep bool/string types distinct and never round.
+        def canonical_numbers(value: Any) -> Any:
+            if isinstance(value, dict):
+                return {key: canonical_numbers(item) for key, item in value.items()}
+            if isinstance(value, list):
+                return [canonical_numbers(item) for item in value]
+            if isinstance(value, float) and value.is_integer():
+                return int(value)
+            return value
+        if not legacy_numbers:
+            payload = canonical_numbers(payload)
         encoded = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
         return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
 
@@ -1090,6 +1194,7 @@ class StrategySourceIngestor:
         paths = (
             "signal_mode", "entry_signal", "executable_entry", "executable_exit",
             "independent_entries", "exit_policy", "risk_model",
+            "numeric_state",
         )
         rejected = [path for path in paths if proposed.get(path) not in (None, "", {}, []) and proposed.get(path) != compiled.get(path)]
         for key in ("tp_percent", "sl_percent", "position_size", "leverage", "signal_threshold"):
@@ -1127,6 +1232,7 @@ class StrategySourceIngestor:
             "entry", "exit", "stop_loss", "take_profit", "position_size",
             "market_conditions", "entry_signal", "executable_entry",
             "executable_exit", "independent_entries", "risk_model",
+            "numeric_state",
         ):
             original_value = original.get(key)
             supplement_value = supplement.get(key)
@@ -1350,7 +1456,7 @@ class StrategySourceIngestor:
                 "current_price, rsi, macd, macd_signal, macd_histogram, bb_position, bb_width, "
                 "ma20, ma50, ma200, sma20, sma50, sma200, ema20, ema50, ema200, adx, atr, atr_percent, "
                 "trend_strength, market_volatility, volume, volume_sma20, volume_ratio, hour, weekday "
-                "and operators eq, ne, gt, gte, lt, lte, gt_field, lt_field, "
+                "and operators eq, ne, gt, gte, lt, lte, gt_field, lt_field, gte_field, lte_field, eq_field, ne_field, "
                 "crosses_above, crosses_below. Cross operators must use value_field and only when "
                 "the source explicitly defines crossover/crossunder. "
                 "Also return rules.entry_signal as LONG, SHORT, or empty when direction is not explicit. "
@@ -1507,6 +1613,31 @@ class StrategySourceIngestor:
             [*missing, *list(execution_readiness.get("reasons") or [])],
             unsupported_conditions,
         )
+        for gap in rules.get('source_condition_gaps', []):
+            reason = gap.get('reason', '')
+            if reason.startswith('condition_definition_required:'):
+                name = reason.split(':', 1)[1]
+                action = f"'{name}'가 참이 되는 정확한 조건을 보완 답변에 '{name} = ...' 형태로 입력하세요. 예시는 자동 적용되지 않습니다. 지원 필드의 비교식과 AND/OR·괄호를 사용하며 기존 정의를 바꾸려면 원문을 수정해야 합니다."
+            elif reason.startswith(('condition_circular_reference:', 'condition_duplicate_definition', 'condition_field_redefined:')):
+                action = '원문의 중복 정의·순환 참조·기본 지표 이름 재정의를 확인하고 수정하세요. 정의를 임의로 선택하지 않습니다.'
+            else:
+                action = '이 행을 현재 엔진이 실행식으로 변환하지 못했습니다. 명확한 비교식은 지원 필드·AND/OR·괄호로 표현할 수 있습니다. 미지원 함수·상태는 엔진 지원이 필요하므로 같은 내용을 반복 등록하지 마세요. 원래 조건을 다른 조건으로 바꾸면 복원이 아니라 전략 변경입니다.'
+            detail = {
+                'code':f"source_condition_not_compiled:{gap['line']}",
+                'title':f"원문 {gap['line']}행 · {gap['text']}",
+                'explanation':'이 조건은 현재 실행식에 포함되지 않았습니다. 승인·검증 완료로 처리하지 않습니다.',
+                'action':action,
+            }
+            if reason.startswith('condition_definition_required:'):
+                # This is an answerable missing definition, not an unsupported
+                # engine operation. Carry the target to the app interview so a
+                # real user can complete the same path as the compiler tests.
+                detail['answer_kind'] = 'condition_definition'
+                detail['answer_target'] = reason.split(':', 1)[1]
+                detail['example'] = 'signal == LONG AND rsi <= 35'
+            blocking_details.append(detail)
+        # Generate once: per-gap calls restarted indices and produced identical
+        # React keys, allowing answers/rows to be associated with another clause.
         clarification_questions = build_clarification_questions(blocking_details)
         return {
             "name": str(result.get("name") or source.title or "사용자 전략"),

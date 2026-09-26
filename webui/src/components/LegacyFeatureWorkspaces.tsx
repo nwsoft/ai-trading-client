@@ -6,6 +6,7 @@ import { sourcesForService, STOCK_SOURCES, venueProfile } from "../venueSources"
 import { accountConnectionFailure, accountConnectionView } from "../accountConnection";
 import type { RuntimeSnapshot, WorkspaceSnapshot } from "../types";
 import { LogHelpDialog } from "./LogHelpDialog";
+import { TradingStartHelp } from './TradingStartHelp';
 import { SourceTradeHistory } from "./SourceTradeHistory";
 import { startSequentialPoll } from "../sequentialPoll";
 import { ExecutionEvidenceNote, executionEvidenceCount } from './ExecutionEvidenceNote';
@@ -832,7 +833,8 @@ export function AssetInfoWorkspace({ client, service, source, enabledSources = [
   </section>;
 }
 
-export function SourceWorkspace({ client, runtime, service, source, onOpenManual, onOpenSettings, onRuntimeChanged }: { client: GatewayClient; runtime: RuntimeSnapshot | null; service: "blockchain" | "stock"; source: string; onOpenManual: () => void; onOpenSettings: () => void; onRuntimeChanged: () => Promise<void> | void }) {
+export function SourceWorkspace({ client, runtime, service, source, onOpenManual, onOpenSettings, onRuntimeChanged, onAskAssistant }: { client: GatewayClient; runtime: RuntimeSnapshot | null; service: "blockchain" | "stock"; source: string; onOpenManual: () => void; onOpenSettings: () => void; onRuntimeChanged: () => Promise<void> | void; onAskAssistant?: (question: string) => void }) {
+  const [startFailure, setStartFailure] = useState<{message: string; time: string} | null>(null);
   const [workspace, setWorkspace] = useState<WorkspaceSnapshot | null>(null);
   const [logs, setLogs] = useState<Array<{ source: string; message: string; level?: string; exchange?: string; category?: string }>>([]);
   const [accountPayload, setAccountPayload] = useState<Record<string, any> | null>(null);
@@ -976,7 +978,7 @@ export function SourceWorkspace({ client, runtime, service, source, onOpenManual
       ? `${source.toUpperCase()} LIVE 자동매매를 시작할까요?\n\nPAPER가 아닙니다. 실제 주문이 제출될 수 있습니다. API 주문 권한·주문 대상 범위·보유 포지션을 다시 확인하세요.`
       : `${source.toUpperCase()} ${action === "start" ? learningMode ? "LEARNING 분석·학습" : `${executionModeLabel} 자동매매` : wording} 명령을 실행할까요?`;
     if (!window.confirm(confirmation)) return;
-    setCommandBusy(true); setMessage("");
+    setCommandBusy(true); setMessage(""); setStartFailure(null);
     try {
       await client.runtimeCommand(`trading.${action}`, source, false, "", action === "start" && liveMode);
       setMessage(`${executionModeLabel} ${wording} 명령을 엔진에 전달했습니다.`);
@@ -984,7 +986,11 @@ export function SourceWorkspace({ client, runtime, service, source, onOpenManual
       catch (_) { setMessage(`${wording}은 완료됐지만 화면 상태 재조회가 지연되고 있습니다. 자동 갱신을 기다리세요.`); }
       refreshStored();
     }
-    catch (reason) { setMessage(reason instanceof Error ? reason.message : `${wording} 명령에 실패했습니다.`); }
+    catch (reason) {
+      const failure = reason instanceof Error ? reason.message : `${wording} 명령에 실패했습니다.`;
+      setMessage(failure);
+      if (action === 'start') setStartFailure({message: failure, time: new Date().toISOString()});
+    }
     finally { setCommandBusy(false); }
   }
 
@@ -1004,7 +1010,8 @@ export function SourceWorkspace({ client, runtime, service, source, onOpenManual
   const paperPositionsStatus = String(
     workspace?.paper_positions_status ?? account?.paper_positions_status ?? "pending",
   );
-  const paperPositionView = paperMode && paperPositionsStatus === "success";
+  // Local PAPER state must never fall back to real holdings on load/failure.
+  const paperPositionView = paperMode;
   const positions = paperPositionView ? paperPositions : accountPositions;
   const paperPositionLimit = Math.max(1, Number(workspace?.paper_position_policy?.limit ?? 3));
   const paperPositionModeLabel = workspace?.paper_position_policy?.mode === "focus" ? "집중" : "다중";
@@ -1049,7 +1056,7 @@ export function SourceWorkspace({ client, runtime, service, source, onOpenManual
     ? running ? "LEARNING 분석·학습 실행 중 · 신규 주문 차단" : "LEARNING 대기 · 시작 버튼 필요"
     : running ? `${executionModeLabel} 자동매매 실행 중` : `자동매매 정지 · ${executionModeLabel} 설정`;
   const connectionText = !credentialsConfigured
-    ? "API 키 연결 필요"
+    ? publicMarketExecution ? "공개 시세 사용 가능 · 계좌 API 미설정" : "API 키 연결 필요"
     : accountConnected
       ? accountView.label
       : accountFailed
@@ -1067,7 +1074,11 @@ export function SourceWorkspace({ client, runtime, service, source, onOpenManual
   const spotHoldingSummary = account?.spot_holding_summary ?? {};
   const positionNoun = isSpotHoldings ? "보유" : "활성";
   const positionEmptyText = paperPositionView ? "활성 가상 포지션 없음" : service === "stock" ? "보유 종목 없음" : isSpotHoldings ? "보유자산 없음" : "활성 포지션 없음";
-  const positionHeaderText = !credentialsConfigured
+  const positionHeaderText = paperPositionView
+    ? !positionsHealthy ? (paperPositionsStatus === "pending" ? "가상 포지션 조회 중" : "가상 포지션 조회 오류 · 수량 미확정")
+      : paperPositionLimitExceeded ? `PAPER · ${positions.length}개 활성 / 상한 ${paperPositionLimit} · 신규 진입 차단`
+      : `PAPER · ${positions.length}개 활성 / ${paperPositionModeLabel} 상한 ${paperPositionLimit}`
+    : !credentialsConfigured
     ? "API 키 연결 후 조회"
     : !accountChecked
       ? "조회 중"
@@ -1080,14 +1091,18 @@ export function SourceWorkspace({ client, runtime, service, source, onOpenManual
         : isCryptoSpot
           ? `계좌 ${Number(spotHoldingSummary.account_total ?? positions.length)}개 · NoahAI ${Number(spotHoldingSummary.noahai_managed ?? 0)}개`
           : `${running ? executionModeLabel : "정지"} · ${positions.length}개 ${positionNoun}`;
-  const positionBodyText = !credentialsConfigured
+  const positionBodyText = paperPositionView
+    ? positionsHealthy ? positionEmptyText : paperPositionsStatus === "pending" ? "가상 포지션 조회 중" : "가상 포지션 조회에 실패했습니다. 실제 보유자산이나 0개로 대체하지 않습니다."
+    : !credentialsConfigured
     ? "API 키 연결 후 조회"
     : !accountChecked
       ? (isSpotHoldings ? "보유자산 조회 중" : "포지션 조회 중")
       : positionsHealthy
         ? positionEmptyText
         : "포지션 조회에 실패했습니다. 0개로 간주하지 않습니다.";
-  const positionStatusClass = !credentialsConfigured
+  const positionStatusClass = paperPositionView
+    ? !positionsHealthy ? paperPositionsStatus === "pending" ? "position-status loading" : "position-status error" : paperPositionLimitExceeded ? "position-status warning" : "position-status stopped"
+    : !credentialsConfigured
     ? "position-status warning"
     : !accountChecked
       ? "position-status loading"
@@ -1141,10 +1156,11 @@ export function SourceWorkspace({ client, runtime, service, source, onOpenManual
         <label><input type="checkbox" checked={hideDebug} onChange={(event) => setHideDebug(event.target.checked)} />{t("디버그 로그 숨김")}</label>
         <label><input type="checkbox" checked={hideSystem} onChange={(event) => setHideSystem(event.target.checked)} />{t("시스템 로그 숨김")}</label>
       </div>
-      <div className="source-log-connection-slot">{!startCredentialsReady && <div className="inline-notice">{source.toUpperCase()}{t(" API 키를 설정한 뒤 연결하세요. 미연결 상태에서는 과거 로그를 현재 연결 기록처럼 표시하지 않습니다.")}</div>}</div>
+      <div className="source-log-connection-slot">{!startCredentialsReady ? <div className="inline-notice">{source.toUpperCase()}{t(" API 키를 설정한 뒤 연결하세요. 미연결 상태에서는 과거 로그를 현재 연결 기록처럼 표시하지 않습니다.")}</div> : publicMarketExecution && !credentialsConfigured ? <div className="inline-notice">{source.toUpperCase()} · 공개 시세로 PAPER·학습 실행 가능 · 실제 계좌 조회·LIVE 주문은 API 연결이 필요합니다. {running ? "실행 중 로그와 이전 기록을 함께 표시합니다." : "현재 정지 상태이며 아래 로그는 저장된 이전 기록입니다."}</div> : null}</div>
       <div className="legacy-log-console" ref={sourceLogConsoleRef}>{filteredLogs.map((line, index) => <div key={`${line.source}:${index}`}><code>{line.message}</code></div>)}{!filteredLogs.length && <div className="empty-state">{startCredentialsReady ? `표시할 ${service === "stock" ? "증권사" : "거래소"} 로그가 없습니다.` : "API 키 연결 필요"}</div>}</div>
       <div className="legacy-log-toolbar compact"><button type="button" onClick={() => setLogHelpOpen(true)}>{t("로그도움말")}</button><button type="button" onClick={() => { clearMarkerRef.current = logs.at(-1)?.message ?? ""; setLogs([]); }}>{t("로그지우기")}</button><button type="button" onClick={() => { clearMarkerRef.current = ""; refreshStored(); }}>{t("새로고침")}</button></div>
       <div className="source-log-message-slot" role="status">{message && <div className="inline-notice">{message}</div>}</div>
+      {startFailure && <TradingStartHelp key={startFailure.time} client={client} source={source} mode={sourceExecutionMode} message={startFailure.message} occurredAt={startFailure.time} onAskAssistant={onAskAssistant} />}
     </article>
     <LogHelpDialog open={logHelpOpen} service={service} source={source} onClose={() => setLogHelpOpen(false)} onOpenManual={onOpenManual} />
   </section>;

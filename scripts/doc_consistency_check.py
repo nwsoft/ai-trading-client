@@ -49,6 +49,10 @@ TARGETS: Dict[str, Path] = {
     "source_quarantine": DOCS / "SOURCE_QUARANTINE_MANIFEST_20260801.md",
     "marketplace_plan": DOCS / "STRATEGY_MARKETPLACE_POINTS_AND_LICENSE_PLAN.md",
     "release_manifest": ROOT / "deploy" / "release-manifest.json",
+    "strategy_master": DOCS / "NOAHAI_STRATEGY_STUDIO_MASTER_PLAN.md",
+    "strategy_plan": DOCS / "AI_CUSTOME_UPDATE_PLAN.md",
+    "release_gate": DOCS / "V39147_RUNTIME_BOUNDARY_TEST_PLAN.md",
+    "technical_whitepaper": DOCS / "NOAHAI_TECHNICAL_WHITEPAPER.md",
 }
 
 
@@ -190,6 +194,20 @@ def check_for_higher_version_mentions(text_map: Dict[str, str]) -> List[str]:
 
 def check_release_surface_alignment(text_map: Dict[str, str]) -> List[str]:
     """동일 버전의 핵심 변경이 사용자 노출·기술·검증 문서에 함께 있는지 확인한다."""
+    if RELEASE_VERSION == '3.9.1.47':
+        required = {
+            'manual_widget': ('v3.9.1.47 최신 업데이트', '미완성 초안 보관'),
+            'user_guide': ('현재 소스 후보 버전: **v3.9.1.47**', '현재 공개 버전: **v3.9.1.46**'),
+            'readme': ('현재 소스 후보: v3.9.1.47', '현재 공개 기반: v3.9.1.46'),
+            'release_notes': ('v3.9.1.47', '3.9.147', '공개 v3.9.1.46'),
+            'test_status': ('v3.9.1.47', '모의 응답', 'Windows'),
+            'deploy_checklist': ('v3.9.1.47', '실제 워커'),
+            'architecture': ('v3.9.1.47', '기존 버전'),
+            'trading_flow': ('v3.9.1.47', '미확정'),
+        }
+        return [f"[RELEASE_SURFACE] {surface}: '{marker}' 누락"
+                for surface, markers in required.items() for marker in markers
+                if marker not in text_map.get(surface, '')]
     if RELEASE_VERSION == "3.9.1.46":
         required = {
             "manual_widget": ("v3.9.1.46 최신 업데이트", "관찰 시작"),
@@ -1004,6 +1022,58 @@ def extract_latest_changelog_heading(changelog_text: str) -> str | None:
     return None
 
 
+def check_strategy_policy_alignment(text_map: Dict[str, str]) -> List[str]:
+    """Targeted semantic drift guards, not a general proof of document accuracy.
+
+    Only inspect live normative sections; dated historical records remain intact.
+    Tests must inject contradictions, not merely check for a new version string.
+    """
+    def section(key: str, heading: str) -> str:
+        text = text_map.get(key, "")
+        if heading not in text:
+            return ""
+        return text.split(heading, 1)[1].split("\n## ", 1)[0]
+
+    contracts = (
+        ("strategy_master", "### Level 명칭", ("Level 1~5", "Level 5", "선택 평가", "향후 Level 6 이상도 추가할 수 있다"),
+         ("다섯 번째 Level을 만들지 않는다", "자동검증 → PAPER 순서")),
+        ("strategy_plan", "### 3.3 백테스트의 제품 포지션", ("강제 통과 순서가 아니다", "평가 보류"),
+         ("다음 순서를 강제한다", "과거 재생 최소 통과조건")),
+        ("ai_custom_architecture", "## 실사용 제품 원칙", ("Level 1~5", "과거재생은 선택 평가", "LIVE 권한"),
+         ("과거재생 자동검증 → PAPER",)),
+        ("release_gate", "## 2026-09-26 현행 완료 판정과 잔여 분류",
+         ("개발 미완료", "사용자 정의·외부 근거 필요", "설치본·테스터 검증", "요청된 신규 기능", "별도 연구 목표/지원 한계", "보장하지 않는 성질"), ()),
+    )
+    errors: List[str] = []
+    for key, heading, required, forbidden in contracts:
+        body = section(key, heading)
+        if not body:
+            errors.append(f"[STRATEGY_POLICY] {key}: 현행 절 누락: {heading}")
+            continue
+        for phrase in required:
+            if phrase not in body:
+                errors.append(f"[STRATEGY_POLICY] {key}: 현행 계약 누락: {phrase}")
+        for phrase in forbidden:
+            if phrase in body:
+                errors.append(f"[STRATEGY_POLICY] {key}: 현행 계약 충돌: {phrase}")
+    return errors
+
+
+def check_whitepaper_release_identity(text_map: Dict[str, str]) -> List[str]:
+    """Compare only the current identity box; preserve dated release history."""
+    current = text_map.get('technical_whitepaper', '').split('\n## 20', 1)[0]
+    try:
+        public_version = json.loads(text_map.get('release_manifest', '')).get('version')
+    except (ValueError, TypeError):
+        return ['[WHITEPAPER] 공개 manifest를 확인할 수 없습니다.']
+    errors = []
+    for label, expected in (('현재 소스 후보', RELEASE_VERSION), ('현재 공개 기반', public_version)):
+        found = re.search(re.escape(label) + r': NoahAI Client v(\d+\.\d+\.\d+\.\d+)', current)
+        if not found or found.group(1) != expected:
+            errors.append(f'[WHITEPAPER] {label}: 코드/manifest 기준 v{expected}와 다릅니다.')
+    return errors
+
+
 def main() -> int:
     missing = check_exists(TARGETS)
     if missing:
@@ -1019,6 +1089,8 @@ def main() -> int:
     errors.extend(check_for_higher_version_mentions(text_map))
     errors.extend(check_release_surface_alignment(text_map))
     errors.extend(check_current_release_and_marketplace(text_map))
+    errors.extend(check_strategy_policy_alignment(text_map))
+    errors.extend(check_whitepaper_release_identity(text_map))
 
     print("문서/버전 정합성 점검 결과")
     print(f"- 기준 배포 버전: v{RELEASE_VERSION}")
@@ -1032,6 +1104,7 @@ def main() -> int:
     print("\n결과: PASS")
     print("- 핵심 표기 일치: dashboard/manual/user_guide/policy")
     print(f"- v{RELEASE_VERSION} 변경 표면 일치: README/manual/release/guide/architecture/flow/plan/deploy/test")
+    print("- 지정 현행 절의 Level/PAPER/잔여 분류 검사 통과 (전체 문서 의미 검증은 아님)")
     return 0
 
 

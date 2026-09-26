@@ -1,14 +1,14 @@
 # NoahAI 공식 기술백서 (Technical Whitepaper v1.6)
 ## Financial AI Decision Infrastructure Hub
 
-> 문서 동기화 기준 (2026-09-19)
-> - 현재 소스 후보: NoahAI Client v3.9.1.41 (시장 트렌드·근거형 XAI·KPI 경량화·원격 관리 베타, 운영 이관/Windows 외부 게이트 전)
-> - 현재 공개 안정판: NoahAI Client v3.9.1.40
-> - 공개 자산: v3.9.1.40 Windows 설치 파일·blockmap·`latest.yml`·릴리스 manifest
-> - 제품 상태 정본: `docs/UPDATE_PLAN.md`, 최신 변경: `docs/CHANGELOG.md`, 실행 계약: `docs/ARCHITECTURE.md`·`docs/TRADING_FLOW.md`
+> 문서 동기화 기준 (2026-09-26, 배포 버전 변경 없음)
+> - 현재 소스 후보: NoahAI Client v3.9.1.47 (전략 호환·기록 복구 후속, 일반 배포 완료 아님)
+> - 현재 공개 기반: NoahAI Client v3.9.1.46 (보존된 릴리스 manifest 기준)
+> - v47 설치본·실계좌·실제 알림 수신은 소스 시험과 별도이며 이 백서로 완료를 인증하지 않는다.
+> - 제품 상태 정본: `docs/V39147_RUNTIME_BOUNDARY_TEST_PLAN.md`·`docs/TEST_STATUS.md`, 계획: `docs/UPDATE_PLAN.md`, 변경 이력: `docs/CHANGELOG.md`, 실행 계약: `docs/ARCHITECTURE.md`·`docs/TRADING_FLOW.md`
 > - 이 백서의 v1.6은 문서 판본이다. 아래 과거 버전 사례는 당시 설계·개발 이력이며 현재 배포 신원을 대체하지 않는다.
 
-## 2026-09-18 현재 서비스 기준
+## 2026-09-18 당시 서비스 기준 (보존 이력)
 
 v41 원격 기능은 PC 실행 주체를 유지한 상태 공유와 명시적으로 허용한 신규 제출 일시정지로 한정합니다. 클라우드 거래 실행·원격 시작/재개/전량 청산·PnL 상세 공유가 아니며 설치형이라는 이유만으로 규제 적합성을 보장하지 않습니다. [구현·운영 경계](V39141_REMOTE_KPI_IMPLEMENTATION_PLAN.md).
 
@@ -19,7 +19,7 @@ v41 원격 기능은 PC 실행 주체를 유지한 상태 공유와 명시적으
 - 제품 검증 완료와 모든 기관·계정의 LIVE 준비 완료는 같은 의미가 아니다. PAPER/LIVE, 기관, 계정 권한, 통화와 전략 버전별 경계를 별도로 표시한다.
 - v3.9.1.41은 내부 소스 후보이며 공개 안정판이나 사용자 배포 완료로 표시하지 않는다. v3.9.1.40이 현재 공개 stable/latest다.
 
-아래 2026-09-14 이하 항목은 당시 상태의 변경 기록이다. 현재 상태 판정에는 위 기준과 `MASTER_DOCUMENTATION.md`를 우선한다.
+이 절 및 아래 날짜별 항목은 당시 상태의 변경 기록이다. 현재 버전과 구현/검증 판정은 맨 위 현행 정본을 따른다. 비전 문장이 모든 관련 기능의 현재 구현 완료를 뜻하지 않는다.
 
 ### 2026-09-14 v3.9.1.31 현행 문서·실행 경계
 

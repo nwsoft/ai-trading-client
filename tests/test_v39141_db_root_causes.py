@@ -153,7 +153,7 @@ def test_unknown_position_does_not_cancel_protection_or_close_ledger(monkeypatch
     trader.log_event=lambda *a,**k:None
     trader.logger=logging.getLogger('fixture')
     trader._get_position_info_with_retry=lambda _:None
-    monkeypatch.setattr('trading.trader.time.sleep',lambda _:stop.set())
+    monkeypatch.setattr(stop, 'wait', lambda _:stop.set())
     trader.start_realtime_monitoring('TEST',trader.active_positions['TEST'])
     assert 'TEST' in trader.active_positions  # no cancel/read/write methods exist on fixture
 

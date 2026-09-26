@@ -188,19 +188,40 @@ class KoreaInvestmentStockAdapter(MiraeAssetStockAdapter):
     def _get(self, path: str, params: Optional[Dict] = None) -> Dict[str, Any]:
         http = self._get_http()
         tr_id = self._tr_id(path, method='GET')
+        history = path == '/uapi/domestic-stock/v1/trading/inquire-daily-ccld'
+        headers = self._request_headers(tr_id) if tr_id else {}
+        if history:
+            if (params or {}).get('CTX_AREA_NK100'):
+                headers['tr_cont'] = 'N'
+            # Historical and recent queries use different official TR IDs.
+            import calendar
+            from zoneinfo import ZoneInfo
+            today = datetime.now(ZoneInfo('Asia/Seoul')).date()
+            month = today.year * 12 + today.month - 1 - 3
+            year, zero_month = divmod(month,12)
+            cutoff = today.replace(year=year,month=zero_month+1,
+                                   day=min(today.day,calendar.monthrange(year,zero_month+1)[1]))
+            if str((params or {}).get('INQR_END_DT') or '') < cutoff.strftime('%Y%m%d'):
+                headers['tr_id'] = 'VTSC9215R' if str(tr_id).startswith('V') else 'CTSC9215R'
         if not http or not tr_id or not self._ensure_token():
             return {}
+        headers['authorization'] = f'Bearer {self._access_token}'
         try:
             response = http.get(
                 f'{self._base_url()}{path}', params=params or {},
-                headers=self._request_headers(tr_id), timeout=self.request_timeout,
+                headers=headers, timeout=self.request_timeout,
             )
             if getattr(response, 'status_code', None) == 401 and self._refresh_token():
+                headers['authorization'] = f'Bearer {self._access_token}'
                 response = http.get(
                     f'{self._base_url()}{path}', params=params or {},
-                    headers=self._request_headers(tr_id), timeout=self.request_timeout,
+                    headers=headers, timeout=self.request_timeout,
                 )
-            return self._response_to_dict(response, method='GET', path=path)
+            data = self._response_to_dict(response, method='GET', path=path)
+            if history and isinstance(data,dict):
+                continuation = (getattr(response,'headers',{}) or {}).get('tr_cont')
+                if continuation is not None: data['_tr_cont'] = continuation
+            return data
         except Exception as exc:
             self.log_event('system', f'KIS GET {path} 오류: {exc}', level='ERROR')
             return {}
