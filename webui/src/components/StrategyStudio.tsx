@@ -7,6 +7,8 @@ import type { GatewayClient } from "../api";
 import type { StrategyCatalog, StrategyVersion } from "../types";
 import { venueProfile, venueProfilesForService } from "../venueSources";
 import { StrategyReplayChart } from "./StrategyReplayChart";
+import {ReplayCosts, ReplayCostEvidence} from './ReplayCosts';
+import {strategyCatalogView} from '../strategyCatalogView';
 import { strategyExplanationPrompt } from "../strategyExplanation";
 import { StrategyBeginnerExplanation, StrategyBeginnerHelp } from "./StrategyBeginnerExplanation";
 
@@ -303,6 +305,7 @@ function StrategyValidationEvidence({ version, research = false }: { version: St
   return <details className="strategy-validation-evidence">
     <summary>{t("검증 근거 보기 · ")}{lab || historical ? t("과거 시세 재생") : "PAPER"}{evidence.length ? ` · 기관 ${evidence.length}곳` : ""}</summary>
     {historical && <div className="inline-notice" data-testid="historical-assessment">
+      <ReplayCostEvidence profile={validationMetrics.cost_profile}/>
       <strong>{t(validationMetrics.assessment_status === "no_trades" ? "거래 표본 없음 · 성과 판단 보류" : validationMetrics.assessment_status === "insufficient_sample" ? "거래 표본 부족 · 추가 관찰 필요" : validationMetrics.assessment_status === "unavailable" ? "평가 수치 확인 필요" : "과거 시세 백테스트 · 보조 평가")}</strong>
       <p>{t("과거 성과 미달이나 표본 부족만으로 PAPER를 막지 않습니다. 실행 조건이 유효하면 PAPER를 선택할 수 있으며, LIVE 권한이나 검증 인증이 자동 부여되지는 않습니다.")}</p>
       <p>{t("체결 가정: ")}{validationMetrics.assumptions?.entry_price === "signal_bar_close" ? <>{t("봉 종가 진입 · 단일 포지션 · 최대 ")}{validationMetrics.assumptions.maximum_holding_bars}{t("봉 보유 · 같은 봉 TP/SL은 손절 우선")}</> : t("구버전 가정 미기록 · 현재 가정을 과거 결과에 소급하지 않습니다.")}</p>
@@ -450,13 +453,22 @@ export function StrategyStudio({ client, service, source = "", onAskAssistant, o
   const [sourceSummary, setSourceSummary] = useState("");
   const [sourceAnalysis, setSourceAnalysis] = useState<Record<string, any> | null>(null);
   const [sourceFiles, setSourceFiles] = useState<File[]>([]);
+  const [sourceNotice,setSourceNotice]=useState('');
+  const [catalogQuery,setCatalogQuery]=useState('');
+  const [catalogStatus,setCatalogStatus]=useState('all');
+  const [catalogSort,setCatalogSort]=useState('date_desc');
+  const [costAssetClass,setCostAssetClass]=useState('stock');
+  const [costOverrides,setCostOverrides]=useState<Record<string,number>|null>(null);
   const sourceFile = sourceFiles[0] ?? null;
-  const setSourceFile = (file: File | null) => setSourceFiles(file ? [file] : []);
-  function chooseSourceFiles(list: FileList | null) {
-    const next = Array.from(list ?? []);
+  const setSourceFile = (file: File | null) => {setSourceFiles(file ? [file] : []);setSourceNotice('');};
+  function chooseSourceFiles(input: HTMLInputElement) {
+    const next = Array.from(input.files ?? []);
+    input.value=''; // DOM file value must reset: React state alone cannot reselect the same file.
+    if(!next.length || busy)return; // cancelling the picker must preserve the selection
     if (next.length > 40 || next.some(file => file.size > 24*1024*1024) || next.reduce((n,file)=>n+file.size,0)>64*1024*1024) {
-      setMessage(t('자료는 최대 40개, 개별 24MiB, 전체 64MiB까지 가능합니다.')); return;
+      setSourceNotice(t('자료는 최대 40개, 개별 24MiB, 전체 64MiB까지 가능합니다. 기존 선택은 유지했습니다.')); return;
     }
+    setSourceNotice(`${next.length}개 파일 선택 완료 · 아래 AI 분석 버튼을 누르세요. 선택만으로 등록·실행되지는 않습니다.`);
     setSourceFiles(next); setSourceReferenceInput(''); setSourceValue(''); setSourceReference('');
     setSourceSummary(''); setSourceAnalysis(null); setConfirmedSupplement(''); setClarificationAnswers({});
   }
@@ -1058,7 +1070,7 @@ export function StrategyStudio({ client, service, source = "", onAskAssistant, o
 
   async function analyzeSource(supplementOverride?: string, reviewedTextOverride?: string) {
     if (!reviewedTextOverride && !sourceReferenceInput.trim() && !sourceValue.trim() && !sourceFile) { setMessage("전략 설명·Pine·URL을 입력하거나 파일을 선택하세요."); return; }
-    setBusy(true); setMessage(""); setDraftValidationIssues([]);
+    setBusy(true); setMessage(""); setSourceNotice('자료 읽기·분석 중입니다.'); setDraftValidationIssues([]);
     try {
       let value = reviewedTextOverride ?? (sourceReferenceInput.trim() || sourceValue);
       let encoding = "text";
@@ -1076,6 +1088,7 @@ export function StrategyStudio({ client, service, source = "", onAskAssistant, o
         value = 'selected-files';
       }
       const supplement = typeof supplementOverride === "string" ? supplementOverride : confirmedSupplement;
+      setSourceNotice('자료 전송 완료 대기 · 본문 추출 및 전략 조건 분석 중입니다.');
       const result = await client.analyzeStrategySource({
         source_kind: reviewedTextOverride ? "text" : sourceKind,
         value,
@@ -1127,6 +1140,7 @@ export function StrategyStudio({ client, service, source = "", onAskAssistant, o
       setSourceReference(String(result.source?.reference ?? (fileName || "pasted")));
       setSourceSummary(`${String(result.summary ?? "원본 분석 완료")} · 누락 ${Number(result.missing_conditions?.length ?? 0)}개 · ${result.provider_called ? "외부 AI 사용" : "규칙 기반 추출"} · ${suggestion.auto_select === true ? `명시 국면 ${marketRegimeLabels(suggestedRegimes).join("·")} 추천 적용` : "국면 근거 없음 → NoahAI 판단"}`);
       setSourceAnalysis(result);
+      setSourceNotice(`분석 완료 · ${files.length || 1}개 입력 · 실행 가능 여부와 누락 조건은 아래 분석 결과를 확인하세요.`);
       setClarificationAnswers({});
       setUserDeclaredOverride(false);
       setMessage(result.ready_for_execution === true
@@ -1135,7 +1149,8 @@ export function StrategyStudio({ client, service, source = "", onAskAssistant, o
           ? "아직 확인할 조건이 있습니다. 아래 질문에 자신의 기준으로 답한 뒤 다시 분석하세요. AI 예시는 자동 적용되지 않습니다."
           : "원본 근거에서 규칙 초안을 만들었습니다. 누락 조건은 추측하지 않았으며 질문으로 보완하거나 원문을 수정할 수 있습니다.");
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "전략 원본 분석에 실패했습니다.");
+      const reason=error instanceof Error ? error.message : "전략 원본 분석에 실패했습니다.";
+      setMessage(reason);setSourceNotice(`자료 분석 실패: ${reason} · 선택 자료는 유지됩니다. 같은 파일로 다시 분석할 수 있습니다.`);
     } finally { setBusy(false); }
   }
 
@@ -1245,11 +1260,13 @@ export function StrategyStudio({ client, service, source = "", onAskAssistant, o
         if (!Number.isInteger(holdingBars) || holdingBars < 1 || holdingBars > 500) throw new Error("최대 보유 봉 수는 1~500 사이 정수여야 합니다.");
         const validationSource = service === "stock" ? source : (targetScope === "binance" ? "binance" : source);
         const validationMarketType = service === "stock" ? undefined : ["upbit", "bithumb", "coinone"].includes(validationSource) ? "spot" : "futures";
+        if(costOverrides && validationSource!==source)throw new Error('비용을 입력한 기관과 검사 기관이 다릅니다. 해당 기관 탭에서 비용을 확인하거나 직접 입력을 해제하세요.');
+        if(costOverrides && Object.values(costOverrides).some(value=>!Number.isFinite(value)||value<0||value>0.05))throw new Error('비용 항목을 모두 0~5% 숫자로 입력하세요.');
         updatedVersion = await client.runHistoricalValidation({
           scope: targetScope,
           strategy_key: version.strategy_key,
           version_id: version.version_id,
-          asset_class: service === "stock" ? "stock" : "crypto",
+          asset_class: service === "stock" ? costAssetClass : "crypto",
           source: validationSource,
           market_type: validationMarketType,
           symbol: replaySymbol.trim().toUpperCase() || (service === "stock" ? "005930" : ["upbit", "bithumb", "coinone"].includes(validationSource) ? "BTCKRW" : "BTCUSDT"),
@@ -1257,6 +1274,7 @@ export function StrategyStudio({ client, service, source = "", onAskAssistant, o
           range_start_ms: rangeStart,
           range_end_ms: rangeEnd,
           holding_bars: holdingBars,
+          cost_overrides: costOverrides,
         });
         setMessage(`과거 시세 재생 검사 완료 · ${validationSource.toUpperCase()} ${validationMarketType ?? "현물"} 실제 시세로 PnL·MDD·비용을 계산했습니다. 이제 PAPER 전진검증을 시작하세요.`);
       } else {
@@ -1307,6 +1325,8 @@ export function StrategyStudio({ client, service, source = "", onAskAssistant, o
   }
 
   const versionCount = catalog?.strategies.reduce((sum, item) => sum + item.versions.length, 0) ?? 0;
+  const visibleStrategies=useMemo(()=>strategyCatalogView(catalog?.strategies??[],catalogQuery,catalogStatus,catalogSort),[catalog,catalogQuery,catalogStatus,catalogSort]);
+  function strategyInUse(scope:string,key:string){return catalog?.strategies.find(g=>g.scope===scope&&g.strategy_key===key)?.versions.some(v=>v.active||v.paper_observing);}
   const versionTargetOptions = useMemo(() => catalog?.strategies
     .filter((group) => group.scope === scope)
     .map((group) => ({
@@ -1389,7 +1409,7 @@ export function StrategyStudio({ client, service, source = "", onAskAssistant, o
             <div className="strategy-guided-actions"><button type="button" onClick={() => guidedQuestion === 0 ? setGuidedStep(1) : setGuidedQuestion((current) => current - 1)}>{t("이전")}</button><button className="primary-button" type="button" onClick={advanceGuidedQuestion}>{guidedQuestion === 2 ? "설명 확인" : "다음 질문"}</button></div></>}
           {guidedStep === 3 && guidedMethodCopy && <><div className="strategy-guided-copy"><h4>{guidedMethodCopy.title}</h4><p>{guidedMethodCopy.description}</p></div><dl className="strategy-guided-summary"><div><dt>{t("현재 Level")}</dt><dd>Level {featureViewLevel}{t(" · 변경 없음")}</dd></div><div><dt>{t("자산")}</dt><dd>{service === "stock" ? t("주식·ETF") : t("암호화폐")}</dd></div><div><dt>{t("선호 빈도")}</dt><dd>{guidedFrequencyLabel}</dd></div><div><dt>{t("검토 위험")}</dt><dd>{t("거래당 최대 ")}{guidedAnswers.maxLossPercent}%</dd></div></dl><div className="strategy-guided-plain"><b>{t("다음에 확인할 내용")}</b><span>{guidedMethod === "noah" ? "NoahAI가 시장과 후보를 판단하고 조건 충돌 시 HOLD합니다. 이 경로는 커스텀 전략 생성 과정이 없으며 바로 완료할 수 있습니다." : guidedMethod === "example" ? "관리형 예제의 진입·청산·거래 금지 조건을 쉬운 설명과 실행 규칙으로 함께 확인합니다." : "가져온 원문에서 진입·청산·TP/SL·시장국면이 확인되는지 분석하고 모르는 조건은 실행하지 않습니다."}</span></div><div className="strategy-guided-actions"><button type="button" onClick={() => setGuidedStep(2)}>{t("이전")}</button>{guidedMethod === "noah" ? <><button type="button" disabled={busy} onClick={() => void prepareGuidedDraft("example")}>{t("전략도 만들기 · 관리형 예제로 전환")}</button><button className="primary-button" type="button" onClick={() => finishGuidedTour("기본 NoahAI 운용 경로를 확인했습니다. 커스텀 전략을 만들거나 적용하지 않았습니다.")}>{t("기본 NoahAI 사용 확인 완료")}</button></> : <button className="primary-button" disabled={busy} type="button" onClick={() => void prepareGuidedDraft()}>{guidedMethod === "example" ? "관리형 예제 불러오기" : "내 전략 입력하기"}</button>}</div></>}
           {guidedStep === 4 && <><div className="strategy-guided-copy"><h4>{t("안전한 전략 버전 만들기")}</h4><p>{t("분석·저장·승인을 각각 확인합니다. 현재 필요한 동작 하나만 아래에 표시합니다.")}</p></div>
-            {guidedMethod === "import" && !sourceAnalysis && <div className="strategy-guided-import"><label>{t("전략 설명 또는 Pine Script")}<textarea value={sourceValue} onChange={(event) => { setSourceValue(event.target.value); setSourceFile(null); setSourceReferenceInput(""); setSourceReference(""); setSourceSummary(""); setSourceAnalysis(null); setConfirmedSupplement(""); setClarificationAnswers({}); }} placeholder={t("예: EMA200 위에서 RSI 30 이하 LONG, 손절 1%, 익절 2%")} /></label><label className="secondary-button">{t("문서·Pine·이미지·영상 파일 선택")}<input type="file" multiple accept=".md,.pdf,.pine,.txt,.csv,.tsv,.xlsx,.docx,image/*,video/*" onChange={(event) => chooseSourceFiles(event.target.files)} /></label><label className="legacy-file-picker">{t("폴더 선택")}<input type="file" multiple {...({webkitdirectory:""} as any)} aria-label={t("자료 폴더 선택")} onChange={(event) => chooseSourceFiles(event.target.files)} /></label>{sourceFile && <small>{t("선택 파일: ")}{sourceFiles.map(file=>file.name).join(", ")}</small>}</div>}
+            {guidedMethod === "import" && !sourceAnalysis && <div className="strategy-guided-import"><label>{t("전략 설명 또는 Pine Script")}<textarea value={sourceValue} onChange={(event) => { setSourceValue(event.target.value); setSourceFile(null); setSourceReferenceInput(""); setSourceReference(""); setSourceSummary(""); setSourceAnalysis(null); setConfirmedSupplement(""); setClarificationAnswers({}); }} placeholder={t("예: EMA200 위에서 RSI 30 이하 LONG, 손절 1%, 익절 2%")} /></label><label className="secondary-button">{t("문서·Pine·이미지·영상 파일 선택")}<input type="file" multiple accept=".md,.pdf,.pine,.txt,.csv,.tsv,.xlsx,.docx,image/*,video/*" onChange={(event) => chooseSourceFiles(event.currentTarget)} /></label><label className="legacy-file-picker">{t("폴더 선택")}<input type="file" multiple {...({webkitdirectory:""} as any)} aria-label={t("자료 폴더 선택")} onChange={(event) => chooseSourceFiles(event.currentTarget)} /></label>{sourceFile && <small>{t("선택 파일: ")}{sourceFiles.map(file=>file.name).join(", ")}</small>}</div>}
             <div className="strategy-guided-checks"><div className={sourceAnalysis ? "done" : "current"}><b>1</b><span>{t("원문 분석과 실행 조건 확인")}</span></div><div className={guidedVersion ? "done" : sourceAnalysis ? "current" : ""}><b>2</b><span>{t("최종 재검증 후 비활성 버전 저장")}</span></div><div className={guidedVersion && guidedVersion.status !== "analyzed" ? "done" : guidedVersion ? "current" : ""}><b>3</b><span>{t("사용자 승인")}</span></div><div><b>선택</b><span>{guidedHistoricalReplayApplicable ? "과거 시세 백테스트 · PAPER 선행조건 아님" : "과거재생 비대상 확인"}</span></div></div>
             <SourceManifest items={sourceAnalysis?.source_manifest} />
             {busy && <div className="strategy-guided-processing" role="status"><strong>{t("원문과 실행 규칙을 대조하고 있습니다.")}</strong><span>{t("Pine·문서·영상 또는 외부 AI 정밀 분석은 1분 이상 걸릴 수 있습니다. 창을 닫아도 분석은 취소되지 않으며 완료 후 현재 초안에 반영됩니다.")}</span></div>}
@@ -1453,7 +1473,7 @@ export function StrategyStudio({ client, service, source = "", onAskAssistant, o
           {authoringMode === "guided_clarification" && <p className="strategy-authoring-notice">{t("AI는 질문과 예시만 제공합니다. 예시를 자동 선택하지 않으며, 사용자가 입력하고 확정한 답변만 원본과 분리된 근거로 저장합니다.")}</p>}
           {authoringMode === "noah_delegate" && <div className="strategy-authoring-delegate"><div><b>{t("이 경로는 커스텀 전략을 만들지 않습니다.")}</b><span>{t("기존 입력은 즉시 삭제되지 않습니다. 아래 버튼으로 확정하면 입력 중인 초안만 정리하고 기본 NoahAI 운용 안내로 전환합니다.")}</span></div><button type="button" onClick={() => loadBeginnerPresetByKey("auto_regime")}>{t("기본 NoahAI 사용 확인")}</button></div>}
         </section>
-        <div className="legacy-source-path-row"><input value={sourceReferenceInput} onChange={(event) => { setSourceReferenceInput(event.target.value); setSourceFile(null); setSourceReference(""); setSourceSummary(""); setSourceAnalysis(null); setConfirmedSupplement(""); setClarificationAnswers({}); }} placeholder={t("YouTube/TradingView URL 또는 Markdown·PDF·이미지·영상·Pine 파일 경로")} /><label className="legacy-file-picker">{t("파일 선택")}<input type="file" multiple accept=".md,.pdf,.pine,.txt,.csv,.tsv,.xlsx,.docx,image/*,video/*" onChange={(event) => chooseSourceFiles(event.target.files)} /></label><label className="legacy-file-picker">{t("폴더 선택")}<input type="file" multiple {...({webkitdirectory:""} as any)} aria-label={t("자료 폴더 선택")} onChange={(event) => chooseSourceFiles(event.target.files)} /></label></div>
+        <div className="legacy-source-path-row"><input value={sourceReferenceInput} onChange={(event) => { setSourceReferenceInput(event.target.value); setSourceFile(null); setSourceReference(""); setSourceSummary(""); setSourceAnalysis(null); setConfirmedSupplement(""); setClarificationAnswers({}); }} placeholder={t("YouTube/TradingView URL 또는 Markdown·PDF·이미지·영상·Pine 파일 경로")} /><label className="legacy-file-picker">{t("파일 선택")}<input type="file" multiple accept=".md,.pdf,.pine,.txt,.csv,.tsv,.xlsx,.docx,image/*,video/*" onChange={(event) => chooseSourceFiles(event.currentTarget)} /></label><label className="legacy-file-picker">{t("폴더 선택")}<input type="file" multiple {...({webkitdirectory:""} as any)} aria-label={t("자료 폴더 선택")} onChange={(event) => chooseSourceFiles(event.currentTarget)} /></label></div>
         <div className="legacy-source-input-label"><b>{t("전략 설명 / Pine Script 직접 입력")}</b><small>{t("예: RSI<30 + EMA200 상단에서 진입, 손절 1%, 익절 2%, 자산 5%")}</small></div>
         <textarea className="source-editor" value={sourceValue} onChange={(event) => { setSourceValue(event.target.value); setSourceFile(null); setSourceReferenceInput(""); setSourceReference(""); setSourceSummary(""); setSourceAnalysis(null); setConfirmedSupplement(""); setClarificationAnswers({}); }} placeholder={t("전략 설명 또는 Pine Script를 붙여 넣으세요. 링크/파일을 선택한 경우 비워도 됩니다.")} />
         {assistantDraftText && <section className="strategy-assistant-draft" ref={assistantDraftPanelRef} aria-live="polite"><header><div><b>{t("AI 답변 검토 · 아직 전략에 적용되지 않음")}</b><span>{t("복사·붙여넣기 없이 가져왔습니다. 틀린 내용이나 AI가 추측한 조건을 지우고, 자신의 전략 기준만 남기세요.")}</span></div></header><textarea value={assistantDraftText} onChange={(event) => setAssistantDraftText(event.target.value)} /><footer><button type="button" onClick={() => { setAssistantDraftText(""); onAssistantDraftConsumed?.(); setMessage("AI 답변 초안을 버렸습니다. 기존 전략 입력과 분석은 유지했습니다."); }}>{t("사용하지 않기")}</button><button className="primary-button" type="button" disabled={busy || !assistantDraftText.trim()} onClick={() => void applyAssistantDraft()}>{t("사용자 보완 근거로 확정·재분석")}</button></footer><small>{t("확정해도 저장·승인·PAPER·LIVE는 자동 실행되지 않습니다. 진입·청산·TP/SL 등은 결정형 컴파일러가 원문 근거를 다시 검사합니다.")}</small></section>}
@@ -1501,8 +1521,9 @@ export function StrategyStudio({ client, service, source = "", onAskAssistant, o
       <div className="panel-heading legacy-xai-heading"><div className="legacy-xai-title-group"><h3>{t("2. XAI 분석 결과와 적용값")}</h3><select value={resultView} onChange={(event) => setResultView(event.target.value)}><option value={"Level 1 이해·시험"}>{t("Level 1 이해·시험")}</option><option disabled={featureViewLevel < 2} value={"Level 2 핵심값"}>{t("Level 2 핵심값")}</option><option disabled={featureViewLevel < 3} value="Level 3 전체 근거">{t("Level 3 전체 IR")}</option><option disabled={featureViewLevel < 4} value="Level 4 전문가 운용">{t("Level 4 전문가 운용")}</option><option disabled={featureViewLevel < 5} value="Level 5 연구실">{t("Level 5 연구실")}</option></select><small>{featureViewLevel < 3 ? t("Level 3은 설정에서 고급을 선택하면 열립니다.") : featureViewLevel < 4 ? "Level 4는 실험실에서 열리며 가드레일 해제 권한은 없습니다." : "Level 4 운용 정책을 사용할 수 있으며, 연구실에서는 Level 5 근거 비교가 추가됩니다."}</small></div><div className="legacy-xai-actions"><button type="button" disabled={!onAskAssistant} onClick={() => onAskAssistant?.(analysisAssistantPrompt)}>{t("이 결과 AI에게 묻기")}</button><span>{sourceAnalysis ? "분석 완료" : t("분석 전")}</span></div></div>
       <div className="legacy-xai-result">{sourceAnalysis ? <><strong>{String(sourceAnalysis.summary ?? "원본 분석 완료")}</strong><p>{t("원본 분석 기준 · 자료 읽기 ")}{String(sourceDetails.coverage_summary || "범위 확인 필요")}{t(" → 문서/IR ")}{sourceAnalysis.ready_for_review ? t("완료") : "보완 필요"}{t(" → 실행 규칙 ")}{analysisReady ? t("완료") : "보완 필요"} → PAPER {analysisReady ? "승인 후 후보" : "시작 불가"}</p><p>{t("누락 조건 ")}{missingConditions.length}{t("개 · ")}{sourceAnalysis.provider_called ? "외부 AI 정밀 분석" : "로컬 규칙 기반 1차 추출"}{t(" · 편집한 최종값은 저장 직전에 서버에서 다시 검증")}</p></> : <p>{t("원본을 분석하면 출처 근거, 명시된 조건, 누락 조건, 위험, 엔진 설정값이 표시됩니다.")}</p>}</div>
       {sourceAnalysis && !analysisReady && authoringMode !== "guided_clarification" && <div className="strategy-authoring-next"><div><b>{t("무엇을 써야 할지 모르겠나요?")}</b><span>{t("현재 분석 결과는 그대로 두고, 빠진 조건만 한 항목씩 질문받을 수 있습니다.")}</span></div><button type="button" onClick={() => { setAuthoringMode("guided_clarification"); setMessage("현재 분석에서 빠진 조건을 질문 카드로 열었습니다. 자신의 전략 기준만 답해 주세요."); }}>{t("빠진 조건을 질문으로 완성")}</button></div>}
+      {sourceNotice && <div className="inline-notice" role="status" data-testid="source-upload-status">{sourceNotice}</div>}
       {sourceSummary && <div className="inline-notice">{sourceSummary}</div>}
-      {sourceFiles.length > 0 && <div className="inline-notice">선택 자료 {sourceFiles.length}/40개 · {sourceFiles.map(file=>file.name).join(', ')}<button type="button" disabled={busy} onClick={()=>{setSourceFile(null);setSourceAnalysis(null);}}>선택 초기화</button></div>}
+      {sourceFiles.length > 0 && <div className="inline-notice">선택 자료 {sourceFiles.length}/40개 · {sourceFiles.map(file=>file.name).join(', ')}<button type="button" disabled={busy} onClick={()=>{setSourceFile(null);setSourceAnalysis(null);setSourceSummary('');setSourceNotice('선택을 초기화했습니다. 같은 파일도 다시 선택할 수 있습니다.');}}>선택 초기화</button></div>}
       <SourceManifest items={sourceAnalysis?.source_manifest} />
       {sourceAnalysis && authoringMode === "guided_clarification" && !analysisReady && <section className="strategy-clarification-panel" aria-live="polite">
         <header><div><span>{t("AI 전략 설계 인터뷰")}</span><h4>{t("모르는 값을 만들지 않고 사용자에게 확인합니다")}</h4><p>{t("질문에 자신의 기준을 적어 주세요. AI 예시는 설명일 뿐 자동 선택되지 않으며, 답변을 확정해도 저장·승인·PAPER·LIVE는 자동 실행되지 않습니다.")}</p></div><b>{clarificationQuestions.length}{t("개 확인")}</b></header>
@@ -1555,7 +1576,16 @@ export function StrategyStudio({ client, service, source = "", onAskAssistant, o
           <label>{t("종료 UTC · 제외")}<input aria-label="종료 UTC · 제외" type="datetime-local" value={replayEnd} onChange={e => setReplayEnd(e.target.value)} /></label>
           <label>{t("최대 보유 봉 수 · 검사 가정")}<input aria-label="최대 보유 봉 수 · 검사 가정" type="number" min={1} max={500} value={replayHolding} onChange={e => setReplayHolding(e.target.value)} /></label>
         </div><p>{t("검사 가정 변경은 저장 전략의 청산 규칙이나 LIVE 운용값을 변경하지 않습니다. 보유 상한에 도달하면 해당 봉 종가로 모의 청산합니다.")}</p>
+        {service==='stock' && <label>검사 상품<select aria-label="검사 상품" value={costAssetClass} onChange={e=>setCostAssetClass(e.target.value)}><option value="stock">주식</option><option value="etf">ETF</option></select></label>}
+        <ReplayCosts client={client} source={source} assetClass={service==='stock'?costAssetClass:'crypto'} onChange={setCostOverrides}/>
       </details>
+      <div className="form-grid" data-testid="strategy-list-controls">
+        <label>전략 검색<input aria-label="전략 검색" value={catalogQuery} onChange={e=>setCatalogQuery(e.target.value)} placeholder="이름 · 전략 ID · 원본 파일"/></label>
+        <label>전략 상태<select aria-label="전략 상태" value={catalogStatus} onChange={e=>setCatalogStatus(e.target.value)}><option value="all">전체</option><option value="active">적용 중</option><option value="paper">PAPER 검증 중</option><option value="passed">PAPER 통과</option><option value="repair">보완 필요</option></select></label>
+        <label>전략 정렬<select aria-label="전략 정렬" value={catalogSort} onChange={e=>setCatalogSort(e.target.value)}><option value="date_desc">생성일 최신순</option><option value="date_asc">생성일 오래된순</option><option value="name_asc">이름 오름차순</option><option value="name_desc">이름 내림차순</option></select></label>
+        <button type="button" onClick={()=>{setCatalogQuery('');setCatalogStatus('all');setCatalogSort('date_desc');}}>검색·필터 초기화</button>
+      </div><p data-testid="strategy-list-count">표시 {visibleStrategies.reduce((n,g)=>n+g.versions.length,0)} / 전체 {versionCount}개 버전 · 목록만 변경하며 전략 실행·승인·검증 상태는 바꾸지 않습니다.</p>
+      {Boolean(catalog?.strategies.length) && !visibleStrategies.length && <p>조건에 맞는 전략이 없습니다. 검색·필터를 초기화해 보세요.</p>}
       <div className="strategy-list">
         {catalog?.strategies.some((strategy) => strategy.versions.some((version) => (version.execution_readiness ?? version.paper_execution_readiness)?.ready === false)) && <aside className="inline-notice" role="status" data-testid="strategy-compatibility-help">
           <strong>{t("기존 전략을 삭제하거나 처음부터 다시 만들지 마세요.")}</strong>
@@ -1577,8 +1607,8 @@ export function StrategyStudio({ client, service, source = "", onAskAssistant, o
           <p>{t("엔진 미지원 조건은 같은 내용으로 반복 생성해도 해결되지 않습니다. 표시된 조건을 확인하고 지원 보강을 기다려야 하며, 조건을 빼거나 기본 AI 진입으로 바꾸는 것은 원래 전략의 복원이 아닙니다.")}</p>
         </aside>}
         {!busy && !catalog?.strategies.length && <div className="empty-state"><strong>{t("저장된 프라이빗 전략이 없습니다.")}</strong><span>{t("위 입력 영역에서 원본 분석 → XAI 검토 → 버전 저장 순서로 만들 수 있습니다.")}</span><button className="primary-button" type="button" onClick={openGuidedTour}>{t("처음 사용 · 5분 따라 만들기")}</button></div>}
-        {catalog?.strategies.map((strategy) => <article className="strategy-card" key={`${strategy.scope}:${strategy.strategy_key}`}>
-          <header><div><span>{strategy.scope.toUpperCase()}</span><strong>{strategy.versions.at(-1)?.name ?? strategy.strategy_key}</strong><small>{strategy.strategy_key}</small></div><button className="danger-button" disabled={busy || strategy.versions.some((version) => version.active || version.paper_observing)} onClick={() => remove(strategy.scope, strategy.strategy_key)} type="button">{t("전략 전체 삭제")}</button></header>
+        {visibleStrategies.map((strategy) => <article className="strategy-card" key={`${strategy.scope}:${strategy.strategy_key}`}>
+          <header><div><span>{strategy.scope.toUpperCase()}</span><strong>{strategy.versions.at(-1)?.name ?? strategy.strategy_key}</strong><small>{strategy.strategy_key}</small></div><button className="danger-button" disabled={busy || strategyInUse(strategy.scope,strategy.strategy_key)} onClick={() => remove(strategy.scope, strategy.strategy_key)} type="button">{t("전략 전체 삭제")}</button></header>
           <div className="version-list">{[...strategy.versions].reverse().map((version) => { const label = actionLabel(version); const replayApplicable = historicalReplayApplicable(version); const directPaperAction = !version.active && ["approved", "execution_rejected", "paper_rejected"].includes(version.status); const action = directPaperAction ? "start_paper" : version.active ? "deactivate" : (version.paper_observing || version.status === "paper_observing") ? "stop_paper" : version.status === "paper_paused" ? "start_paper" : version.status === "analyzed" ? "approve" : version.status === "execution_validated" && version.execution_validation?.mode === "historical_replay" ? "start_paper" : "activate"; const readiness = version.execution_readiness ?? version.paper_execution_readiness; const paperReady = readiness?.ready !== false; const canRunHistoricalReplay = replayApplicable && paperReady && !version.active && !version.paper_observing && ["approved", "execution_rejected", "execution_validated"].includes(version.status); const paperMetrics = version.paper_validation?.metrics ?? {}; const paperCompletion = String(version.paper_validation?.completion_status ?? (version.paper_validation?.passed ? "passed" : "in_progress")); const paperProgress = version.paper_progress ?? { trades: Number(version.paper_validation?.trades ?? 0), observation_days: Number(paperMetrics.observation_days ?? 0), required_trades: 3, required_days: 7 }; const attemptHistory = version.paper_validation_attempt_history ?? []; const legacyValidationHistory = version.paper_validation_history ?? []; const preservedHistory = attemptHistory.length ? attemptHistory : legacyValidationHistory.map((paper_validation) => ({ paper_validation, reason: "v3.9.1.22 이전 보존 근거" })); return <div className="version-row" key={version.version_id}>
             <div><b>v{version.version}</b><span className={`state-pill ${version.active ? "active" : ""}`}>{strategyStatusLabel(version)}</span><small className="strategy-version-created">{strategyVersionTime((version as any).created_at)}</small></div>
             <div className="version-summary"><strong>{!paperReady ? "실행 조건 보완 필요 · 기존 설명과 검증 이력은 보존됩니다." : version.xai?.summary ?? "XAI 설명 준비 중"}</strong><span>{version.source_kind ?? "manual"} · {version.source_reference ?? "원본 직접 입력"} · {version.missing_conditions.length ? `확인 필요 ${version.missing_conditions.length}개` : "문서/IR 확인 완료"}{t(" · 실행 규칙 ")}{paperReady ? t("완료") : "보완 필요"}</span><small>{!paperReady ? `승인·PAPER·적용 차단 · ${(readiness?.reasons ?? []).map(readinessReason).join(" ")} ${version.active ? "현재 활성 버전에도 실행 조건 보완이 필요합니다. 누락 조건을 확인하고 새 버전을 검증하세요." : "이 보관 버전은 기본 NoahAI 거래를 차단하지 않습니다."}` : version.active ? `최종 적용됨 · 앱 PAPER에서는 가상 실행, LIVE에서는 승인 범위 실행${version.paper_validation ? ` · PAPER ${Number(version.paper_validation.trades ?? 0)}건` : ""}` : version.paper_observing || version.status === "paper_observing" ? `PAPER 검증 중 · ${Number(paperProgress.trades ?? 0)}/${Number(paperProgress.required_trades ?? 3)}건 · 활성 검증 ${Number(paperProgress.observation_days ?? 0).toFixed(1)}/${Number(paperProgress.required_days ?? 7)}일` : version.status === "paper_paused" ? `PAPER 일시정지 · 근거 보존 ${Number(paperProgress.trades ?? 0)}건 · 활성 검증 ${Number(paperProgress.observation_days ?? 0).toFixed(1)}일 · 재개 시 이어서 계산` : version.paper_validation ? `PAPER ${paperCompletion === "passed" ? "통과" : paperCompletion === "failed" ? "미통과" : "진행 근거"} · ${Number(version.paper_validation.trades ?? 0)}건` : version.execution_validation?.mode === "historical_replay" ? "과거 평가 기록 있음 · PAPER 선택 가능" : !replayApplicable ? "과거재생 비대상 · NoahAI 기본 진입과 함께 PAPER에서 위험·청산 규칙 검증" : "PAPER 결과 없음"}</small><p className="strategy-evidence-warning">{replayApplicable ? "검증 대상: 구조화된 사용자 진입·청산 규칙" : "검증 대상: NoahAI 기본 진입 + 사용자 위험·청산값. 원문 전체 진입 전략의 검증 결과가 아닙니다."}</p><StrategyValidationEvidence version={version} research={featureViewLevel >= 5} /><StrategyVersionContract version={version} />{preservedHistory.length > 0 && <details><summary>{t("이전 PAPER 검증 시도 ")}{preservedHistory.length}{t("개 · 근거 보존")}</summary><pre className="json-summary">{JSON.stringify(preservedHistory, null, 2)}</pre></details>}{version.version > 1 && Boolean(version.version_diff?.changes?.length) && <details><summary>{t("이전 버전과 변경점 ")}{version.version_diff?.changes?.length}{t("개")}</summary><pre className="json-summary">{JSON.stringify(version.version_diff, null, 2)}</pre></details>}</div>

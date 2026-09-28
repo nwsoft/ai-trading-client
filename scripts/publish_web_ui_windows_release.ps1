@@ -58,6 +58,12 @@ function Assert-ParityLedgerComplete([string]$Root) {
 }
 
 function Get-PatchPlanPath([string]$Root, [string]$Version) {
+    # Keep the current runbook in the canonical document, not one duplicated MD per patch.
+    $canonical = Join-Path $Root "docs\DEPLOY_CHECKLIST.md"
+    if (Test-Path -LiteralPath $canonical) {
+        $body = Get-Content -LiteralPath $canonical -Raw
+        if ($body.Contains("<!-- patch-test-plan-version: $Version -->")) { return $canonical }
+    }
     $parts = $Version.Split(".")
     if ($parts.Count -ne 4) { throw "Unsupported version format: $Version" }
     $prefix = "V$($parts[0])$($parts[1])$($parts[2])$($parts[3])_"
@@ -72,6 +78,13 @@ function Get-PatchPlanStatus([string]$Root, [string]$Version) {
     $planPath = Get-PatchPlanPath $Root $Version
     if (-not $planPath) { throw "v$Version patch test plan missing: docs\V*_TEST_PLAN.md" }
     $plan = Get-Content -LiteralPath $planPath -Raw
+    $marker = "<!-- patch-test-plan-version: $Version -->"
+    if ($plan.Contains($marker)) {
+        $start = $plan.IndexOf($marker) + $marker.Length
+        $end = $plan.IndexOf("<!-- patch-test-plan-end -->", $start)
+        if ($end -lt $start) { throw "Current patch checklist end marker missing" }
+        $plan = $plan.Substring($start, $end - $start)
+    }
     $checklistRows = [regex]::Matches($plan, '(?m)^- \[[xX ]\].+$')
     if ($checklistRows.Count -eq 0) {
         throw "v$Version patch test plan has no verification rows"

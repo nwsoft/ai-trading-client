@@ -521,6 +521,7 @@ def run_historical_replay(
     horizon: int = 12,
     base_timeframe: str = "15m",
     entry_start_ms: int | None = None,
+    cost_profile: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     """단일 포지션 방식의 조건 재생. 실전 수익 보장이 아닌 실행 가능성 보조 검증이다."""
     rows = _candle_rows(klines)
@@ -576,6 +577,13 @@ def run_historical_replay(
     slippage_per_side = max(0.0, float(slippage_bps)) / 10_000.0
     spread_round_trip = max(0.0, float(spread_bps)) / 10_000.0
     round_trip_cost = 2 * fee_per_side + 2 * slippage_per_side + spread_round_trip
+    if cost_profile is not None:
+        from .replay_costs import replay_cost_components
+        rates = cost_profile['rates']
+        fee_per_side = (rates['buy_fee_rate'] + rates['sell_fee_rate']) / 2
+        slippage_bps = (rates['buy_slippage_rate'] + rates['sell_slippage_rate']) * 5000
+        spread_bps = rates['spread_rate'] * 10000
+        round_trip_cost = sum(replay_cost_components(cost_profile, 'LONG').values())
     outcomes: List[float] = []
     gross_outcomes: List[float] = []
     trades: List[Dict[str, Any]] = []
@@ -679,7 +687,11 @@ def run_historical_replay(
                 break
 
         gross = (exit_price / entry_price - 1.0) * (1.0 if entry_signal == "LONG" else -1.0)
-        net = gross - round_trip_cost
+        components = replay_cost_components(cost_profile, entry_signal, exit_price / entry_price) if cost_profile else {
+            'fee': 2 * fee_per_side, 'slippage': 2 * slippage_per_side, 'spread': spread_round_trip, 'tax': 0.0,
+        }
+        trade_cost = sum(components.values())
+        net = gross - trade_cost
         gross_outcomes.append(gross)
         outcomes.append(net)
         regime = _regime(current_context)
@@ -694,7 +706,8 @@ def run_historical_replay(
             "exit_price": round(exit_price, 10),
             "exit_reason": exit_reason,
             "gross_pnl_percent": round(gross * 100.0, 6),
-            "cost_percent": round(round_trip_cost * 100.0, 6),
+            "cost_percent": round(trade_cost * 100.0, 6),
+            "cost_components_percent": {key: round(value * 100, 6) for key, value in components.items()},
             "net_pnl_percent": round(net * 100.0, 6),
         })
         next_available = exit_index + 1
@@ -736,7 +749,8 @@ def run_historical_replay(
         "win_rate": round(wins / max(len(outcomes), 1), 6),
         "gross_pnl_percent": round(sum(gross_outcomes) * 100.0, 6),
         "net_pnl_percent": round((equity - 1.0) * 100.0, 6),
-        "total_cost_percent": round(round_trip_cost * len(outcomes) * 100.0, 6),
+        "total_cost_percent": round(sum(t['cost_percent'] for t in trades), 6),
+        "cost_profile": cost_profile,
         "max_drawdown_percent": round(max_drawdown * 100.0, 6),
         "profit_factor": "inf" if math.isinf(profit_factor) else round(profit_factor, 6),
         "expectancy_percent": round(

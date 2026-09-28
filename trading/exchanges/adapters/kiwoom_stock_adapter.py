@@ -65,6 +65,9 @@ def _kiwoom_order_error_message(code: Any) -> str:
     return mapping.get(parsed, f'주문 실패(에러코드: {parsed})')
 
 
+from trading.instrument_eligibility import instrument_order
+
+
 class KiwoomStockAdapter(StockExchange):
     """키움증권 주식/ETF 어댑터"""
     
@@ -623,6 +626,19 @@ class KiwoomStockAdapter(StockExchange):
             self._last_connect_failure_reason = f'connect_exception:{e}'
             return False
     
+    def _listing_state(self, symbol: str) -> str:
+        # Local OCX master metadata, not a per-symbol network/TR quote request.
+        getter = getattr(self.kiwoom, 'GetMasterStockState', None)
+        if not callable(getter):
+            return 'unknown'
+        try:
+            state = str(getter(symbol) or '')
+            if not state:
+                return 'unknown'
+            return 'halted' if any(value in state for value in ('거래정지', '상장폐지')) else 'ok'
+        except Exception:
+            return 'unknown'
+
     def get_stock_list(self, market: str = "KOSPI") -> List[Dict[str, Any]]:
         """
         주식 목록 조회
@@ -678,7 +694,7 @@ class KiwoomStockAdapter(StockExchange):
                         'current_price': 0.0,
                         'volume': 0,
                         'is_etf': False,
-                        'status': 'ok',
+                        'status': self._listing_state(symbol),
                     })
             return results
             
@@ -745,7 +761,7 @@ class KiwoomStockAdapter(StockExchange):
                         'expense_ratio': expense_ratio,
                         'base_index': base_index,
                         'is_etf': True,
-                        'status': 'ok',
+                        'status': self._listing_state(symbol),
                     })
                 return etfs
 
@@ -1074,6 +1090,7 @@ class KiwoomStockAdapter(StockExchange):
             self.log_event('system', f"보유 종목 조회 실패: {e}", level='ERROR')
             return []
     
+    @instrument_order('kiwoom')
     def place_order(self, symbol: str, side: str, quantity: float, 
                    price: Optional[float] = None, order_type: str = "MARKET") -> Dict[str, Any]:
         """

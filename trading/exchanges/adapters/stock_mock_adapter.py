@@ -156,6 +156,7 @@ class StockMockAdapter(StockExchange):
                 price = _mock_price(s["code"])
                 result.append({
                     **s,
+                    'status': 'ok', 'status_source': 'mock_catalogue',
                     "current_price": price,
                     "change_rate": _mock_change_rate(),
                     "volume": random.randint(100_000, 10_000_000),
@@ -171,7 +172,8 @@ class StockMockAdapter(StockExchange):
         for e in _SAMPLE_ETFS:
             price = _mock_price(e["code"])
             result.append({
-                **e,
+                    **e,
+                    'status': 'ok', 'status_source': 'mock_catalogue',
                 "current_price": price,
                 "change_rate": _mock_change_rate(),
                 "volume": random.randint(10_000, 1_000_000),

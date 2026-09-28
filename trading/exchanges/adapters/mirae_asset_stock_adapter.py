@@ -28,6 +28,9 @@ _OPERATION_BY_LEGACY_PATH = {
 }
 
 
+from trading.instrument_eligibility import instrument_order, stock_status
+
+
 class MiraeAssetStockAdapter(StockExchange):
     """미래에셋증권 주식/ETF 어댑터 — REST 기반"""
 
@@ -472,7 +475,7 @@ class MiraeAssetStockAdapter(StockExchange):
                 if not code or code == '000000' or self.is_etf(code):
                     continue
                 rows.append({'code': code, 'name': item.get('prdt_name') or item.get('name', code),
-                             'market': market, 'is_etf': False, 'status': 'ok',
+                             'market': market, 'is_etf': False, 'status': stock_status(item),
                              'current_price': abs(self._to_float(item.get('stck_prpr') or item.get('current_price'))),
                              'volume': self._to_int(item.get('acml_vol') or item.get('volume'))})
             return rows
@@ -527,7 +530,7 @@ class MiraeAssetStockAdapter(StockExchange):
                     continue
                 result.append({
                     'code': code, 'name': item.get('prdt_name') or item.get('name', code),
-                    'market': 'ETF', 'is_etf': True, 'status': 'ok',
+                    'market': 'ETF', 'is_etf': True, 'status': stock_status(item),
                     'current_price': abs(self._to_float(item.get('stck_prpr') or item.get('current_price'))),
                     'nav': self._to_float(item.get('nav') or item.get('etf_nav')),
                     'tracking_error': self._to_float_or_none(item.get('trc_errt') or item.get('tracking_error')),
@@ -743,7 +746,8 @@ class MiraeAssetStockAdapter(StockExchange):
             self.log_event('system', f'{self._broker_label()} 보유종목 조회 실패: {e}', level='ERROR')
             return []
 
-    def place_order(self, symbol: str, side: str, quantity: float,
+    @instrument_order('mirae')
+    def place_order(self, symbol: str, side: str, quantity: float, 
                    price: Optional[float] = None, order_type: str = 'MARKET') -> Dict[str, Any]:
         """주문 실행."""
         try:

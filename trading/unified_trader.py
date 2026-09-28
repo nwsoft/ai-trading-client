@@ -727,9 +727,8 @@ class UnifiedTrader:
 
     def _prefilter_supported_coins(self, exchange_name: str, coins: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         """거래소별 지원 심볼만 남기는 사전 필터.
-        - CCXT 기반(bybit/okx/bitget/upbit/bithumb/coinone): adapter.exchange.markets 기준으로 확인
-        - Binance: 네이티브 futures_exchange_info 기반으로 확인
-        실패/미연결·명시적 거래 중단 마켓은 후보로 반환하지 않는다.
+        공통 현재 종목 계약을 사용한다. 오래된 CCXT 목록/미확인 상태나
+        신규 기관에 대한 무조건 허용은 없으며 평가·청산 경로와 분리한다.
         """
         try:
             if not coins:
@@ -737,8 +736,9 @@ class UnifiedTrader:
             name = str(exchange_name or '').lower()
             filtered: List[Dict[str, Any]] = []
 
-            # 거래 타입 판별 (바이낸스 제외)
-            trading_type = 'futures' if name in ['bybit', 'okx', 'bitget'] else 'spot'
+            from trading.instrument_eligibility import eligibility
+            from trading.exchanges.venue_capabilities import USDT_FUTURES_VENUES
+            trading_type = 'futures' if name in USDT_FUTURES_VENUES else 'spot'
 
             # 어댑터/클라이언트 확보
             adapter = None
@@ -749,44 +749,7 @@ class UnifiedTrader:
 
             # CCXT 계열: markets 기반 필터
             def _ccxt_supported(sym: str) -> bool:
-                try:
-                    if not adapter or not hasattr(adapter, 'exchange'):
-                        return False
-                    exch = getattr(adapter, 'exchange')
-                    markets = getattr(exch, 'markets', None) or {}
-                    if not markets:
-                        try:
-                            exch.load_markets()  # type: ignore
-                            markets = getattr(exch, 'markets', {})
-                        except Exception:
-                            markets = {}
-                    # 어댑터에 심볼 정규화기가 있으면 사용
-                    norm = sym
-                    try:
-                        normalizer = getattr(adapter, '_normalize_symbol', None)
-                        if callable(normalizer):
-                            norm = normalizer(sym)
-                        elif name == 'upbit':
-                            upbit_normalizer = getattr(adapter, '_normalize_upbit_symbol', None)
-                            if callable(upbit_normalizer):
-                                norm = upbit_normalizer(sym)
-                        elif name == 'bithumb':
-                            bithumb_normalizer = getattr(adapter, '_normalize_bithumb_symbol', None)
-                            if callable(bithumb_normalizer):
-                                norm = bithumb_normalizer(sym)
-                    except Exception:
-                        pass
-                    market = markets.get(norm) if norm else None
-                    if not isinstance(market, dict) or market.get('active') is False:
-                        return False
-                    if name in {'upbit', 'bithumb', 'coinone'}:
-                        if market.get('spot') is False or market.get('contract') is True:
-                            return False
-                        if market.get('quote') and market['quote'] != 'KRW':
-                            return False
-                    return True
-                except Exception:
-                    return False
+                return eligibility(adapter, name, _normalize_for_exchange(sym))['allowed']
 
             def _normalize_for_exchange(sym: str) -> str:
                 try:
@@ -815,13 +778,7 @@ class UnifiedTrader:
                 sym = c.get('symbol') if isinstance(c, dict) else str(c or '').strip()
                 if not sym:
                     continue
-                ok = True
-                if name in ['bybit', 'okx', 'bitget', 'upbit', 'bithumb', 'coinone']:
-                    ok = _ccxt_supported(str(sym))
-                elif name == 'binance':
-                    # 바이낸스는 unified_trader에서 처리하지 않음
-                    self.logger.debug(f"바이낸스는 unified_trader에서 처리하지 않습니다: {name}")
-                    continue
+                ok = _ccxt_supported(str(sym))
                 if ok:
                     normalized_symbol = _normalize_for_exchange(str(sym))
                     if isinstance(c, dict):
@@ -849,17 +806,13 @@ class UnifiedTrader:
                 except Exception:
                     pass
                 return []
-            return filtered if filtered else coins
+            return filtered
         except Exception as e:
             try:
                 self.logger.warning(f"사전 심볼 필터 오류: {e}")
             except Exception:
                 pass
-            if str(exchange_name or '').lower() in {
-                'bybit', 'okx', 'bitget', 'upbit', 'bithumb', 'coinone',
-            }:
-                return []
-            return coins
+            return []
 
     @staticmethod
     def _symbol_base(symbol: str) -> str:
@@ -1907,6 +1860,10 @@ class UnifiedTrader:
                 self.logger.info(f"⏭️ {exchange_name} 거래·학습 대상 아님 - 사이클 생략")
                 return
 
+            # 신규 후보가 없거나 상장 상태 조회가 실패해도 기존 포지션의
+            # 체결 대조·보호·청산 점검은 매 사이클 한 번 유지한다.
+            self._monitor_exchange_positions(exchange_name)
+
             # 🤖 AI 자동 학습: 거래 성과에 따라 신호 기준 조절
             self._auto_adjust_threshold_from_performance(exchange_name)
             self._apply_connected_strategy_runtime_unified(exchange_name)
@@ -2385,9 +2342,6 @@ class UnifiedTrader:
                             str(analysis.get('reason') or f"최종 신호 {analysis.get('signal', 'HOLD')}"),
                             signal=str(analysis.get('signal', 'HOLD')),
                         )
-
-            # 4. 포지션 모니터링
-            self._monitor_exchange_positions(exchange_name)
 
             avg_latency = (sum(cycle_metrics['latencies']) / len(cycle_metrics['latencies'])) if cycle_metrics['latencies'] else 0.0
             avg_slippage = (sum(cycle_metrics['slippages']) / len(cycle_metrics['slippages'])) if cycle_metrics['slippages'] else 0.0
@@ -3156,6 +3110,13 @@ class UnifiedTrader:
                         self.recorder.update_crypto_order_command(crypto_command_id, status='rejected')
                     get_opportunity_coordinator().release(opportunity_auth)
                     return {'status': 'skipped', 'reason': remote_entry_gate().last_block_reason.get(exchange_name,'remote_entries_paused')}
+                from trading.instrument_eligibility import entry_check
+                instrument = entry_check(exchange_client, exchange_name, order_symbol)
+                if not instrument['allowed']:
+                    if crypto_command_id and self.recorder:
+                        self.recorder.update_crypto_order_command(crypto_command_id, status='rejected')
+                    get_opportunity_coordinator().release(opportunity_auth)
+                    return {'status': 'skipped', 'reason': instrument['reason'], 'instrument': instrument}
                 try:
                     # 데모 모드: 고성능 시뮬레이션
                     if demo and hasattr(self, 'demo_trader'):

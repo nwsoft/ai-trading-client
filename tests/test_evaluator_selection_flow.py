@@ -10,7 +10,10 @@ from trading.evaluator import Evaluator
 class _DummyAnalyzer:
     def __init__(self):
         self.settings = {}
-        self.binance_client = None
+        self.binance_client = SimpleNamespace(get_exchange_info=lambda:{'symbols':[
+            dict(symbol=s, status='TRADING',contract_type='PERPETUAL',quote_asset='USDT')
+            for s in ('BTCUSDT','ETHUSDT')
+        ]})
 
 
 def test_select_trading_coins_skips_fallback_when_target_already_met(monkeypatch):
@@ -418,6 +421,10 @@ def test_okx_futures_derives_quote_turnover_when_ccxt_omits_quote_volume():
                 "type": "swap",
             }
         }
+
+        def load_markets(self, reload=False):
+            assert reload is True
+            return self.markets
 
         def fetch_tickers(self, symbols):
             assert symbols == ["BTC/USDT:USDT"]

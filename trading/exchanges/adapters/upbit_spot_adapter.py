@@ -12,6 +12,9 @@ from ..interfaces.spot_exchange import SpotExchange
 from ..balance_normalizer import normalize_ccxt_total_balances
 from ..execution_history import build_execution_capabilities, fetch_ccxt_execution_history
 
+from trading.instrument_eligibility import instrument_order
+
+
 class UpbitSpotAdapter(SpotExchange):
     """업비트 현물 어댑터"""
     
@@ -257,6 +260,7 @@ class UpbitSpotAdapter(SpotExchange):
             self.logger.error(f"API 키 검증 실패: {e}")
             return False
     
+    @instrument_order('upbit')
     def place_order(self, symbol: str, side: str, quantity: float, 
                    price: Optional[float] = None, order_type: str = "MARKET",
                    client_order_id: Optional[str] = None) -> Dict[str, Any]:

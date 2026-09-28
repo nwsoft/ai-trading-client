@@ -11,6 +11,7 @@ from typing import Any
 
 
 COMMON_RUNTIME_CONTRACT = {
+    "instrument_eligibility_contract": "noahai.instrument-eligibility.v1",
     "runtime_event_contract": "noahai.execution.v1",
     "xai_contract": "noahai.xai.v1",
     "execution_mode_contract": "learning_paper_live",
@@ -163,12 +164,15 @@ def validate_venue_onboarding_profile(profile: dict[str, Any]) -> tuple[bool, li
         "reconciliation_contract", "client_order_id_contract",
         "fee_contract", "time_sync_contract", "rate_limit_contract",
         "runtime_event_contract", "xai_contract", "execution_mode_contract",
+        "instrument_eligibility_contract",
     }
     missing = sorted(
         key for key in required
         if profile.get(key) is None or profile.get(key) == ""
     )
     errors = [f"missing:{key}" for key in missing]
+    if profile.get('instrument_eligibility_contract') != COMMON_RUNTIME_CONTRACT['instrument_eligibility_contract']:
+        errors.append('unsupported_instrument_eligibility_contract')
     if str(profile.get("onboarding_status") or "") != "live_ready":
         errors.append("live_onboarding_not_ready")
     market_type = str(profile.get("market_type") or "").lower()

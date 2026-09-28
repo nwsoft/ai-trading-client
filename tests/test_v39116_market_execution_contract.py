@@ -7,6 +7,8 @@ from types import SimpleNamespace
 
 import pytest
 
+pytestmark = pytest.mark.usefixtures('listed_instrument_transport')
+
 from trading.exchanges.adapters.bithumb_spot_adapter import BithumbSpotAdapter
 from trading.exchanges.adapters.bitget_futures_adapter import BitgetFuturesAdapter
 from trading.exchanges.adapters.bybit_futures_adapter import BybitFuturesAdapter
@@ -192,6 +194,7 @@ def test_future_ccxt_venue_requires_native_conformance_contracts():
         "runtime_event_contract": "noahai.execution.v1",
         "xai_contract": "noahai.xai.v1",
         "execution_mode_contract": "learning_paper_live",
+        "instrument_eligibility_contract": "noahai.instrument-eligibility.v1",
         "native_escape_hatches": ["protective_orders", "position_mode"],
     }
     assert validate_venue_onboarding_profile(profile) == (True, [])

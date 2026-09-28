@@ -12,6 +12,9 @@ from ..interfaces.futures_exchange import FuturesExchange
 from ..balance_normalizer import normalize_ccxt_total_balances
 from ..execution_history import fetch_ccxt_execution_history
 
+from trading.instrument_eligibility import instrument_order
+
+
 class BitgetFuturesAdapter(FuturesExchange):
     """비트겟 선물 어댑터"""
     
@@ -230,6 +233,7 @@ class BitgetFuturesAdapter(FuturesExchange):
             self.log_event('system', f"포지션 조회 실패: {e}", level='ERROR')
             return []
     
+    @instrument_order('bitget')
     def place_order(self, symbol: str, side: str, quantity: float, 
                    price: Optional[float] = None, order_type: str = "MARKET",
                    client_order_id: Optional[str] = None,

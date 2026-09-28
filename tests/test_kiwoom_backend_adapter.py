@@ -13,6 +13,9 @@ from trading.exchanges.adapters.kiwoom_stock_adapter import KiwoomStockAdapter
 
 
 class FakeKiwoomBackend:
+    def GetMasterStockState(self, symbol):
+        return '증거금40%'
+
     def __init__(self):
         self.connected = False
         self.sent_orders = []

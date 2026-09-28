@@ -27,6 +27,9 @@ from ..interfaces.spot_exchange import SpotExchange
 from ..order_constraints import prepare_ccxt_order_quantity
 
 
+from trading.instrument_eligibility import instrument_order
+
+
 class CoinoneSpotAdapter(SpotExchange):
     """Hybrid CCXT/Coinone V2.1 adapter under the common execution contract."""
 
@@ -193,24 +196,23 @@ class CoinoneSpotAdapter(SpotExchange):
         if not self.is_connected or self.exchange is None:
             return {}
         try:
-            markets = self.exchange.load_markets()
+            from trading.instrument_eligibility import catalogue, row_state
+            markets = catalogue(self, 'coinone')['rows']
             return {"symbols": [
                 {
-                    "symbol": symbol,
-                    "baseAsset": row.get("base"),
+                    "symbol": row['symbol'],
+                    "baseAsset": row.get("target_currency"),
                     "quoteAsset": row.get("quote"),
-                    # CCXT Coinone does not publish an active flag (None).
-                    # Unknown is not an explicit suspension. Public ticker /
-                    # candle scoring and execution guards still apply.
-                    "status": "BREAK" if row.get("active") is False else "TRADING",
+                    "status": "TRADING" if row_state(row, 'coinone') == 'tradable' else "BREAK",
                 }
                 for symbol, row in dict(markets or {}).items()
-                if str(symbol).upper().endswith("/KRW")
+                if row.get('quote') == 'KRW'
             ]}
         except Exception as exc:
             self.last_error = str(exc)
             return {}
 
+    @instrument_order('coinone')
     def place_order(
         self, symbol: str, side: str, quantity: float,
         price: Optional[float] = None, order_type: str = "MARKET",

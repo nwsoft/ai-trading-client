@@ -127,8 +127,16 @@ def test_real_service_zero_signal_replay_to_paper_all_venues(tmp_path, monkeypat
     service.strategy_action(**args, action="approve")
     result = service.run_strategy_historical_validation(**args, asset_class="stock" if stock else "crypto",
         source=source, symbol=symbol, limit=250,
+        cost_overrides={'buy_fee_rate':.000123,'sell_fee_rate':0} if dated else None,
         **({"range_start_ms":1700000000000+100*step, "range_end_ms":1700000000000+240*step, "holding_bars":20} if dated else {}))
     evidence = result["execution_validation"]
+    profile=evidence['metrics']['cost_profile']
+    assert profile['venue']==source
+    assert profile['account_verified'] is False
+    if dated:
+        assert profile['rates']['buy_fee_rate']==.000123
+        assert profile['rates']['sell_fee_rate']==0
+        assert profile['field_sources']['buy_fee_rate']=='user_run_override'
     assert evidence["metrics"]["decisions"] == 0
     assert evidence["metrics"]["assessment_status"] == "no_trades"
     assert evidence["guardrail_violations"] == 0

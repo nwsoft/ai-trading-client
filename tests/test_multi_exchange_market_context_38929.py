@@ -111,6 +111,10 @@ class _MarketExchange:
         "BTC/USDT:USDT": {"active": True, "swap": True, "quote": "USDT"},
     }
 
+    def load_markets(self, reload=False):
+        assert reload is True
+        return self.markets
+
 
 class _OkxAdapter:
     exchange = _MarketExchange()

@@ -5051,12 +5051,17 @@ class ApplicationServices:
             })
             return sanitize_settings(version)
 
+    def preview_strategy_replay_costs(self, *, source: str, asset_class: str = 'crypto', market_type: str | None = None) -> dict[str, Any]:
+        from trading.replay_costs import resolve_replay_costs
+        return resolve_replay_costs(load_settings(persist_migrations=False) or {}, source, asset_class, market_type)
+
     def run_strategy_historical_validation(
         self, *, scope: str, strategy_key: str, version_id: str,
         asset_class: str = "crypto", source: str = "", market_type: str | None = None,
         symbol: str = "BTCUSDT", limit: int = 500,
         range_start_ms: int | None = None, range_end_ms: int | None = None,
         holding_bars: int = 12,
+        cost_overrides: dict[str, float] | None = None,
     ) -> dict[str, Any]:
         """Run the minimum historical rule check from market data, never user-entered results."""
         with self._lock:
@@ -5195,39 +5200,15 @@ class ApplicationServices:
             row for row in timeframe_rows[validation_interval]
         ]
         settings = load_settings(persist_migrations=False) or {}
-        if is_stock_asset:
-            stock_costs = normalize_stock_paper_cost_policy(
-                settings.get("stock_auto_trading", {})
-            )
-            fee_rate = (
-                float(stock_costs["buy_commission_rate"])
-                + float(stock_costs["sell_commission_rate"])
-            ) / 2.0
-            slippage_bps = (
-                float(stock_costs["buy_slippage_rate"])
-                + float(stock_costs["sell_slippage_rate"])
-            ) / 2.0 * 10_000.0
-            sell_tax_rate = float(
-                stock_costs[
-                    "etf_sell_tax_rate"
-                    if normalized_asset_class == "etf"
-                    else "stock_sell_tax_rate"
-                ]
-            )
-            spread_bps = sell_tax_rate * 10_000.0
-        else:
-            costs = dict(settings.get("ai_custom_validation_costs", {}) or {})
-            fee_rate = float(costs.get("fee_rate_per_side", 0.001) or 0.0)
-            slippage_bps = float(costs.get("slippage_bps_per_side", 2.0) or 0.0)
-            spread_bps = float(costs.get("spread_bps_round_trip", 1.0) or 0.0)
+        from trading.replay_costs import resolve_replay_costs
+        cost_profile = resolve_replay_costs(settings, normalized_source, normalized_asset_class,
+                                          None if is_stock_asset else expected_market_type, cost_overrides)
         metrics = run_historical_replay(
             rules,
             rows,
             timeframe_klines=timeframe_rows,
             base_timeframe=validation_interval,
-            fee_rate=fee_rate,
-            slippage_bps=slippage_bps,
-            spread_bps=spread_bps,
+            cost_profile=cost_profile,
             horizon=holding_bars,
             entry_start_ms=range_start_ms,
         )
@@ -5265,7 +5246,7 @@ class ApplicationServices:
                 "estimated_stock_paper_contract"
                 if is_stock_asset else "ai_custom_validation_costs"
             ),
-            "estimated_sell_tax_rate": sell_tax_rate if is_stock_asset else 0.0,
+            "estimated_sell_tax_rate": cost_profile['rates']['sell_tax_rate'],
             "quality_gate": "decisions>=minimum AND net_pnl>0 AND max_drawdown<=10%",
             "quality_passed": passed,
             "future_performance_guaranteed": False,

@@ -8,6 +8,8 @@ from unittest.mock import Mock
 
 import pytest
 
+pytestmark = pytest.mark.usefixtures('listed_instrument_transport')
+
 from test_v39146_customer_write_recovery import recorder, entry
 from trading import recorder_write_queue as queue
 

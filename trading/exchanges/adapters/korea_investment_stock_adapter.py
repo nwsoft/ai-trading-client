@@ -18,6 +18,9 @@ _KIS_BASE_URL = "https://openapi.koreainvestment.com:9443"
 _KIS_VTS_URL = "https://openapivts.koreainvestment.com:29443"
 
 
+from trading.instrument_eligibility import instrument_order
+
+
 class KoreaInvestmentStockAdapter(MiraeAssetStockAdapter):
     """KIS 공식 REST 계약 구현 (실전/모의 서버 지원)."""
 
@@ -297,7 +300,8 @@ class KoreaInvestmentStockAdapter(MiraeAssetStockAdapter):
             'profit_rate': self._to_float(item.get('asst_icdc_erng_rt')),
         }
 
-    def place_order(self, symbol: str, side: str, quantity: float,
+    @instrument_order('kis')
+    def place_order(self, symbol: str, side: str, quantity: float, 
                     price: Optional[float] = None, order_type: str = 'MARKET') -> Dict[str, Any]:
         if not self.is_connected:
             return {'status': 'error', 'success': False, 'error': 'not_connected'}
@@ -346,13 +350,12 @@ class KoreaInvestmentStockAdapter(MiraeAssetStockAdapter):
 
     def get_etf_list(self) -> List[Dict[str, Any]]:
         """Use the public master also for automatic ETF selection."""
+        rows = super().get_etf_list()
         if self._configured_etf_symbols:
-            return [
-                {"code": code, "symbol": code, "name": code, "is_etf": True,
-                 "source": "configured_watchlist"}
-                for code in list(dict.fromkeys(self._configured_etf_symbols))
-            ]
-        return super().get_etf_list()
+            current = {str(row['code']): row for row in rows}
+            return [dict(current[code]) for code in dict.fromkeys(self._configured_etf_symbols)
+                    if code in current]
+        return rows
 
     def get_etf_realtime_metrics(self, symbol: str) -> Dict[str, Any]:
         if not self.is_connected:

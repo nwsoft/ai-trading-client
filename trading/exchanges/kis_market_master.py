@@ -17,7 +17,7 @@ import requests
 
 _CACHE = {}
 _LOCK = threading.Lock()
-_TTL = 6 * 3600
+_TTL = 300  # Current listing eligibility, not a six-hour discovery snapshot.
 
 # Prefix fields through previous-day volume in the official fixed-width tail.
 _SPECS = {
@@ -80,6 +80,9 @@ def market_master(market: str) -> list[dict]:
                     if len(data) > 2_000_000:
                         raise ValueError("market_master_download_too_large")
             rows = parse_market_master(bytes(data), market)
+            checked_at = time.time()
+            for row in rows:
+                row['_listing_checked_at'] = checked_at
             _CACHE[market] = (time.monotonic() + _TTL, rows)
             return deepcopy(rows)
         except Exception as exc:

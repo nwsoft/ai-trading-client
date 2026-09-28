@@ -40,6 +40,9 @@ _OPERATION_BY_LEGACY_PATH = {
 }
 
 
+from trading.instrument_eligibility import instrument_order, stock_status
+
+
 class ShinhanStockAdapter(StockExchange):
     """신한증권 주식/ETF 어댑터 — REST 기반"""
 
@@ -426,7 +429,7 @@ class ShinhanStockAdapter(StockExchange):
                     'current_price': abs(self._to_float(item.get('clsprc') or item.get('current_price'))),
                     'volume': self._to_int(item.get('acmlVol') or item.get('volume')),
                     'is_etf': False,
-                    'status': 'ok',
+                    'status': stock_status(item),
                 })
             return results
         except Exception as e:
@@ -456,7 +459,7 @@ class ShinhanStockAdapter(StockExchange):
                     'trade_value': self._to_float(item.get('acmlTrPbmn') or item.get('trade_value') or 0),
                     'expense_ratio': self._to_float(item.get('totFeeRt') or item.get('expense_ratio') or 0) or None,
                     'is_etf': True,
-                    'status': 'ok',
+                    'status': stock_status(item),
                 })
             return results
         except Exception as e:
@@ -654,7 +657,8 @@ class ShinhanStockAdapter(StockExchange):
             self.log_event('system', f'신한 보유종목 조회 실패: {e}', level='ERROR')
             return []
 
-    def place_order(self, symbol: str, side: str, quantity: float,
+    @instrument_order('shinhan')
+    def place_order(self, symbol: str, side: str, quantity: float, 
                    price: Optional[float] = None, order_type: str = 'MARKET') -> Dict[str, Any]:
         """주문 실행."""
         try:

@@ -2,6 +2,9 @@ from __future__ import annotations
 
 from typing import Any, Dict
 
+import pytest
+pytestmark = pytest.mark.usefixtures('listed_instrument_transport')
+
 from config.settings import migrate_stock_broker_api_contracts
 from trading.exchanges.adapters.korea_investment_stock_adapter import KoreaInvestmentStockAdapter
 from trading.exchanges.adapters.shinhan_stock_adapter import ShinhanStockAdapter

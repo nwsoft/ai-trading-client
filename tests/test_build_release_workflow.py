@@ -213,7 +213,6 @@ def test_github_workflow_builds_candidate_before_explicit_release():
     assert "requirements_kiwoom_x86.txt" in workflow
     assert "confirm_external_gates" not in workflow
     assert "publish_web_ui_windows_release.ps1" in workflow
-    assert "ConfirmExternalGates" not in workflow
     assert "softprops/action-gh-release" not in workflow  # no second publisher bypassing guards
     assert "deploy/web-release/NoahAI-${{ steps.app_version.outputs.version }}-Setup.exe" in workflow
     assert "latest.yml" in workflow

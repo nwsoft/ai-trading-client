@@ -2,6 +2,8 @@
 from unittest.mock import Mock
 import pytest
 
+pytestmark = pytest.mark.usefixtures('listed_instrument_transport')
+
 from trading.exchanges.adapters import coinone_spot_adapter as module
 
 

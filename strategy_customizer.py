@@ -575,28 +575,14 @@ class StrategyCustomizer:
                     exchange_name=target or None,
                 )
         trader_settings = dict(getattr(self.trader, "settings", {}) or {}) if self.trader is not None else {}
-        validation_costs = dict(trader_settings.get("ai_custom_validation_costs", {}) or {})
-        venue_key = str(validation_target or target or ("stock" if is_stock else "binance")).lower()
-        venue_costs = dict((validation_costs.get("venues", {}) or {}).get(venue_key, {}) or {})
-        fee_rate = float(venue_costs.get(
-            "fee_rate_per_side",
-            validation_costs.get("fee_rate_per_side", 0.001),
-        ) or 0.0)
-        slippage_bps = float(venue_costs.get(
-            "slippage_bps_per_side",
-            validation_costs.get("slippage_bps_per_side", 2.0),
-        ) or 0.0)
-        spread_bps = float(venue_costs.get(
-            "spread_bps_round_trip",
-            validation_costs.get("spread_bps_round_trip", 1.0),
-        ) or 0.0)
+        from trading.replay_costs import resolve_replay_costs
+        venue_key = str(validation_target or target or (scope.removeprefix('broker:') if scope.startswith('broker:') else ('kis' if is_stock else 'binance'))).lower()
+        cost_profile = resolve_replay_costs(trader_settings, venue_key, 'stock' if is_stock else 'crypto')
         metrics = run_historical_replay(
             rules,
             klines,
             timeframe_klines=timeframe_klines,
-            fee_rate=fee_rate,
-            slippage_bps=slippage_bps,
-            spread_bps=spread_bps,
+            cost_profile=cost_profile,
         )
         minimum = int(getattr(self.custom_pipeline, "min_paper_trades", 3) or 3)
         assessment = historical_quality_assessment(metrics, minimum)

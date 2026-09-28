@@ -23,6 +23,12 @@ class _NoTradeHistoryAdapter:
     api_type = "rest"
     exchange_name = "test"
 
+    def get_stock_list(self, market):
+        return [{'code':'005930','status':'ok'}]
+
+    def get_etf_list(self):
+        return [{'code':'069500','status':'ok'}]
+
     def get_today_trades(self):
         raise AssertionError("PAPER must not read LIVE broker trades")
 

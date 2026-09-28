@@ -4,6 +4,8 @@ from types import SimpleNamespace
 
 import pytest
 
+pytestmark = pytest.mark.usefixtures('listed_instrument_transport')
+
 
 ROOT = Path(__file__).resolve().parents[1]
 

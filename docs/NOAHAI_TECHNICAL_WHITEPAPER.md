@@ -2,7 +2,7 @@
 ## Financial AI Decision Infrastructure Hub
 
 > 문서 동기화 기준 (2026-09-26, 배포 버전 변경 없음)
-> - 현재 소스 후보: NoahAI Client v3.9.1.47 (전략 호환·기록 복구 후속, 일반 배포 완료 아님)
+> - 현재 소스 후보: NoahAI Client v3.9.1.48 (백테스트 비용·자료 입력·목록 개선, 일반 배포 완료 아님)
 > - 현재 공개 기반: NoahAI Client v3.9.1.47 (보존된 릴리스 manifest 기준)
 > - v47 설치본·실계좌·실제 알림 수신은 소스 시험과 별도이며 이 백서로 완료를 인증하지 않는다.
 > - 제품 상태 정본: `docs/V39147_RUNTIME_BOUNDARY_TEST_PLAN.md`·`docs/TEST_STATUS.md`, 계획: `docs/UPDATE_PLAN.md`, 변경 이력: `docs/CHANGELOG.md`, 실행 계약: `docs/ARCHITECTURE.md`·`docs/TRADING_FLOW.md`

@@ -12,6 +12,9 @@ from ..balance_normalizer import normalize_ccxt_total_balances
 from ..execution_history import fetch_ccxt_execution_history
 from decimal import Decimal, ROUND_DOWN
 
+from trading.instrument_eligibility import instrument_order
+
+
 class BybitFuturesAdapter(FuturesExchange):
     """바이비트 선물 어댑터"""
     
@@ -257,6 +260,7 @@ class BybitFuturesAdapter(FuturesExchange):
             self.log_event('system', f"포지션 조회 실패: {e}", level='ERROR')
             return []
     
+    @instrument_order('bybit')
     def place_order(self, symbol: str, side: str, quantity: float, 
                    price: Optional[float] = None, order_type: str = "MARKET",
                    client_order_id: Optional[str] = None,

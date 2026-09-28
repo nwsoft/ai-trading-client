@@ -114,6 +114,17 @@ def entry_submission(source, *, stock=False):
             with gate().permit(venue) as allowed:
                 if not allowed:
                     return (False,{},[gate().last_block_reason.get(venue,'remote_entries_paused')]) if stock else False
+                from trading.instrument_eligibility import entry_check
+                if stock:
+                    owner = getattr(self, 'adapter', None)
+                    symbol = kwargs.get('symbol', '')
+                else:
+                    owner = getattr(self, 'binance_client', None)
+                    value = args[0] if args else kwargs.get('trade_params', kwargs.get('symbol', ''))
+                    symbol = value.get('symbol', '') if isinstance(value, dict) else value
+                check = entry_check(owner, venue, symbol)
+                if not check['allowed']:
+                    return (False, check, [check['reason']]) if stock else False
                 return fn(self,*args,**kwargs)
         return execute
     return decorate

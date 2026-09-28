@@ -84,7 +84,7 @@ class FakeMiraeAssetBackend:
             }})
         if 'inquire-daily-itemchartprice' in url:
             return FakeResp({'output': [
-                {'stck_shrt_cd': '005930', 'prdt_name': '삼성전자', 'stck_prpr': '75000', 'acml_vol': '1234567'},
+                {'stck_shrt_cd': '005930', 'prdt_name': '삼성전자', 'stck_prpr': '75000', 'acml_vol': '1234567', 'status': 'ok'},
                 {'stck_shrt_cd': '000660', 'prdt_name': 'SK하이닉스', 'stck_prpr': '120000', 'acml_vol': '987654'},
                 # ETF는 is_etf() 필터로 제외
                 {'stck_shrt_cd': '069500', 'prdt_name': 'KODEX 200', 'stck_prpr': '31000', 'acml_vol': '500000'},

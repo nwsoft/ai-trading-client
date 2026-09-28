@@ -2,6 +2,9 @@
 # -*- coding: utf-8 -*-
 
 from unittest.mock import MagicMock
+
+import pytest
+pytestmark = pytest.mark.usefixtures('listed_instrument_transport')
 from types import SimpleNamespace
 
 from trading.custom_strategy_runtime import stamp_trade_exit_rates

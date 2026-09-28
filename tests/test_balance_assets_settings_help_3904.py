@@ -104,6 +104,7 @@ def test_binance_order_submission_rounds_up_below_min_notional():
     client = object.__new__(BinanceClient)
     client.client = RawClient()
     client.logger = logging.getLogger("test.binance.min_notional")
+    client.get_exchange_info = lambda:{'symbols':[{'symbol':'VETUSDT','status':'TRADING','contract_type':'PERPETUAL','quote_asset':'USDT'}]}
     client._has_api_keys = lambda: True
     client.get_symbol_precisions = lambda _symbol: {"quantity_precision": 0}
     client.get_symbol_filters = lambda _symbol: {

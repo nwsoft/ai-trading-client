@@ -268,7 +268,7 @@ class KiwoomProcessProxy(StockExchange):
     def get_trading_stats(self) -> Dict[str, Any]: return self._call("get_trading_stats")
     def cancel_order(self, order_id: str, symbol: Optional[str] = None) -> bool: return bool(self._call("cancel_order", order_id, symbol))
 
-    def place_order(self, symbol: str, side: str, quantity: float,
+    def place_order(self, symbol: str, side: str, quantity: float, 
                     price: Optional[float] = None, order_type: str = "MARKET") -> Dict[str, Any]:
         if self._order_outcome_unknown:
             raise RuntimeError("kiwoom_order_outcome_unknown: 이전 주문 결과를 대조하기 전 새 주문을 제출할 수 없습니다.")

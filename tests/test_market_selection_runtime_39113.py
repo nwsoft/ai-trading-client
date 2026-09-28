@@ -11,7 +11,11 @@ from trading.stock_runtime_controller import StockRuntimeController
 
 class _Analyzer:
     settings = {}
-    binance_client = None
+    def __init__(self):
+        self.binance_client = SimpleNamespace(get_exchange_info=lambda:{'symbols':[
+            dict(symbol=s,status='TRADING',contract_type='PERPETUAL',quote_asset='USDT')
+            for s in ['BTCUSDT','OLDUSDT'] + [f'C{i}USDT' for i in range(100)]
+        ]})
 
 
 def test_selection_singleflight_runs_one_producer_and_copies_result():
@@ -218,7 +222,7 @@ def test_stock_runtime_reuses_universe_and_analysis_service_between_cycles():
         is_connected = True
 
         def get_stock_list(self, market):
-            return []
+            return [{'code':'005930','status':'ok'}]
 
         def get_etf_list(self):
             return []

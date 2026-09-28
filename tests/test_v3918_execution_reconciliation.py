@@ -140,18 +140,18 @@ def test_kis_etf_quote_uses_current_official_contract():
     assert metrics["status"] == "ok"
 
 
-def test_kis_etf_list_uses_explicit_configured_universe_without_invalid_list_api():
+def test_kis_etf_list_intersects_configured_universe_with_current_master(monkeypatch):
     adapter = KoreaInvestmentStockAdapter(
         "user", "secret", account_no="1234567801",
         configured_etf_symbols=["069500", "KRW-069500", "229200"],
     )
 
-    assert adapter.get_etf_list() == [
-        {"code": "069500", "symbol": "069500", "name": "069500", "is_etf": True,
-         "source": "configured_watchlist"},
-        {"code": "229200", "symbol": "229200", "name": "229200", "is_etf": True,
-         "source": "configured_watchlist"},
-    ]
+    adapter.is_connected = True
+    from trading.exchanges import kis_market_master
+    current = [{'code':'069500','is_etf':True,'status':'ok','source':'kis_public_master'}]
+    monkeypatch.setattr(kis_market_master,'market_master',lambda market:current)
+    assert adapter.get_etf_list() == current
+    assert '229200' in adapter._configured_etf_symbols  # preserve preferences, not trading permission
 
 
 def test_web_windows_kiwoom_uses_process_main_thread_proxy(monkeypatch):

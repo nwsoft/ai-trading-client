@@ -55,6 +55,7 @@ export interface GatewayClient {
   submitStrategy: (payload: Record<string, unknown>) => Promise<Record<string, unknown>>;
   strategyAction: (payload: Record<string, unknown>) => Promise<Record<string, unknown>>;
   runHistoricalValidation: (payload: Record<string, unknown>) => Promise<Record<string, unknown>>;
+  replayCosts: (source: string, assetClass: string) => Promise<Record<string, any>>;
   analyzeStrategySource: (payload: Record<string, unknown>) => Promise<Record<string, any>>;
   driveAuthorization: (action?: "connect" | "disconnect") => Promise<Record<string, any>>;
   validateStrategyDraft: (payload: Record<string, unknown>) => Promise<Record<string, any>>;
@@ -359,6 +360,7 @@ export function createGatewayClient(): GatewayClient {
     submitStrategy: (payload) => mutate<Record<string, unknown>>("POST", "/api/v1/strategies", payload),
     strategyAction: (payload) => mutate<Record<string, unknown>>("POST", "/api/v1/strategies/actions", payload),
     runHistoricalValidation: (payload) => mutate<Record<string, unknown>>("POST", "/api/v1/strategies/historical-validation", payload),
+    replayCosts: (source, assetClass) => get<Record<string, any>>(`/api/v1/strategies/replay-costs?source=${encodeURIComponent(source)}&asset_class=${encodeURIComponent(assetClass)}`),
     analyzeStrategySource: (payload) => mutate<Record<string, any>>("POST", "/api/v1/strategies/source-analysis", payload),
     driveAuthorization: (action) => action ? mutate<Record<string, any>>("POST", `/api/v1/strategies/drive/${action}`, {}) : get<Record<string, any>>("/api/v1/strategies/drive"),
     validateStrategyDraft: (payload) => mutate<Record<string, any>>("POST", "/api/v1/strategies/draft-validation", payload),

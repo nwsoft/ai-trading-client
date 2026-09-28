@@ -77,7 +77,7 @@ class FakeShinhanBackend:
             ]})
         if 'market/domestic/stock-list' in url:
             return FakeResp({'stocks': [
-                {'isuSrtCd': '005930', 'isuNm': '삼성전자', 'clsprc': '75000', 'acmlVol': '1234567'},
+                {'isuSrtCd': '005930', 'isuNm': '삼성전자', 'clsprc': '75000', 'acmlVol': '1234567', 'status': 'ok'},
                 {'isuSrtCd': '000660', 'isuNm': 'SK하이닉스', 'clsprc': '120000', 'acmlVol': '987654'},
                 # ETF 는 is_etf() 필터로 제외됨
                 {'isuSrtCd': '069500', 'isuNm': 'KODEX 200', 'clsprc': '31000', 'acmlVol': '500000'},

@@ -574,11 +574,8 @@ def select_stock_universe(
         return 0.0
 
     def _is_tradable(item: Dict[str, Any]) -> bool:
-        status = str(item.get('status', '') or '').strip().lower()
-        return status not in {
-            'halted', 'suspended', 'inactive', 'delisted', 'stop', 'stopped',
-            '거래정지', '상장폐지',
-        }
+        from trading.instrument_eligibility import row_state
+        return row_state(item, 'kis') == 'tradable'
 
     def _score(item: Dict[str, Any], index: int) -> tuple:
         direct_value = _numeric(
@@ -621,7 +618,14 @@ def select_stock_universe(
 
     stock_items: List[Dict[str, Any]] = []
     universe_issues = []
-    if hasattr(adapter, 'get_stock_list'):
+    from trading.instrument_eligibility import catalogue, venue_id, STOCKS
+    broker = venue_id(getattr(adapter, 'broker_name', '') or getattr(adapter, 'exchange_name', ''))
+    current_catalogue = catalogue(adapter, broker) if broker in STOCKS else None
+    if current_catalogue is not None:
+        stock_items = [dict(row) for row in current_catalogue['rows'].values() if not row.get('is_etf')]
+        if current_catalogue['reason']:
+            universe_issues.append(current_catalogue['reason'])
+    elif hasattr(adapter, 'get_stock_list'):
         for market in ('KOSPI', 'KOSDAQ'):
             try:
                 stock_items.extend(
@@ -634,7 +638,9 @@ def select_stock_universe(
                 continue
 
     etf_items: List[Dict[str, Any]] = []
-    if hasattr(adapter, 'get_etf_list'):
+    if current_catalogue is not None:
+        etf_items = [dict(row) for row in current_catalogue['rows'].values() if row.get('is_etf')]
+    elif hasattr(adapter, 'get_etf_list'):
         try:
             etf_items = [
                 dict(item or {})
@@ -726,7 +732,19 @@ def select_stock_universe(
         default_limit=normalized_limit,
     )
     resolved = combine_selection_paths(general_selection, advanced_selection)
-    return [str(item.get('symbol') or '').strip().upper() for item in resolved]
+    # Pins/strategy universes are preferences, never a listing-status bypass.
+    eligible = {str(item.get('code') or item.get('symbol') or '').strip().upper()
+                for item in stock_items + etf_items if _is_tradable(item)}
+    blocked = {str(item.get('code') or item.get('symbol') or '').strip().upper()
+               for item in stock_items + etf_items if not _is_tradable(item)}
+    eligible -= blocked
+    rejected = [str(item.get('symbol') or '').strip().upper()
+                for item in resolved if str(item.get('symbol') or '').strip().upper() not in eligible]
+    if rejected:
+        import logging
+        logging.getLogger(__name__).warning('증권 신규 후보 제외: %s · 현재 종목 목록/거래 상태 확인 필요. 기존 보유·원장 보존', ', '.join(rejected[:20]))
+    return [str(item.get('symbol') or '').strip().upper() for item in resolved
+            if str(item.get('symbol') or '').strip().upper() in eligible]
 
 
 def filter_positions_by_asset_mode(positions: List[Dict[str, Any]], asset_mode: str = 'all') -> List[Dict[str, Any]]:

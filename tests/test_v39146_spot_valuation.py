@@ -200,5 +200,11 @@ def test_candidate_prefilter_rejects_inactive_and_wrong_quote(tmp_path, monkeypa
     adapter = SimpleNamespace(exchange=SimpleNamespace(markets={
         'BTC/KRW':market(), 'OLD/KRW':market('OLD', active=False), 'EMC/BTC':market('EMC', 'BTC')}))
     trader.unified_manager = SimpleNamespace(get_exchange=lambda *a:adapter)
+    # This test isolates the common candidate filter, not provider transport.
+    from trading import instrument_eligibility as guard
+    evidence = [dict(v, symbol=k) for k, v in adapter.exchange.markets.items()]
+    if venue == 'coinone':
+        evidence = [dict(v, maintenance_status=0, trade_status=1 if v.get('active') is not False else 0) for v in evidence]
+    monkeypatch.setattr(guard, '_fetch', lambda *a:(evidence, 'fixture_current_list'))
     rows = [{'symbol':s} for s in ('BTC/KRW', 'OLD/KRW', 'EMC/BTC', 'APENFT/KRW')]
     assert [r['symbol'] for r in trader._prefilter_supported_coins(venue, rows)] == ['BTC/KRW']

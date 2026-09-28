@@ -3260,3 +3260,7 @@ html[lang="en"] button { white-space: normal; overflow-wrap: break-word; }
 .recovery-statement-import label { display: block; overflow-wrap: anywhere; }
 .recovery-statement-import select { max-width: 100%; }
 .recovery-statement-fields { display: grid; grid-template-columns: repeat(auto-fit,minmax(200px,1fr)); gap: 12px; }
+.replay-cost-panel { border: 1px solid #365472; border-radius: 10px; padding: 14px; margin-top: 16px; }
+.replay-cost-panel p { word-break: keep-all; overflow-wrap: anywhere; }
+.replay-cost-panel .replay-cost-toggle { display: flex; flex-direction: row; align-items: center; gap: 8px; margin-bottom: 12px; }
+.replay-cost-panel .replay-cost-toggle input { width: 18px; height: 18px; flex: 0 0 18px; margin: 0; }

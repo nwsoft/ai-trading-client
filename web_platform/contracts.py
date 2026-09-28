@@ -183,6 +183,10 @@ class StrategyHistoricalValidationContract(StrictContract):
     range_start_ms: int | None = Field(default=None, ge=0)
     range_end_ms: int | None = Field(default=None, ge=0)
     holding_bars: int = Field(default=12, ge=1, le=500)
+    cost_overrides: dict[
+        Literal['buy_fee_rate','sell_fee_rate','buy_slippage_rate','sell_slippage_rate','spread_rate','sell_tax_rate'],
+        Annotated[float, Field(ge=0, le=.05, allow_inf_nan=False, strict=True)],
+    ] | None = None
 
 
 class StrategySourceAttachmentContract(StrictContract):

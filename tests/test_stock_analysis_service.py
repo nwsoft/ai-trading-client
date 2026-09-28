@@ -5,6 +5,8 @@
 """
 
 import pytest
+
+pytestmark = pytest.mark.usefixtures('listed_instrument_transport')
 from unittest.mock import MagicMock, patch
 
 

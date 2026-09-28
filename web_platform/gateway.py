@@ -719,6 +719,13 @@ def create_gateway_app(
         except ValueError as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from exc
 
+    @app.get('/api/v1/strategies/replay-costs', dependencies=[Depends(require_token)])
+    def strategy_replay_costs(source: str, asset_class: str = 'crypto', market_type: str | None = None) -> dict[str, Any]:
+        try:
+            return services.preview_strategy_replay_costs(source=source, asset_class=asset_class, market_type=market_type)
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+
     @app.post(
         "/api/v1/strategies/historical-validation",
         dependencies=[Depends(require_token), Depends(require_confirmed_intent)],

@@ -344,6 +344,10 @@ class Evaluator:
             cache_ttl=max(0.0, cache_ttl),
             wait_timeout=max(1.0, wait_timeout),
         )
+        from trading.instrument_eligibility import eligibility
+        owner = exchange_client or (getattr(self, 'binance_client', None) if exchange_key == 'binance' else None)
+        selected = [coin for coin in (selected or [])
+                    if eligibility(owner, exchange_key, coin.get('symbol') if isinstance(coin, dict) else coin)['allowed']]
         # A visible-only fallback is a failure state, not a reusable completed
         # selection.  Keeping it in the short single-flight cache made the
         # Binance worker re-read the same non-executable ten symbols on every
@@ -850,45 +854,11 @@ class Evaluator:
             # 🔥 최적화: 거래소 정보 캐싱으로 4분 지연 해결
             self.logger.info("바이낸스 거래소 정보에서 유효한 거래 심볼만 가져오는 중...")
 
-            # 🔥 하이브리드 접근법: 캐싱 + 백업 심볼 목록
-            cache_file, backup_symbols_file, ticker_cache_file = (
-                self._binance_selection_cache_paths()
-            )
-            import os
-            import json
-
-
-            # 캐시 디렉토리 생성
-            os.makedirs(os.path.dirname(cache_file), exist_ok=True)
-
-            # 🔥 1단계: 캐시 확인 (1시간 이내)
             _t_exinfo_start = time.perf_counter()
-            if os.path.exists(cache_file):
-                cache_age = time.time() - os.path.getmtime(cache_file)
-                if cache_age < 3600:  # 1시간
-                    self.logger.info("캐시된 거래소 정보 사용 (빠른 로딩)")
-                    with open(cache_file, 'r', encoding='utf-8') as f:
-                        exchange_info = json.load(f)
-                else:
-                    self.logger.info("캐시 만료 - 새로 가져오는 중...")
-                    try:
-                        exchange_info = self.binance_client.get_exchange_info()
-                        with open(cache_file, 'w', encoding='utf-8') as f:
-                            json.dump(exchange_info, f, ensure_ascii=False, indent=2)
-                        self.logger.info("거래소 정보 캐시 저장 완료")
-                    except Exception as e:
-                        self.logger.warning(f"API 호출 실패, 백업 심볼 사용: {e}")
-                        exchange_info = self._load_backup_symbols(backup_symbols_file)
-            else:
-                self.logger.info("캐시 없음 - API 호출 중...")
-                try:
-                    exchange_info = self.binance_client.get_exchange_info()
-                    with open(cache_file, 'w', encoding='utf-8') as f:
-                        json.dump(exchange_info, f, ensure_ascii=False, indent=2)
-                    self.logger.info("거래소 정보 캐시 저장 완료")
-                except Exception as e:
-                    self.logger.warning(f"API 호출 실패, 백업 심볼 사용: {e}")
-                    exchange_info = self._load_backup_symbols(backup_symbols_file)
+            from trading.instrument_eligibility import catalogue, eligibility
+            evidence = catalogue(self.binance_client, 'binance')
+            exchange_info = {'symbols': list(evidence['rows'].values())}
+            _, backup_symbols_file, ticker_cache_file = self._binance_selection_cache_paths()
             _dur['exchange_info'] = time.perf_counter() - _t_exinfo_start
 
             if not exchange_info or 'symbols' not in exchange_info:
@@ -902,6 +872,8 @@ class Evaluator:
             valid_symbols = []
             for symbol_info in exchange_info['symbols']:
                 symbol = symbol_info['symbol']
+                if not eligibility(self.binance_client, 'binance', symbol)['allowed']:
+                    continue
 
                 # 기본 필터링: USDT 페어만
                 if not symbol.endswith('USDT'):
@@ -1275,6 +1247,7 @@ class Evaluator:
     def _analyze_candidate_coins_spot(self, exchange_client, adjustment_factor=1.0):
         """현물 거래소용 코인 분석 (업비트/빗썸)"""
         try:
+            exchange_name = str(getattr(exchange_client, 'exchange_name', '')).lower()
             self.logger.info(f"📊 현물 거래소 코인 분석 시작 (조정계수: {adjustment_factor:.2f})")
             _t_total_start = time.perf_counter()
             learning_manager = self._selection_learning_manager()
@@ -1289,38 +1262,8 @@ class Evaluator:
             max_coins = learning_manager.get_max_coins_for_analysis()
             self.logger.info(f"최대 분석 코인 수: {max_coins}개")
 
-            # 거래소별 코인 목록 가져오기 (어댑터 구현 차이 호환)
-            markets = None
-            if hasattr(exchange_client, 'get_markets'):
-                try:
-                    markets = exchange_client.get_markets()
-                except Exception:
-                    markets = None
-
-            # 일부 어댑터는 get_exchange_info만 제공하므로 여기서 표준 형태로 변환
-            if not markets and hasattr(exchange_client, 'get_exchange_info'):
-                try:
-                    ex_info = exchange_client.get_exchange_info() or {}
-                    symbols = ex_info.get('symbols', []) if isinstance(ex_info, dict) else []
-                    normalized = {}
-                    for item in symbols:
-                        if not isinstance(item, dict):
-                            continue
-                        sym = str(item.get('symbol') or '').strip()
-                        if not sym:
-                            continue
-                        quote = str(item.get('quoteAsset') or '').upper().strip()
-                        base = str(item.get('baseAsset') or '').upper().strip()
-                        active = str(item.get('status') or 'TRADING').upper() == 'TRADING'
-                        normalized[sym] = {
-                            'symbol': sym,
-                            'quote': quote,
-                            'base': base,
-                            'active': active,
-                        }
-                    markets = normalized
-                except Exception:
-                    markets = None
+            from trading.instrument_eligibility import catalogue, eligibility
+            markets = {row['symbol']: row for row in catalogue(exchange_client, exchange_name)['rows'].values()}
 
             if markets:
                 if not markets:
@@ -1330,12 +1273,12 @@ class Evaluator:
                 # KRW 페어만 필터링 (현물 거래소) + 전량 티커 조회 후 거래량 기준 정렬
                 krw_pairs = []
                 for symbol, market in markets.items():
-                    if market.get('quote') == 'KRW' and market.get('active', False):
+                    if eligibility(exchange_client, exchange_name, symbol)['allowed']:
                         krw_pairs.append({
                             'symbol': symbol,
                             'base': market.get('base'),
                             'quote': market.get('quote'),
-                            'active': market.get('active', False)
+                            'active': True
                         })
 
                 self.logger.info(f"KRW 페어 발견: {len(krw_pairs)}개")
@@ -1446,16 +1389,12 @@ class Evaluator:
             w_vlt = float(sort_w.get('volatility', 0.0))
 
             ex = getattr(exchange_client, 'exchange', None)
+            exchange_name = ex_name or ''
             if not ex or not hasattr(ex, 'markets'):
                 self.logger.warning("CCXT 어댑터 markets 정보 없음")
                 return []
-            markets = getattr(ex, 'markets', {}) or {}
-            if not markets:
-                try:
-                    ex.load_markets()
-                    markets = getattr(ex, 'markets', {}) or {}
-                except Exception:
-                    pass
+            from trading.instrument_eligibility import catalogue, eligibility
+            markets = {row['symbol']: row for row in catalogue(exchange_client, exchange_name)['rows'].values()}
             if not markets:
                 self.logger.warning("마켓 정보를 가져올 수 없음")
                 return []
@@ -1473,6 +1412,8 @@ class Evaluator:
             candidates = []
             for sym, m in markets.items():
                 try:
+                    if not eligibility(exchange_client, exchange_name, sym)['allowed']:
+                        continue
                     if not is_crypto_derivative_candidate(
                         m,
                         configured_exclusions=configured_exclusions,

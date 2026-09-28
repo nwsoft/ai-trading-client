@@ -3,9 +3,9 @@
 현재 공개 버전: **v3.9.1.47** · updater **3.9.147** · 사용자 배포 확인 및 보존된 매니페스트 기준.
 현재 공개 기반: v3.9.1.47. 서버 배포와 Client 설치본 검증은 구분합니다.
 
-v47 후보 패치명: Strategy Repair and Reconciliation Diagnostics Patch.
+v48 후보 패치명: Strategy Cost Upload and Catalog Patch.
 
-현재 소스 후보: v3.9.1.47 · updater **3.9.147**. 전략 등록·기존 버전 보완 및 손익 대조 안내 수정. 빌드/배포 전입니다.
+현재 소스 후보: v3.9.1.48 · updater **3.9.148**. 기관별 백테스트 비용·자료 입력·전략 정렬·거래 종목 상태 검사 개선. 기존 전략·성과와 승인 정책 보존. 빌드/배포 전입니다. 종목 상태 처리의 정본은 [48 공통 종목 계약](docs/V39148_INSTRUMENT_ELIGIBILITY.md)입니다.
 
 9월 25일 추가: 기존 Level 1~4 보존 + Level 5 연구실, 모든 Level의 WebUI 기간·종목·보유 가정 선택, 새 유지관리의 전체 기록 범위. 고객 전략의 실행식 누락과 전체 과거 원장·설치본 게이트는 남아 있습니다. [현재 구현/미완료](docs/UPDATE_PLAN.md), [검증 근거](docs/TEST_STATUS.md)를 함께 확인하며 시험 수치만으로 전체 복구 완료를 판단하지 않습니다.
 

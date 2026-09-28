@@ -24,14 +24,19 @@ class _Adapter:
         ]
 
 
-def test_stock_universe_honors_user_configured_symbols():
+def test_stock_universe_rejects_unlisted_user_configured_symbols():
     selected = select_stock_universe(
         _Adapter(),
         configured_symbols=["005930", "005930", "000660"],
         asset_mode="etf",
     )
-    assert selected[:2] == ["005930", "000660"]
-    assert len(selected) == 8
+    assert '005930' not in selected and '000660' not in selected
+    assert len(selected) == 6
+
+
+def test_stock_universe_honors_current_listed_user_configured_symbols():
+    selected = select_stock_universe(_Adapter(), configured_symbols=['100001'], asset_mode='all')
+    assert selected[0] == '100001'
 
 
 def test_stock_universe_all_mode_balances_stocks_and_etfs():

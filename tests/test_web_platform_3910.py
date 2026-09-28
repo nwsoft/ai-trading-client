@@ -1882,7 +1882,7 @@ def test_stock_runtime_controller_is_ui_neutral_paper_first_and_blocks_account_w
         api_version = "mock"
         broker_name = "koreaInvestment"
         is_connected = True
-        def get_stock_list(self, market): return []
+        def get_stock_list(self, market): return [{'code':'005930','status':'ok'}]
         def get_etf_list(self): return []
     calls = []
     class Service:

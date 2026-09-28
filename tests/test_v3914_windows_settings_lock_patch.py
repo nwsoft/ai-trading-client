@@ -156,6 +156,17 @@ def test_publish_script_requires_the_current_unfinished_windows_plan():
     publish = _read("scripts/publish_web_ui_windows_release.ps1")
     plan_prefix = "V" + RELEASE_VERSION.replace(".", "")
     plan_matches = sorted((ROOT / "docs").glob(f"{plan_prefix}*_TEST_PLAN.md"))
+    canonical=(ROOT/'docs'/'DEPLOY_CHECKLIST.md').read_text(encoding='utf-8')
+    marker=f'<!-- patch-test-plan-version: {RELEASE_VERSION} -->'
+    if marker in canonical:
+        current=canonical.split(marker,1)[1].split('<!-- patch-test-plan-end -->',1)[0]
+        assert 'docs\\DEPLOY_CHECKLIST.md' in publish
+        assert '$plan.Substring($start, $end - $start)' in publish
+        assert 'external_validation_pending_count' in publish
+        for gate in ('WIN-BUILD','WIN-UPGRADE','UPLOAD','REPLAY-COST','CATALOG','ROLLBACK'):
+            assert gate in current
+        assert '- [ ]' in current
+        return
     assert len(plan_matches) == 1
     plan = plan_matches[0].read_text(encoding="utf-8")
 

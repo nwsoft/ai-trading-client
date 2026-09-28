@@ -25,6 +25,7 @@ from urllib.parse import urlencode
 import requests
 from binance.client import Client
 from binance.exceptions import BinanceAPIException, BinanceOrderException
+from trading.instrument_eligibility import instrument_order
 
 
 @dataclass
@@ -1941,6 +1942,7 @@ class BinanceClient:
             self.logger.error(f"마진 타입 설정 오류: {e}")
             return False
 
+    @instrument_order('binance')
     def place_order(self, order_request: OrderRequest) -> Dict:
         """주문 실행"""
         # 키가 없으면 조용히 SKIPPED 반환
@@ -2262,6 +2264,7 @@ class BinanceClient:
         except Exception as e:
             return {"code": -1, "msg": f"REQUEST_FAILED: {e}"}
 
+    @instrument_order('binance')
     def place_futures_order(
         self,
         symbol: str,
