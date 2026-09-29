@@ -3490,39 +3490,3 @@ html[lang="en"] button { white-space: normal; overflow-wrap: break-word; }
   .settings-center .settings-tab-commandbar { grid-template-columns: minmax(0,1fr); }
   .settings-center .credential-box .credential-actions { grid-template-columns: minmax(0,1fr); }
 }
-/* UI50: evidence graphics are part of the first screen, not only a detail page. */
-.visual-overview { margin:10px 0 18px; }
-.visual-scope { display:flex; flex-wrap:wrap; align-items:center; gap:7px 14px; margin-bottom:10px; }
-.visual-scope h3 { margin:0; font-size:15px; color:#eef6ff; }
-.visual-source-buttons { display:flex; flex-wrap:wrap; gap:5px; }
-.dashboard-v495 .visual-source-buttons button { padding:5px 9px; font-size:11px; }
-.dashboard-v495 .visual-source-buttons button[aria-pressed="true"] { background:#155270; border-color:#64d0f1; box-shadow:inset 0 -2px #64d0f1; }
-.visual-scope > small { flex-basis:100%; font-size:11px; color:#9eb8ce; }
-.visual-insight-grid { display:grid; grid-template-columns:minmax(0,1.08fr) minmax(0,1fr) minmax(0,1fr); gap:12px; }
-.visual-insight-card { min-width:0; display:flex; flex-direction:column; padding:14px; border:1px solid #344e68; border-radius:11px; background:linear-gradient(155deg,#152b3e,#0e1e30); }
-.visual-insight-card > header { display:flex; gap:7px; align-items:center; justify-content:space-between; flex-wrap:wrap; margin-bottom:10px; }
-.visual-insight-card h4 { margin:0; font-size:15px; color:#c7edff; }
-.visual-insight-card small { font-size:11px; line-height:1.5; color:#a2b7cb; overflow-wrap:anywhere; }
-.visual-record-tag { font-size:10px; color:#a1b8cf; }
-.visual-market-main { display:flex; align-items:center; gap:15px; margin-bottom:10px; }
-.regime-state-orbit { --regime-color:#4b667f; width:126px; height:126px; flex:0 0 126px; border-radius:50%; border:9px solid var(--regime-color); background:#0b1a29; display:flex; flex-direction:column; justify-content:center; align-items:center; gap:5px; box-sizing:border-box; }
-.regime-state-orbit.state-bull { --regime-color:#3fcba6; }.regime-state-orbit.state-bear { --regime-color:#ed8690; }.regime-state-orbit.state-range { --regime-color:#e4bc67; }.regime-state-orbit.state-volatile { --regime-color:#bc9aec; }.regime-state-orbit.state-normal { --regime-color:#65bde0; }
-.regime-state-orbit.state-unknown { border-style:dashed; }
-.regime-state-orbit > span { font-size:10px; color:#a3b8cc; }.regime-state-orbit > strong { font-size:24px; color:var(--regime-color); }.regime-state-orbit > small { font-size:9px; }
-.visual-regime-context { display:grid; gap:10px; min-width:0; font-size:12px; color:#a6bad0; }.visual-regime-context b { color:#e2eef9; display:block; font-size:15px; margin-top:3px; }
-.visual-overview .regime-history { margin:0 0 8px; }.visual-overview .regime-history figcaption { font-size:11px; margin-bottom:5px; }.visual-overview .regime-sample { min-width:24px; padding:5px 3px; font-size:10px; }.visual-overview .regime-history-track { max-height:62px; overflow:auto; }
-.visual-overview .regime-history > small { font-size:10px; }
-.visual-basis { max-height:34px; overflow:auto; margin-bottom:7px; }
-.dashboard-v495 .visual-detail { margin-top:auto; text-align:left; color:#83dcfa; background:transparent; border:0; border-top:1px solid #2b455c; border-radius:0; padding:9px 0 0; font-size:12px; }
-.visual-chart-empty { flex:1; min-height:96px; display:flex; flex-direction:column; justify-content:center; gap:4px; border:1px dashed #344d66; border-radius:7px; padding:12px; margin:0 0 10px; background:#102034; }
-.visual-chart-empty > span { color:#48677f; font-size:20px; letter-spacing:8px; }.visual-chart-empty p { margin:0; font-size:13px; }
-.visual-empty-checks { display:flex; gap:5px; margin-bottom:8px; }.visual-empty-checks i { height:12px; flex:1; background:#2d4359; border-radius:3px; }
-.visual-check-chart { display:flex; gap:3px; height:30px; border-radius:5px; overflow:hidden; margin:7px 0; }.visual-check-chart span { display:flex; align-items:center; justify-content:center; font-size:12px; font-weight:700; }
-.visual-check-chart .check-state-0 { background:#1f755f; color:#e5fff5; }.visual-check-chart .check-state-1 { background:#7d5232; color:#fff4da; }.visual-check-chart .check-state-2 { background:#425369; color:#edf5ff; }
-.visual-check-legend { display:flex; flex-wrap:wrap; gap:12px; font-size:11px; margin-bottom:8px; }.check-state-0 { color:#74ddbd; }.check-state-1 { color:#f5c085; }.check-state-2 { color:#b6c9da; }
-.visual-check-list { list-style:none; margin:5px 0 8px; padding:0; font-size:12px; color:#d4e2ef; }.visual-check-list li { display:flex; gap:8px; padding:6px 0; border-bottom:1px solid #2b4054; overflow-wrap:anywhere; }.visual-check-list li > span:last-child { min-width:0; max-height:50px; overflow:auto; }.visual-evidence details { margin-bottom:8px; font-size:11px; }.visual-evidence-time { margin:8px 0; }
-.visual-decision-badge { width:fit-content; padding:6px 10px; margin:5px 0 10px; border-radius:6px; color:#aabed3; background:#273c50; font-size:13px; font-weight:700; }.visual-decision-badge.passed { color:#91edce; background:#164639; }.visual-decision-badge.held { color:#f1cf92; background:#483a20; }
-.visual-strategy h5 { font-size:17px; color:#f0f6ff; margin:2px 0 8px; overflow-wrap:anywhere; }.visual-strategy .visual-strategy-meta { font-size:11px; color:#99b5d0; margin:0 0 9px; }.visual-strategy .visual-strategy-reason { font-size:12px; margin:0 0 10px; max-height:72px; overflow:auto; overflow-wrap:anywhere; }
-.visual-safety-note { margin:10px 0; padding:8px; border-radius:5px; background:#172b3d; font-size:11px; color:#bad1e5; }
-.dashboard-reconciliation { display:flex; align-items:center; flex-wrap:wrap; gap:8px; font-size:11px; color:#b0c4d9; margin:4px 0; }.dashboard-reconciliation-track { display:flex; width:150px; height:8px; border-radius:4px; overflow:hidden; background:#354357; }.dashboard-reconciliation-track .verified { background:#4ac6ad; }.dashboard-reconciliation-track .pending { background:#d6a956; }
-@media(max-width:1100px) { .visual-insight-grid { gap:8px; }.visual-insight-card { padding:10px; }.visual-market-main { gap:8px; }.regime-state-orbit { width:110px; height:110px; flex-basis:110px; }.visual-record-tag { font-size:9px; }.visual-insight-card h4 { font-size:14px; } }

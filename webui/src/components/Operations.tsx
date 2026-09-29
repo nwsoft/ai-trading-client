@@ -219,7 +219,6 @@ export function LegacyTradingLogWorkspace({
   }, [filteredLines.length, service]);
   const controls=<div className="dashboard-batch-controls" role="group" aria-label={L('기관 일괄 실행','Batch controls')}><button disabled={batchBusy||!startableSources.length} onClick={()=>void commandAll('start')}>{batchBusy?L('처리 중…','Processing…'):L('설정 대상 전체 시작','Start configured venues')}</button><button disabled={batchBusy||!stoppableSources.length} onClick={()=>void commandAll('stop')}>{L('실행 중 전체 정지','Stop running venues')}</button><button onClick={onOpenSettings}>{L('설정','Settings')}</button></div>;
   const stats=<DashboardStats mode={statisticsMode} onMode={mode=>{if(mode===statisticsMode)return;setWorkspace(null);setAccountPayload(null);setModeChoice(mode);}}
-    reconciliation={trading&&!trading.error&&trading.schema_compatible!==false?{closed:trading.closed_count,verified:trading.reconciled_closed_count,pending:trading.unresolved_closed_count}:undefined}
     positions={openPositionCount} positionLabel={statisticsMode==='paper'?L('가상 포지션','Paper positions'):accountPositionsAvailable?L('조회 시점 계좌 포지션','Positions at account check'):L('관리 원장 포지션','Managed ledger positions')}
     closed={trading?.closed_count??L('확인 중','Checking')} pnl={pnlLabel} winRate={winRateLabel}
     pnlTone={confirmedMetricsAvailable&&pnlCurrencies.length===1?(Number(pnlCurrencies[0][1])<0?'negative':'positive'):''}

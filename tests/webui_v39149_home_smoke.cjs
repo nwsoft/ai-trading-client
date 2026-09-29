@@ -10,7 +10,7 @@ const crypto=['binance','upbit','bithumb','coinone','bybit','okx','bitget'],stoc
  // Let compositor finish resizing before inspecting captured pixels.
  const capture=async options=>{await page.waitForTimeout(150);return page.screenshot({...options,animations:'disabled'});};
  const errors=[],requests=[],writes=[],commands=[];
- const reports=fs.mkdtempSync(path.join(os.tmpdir(),'noah-v50-home-'));
+ const reports=fs.mkdtempSync(path.join(os.tmpdir(),'noah-v49-home-'));
  let slowLive=false,missing=false,failWorkspace=false,neutral=false,selected=crypto,emptyTrades=false,failAccounts=false;
  page.on('pageerror',e=>errors.push(e.message));
  await page.addInitScript(()=>{window.noahAI={bootstrap:()=>({gatewayUrl:location.origin,gatewayToken:'fixture',desktop:false})};});
@@ -25,7 +25,7 @@ const crypto=['binance','upbit','bithumb','coinone','bybit','okx','bitget'],stoc
   const now=Date.now()/1000;let payload={};
   const modeFor=s=>!neutral&&(s==='binance'||s==='kiwoom')?'live':'paper';
   const evidence=s=>({source:s,mode:modeFor(s),status:'observed',regime:{observed:'bull',confirmed:'range',observed_at:now},regime_history:[{observed:'range',confirmed:'range',symbol:'X',timeframe:'5m',observed_at:now-300},{observed:'bull',confirmed:'bull',symbol:'X',timeframe:'5m',observed_at:now}],candidate:{symbol:'TEST',strategy_name:'실제 조건 시험',version_id:'v1',allowed:false,observed_at:now,checks:[{passed:true,reason:'검사 1'},{passed:false,reason:'검사 2'}]},paper_pool:{scope_eligible:40,selected:30,waiting:10,limit:30,applied_slots:0},risk:{blocked:s==='binance',reason_code:'pnl_reconciliation_required',observed_at:now}});
-  if(ep.endsWith('/platform'))payload={release_version:'3.9.1.50',release_label:'v3.9.1.50 QA'};
+  if(ep.endsWith('/platform'))payload={release_version:'3.9.1.49',release_label:'v3.9.1.49 QA'};
   else if(ep.endsWith('/session'))payload={authenticated:true,account:'home-fixture',user:{id:'fixture',user_grade:'premium'}};
   else if(ep.endsWith('/features'))payload=inventory;
   else if(ep.endsWith('/runtime/snapshot'))payload={status:'attached',captured_at:new Date().toISOString(),enabled_sources:[...selected,...stock],running_sources:neutral?[]:['upbit'],selected_sources:{blockchain:selected[0]||'binance',stock:'kiwoom'},credential_status:Object.fromEntries([...crypto,...stock].map(s=>[s,!neutral])),execution_modes:Object.fromEntries([...crypto,...stock].map(s=>[s,modeFor(s)])),paper_trading:true};
@@ -45,8 +45,8 @@ const crypto=['binance','upbit','bithumb','coinone','bybit','okx','bitget'],stoc
  });
  try{
   await page.goto('http://127.0.0.1:4209');
-  await page.getByRole('button',{name:'거래 현황',exact:true}).click();
-  assert.match(await page.locator('.legacy-release').getAttribute('title'),/20260929\.1/);
+  await page.getByRole('button',{name:'거래 대시보드',exact:true}).click();
+  assert.match(await page.locator('.legacy-release').getAttribute('title'),/20260929\.5/);
   await page.locator('.operations-venue').first().waitFor();
   assert.equal(await page.locator('.operations-venue').count(),7);
   assert.match(await page.locator('.operations-attention').innerText(),/신규 진입 보류[\s\S]*BINANCE/);
@@ -107,7 +107,7 @@ const crypto=['binance','upbit','bithumb','coinone','bybit','okx','bitget'],stoc
   // Stopped/unconfigured is neutral, with all seven institutions visible at desktop size.
   neutral=true;emptyTrades=true;await page.reload();
   await page.getByRole('button',{name:'블록체인',exact:true}).click();
-  await page.getByRole('button',{name:'거래 현황',exact:true}).click();
+  await page.getByRole('button',{name:'거래 대시보드',exact:true}).click();
   await page.locator('.operations-venue').first().waitFor();
   assert.equal(await page.getByRole('button',{name:/실거래 내역.*LIVE/}).getAttribute('aria-pressed'),'true','blockchain preference is distinct from stocks PAPER');
   assert.equal(await page.locator('.operations-attention').count(),0);
@@ -115,19 +115,19 @@ const crypto=['binance','upbit','bithumb','coinone','bybit','okx','bitget'],stoc
   for(const width of [1440,1080,900]){
    await page.setViewportSize({width,height:900});await capture({path:path.join(reports,`neutral-${width}.png`)});
    assert.ok(await page.locator('.dashboard-overview').evaluate(e=>e.scrollWidth<=e.clientWidth+1));
-   assert.equal(await page.locator('.visual-insight-card').count(),3,'visual overview remains present without evidence');
+   if(width===1440)assert.ok(await page.locator('.operations-venue').last().evaluate(e=>e.getBoundingClientRect().bottom<=e.closest('.dashboard-overview').getBoundingClientRect().bottom),'seven rows inside visible overview');
   }
   await mode.selectOption('paper');await page.reload();
-  await page.getByRole('button',{name:'거래 현황',exact:true}).click();
+  await page.getByRole('button',{name:'거래 대시보드',exact:true}).click();
   assert.equal(await page.getByRole('button',{name:/가상 거래 내역.*PAPER/}).getAttribute('aria-pressed'),'true','last statistics selection persists');
-  selected=['binance'];await page.reload();await page.getByRole('button',{name:'거래 현황',exact:true}).click();await page.locator('.operations-venue').first().waitFor();
+  selected=['binance'];await page.reload();await page.getByRole('button',{name:'거래 대시보드',exact:true}).click();await page.locator('.operations-venue').first().waitFor();
   assert.equal(await page.locator('.operations-venue').count(),1);await page.screenshot({path:path.join(reports,'single.png')});
-  selected=[];await page.reload();await page.getByRole('button',{name:'거래 현황',exact:true}).click();await page.locator('.dashboard-empty').waitFor();
+  selected=[];await page.reload();await page.getByRole('button',{name:'거래 대시보드',exact:true}).click();await page.locator('.dashboard-empty').waitFor();
   assert.equal(await page.locator('.operations-attention').count(),0);await page.screenshot({path:path.join(reports,'empty.png')});
   await page.evaluate(()=>localStorage.setItem('noahai.locale.home-fixture','en'));
   await page.setViewportSize({width:1440,height:980});
   await page.reload();
-  await page.getByRole('button',{name:'Trading overview',exact:true}).click();
+  await page.getByRole('button',{name:'Trading dashboard',exact:true}).click();
   await page.getByRole('button',{name:'Overview',exact:true}).waitFor();
   await page.getByRole('button',{name:'Detailed logs',exact:true}).waitFor();
   assert.deepEqual(errors,[]);
