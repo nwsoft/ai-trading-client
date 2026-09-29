@@ -438,6 +438,58 @@ scoped_pool(list(getattr(app, "active_custom_strategy_pool", []) or []), asset_c
         )
         return result
 
+    def _evidence_owner(self, source):
+        app = self._app
+        if source in STOCK_SOURCES:
+            controller = getattr(app, 'stock_runtime_controller', None)
+            return (getattr(controller, '_services', {}) or {}).get(STOCK_CONFIG_KEYS.get(source, source))
+        return getattr(app, 'trader' if source == 'binance' else 'unified_trader', None)
+
+    def operation_overview_snapshot(self, *, service: str) -> dict[str, Any]:
+        """Read bounded existing memory only; never start an engine or refresh accounts."""
+        sources = STOCK_SOURCES if service == 'stock' else CRYPTO_SOURCES if service == 'blockchain' else ()
+        result = {}
+        for source in sources:
+            public_source = _public_source(source)
+            try:
+                result[public_source] = self.operation_summary_snapshot(source=public_source, include_paper_pool=False)
+            except Exception:
+                result[public_source] = {'source': public_source, 'status': 'unavailable', 'read_only': True}
+        return result
+
+    def operation_summary_snapshot(self, *, source: str, include_paper_pool: bool = True) -> dict[str, Any]:
+        from trading.operation_evidence import snapshot
+        from trading.strategy_scope import paper_pool_status
+        source = _public_source(source)
+        # Unlike the normal workspace settings path, this optional projection
+        # must not load settings from disk or instantiate a runtime.
+        settings = getattr(self._app, 'settings', {}) or {}
+        mode = (resolve_crypto_execution_mode(settings, source).value if source in CRYPTO_SOURCES
+                else ('paper' if settings.get('paper_trading', True) else 'live'))
+        if self._app is None:
+            return snapshot(None, source, 'unknown')
+        owner = self._evidence_owner(source)
+        if source in STOCK_SOURCES and owner is not None:
+            from trading.operation_evidence import mode_for
+            mode = mode_for(owner, source)
+        result = snapshot(owner, source, mode)
+        risk_manager = getattr(self._app, 'risk_manager', None)
+        decision = (getattr(risk_manager, '_last_daily_loss_decision', {}) or {}).get(source)
+        if decision is not None and getattr(decision, 'execution_mode', None) == mode:
+            # Already computed immutable decision; never re-evaluate risk here.
+            result['risk'] = {
+                'status': str(getattr(decision, 'status', 'unknown'))[:100],
+                'blocked': bool(getattr(decision, 'blocked', False)),
+                # Do not project raw provider exception text into the new surface.
+                'reason_code': str(getattr(decision, 'reason_code', ''))[:100],
+                'observed_at': getattr(decision, 'checked_at', None),
+            }
+        if mode == 'paper' and include_paper_pool:
+            result['paper_pool'] = paper_pool_status(
+                getattr(self._app, 'active_custom_strategy_pool', []) or [],
+                asset_class='stock' if source in STOCK_SOURCES else 'crypto', target=source)
+        return result
+
     def paper_position_snapshot(self, *, service: str, source: str) -> dict[str, Any]:
         """Return PAPER positions from bounded runtime memory without an account API call."""
         normalized_service = str(service or "").strip().lower()
@@ -797,6 +849,9 @@ scoped_pool(list(getattr(self._app, "active_custom_strategy_pool", []) or []), a
         elif command in {"stocks.analyze", "trades.import"} and not has_credentials:
             raise RuntimeError(f"credential_required:{source}")
         app = self._ensure_app()
+        if command in {'trading.start', 'trading.stop'}:
+            from trading.operation_evidence import reset
+            reset(self._evidence_owner(source), source)
         if command == "stocks.analyze":
             if source not in STOCK_SOURCES:
                 raise ValueError("stock_analysis_is_broker_only")

@@ -255,6 +255,7 @@ export interface StrategyGroup {
 }
 
 export interface StrategyCatalog {
+  runtime_paper_pools?: Record<string, { scope_eligible: number; selected: number; waiting: number; limit: number; applied_slots: number }>;
   schema_version: string;
   strategies: StrategyGroup[];
   paper_outcomes?: Array<Record<string, any>>;
@@ -277,6 +278,13 @@ export interface LifeFinanceSnapshot {
 }
 
 export interface WorkspaceSnapshot {
+  operation_overview?: Record<string, NonNullable<WorkspaceSnapshot['operation_summary']>>;
+  operation_summary?: {
+    source?: string; mode?: string; status: string; session?: string;
+    regime?: Record<string, any>; candidate?: Record<string, any>; runtime?: Record<string, any>; risk?: Record<string, any>;
+    regime_history?: Array<{observed: string; confirmed: string; symbol: string; timeframe: string; observed_at: number}>;
+    paper_pool?: { scope_eligible: number; selected: number; waiting: number; limit: number; applied_slots: number; waiting_versions: string[] };
+  };
   schema_version: string;
   service: string;
   feature: string;

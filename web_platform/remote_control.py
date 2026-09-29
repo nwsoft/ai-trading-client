@@ -9,6 +9,21 @@ import time
 
 from trading.remote_entry_pause import gate, VENUES
 
+# Public diagnostics are a finite contract, never raw exceptions/account data.
+REMOTE_REASON_CODES = frozenset({
+    'remote_command_expired', 'pc_settings_changed', 'remote_context_mismatch',
+    'remote_state_changed', 'remote_permission_revoked', 'remote_membership_check_required',
+    'stock_live_readiness_required_on_pc', 'risk_guardrail_blocked',
+    'expired_or_changed_remote_request', 'entry_submission_still_draining',
+    'runtime_start_not_confirmed', 'risk_data_unavailable', 'receipt_store_invalid',
+    'remote_strategy_revision_unavailable', 'execution_failed',
+})
+
+
+def public_reason(error):
+    code = str(error)
+    return code if code in REMOTE_REASON_CODES else 'execution_failed'
+
 
 def settings_revision(settings):
     # Only a digest leaves the PC, never settings, keys or strategy source.
@@ -70,8 +85,9 @@ class RemoteControl:
                 # Handler rechecks credentials/membership/risk/mode/config at execution.
                 self.execute(cmd)
                 status = 'completed'
-            except Exception:
+            except Exception as exc:
                 # Fail closed: retain the entry pause even if a start was partial.
+                receipts[ident]['reason_code'] = public_reason(exc)
                 self._fence(source)
                 status = 'rejected'
             receipts[ident]['status'] = status
@@ -81,6 +97,15 @@ class RemoteControl:
                 self._fence(source)
                 raise
             return status
+
+    def reason_for(self, ident):
+        with self.lock:
+            try:
+                receipt = json.loads(self.path.read_text()).get(ident, {})
+                code = receipt.get('reason_code')
+                return code if isinstance(code, str) and code in REMOTE_REASON_CODES else None
+            except (OSError, ValueError, AttributeError):
+                return None
 
     def _save(self, receipts):
         self.path.parent.mkdir(parents=True, exist_ok=True)

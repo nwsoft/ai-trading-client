@@ -256,8 +256,12 @@ def test_paper_statistics_are_scoped_by_mode_venue_asset_and_currency(tmp_path):
 def test_web_surfaces_expose_paper_mode_without_mixing_live_import_or_baseline():
     operations = open("webui/src/components/Operations.tsx", encoding="utf-8").read()
     statistics = open("webui/src/components/TradingStatisticsWorkspace.tsx", encoding="utf-8").read()
-    assert "dashboardStatisticsMode" in operations
-    assert 'statisticsMode === "paper" ? t("가상 포지션")' in operations
+    # UI49.5: statistics selection is independent from the actual worker mode.
+    assert "const statisticsMode = modeChoice" in operations
+    assert "statisticsMode==='paper'?L('가상 포지션'" in operations
+    assert "noahai.dashboard-statistics." in operations
+    assert "JSON.stringify([accountScope,service])" in operations
+    assert "localStorage.getItem(modeKey)==='paper'?'paper':'live'" in operations
     assert '>PAPER</button>' in statistics
     assert 'statisticsMode === "live" && <button' in statistics
     assert 'statisticsMode === "live" && <button type="button" onClick={importTrades}' in statistics

@@ -18,6 +18,8 @@ FIELDS={'open','high','low','close','volume','rsi','macd','macd_signal','macd_hi
         'ma20','ma50','ma200','ema20','ema50','ema200','adx','atr','atr_percent',
         'bb_position','bb_width','trend_strength','market_volatility','volume_ratio','hour','weekday'}
 FUNCTIONS={'min':min,'max':max,'abs':abs}
+from .condition_fields import FIELDS as CLOSED_BAR_FIELDS
+FIELDS |= CLOSED_BAR_FIELDS
 
 def canonical(value):
     def normalized(item):
@@ -65,7 +67,9 @@ def validate(program):
         if not isinstance(initial,dict) or not 1<=len(initial)<=32 or not isinstance(updates,dict) or set(initial)!=set(updates):
             raise ValueError('state_declaration_update_mismatch')
         for key,value in initial.items():
-            if not isinstance(key,str) or not NAME.fullmatch(key) or key in FIELDS|set(FUNCTIONS)|{'signal','confidence','price','current_price','sma20','sma50','sma200','volume_sma20'}:raise ValueError('state_name_invalid')
+            # A v47/v48 explicitly declared state name must not become invalid
+            # merely because v49 introduces a same-named candle field.
+            if not isinstance(key,str) or not NAME.fullmatch(key) or key in (FIELDS-CLOSED_BAR_FIELDS)|set(FUNCTIONS)|{'signal','confidence','price','current_price','sma20','sma50','sma200','volume_sma20'}:raise ValueError('state_name_invalid')
             number(value);parse(updates[key],tuple(sorted(initial)))
         return []
     except (ValueError,TypeError) as exc:return [str(exc)]
@@ -73,7 +77,7 @@ def validate(program):
 def fields(program):
     if validate(program):return set()
     return {n.id for expr in program.get('updates',{}).values() for n in ast.walk(parse(expr,tuple(sorted(program['initial']))))
-            if isinstance(n,ast.Name) and n.id in FIELDS}
+            if isinstance(n,ast.Name) and n.id in FIELDS and n.id not in program.get('initial',{})}
 
 def calculate(node,values):
     if isinstance(node,ast.Constant):return number(node.value)

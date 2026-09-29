@@ -1301,6 +1301,8 @@ class StockAnalysisService:
             return self._regime_cache
 
         previous_regime = self._regime_cache
+        from trading.operation_evidence import generation, mode_for
+        summary_generation, summary_mode = generation(self, self.broker_name), mode_for(self, self.broker_name)
         regime = detect_market_regime(self.adapter)
         if regime == 'unknown':
             self._regime_retry_after = now + 60
@@ -1312,6 +1314,11 @@ class StockAnalysisService:
         self._regime_retry_after = 0
         self._regime_cache = regime
         self._regime_cache_time = now
+        from trading.operation_evidence import publish
+        publish(self, self.broker_name, 'regime', observed=regime, confirmed=regime,
+                mode=summary_mode, expected_generation=summary_generation,
+                changed=bool(previous_regime and previous_regime != regime),
+                basis=str(getattr(self.adapter, '_regime_data_reason', 'index_or_proxy')))
 
         if previous_regime and regime != previous_regime:
             try:
@@ -3551,9 +3558,11 @@ class StockAnalysisService:
             paper_strategy_pool = list(
                 getattr(self, 'paper_validation_strategy_pool', []) or []
             )
+            from .strategy_scope import scoped_pool
+            evaluation_pool = scoped_pool(custom_strategy_pool or [], asset_class='stock', target=self.broker_name)
             custom_context = self._enrich_strategy_context(
-                custom_context, list(custom_strategy_pool or []) + paper_strategy_pool,
-                symbol, execution_mode, state_pool=list(custom_strategy_pool or []),
+                custom_context, list(evaluation_pool) + paper_strategy_pool,
+                symbol, execution_mode, state_pool=evaluation_pool,
             )
             if observer is not None:
                 try:
@@ -3570,14 +3579,18 @@ class StockAnalysisService:
                         'stock_auto_trade',
                         f'병행 PAPER 관찰 실패(실주문 영향 없음): {paper_exc}',
                     )
+            from trading.operation_evidence import generation as evidence_generation
+            projection_generation = evidence_generation(self, self.broker_name)
             candidate = evaluate_trade_candidate(
                 symbol=symbol,
                 context=custom_context,
-                strategy_pool=custom_strategy_pool,
+                strategy_pool=evaluation_pool,
                 asset_class='stock',
                 target=self.broker_name,
                 market_regime=market_regime,
             )
+            from trading.operation_evidence import candidate as publish_candidate
+            publish_candidate(self, candidate, custom_context, execution_mode, projection_generation)
             analysis = apply_trade_candidate(analysis, candidate)
             signal = {'LONG': 'BUY', 'SHORT': 'SELL'}.get(candidate.final_signal, 'HOLD')
             position_limit = effective_position_limit(

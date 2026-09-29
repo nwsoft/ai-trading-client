@@ -194,6 +194,19 @@ def check_for_higher_version_mentions(text_map: Dict[str, str]) -> List[str]:
 
 def check_release_surface_alignment(text_map: Dict[str, str]) -> List[str]:
     """동일 버전의 핵심 변경이 사용자 노출·기술·검증 문서에 함께 있는지 확인한다."""
+    if RELEASE_VERSION == '3.9.1.49':
+        required = {
+            'manual_widget': ('v3.9.1.49 최신 업데이트', '프리미엄 최대 30', '운용 요약'),
+            'user_guide': ('현재 소스 후보 버전: **v3.9.1.49**', f'현재 공개 버전: **v{PUBLIC_RELEASE_VERSION}**'),
+            'readme': ('현재 소스 후보: v3.9.1.49', f'현재 공개 기반: v{PUBLIC_RELEASE_VERSION}'),
+            'release_notes': ('v3.9.1.49', '3.9.149', f'공개 v{PUBLIC_RELEASE_VERSION}'),
+            'architecture': ('v3.9.1.49', '기존 버전'),
+            'test_status': ('v3.9.1.49', 'Windows'),
+            'deploy_checklist': ('patch-test-plan-version: 3.9.1.49', '실제 워커'),
+        }
+        return [f"[RELEASE_SURFACE] {surface}: '{marker}' 누락"
+                for surface, markers in required.items() for marker in markers
+                if marker not in text_map.get(surface, '')]
     if RELEASE_VERSION == '3.9.1.48':
         required = {
             'manual_widget': ('v3.9.1.48 최신 업데이트', '이번 검사 비용 직접 입력', '검색·필터 초기화'),

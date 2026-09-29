@@ -315,6 +315,9 @@ def enrich_advanced_indicator_context(
             if temporal_bars:
                 keep = required_fields(pool) | {'_bar_timestamp'}
                 for program in state_programs:keep.update(state_fields(program))
+                from .condition_fields import FIELDS
+                if keep & FIELDS:
+                    keep.add('_condition_fields_contract')
                 def compact_bar(index):
                     raw_fields={'open','high','low','close','volume','hour','weekday','_bar_timestamp'}
                     if keep<=raw_fields:
@@ -472,6 +475,9 @@ def _context(
         "hour": dt.hour if dt else None,
         "weekday": dt.weekday() if dt else None,
     }
+    from .condition_fields import values as condition_values, CONTRACT as condition_contract
+    context.update(condition_values(history))
+    context['_condition_fields_contract'] = condition_contract
     if include_previous and index > 0:
         context["_previous"] = _context(
             rows, index - 1, signal, include_previous=False

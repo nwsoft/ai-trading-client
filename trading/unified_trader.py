@@ -2092,6 +2092,8 @@ class UnifiedTrader:
 
                 from .custom_strategy_validator import enrich_advanced_indicator_context
                 strategy_pool = getattr(self, 'active_custom_strategy_pool', []) or []
+                from .strategy_scope import scoped_pool
+                strategy_pool = scoped_pool(strategy_pool, asset_class='crypto', target=exchange_name)
                 paper_strategy_pool = getattr(self, 'paper_validation_strategy_pool', []) or []
                 indicator_pool = list(strategy_pool) + [
                     item for item in paper_strategy_pool if item not in strategy_pool
@@ -2149,6 +2151,8 @@ class UnifiedTrader:
                         self.logger.warning(
                             f'{exchange_name} 병행 PAPER 관찰 실패(실주문 영향 없음): {paper_exc}'
                         )
+                from trading.operation_evidence import generation as evidence_generation
+                projection_generation = evidence_generation(self, exchange_name)
                 candidate = evaluate_trade_candidate(
                     symbol=symbol,
                     context=analysis,
@@ -2161,6 +2165,8 @@ class UnifiedTrader:
                         )
                     ),
                 )
+                from trading.operation_evidence import candidate as publish_candidate
+                publish_candidate(self, candidate, analysis, execution_mode, projection_generation)
                 analysis = apply_trade_candidate(analysis, candidate)
                 learning_scope = getattr(self, 'learning_enabled_exchanges', None)
                 if learning_scope is None:
@@ -6396,6 +6402,8 @@ Response in JSON format:
     def _check_and_reselect_coins_unified_optimized(self, exchange_name: str):
         """최적화된 코인 재선택 로직 (CCXT 거래소용)"""
         try:
+            from trading.operation_evidence import generation, mode_for
+            summary_generation, summary_mode = generation(self, exchange_name), mode_for(self, exchange_name)
             # 1. 코인이 비어있으면 선택
             current_selected = list(self.selected_coins.get(exchange_name, []) or [])
             if not current_selected:
@@ -6424,6 +6432,8 @@ Response in JSON format:
                     min_dwell_seconds=min_dwell,
                 )
                 self.last_market_regime_by_exchange[exchange_name] = regime
+                from trading.runtime_observability import emit_regime_observation
+                emit_regime_observation(self, exchange_name, observed, regime, False, mode=summary_mode, expected_generation=summary_generation)
                 self.log_event('analysis', f"{exchange_name} 시장 분석 시작 - 기준 시간: {time.strftime('%H:%M:%S', time.localtime(current_time))}", exchange=exchange_name)
                 self.log_event('analysis', f"{exchange_name} 시장 상황 분석 결과: {regime}", exchange=exchange_name)
                 return
@@ -6444,7 +6454,7 @@ Response in JSON format:
                     min_dwell_seconds=min_dwell,
                 )
                 from trading.runtime_observability import emit_regime_observation
-                emit_regime_observation(self, exchange_name, observed_regime, current_regime, regime_changed)
+                emit_regime_observation(self, exchange_name, observed_regime, current_regime, regime_changed, mode=summary_mode, expected_generation=summary_generation)
                 last_regime = self.last_market_regime_by_exchange.get(exchange_name)
                 pending_regime = self._pending_regime_reselection_by_exchange.get(exchange_name, '')
 

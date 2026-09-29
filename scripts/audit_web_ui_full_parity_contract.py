@@ -26,6 +26,7 @@ from config.product_ui_contract import (  # noqa: E402
     MANUAL_SECTION_LABELS,
     PORTFOLIO_INSIGHT_SECTIONS,
     SERVICE_FEATURE_LABELS,
+    web_feature_labels,
     SERVICE_ORDER,
     SERVICE_SOURCES,
     SETTINGS_SECTION_LABELS,
@@ -54,7 +55,7 @@ def audit() -> tuple[list[str], dict[str, int]]:
         service = services.get(service_id, {})
         _require(tuple(service.get("sources", [])) == SERVICE_SOURCES[service_id],
                  f"{service_id}: source 순서가 정본과 다릅니다.", errors)
-        _require(tuple(item.get("label") for item in service.get("features", [])) == SERVICE_FEATURE_LABELS[service_id],
+        _require(tuple(item.get("label") for item in service.get("features", [])) == web_feature_labels(service_id),
                  f"{service_id}: 기능 탭 순서가 정본과 다릅니다.", errors)
         for feature in service.get("features", []):
             migration = str(feature.get("migration") or "")

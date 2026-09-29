@@ -28,7 +28,7 @@ function version(stock = false, legacy = false) {
   };
 }
 (async () => {
-  const browser = await chromium.launch({ headless: true });
+  const browser = await chromium.launch({ headless: true, ...(process.env.NOAHAI_QA_CHANNEL ? { channel: process.env.NOAHAI_QA_CHANNEL } : {}) });
   const page = await browser.newPage({ viewport: { width: 1440, height: 1000 } });
   const errors = [], writes = [];
   let legacy = false;
@@ -43,6 +43,13 @@ function version(stock = false, legacy = false) {
     window.noahAI = { bootstrap: () => ({ gatewayUrl: location.origin, gatewayToken: 'isolated-fixture', desktop: false }) };
     localStorage.setItem('noahai.strategy-studio-guided.blockchain', 'done');
     localStorage.setItem('noahai.strategy-studio-guided.stock', 'done');
+  });
+  if(process.env.NOAHAI_QA_DIST) await page.route('**/*',async route=>{
+    const url=new URL(route.request().url());
+    if(url.pathname.startsWith('/api/')) return route.fallback();
+    const file=path.join(process.env.NOAHAI_QA_DIST,url.pathname==='/'?'index.html':url.pathname);
+    if(fs.existsSync(file)&&fs.statSync(file).isFile())return route.fulfill({body:fs.readFileSync(file),contentType:({'.js':'text/javascript','.css':'text/css','.html':'text/html','.json':'application/json'})[path.extname(file)]||'application/octet-stream'});
+    return route.abort();
   });
   await page.route('**/api/v1/**', async route => {
     const endpoint = new URL(route.request().url()).pathname;
@@ -62,11 +69,11 @@ function version(stock = false, legacy = false) {
     else if (endpoint.includes('audit')) payload = { records: [] };
     await route.fulfill({ contentType: 'application/json', body: JSON.stringify(payload) });
   });
-  const reports = path.join(root, 'reports/v39137-replay');
+  const reports = fs.mkdtempSync(path.join(require('node:os').tmpdir(), 'noah-replay-'));
   fs.mkdirSync(reports, { recursive: true });
   try {
     await page.goto(process.env.NOAHAI_QA_URL || 'http://127.0.0.1:4176');
-    await page.getByRole('button', { name: '전략 스튜디오', exact: true }).click();
+    await page.locator('.feature-nav').getByRole('button', { name: '전략 스튜디오', exact: true }).click();
     async function openChart() {
       await page.locator('.strategy-validation-evidence > summary:visible').first().click();
       await page.locator('.strategy-replay > summary:visible').first().click();
@@ -90,7 +97,7 @@ function version(stock = false, legacy = false) {
     assert.ok(await page.locator('.strategy-replay-chart').evaluate(e => e.clientWidth > 200));
     await page.locator('.strategy-replay-chart').screenshot({ path: path.join(reports, 'desktop-1080.png') });
     await page.getByRole('button', { name: '주식/증권', exact: true }).click();
-    await page.getByRole('button', { name: '전략 스튜디오', exact: true }).click();
+    await page.locator('.feature-nav').getByRole('button', { name: '전략 스튜디오', exact: true }).click();
     await openChart();
     assert.match(await page.locator('.strategy-replay:visible').innerText(), /KIWOOM.*005930.*1d/);
     assert.match(await page.locator('.replay-table caption:visible').innerText(), /KRW/);
@@ -99,7 +106,7 @@ function version(stock = false, legacy = false) {
       matrixFixture = fixture;
       await page.reload();
       await page.getByRole('button', { name: fixture.stock ? '주식/증권' : '블록체인', exact: true }).click();
-      await page.getByRole('button', { name: '전략 스튜디오', exact: true }).click();
+      await page.locator('.feature-nav').getByRole('button', { name: '전략 스튜디오', exact: true }).click();
       await openChart();
       const rounded = Number(fixture.metrics.net_pnl_percent.toFixed(4));
       const expectedPercent = `${rounded > 0 ? '+' : ''}${rounded.toFixed(4)}%`;
@@ -122,7 +129,7 @@ function version(stock = false, legacy = false) {
     matrixFixture = null;
     legacy = true;
     await page.reload();
-    await page.getByRole('button', { name: '전략 스튜디오', exact: true }).click();
+    await page.locator('.feature-nav').getByRole('button', { name: '전략 스튜디오', exact: true }).click();
     await page.locator('.strategy-validation-evidence > summary:visible').first().click();
     await page.locator('.strategy-replay > summary:visible').first().click();
     await page.getByText('이 결과에는 연결 가능한 원본 캔들', { exact: false }).waitFor();

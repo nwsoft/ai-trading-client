@@ -380,8 +380,11 @@ def test_statistics_layout_has_stable_feedback_and_scroll_container():
     assert workspace_source.count("legacy-workspace-feedback") >= 2
     assert ".legacy-coin-notices" in styles
     assert ".report-notification-status:empty" in styles
-    assert 'const confirmedMetricsAvailable = statisticsMode === "paper" || reconciledCount > 0' in operations_source
-    assert 'const winRateLabel = confirmedMetricsAvailable' in operations_source
+    # UI49.4 also requires an actual compatible snapshot, never fabricates a
+    # PAPER 0% when the response is missing. Live reconciliation remains required.
+    assert '(statisticsMode === "paper" || reconciledCount > 0)' in operations_source
+    assert 'trading && !trading.error && trading.schema_compatible !== false' in operations_source
+    assert "trading.closed_count===0 ? '표본 없음'" in operations_source
     assert 'return paper ? "청산 기록 없음" : "대조 전"' in analyst_source
     assert 'reconciledCount > 0 ?' in analyst_source
 

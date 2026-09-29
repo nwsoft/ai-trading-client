@@ -3571,16 +3571,22 @@ class NoahAIClient:
         for attr in ("strategy_customizer", "strategy_customizer_unified"):
             customizer = getattr(self, attr, None)
             if customizer and hasattr(customizer, "get_active_strategy_pool"):
-                combined.extend(customizer.get_active_strategy_pool())
+                getter = (getattr(customizer, 'get_paper_strategy_pool', customizer.get_active_strategy_pool)
+                          if (getattr(self, 'settings', {}) or {}).get('paper_trading', True)
+                          else customizer.get_active_strategy_pool)
+                combined.extend(getter())
         dedup = {}
         for item in combined:
             key = str(item.get("version_id") or item.get("id") or "")
             if key:
                 dedup[key] = item
         pool = (
-            sorted(dedup.values(), key=lambda item: int(item.get("priority", 5) or 5), reverse=True)[:10]
+            sorted(dedup.values(), key=lambda item: int(item.get("priority", 5) or 5), reverse=True)
             if runtime_enabled else []
         )
+        if (getattr(self, 'settings', {}) or {}).get('paper_trading', True):
+            from trading.strategy_scope import runtime_paper_pool
+            pool = runtime_paper_pool(pool, self)
         if getattr(self, "trader", None) is not None:
             self.trader.active_custom_strategy_pool = list(pool)
             self.trader.active_custom_strategy_rules = {}

@@ -17,6 +17,7 @@ def _legacy_service_tab_order(service: str) -> list[str]:
 
 
 def test_web_service_information_architecture_exactly_matches_legacy_policy() -> None:
+    from config.product_ui_contract import WEB_FEATURE_LABEL_OVERRIDES
     payload = json.loads((ROOT / "config" / "web_ui_feature_inventory.json").read_text(encoding="utf-8"))
     services = {service["id"]: service for service in payload["services"]}
 
@@ -36,7 +37,11 @@ def test_web_service_information_architecture_exactly_matches_legacy_policy() ->
             for feature in services[web_service]["features"]
             if not feature["id"].endswith("source_workspaces")
         ]
-        assert labels == _legacy_service_tab_order(legacy_service), (web_service, labels)
+        aliases = WEB_FEATURE_LABEL_OVERRIDES.get(web_service, {})
+        assert labels == [aliases.get(label, label) for label in _legacy_service_tab_order(legacy_service)], (web_service, labels)
+        if web_service in {'blockchain', 'stock'}:
+            assert aliases == {'실시간 거래 로그': '거래 대시보드'}
+            assert services[web_service]['features'][0]['id'] == f'{web_service}.logs'
 
 
 def test_shared_product_contract_covers_all_services_settings_and_manual() -> None:
@@ -47,6 +52,7 @@ def test_shared_product_contract_covers_all_services_settings_and_manual() -> No
         MANUAL_SECTION_LABELS,
         PORTFOLIO_INSIGHT_SECTIONS,
         SERVICE_FEATURE_LABELS,
+        web_feature_labels,
         SERVICE_ORDER,
         SETTINGS_SECTION_LABELS,
     )
@@ -57,7 +63,7 @@ def test_shared_product_contract_covers_all_services_settings_and_manual() -> No
     assert {
         item["id"]: tuple(feature["label"] for feature in item["features"])
         for item in payload["services"]
-    } == SERVICE_FEATURE_LABELS
+    } == {service: web_feature_labels(service) for service in SERVICE_FEATURE_LABELS}
     assert tuple(payload["ui_contract"]["settings_sections"]) == SETTINGS_SECTION_LABELS
     assert tuple(payload["ui_contract"]["manual_sections"]) == MANUAL_SECTION_LABELS
     assert tuple(payload["ui_contract"]["life_finance_inner_tabs"]) == LIFE_FINANCE_INNER_TABS
@@ -299,7 +305,7 @@ def test_login_help_restores_the_legacy_popup_contract() -> None:
     assert "openLoginHelp" in preload
 
 
-def test_dashboard_defaults_to_legacy_log_workspace_and_real_audit_record() -> None:
+def test_dashboard_preserves_log_route_and_real_audit_record() -> None:
     app = (ROOT / "webui" / "src" / "App.tsx").read_text(encoding="utf-8")
     operations = (ROOT / "webui" / "src" / "components" / "Operations.tsx").read_text(encoding="utf-8")
 
@@ -309,8 +315,11 @@ def test_dashboard_defaults_to_legacy_log_workspace_and_real_audit_record() -> N
     assert "setAiRecord" in app
     assert '!item.id.endsWith("source_workspaces")' in app
     assert "LegacyTradingLogWorkspace" in operations
-    assert "운영 KPI" in operations
-    assert "legacy-kpi-card" in operations
+    summary = (ROOT / "webui" / "src" / "components" / "DashboardStats.tsx").read_text(encoding="utf-8")
+    assert "DashboardStats" in operations
+    assert "오늘 거래 요약" in summary
+    assert "legacy-kpi-card" in summary
+    assert "요약 보기" in operations and "상세 로그" in operations
     assert '<option>DEBUG</option>' not in operations
     assert "LogHelpDialog" in operations
     assert "clearMarkerRef" in operations
@@ -335,7 +344,8 @@ def test_dashboard_defaults_to_legacy_log_workspace_and_real_audit_record() -> N
     assert 'client.workspace(service, `${service}.statistics`, runtime?.selected_source ?? "")' not in operations
     assert "<span>포지션</span><b>{runningCount}</b>" not in operations
     assert "API 키가 설정되지 않았습니다." in operations
-    assert 'client.logs(service, source, 100)' in reports
+    assert 'readLogs(100)' in reports
+    assert 'client.logs(service, source, limit)' in reports
     assert "runtimeForService" in app
     assert "enabled_sources_by_service" in app
     assert 'useState<Record<"blockchain" | "stock", string>>' in app
@@ -356,7 +366,7 @@ def test_dashboard_defaults_to_legacy_log_workspace_and_real_audit_record() -> N
     assert "if (!credentialsConfigured)" in source_workspace
     assert "API 키를 설정한 뒤 연결을 확인하세요." in source_workspace
     # Public KRW PAPER/LEARNING logs are available without private credentials.
-    assert "startCredentialsReady\n        ? client.logs(service, source, 100)" in source_workspace
+    assert "startCredentialsReady && operationView === 'logs'\n        ? readLogs(100)" in source_workspace
     assert "credentialsConfigured || publicMarketExecution" in source_workspace
     assert 'lines: []' in source_workspace
     assert "미연결 상태에서는 과거 로그를 현재 연결 기록처럼 표시하지 않습니다." in source_workspace
@@ -473,7 +483,7 @@ def test_coin_and_exchange_tabs_use_dedicated_legacy_workspaces() -> None:
         assert label in workspaces
     for label in ["API 인증 완료", "API 인증 실패", "계정 조회 실패", "앱 문자 처리 오류"]:
         assert label in connection_helper
-    assert "startCredentialsReady\n        ? client.logs(service, source, 100)" in workspaces
+    assert "startCredentialsReady && operationView === 'logs'\n        ? readLogs(100)" in workspaces
     assert "client.refreshAccounts([source], true)" in workspaces
     assert "client.refreshAccounts([source], false)" in workspaces
     assert "7_000" in workspaces

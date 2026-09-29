@@ -48,9 +48,13 @@ class RemoteMonitor:
 
     def status(self):
         with self.lock:
+            connection = ('disabled' if not self.config['enabled'] else 'error' if self.error
+                          else 'connecting' if self.last_sent is None else
+                          'stale' if time.time() - self.last_sent >= 180 else 'connected')
             return {'enabled':bool(self.config['enabled']),'name':self.config['name'],
+                    'connection_status':connection,
                     'last_sent':self.last_sent,'error':self.error,
-                    'capabilities':['status','pause_entries'] if self.config['allow_pause'] else ['status'],
+                    'capabilities':['status'] + (['pause_entries'] if self.config['allow_pause'] else []) + (['control'] if self.config['allow_control'] else []),
                     'portal_url':PORTAL+'/remote','heartbeat_seconds':60,'allow_pause':self.config['allow_pause'],
                     'allow_control':self.config['allow_control'],'share_details':self.config['share_details'],
                     'approved':self.config['approved'],
@@ -89,6 +93,7 @@ class RemoteMonitor:
             if name.strip()!=self.config['name']:
                 self.token=''
             self.config.update(enabled=enabled,name=name.strip(),allow_pause=allow_pause,allow_control=allow_control,share_details=share_details,approved=approved,approval_id=approval_id);self.error=None
+            self.last_sent=None  # A saved permission change is not a confirmed upload.
             self.save()
             if not enabled:
                 self.token=''
@@ -150,7 +155,7 @@ class RemoteMonitor:
                 if generation!=self.generation or self.stop_event.is_set():return
                 self.sequence+=1;sequence=self.sequence
                 acks=[{'id':key,'status':'draining' if pauses.state(source)['in_flight'] else 'paused'} for key,source in self.pending.items()]
-                acks += [{'id':key,'status':value} for key,value in self.control_acks.items()]
+                acks += [{'id':key, **value} for key,value in self.control_acks.items()]
             snapshot=public_snapshot(self.snapshot());snapshot['allow_pause']=config['allow_pause']
             for row in snapshot['sources']:row['entry_pause']=pauses.state(row['source'])
             snapshot['protocol']=2
@@ -163,10 +168,18 @@ class RemoteMonitor:
                     row['revision']=context['revision'] if row['control_ready'] else ''
                     if config['share_details']:row['details']=details.get('details',{})
             snapshot['allow_control']=config['allow_control']
+            # Keep acknowledgement bursts inside the existing server contract.
+            # Only acknowledgements actually uploaded are removed below.
+            acks = acks[:20]
+            payload = {'sequence':sequence,'snapshot':snapshot,'acknowledgements':acks}
+            while acks and len(json.dumps(payload)) > 8192:
+                acks.pop()
+            if len(json.dumps(payload)) > 8192:
+                raise ValueError('snapshot_too_large')
             with self.lock:
                 if generation!=self.generation or self.stop_event.is_set():return
             response=self.transport.post(PORTAL+'/remote/device/sync',headers={'Authorization':'Bearer '+token},
-                json={'sequence':sequence,'snapshot':snapshot,'acknowledgements':acks},timeout=8,allow_redirects=False)
+                json=payload,timeout=8,allow_redirects=False)
             self.check(response,generation)
             result=response.json()
             if result.get('accepted') is not True:raise ValueError('snapshot_not_accepted')
@@ -184,11 +197,15 @@ class RemoteMonitor:
                         self.pending[str(cmd['id'])]=cmd['source']
                         continue
                 if config['allow_control'] and self.control and cmd.get('action') in ('start','resume'):
+                    from web_platform.remote_control import public_reason
+                    reason = None
                     try:
                         status=self.control.run(cmd,config['approved'])
-                    except Exception:
+                        reason=self.control.reason_for(str(cmd.get('id','')))
+                    except Exception as exc:
                         status='rejected'
-                    with self.lock:self.control_acks[str(cmd.get('id',''))]=status
+                        reason=public_reason(exc)
+                    with self.lock:self.control_acks[str(cmd.get('id',''))]={'status':status, 'reason_code':reason}
         except Exception:
             with self.lock:
                 if generation==self.generation and not self.error:

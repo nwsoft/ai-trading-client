@@ -1276,6 +1276,8 @@ class Trader:
     def _check_and_reselect_coins_optimized(self):
         """최적화된 코인 재선택 로직 (빠른 시장 분석)"""
         try:
+            from trading.operation_evidence import generation, mode_for
+            summary_generation, summary_mode = generation(self, 'binance'), mode_for(self, 'binance')
             self.log_event('coin_selection', "_check_and_reselect_coins_optimized 함수 시작")
 
             # 1. 코인이 비어있으면 선택
@@ -1338,6 +1340,8 @@ class Trader:
                     min_dwell_seconds=min_dwell,
                 )
                 self.last_market_regime = regime
+                from trading.runtime_observability import emit_regime_observation
+                emit_regime_observation(self, 'binance', observed, regime, False, mode=summary_mode, expected_generation=summary_generation)
                 self.log_event('analysis', f"시장 분석 시작 - 기준 시간: {time.strftime('%H:%M:%S', time.localtime(current_time))}")
                 self.log_event('analysis', f"시장 상황 분석 결과: {regime}")
                 return
@@ -1358,7 +1362,7 @@ class Trader:
                     min_dwell_seconds=min_dwell,
                 )
                 from trading.runtime_observability import emit_regime_observation
-                emit_regime_observation(self, 'binance', observed_regime, current_regime, regime_changed)
+                emit_regime_observation(self, 'binance', observed_regime, current_regime, regime_changed, mode=summary_mode, expected_generation=summary_generation)
 
                 # 🔥 시간 업데이트 플래그: 재선택 실행/연기 여부에 따라 결정
                 should_update_time = False
@@ -2504,6 +2508,8 @@ class Trader:
 
                         from .custom_strategy_validator import enrich_advanced_indicator_context
                         strategy_pool = getattr(self, 'active_custom_strategy_pool', []) or []
+                        from .strategy_scope import scoped_pool
+                        strategy_pool = scoped_pool(strategy_pool, asset_class='crypto', target='binance')
                         paper_strategy_pool = getattr(self, 'paper_validation_strategy_pool', []) or []
                         indicator_pool = list(strategy_pool) + [
                             item for item in paper_strategy_pool
@@ -2545,6 +2551,8 @@ class Trader:
                                     f'병행 PAPER 관찰 실패(실주문 영향 없음): {paper_exc}',
                                     exchange='binance', level='WARNING',
                                 )
+                        from trading.operation_evidence import generation as evidence_generation
+                        projection_generation = evidence_generation(self, 'binance')
                         candidate = evaluate_trade_candidate(
                             symbol=symbol,
                             context=signal_data,
@@ -2553,6 +2561,8 @@ class Trader:
                             target="binance",
                             market_regime=str(getattr(self, 'last_market_regime', 'range') or 'range'),
                         )
+                        from trading.operation_evidence import candidate as publish_candidate
+                        publish_candidate(self, candidate, signal_data, execution_mode, projection_generation)
                         signal_data = apply_trade_candidate(signal_data, candidate)
                         signal = candidate.final_signal
                         def record_learning_decision(

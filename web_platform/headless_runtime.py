@@ -478,6 +478,9 @@ class HeadlessTradingRuntime:
             )
             if str(item.get("operation_mode") or "").lower() == "paper_validation"
         ] if parallel_enabled else []
+        if paper_mode:
+            from trading.strategy_scope import runtime_paper_pool
+            pool = runtime_paper_pool(pool, self)
         for engine in (self.trader, self.unified_trader):
             if engine is not None:
                 engine.active_custom_strategy_pool = list(pool)
@@ -506,6 +509,8 @@ class HeadlessTradingRuntime:
         """
         self.current_user_grade = normalize_user_grade(user_grade)
         self.current_membership_policy = dict(policy or {}) if isinstance(policy, dict) else {}
+        if getattr(self, 'strategy_customizer', None) is not None:
+            self.sync_custom_strategy_runtime_pools()
         self.membership_position_limit = membership_position_cap(
             self.current_user_grade, self.current_membership_policy
         )

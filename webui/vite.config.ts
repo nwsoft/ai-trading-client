@@ -1,8 +1,11 @@
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
+import { createRequire } from 'node:module';
+import { fileURLToPath } from 'node:url';
+const { buildPlugin } = createRequire(import.meta.url)('./electron/ui-build-contract.cjs');
 
 export default defineConfig({
-  plugins: [react()],
+  plugins: [react(), buildPlugin(fileURLToPath(new URL('.', import.meta.url)))],
   base: "/",
   server: {
     host: "127.0.0.1",

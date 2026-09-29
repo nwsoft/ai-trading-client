@@ -100,15 +100,17 @@ def test_settings_failure_receipt_and_windows_lock_are_user_support_visible():
     assert "지원 코드: concurrent_writer_timeout" in api
 
 
-def test_settings_footer_prevents_button_glyph_wrapping_at_fixed_modal_width():
+def test_settings_footer_keeps_readable_buttons_and_wraps_groups_not_glyphs():
     css = _read("webui/src/styles.css")
 
     assert '"Malgun Gothic"' in css
-    compact_button = css[css.index(".settings-center button {"):]
-    compact_button = compact_button.split("}", 1)[0]
-    assert "font-size: 10px" in compact_button
-    assert "line-height: 1.2" in compact_button
-    assert ".settings-center > footer > div { flex: 0 0 auto; flex-wrap: nowrap; }" in css
+    readable_button = css[css.index(".settings-center button {"):]
+    readable_button = readable_button.split("}", 1)[0]
+    assert "font-size: 14px" in readable_button
+    assert "line-height: 1.4" in readable_button
+    # v49 enlarges text and wraps whole buttons, not letters inside a button.
+    assert ".settings-center > footer > div { flex-wrap: wrap; }" in css
+    assert "width: min(1280px, 96vw)" in css
     footer_button = css[css.index(".settings-center > footer button {"):]
     assert "white-space: nowrap" in footer_button.split("}", 1)[0]
     footer_message = css[css.index(".settings-center > footer > span {"):]

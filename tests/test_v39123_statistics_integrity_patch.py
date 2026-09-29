@@ -221,5 +221,9 @@ def test_web_ui_keeps_period_and_reset_controls_in_statistics_tab_only():
     for label in ("오늘", "7일", "30일", "전체", "사용자 지정", "통계 표시 기준 새로 시작"):
         assert label in statistics_ui
     assert "통계 표시 기준 새로 시작" not in source_ui
-    assert "운영 KPI · 오늘" in operations_ui
-    assert "현재 계좌 + 오늘 LIVE 청산" in operations_ui
+    summary_ui = open("webui/src/components/DashboardStats.tsx", encoding="utf-8").read()
+    assert "오늘 거래 요약" in summary_ui
+    assert 'statisticsPeriod: "today"' in operations_ui
+    assert "관리 원장 포지션" in operations_ui
+    assert "조회 시점 계좌 포지션" in operations_ui
+    assert "통계 표시 기준 새로 시작" not in operations_ui + summary_ui

@@ -1,4 +1,4 @@
-import { t } from '../i18n';
+import { t, localized as L } from '../i18n';
 import { useEffect, useRef, useState } from "react";
 
 import type { GatewayClient } from "../api";
@@ -8,24 +8,16 @@ import { LifeFinanceAdvanced } from "./LifeFinanceAdvanced";
 import { LogHelpDialog } from "./LogHelpDialog";
 import { startSequentialPoll } from "../sequentialPoll";
 import { sourcesForService, venueProfile } from "../venueSources";
+import { OperationsOverview, dashboardTime } from './OperationsOverview';
+import {DashboardStats} from './DashboardStats';
 
 function displayMoney(value: unknown, currency = "USDT") {
   const number = Number(value ?? 0);
-  return `${number >= 0 ? "+" : ""}${number.toLocaleString(undefined, { maximumFractionDigits: 4 })}${currency === "KRW" ? "원" : " USDT"}`;
+  return `${number >= 0 ? "+" : ""}${number.toLocaleString(undefined, { maximumFractionDigits: 4 })} ${currency}`;
 }
 
 function allowedSourcesForService(service: string) {
   return sourcesForService(service);
-}
-
-function dashboardStatisticsMode(runtime: RuntimeSnapshot | null, service: string): "live" | "paper" {
-  const allowed = allowedSourcesForService(service);
-  const running = (runtime?.running_sources ?? []).filter((source) => allowed.includes(source));
-  const configured = (runtime?.enabled_sources ?? []).filter((source) => allowed.includes(source));
-  const relevant = running.length ? running : configured;
-  return relevant.length > 0 && relevant.every(
-    (source) => String(runtime?.execution_modes?.[source] ?? "").toLowerCase() === "paper",
-  ) ? "paper" : "live";
 }
 
 export function LegacyTradingLogWorkspace({
@@ -35,6 +27,7 @@ export function LegacyTradingLogWorkspace({
   onOpenManual,
   onAskAssistant,
   onRuntimeChanged,
+  onOpenSource, onOpenFeature, onOpenSettings, onOpenAssets, accountScope = '',
 }: {
   client: GatewayClient;
   runtime: RuntimeSnapshot | null;
@@ -42,10 +35,27 @@ export function LegacyTradingLogWorkspace({
   onOpenManual: () => void;
   onAskAssistant: (question: string) => void;
   onRuntimeChanged: () => Promise<void> | void;
+  onOpenSource: (source:string) => void;
+  onOpenFeature: (suffix:string) => void;
+  onOpenSettings: () => void;
+  onOpenAssets: () => void;
+  accountScope?: string;
 }) {
+  const viewKey=`noahai.operations-view.${accountScope}.${service}`;
+  const [view,setView]=useState<'overview'|'logs'>(()=>{try{return localStorage.getItem(viewKey)==='logs'?'logs':'overview';}catch{return 'overview';}});
+  const modeKey='noahai.dashboard-statistics.'+JSON.stringify([accountScope,service]);
+  const [modeChoice,setModeChoice]=useState<'live'|'paper'>(()=>{try{return localStorage.getItem(modeKey)==='paper'?'paper':'live';}catch{return 'live';}});
+  const [accountBusy,setAccountBusy]=useState(false);
+  const accountLock=useRef(false);
+  const [accountCheckedAt,setAccountCheckedAt]=useState('');
+  const [workspaceFailed,setWorkspaceFailed]=useState(false);
+  const [accountsFailed,setAccountsFailed]=useState(false);
+  const requestGeneration=useRef(0);
   const [logs, setLogs] = useState<LogSnapshot | null>(null);
   const [workspace, setWorkspace] = useState<WorkspaceSnapshot | null>(null);
+  const [workspaceScope,setWorkspaceScope]=useState('');
   const [accountPayload, setAccountPayload] = useState<Record<string, any> | null>(null);
+  const [accountPayloadScope, setAccountPayloadScope] = useState('');
   const [visibleLines, setVisibleLines] = useState<LogSnapshot["lines"]>([]);
   const [error, setError] = useState("");
   const [logLevel, setLogLevel] = useState("ALL");
@@ -58,10 +68,15 @@ export function LegacyTradingLogWorkspace({
   const [hideSystem, setHideSystem] = useState(false);
   const [logHelpOpen, setLogHelpOpen] = useState(false);
   const [batchBusy, setBatchBusy] = useState(false);
+  const batchLock = useRef(false);
   const [batchMessage, setBatchMessage] = useState("");
   const clearMarkerRef = useRef("");
   const logConsoleRef = useRef<HTMLDivElement | null>(null);
-  const statisticsMode = dashboardStatisticsMode(runtime, service);
+  const statisticsMode = modeChoice;
+  const pollScope=JSON.stringify([service,statisticsMode,runtime?.enabled_sources,runtime?.credential_status]);
+  const activeWorkspace=workspaceScope===pollScope?workspace:null;
+  useEffect(()=>{try{localStorage.setItem(viewKey,view);}catch{}},[viewKey,view]);
+  useEffect(()=>{try{localStorage.setItem(modeKey,modeChoice);}catch{}},[modeKey,modeChoice]);
 
   function applyClearBoundary(lines: LogSnapshot["lines"]) {
     const marker = clearMarkerRef.current;
@@ -70,50 +85,28 @@ export function LegacyTradingLogWorkspace({
     return markerIndex >= 0 ? lines.slice(markerIndex + 1) : lines;
   }
 
-  function refresh() {
-    const accountSources = (runtime?.enabled_sources ?? []).filter((source) =>
-      allowedSourcesForService(service).includes(source)
-      && runtime?.credential_status?.[source],
-    );
-    Promise.all([
-      client.logs(service as "blockchain" | "stock", "all", 100),
-      client.workspace(service, `${service}.logs`, "", { statisticsPeriod: "today", statisticsMode }),
-      statisticsMode === "live" && accountSources.length ? client.refreshAccounts(accountSources, false) : Promise.resolve(null),
-    ]).then(([nextLogs, nextWorkspace, nextAccounts]) => {
-      setLogs(nextLogs); setVisibleLines(applyClearBoundary(nextLogs.lines)); setWorkspace(nextWorkspace); setError("");
-      setAccountPayload(nextAccounts);
-    }).catch((reason: unknown) => setError(reason instanceof Error ? reason.message : "대시보드 데이터를 불러오지 못했습니다."));
-  }
-
+  const [refreshTick,setRefreshTick]=useState(0);
+  function refresh() { setRefreshTick(n=>n+1); }
   useEffect(() => {
-    let alive = true;
-    const loadLogs = () => client.logs(service as "blockchain" | "stock", "all", 100).then((nextLogs) => {
-      if (!alive) return;
-      setLogs(nextLogs); setVisibleLines(applyClearBoundary(nextLogs.lines)); setError("");
-    }).catch((reason: unknown) => alive && setError(reason instanceof Error ? reason.message : "대시보드 데이터를 불러오지 못했습니다."));
-    const loadWorkspace = () => client.workspace(service, `${service}.logs`, "", { statisticsPeriod: "today", statisticsMode }).then((nextWorkspace) => {
-      if (alive) setWorkspace(nextWorkspace);
-    }).catch((reason: unknown) => alive && setError(reason instanceof Error ? reason.message : "대시보드 데이터를 불러오지 못했습니다."));
-    const stopLogs = startSequentialPoll(loadLogs, 1_000);
-    const stopWorkspace = startSequentialPoll(loadWorkspace, 5_000);
-    const accountSources = (runtime?.enabled_sources ?? []).filter((source) =>
-      allowedSourcesForService(service).includes(source) && runtime?.credential_status?.[source],
-    );
-    const loadAccounts = () => statisticsMode === "live" && accountSources.length
-      ? client.refreshAccounts(accountSources, false).then((next) => { if (alive) setAccountPayload(next); }).catch(() => {})
-      : Promise.resolve();
-    const stopAccounts = startSequentialPoll(loadAccounts, 7_000);
-    return () => { alive = false; stopLogs(); stopWorkspace(); stopAccounts(); };
-  }, [client, service, runtime?.enabled_sources, runtime?.credential_status, runtime?.execution_modes, runtime?.running_sources, statisticsMode]);
+    const generation=++requestGeneration.current;
+    const current=()=>generation===requestGeneration.current;
+    setWorkspace(null);setAccountPayload(null);setWorkspaceFailed(false);setAccountsFailed(false);
+    const loadWorkspace=()=>client.workspace(service, `${service}.logs`, "", { statisticsPeriod: "today", statisticsMode }).then(next=>{
+      if(current()){setWorkspace(next);setWorkspaceScope(pollScope);setWorkspaceFailed(false);}
+    }).catch(reason=>{if(current())setWorkspaceFailed(true);throw reason;});
+    const stopWorkspace=startSequentialPoll(loadWorkspace,5_000,{pauseWhenHidden:true,backoff:true});
+    return ()=>{requestGeneration.current++;stopWorkspace();};
+  },[client,pollScope,refreshTick]);
+  useEffect(()=>{
+    let alive=true;setError('');setLogs(null);setVisibleLines([]);
+    const loadLogs=()=>client.logs(service as "blockchain" | "stock", "all", 100).then(next=>{
+      if(alive){setLogs(next);setVisibleLines(applyClearBoundary(next.lines));setError('');}
+    }).catch(reason=>{if(alive)setError(reason instanceof Error?reason.message:'로그 조회 실패');throw reason;});
+    const stop=view==='logs'?startSequentialPoll(loadLogs,1_000,{pauseWhenHidden:true,backoff:true}):()=>{};
+    return ()=>{alive=false;stop();};
+  },[client,service,view,refreshTick]);
 
   const allowedSources = allowedSourcesForService(service);
-  const runningModeSources = (runtime?.running_sources ?? []).filter((source) => allowedSources.includes(source));
-  const configuredModeSources = (runtime?.enabled_sources ?? []).filter((source) => allowedSources.includes(source));
-  const relevantModeSources = runningModeSources.length ? runningModeSources : configuredModeSources;
-  const paperModeSourceCount = relevantModeSources.filter(
-    (source) => String(runtime?.execution_modes?.[source] ?? "").toLowerCase() === "paper",
-  ).length;
-  const mixedExecutionModes = paperModeSourceCount > 0 && paperModeSourceCount < relevantModeSources.length;
   // The log itself is operational evidence, including credential and adapter
   // errors. Do not hide those rows based on the current settings snapshot.
   const filteredLines = visibleLines.filter((line) => {
@@ -129,35 +122,49 @@ export function LegacyTradingLogWorkspace({
     if (simpleOnly && !["trade", "analysis"].includes(String(line.category ?? "")) && !/(거래 시그널|거래 실행|포지션|분석 완료|\bsignal\b)/i.test(text)) return false;
     return true;
   });
-  const trading = workspace?.trading;
+  const trading = activeWorkspace?.trading;
   const requestedAccountSources = (runtime?.enabled_sources ?? []).filter((source) =>
     allowedSources.includes(source) && runtime?.credential_status?.[source],
   );
-  const accountRows = Object.values((accountPayload?.sources ?? {}) as Record<string, any>);
+  async function checkAccounts() {
+    if(accountLock.current||statisticsMode!=='live'||!requestedAccountSources.length) return;
+    accountLock.current=true;setAccountBusy(true);
+    const generation=requestGeneration.current;
+    try {
+      const next=await client.refreshAccounts(requestedAccountSources,false);
+      if(generation===requestGeneration.current){
+        setAccountPayload(next);setAccountPayloadScope(pollScope);setAccountCheckedAt(new Date().toISOString());
+        const rows=(next?.sources??{}) as Record<string,any>;
+        setAccountsFailed(requestedAccountSources.some(source=>rows[source]?.status!=='success'||!Array.isArray(rows[source]?.positions)));
+      }
+    } catch {if(generation===requestGeneration.current)setAccountsFailed(true);}
+    finally{accountLock.current=false;setAccountBusy(false);}
+  }
+  const accountRows = requestedAccountSources.map(source=>accountPayloadScope===pollScope?accountPayload?.sources?.[source]:undefined);
   const successfulAccountRows = accountRows.filter(
-    (account) => account && String(account.status ?? "") === "success",
+    (account) => account && String(account.status ?? "") === "success" && Array.isArray(account.positions),
   );
   const actualPositionCount = accountRows.reduce((sum, account) => {
     if (!account || String(account.status ?? "") !== "success") return sum;
     return sum + (Array.isArray(account.positions) ? account.positions.length : 0);
   }, 0);
   // Do not present a partial multi-venue account refresh as the total.
-  const accountPositionsAvailable = requestedAccountSources.length > 0
+  const accountPositionsAvailable = !accountsFailed && requestedAccountSources.length > 0
     && successfulAccountRows.length === requestedAccountSources.length;
   const openPositionCount = statisticsMode === "paper"
-    ? Number(workspace?.paper_positions?.length ?? trading?.open_position_count ?? 0)
-    : accountPositionsAvailable ? actualPositionCount : Number(trading?.open_position_count ?? 0);
-  const primaryCurrency = service === "stock" ? "KRW" : "USDT";
-  const pnl = Number(trading?.pnl_by_currency?.[primaryCurrency] ?? 0);
+    ? activeWorkspace ? activeWorkspace.paper_positions?.length ?? trading?.open_position_count ?? '확인 중' : '확인 중'
+    : accountPositionsAvailable ? actualPositionCount : trading?.open_position_count ?? '확인 중';
+
+
   const reconciledCount = Number(trading?.reconciled_closed_count ?? 0);
-  const confirmedMetricsAvailable = statisticsMode === "paper" || reconciledCount > 0;
-  const pnlCurrencies = Object.entries(trading?.pnl_by_currency ?? {}).filter(([, value]) => Number.isFinite(Number(value)));
-  const pnlLabel = !confirmedMetricsAvailable
+  const confirmedMetricsAvailable = Boolean(trading && !trading.error && trading.schema_compatible !== false && (statisticsMode === "paper" || reconciledCount > 0));
+  const pnlCurrencies = Object.entries(trading?.pnl_by_currency ?? {}).filter(([, value]) => value!=null && Number.isFinite(Number(value)));
+  const pnlLabel = !trading ? '확인 중' : trading.error ? '조회 실패' : trading.schema_compatible===false ? '자료 확인 필요' : trading.closed_count===0 ? '청산 없음' : !confirmedMetricsAvailable
     ? "대조 전"
     : pnlCurrencies.length
       ? pnlCurrencies.map(([currency, value]) => displayMoney(value, currency)).join(" · ")
-      : displayMoney(0, primaryCurrency);
-  const winRateLabel = confirmedMetricsAvailable
+      : trading.closed_count===0 ? '청산 없음' : '손익 미산출';
+  const winRateLabel = !trading ? '확인 중' : trading.error ? '조회 실패' : trading.schema_compatible===false ? '자료 확인 필요' : trading.closed_count===0 ? '표본 없음' : confirmedMetricsAvailable && trading.win_rate!=null
     ? `${Number(trading?.win_rate ?? 0).toFixed(2)}%`
     : "대조 전";
   const runningCount = runtime?.running_sources.filter((source) => allowedSources.includes(source)).length ?? 0;
@@ -170,47 +177,62 @@ export function LegacyTradingLogWorkspace({
     (source) => allowedSources.includes(source)
       && runtime?.credential_status?.[source]
       && !runtime?.running_sources.includes(source)
-      && (runtime?.live_trading !== true || Boolean(venueProfile(source)?.live_supported ?? true)),
+      && ['paper','live','learning'].includes(String(runtime?.execution_modes?.[source]))
+      && (runtime?.execution_modes?.[source] !== 'live' || Boolean(venueProfile(source)?.live_supported ?? true)),
   );
   const stoppableSources = (runtime?.running_sources ?? []).filter((source) => allowedSources.includes(source));
   const sourceNoun = service === "stock" ? "증권사" : "거래소";
-  const alertLevel = error ? "위험" : configuredCount === 0 ? "주의" : runningCount === 0 ? "주의" : "정상";
-  const alertText = error
+  const alertLevel = error || workspaceFailed || accountsFailed ? "확인 필요" : runningCount === 0 ? "대기" : "실행 중";
+  const alertText = workspaceFailed || accountsFailed ? '• 통계 또는 계좌 갱신에 실패했습니다. 마지막 수신 자료이며 최신 상태를 보장하지 않습니다.' : error
     ? `• ${error}`
     : configuredCount === 0
       ? `• API 키가 설정되지 않았습니다. 설정 → ${sourceNoun} API에서 연결한 뒤 잔고·포지션 조회를 시작하세요. 미설정 상태에서는 계좌 조회를 실행하지 않습니다.`
       : runningCount === 0
       ? `• 자율주행 실행 연계가 대기 상태입니다. ${sourceNoun} 실행 상태를 확인하세요.`
-      : `• ${runningCount}/${enabledCount}개 ${sourceNoun} 엔진이 실행 중입니다.`;
+      : `• ${runningCount}/${enabledCount}개 ${sourceNoun} 엔진이 실행 중입니다. 시세·계좌·보호주문 전체 정상 여부와는 별개입니다.`;
   async function commandAll(action: "start" | "stop") {
+    if(batchLock.current) return;
     const targets = action === "start" ? startableSources : stoppableSources;
     if (!targets.length) {
       setBatchMessage(action === "start" ? `시작할 설정 완료 ${sourceNoun}가 없습니다.` : `실행 중인 ${sourceNoun}가 없습니다.`);
       return;
     }
-    const live = action === "start" && runtime?.live_trading === true;
-    const warning = live
-      ? `LIVE 자동매매를 동시에 시작할까요?\n\n대상: ${targets.map((item) => item.toUpperCase()).join(", ")}\n실제 주문이 제출될 수 있습니다.`
-      : `${targets.map((item) => item.toUpperCase()).join(", ")} ${action === "start" ? "자동매매를 동시에 시작" : "자동매매를 정지"}할까요?`;
+    const modes=Object.fromEntries(targets.map(source=>[source,runtime?.execution_modes?.[source]||'unknown']));
+    const live = action === "start" && targets.some(source=>modes[source]==='live');
+    const warning = `${action==='start'?'설정된 모드로 시작':'실행 중지'}할까요?\n${targets.map(source=>`${source.toUpperCase()} · ${modes[source].toUpperCase()}`).join('\n')}\n${live?'LIVE 대상에는 실제 주문이 제출될 수 있습니다.':''}\n정지는 포지션 청산이 아닙니다. 각 기관의 기존 위험 검사를 그대로 적용합니다.`;
     if (!window.confirm(warning)) return;
+    batchLock.current = true;
     setBatchBusy(true); setBatchMessage("");
     try {
       const results = await Promise.allSettled(targets.map((source) =>
-        client.runtimeCommand(`trading.${action}`, source, false, "", live),
+        client.runtimeCommand(`trading.${action}`, source, false, "", action==='start'&&modes[source]==='live'),
       ));
-      const succeeded = results.filter((result) => result.status === "fulfilled").length;
-      const failed = results.length - succeeded;
-      setBatchMessage(`${action === "start" ? "시작" : "정지"} 완료 ${succeeded}곳${failed ? ` · 실패 ${failed}곳` : ""}`);
+      setBatchMessage(results.map((result,i)=>`${targets[i].toUpperCase()}: ${result.status==='fulfilled'&&result.value.accepted===true?'요청 처리됨 · 실제 실행 상태는 기관 상세 확인':result.status==='rejected'?String(result.reason instanceof Error?result.reason.message:result.reason).slice(0,250):'처리 결과 확인 필요'}`).join('\n'));
       try { await onRuntimeChanged(); }
       catch (_) { setBatchMessage((current) => `${current} · 화면 상태 자동 갱신 대기 중`); }
-    } finally { setBatchBusy(false); }
+    } finally { batchLock.current = false; setBatchBusy(false); }
   }
   useEffect(() => {
     const consoleElement = logConsoleRef.current;
     if (!consoleElement) return;
     consoleElement.scrollTop = consoleElement.scrollHeight;
   }, [filteredLines.length, service]);
-  return <section className="legacy-log-workspace">
+  const controls=<div className="dashboard-batch-controls" role="group" aria-label={L('기관 일괄 실행','Batch controls')}><button disabled={batchBusy||!startableSources.length} onClick={()=>void commandAll('start')}>{batchBusy?L('처리 중…','Processing…'):L('설정 대상 전체 시작','Start configured venues')}</button><button disabled={batchBusy||!stoppableSources.length} onClick={()=>void commandAll('stop')}>{L('실행 중 전체 정지','Stop running venues')}</button><button onClick={onOpenSettings}>{L('설정','Settings')}</button></div>;
+  const stats=<DashboardStats mode={statisticsMode} onMode={mode=>{if(mode===statisticsMode)return;setWorkspace(null);setAccountPayload(null);setModeChoice(mode);}}
+    positions={openPositionCount} positionLabel={statisticsMode==='paper'?L('가상 포지션','Paper positions'):accountPositionsAvailable?L('조회 시점 계좌 포지션','Positions at account check'):L('관리 원장 포지션','Managed ledger positions')}
+    closed={trading?.closed_count??L('확인 중','Checking')} pnl={pnlLabel} winRate={winRateLabel}
+    pnlTone={confirmedMetricsAvailable&&pnlCurrencies.length===1?(Number(pnlCurrencies[0][1])<0?'negative':'positive'):''}
+    capturedAt={activeWorkspace?.captured_at} failed={workspaceFailed||accountsFailed} onAccounts={()=>void checkAccounts()} accountBusy={accountBusy} canReadAccounts={requestedAccountSources.length>0}
+    onStatistics={()=>onOpenFeature('statistics')} details={<>
+      <p>{L('서비스 전체의 오늘 청산 기록을 선택한 모드·통화별로 집계합니다. 실거래는 대조 완료 손익이며 미확정 손익을 0으로 합산하지 않습니다.','Today’s closed records are grouped by mode and currency. Live P&L includes reconciled records only; unknown P&L is not zero.')}</p>
+      {statisticsMode==='live'&&<p>{L('체결 대조 완료','Reconciled')} {trading?.reconciled_closed_count??'—'} · {L('미확정','Unresolved')} {trading?.unresolved_closed_count??'—'} · {L('계좌 확인','Account checked')} {accountPayloadScope===pollScope&&accountPayload?dashboardTime(accountCheckedAt):L('미조회','Not fetched')}</p>}
+      <p>{alertText}</p><p>{L('통계 버튼은 기관별 실행 설정을 바꾸지 않습니다. 전체 시작은 각 기관의 설정 모드와 위험 검사를 따르며, 전체 정지는 포지션 청산이 아닙니다.','Statistics buttons do not change execution settings. Batch start respects each venue’s mode and safety checks; stop does not liquidate positions.')}</p>
+      <div className="legacy-quick-actions"><button onClick={()=>onAskAssistant('현재 설정과 거래 기록을 기준으로 AI 최적화 진단을 해줘. 변경은 하지 말고 근거와 위험을 설명해줘.')}>{t('AI 최적화 진단')}</button><button onClick={()=>onAskAssistant('AI 최적화 적용 후보를 보여줘. 자동 적용하지 말고 현재값, 제안값, 근거와 위험을 비교해줘.')}>{L('AI 개선안 검토','Review AI suggestions')}</button></div>
+    </>}/>
+  return <section className="operations-home-frame dashboard-v495">
+    <header className="operations-home-toolbar"><div><button aria-pressed={view==='overview'} onClick={()=>setView('overview')}>{t('요약 보기')}</button><button aria-pressed={view==='logs'} onClick={()=>setView('logs')}>{t('상세 로그')}</button></div><span>{L('전체 기관 현황 · 기관 탭은 해당 기관 상세로 이동','All venues · venue tabs open individual details')}</span></header>
+    {batchMessage&&<div role="status" className="dashboard-batch-result"><span>{batchMessage}</span><button onClick={()=>setBatchMessage('')}>{L('안내 닫기','Dismiss')}</button></div>}
+    {view==='overview'?<OperationsOverview runtime={runtime} workspace={activeWorkspace} service={service} failed={workspaceFailed||accountsFailed} onSource={onOpenSource} onFeature={onOpenFeature} onSettings={onOpenSettings} onAssets={onOpenAssets} onAsk={onAskAssistant} summary={stats} controls={controls}/>:<div className="legacy-log-workspace dashboard-log-view">
     <article className="legacy-log-card">
       <div className="legacy-log-filters">
         <label><input type="checkbox" checked={simpleOnly} onChange={(event) => { setSimpleOnly(event.target.checked); if (event.target.checked) setAnalysisOnly(false); }} />{t("거래 시그널만")}</label>
@@ -235,15 +257,8 @@ export function LegacyTradingLogWorkspace({
         <label>{t("카테고리:")}<select value={category} onChange={(event) => setCategory(event.target.value)}><option value={"ALL"}>ALL</option><option value={"거래"}>{t("거래")}</option><option value={"분석"}>{t("분석")}</option><option value={"학습"}>{t("학습")}</option><option value={"시스템"}>{t("시스템")}</option></select></label>
       </div>
     </article>
-    <aside className="legacy-operations-column">
-      <section><h3>{t("운영 KPI · 오늘 · ")}{statisticsMode.toUpperCase()}</h3><div className="legacy-kpi-grid"><div className="legacy-kpi-card"><span>{statisticsMode === "paper" ? t("가상 포지션") : t("현재 포지션")}</span><b>{openPositionCount}</b></div><div className="legacy-kpi-card"><span>{statisticsMode === "paper" ? t("가상 청산") : t("오늘 청산")}</span><b>{trading?.closed_count ?? 0}</b></div><div className="legacy-kpi-card"><span>{statisticsMode === "paper" ? t("가상 손익") : t("대조 완료 손익")}</span><b className={confirmedMetricsAvailable ? (pnl < 0 ? "negative" : "positive") : ""}>{pnlLabel}</b></div><div className="legacy-kpi-card"><span>{statisticsMode === "paper" ? t("가상 승률") : t("대조 완료 승률")}</span><b>{winRateLabel}</b></div></div></section>
-      <section><h3>{t("거래 현황")}</h3><div className="legacy-operation-box"><b>{statisticsMode === "paper" ? t("현재 가상 원장 + 오늘 PAPER 청산") : t("현재 계좌 + 오늘 LIVE 청산")}</b><p>• {statisticsMode === "paper" ? t("현재 가상 포지션") : t("현재 계좌 포지션")}: {openPositionCount}{statisticsMode === "live" ? accountPositionsAvailable ? "" : requestedAccountSources.length ? " (일부 조회 실패 · 저장 원장 참고)" : " (계좌 조회 전 · 저장 원장 참고)" : ["temporarily_unavailable", "partial"].includes(String(workspace?.paper_positions_status ?? "")) ? " (일부 런타임 조회 지연)" : ""}<br />{t("• 오늘 ")}{statisticsMode === "paper" ? "가상 " : ""}{t("청산 수: ")}{trading?.closed_count ?? 0}{statisticsMode === "live" ? ` · 체결 대조 완료 ${Number(trading?.reconciled_closed_count ?? 0)}건 · 미확정 ${Number(trading?.unresolved_closed_count ?? 0)}건` : ""}<br />{t("• 오늘 ")}{statisticsMode === "paper" ? "가상 " : "체결 대조 완료 "}{t("순손익: ")}{pnlLabel}<br />{t("• 자동 거래 상태: ")}{runningCount ? t("실행 중") : `대기 (${runningCount}/${enabledCount} ${sourceNoun})`}{mixedExecutionModes ? <><br />{t("• 혼합 운용 중: 메인 KPI는 LIVE 기준이며 PAPER 상세는 거래 통계 탭에서 확인")}</> : null}</p></div></section>
-      <section><h3>{sourceNoun}{t(" 일괄 실행")}</h3><div className="legacy-quick-actions"><button type="button" disabled={batchBusy || !startableSources.length} onClick={() => void commandAll("start")}>{batchBusy ? "처리 중…" : t("설정 대상 전체 시작")}</button><button type="button" disabled={batchBusy || !stoppableSources.length} onClick={() => void commandAll("stop")}>{t("실행 중 전체 정지")}</button></div>{batchMessage && <div className="legacy-operation-box"><p>{batchMessage}</p></div>}</section>
-      <section><h3>Quick Actions</h3><div className="legacy-quick-actions"><button type="button" onClick={() => onAskAssistant("현재 설정과 거래 기록을 기준으로 AI 최적화 진단을 해줘. 변경은 하지 말고 근거와 위험을 설명해줘.")}>{t("AI 최적화 진단")}</button><button type="button" onClick={() => onAskAssistant("AI 최적화 적용 후보를 보여줘. 자동 적용하지 말고 현재값, 제안값, 근거와 위험을 비교해줘.")}>{t("AI 최적화 적용")}</button></div></section>
-      <section><h3>{t("실시간 운영 알림")}</h3><strong className={`legacy-alert-badge level-${alertLevel}`}>{alertLevel}</strong><div className="legacy-operation-box"><p>{alertText}</p></div></section>
-      <section><h3>{t("통합 잔고 요약")}</h3><div className="legacy-operation-box"><p>• {statisticsMode === "paper" ? t("가상") : t("체결 대조 완료")}{t(" 순손익: ")}{pnlLabel}<br />{t("• 계좌 잔고는 자산 통합에서 명시적으로 새로고침합니다.")}</p></div></section>
-    </aside>
-    <LogHelpDialog open={logHelpOpen} service={service} onClose={() => setLogHelpOpen(false)} onOpenManual={onOpenManual} />
+    <aside className="legacy-operations-column">{controls}{stats}</aside></div>}
+    <LogHelpDialog open={logHelpOpen} service={service} onClose={()=>setLogHelpOpen(false)} onOpenManual={onOpenManual}/>
   </section>;
 }
 

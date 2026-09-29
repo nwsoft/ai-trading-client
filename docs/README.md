@@ -1,4 +1,8 @@
-## 2026-09-24 - v3.9.1.47 Strategy Repair and Reconciliation Diagnostics Patch (미배포 소스 후보)
+## 2026-09-29 — v3.9.1.49 통합 업데이트
+
+현재 소스 후보는 49이며 공개 v3.9.1.48의 종목·비용·입력 계약을 유지합니다. [통합 계획](UPDATE_PLAN.md#v39149-operations-summary), [현행 구조](ARCHITECTURE.md), [사용 안내](USER_GUIDE.md), [실제 시험 결과](TEST_STATUS.md), [Windows 확인](DEPLOY_CHECKLIST.md)이 정본입니다. 아래 '현재' 버전은 당시 기록으로, 현행 배포 완료를 뜻하지 않습니다.
+
+## 2026-09-24 - v3.9.1.47 Strategy Repair and Reconciliation Diagnostics Patch (당시 소스 후보)
 
 현재 소스 후보 v3.9.1.47 / updater 3.9.147 · 공개 v3.9.1.46. 전략 등록·기존 버전 보완 및 손익 대조 차단 안내 개선. 원문 실행값의 저장 단계 변형을 제거하고 미완성 초안 보관과 기존 버전의 원문 재분석/명시적 기본 AI 진입 전환을 제공합니다. 기존 성과는 새 버전에 승계하지 않습니다. 손익 확인 실패의 일반 409/워커 장애 안내를 구체화하고 복구 대상과 위험 검사 대상의 불일치를 보강하며 거래별 미확정 사유를 표시합니다. 미확정 손익 무시·자동 LIVE 재개는 제공하지 않습니다.
 

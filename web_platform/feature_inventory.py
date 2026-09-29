@@ -15,6 +15,7 @@ from config.product_ui_contract import (
     MANUAL_SECTION_LABELS,
     PORTFOLIO_INSIGHT_SECTIONS,
     SERVICE_FEATURE_LABELS,
+    web_feature_labels,
     SERVICE_ORDER,
     SERVICE_SOURCES,
     SETTINGS_SECTION_LABELS,
@@ -52,7 +53,7 @@ def load_feature_inventory() -> dict[str, Any]:
         if sources != SERVICE_SOURCES[service_id]:
             raise ValueError(f"{service_id} source order differs from product contract")
         labels = tuple(str(feature.get("label") or "") for feature in service.get("features", []))
-        if labels != SERVICE_FEATURE_LABELS[service_id]:
+        if labels != web_feature_labels(service_id):
             raise ValueError(f"{service_id} feature order differs from product contract")
         for feature in service.get("features", []):
             feature_id = str(feature.get("id") or "")

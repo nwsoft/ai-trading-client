@@ -294,6 +294,7 @@ EDITABLE_SETTINGS: tuple[EditableSetting, ...] = (
     EditableSetting("position_sizing_policy.max_notional_percent", "거래당 최대 명목가치 비율 (%)", "주문·위험", "number", "레버리지를 포함한 한 거래의 계좌 대비 최대 시장 노출 상한입니다.", 0.1, 100.0, risk="critical"),
     EditableSetting("position_sizing_policy.paper_equity_usdt", "PAPER 기준자금 (USDT)", "주문·위험", "number", "실계좌 잔고를 읽지 않고 해외 선물 PAPER 수량을 계산할 독립 가상 기준자금입니다.", 1, 100000000, risk="high"),
     EditableSetting("position_sizing_policy.paper_equity_krw", "PAPER 기준자금 (KRW)", "주문·위험", "number", "실계좌 잔고를 읽지 않고 국내 현물·주식 PAPER 수량을 계산할 독립 가상 기준자금입니다.", 1000, 100000000000, risk="high"),
+    EditableSetting("paper_strategy_evaluation_limit", "PAPER 전략 평가 상한", "전략 스튜디오", "integer", "기관별 후보 평가 슬롯입니다. 일반 최대 10, 프리미엄 최대 30이며 회원 한도가 우선합니다. 적용 전략도 슬롯을 사용하며 초과 전략은 우선순위 순으로 대기합니다. 포지션 상한 및 LIVE 병행 검증 한도와 별개입니다.", 1, 30),
     EditableSetting("parallel_strategy_paper_validation.enabled", "LIVE 중 전략 PAPER 병행검증", "전략 스튜디오", "boolean", "LIVE 주문 엔진과 분리된 가상 원장에서 승인된 전략을 검증합니다. PAPER 결과는 LIVE 자금관리나 자동 적용에 사용하지 않습니다.", risk="critical"),
     EditableSetting("parallel_strategy_paper_validation.max_strategies_per_venue", "거래소별 병행검증 전략 상한", "전략 스튜디오", "integer", "LIVE 처리 우선권을 보존하기 위해 한 거래소에서 동시에 관찰할 전략 수를 제한합니다.", 1, 10, risk="high"),
     EditableSetting("parallel_strategy_paper_validation.max_positions_per_strategy", "전략별 거래소 동시 가상 포지션 상한", "전략 스튜디오", "integer", "회원등급과 무관하게 모든 사용자가 동일하게 설정합니다. 한 전략 버전이 한 거래소에서 가상 기준자금을 중복 사용하지 않도록 최대 5개로 제한합니다.", 1, 5, risk="high"),
@@ -543,6 +544,7 @@ ADVANCED_ONLY_SETTING_PATHS = {
     "position_sizing_policy.paper_equity_usdt",
     "position_sizing_policy.paper_equity_krw",
     "parallel_strategy_paper_validation.enabled",
+    "paper_strategy_evaluation_limit",
     "parallel_strategy_paper_validation.max_strategies_per_venue",
     "parallel_strategy_paper_validation.max_positions_per_strategy",
     "auto_trade_interval",
@@ -1691,7 +1693,7 @@ class ApplicationServices:
                 for state in paper_position_states
                 for item in list(state.get("active_custom_strategies") or [])
                 if isinstance(item, dict)
-            ][:10]
+            ][:30]
             position_policy = next((
                 state.get("position_policy") for state in paper_position_states
                 if isinstance(state.get("position_policy"), dict)
@@ -1726,6 +1728,20 @@ class ApplicationServices:
             }
             if normalized_statistics_mode == "paper" and isinstance(snapshot.get("trading"), dict):
                 snapshot["trading"]["open_position_count"] = len(all_paper_positions)
+        if service in {'blockchain', 'stock'} and feature == f'{service}.logs':
+            getter = getattr(self.runtime_bridge, 'operation_overview_snapshot', None)
+            if callable(getter):
+                try:
+                    snapshot['operation_overview'] = getter(service=service)
+                except Exception:
+                    snapshot['operation_overview'] = {}
+        if feature.endswith('.source_workspaces') and source:
+            getter = getattr(self.runtime_bridge, 'operation_summary_snapshot', None)
+            if callable(getter):
+                try:
+                    snapshot['operation_summary'] = getter(source=source)
+                except Exception:
+                    snapshot['operation_summary'] = {'status': 'unavailable', 'read_only': True}
         return snapshot
 
     def financial_intelligence_snapshot(self, *, service: str) -> dict[str, Any]:
@@ -3943,8 +3959,19 @@ class ApplicationServices:
                         "active": pipeline.active_versions.get(strategy_key) == version.get("version_id"),
                     })
                 rows.append({"scope": scope, "strategy_key": strategy_key, "versions": safe_versions})
+        paper_runtime = {}
+        getter = getattr(self.runtime_bridge, 'operation_summary_snapshot', None)
+        if callable(getter):
+            for venue in (*CRYPTO_VENUES, *STOCK_VENUES):
+                try:
+                    projected = getter(source=venue)
+                    if projected.get('mode') == 'paper' and projected.get('paper_pool'):
+                        paper_runtime[venue] = projected['paper_pool']
+                except Exception:
+                    continue
         return {
             "schema_version": "1.0.0", "strategies": rows,
+            "runtime_paper_pools": paper_runtime,
             "paper_outcomes": [sanitize_settings(row) for row in paper_outcomes[-50:]],
             "captured_at": _utc_now(),
         }

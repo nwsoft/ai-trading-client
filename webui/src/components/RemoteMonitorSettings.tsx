@@ -1,6 +1,7 @@
 import { t, localized, getLocale, intlLocale } from '../i18n';
 import { useEffect, useRef, useState } from 'react';
 import type { GatewayClient } from '../api';
+import { startSequentialPoll } from '../sequentialPoll';
 
 export function RemoteMonitorSettings({client}: {client: GatewayClient}) {
   const [state,setState]=useState<Record<string,any>|null>(null);
@@ -11,15 +12,19 @@ export function RemoteMonitorSettings({client}: {client: GatewayClient}) {
   const initialized=useRef(false);
   const [busy,setBusy]=useState(false);
   const [error,setError]=useState('');
-  useEffect(()=>{let active=true;const refresh=()=>client.remoteStatus().then(s=>{
-    if(active){setState(s);if(!initialized.current){setName(s.name);setAllowPause(s.allow_pause===true);setAllowControl(s.allow_control===true);setShareDetails(s.share_details===true);initialized.current=true}}
-  }).catch(()=>{if(active)setError('연결 설정을 불러오지 못했습니다.')});void refresh();const timer=setInterval(refresh,15000);return()=>{active=false;clearInterval(timer)}},[client]);
+  const revision=useRef(0);
+  useEffect(()=>{let active=true;initialized.current=false;const refresh=async()=>{
+    const epoch=revision.current;
+    try {const s=await client.remoteStatus();
+      if(active && epoch===revision.current){setError(previous=>previous==='연결 설정을 불러오지 못했습니다.'?'':previous);setState(s);if(!initialized.current){setName(s.name);setAllowPause(s.allow_pause===true);setAllowControl(s.allow_control===true);setShareDetails(s.share_details===true);initialized.current=true}}
+    } catch(e) {if(active && epoch===revision.current)setError('연결 설정을 불러오지 못했습니다.');throw e;}
+  };const stop=startSequentialPoll(refresh,15000,{pauseWhenHidden:true,backoff:true});return()=>{active=false;stop()}},[client]);
   async function save(enabled:boolean){
     if(enabled && allowControl && !window.confirm(t('현재 PC에 저장된 기관·PAPER/LIVE 모드·전략·운용 한도로 모바일 시작·재개를 허용할까요? LIVE는 실제 주문이 발생할 수 있습니다. 설정이나 전략이 바뀌면 다시 승인해야 합니다.')))return;
-    setBusy(true);setError('');
+    revision.current+=1;setBusy(true);setError('');
     try{setState(await client.configureRemote(enabled,name,allowPause,allowControl,shareDetails))}
     catch{setError('저장하지 못했습니다. 로그인 상태와 PAPER/LIVE 기관 설정을 확인하세요.')}
-    finally{setBusy(false)}
+    finally{revision.current+=1;setBusy(false)}
   }
   return <article className="remote-monitor-settings">
     <h3>{t("원격 관리 · 내 PC 상태 공유")}</h3>
@@ -35,6 +40,10 @@ export function RemoteMonitorSettings({client}: {client: GatewayClient}) {
       <a href={`https://daltrading.net/remote?lang=${getLocale()}`} target="_blank" rel="noopener noreferrer">{t("모바일 대시보드 열기")}</a>
     </div>
     <p role="status">{t(error||state?.error||(state?.enabled?'상태 공유 켜짐':'상태 공유 꺼짐'))}{state?.last_sent?` · ${localized('마지막 전송','Last sent')} ${new Date(state.last_sent*1000).toLocaleString(intlLocale())}`:''}</p>
+    {state?.enabled && <p>{localized('서버 연결 확인: ','Server connection: ')}{localized(
+      state.connection_status==='connected'?'최근 전송 성공':state.connection_status==='stale'?'180초 이상 전송 확인 없음':state.connection_status==='error'?'전송 실패':'첫 전송 확인 대기',
+      state.connection_status==='connected'?'Recent upload confirmed':state.connection_status==='stale'?'No confirmed upload for 180 seconds':state.connection_status==='error'?'Upload failed':'Waiting for first upload')}
+      {' · '}{localized('PC 공유 주기 60초. 웹 요청 접수 후 PC 처리와 다음 확인 응답을 기다려야 합니다.','PC sync interval: 60 seconds. Requests require PC processing and a subsequent acknowledgement.')}</p>}
     {state?.allow_control && <p>{t("승인 기관·모드: ")}{Object.entries(state.approved||{}).map(([source, value])=>`${source.toUpperCase()} ${(value as {mode:string}).mode.toUpperCase()}`).join(' · ')||t("없음")}{t(" · 설정 변경 후에는 원격 권한을 다시 저장하세요.")}</p>}
     {Object.keys(state?.entry_pauses||{}).map(source=><p key={source}>{source.toUpperCase()}{t(" 새 거래 ")}{state?.entry_pauses[source]?.status==='draining'?t("정지 요청 · 처리 중 주문 확인 중"):t("일시정지")} <button type="button" disabled={busy} onClick={async()=>{
       if(!window.confirm(`${source.toUpperCase()} ${localized('새 거래를 다시 허용할까요? 현재 PC의 전략·모드·한도로 동작하며 위험 차단은 유지됩니다.','Allow new entries again? Uses the current PC strategy, mode and limits; risk blocks remain active.')}`))return;

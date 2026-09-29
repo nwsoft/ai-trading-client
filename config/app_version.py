@@ -7,11 +7,11 @@
 - 문서 동기화만으로는 RELEASE_VERSION을 변경하지 않는다.
 """
 
-RELEASE_VERSION = "3.9.1.48"
-PUBLIC_RELEASE_VERSION = "3.9.1.47"
-RELEASE_DATE = "2026-09-27"
-RELEASE_HIGHLIGHT = "기관별 백테스트 비용·자료 입력·전략 정렬·거래 종목 상태 검사 개선"
-RELEASE_PATCH = "Strategy Cost Upload and Catalog Patch"
+RELEASE_VERSION = "3.9.1.50"
+PUBLIC_RELEASE_VERSION = "3.9.1.49"
+RELEASE_DATE = "2026-09-29"
+RELEASE_HIGHLIGHT = "시장·판단 근거·전략을 연결한 시각적 거래 현황"
+RELEASE_PATCH = "Visual Trading Overview Patch"
 RELEASE_BUILD_LABEL = f"v{RELEASE_VERSION} {RELEASE_PATCH}"
 # 릴리스 자산·manifest에는 위 내부 식별자를 유지하되 일반 사용자가 보는
 # 창 제목과 인앱 메뉴얼에는 렌더러 구현명(Web UI)을 노출하지 않는다.
@@ -19,7 +19,7 @@ RELEASE_DISPLAY_LABEL = f"v{RELEASE_VERSION}"
 # 기존 매뉴얼 추출기와 롤백 도구가 가져오는 호환 이름이다. 더 이상 UI
 # 구현명을 뜻하지 않으며 사용자에게 보여 줄 제품 버전만 제공한다.
 RELEASE_DISPLAY_PATCH = RELEASE_DISPLAY_LABEL
-RELEASE_NOTICE_ID = "v3.9.1.48-strategy-cost-upload-catalog-patch"
+RELEASE_NOTICE_ID = "v3.9.1.50-visual-trading-overview-patch"
 
 DASHBOARD_TITLE = f"Noah AI Client - 대시보드 Beta {RELEASE_DISPLAY_LABEL}"
 USER_MANUAL_TITLE = f"NoahAI 사용메뉴얼 {RELEASE_DISPLAY_LABEL}"

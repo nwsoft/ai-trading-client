@@ -25,6 +25,8 @@ class DeclarativeStrategyEngine:
         "ema20", "ema50", "ema200",
         "adx", "atr", "atr_percent",
         "trend_strength", "market_volatility",
+        "support_level", "resistance_level", "volatility", "historical_volatility",
+        "di_plus", "di_minus",
         "volume", "volume_sma20", "volume_ratio",
         "hour", "weekday",
     }
@@ -133,6 +135,9 @@ class DeclarativeStrategyEngine:
     def validate_rule_spec(cls, rules: Dict[str, Any]) -> Dict[str, Any]:
         """저장 전에 미지원 선언형 조건을 찾아 조용히 무시되는 일을 막는다."""
         errors: List[str] = []
+        from .condition_fields import requested
+        if requested(rules) and str((rules or {}).get('decision_timeframe') or (rules or {}).get('timeframe') or '') not in cls.ALLOWED_TIMEFRAMES:
+            errors.append('condition_fields_timeframe_required')
         from .numeric_strategy_state import validate as validate_state
         errors.extend(validate_state((rules or {}).get('numeric_state')))
         if (rules or {}).get('numeric_state') and str(rules.get('decision_timeframe') or rules.get('timeframe') or '') not in cls.ALLOWED_TIMEFRAMES:
@@ -397,7 +402,8 @@ class DeclarativeStrategyEngine:
         supported, reason = cls.validate_condition_spec(condition)
         if not supported:
             return False, reason
-        actual = context.get(field)
+        from .condition_fields import read
+        actual = read(context, field)
         if actual is None and field == "current_price":
             actual = context.get("price")
         if actual is None and field == "close":
@@ -410,7 +416,7 @@ class DeclarativeStrategyEngine:
             )
             if not value_field:
                 return False, f"unsupported_value_field:{value_reason}"
-            expected = context.get(value_field)
+            expected = read(context, value_field)
         if actual is None or expected is None:
             return False, f"missing:{field}"
         left = cls._number(actual)
@@ -435,12 +441,12 @@ class DeclarativeStrategyEngine:
                 previous = context.get("_previous")
                 if not isinstance(previous, dict):
                     return False, "missing:previous_context"
-                previous_actual = previous.get(field)
+                previous_actual = read(previous, field)
                 if previous_actual is None and field == "current_price":
                     previous_actual = previous.get("price")
                 if previous_actual is None and field == "close":
                     previous_actual = previous.get("current_price", previous.get("price"))
-                previous_expected = previous.get(value_field)
+                previous_expected = read(previous, value_field)
                 if previous_actual is None or previous_expected is None:
                     return False, f"missing:previous_{field}/{value_field}"
                 try:
@@ -621,7 +627,7 @@ class DeclarativeStrategyEngine:
         target: str,
         market_regime: str = "range",
     ) -> Dict[str, Any]:
-        """최대 10개 활성 전략 중 범위·국면·모드·진입조건이 맞는 한 전략을 선택한다."""
+        """공통 용량 정책 안에서 범위·국면·모드·진입조건이 맞는 한 전략을 선택한다."""
         if not strategies:
             return {"allowed": True, "bypassed": True, "reason": "no_active_strategy_pool"}
         from .selection_policy import (

@@ -539,6 +539,7 @@
     "paper_equity_usdt": 1000.0,
     "paper_equity_krw": 1000000.0
   },
+  "paper_strategy_evaluation_limit": 30,
   "parallel_strategy_paper_validation": {
     "enabled": false,
     "max_strategies_per_venue": 3,

@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 
 import { createGatewayClient } from "./api";
+import { UI_BUILD_TAG } from './uiBuild';
 import { useLocale, getLocale, setLocaleAccount, setLocale, t, localized } from './i18n';
 import { LegacyTradingLogWorkspace, LifeFinance } from "./components/Operations";
 import { SettingsCenter } from "./components/SettingsCenter";
@@ -290,7 +291,7 @@ function DesktopApp() {
 
   useEffect(() => {
     const mode = session?.authenticated ? "dashboard" : "login";
-    const displayVersion = platform?.release_version || "3.9.1.48";
+    const displayVersion = platform?.release_version || "3.9.1.49";
     document.title = session?.authenticated ? `Noah AI Client - 대시보드 Beta v${displayVersion}` : "NoahAI Finance Decision OS - 로그인";
     document.body.classList.toggle("dashboard-surface", Boolean(session?.authenticated));
     window.noahAI?.window?.setMode(mode).catch(() => undefined);
@@ -453,7 +454,7 @@ function DesktopApp() {
       </nav>
       <main>{alphaArenaRunning && <div className="inline-notice arena-running-banner" role="status"><b>{t("AlphaArena · Binance PAPER 판단 실험 실행 중")}</b><span>{t("현재 화면의 거래소 선택과 별개입니다.")}</span><button type="button" disabled={alphaStopBusy} onClick={async () => { setAlphaStopBusy(true); try { await client.alphaArenaCommand("stop", false); setAlphaArenaRunning(false); } catch (reason) { setError(reason instanceof Error ? reason.message : "AlphaArena 정지 실패"); } finally { setAlphaStopBusy(false); } }}>{t("AlphaArena 정지")}</button></div>}{error && <div className="error-banner"><b>{t("Gateway 연결 확인")}</b><span>{error}</span><button className="secondary-button" type="button" onClick={() => window.location.reload()}>{t("전체 다시 시도")}</button></div>}
       {activeSurface === "market_trend" && <MarketTrendWorkspace client={client} service={activeService as "blockchain" | "stock"} source={chartSource} onAskAssistant={(question) => openAssistant(question, activeService)} />}
-      {activeSurface === "trading_log" && <LegacyTradingLogWorkspace client={client} runtime={serviceRuntime} service={activeService} onOpenManual={() => openManual()} onAskAssistant={(question) => openAssistant(question, activeService)} onRuntimeChanged={refreshRuntimeFromSettings} />}
+      {activeSurface === "trading_log" && <LegacyTradingLogWorkspace key={`${session?.account}:${activeService}`} accountScope={session?.account ?? ""} onOpenSource={selectSourceTab} onOpenFeature={suffix=>setActiveFeature(`${activeService}.${suffix}`)} onOpenSettings={()=>setSettingsOpen(true)} onOpenAssets={()=>selectService("portfolio")} client={client} runtime={serviceRuntime} service={activeService} onOpenManual={() => openManual()} onAskAssistant={(question) => openAssistant(question, activeService)} onRuntimeChanged={refreshRuntimeFromSettings} />}
       {(["blockchain", "stock"] as const).map((strategyService) => {
         const visible = activeSurface === "strategy" && activeService === strategyService;
         if (!visible && !visitedStrategyStudios[strategyService]) return null;
@@ -461,7 +462,7 @@ function DesktopApp() {
       })}
       {activeSurface === "ai_learning" && <LegacyAILearningWorkspace client={client} service={activeService as "blockchain" | "stock"} source={chartSource} sources={activeSourceTabs} />}
       {activeSurface === "ai_report" && <LegacyAIReportWorkspace client={client} service={activeService as "blockchain" | "stock"} source={chartSource} sources={activeSourceTabs} onAskAssistant={(question) => openAssistant(question, activeService)} />}
-      {Object.entries(visitedAssistants).map(([contextKey, context]) => <div key={`${session?.account}:${contextKey}`} hidden={activeSurface !== "assistant" || contextKey !== assistantContextKey}>
+      {Object.entries(visitedAssistants).map(([contextKey, context]) => <div className="assistant-view" key={`${session?.account}:${contextKey}`} hidden={activeSurface !== "assistant" || contextKey !== assistantContextKey}>
         <AssistantWorkspace client={client} service={context.service} initialQuestion={contextKey === assistantContextKey ? assistantQuestion : ""} settingsSection={context.service === "settings" ? context.section : ""} onOpenSettings={() => setSettingsOpen(true)} onChartAnalysis={() => setActiveFeature(activeService === "stock" ? "stock.info" : activeService === "ai_analyst" ? "ai_analyst.workspace" : "blockchain.coin_info")} onReturn={assistantReturnTarget ? returnFromStrategyAssistant : undefined} returnLabel={assistantReturnTarget ? "전략 스튜디오로 돌아가기 · 입력 유지" : undefined} strategyService={activeService === "stock" ? "stock" : "blockchain"} onSendToStrategy={assistantReturnTarget || activeService === "blockchain" || activeService === "stock" ? sendAssistantAnswerToStrategy : undefined} />
       </div>)}
       {activeSurface === "ai_analyst" && <AIAnalystWorkspace client={client} onOpenAssistant={(question = "") => openAssistant(question, "ai_analyst")} onOpenSummary={() => setActiveFeature("ai_analyst.summary")} onOpenScenario={() => setActiveFeature("ai_analyst.scenario")} />}
@@ -472,14 +473,14 @@ function DesktopApp() {
       {activeSurface === "life_basic" && <LifeFinance client={client} view={feature?.id ?? "personal_finance.service"} assistantRequest={lifeAssistantRequest} initialQuestion={assistantQuestion} onOpenSettings={() => setSettingsOpen(true)} />}
       {activeSurface === "life_advanced" && <LifeFinanceAdvanced client={client} featureId={feature?.id ?? "personal_finance.security"} />}
       {activeSurface === "asset_info" && <AssetInfoWorkspace client={client} service={activeService as "blockchain" | "stock"} source={chartSource} enabledSources={serviceRuntime?.enabled_sources ?? []} />}
-      {activeSurface === "source_workspace" && (chartSource ? <SourceWorkspace key={`${activeService}:${chartSource}`} client={client} runtime={serviceRuntime} service={activeService as "blockchain" | "stock"} source={chartSource} onOpenManual={() => openManual()} onOpenSettings={() => setSettingsOpen(true)} onRuntimeChanged={refreshRuntimeFromSettings} onAskAssistant={(question) => openAssistant(question, activeService)} /> : <section className="panel source-selection-required"><h2>{activeService === "stock" ? t("사용할 증권사가 선택되지 않았습니다.") : t("사용할 거래소가 선택되지 않았습니다.")}</h2><p>{t("설정 → 거래소 선택에서 분석에 사용할 대상을 선택하고 저장하세요. 선택하지 않은 연결은 화면과 런타임에서 실행하지 않습니다.")}</p><button className="primary-button" type="button" onClick={() => setSettingsOpen(true)}>{t("설정 열기")}</button></section>)}
+      {activeSurface === "source_workspace" && (chartSource ? <SourceWorkspace onOpenFeature={suffix=>setActiveFeature(`${activeService}.${suffix}`)} key={`${session?.account}:${activeService}:${chartSource}:${serviceRuntime?.execution_modes?.[chartSource]}:${serviceRuntime?.paper_trading}`} accountScope={session?.account ?? ''} client={client} runtime={serviceRuntime} service={activeService as "blockchain" | "stock"} source={chartSource} onOpenManual={() => openManual()} onOpenSettings={() => setSettingsOpen(true)} onRuntimeChanged={refreshRuntimeFromSettings} onAskAssistant={(question) => openAssistant(question, activeService)} /> : <section className="panel source-selection-required"><h2>{activeService === "stock" ? t("사용할 증권사가 선택되지 않았습니다.") : t("사용할 거래소가 선택되지 않았습니다.")}</h2><p>{t("설정 → 거래소 선택에서 분석에 사용할 대상을 선택하고 저장하세요. 선택하지 않은 연결은 화면과 런타임에서 실행하지 않습니다.")}</p><button className="primary-button" type="button" onClick={() => setSettingsOpen(true)}>{t("설정 열기")}</button></section>)}
       {activeSurface === "trading_statistics" && <TradingStatisticsWorkspace client={client} runtime={serviceRuntime} service={activeService as "blockchain" | "stock"} sources={activeSourceTabs} defaultSource={chartSource} />}
       {activeSurface === "unmapped" && <section className="panel parity-route-error" role="alert"><h2>{t("1:1 화면 연결 오류")}</h2><p>{feature?.label ?? "선택 기능"}{t("은 레거시 정본 전용 화면에 연결되지 않았습니다. 공용 대체 화면을 표시하지 않고 배포를 차단합니다.")}</p></section>}
       </main>
     </section>
     <footer className="statusbar legacy-statusbar">
       <span className="legacy-status-left">{legacyStatusLabel(runtime, chartSource, statusClock)}</span>
-      <div className="legacy-release-update"><span className="legacy-release">{platform?.release_label ?? "v3.9.1.48"}</span><UpdateCenter client={client} accountScope={session?.account ?? ""} onOpenGuide={() => openManual("updates")} /></div>
+      <div className="legacy-release-update"><span className="legacy-release" title={`실행 엔진: ${platform?.release_label ?? '미확인'} · 화면 빌드: ${UI_BUILD_TAG}`}>{platform?.release_label ?? "v3.9.1.50"}<small className="ui-build-id"> · UI 50.1</small></span><UpdateCenter client={client} accountScope={session?.account ?? ""} onOpenGuide={() => openManual("updates")} /></div>
       <div className="legacy-ai-summary"><span className="legacy-ai-record" title={aiRecord}>{aiRecord}</span><button className="legacy-record-button" type="button" onClick={() => void refreshAiRecord()}><AppIcon name="record" />{t("기록")}</button></div>
     </footer>
     <SettingsCenter client={client} open={settingsOpen} initialField={settingsInitialField} onClose={() => { setSettingsOpen(false); setSettingsInitialField(undefined); }} onAskAssistant={(question, settingsSection) => openAssistant(question, "settings", settingsSection)} onOpenManual={() => { setSettingsOpen(false); openManual("settings"); }} onSettingsSaved={async () => { setSettingsRevision((value) => value + 1); await refreshRuntimeFromSettings(); }} />

@@ -1,6 +1,12 @@
 const path = require("node:path");
 const { spawn } = require("node:child_process");
 
+// Local development must not pair a new Python version with stale renderer JS.
+if (!process.env.NOAHAI_WEB_UI_DEV_URL && !require('./ui-build-contract.cjs').isCurrent(path.resolve(__dirname,'..'))) {
+  console.error('화면 빌드가 없거나 현재 소스와 다릅니다. webui에서 npm run build 후 다시 실행하세요. 엔진 버전 표시는 화면 빌드 확인을 대신하지 않습니다.');
+  process.exit(1);
+}
+
 const electronExecutable = require("electron");
 const environment = { ...process.env };
 

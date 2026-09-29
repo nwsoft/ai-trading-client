@@ -100,9 +100,11 @@ def test_web_source_workspace_polls_logs_and_separates_account_and_command_busy_
 
     assert "const [accountBusy, setAccountBusy]" in source
     assert "const [commandBusy, setCommandBusy]" in source
-    assert "client.logs(service, source, 200)" in source
-    assert "startSequentialPoll(loadLogs, 1_000)" in source
-    assert "startSequentialPoll(loadWorkspace, 5_000)" in source
+    assert "readLogs(200)" in source
+    assert "client.logs(service, source, limit)" in source
+    assert "operationView === 'logs' ? startSequentialPoll(loadLogs, 1_000," in source
+    assert "startSequentialPoll(loadWorkspace, 5_000," in source
+    assert "pauseWhenHidden: true, backoff: true" in source
     assert "startSequentialPoll(refresh, 2_000" in app
     assert "onRuntimeChanged={refreshRuntimeFromSettings}" in app
     operations = Path("webui/src/components/Operations.tsx").read_text(encoding="utf-8")

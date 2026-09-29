@@ -2,8 +2,11 @@
 import time
 
 
-def emit_regime_observation(owner, source, observed, confirmed, changed):
+def emit_regime_observation(owner, source, observed, confirmed, changed, *, mode=None, expected_generation=None):
     """Local diagnostic only; never synthesize an outbound market transition."""
+    from .operation_evidence import publish
+    publish(owner, source, 'regime', observed=observed, confirmed=confirmed, changed=changed,
+            mode=mode, expected_generation=expected_generation)
     code = ('regime_changed' if changed else
             'regime_pending_confirmation' if observed != confirmed else 'regime_unchanged')
     emit_runtime_status(owner, source, code,
@@ -11,6 +14,8 @@ def emit_regime_observation(owner, source, observed, confirmed, changed):
 
 
 def emit_runtime_status(owner, source, code, message, *, level="INFO", interval=300):
+    from .operation_evidence import publish
+    publish(owner, source, 'runtime', code=code)
     now = time.monotonic()
     states = getattr(owner, "_runtime_notice_states", None)
     if states is None:

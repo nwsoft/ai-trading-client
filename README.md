@@ -1,11 +1,11 @@
 # NoahAI - AI 금융 동반자 & 의사결정 인프라
 
-현재 공개 버전: **v3.9.1.47** · updater **3.9.147** · 사용자 배포 확인 및 보존된 매니페스트 기준.
-현재 공개 기반: v3.9.1.47. 서버 배포와 Client 설치본 검증은 구분합니다.
+현재 공개 버전: **v3.9.1.48** · updater **3.9.148** · 사용자 배포 확인 및 보존된 매니페스트 기준.
+현재 공개 기반: v3.9.1.48. 서버 배포와 Client 설치본 검증은 구분합니다.
 
-v48 후보 패치명: Strategy Cost Upload and Catalog Patch.
+v49 후보 패치명: Strategy Capacity and Operations Evidence Patch.
 
-현재 소스 후보: v3.9.1.48 · updater **3.9.148**. 기관별 백테스트 비용·자료 입력·전략 정렬·거래 종목 상태 검사 개선. 기존 전략·성과와 승인 정책 보존. 빌드/배포 전입니다. 종목 상태 처리의 정본은 [48 공통 종목 계약](docs/V39148_INSTRUMENT_ELIGIBILITY.md)입니다.
+현재 소스 후보: v3.9.1.49 · updater **3.9.149**. PAPER 평가 용량·완료 봉 지표·읽기 전용 운용 요약. 기존 전략·성과·승인·손익 보호는 보존합니다. [49 통합 계획](docs/UPDATE_PLAN.md#v39149-operations-summary)과 [실제 검증 범위](docs/TEST_STATUS.md)를 참고하세요. Windows 빌드/배포 전입니다. 48의 비용·업로드·종목 상태 계약도 유지합니다.
 
 9월 25일 추가: 기존 Level 1~4 보존 + Level 5 연구실, 모든 Level의 WebUI 기간·종목·보유 가정 선택, 새 유지관리의 전체 기록 범위. 고객 전략의 실행식 누락과 전체 과거 원장·설치본 게이트는 남아 있습니다. [현재 구현/미완료](docs/UPDATE_PLAN.md), [검증 근거](docs/TEST_STATUS.md)를 함께 확인하며 시험 수치만으로 전체 복구 완료를 판단하지 않습니다.
 

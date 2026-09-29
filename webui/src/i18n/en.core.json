@@ -1,4 +1,11 @@
 {
+  "거래 대시보드": "Trading dashboard",
+  "요약 보기": "Overview",
+  "상세 로그": "Detailed logs",
+  "운용 현황": "Operations overview",
+  "전체 운용 현황": "All venue overview",
+  "전체 상세 로그": "All detailed logs",
+  "오늘 통계 모드": "Today's statistics mode",
   "원문·규칙 보완하기": "Revise source and rules",
   "기본 AI 진입 방식으로 새 버전 만들기": "Create a new version using NoahAI entries",
   "미완성 초안 보관 · 실행 안 함": "Save incomplete draft · No execution",

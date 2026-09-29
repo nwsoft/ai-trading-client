@@ -9,6 +9,7 @@ import { LogHelpDialog } from "./LogHelpDialog";
 import { TradingStartHelp } from './TradingStartHelp';
 import { SourceTradeHistory } from "./SourceTradeHistory";
 import { startSequentialPoll } from "../sequentialPoll";
+import { OperationSummary } from './OperationSummary';
 import { ExecutionEvidenceNote, executionEvidenceCount } from './ExecutionEvidenceNote';
 
 function numberText(value: unknown, digits = 1) {
@@ -833,7 +834,37 @@ export function AssetInfoWorkspace({ client, service, source, enabledSources = [
   </section>;
 }
 
-export function SourceWorkspace({ client, runtime, service, source, onOpenManual, onOpenSettings, onRuntimeChanged, onAskAssistant }: { client: GatewayClient; runtime: RuntimeSnapshot | null; service: "blockchain" | "stock"; source: string; onOpenManual: () => void; onOpenSettings: () => void; onRuntimeChanged: () => Promise<void> | void; onAskAssistant?: (question: string) => void }) {
+export function SourceWorkspace({ onOpenFeature, client, runtime, service, source, accountScope = '', onOpenManual, onOpenSettings, onRuntimeChanged, onAskAssistant }: { client: GatewayClient; runtime: RuntimeSnapshot | null; service: "blockchain" | "stock"; source: string; accountScope?: string; onOpenFeature?: (suffix: string) => void; onOpenManual: () => void; onOpenSettings: () => void; onRuntimeChanged: () => Promise<void> | void; onAskAssistant?: (question: string) => void }) {
+  const preferenceKey = `noah.operation-view.v49:${accountScope}`;
+  const [operationView, setOperationView] = useState<'logs' | 'summary'>(() => {
+    try { return accountScope && localStorage.getItem(preferenceKey) === 'summary' ? 'summary' : 'logs'; } catch { return 'logs'; }
+  });
+  const mounted = useRef(true);
+  const refreshGeneration = useRef(0);
+  const workspaceRequest = useRef<Promise<WorkspaceSnapshot> | null>(null);
+  const logRequest = useRef<ReturnType<GatewayClient['logs']> | null>(null);
+  function readLogs(limit: number) {
+    if (!logRequest.current) {
+      logRequest.current = client.logs(service, source, limit).finally(() => { logRequest.current = null; });
+    }
+    return logRequest.current;
+  }
+  function readWorkspace() {
+    if (!workspaceRequest.current) {
+      workspaceRequest.current = client.workspace(service, `${service}.source_workspaces`, source)
+        .then((next) => {
+          if (mounted.current) { setWorkspace(next); setHistoryFetchFailed(false); }
+          return next;
+        }).catch((error) => { if (mounted.current) setHistoryFetchFailed(true); throw error; })
+        .finally(() => { workspaceRequest.current = null; });
+    }
+    return workspaceRequest.current;
+  }
+  useEffect(() => { mounted.current = true; return () => { mounted.current = false; refreshGeneration.current++; }; }, []);
+  function changeOperationView(value: 'logs' | 'summary') {
+    setOperationView(value);
+    try { if (accountScope) localStorage.setItem(preferenceKey, value); } catch { /* Optional preference only. */ }
+  }
   const [startFailure, setStartFailure] = useState<{message: string; time: string} | null>(null);
   const [workspace, setWorkspace] = useState<WorkspaceSnapshot | null>(null);
   const [logs, setLogs] = useState<Array<{ source: string; message: string; level?: string; exchange?: string; category?: string }>>([]);
@@ -870,21 +901,21 @@ export function SourceWorkspace({ client, runtime, service, source, onOpenManual
   }, [sourceExecutionMode, source]);
 
   function refreshStored() {
+    const generation = ++refreshGeneration.current;
     Promise.all([
-      client.workspace(service, `${service}.source_workspaces`, source),
-      startCredentialsReady
-        ? client.logs(service, source, 100)
+      readWorkspace(),
+      startCredentialsReady && operationView === 'logs'
+        ? readLogs(100)
         : Promise.resolve({ schema_version: "1.0.0", service, source, lines: [], captured_at: new Date().toISOString() }),
     ])
       .then(([nextWorkspace, nextLogs]) => {
-        setWorkspace(nextWorkspace);
-        setHistoryFetchFailed(false);
+        if (!mounted.current || generation !== refreshGeneration.current) return;
         const markerIndex = clearMarkerRef.current ? nextLogs.lines.map((line) => line.message).lastIndexOf(clearMarkerRef.current) : -1;
         setLogs(markerIndex >= 0 ? nextLogs.lines.slice(markerIndex + 1) : nextLogs.lines);
         setMessage("");
       })
       .catch((reason: unknown) => {
-        setHistoryFetchFailed(true);
+        if (!mounted.current || generation !== refreshGeneration.current) return;
         setMessage(reason instanceof Error ? reason.message : `${service === "stock" ? "증권사" : "거래소"} 화면을 불러오지 못했습니다.`);
       });
   }
@@ -921,24 +952,22 @@ export function SourceWorkspace({ client, runtime, service, source, onOpenManual
           }
         })
         .catch(() => { /* Keep the last valid snapshot; the card exposes component failure state. */ });
-    const stop = startSequentialPoll(refreshAccount, 7_000, { immediate: false });
+    const stop = startSequentialPoll(refreshAccount, 7_000, { immediate: false, pauseWhenHidden: true });
     return () => { active = false; stop(); };
   }, [client, source, credentialsConfigured]);
   useEffect(() => {
     if (!startCredentialsReady) return;
     let active = true;
-    const loadLogs = () => client.logs(service, source, 200).then((nextLogs) => {
+    const loadLogs = () => readLogs(200).then((nextLogs) => {
       if (!active) return;
       const markerIndex = clearMarkerRef.current ? nextLogs.lines.map((line) => line.message).lastIndexOf(clearMarkerRef.current) : -1;
       setLogs(markerIndex >= 0 ? nextLogs.lines.slice(markerIndex + 1) : nextLogs.lines);
-    }).catch(() => { /* Keep the last source snapshot while the next poll retries. */ });
-    const loadWorkspace = () => client.workspace(service, `${service}.source_workspaces`, source).then((nextWorkspace) => {
-      if (active) { setWorkspace(nextWorkspace); setHistoryFetchFailed(false); }
-    }).catch(() => { if (active) setHistoryFetchFailed(true); });
-    const stopLogs = startSequentialPoll(loadLogs, 1_000);
-    const stopWorkspace = startSequentialPoll(loadWorkspace, 5_000);
+    });
+    const loadWorkspace = () => readWorkspace();
+    const stopLogs = operationView === 'logs' ? startSequentialPoll(loadLogs, 1_000, { immediate: false, pauseWhenHidden: true, backoff: true }) : () => undefined;
+    const stopWorkspace = startSequentialPoll(loadWorkspace, 5_000, { immediate: false, pauseWhenHidden: true, backoff: true });
     return () => { active = false; stopLogs(); stopWorkspace(); };
-  }, [client, service, source, startCredentialsReady]);
+  }, [client, service, source, startCredentialsReady, sourceExecutionMode, operationView]);
 
   async function refreshAccount() {
     if (!credentialsConfigured) {
@@ -1042,6 +1071,7 @@ export function SourceWorkspace({ client, runtime, service, source, onOpenManual
   const observingCustomStrategies = runtimeCustomStrategies.filter(
     (row) => String(row.operation_mode ?? "").toLowerCase() === "paper_validation",
   );
+  const paperPool = workspace?.operation_summary?.source === source && workspace?.operation_summary?.mode === sourceExecutionMode ? workspace.operation_summary.paper_pool : undefined;
   const appliedCustomStrategyNames = appliedCustomStrategies.slice(0, 2).map(
     (row) => String(row.name ?? row.strategy_key ?? row.version_id ?? "사용자 전략"),
   ).join(", ");
@@ -1135,6 +1165,7 @@ export function SourceWorkspace({ client, runtime, service, source, onOpenManual
         <div className="exchange-control-actions"><button className={running ? "stop" : "start"} disabled={commandBusy || (!running && (!enabled || !startCredentialsReady || liveUnavailable))} type="button" onClick={() => command(running ? "stop" : "start")}>{commandBusy ? "⏳ 처리 중" : !running && liveUnavailable ? `${sourceLabel} LIVE 미지원` : learningMode ? running ? `■ ${sourceLabel} 분석·학습 정지` : `▶ ${sourceLabel} 분석·학습 시작` : running ? `■ ${sourceLabel} 거래 정지` : `▶ ${sourceLabel} 거래 시작`}</button>{service === "stock" && <button className="refresh" disabled={accountBusy || !credentialsConfigured} type="button" onClick={refreshAccount}>{t("새로고침")}</button>}<div className={connectionClass}><i aria-hidden="true" /><strong>{connectionText}</strong></div></div>
         {membershipAccess?.allowed === false && <div className="membership-source-status" role="status"><strong>{t("거래 권한 승인 필요 · ")}{sourceLabel}</strong><span>{membershipAccess.label}{t(". daltrading에서 승인 상태를 확인하거나 관리자에게 승인을 요청하세요. API 인증과 거래 권한은 별개입니다.")}</span></div>}
         {!credentialsConfigured ? <button className="inline-settings-link" type="button" onClick={onOpenSettings}>{t("설정에서 API 연결하기")}</button> : paperMode ? <div className={`runtime-strategy-status ${appliedCustomStrategies.length ? "applied" : observingCustomStrategies.length ? "observing" : "empty"}`} role="status"><strong>{appliedCustomStrategies.length ? `전략 스튜디오 적용: ${appliedCustomStrategyNames}` : observingCustomStrategies.length ? `PAPER 전진검증 후보 ${observingCustomStrategies.length}개` : "전략 스튜디오 실행 풀 없음"}</strong><span>{appliedCustomStrategies.length ? `적용 중 버전은 PAPER에서 자동 실행 · 재적용 불필요${observingCustomStrategies.length ? ` · 전진검증 후보 ${observingCustomStrategies.length}개 별도` : ""}` : observingCustomStrategies.length ? "최종 적용 전략과 별도 PAPER 검증 중" : "현재 적용·검증 전략이 없습니다. 기본 NoahAI PAPER 운용은 계속됩니다."}</span></div> : <small>{t("전략 스튜디오 사용 여부는 설정의 실행 계약을 따릅니다.")}</small>}
+        {paperMode && paperPool && <p className="paper-pool-status" role="status">PAPER 범위 적합 {paperPool.scope_eligible}개 · 평가 대상 {paperPool.selected}개 · 대기 {paperPool.waiting}개 · 전체 슬롯 {paperPool.limit}개 (적용 전략 {paperPool.applied_slots}개 포함). 대기는 검증 실행 중이 아닙니다.</p>}
       </article>
       <article className="legacy-exchange-card exchange-balances"><header className="source-card-header"><div className="source-card-title"><span className="source-card-mark balance" aria-hidden="true">₩</span><div><small>ACCOUNT BALANCE</small><h3>{t("잔고")}</h3></div></div><div className="exchange-account-actions"><span className={`account-refresh-status ${accountConnected ? "live" : accountFailed || !credentialsConfigured ? "warning" : "loading"}`}>{!credentialsConfigured ? "API 키 연결 필요" : accountConnected ? `${sourceLabel} · 7초 자동 갱신` : accountFailed ? accountView.balanceLabel : "연결 확인 중"}</span><button className="account-refresh-button" type="button" onClick={refreshAccount} disabled={accountBusy || !credentialsConfigured}>{accountBusy ? t("조회 중…") : t("실시간 새로고침")}</button></div></header><div className="legacy-balance-grid">{balanceCards.map((row, index) => <div key={`${row.asset}-${index}`}><span>{row.asset}</span><b>{row.value === null ? (!credentialsConfigured ? (index === 0 ? "API 키 연결 필요" : "연결 후 조회") : accountFailed ? accountView.balanceLabel : index === 0 ? "조회 중" : "추가 자산 없음") : numberText(row.value, 6)}</b></div>)}</div></article>
       <article className="legacy-exchange-card exchange-positions"><header className="source-card-header"><div className="source-card-title"><span className="source-card-mark position" aria-hidden="true">P</span><div><small>{paperPositionView ? "PAPER POSITIONS" : isSpotHoldings ? "ACCOUNT HOLDINGS" : "OPEN POSITIONS"}</small><h3>{paperPositionView ? t("가상 포지션") : isCryptoSpot ? "계좌 보유자산" : isSpotHoldings ? "보유자산" : t("포지션")}</h3></div></div><span className={positionStatusClass}>{positionHeaderText}</span></header><div className={paperPositionView ? "paper-position-scroll" : "position-scroll"}>{isCryptoSpot && !paperPositionView && positionsHealthy && <p className="spot-holding-scope">{t("계좌 잔고 전체입니다. NoahAI 원장이 있는 수량만 자동매매가 관리하며 수동·에어드롭·거래불가 자산은 자동 제외합니다.")}</p>}{positions.map((position: any, index: number) => { const pnl = Number(position.unrealized_pnl ?? position.unrealizedPnl ?? position.pnl ?? position.profit_loss ?? 0); const holdingClass = spotHoldingClass(position); const entryPrice = Number(position.average ?? position.avg_price ?? position.entry_price ?? 0); return <div className={`legacy-position-row ${isCryptoSpot && !paperPositionView ? `spot-${holdingClass.className}` : ""}`} key={String(position.symbol ?? position.asset ?? index)}><div><b>{String(position.symbol ?? position.asset ?? "—")}</b><span>{isCryptoSpot && !paperPositionView ? "보유" : String(position.side ?? position.positionSide ?? (isSpotHoldings ? "보유" : "—"))}</span></div><div><span>{t("수량 ")}{numberText(position.amount ?? position.quantity ?? position.positionAmt ?? position.size, 6)}</span><small>{isCryptoSpot && !paperPositionView ? Number(position.managed_quantity ?? 0) > 0 ? `NoahAI 관리수량 ${numberText(position.managed_quantity, 6)}` : entryPrice > 0 ? `평균가 ${numberText(entryPrice, 4)}` : "평균가 미제공" : isSpotHoldings ? `평균가 ${numberText(entryPrice, 4)}` : `진입가 ${numberText(position.entry_price ?? position.entryPrice, 4)} · ${numberText(position.leverage, 0)}x`}</small></div><div><span>{isCryptoSpot && !paperPositionView ? "자동매매 분류" : isSpotHoldings ? "평가손익" : "미실현 PnL"}</span>{isCryptoSpot && !paperPositionView ? <strong className={`holding-class ${holdingClass.className}`}>{holdingClass.label}</strong> : <strong className={pnl < 0 ? "negative" : pnl > 0 ? "positive" : ""}>{pnl > 0 ? "+" : ""}{numberText(pnl, service === "stock" ? 0 : 4)}{service === "stock" ? "원" : ` ${sourceCurrency}`}</strong>}</div></div>; })}{!positions.length && <div className="empty-state">{positionBodyText}</div>}</div></article>
@@ -1148,6 +1179,8 @@ export function SourceWorkspace({ client, runtime, service, source, onOpenManual
       </SourceTradeHistory>
     </div>
     <article className="legacy-exchange-log legacy-exchange-card">
+      <div className="legacy-log-toolbar compact" aria-label="운용 화면 선택"><button type="button" aria-pressed={operationView === 'logs'} onClick={() => changeOperationView('logs')}>상세 로그</button><button type="button" aria-pressed={operationView === 'summary'} onClick={() => changeOperationView('summary')}>운용 요약</button></div>
+      {operationView === 'summary' ? <OperationSummary onOpenFeature={onOpenFeature} onAskAssistant={onAskAssistant} data={workspace?.operation_summary} source={source} mode={sourceExecutionMode} running={running} failed={historyFetchFailed} /> : <>
       <div className="legacy-log-filters">
         <label><input type="checkbox" checked={simpleOnly} onChange={(event) => { setSimpleOnly(event.target.checked); if (event.target.checked) setAnalysisOnly(false); }} />{t("간략 로그")}</label>
         <label><input type="checkbox" checked={analysisOnly} onChange={(event) => { setAnalysisOnly(event.target.checked); if (event.target.checked) setSimpleOnly(false); }} />{t("분석 과정만")}</label>
@@ -1159,6 +1192,7 @@ export function SourceWorkspace({ client, runtime, service, source, onOpenManual
       <div className="source-log-connection-slot">{!startCredentialsReady ? <div className="inline-notice">{source.toUpperCase()}{t(" API 키를 설정한 뒤 연결하세요. 미연결 상태에서는 과거 로그를 현재 연결 기록처럼 표시하지 않습니다.")}</div> : publicMarketExecution && !credentialsConfigured ? <div className="inline-notice">{source.toUpperCase()} · 공개 시세로 PAPER·학습 실행 가능 · 실제 계좌 조회·LIVE 주문은 API 연결이 필요합니다. {running ? "실행 중 로그와 이전 기록을 함께 표시합니다." : "현재 정지 상태이며 아래 로그는 저장된 이전 기록입니다."}</div> : null}</div>
       <div className="legacy-log-console" ref={sourceLogConsoleRef}>{filteredLogs.map((line, index) => <div key={`${line.source}:${index}`}><code>{line.message}</code></div>)}{!filteredLogs.length && <div className="empty-state">{startCredentialsReady ? `표시할 ${service === "stock" ? "증권사" : "거래소"} 로그가 없습니다.` : "API 키 연결 필요"}</div>}</div>
       <div className="legacy-log-toolbar compact"><button type="button" onClick={() => setLogHelpOpen(true)}>{t("로그도움말")}</button><button type="button" onClick={() => { clearMarkerRef.current = logs.at(-1)?.message ?? ""; setLogs([]); }}>{t("로그지우기")}</button><button type="button" onClick={() => { clearMarkerRef.current = ""; refreshStored(); }}>{t("새로고침")}</button></div>
+      </>}
       <div className="source-log-message-slot" role="status">{message && <div className="inline-notice">{message}</div>}</div>
       {startFailure && <TradingStartHelp key={startFailure.time} client={client} source={source} mode={sourceExecutionMode} message={startFailure.message} occurredAt={startFailure.time} onAskAssistant={onAskAssistant} />}
     </article>
