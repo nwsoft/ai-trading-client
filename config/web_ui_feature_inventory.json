@@ -9,7 +9,7 @@
       "label": "블록체인",
       "sources": ["binance", "upbit", "bithumb", "coinone", "bybit", "okx", "bitget"],
       "features": [
-        {"id": "blockchain.logs", "label": "거래 현황", "route": "/blockchain/logs", "migration": "source_connected_parity_open"},
+        {"id": "blockchain.logs", "label": "거래 대시보드", "route": "/blockchain/logs", "migration": "source_connected_parity_open"},
         {"id": "blockchain.coin_info", "label": "코인 정보", "route": "/blockchain/coins", "migration": "source_connected_parity_open"},
         {"id": "blockchain.statistics", "label": "거래 통계", "route": "/blockchain/statistics", "migration": "source_connected_parity_open"},
         {"id": "blockchain.trends", "label": "시장 트렌드", "route": "/blockchain/trends", "migration": "source_connected_parity_open"},
@@ -27,7 +27,7 @@
       "label": "주식/증권",
       "sources": ["kiwoom", "shinhan", "mirae", "kis"],
       "features": [
-        {"id": "stock.logs", "label": "거래 현황", "route": "/stocks/logs", "migration": "source_connected_parity_open"},
+        {"id": "stock.logs", "label": "거래 대시보드", "route": "/stocks/logs", "migration": "source_connected_parity_open"},
         {"id": "stock.info", "label": "종목 정보", "route": "/stocks/symbols", "migration": "source_connected_parity_open"},
         {"id": "stock.statistics", "label": "거래 통계", "route": "/stocks/statistics", "migration": "source_connected_parity_open"},
         {"id": "stock.trends", "label": "시장 트렌드", "route": "/stocks/trends", "migration": "source_connected_parity_open"},

@@ -77,8 +77,8 @@ SERVICE_FEATURE_LABELS = {
 # overview and the unchanged detailed-log view. Legacy CTk tab identifiers are
 # still used by widget lookup and must not be renamed as a side effect.
 WEB_FEATURE_LABEL_OVERRIDES = {
-    "blockchain": {"실시간 거래 로그": "거래 현황"},
-    "stock": {"실시간 거래 로그": "거래 현황"},
+    "blockchain": {"실시간 거래 로그": "거래 대시보드"},
+    "stock": {"실시간 거래 로그": "거래 대시보드"},
 }
 
 
