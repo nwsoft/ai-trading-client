@@ -3,7 +3,6 @@ import type {RuntimeSnapshot,WorkspaceSnapshot} from '../types';
 import {evidenceOld,evidenceTime,regimeText} from './OperationVisuals';
 import {sourcesForService} from '../venueSources';
 import {localized as L} from '../i18n';
-import {VisualTradingOverview} from './VisualTradingOverview';
 
 export function dashboardTime(value:unknown) {
   if (!value) return L('미수신','Not received');
@@ -40,7 +39,6 @@ export function OperationsOverview({runtime,workspace,service,failed,onSource,on
     {summary}
     {(failed||runtimeUncertain)&&<div className="operations-attention dashboard-alert" role="status">{L('갱신 확인 필요 · 마지막 수신 자료가 남아 있을 수 있습니다.','Refresh needs checking. Data may be from a previous update.')} <button onClick={onSettings}>{L('연결 설정','Connection settings')}</button></div>}
     {blocked.length>0&&<div className="operations-attention dashboard-alert" role="status"><strong>{L('신규 진입 보류','Entry on hold')} {blocked.length}</strong>{blocked.map(r=><button key={r.source} onClick={()=>onSource(r.source)}>{r.source.toUpperCase()} · {r.old?L('이전 위험 평가','Earlier risk check'):L('위험 평가 확인','Review risk check')} →</button>)}</div>}
-    <VisualTradingOverview runtime={runtime} workspace={workspace} service={service} sources={sources} failed={failed} onSource={onSource} onFeature={onFeature} onSettings={onSettings}/>
     {!sources.length?<section className="dashboard-empty"><h3>{L('아직 선택한 기관이 없습니다.','No venues selected yet.')}</h3><p>{L('사용할 거래소·증권사를 설정하세요. 화면을 여는 것만으로 거래가 시작되지는 않습니다.','Choose venues in settings. Opening this screen does not start trading.')}</p><button onClick={onSettings}>{L('연결 설정 열기','Open connection settings')}</button></section>:
     <section className="dashboard-venues">
       <div className="dashboard-section-heading"><h3>{L('기관별 실행 상태','Venue execution status')}</h3><span title={runtime?.captured_at}>{L('갱신','Updated')} {dashboardTime(runtime?.captured_at)}</span><button onClick={()=>onFeature('trends')}>{L('시장 트렌드','Market trends')}</button></div>
