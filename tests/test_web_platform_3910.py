@@ -1446,7 +1446,7 @@ def test_web_desktop_shell_is_version_aligned_and_fail_closed():
     assert package["version"] == updater_version
     assert package["main"] == "electron/main.cjs"
     assert package["engines"]["node"] == ">=22.12.0"
-    assert package["devDependencies"]["electron"] == "43.4.0"
+    assert package["devDependencies"]["electron"] == "43.7.6"
     assert "nodeIntegration: false" in electron_main
     assert "contextIsolation: true" in electron_main
     assert "sandbox: true" in electron_main
