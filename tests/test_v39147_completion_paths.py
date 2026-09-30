@@ -190,5 +190,6 @@ def test_unified_start_reason_survives_false_legacy_contract(venue,reason):
     trader.last_market_regime_by_exchange={}
     trader.select_trading_coins_unified=lambda _:[]
     assert trader.start_trading(venue) is False
-    with pytest.raises(RuntimeError,match=f'^{reason}:{venue}$'):
+    stage={'runtime_source_not_enabled':'scope','exchange_initialization_failed':'initialization','trading_candidates_unavailable':'candidate_selection','runtime_start_exception':'market_observation'}[reason]
+    with pytest.raises(RuntimeError,match=f'^{reason}:{venue}:{stage}$'):
         trader.start_trading_checked(venue)

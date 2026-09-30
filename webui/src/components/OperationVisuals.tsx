@@ -14,7 +14,7 @@ export function CountRing({value,total,label}: {value:number;total:number;label:
   </div>;
 }
 export function RegimeHistory({rows}: {rows?:Array<{observed:string;confirmed:string;symbol:string;timeframe:string;observed_at:number}>}) {
-  const points=(rows||[]).filter(p=>Number.isFinite(p.observed_at)&&p.observed_at>0).slice(-24);
+  const points=(Array.isArray(rows)?rows:[]).filter(p=>p&&Number.isFinite(p.observed_at)&&p.observed_at>0).slice(-24);
   if(!points.length) return <p className="operations-empty">이번 실행 세션의 국면 변화 이력이 없습니다. 과거 기록을 추정하지 않습니다.</p>;
   return <figure className="regime-history"><figcaption>이번 세션 국면 변화 · 최근 {points.length}개</figcaption>
     <div className="regime-history-track" role="img" aria-label={points.map(p=>`${evidenceTime(p.observed_at)} 관찰 ${regimeText(p.observed)}, 확정 ${regimeText(p.confirmed)}`).join('; ')}>

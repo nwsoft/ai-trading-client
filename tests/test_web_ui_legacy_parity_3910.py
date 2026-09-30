@@ -40,7 +40,7 @@ def test_web_service_information_architecture_exactly_matches_legacy_policy() ->
         aliases = WEB_FEATURE_LABEL_OVERRIDES.get(web_service, {})
         assert labels == [aliases.get(label, label) for label in _legacy_service_tab_order(legacy_service)], (web_service, labels)
         if web_service in {'blockchain', 'stock'}:
-            assert aliases == {'실시간 거래 로그': '거래 대시보드'}
+            assert aliases == {'실시간 거래 로그': '거래 현황'}
             assert services[web_service]['features'][0]['id'] == f'{web_service}.logs'
 
 

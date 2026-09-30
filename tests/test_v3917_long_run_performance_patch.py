@@ -250,7 +250,9 @@ def test_current_release_is_pending_windows_and_soak_gates():
     assert tuple(map(int, manifest["version"].split("."))) <= tuple(map(int, RELEASE_VERSION.split(".")))
     major, minor, patch, revision = (int(part) for part in manifest["version"].split("."))
     assert manifest["update_contract"]["updater_semver"] == f"{major}.{minor}.{patch * 100 + revision}"
-    assert manifest["build_status"] in {
+    # A preserved, older public artifact is not proof of current-candidate gates.
+    historical_automated = manifest.get("version") != RELEASE_VERSION and manifest.get("automated_checks_passed") is True
+    assert manifest["build_status"] in ({"windows_automated_checks_passed"} if historical_automated else set()) | {
         "pending_windows_rebuild", "built_windows_unverified", "windows_external_gates_pending", "windows_stable_external_gates_pending", "windows_verified_release_candidate",
     }
     if manifest["build_status"] == "pending_windows_rebuild":

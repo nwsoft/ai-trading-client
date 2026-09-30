@@ -32,7 +32,7 @@ const fields=[field('paper_trading',true,'general','boolean'),field('log_level',
   const endpoint=new URL(route.request().url()).pathname;
   if(route.request().method()!=='GET') writes.push(endpoint);
   let payload={};
-  if(endpoint.endsWith('/platform')) payload={release_version:'3.9.1.49',release_label:'v3.9.1.49 QA'};
+  if(endpoint.endsWith('/platform')) payload={release_version:'3.9.1.50',release_label:'v3.9.1.50 QA'};
   else if(endpoint.endsWith('/session')) payload={authenticated:true,account:'layout-fixture',user:{id:'fixture',user_grade:'premium'}};
   else if(endpoint.endsWith('/features')) payload=inventory;
   else if(endpoint.endsWith('/runtime/snapshot')) payload={enabled_sources:['binance'],running_sources:[],selected_sources:{blockchain:'binance'},credential_status:{},paper_trading:true,execution_modes:{binance:'paper'}};
@@ -45,8 +45,8 @@ const fields=[field('paper_trading',true,'general','boolean'),field('log_level',
  });
  try{
   await page.goto(process.env.NOAHAI_QA_URL||'http://127.0.0.1:4209');
-  await page.getByRole('button',{name:'거래 대시보드',exact:true}).click();
-  await page.getByRole('button',{name:'BINANCE',exact:true}).click();
+  await page.getByRole('button',{name:'거래 현황',exact:true}).click();
+  await page.locator('.source-tab-strip').getByRole('button',{name:'BINANCE',exact:true}).click();
   await page.getByRole('button',{name:'운용 요약',exact:true}).click();
   await page.locator('.operation-summary').waitFor();
   assert.match(await page.locator('.operation-summary').innerText(),/근거가 아직 없습니다/);

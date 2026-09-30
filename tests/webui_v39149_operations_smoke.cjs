@@ -28,7 +28,7 @@ const inventory = JSON.parse(fs.readFileSync(path.join(root, 'config/web_ui_feat
     requests.push(endpoint);
     if (route.request().method() !== 'GET') writes.push(endpoint);
     let payload={};
-    if(endpoint.endsWith('/platform')) payload={release_version:'3.9.1.49',release_label:'v3.9.1.49 ISOLATED QA'};
+    if(endpoint.endsWith('/platform')) payload={release_version:'3.9.1.50',release_label:'v3.9.1.50 ISOLATED QA'};
     else if(endpoint.endsWith('/session')) payload={authenticated:true,account:'v49-fixture',user:{id:'fixture',user_grade:'premium'}};
     else if(endpoint.endsWith('/features')) payload=inventory;
     else if(endpoint.endsWith('/runtime/snapshot')) payload={enabled_sources:['upbit','bithumb','kiwoom'],running_sources:['upbit'],selected_sources:{blockchain:'upbit',stock:'kiwoom'},credential_status:{},paper_trading:mode==='paper',execution_modes:{upbit:mode,bithumb:mode,kiwoom:mode}};
@@ -48,8 +48,8 @@ const inventory = JSON.parse(fs.readFileSync(path.join(root, 'config/web_ui_feat
   });
   try {
     await page.goto(process.env.NOAHAI_QA_URL || 'http://127.0.0.1:4209');
-    await page.getByRole('button',{name:'거래 대시보드',exact:true}).click();
-    await page.getByRole('button',{name:'UPBIT',exact:true}).click();
+    await page.getByRole('button',{name:'거래 현황',exact:true}).click();
+    await page.locator('.source-tab-strip').getByRole('button',{name:'UPBIT',exact:true}).click();
     await page.getByRole('button',{name:'운용 요약',exact:true}).waitFor();
     assert.equal(await page.locator('.operation-summary').count(),0);
     await page.getByRole('button',{name:'운용 요약',exact:true}).click();
@@ -65,8 +65,8 @@ const inventory = JSON.parse(fs.readFileSync(path.join(root, 'config/web_ui_feat
     await page.setViewportSize({width:1080,height:850});
     assert.ok(await page.locator('.operation-summary').evaluate(e=>e.scrollWidth<=e.clientWidth+1),'summary must wrap');
     await page.reload();
-    await page.getByRole('button',{name:'거래 대시보드',exact:true}).click();
-    await page.getByRole('button',{name:'UPBIT',exact:true}).click();
+    await page.getByRole('button',{name:'거래 현황',exact:true}).click();
+    await page.locator('.source-tab-strip').getByRole('button',{name:'UPBIT',exact:true}).click();
     await page.locator('.operation-summary').waitFor();
     missing=true;
     await page.waitForTimeout(5500);

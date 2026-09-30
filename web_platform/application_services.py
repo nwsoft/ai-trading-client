@@ -5819,6 +5819,9 @@ class ApplicationServices:
             self._audit('runtime.command_rejected', {
                 'command_id':command_id, 'command':command, 'source':source,
                 'reason_code':reason if safe else 'runtime_command_failed',
+                **({'stage': str(error).split(':')[2]}
+                   if safe and len(str(error).split(':')) == 3 and str(error).split(':')[2]
+                   in {'scope', 'initialization', 'market_observation', 'candidate_selection', 'worker_start'} else {}),
                 **({'reason_detail':'managed_position_reconciliation_required'}
                    if str(error).split(':')[1:2] == ['managed_position_reconciliation_required'] else {}),
             })

@@ -1,11 +1,12 @@
 # NoahAI - AI 금융 동반자 & 의사결정 인프라
 
-현재 공개 버전: **v3.9.1.48** · updater **3.9.148** · 사용자 배포 확인 및 보존된 매니페스트 기준.
-현재 공개 기반: v3.9.1.48. 서버 배포와 Client 설치본 검증은 구분합니다.
+현재 공개 버전: **v3.9.1.49** · updater **3.9.149** · 사용자 배포 완료 확인 기준. 로컬 보존 매니페스트도 49입니다. 외부 검증 pending 표시는 별도로 남아 있어 사용자 배포 확인과 구분합니다.
+현재 공개 기반: v3.9.1.49. 현재 Windows 검증 후보는 50이며 공개 자산과 분리합니다.
+현재 소스 후보: v3.9.1.50 · updater **3.9.150** · Visual Overview and Start Diagnostics Patch. [50 통합 계획](docs/V39150_VISUAL_OVERVIEW_PLAN.md)과 [시험 결과](docs/TEST_STATUS.md)를 따릅니다. Windows 빌드·배포는 사용자가 수행합니다.
 
-v49 후보 패치명: Strategy Capacity and Operations Evidence Patch.
+이하 49 구현 이력: Strategy Capacity and Operations Evidence Patch.
 
-현재 소스 후보: v3.9.1.49 · updater **3.9.149**. PAPER 평가 용량·완료 봉 지표·읽기 전용 운용 요약. 기존 전략·성과·승인·손익 보호는 보존합니다. [49 통합 계획](docs/UPDATE_PLAN.md#v39149-operations-summary)과 [실제 검증 범위](docs/TEST_STATUS.md)를 참고하세요. Windows 빌드/배포 전입니다. 48의 비용·업로드·종목 상태 계약도 유지합니다.
+49 기반: PAPER 평가 용량·완료 봉 지표·읽기 전용 운용 요약. 기존 전략·성과·승인·손익 보호 및 48의 비용·업로드·종목 상태 계약을 유지합니다. [49 이력](docs/UPDATE_PLAN.md#v39149-operations-summary)은 당시 기준이며 후속 변경·검증은 위 50 계획을 따릅니다.
 
 9월 25일 추가: 기존 Level 1~4 보존 + Level 5 연구실, 모든 Level의 WebUI 기간·종목·보유 가정 선택, 새 유지관리의 전체 기록 범위. 고객 전략의 실행식 누락과 전체 과거 원장·설치본 게이트는 남아 있습니다. [현재 구현/미완료](docs/UPDATE_PLAN.md), [검증 근거](docs/TEST_STATUS.md)를 함께 확인하며 시험 수치만으로 전체 복구 완료를 판단하지 않습니다.
 

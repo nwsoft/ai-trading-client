@@ -1,4 +1,5 @@
 import { getLocale } from './i18n';
+import { GatewayRequestError, startDiagnostic } from './startDiagnostics';
 import type {
   CandleSnapshot,
   FeatureInventory,
@@ -170,6 +171,8 @@ export function userFacingGatewayError(detail: unknown, status: number): string 
   if (chartMessages[code]) return chartMessages[code];
   const sourceLabel = source ? source.toUpperCase() : "선택한 연결";
   const runtimeMessages: Record<string, string> = {
+    runtime_source_stopping: `${sourceLabel} 이전 거래 워커가 아직 종료 중입니다. 종료 확인 전 중복 시작하지 않습니다. 현재 실행 상태를 확인하세요.`,
+    runtime_start_cancelled: `${sourceLabel} 시작 준비 중 정지 요청이 들어와 시작을 취소했습니다. 자동으로 다시 시작하지 않습니다.`,
     account_snapshot_refresh_busy: "다른 계좌 새로고침이 진행 중입니다. 현재 조회가 끝난 뒤 계좌 상태를 확인하세요. 거래 시작 실패나 전략 오류를 뜻하지 않으며 새로고침을 반복할 필요는 없습니다.",
     trading_candidates_unavailable: `${sourceLabel} 실행 시작 보류: 분석 가능한 종목 후보를 확보하지 못했습니다. 코인 정보에서 선정 결과·시세 조회 상태를 확인하세요. 전략을 다시 만들거나 거래 기록을 초기화할 문제가 아닙니다.`,
     exchange_initialization_failed: `${sourceLabel} 실행 시작 보류: 기관 연결 초기화에 실패했습니다. API 연결 상태와 같은 시각의 초기화 로그를 확인하세요. 연결 성공과 분석·거래 시작 완료는 다릅니다.`,
@@ -283,7 +286,12 @@ export function createGatewayClient(): GatewayClient {
       },
       cache: "no-store",
       body: JSON.stringify(body),
-    }, timeoutMs);
+    }, timeoutMs).catch(reason => {
+      if (path !== '/api/v1/runtime/commands') throw reason;
+      const id = (body as Record<string, unknown>)?.command_id;
+      const message = reason instanceof Error ? reason.message : '내부 서비스 응답을 받지 못했습니다.';
+      throw new GatewayRequestError(message, startDiagnostic(message.includes('초과') ? 'runtime_request_timeout' : 'runtime_transport_unavailable', id));
+    });
     const payload = await response.json().catch(() => ({}));
     if (!response.ok) {
       let message = userFacingGatewayError(payload.detail, response.status);
@@ -293,7 +301,7 @@ export function createGatewayClient(): GatewayClient {
           message += ` (요청 ID: ${command.command_id})`;
         }
       }
-      throw new Error(message);
+      throw new GatewayRequestError(message, startDiagnostic(payload.detail, (body as Record<string, unknown>)?.command_id, response.status));
     }
     return payload as T;
   }

@@ -378,7 +378,9 @@ def test_windows_executable_metadata_is_aligned_to_current_release():
     assert deployed_version == manifest["version"]
     assert tuple(map(int, manifest["version"].split("."))) <= tuple(map(int, RELEASE_VERSION.split(".")))
     installer_asset = manifest["assets"]["installer"]
-    assert manifest.get("build_status") in {"pending_windows_rebuild", "built_windows_unverified", "windows_external_gates_pending", "windows_stable_external_gates_pending", "windows_verified_release_candidate"}
+    # A preserved, older public artifact is not proof of current-candidate gates.
+    historical_automated = manifest.get("version") != RELEASE_VERSION and manifest.get("automated_checks_passed") is True
+    assert manifest.get("build_status") in ({"windows_automated_checks_passed"} if historical_automated else set()) | {"pending_windows_rebuild", "built_windows_unverified", "windows_external_gates_pending", "windows_stable_external_gates_pending", "windows_verified_release_candidate"}
     if manifest.get("build_status") == "pending_windows_rebuild":
         assert manifest.get("publish_ready") is False
         assert manifest.get("source_fingerprint") is None

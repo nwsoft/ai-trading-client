@@ -7,6 +7,7 @@ import { accountConnectionFailure, accountConnectionView } from "../accountConne
 import type { RuntimeSnapshot, WorkspaceSnapshot } from "../types";
 import { LogHelpDialog } from "./LogHelpDialog";
 import { TradingStartHelp } from './TradingStartHelp';
+import { GatewayRequestError, type StartDiagnostic } from '../startDiagnostics';
 import { SourceTradeHistory } from "./SourceTradeHistory";
 import { startSequentialPoll } from "../sequentialPoll";
 import { OperationSummary } from './OperationSummary';
@@ -865,7 +866,7 @@ export function SourceWorkspace({ onOpenFeature, client, runtime, service, sourc
     setOperationView(value);
     try { if (accountScope) localStorage.setItem(preferenceKey, value); } catch { /* Optional preference only. */ }
   }
-  const [startFailure, setStartFailure] = useState<{message: string; time: string} | null>(null);
+  const [startFailure, setStartFailure] = useState<{message: string; time: string; mode: string; diagnostic?: StartDiagnostic} | null>(null);
   const [workspace, setWorkspace] = useState<WorkspaceSnapshot | null>(null);
   const [logs, setLogs] = useState<Array<{ source: string; message: string; level?: string; exchange?: string; category?: string }>>([]);
   const [accountPayload, setAccountPayload] = useState<Record<string, any> | null>(null);
@@ -1018,7 +1019,7 @@ export function SourceWorkspace({ onOpenFeature, client, runtime, service, sourc
     catch (reason) {
       const failure = reason instanceof Error ? reason.message : `${wording} 명령에 실패했습니다.`;
       setMessage(failure);
-      if (action === 'start') setStartFailure({message: failure, time: new Date().toISOString()});
+      if (action === 'start') setStartFailure({message: failure, time: new Date().toISOString(), mode: sourceExecutionMode, diagnostic: reason instanceof GatewayRequestError ? reason.diagnostic : undefined});
     }
     finally { setCommandBusy(false); }
   }
@@ -1180,7 +1181,7 @@ export function SourceWorkspace({ onOpenFeature, client, runtime, service, sourc
     </div>
     <article className="legacy-exchange-log legacy-exchange-card">
       <div className="legacy-log-toolbar compact" aria-label="운용 화면 선택"><button type="button" aria-pressed={operationView === 'logs'} onClick={() => changeOperationView('logs')}>상세 로그</button><button type="button" aria-pressed={operationView === 'summary'} onClick={() => changeOperationView('summary')}>운용 요약</button></div>
-      {operationView === 'summary' ? <OperationSummary onOpenFeature={onOpenFeature} onAskAssistant={onAskAssistant} data={workspace?.operation_summary} source={source} mode={sourceExecutionMode} running={running} failed={historyFetchFailed} /> : <>
+      {startFailure ? <><TradingStartHelp key={startFailure.time} client={client} source={source} mode={startFailure.mode} diagnostic={startFailure.diagnostic} message={startFailure.message} occurredAt={startFailure.time} onAskAssistant={onAskAssistant} /><button type="button" className="start-help-dismiss" onClick={()=>setStartFailure(null)}>진단 닫고 기록 보기</button></> : operationView === 'summary' ? <OperationSummary onOpenFeature={onOpenFeature} onAskAssistant={onAskAssistant} data={workspace?.operation_summary} source={source} mode={sourceExecutionMode} running={running} failed={historyFetchFailed} /> : <>
       <div className="legacy-log-filters">
         <label><input type="checkbox" checked={simpleOnly} onChange={(event) => { setSimpleOnly(event.target.checked); if (event.target.checked) setAnalysisOnly(false); }} />{t("간략 로그")}</label>
         <label><input type="checkbox" checked={analysisOnly} onChange={(event) => { setAnalysisOnly(event.target.checked); if (event.target.checked) setSimpleOnly(false); }} />{t("분석 과정만")}</label>
@@ -1193,8 +1194,7 @@ export function SourceWorkspace({ onOpenFeature, client, runtime, service, sourc
       <div className="legacy-log-console" ref={sourceLogConsoleRef}>{filteredLogs.map((line, index) => <div key={`${line.source}:${index}`}><code>{line.message}</code></div>)}{!filteredLogs.length && <div className="empty-state">{startCredentialsReady ? `표시할 ${service === "stock" ? "증권사" : "거래소"} 로그가 없습니다.` : "API 키 연결 필요"}</div>}</div>
       <div className="legacy-log-toolbar compact"><button type="button" onClick={() => setLogHelpOpen(true)}>{t("로그도움말")}</button><button type="button" onClick={() => { clearMarkerRef.current = logs.at(-1)?.message ?? ""; setLogs([]); }}>{t("로그지우기")}</button><button type="button" onClick={() => { clearMarkerRef.current = ""; refreshStored(); }}>{t("새로고침")}</button></div>
       </>}
-      <div className="source-log-message-slot" role="status">{message && <div className="inline-notice">{message}</div>}</div>
-      {startFailure && <TradingStartHelp key={startFailure.time} client={client} source={source} mode={sourceExecutionMode} message={startFailure.message} occurredAt={startFailure.time} onAskAssistant={onAskAssistant} />}
+      <div className="source-log-message-slot" role="status">{message && !startFailure && <div className="inline-notice">{message}</div>}</div>
     </article>
     <LogHelpDialog open={logHelpOpen} service={service} source={source} onClose={() => setLogHelpOpen(false)} onOpenManual={onOpenManual} />
   </section>;

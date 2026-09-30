@@ -111,6 +111,9 @@ from api.position_kpi import emit_position_closed, emit_position_opened, emit_po
 from trading.position_limit_policy import effective_crypto_position_limit, effective_position_count
 
 class UnifiedTrader:
+    # Only registry/flag updates use this lock; network initialization is
+    # serialized per venue, never across unrelated venues.
+    _start_registry_guard = threading.RLock()
     # 정적 분석기(Pylance) 인지를 위한 클래스 레벨 속성 선언
     main_app: Optional[Any] = None
 
@@ -5595,7 +5598,20 @@ class UnifiedTrader:
             for name in (set(self.trade_stats) | set(self.paper_trade_stats))
         }
 
+    def _source_start_lock(self, exchange_name: str):
+        with self._start_registry_guard:
+            locks = getattr(self, '_source_start_locks', None)
+            if locks is None:
+                self._source_start_locks = locks = {}
+            return locks.setdefault(exchange_name, threading.RLock())
+
     def start_trading(self, exchange_name: str):
+        with self._start_registry_guard:
+            generation = (getattr(self, '_source_stop_generations', {}) or {}).get(exchange_name, 0)
+        with self._source_start_lock(exchange_name):
+            return self._start_trading_serialized(exchange_name, generation)
+
+    def _start_trading_serialized(self, exchange_name: str, stop_generation: int):
         """거래소별 실행 시작.
 
         학습 범위에만 포함된 거래소도 분석·학습 루프를 시작한다. 실제 주문은
@@ -5603,14 +5619,34 @@ class UnifiedTrader:
         """
         # Keep legacy bool callers compatible; the web facade uses the checked
         # wrapper below so a normal refusal is not reduced to a generic 409.
-        failures = getattr(self, '_start_failures', None)
-        if failures is None:
-            self._start_failures = failures = {}
-        failures.pop(exchange_name, None)
+        with self._start_registry_guard:
+            failures = getattr(self, '_start_failures', None)
+            if failures is None:
+                self._start_failures = failures = {}
+            failures.pop(exchange_name, None)
+            stages = getattr(self, '_start_failure_stages', None)
+            if stages is None:
+                self._start_failure_stages = stages = {}
+            stages.pop(exchange_name, None)
+        stage = 'scope'
+        monitoring_thread = None
         def reject(code):
             failures[exchange_name] = code
+            stages[exchange_name] = stage
             return False
         try:
+            with self._start_registry_guard:
+                if (getattr(self, '_source_stop_generations', {}) or {}).get(exchange_name, 0) != stop_generation:
+                    stage = 'worker_start'
+                    return reject('runtime_start_cancelled')
+            # An alive worker with a cleared flag is still shutting down.
+            # Raising that flag again would revive it alongside a new worker.
+            existing = (getattr(self, 'monitoring_threads', {}) or {}).get(exchange_name)
+            if existing is not None and existing.is_alive():
+                if self.monitoring_flags.get(exchange_name, False):
+                    return True
+                stage = 'worker_start'
+                return reject('runtime_source_stopping')
             trade_enabled = self._is_trade_enabled(exchange_name)
             learning_enabled = self._is_learning_enabled(exchange_name)
             if not trade_enabled and not learning_enabled:
@@ -5618,6 +5654,7 @@ class UnifiedTrader:
                     f"⚠️ {exchange_name} 실행 시작 취소 - 거래·학습 활성 범위에 없습니다."
                 )
                 return reject('runtime_source_not_enabled')
+            stage = 'initialization'
             if not self._ensure_exchange_initialized(exchange_name):
                 self.logger.warning(f"⚠️ {exchange_name} 실행 시작 취소 - 거래소 초기화 실패")
                 return reject('exchange_initialization_failed')
@@ -5632,6 +5669,7 @@ class UnifiedTrader:
             # 거래 시작 전 거래소별 코인 준비 보장
             selected = list(self.selected_coins.get(exchange_name, []) or [])
             if not selected:
+                stage = 'market_observation'
                 # 최초 후보도 default normal이 아니라 해당 거래소의 현재
                 # BTC 시장을 먼저 관찰해 메이저/알트 비율에 반영한다.
                 observed_regime = self._evaluate_current_market_conditions_unified_fast(
@@ -5646,6 +5684,7 @@ class UnifiedTrader:
                     min_dwell_seconds=max(0, int(600 if configured_dwell is None else configured_dwell)),
                 )
                 self.last_market_regime_by_exchange[exchange_name] = confirmed_regime
+                stage = 'candidate_selection'
                 selected = self.select_trading_coins_unified(exchange_name)
                 if selected:
                     self.last_coin_selection_time_by_exchange[exchange_name] = time.time()
@@ -5653,9 +5692,15 @@ class UnifiedTrader:
                 self.logger.warning(f"⚠️ {exchange_name} 거래 시작 취소 - 선택된 코인 없음")
                 return reject('trading_candidates_unavailable')
 
-            self.monitoring_flags[exchange_name] = True
-            self.trading_cycles[exchange_name] = True
-
+            stage = 'worker_start'
+            # Resolve mode before starting a worker: a mode error must not
+            # leave a running worker behind a refused-start response.
+            execution_mode = self._execution_mode(exchange_name)
+            mode_label = {
+                ExecutionMode.LIVE: "실거래",
+                ExecutionMode.PAPER: "페이퍼",
+                ExecutionMode.LEARNING: "학습 전용",
+            }[execution_mode]
             # 모니터링 스레드 시작
             monitoring_thread = threading.Thread(
                 target=self._monitoring_loop,
@@ -5663,29 +5708,37 @@ class UnifiedTrader:
                 daemon=True,
                 name=f"noahai-{exchange_name}-runtime",
             )
-            self.monitoring_threads[exchange_name] = monitoring_thread
-            monitoring_thread.start()
+            with self._start_registry_guard:
+                if (getattr(self, '_source_stop_generations', {}) or {}).get(exchange_name, 0) != stop_generation:
+                    return reject('runtime_start_cancelled')
+                self.monitoring_threads[exchange_name] = monitoring_thread
+                self.monitoring_flags[exchange_name] = True
+                self.trading_cycles[exchange_name] = True
+                monitoring_thread.start()
 
-            execution_mode = self._execution_mode(exchange_name)
-            mode_label = {
-                ExecutionMode.LIVE: "실거래",
-                ExecutionMode.PAPER: "페이퍼",
-                ExecutionMode.LEARNING: "학습 전용",
-            }[execution_mode]
             self.logger.info(f"🚀 {exchange_name} {mode_label} 실행 시작")
             self.logger.info(f"{mode_label} 실행 시작 (ex={exchange_name})")
             return True
 
         except Exception as e:
-            self.logger.error(f"❌ {exchange_name} 거래 시작 실패: {e}")
+            if monitoring_thread is not None and not monitoring_thread.is_alive():
+                self.monitoring_flags[exchange_name] = False
+                self.trading_cycles[exchange_name] = False
+                if self.monitoring_threads.get(exchange_name) is monitoring_thread:
+                    self.monitoring_threads.pop(exchange_name, None)
+            self.logger.error(f"❌ {exchange_name} 거래 시작 실패 (stage={stage}): {e}")
             return reject('runtime_start_exception')
 
     def start_trading_checked(self, exchange_name: str):
-        result = self.start_trading(exchange_name)
-        if result is False:
-            code = (getattr(self, '_start_failures', {}) or {}).get(exchange_name, 'runtime_command_rejected')
-            raise RuntimeError(f'{code}:{exchange_name}')
-        return result
+        with self._start_registry_guard:
+            generation = (getattr(self, '_source_stop_generations', {}) or {}).get(exchange_name, 0)
+        with self._source_start_lock(exchange_name):
+            result = self._start_trading_serialized(exchange_name, generation)
+            if result is False:
+                code = (getattr(self, '_start_failures', {}) or {}).get(exchange_name, 'runtime_command_rejected')
+                stage = (getattr(self, '_start_failure_stages', {}) or {}).get(exchange_name)
+                raise RuntimeError(f'{code}:{exchange_name}' + (f':{stage}' if stage else ''))
+            return result
 
     def stop_trading(self, exchange_name: str, close_all: bool = False):
         """거래소별 거래 중지
@@ -5786,8 +5839,13 @@ class UnifiedTrader:
         venue = str(exchange_name or '').strip().lower()
         if not venue:
             return
-        self.monitoring_flags[venue] = False
-        self.trading_cycles[venue] = False
+        with self._start_registry_guard:
+            generations = getattr(self, '_source_stop_generations', None)
+            if generations is None:
+                self._source_stop_generations = generations = {}
+            generations[venue] = generations.get(venue, 0) + 1
+            self.monitoring_flags[venue] = False
+            self.trading_cycles[venue] = False
 
     def wait_for_trading_stops(
         self,
@@ -5807,8 +5865,15 @@ class UnifiedTrader:
             if thread is not None and thread.is_alive():
                 alive.append(venue)
                 continue
-            self.monitoring_threads.pop(venue, None)
-            stopped.append(venue)
+            with self._start_registry_guard:
+                # A new explicit start may have completed after the old worker
+                # exited while this join was returning. Never erase its handle
+                # or report that replacement as stopped.
+                if self.monitoring_threads.get(venue) is not thread:
+                    alive.append(venue)
+                    continue
+                self.monitoring_threads.pop(venue, None)
+                stopped.append(venue)
             self.logger.info(f"⏹️ {venue} 거래 중지")
             self.logger.info(f"거래 중지 (ex={venue})")
         try:

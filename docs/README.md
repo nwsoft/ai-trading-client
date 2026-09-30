@@ -1,3 +1,7 @@
+## 2026-09-30 — 현행 소스 후보 v3.9.1.50 / 공개 v3.9.1.49
+
+사용자가 49 배포 완료를 확인했습니다. [50 계획](V39150_VISUAL_OVERVIEW_PLAN.md), [시험 기록](TEST_STATUS.md), [Windows 인수](DEPLOY_CHECKLIST.md)가 후속 정본입니다. 아래 49 이하의 현재/후보/미완료는 당시 이력이며 현행 판정은 이 절을 우선합니다.
+
 ## 2026-09-29 — v3.9.1.49 통합 업데이트
 
 현재 소스 후보는 49이며 공개 v3.9.1.48의 종목·비용·입력 계약을 유지합니다. [통합 계획](UPDATE_PLAN.md#v39149-operations-summary), [현행 구조](ARCHITECTURE.md), [사용 안내](USER_GUIDE.md), [실제 시험 결과](TEST_STATUS.md), [Windows 확인](DEPLOY_CHECKLIST.md)이 정본입니다. 아래 '현재' 버전은 당시 기록으로, 현행 배포 완료를 뜻하지 않습니다.

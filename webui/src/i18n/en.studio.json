@@ -52,7 +52,7 @@
   "위 입력 영역에서 원본 분석 → XAI 검토 → 버전 저장 순서로 만들 수 있습니다.": "Start above: Analyze source → Review XAI → Save version.",
   "거래 시그널만": "Trade signals only", "현재 필터에 표시할 로그가 없습니다.": "No logs match the current filter.", "로그 레벨:": "Log level:", "거래소:": "Exchange:", "카테고리:": "Category:",
   "분석": "Analysis", "학습": "Learning", "시스템": "System", "운영 KPI · 오늘 ·": "Operating KPIs · Today ·", "가상 손익": "PAPER PnL", "대조 완료 손익": "Reconciled PnL", "대조 완료 승률": "Reconciled win rate",
-  "거래 현황": "Trading status", "현재 가상 원장 + 오늘 PAPER 청산": "Current PAPER ledger + today's PAPER closes", "현재 계좌 + 오늘 LIVE 청산": "Current account + today's LIVE closes",
+  "거래 현황": "Trading overview", "현재 가상 원장 + 오늘 PAPER 청산": "Current PAPER ledger + today's PAPER closes", "현재 계좌 + 오늘 LIVE 청산": "Current account + today's LIVE closes",
   "현재 가상 포지션": "Current PAPER positions", "현재 계좌 포지션": "Current account positions", "현재 포지션": "Current positions", "오늘 청산": "Today's closes",
   "• 오늘": "• Today", "청산 수:": "Closes:", "순손익:": "Net PnL:", "• 자동 거래 상태:": "• Trading state:", "가상": "PAPER", "체결 대조 완료": "Reconciled fills",
   "거래소 일괄 실행": "Venue batch controls", "설정 대상 전체 시작": "Start configured venues", "실행 중 전체 정지": "Stop running venues",

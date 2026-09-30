@@ -59,7 +59,9 @@ def test_current_release_is_pending_until_new_windows_assets_exist():
 
     manifest_is_current = manifest["version"] == RELEASE_VERSION
     assert tuple(map(int, manifest["version"].split("."))) <= tuple(map(int, RELEASE_VERSION.split(".")))
-    assert manifest["build_status"] in {
+    # A preserved, older public artifact is not proof of current-candidate gates.
+    historical_automated = manifest.get("version") != RELEASE_VERSION and manifest.get("automated_checks_passed") is True
+    assert manifest["build_status"] in ({"windows_automated_checks_passed"} if historical_automated else set()) | {
         "pending_windows_rebuild",
         "built_windows_unverified",
         "windows_external_gates_pending",

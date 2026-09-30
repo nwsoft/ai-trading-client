@@ -23,7 +23,9 @@ def test_v3915_is_a_new_blocked_candidate_not_a_same_version_replacement():
     assert package["build"]["win"]["artifactName"] == f"NoahAI-{RELEASE_VERSION}-Setup.${{ext}}"
     manifest_is_current = manifest["version"] == RELEASE_VERSION
     assert tuple(map(int, manifest["version"].split("."))) <= tuple(map(int, RELEASE_VERSION.split(".")))
-    assert manifest["build_status"] in {
+    # A preserved, older public artifact is not proof of current-candidate gates.
+    historical_automated = manifest.get("version") != RELEASE_VERSION and manifest.get("automated_checks_passed") is True
+    assert manifest["build_status"] in ({"windows_automated_checks_passed"} if historical_automated else set()) | {
         "pending_windows_rebuild",
         "built_windows_unverified",
         "windows_external_gates_pending",

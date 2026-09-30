@@ -1,41 +1,47 @@
 import { useState } from 'react';
 import type { GatewayClient } from '../api';
 import { RecordRecoveryPanel } from './RecordRecoveryPanel';
+import { startDiagnostic, startGuidance, startStageLabel, type StartDiagnostic } from '../startDiagnostics';
 
 /** Deliberately allowlisted diagnostics: no keys, account IDs, amounts or raw logs. */
-export function TradingStartHelp({ client, source, mode, message, occurredAt, onAskAssistant }: {
+export function TradingStartHelp({ client, source, mode, message, occurredAt, diagnostic, onAskAssistant }: {
   client: GatewayClient; source: string; mode: string; message: string; occurredAt: string;
+  diagnostic?: StartDiagnostic;
   onAskAssistant?: (question: string) => void;
 }) {
   const [report, setReport] = useState('');
   const [notice, setNotice] = useState('');
   const [busy, setBusy] = useState(false);
-  const managed = message.includes('managed_position_reconciliation_required');
+  const evidence = diagnostic ?? startDiagnostic(undefined);
+  const guidance = startGuidance(evidence.code, mode);
+  const managed = evidence.code === 'managed_position_reconciliation_required';
   async function prepareReport() {
     setBusy(true); setNotice('');
     const safeSource = /^[a-z]{2,24}$/.test(source) ? source : 'unknown';
-    const request = message.match(/요청 ID[:：]\s*([A-Za-z0-9_-]{16,80})/)?.[1] || '미기록';
+    const request = evidence.requestId;
     let version = '조회 실패 · 앱 제목의 버전을 함께 알려주세요';
     try {
       const platform = await client.platform();
       if (/^\d+(?:\.\d+){2,3}$/.test(platform.release_version)) version = platform.release_version;
     } catch { /* Reporting must work even during a partial gateway failure. */ }
-    let recovery = '복구 상태 조회 실패 또는 아직 점검 전';
-    try {
+    let recovery = '거래 기록 복구: 이 시작 오류의 필수 조치로 확인되지 않음';
+    if (guidance.recovery) try {
       const status = await client.recordRecovery(source);
       const safeState = /^[a-z_]{1,50}$/.test(String(status.state)) ? status.state : 'unknown';
       const reasons = Object.entries(status.reasons ?? {}).filter(([code, count]) => /^[a-z_]{1,80}$/.test(code) && Number.isSafeInteger(count) && Number(count) >= 0);
-      recovery = `복구 상태: ${safeState}\n미확정 사유: ${JSON.stringify(Object.fromEntries(reasons))}`;
-    } catch { /* A report must still be possible when the local journal fails. */ }
-    setReport(`NoahAI 거래 시작 진단\n버전: ${version}\n기관: ${safeSource}\n모드: ${['live','paper','learning'].includes(mode) ? mode : 'unknown'}\n시각(UTC): ${occurredAt}\n동작: 거래 시작\n지원 코드: ${managed ? 'managed_position_reconciliation_required' : 'start_refused_check_displayed_reason'}\n요청 ID: ${request}\n${recovery}\n거래 시작은 보류됨. 복구 완료 후 시작 재평가 필요.\nAPI 키·계좌번호·잔고·주문 내역·원본 로그는 포함하지 않았습니다.`);
+      recovery = `복구 조회 시각(UTC): ${new Date().toISOString()} · 시작 응답과 별도 조회\n복구 상태: ${safeState}\n미확정 사유: ${reasons.length ? JSON.stringify(Object.fromEntries(reasons)) : '구체 사유 미수신 · 해결 완료를 뜻하지 않음'}`;
+    } catch { recovery = '복구 상태 조회 실패 · 원인 확인 필요'; }
+    setReport(`NoahAI 거래 시작 진단\n버전: ${version}\n기관: ${safeSource}\n모드: ${['live','paper','learning'].includes(mode) ? mode : 'unknown'}\n시각(UTC): ${occurredAt}\n동작: 거래 시작\n지원 코드: ${evidence.code}\n실패 단계: ${evidence.stage}\n응답 상태: ${evidence.status ?? '응답 상태 미수신'}\n요청 ID: ${request}\n${recovery}\n다음 조치: ${guidance.action}\n시작 완료는 확인되지 않았습니다. 현재 실행 상태를 확인하세요.\nAPI 키·계좌번호·잔고·주문 내역·원본 로그는 포함하지 않았습니다.`);
     setBusy(false);
   }
   return <section className="trading-start-help" aria-label="거래 시작 보류 해결 안내">
-    <h3>거래 시작이 보류되었습니다</h3>
-    <p>{managed ? '현재 포지션과 앱의 미청산 기록이 맞지 않습니다. 실제 청산 근거를 확인해 기록을 정리해야 합니다.' : '위에 표시된 원인을 먼저 확인하세요. API 권한·손실 한도·기록 불일치는 서로 다른 조치가 필요합니다.'}</p>
+    <h3>{['runtime_request_timeout','runtime_transport_unavailable'].includes(evidence.code) ? '거래 시작 응답을 확인하지 못했습니다' : '거래 시작이 보류되었습니다'}</h3>
+    <p>{managed ? '현재 포지션과 앱의 미청산 기록이 맞지 않습니다. 실제 청산 근거를 확인해 기록을 정리해야 합니다.' : message}</p>
+    <p>지원 코드: <code>{evidence.code}</code> · 단계: {startStageLabel(evidence.stage)}</p>
+    <p>{guidance.action}</p>
     <p>앱 전체가 잠긴 것은 아닙니다. 상태 조회·설정 확인·기록 점검은 이용할 수 있습니다. 오류를 무시하거나 기록을 삭제해 LIVE를 시작하지 마세요. 기존 포지션의 실제 보호 주문 상태는 별도로 확인하세요.</p>
-    <details open={managed}><summary>이 화면에서 거래 기록 점검·복구</summary><RecordRecoveryPanel client={client} initialSource={source} /></details>
-    <p>복구 후 직접 시작을 누르면 현재 위험 기준을 다시 확인합니다. 같은 사유가 남으면 아래 진단을 Q&amp;A 또는 관리자에게 전달하세요. AI는 설명을 도울 뿐 손익을 확정하거나 거래 제한을 해제하지 않습니다.</p>
+    {guidance.recovery && <details open={managed}><summary>이 화면에서 거래 기록 점검·복구</summary><RecordRecoveryPanel client={client} initialSource={source} /></details>}
+    <p>안내한 조치 후 같은 사유가 남으면 아래 진단을 Q&amp;A 또는 관리자에게 전달하세요. AI는 설명을 도울 뿐 손익을 확정하거나 거래 제한을 해제하지 않습니다.</p>
     <button type="button" disabled={busy} onClick={() => void prepareReport()}>Q&amp;A·관리자용 진단 만들기</button>
     {report && <div><label>공유 전 진단 내용 확인<textarea readOnly rows={12} value={report} /></label>
       <button type="button" onClick={() => {

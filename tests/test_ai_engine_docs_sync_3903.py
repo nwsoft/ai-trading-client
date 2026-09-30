@@ -50,7 +50,9 @@ def test_release_metadata_and_installed_manual_are_scoped_separately():
         else:
             assert manifest["publish_ready"] is True
             assert f"공개 v{manifest['version']}" in _read("RELEASE_NOTES.md")
-        assert manifest["build_status"] in {
+        # A preserved, older public artifact is not proof of current-candidate gates.
+        historical_automated = manifest.get("version") != RELEASE_VERSION and manifest.get("automated_checks_passed") is True
+        assert manifest["build_status"] in ({"windows_automated_checks_passed"} if historical_automated else set()) | {
             "pending_windows_rebuild",
             "built_windows_unverified",
             "windows_external_gates_pending",

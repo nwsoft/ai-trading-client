@@ -211,7 +211,10 @@ def test_github_workflow_builds_candidate_before_explicit_release():
     assert "upload-artifact@v4" in workflow
     assert "NOAHAI_PYTHON_X86" in workflow
     assert "requirements_kiwoom_x86.txt" in workflow
+    # External account/soak checks are recorded in the manifest, not represented
+    # as a second workflow switch that can drift from the release script policy.
     assert "confirm_external_gates" not in workflow
+    assert "if: inputs.publish_release" in workflow
     assert "publish_web_ui_windows_release.ps1" in workflow
     assert "softprops/action-gh-release" not in workflow  # no second publisher bypassing guards
     assert "deploy/web-release/NoahAI-${{ steps.app_version.outputs.version }}-Setup.exe" in workflow
