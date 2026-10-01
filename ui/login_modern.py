@@ -45,7 +45,7 @@ class LoginWindow:
         self.root.configure(fg_color=self._color("background", "#050a13"))
 
         # 백엔드 URL 설정
-        self.backend_url = "https://daltrading.net/auth/api_login"
+        self.backend_url = "https://noahai.net/auth/api_login"
 
         # 파일 경로 설정
         self.setup_file_paths()
@@ -572,7 +572,7 @@ class LoginWindow:
         import webbrowser
 
         # 회원가입 웹사이트 URL
-        signup_url = "https://daltrading.net"
+        signup_url = "https://noahai.net"
 
         try:
             # 웹브라우저로 회원가입 페이지 열기
@@ -702,7 +702,7 @@ NoahAI Decision OS — 로그인
    • 「로그인 정보 저장」을 켜두면 다음 실행 시 아이디가 채워질 수 있습니다.
 
 2) 회원가입
-    • 「회원가입」 버튼을 누르면 웹(https://daltrading.net)으로 이동합니다.
+    • 「회원가입」 버튼을 누르면 웹(https://noahai.net)으로 이동합니다.
     • 웹에서 회원가입을 완료한 뒤, 이 화면으로 돌아와 다시 로그인합니다.
     • 운영 정책에 따라 가입키(초대/인증 키)가 필요한 계정은
       판매 채널 또는 공식 고객지원 경로에서 발급받아 입력합니다.

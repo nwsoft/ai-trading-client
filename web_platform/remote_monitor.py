@@ -10,7 +10,7 @@ import time
 import requests
 from config.app_version import RELEASE_VERSION
 
-PORTAL = 'https://daltrading.net'
+PORTAL = 'https://noahai.net'
 VENUES = {'binance','bybit','okx','bitget','upbit','bithumb','coinone','kiwoom','kis','mirae','shinhan'}
 
 

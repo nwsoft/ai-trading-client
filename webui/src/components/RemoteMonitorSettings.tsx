@@ -37,7 +37,7 @@ export function RemoteMonitorSettings({client}: {client: GatewayClient}) {
     <div className="notification-actions">
       <button type="button" disabled={busy||!state} onClick={()=>void save(!state?.enabled)}>{state?.enabled?t("상태 공유 끄기"):t("상태 공유에 동의하고 연결")}</button>
       {state?.enabled && <button type="button" disabled={busy} onClick={()=>void save(true)}>{t("원격 권한 저장")}</button>}
-      <a href={`https://daltrading.net/remote?lang=${getLocale()}`} target="_blank" rel="noopener noreferrer">{t("모바일 대시보드 열기")}</a>
+      <a href={`https://noahai.net/remote?lang=${getLocale()}`} target="_blank" rel="noopener noreferrer">{t("모바일 대시보드 열기")}</a>
     </div>
     <p role="status">{t(error||state?.error||(state?.enabled?'상태 공유 켜짐':'상태 공유 꺼짐'))}{state?.last_sent?` · ${localized('마지막 전송','Last sent')} ${new Date(state.last_sent*1000).toLocaleString(intlLocale())}`:''}</p>
     {state?.enabled && <p>{localized('서버 연결 확인: ','Server connection: ')}{localized(

@@ -28,7 +28,7 @@ const inventory = JSON.parse(fs.readFileSync(path.join(root, 'config/web_ui_feat
     requests.push(endpoint);
     if (route.request().method() !== 'GET') writes.push(endpoint);
     let payload={};
-    if(endpoint.endsWith('/platform')) payload={release_version:'3.9.1.50',release_label:'v3.9.1.50 ISOLATED QA'};
+    if(endpoint.endsWith('/platform')) payload={release_version:'3.9.2.0',release_label:'v3.9.2.0 ISOLATED QA'};
     else if(endpoint.endsWith('/session')) payload={authenticated:true,account:'v49-fixture',user:{id:'fixture',user_grade:'premium'}};
     else if(endpoint.endsWith('/features')) payload=inventory;
     else if(endpoint.endsWith('/runtime/snapshot')) payload={enabled_sources:['upbit','bithumb','kiwoom'],running_sources:['upbit'],selected_sources:{blockchain:'upbit',stock:'kiwoom'},credential_status:{},paper_trading:mode==='paper',execution_modes:{upbit:mode,bithumb:mode,kiwoom:mode}};

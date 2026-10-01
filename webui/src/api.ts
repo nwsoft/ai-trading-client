@@ -61,7 +61,7 @@ export interface GatewayClient {
   driveAuthorization: (action?: "connect" | "disconnect") => Promise<Record<string, any>>;
   validateStrategyDraft: (payload: Record<string, unknown>) => Promise<Record<string, any>>;
   strategyMentor: (profile: Record<string, unknown>) => Promise<Record<string, any>>;
-  exportStrategyPackage: (scope: string, strategyKey: string, versionId: string) => Promise<Record<string, any>>;
+  exportStrategyPackage: (scope: string, strategyKey: string, versionId: string, definitionOnly?: boolean) => Promise<Record<string, any>>;
   exportStrategyExecutionEvidence: (scope: string, strategyKey: string, versionId: string) => Promise<Record<string, any>>;
   importStrategyPackage: (scope: string, fileName: string, strategyPackage: Record<string, unknown>) => Promise<Record<string, unknown>>;
   lifeFinance: () => Promise<LifeFinanceSnapshot>;
@@ -172,6 +172,10 @@ export function userFacingGatewayError(detail: unknown, status: number): string 
   const sourceLabel = source ? source.toUpperCase() : "선택한 연결";
   const runtimeMessages: Record<string, string> = {
     runtime_source_stopping: `${sourceLabel} 이전 거래 워커가 아직 종료 중입니다. 종료 확인 전 중복 시작하지 않습니다. 현재 실행 상태를 확인하세요.`,
+    trading_candidate_catalogue_unavailable: `${sourceLabel} 현재 종목 목록을 조회하지 못해 시작을 보류했습니다.`,
+    trading_candidate_markets_unavailable: `${sourceLabel} 거래 가능한 지원 상품이 확인되지 않아 시작을 보류했습니다.`,
+    trading_candidate_tickers_unavailable: `${sourceLabel} 유효한 시세를 받지 못해 시작을 보류했습니다.`,
+    trading_candidate_filters_excluded: `${sourceLabel} 거래대금·변동성 필터를 통과한 후보가 없어 시작을 보류했습니다.`,
     runtime_start_cancelled: `${sourceLabel} 시작 준비 중 정지 요청이 들어와 시작을 취소했습니다. 자동으로 다시 시작하지 않습니다.`,
     account_snapshot_refresh_busy: "다른 계좌 새로고침이 진행 중입니다. 현재 조회가 끝난 뒤 계좌 상태를 확인하세요. 거래 시작 실패나 전략 오류를 뜻하지 않으며 새로고침을 반복할 필요는 없습니다.",
     trading_candidates_unavailable: `${sourceLabel} 실행 시작 보류: 분석 가능한 종목 후보를 확보하지 못했습니다. 코인 정보에서 선정 결과·시세 조회 상태를 확인하세요. 전략을 다시 만들거나 거래 기록을 초기화할 문제가 아닙니다.`,
@@ -373,8 +377,8 @@ export function createGatewayClient(): GatewayClient {
     driveAuthorization: (action) => action ? mutate<Record<string, any>>("POST", `/api/v1/strategies/drive/${action}`, {}) : get<Record<string, any>>("/api/v1/strategies/drive"),
     validateStrategyDraft: (payload) => mutate<Record<string, any>>("POST", "/api/v1/strategies/draft-validation", payload),
     strategyMentor: (profile) => mutate<Record<string, any>>("POST", "/api/v1/strategies/mentor", { profile }),
-    exportStrategyPackage: (scope, strategyKey, versionId) => get<Record<string, any>>(
-      `/api/v1/strategies/${encodeURIComponent(scope)}/${encodeURIComponent(strategyKey)}/${encodeURIComponent(versionId)}/package`,
+    exportStrategyPackage: (scope, strategyKey, versionId, definitionOnly = false) => get<Record<string, any>>(
+      `/api/v1/strategies/${encodeURIComponent(scope)}/${encodeURIComponent(strategyKey)}/${encodeURIComponent(versionId)}/package${definitionOnly ? '?definition_only=true' : ''}`,
     ),
     exportStrategyExecutionEvidence: (scope, strategyKey, versionId) => get<Record<string, any>>(
       `/api/v1/strategies/${encodeURIComponent(scope)}/${encodeURIComponent(strategyKey)}/${encodeURIComponent(versionId)}/execution-evidence`,

@@ -32,7 +32,7 @@ const fields=[field('paper_trading',true,'general','boolean'),field('log_level',
   const endpoint=new URL(route.request().url()).pathname;
   if(route.request().method()!=='GET') writes.push(endpoint);
   let payload={};
-  if(endpoint.endsWith('/platform')) payload={release_version:'3.9.1.50',release_label:'v3.9.1.50 QA'};
+  if(endpoint.endsWith('/platform')) payload={release_version:'3.9.2.0',release_label:'v3.9.2.0 QA'};
   else if(endpoint.endsWith('/session')) payload={authenticated:true,account:'layout-fixture',user:{id:'fixture',user_grade:'premium'}};
   else if(endpoint.endsWith('/features')) payload=inventory;
   else if(endpoint.endsWith('/runtime/snapshot')) payload={enabled_sources:['binance'],running_sources:[],selected_sources:{blockchain:'binance'},credential_status:{},paper_trading:true,execution_modes:{binance:'paper'}};

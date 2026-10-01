@@ -399,6 +399,13 @@ class StockRuntimeController:
             event = self._events.get(broker)
             if event is not None:
                 event.set()
+            adapter = self._adapters.get(broker)
+        # Join-before-disconnect cannot release a worker blocked in a 120s
+        # COM/login read. Signal the cancellable adapter first, without holding
+        # the controller lock or interrupting an in-flight order.
+        cancel_reads = getattr(adapter, 'request_stop', None)
+        if callable(cancel_reads):
+            cancel_reads()
 
     def wait_for_stops(self, sources: list[str], *, timeout: float = 12.0) -> dict[str, list[str]]:
         """Wait for signalled workers against one deadline and release adapters."""
@@ -502,6 +509,8 @@ class StockRuntimeController:
                     message += " 목록 조회 상태: " + "; ".join(issues)
                 emit_runtime_status(self, broker, (reason, tuple(issues)), message, level="WARNING" if analysis_errors or reason == "empty_stock_universe" or issues else "INFO")
             except Exception as exc:
+                if stop_event.is_set() and str(exc) in {'stock_runtime_stopping', 'kiwoom_runtime_stopping'}:
+                    break
                 error_text = str(exc)
                 reconnect_latched = "kiwoom_manual_reconnect_required" in error_text
                 interval = 300 if reconnect_latched else 60
@@ -528,7 +537,18 @@ class StockRuntimeController:
             stop_event.wait(max(5, interval))
         emit_runtime_status(self, broker, "stopped", "증권 실행 워커 중지 · 계좌 전체 주문·포지션을 임의 청산하지 않습니다.")
 
+    def _check_stop_requested(self, broker: str) -> None:
+        with self._lock:
+            event = self._events.get(broker)
+            adapter = self._adapters.get(broker)
+        if event is not None and event.is_set():
+            cancel_reads = getattr(adapter, 'request_stop', None)
+            if callable(cancel_reads):
+                cancel_reads()
+            raise RuntimeError('stock_runtime_stopping')
+
     def _run_once(self, broker: str) -> tuple[dict[str, Any], int]:
+        self._check_stop_requested(broker)
         settings = self._settings_snapshot()
         cfg = dict(settings.get("stock_auto_trading", {}) or {})
         interval = int(cfg.get("interval_sec", 60) or 60)
@@ -538,6 +558,7 @@ class StockRuntimeController:
             if adapter is None:
                 raise RuntimeError(f"stock_adapter_unavailable:{broker}")
             self._adapters[broker] = adapter
+        self._check_stop_requested(broker)
         if hasattr(adapter, "connect") and not bool(getattr(adapter, "is_connected", False)):
             if adapter.connect() is False:
                 reason = str(getattr(adapter, "last_error", "") or getattr(adapter, "_last_connect_failure_reason", "") or "connection_rejected")
@@ -609,6 +630,7 @@ class StockRuntimeController:
         service.parallel_paper_observer = self.parallel_paper_observer
         service.notification_settings = dict(settings.get("notification_integrations", {}) or {})
         service.paper_validation_strategy_pool = list(self.paper_strategy_pool_provider() or [])
+        self._check_stop_requested(broker)
         result = service.run_auto_trade_cycle(
             symbols=symbols,
             quantity=float(cfg.get("quantity", 1.0) or 1.0),

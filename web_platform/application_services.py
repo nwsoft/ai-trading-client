@@ -1174,7 +1174,7 @@ class ApplicationServices:
             return dict(self._membership_status)
         try:
             response = requests.post(
-                "https://daltrading.net/auth/check_status",
+                "https://noahai.net/auth/check_status",
                 json={"id": self.account, "session_id": session_id},
                 headers={"Authorization": f"Bearer {access_token}"},
                 timeout=10,
@@ -1265,7 +1265,7 @@ class ApplicationServices:
     def authenticate(self, *, username: str, password: str) -> dict[str, Any]:
         try:
             response = requests.post(
-                "https://daltrading.net/auth/api_login",
+                "https://noahai.net/auth/api_login",
                 json={"id": username, "password": password},
                 timeout=15,
             )
@@ -4732,11 +4732,11 @@ class ApplicationServices:
             "paper_required": True,
         })
 
-    def export_strategy_package(self, *, scope: str, strategy_key: str, version_id: str) -> dict[str, Any]:
+    def export_strategy_package(self, *, scope: str, strategy_key: str, version_id: str, definition_only: bool = False) -> dict[str, Any]:
         settings = load_settings(persist_migrations=False) or {}
         if not bool((resolve_ai_custom_features(settings).get("features") or {}).get("strategy_package", False)):
             raise ValueError("설정에서 .noahstrategy 패키지 기능을 먼저 켜세요.")
-        catalog = self.strategy_catalog()
+        catalog = {} if definition_only else self.strategy_catalog()
         catalog_version: dict[str, Any] = {}
         for strategy in catalog.get("strategies") or []:
             if str(strategy.get("scope") or "") != str(scope) or str(strategy.get("strategy_key") or "") != str(strategy_key):
@@ -4754,7 +4754,7 @@ class ApplicationServices:
         version = pipeline.get_version(strategy_key, version_id)
         package = build_strategy_package(
             version,
-            passport={
+            passport={} if definition_only else {
                 "validation_lab": dict(version.get("validation_lab") or {}),
                 "paper_validation": dict(version.get("paper_validation") or {}),
                 "paper_validation_history": list(version.get("paper_validation_history") or []),
@@ -4766,7 +4766,7 @@ class ApplicationServices:
             },
             access_policy={"visibility": "private", "permissions": ["view", "use", "fork"]},
         )
-        self._audit("strategy.package_export", {"scope": scope, "strategy_key": strategy_key, "version_id": version_id})
+        self._audit("strategy.package_export", {"scope": scope, "strategy_key": strategy_key, "version_id": version_id, "definition_only": definition_only})
         return {
             "file_name": f"{str(version.get('name') or 'strategy')}.noahstrategy",
             "package": package,

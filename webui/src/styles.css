@@ -3523,6 +3523,14 @@ html[lang="en"] button { white-space: normal; overflow-wrap: break-word; }
 .visual-insight-grid nav button { font-size:12px; padding:7px 9px; }
 @media(max-width:1000px) { .visual-insight-grid { grid-template-columns:minmax(0,1fr); } .visual-strategy { min-height:0; } }
 .visual-explanation { margin-top:8px; color:#adc0d4; font-size:11px; line-height:1.6; }
+.strategy-bulk { padding:12px; margin:12px 0; border:1px solid #34516a; border-radius:8px; background:#102031; }
+.strategy-bulk-toolbar { display:flex; align-items:center; flex-wrap:wrap; gap:8px; margin-bottom:8px; }
+.strategy-bulk-toolbar button { min-height:32px; font-size:12px; }
+.strategy-bulk small { color:#aebfd2; line-height:1.6; }
+.strategy-bulk-results { max-height:260px; overflow:auto; margin-top:12px; overflow-wrap:anywhere; }
+.strategy-bulk-results li { margin:8px 0; }
+.strategy-version-select { display:inline-flex!important; align-items:center; gap:6px; margin-right:8px; }
+.strategy-version-select input { width:16px!important; height:16px; min-height:0; }
 .visual-insight-grid .regime-history small { font-size:10px; }
 .dashboard-v495 .dashboard-statistics .legacy-kpi-card { min-height:50px; padding:7px; }
 .dashboard-v495 .dashboard-statistics > footer { margin-top:4px; }

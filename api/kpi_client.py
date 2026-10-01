@@ -123,7 +123,7 @@ def _normalize_dimensions(category: str, asset_class: str, status: str) -> Tuple
 class ServerKPIClient:
     """fastapi설치 서버의 KPI 수집 엔드포인트 호출 클라이언트."""
 
-    def __init__(self, base_url: str = "https://daltrading.net", timeout: float = 1.5, async_mode: bool = True):
+    def __init__(self, base_url: str = "https://noahai.net", timeout: float = 1.5, async_mode: bool = True):
         self.base_url = base_url.rstrip("/")
         self.timeout = timeout
         self.async_mode = async_mode

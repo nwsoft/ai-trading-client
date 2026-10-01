@@ -151,6 +151,7 @@ class Evaluator:
         self._selection_singleflight = SelectionSingleFlight()
         self._market_data_singleflight = SelectionSingleFlight()
         self._market_snapshot_cache = TTLValueCache()
+        self.candidate_failure_by_exchange: Dict[str, str] = {}
         self._kline_snapshot_cache = TTLValueCache()
         self._funding_snapshot_cache = TTLValueCache()
         self._open_interest_cache = TTLValueCache()
@@ -460,6 +461,7 @@ class Evaluator:
     def _select_trading_coins_impl(self, num_alt=15, num_major=5, regime: Optional[str] = None, exchange: Optional[str] = None, exchange_client=None):
         """🔥 통합된 트레이딩 코인 선정 시스템"""
         self._set_selection_context(exchange, exchange_client)
+        self.candidate_failure_by_exchange.pop(str(exchange or 'binance').lower(), None)
         self.logger.info(f"🔍 코인 선정 시작 - 알트: {num_alt}개, 메이저: {num_major}개")
         _t_total_start = time.perf_counter()
         _t_stage = {}
@@ -1078,11 +1080,12 @@ class Evaluator:
             fetch_tickers = getattr(raw_exchange, "fetch_tickers", None)
         if callable(fetch_tickers):
             try:
-                payload = fetch_tickers(requested) or {}
-            except (TypeError, ValueError):
-                payload = fetch_tickers() or {}
+                try:
+                    payload = fetch_tickers(requested) or {}
+                except (TypeError, ValueError):
+                    payload = fetch_tickers() or {}
             except Exception as exc:
-                self.logger.warning(f"{exchange_key} 일괄 ticker 조회 실패, 제한 병렬 fallback: {exc}")
+                self.logger.warning(f"{exchange_key} 일괄 ticker 조회 실패, 제한 병렬 fallback: {type(exc).__name__}")
                 payload = {}
             if isinstance(payload, dict):
                 for key, value in payload.items():
@@ -1341,6 +1344,20 @@ class Evaluator:
             self.logger.error(traceback.format_exc())
             return []
 
+    def _record_candidate_failure(self, exchange_name, reason, **counts):
+        self.candidate_failure_by_exchange[exchange_name] = reason
+        # The standard evaluator logger was absent from customer venue/audit
+        # exports. Persist only classifier + counts, never ticker/account data.
+        safe_counts = {key: max(0, int(value)) for key, value in counts.items()
+                       if key in {'market_count', 'candidate_count', 'valid_ticker_count', 'passed_count'}}
+        try:
+            from log_system.log_adapter import log_event
+            log_event('system', f'후보 선정 보류 · {reason} · {safe_counts}',
+                      exchange=exchange_name, level='WARNING',
+                      details={'reason_code': reason, 'failure_stage': 'candidate_selection', **safe_counts})
+        except Exception:
+            pass  # Diagnostic storage failure never authorizes entry.
+
     def _analyze_candidate_coins_ccxt_futures(self, exchange_client, adjustment_factor: float = 1.0):
         """CCXT 선물 거래소(바이비트/OKX/비트겟) 코인 분석
         - exchange.markets 기반 USDT 선물 마켓만 추출
@@ -1390,12 +1407,15 @@ class Evaluator:
 
             ex = getattr(exchange_client, 'exchange', None)
             exchange_name = ex_name or ''
+            self.candidate_failure_by_exchange.pop(exchange_name, None)
             if not ex or not hasattr(ex, 'markets'):
+                self._record_candidate_failure(exchange_name, 'trading_candidate_catalogue_unavailable')
                 self.logger.warning("CCXT 어댑터 markets 정보 없음")
                 return []
             from trading.instrument_eligibility import catalogue, eligibility
             markets = {row['symbol']: row for row in catalogue(exchange_client, exchange_name)['rows'].values()}
             if not markets:
+                self._record_candidate_failure(exchange_name, 'trading_candidate_catalogue_unavailable')
                 self.logger.warning("마켓 정보를 가져올 수 없음")
                 return []
 
@@ -1424,6 +1444,7 @@ class Evaluator:
                     continue
 
             if not candidates:
+                self._record_candidate_failure(exchange_name, 'trading_candidate_markets_unavailable', market_count=len(markets), candidate_count=0)
                 self.logger.warning("USDT 선물 후보 없음")
                 return []
 
@@ -1433,9 +1454,17 @@ class Evaluator:
                 [sym for sym, _ in candidates],
             )
             scored = []
+            valid_ticker_count = 0
             for sym, m in candidates:
                 try:
                     t = ticker_map.get(sym) or ticker_map.get(str(sym).upper())
+                    # Missing public data is not a zero-price/zero-volume
+                    # tradable candidate, even with the liquidity filter off.
+                    import math
+                    price = float((t or {}).get('last') or 0)
+                    if not t or not math.isfinite(price) or price <= 0:
+                        continue
+                    valid_ticker_count += 1
                     qv = self._ticker_quote_volume(
                         t,
                         exchange_name=ex_name,
@@ -1452,6 +1481,14 @@ class Evaluator:
                     continue
 
             if not scored:
+                failure_reason = (
+                    'trading_candidate_tickers_unavailable' if not valid_ticker_count
+                    else 'trading_candidate_filters_excluded'
+                )
+                self._record_candidate_failure(exchange_name, failure_reason,
+                    market_count=len(markets), candidate_count=len(candidates), valid_ticker_count=valid_ticker_count, passed_count=0)
+                self.logger.warning('%s 선정 근거: 시장 %s개 · 유효 시세 %s개 · 필터 통과 0개',
+                                    exchange_name, len(candidates), valid_ticker_count)
                 self.logger.warning("티커 수집/필터 후 후보 없음")
                 return []
 

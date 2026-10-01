@@ -511,7 +511,7 @@ class AIProviderRouter:
             }
         kwargs: Dict[str, Any] = {"model": requested_model, "max_tokens": 64}
         if self.spec.provider == "openai" and requested_model.lower().startswith("gpt-6"):
-            kwargs["reasoning_effort"] = "low"
+            kwargs["reasoning_effort"] = "none" if requested_model.lower().startswith(("gpt-6-luna", "gpt-6-sol")) else "low"
         if capability == "chat_json":
             response = self.adapter.chat_json(
                 "Return one valid JSON object and do not use external data.",

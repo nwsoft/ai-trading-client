@@ -57,7 +57,7 @@ class BackendAPI:
     def __init__(self, token: str, config: Optional[BackendConfig] = None):
         self.token = token
         self.config = config or BackendConfig(
-            base_url="https://daltrading.net",  # 실제 백엔드 서버 URL
+            base_url="https://noahai.net",  # 실제 백엔드 서버 URL
             api_key="",
             timeout=10,
             retry_count=3,

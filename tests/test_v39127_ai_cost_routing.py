@@ -35,7 +35,8 @@ def test_deepseek_flash_uses_official_alias_and_exposes_vision_preview():
     assert "deepseek-v4-pro" in models
     assert "deepseek-v4-flash-vision-exp" in models
     assert "deepseek-v4.1-flash" not in models
-    assert model_record("deepseek", "deepseek-v4-flash")["status"] == "recommended"
+    assert model_record("deepseek", "deepseek-v4-flash")["status"] == "deprecated"
+    assert model_record("deepseek", "deepseek-flash")["status"] == "recommended"
     assert PROVIDER_SPECS["deepseek"].capabilities.vision is True
 
 
@@ -52,7 +53,7 @@ def test_budgeted_client_records_completed_tokens_model_role_and_peak_estimate(t
     assert status["daily_used"] == 1
     assert status["completed_usage_calls"]["today"] == 1
     assert status["priced_calls"]["today"] == 1
-    assert status["estimated_cost_usd"]["today"] == 1.76
+    assert status["estimated_cost_usd"]["today"] == 1.50
     assert status["usage_by_role"]["strategy_source"]["calls"] == 1
     assert status["usage_by_model"]["deepseek:deepseek-v4-flash"]["total_tokens"] == 2_000_000
 
@@ -81,7 +82,7 @@ def test_settings_describes_cost_boundary_and_role_based_model_setup():
     assert "YouTube 공개 자막이 없을 때만 음성 전사 사용" in settings
     assert "deepseek-v4.1-flash" in settings
     assert '"deepseek-v4.1-flash":' not in settings
-    assert '"deepseek-v4-flash": "DeepSeek V4 Flash · 자동 최신"' in settings
+    assert '"deepseek-flash": "DeepSeek V4.1 Flash · 최신 별칭"' in settings
     assert "SETTING_OPTION_LABELS[option] ?? option" in settings
     assert "선택 모델 1회 실제 호출 점검" in settings
     assert "요청 모델" in settings

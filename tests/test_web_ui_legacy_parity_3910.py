@@ -820,7 +820,7 @@ def test_ai_custom_strategy_hub_flow_is_manual_and_documented_in_dashboard() -> 
     custom = next(section["content"] for section in payload["sections"] if section["id"] == "custom")
 
     for contract in [
-        'const STRATEGY_HUB_URL = "https://daltrading.net/strategies"',
+        'const STRATEGY_HUB_URL = "https://noahai.net/strategies"',
         "STRATEGY_HUB_GUIDE_URL",
         "STRATEGY_HUB_SUBMIT_URL",
         "STRATEGY_HUB_LIBRARY_URL",

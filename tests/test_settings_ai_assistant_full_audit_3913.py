@@ -48,7 +48,7 @@ def test_web_ai_models_are_provider_scoped_dropdowns_with_fixed_transcription_pr
     }
     assert {fields[path]["kind"] for path in model_paths} == {"model_select"}
     assert fields["ai_provider_profiles.analyst.model"]["options"] == [
-        "deepseek-v4-flash", "deepseek-v4-pro", "deepseek-v4-flash-vision-exp",
+        "deepseek-flash", "deepseek-v4-flash", "deepseek-v4-pro", "deepseek-v4-flash-vision-exp",
     ]
     assert fields["ai_provider_profiles.assistant.model"]["options"][0] == "legacy-account-model"
     assert fields["ai_custom_transcription.model"]["options"] == [

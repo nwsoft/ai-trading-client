@@ -134,12 +134,15 @@ def check_current_release_and_marketplace(text_map: Dict[str, str]) -> List[str]
         errors.append("[RELEASE_MANIFEST] 공개 version이 현재 소스 후보보다 높습니다.")
 
     if manifest.get("publish_ready") is True:
+        # A preserved local artifact is not proof that later user-confirmed releases
+        # do not exist. Do not rewrite its hashes to make document checks pass.
+        public_version = PUBLIC_RELEASE_VERSION
         required_public = {
-            "readme": f"현재 공개 기반: v{manifest_version}",
-            "docs_readme": f"v{manifest_version}",
-            "release_notes": f"공개 v{manifest_version}",
-            "user_guide": f"현재 공개 버전: **v{manifest_version}**",
-            "test_status": f"v{manifest_version}",
+            "readme": f"현재 공개 기반: v{public_version}",
+            "docs_readme": f"v{public_version}",
+            "release_notes": f"공개 v{public_version}",
+            "user_guide": f"현재 공개 버전: **v{public_version}**",
+            "test_status": f"v{public_version}",
         }
         for surface, marker in required_public.items():
             if marker not in text_map.get(surface, "")[:6000]:

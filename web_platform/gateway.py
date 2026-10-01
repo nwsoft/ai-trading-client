@@ -644,8 +644,10 @@ def create_gateway_app(
         return services.strategy_mentor(profile=body.profile)
 
     @app.get("/api/v1/strategies/{scope}/{strategy_key}/{version_id}/package", dependencies=[Depends(require_token)])
-    def strategy_package_export(scope: str, strategy_key: str, version_id: str) -> dict[str, Any]:
+    def strategy_package_export(scope: str, strategy_key: str, version_id: str, definition_only: bool = False) -> dict[str, Any]:
         try:
+            if definition_only:
+                return services.export_strategy_package(scope=scope, strategy_key=strategy_key, version_id=version_id, definition_only=True)
             return services.export_strategy_package(scope=scope, strategy_key=strategy_key, version_id=version_id)
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc

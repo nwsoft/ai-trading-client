@@ -25,7 +25,7 @@ const crypto=['binance','upbit','bithumb','coinone','bybit','okx','bitget'],stoc
   const now=Date.now()/1000;let payload={};
   const modeFor=s=>!neutral&&(s==='binance'||s==='kiwoom')?'live':'paper';
   const evidence=s=>({source:s,mode:modeFor(s),status:'observed',regime:{observed:'bull',confirmed:'range',observed_at:now},regime_history:[{observed:'range',confirmed:'range',symbol:'X',timeframe:'5m',observed_at:now-300},{observed:'bull',confirmed:'bull',symbol:'X',timeframe:'5m',observed_at:now}],candidate:{symbol:'TEST',strategy_name:'실제 조건 시험',version_id:'v1',allowed:false,observed_at:now,checks:[{passed:true,reason:'검사 1'},{passed:false,reason:'검사 2'}]},paper_pool:{scope_eligible:40,selected:30,waiting:10,limit:30,applied_slots:0},risk:{blocked:s==='binance',reason_code:'pnl_reconciliation_required',observed_at:now}});
-  if(ep.endsWith('/platform'))payload={release_version:'3.9.1.50',release_label:'v3.9.1.50 QA'};
+  if(ep.endsWith('/platform'))payload={release_version:'3.9.2.0',release_label:'v3.9.2.0 QA'};
   else if(ep.endsWith('/session'))payload={authenticated:true,account:'home-fixture',user:{id:'fixture',user_grade:'premium'}};
   else if(ep.endsWith('/features'))payload=inventory;
   else if(ep.endsWith('/runtime/snapshot'))payload={status:'attached',captured_at:new Date().toISOString(),enabled_sources:[...selected,...stock],running_sources:neutral?[]:['upbit'],selected_sources:{blockchain:selected[0]||'binance',stock:'kiwoom'},credential_status:Object.fromEntries([...crypto,...stock].map(s=>[s,!neutral])),execution_modes:Object.fromEntries([...crypto,...stock].map(s=>[s,modeFor(s)])),paper_trading:true};
@@ -47,7 +47,8 @@ const crypto=['binance','upbit','bithumb','coinone','bybit','okx','bitget'],stoc
  try{
   await page.goto('http://127.0.0.1:4209');
   await page.getByRole('button',{name:'거래 현황',exact:true}).click();
-  assert.match(await page.locator('.legacy-release').getAttribute('title'),/20260930\.1/);
+  const tag=fs.readFileSync(path.join(root,'webui/src/uiBuild.ts'),'utf8').match(/UI_BUILD_TAG = '([^']+)'/)[1];
+  assert((await page.locator('.legacy-release').getAttribute('title')).includes(tag));
   await page.locator('.operations-venue').first().waitFor();
   assert.equal(await page.locator('.operations-venue').count(),7);
   await page.locator('.visual-insight-grid').waitFor();
@@ -108,7 +109,7 @@ const crypto=['binance','upbit','bithumb','coinone','bybit','okx','bitget'],stoc
   // A real rendered start command preserves the original reason and does not
   // query unrelated LIVE recovery state for PAPER failures.
   await page.getByRole('button',{name:'OKX',exact:true}).click();
-  for(const code of ['exchange_initialization_failed:okx:initialization','trading_candidates_unavailable:okx:candidate_selection','runtime_start_exception:okx:worker_start','runtime_source_stopping:okx:worker_start','runtime_start_cancelled:okx:worker_start']){
+  for(const code of ['exchange_initialization_failed:okx:initialization','trading_candidates_unavailable:okx:candidate_selection','runtime_start_exception:okx:worker_start','runtime_source_stopping:okx:worker_start','runtime_start_cancelled:okx:worker_start', ...['catalogue_unavailable','markets_unavailable','tickers_unavailable','filters_excluded'].map(x=>'trading_candidate_'+x+':okx:candidate_selection')]){
    startRefusal=code;
    page.once('dialog',d=>d.accept());await page.getByRole('button',{name:'▶ OKX 거래 시작',exact:true}).click();
    await page.locator('.trading-start-help').waitFor();

@@ -11,7 +11,7 @@ from __future__ import annotations
 from typing import Any, Dict, Iterable, List, Optional
 
 
-CATALOG_AS_OF = "2026-09-11"
+CATALOG_AS_OF = "2026-10-01"
 
 STATUS_LABELS = {
     "recommended": "권장",
@@ -43,6 +43,9 @@ def _entry(
 
 MODEL_REGISTRY: Dict[str, List[Dict[str, Any]]] = {
     "openai": [
+        _entry("gpt-6-luna", "recommended", capabilities=("chat_text", "chat_json", "vision"), note="빈번한 단순·반복 작업용. 기존 설정 자동 변경 없음; 계정 호출 권한 별도 확인"),
+        _entry("gpt-6.1-sol", "recommended", capabilities=("chat_text", "chat_json", "vision"), note="정밀 분석용. Chat Completions 도구 호출 미지원"),
+        _entry("gpt-6-sol", "available", capabilities=("chat_text", "chat_json", "vision")),
         _entry(
             "gpt-6-astra",
             "recommended",
@@ -68,22 +71,27 @@ MODEL_REGISTRY: Dict[str, List[Dict[str, Any]]] = {
         _entry("gpt-4o-transcribe-diarize", "available", capabilities=("transcribe",), note="다중 화자 구분"),
     ],
     "deepseek": [
+        _entry("deepseek-flash", "recommended", capabilities=("chat_text", "chat_json", "vision"), note="공식 최신 Flash 별칭; 현재 V4.1 Flash"),
         _entry(
             "deepseek-v4-flash",
-            "recommended",
-            note="DeepSeek 서버가 최신 Flash 버전으로 자동 갱신하는 정식 API 별칭",
+            "deprecated",
+            replacement="deepseek-flash",
+            note="구 모델은 종료됐지만 호출 ID는 임시 호환 유지; 제공사가 V4.1 Flash로 라우팅. 새 선택은 deepseek-flash 권장",
         ),
         _entry("deepseek-v4-pro", "recommended", note="정밀·복합 분석용 정식 API 별칭"),
         _entry(
             "deepseek-v4-flash-vision-exp",
-            "preview",
+            "deprecated",
             capabilities=("chat_text", "chat_json", "vision"),
-            note="이미지 입력 실험형 · 계정 모델 목록과 실제 연결 확인 필요",
+            replacement="deepseek-flash",
+            note="구 실험 모델 대신 제공사가 V4.1 Flash로 라우팅; 임시 호환 ID",
         ),
         _entry("deepseek-chat", "retired", replacement="deepseek-v4-flash"),
         _entry("deepseek-reasoner", "retired", replacement="deepseek-v4-flash"),
     ],
     "kimi": [
+        _entry("kimi-k2.7-code", "available", capabilities=("chat_text", "chat_json", "vision"), note="코딩 특화·추론 상시 사용; 일반 투자 분석 기본값으로 자동 지정하지 않음"),
+        _entry("kimi-k2.7-code-highspeed", "available", capabilities=("chat_text", "chat_json", "vision"), note="고속 코딩형; 별도 단가·계정 가용성 확인 필요"),
         _entry(
             "kimi-k3",
             "recommended",
@@ -100,6 +108,8 @@ MODEL_REGISTRY: Dict[str, List[Dict[str, Any]]] = {
         _entry("kimi-k2", "retired", replacement="kimi-k2.6"),
     ],
     "anthropic": [
+        _entry("claude-sonnet-5-5", "recommended", capabilities=("chat_text", "chat_json")),
+        _entry("claude-opus-5-5", "recommended", capabilities=("chat_text", "chat_json")),
         # 현재 NoahAI Anthropic 어댑터는 텍스트/JSON만 구현한다. 모델 자체의
         # 외부 기능과 앱에서 실제 호출 가능한 capability를 섞어 표시하지 않는다.
         _entry("claude-haiku-4-5", "recommended", capabilities=("chat_text", "chat_json")),
@@ -220,6 +230,8 @@ def validate_model_route(
         warnings.append(f"{model} 모델은 미리보기 버전입니다.")
     if status == "experimental":
         warnings.append(f"{model} 모델은 NoahAI 시험 연동 상태입니다.")
+    if status == "unknown":
+        warnings.append(f"{model} 모델은 호환 목록 미등록입니다. 계정 목록 노출과 작업별 실제 호출 성공은 별도로 확인하세요.")
     capabilities = set(record.get("capabilities") or ())
     if status != "unknown" and capability not in capabilities:
         errors.append(f"{model} 모델은 {capability} 기능을 지원하지 않습니다.")

@@ -1,8 +1,8 @@
 # NoahAI - AI 금융 동반자 & 의사결정 인프라
 
-현재 공개 버전: **v3.9.1.49** · updater **3.9.149** · 사용자 배포 완료 확인 기준. 로컬 보존 매니페스트도 49입니다. 외부 검증 pending 표시는 별도로 남아 있어 사용자 배포 확인과 구분합니다.
-현재 공개 기반: v3.9.1.49. 현재 Windows 검증 후보는 50이며 공개 자산과 분리합니다.
-현재 소스 후보: v3.9.1.50 · updater **3.9.150** · Visual Overview and Start Diagnostics Patch. [50 통합 계획](docs/V39150_VISUAL_OVERVIEW_PLAN.md)과 [시험 결과](docs/TEST_STATUS.md)를 따릅니다. Windows 빌드·배포는 사용자가 수행합니다.
+현재 공개 버전: **v3.9.1.50** · 사용자 배포 완료 확인 기준. 로컬 보존된 이전 manifest는 최신 게시 증거가 아닙니다.
+현재 공개 기반: v3.9.1.50.
+현재 소스 후보: v3.9.2.0 · updater **3.9.200** · Portal Migration and Runtime Recovery. [통합 계획](docs/UPDATE_PLAN.md)과 [시험 결과](docs/TEST_STATUS.md)를 따릅니다. 고객 포털은 `https://noahai.net`, 개발사 사이트는 `https://noahailabs.com`입니다. Windows 빌드·배포는 사용자가 수행합니다.
 
 이하 49 구현 이력: Strategy Capacity and Operations Evidence Patch.
 

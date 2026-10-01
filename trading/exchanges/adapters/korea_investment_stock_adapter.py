@@ -154,7 +154,7 @@ class KoreaInvestmentStockAdapter(MiraeAssetStockAdapter):
                 self._shared_token_cache[key] = (token, expires_at)
                 return True
             except Exception as exc:
-                self.log_event('system', f'KIS 토큰 요청 오류: {exc}', level='ERROR')
+                self.log_event('system', f'KIS 토큰 요청 오류: {type(exc).__name__} · 연결 상태를 확인하세요.', level='ERROR')
                 return False
 
     def _tr_id(self, path: str, *, method: str, body: Optional[Dict[str, Any]] = None) -> str:
@@ -226,7 +226,7 @@ class KoreaInvestmentStockAdapter(MiraeAssetStockAdapter):
                 if continuation is not None: data['_tr_cont'] = continuation
             return data
         except Exception as exc:
-            self.log_event('system', f'KIS GET {path} 오류: {exc}', level='ERROR')
+            self.log_event('system', f'KIS GET {path.split("?", 1)[0]} 오류: {type(exc).__name__} · 연결 상태를 확인하세요.', level='ERROR')
             return {}
 
     def _post(self, path: str, body: Optional[Dict] = None) -> Dict[str, Any]:
@@ -248,7 +248,7 @@ class KoreaInvestmentStockAdapter(MiraeAssetStockAdapter):
                 )
             return self._response_to_dict(response, method='POST', path=path)
         except Exception as exc:
-            self.log_event('system', f'KIS POST {path} 오류: {exc}', level='ERROR')
+            self.log_event('system', f'KIS POST {path.split("?", 1)[0]} 오류: {type(exc).__name__} · 연결 상태를 확인하세요.', level='ERROR')
             return {}
 
     @staticmethod

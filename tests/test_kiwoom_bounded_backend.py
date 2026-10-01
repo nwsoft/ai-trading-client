@@ -81,6 +81,23 @@ def test_invalid_output_fails_before_submission(backend):
     backend.ocx.dynamicCall.assert_not_called()
 
 
+def test_repeated_missing_callbacks_cool_down_only_same_tr_and_recover(backend):
+    for _ in range(3):
+        with pytest.raises(TimeoutError):
+            request(backend)
+    submissions = backend.ocx.dynamicCall.call_count
+    with pytest.raises(RuntimeError, match='kiwoom_tr_cooldown:response_timeout:opt10001'):
+        request(backend)
+    assert backend.ocx.dynamicCall.call_count == submissions
+    backend._event_pump = lambda: backend.OnReceiveTrData(*backend._pending_tr, '', '0')
+    backend._next_tr_at = 0
+    assert backend.block_request('opt10075', output='price', next=0)
+    retry_at = backend._tr_timeouts['opt10001'][1]
+    backend._clock = lambda: retry_at + 1
+    assert request(backend)
+    assert 'opt10001' not in backend._tr_timeouts
+
+
 def test_login_failure_callback_does_not_wait_for_success_forever(backend):
     backend._event_pump = lambda: backend.OnEventConnect(-100)
     with pytest.raises(RuntimeError, match="kiwoom_login_failed:-100"):

@@ -1,3 +1,53 @@
+## 2026-10-01 — 3.9.2.0 AI 모델 목록·호환 갱신 (현행)
+
+- 공식 문서 확인에 따른 모델/가격/호환 변경과 범위는 [AI 모델 갱신 계약](V3920_AI_MODEL_REFRESH.md). 기존 저장 모델·역할·키·예산·거래 권한은 유지했다.
+- 신규 요청 계약 회귀 **41개**, 관련 집중 시험 **80 passed**. GPT-6 JSON 진단 인자, OpenAI/Kimi/Gemini 텍스트·JSON·이미지 토큰 키, Claude sampling/실제 모델, 신규 capability·계정 권한 분리, 가격·미산출·기존 기본값 보존 포함. 전부 mock이며 실API 성공 증거가 아니다.
+- 최종 Python 전체 **4,601 passed / 10 skipped / 3 subtests**, 87.70초. `/tmp/noah-3920-model-refresh-final.xml`. 첫 전체 실행에서 구 DeepSeek 3개 목록을 고정한 시험 1개가 실패했고, 새 ID와 구 ID 보존을 함께 검사하도록 기대 목록 갱신 후 전체 재실행했다. 기존 FastAPI/httpx·utcnow 사용 중단 예정 경고 2개는 그대로다.
+- Node **63 passed**(기존 57 + Electron scheduler 6). TypeScript app/node와 Vite renderer 빌드 PASS, `3.9.2.0-ui.20261001.3 / UI 2.0.3`. 기존 대형 chunk 경고 유지(JS 1,137.80kB). 공유 node_modules의 실행 권한/누락된 Mac Rollup 문제 때문에 별도 `/tmp/noah-model-build.HJfRHX`에서 lockfile 기준 설치·빌드했다. 원본 의존성/lockfile은 변경하지 않았다.
+- 실제 SettingsCenter + Python 공통 모델 catalog를 1080/1490px Chrome에서 렌더링했다. 기존 5.6 Luna 선택 유지 → 6 Luna 선택 → 해당 필드만 모의 저장 PASS, 가로 overflow 없음·JS 오류 0·외부 요청 차단. 이미지 `/tmp/noah-model-catalog-1080.png`, `/tmp/noah-model-catalog-1490.png`; 1080 화면 직접 시각 확인. 실제 사용자 설정/Provider 호출은 하지 않았다.
+- 새 dist를 실제 webui/dist에 반영했고 소스 SHA256 `ec7641fa7f1f41f0cb2fed44ea7726def8cf532eefdc011d577d192ba938ca70` 일치 true. 이전 renderer는 `/tmp/noah-model-build.HJfRHX/previous-client-dist`에 보존했다. 인앱 매뉴얼 11절 재생성·문서 정합 검사 PASS.
+- 계정별 유료 실호출·응답 품질/지연·Windows 설치·게시 및 기존 OKX/키움 현장 인수는 이번 모의시험으로 완료 처리하지 않는다. 사용자 Windows 빌드/릴리스 전 DEPLOY_CHECKLIST를 따른다.
+
+## 2026-10-01 — 3.9.2.0 고객 자료 대조·다중 선택 (이전 검증)
+
+- 고객 원본 읽기 전용 점검: 신고 OKX 요청 ID/시각/단계 일치, 키움 종료 실패 시 진행 중 조회·종료 후 재조회 확인. 당시 OKX ticker 세부 증거와 Windows COM 정지 원인은 미확정. `V3920_CUSTOMER_FEEDBACK_REVIEW.md` 참조.
+- 최종 Python 전체 **4,560 passed / 10 skipped / 3 subtests**, 85.98초. `/tmp/noah-3920-customer-bulk-final.xml`. 제외는 실API opt-in 8개와 현재 없는 구형 고객 fixture 2개다. 이번 고객 자료를 과거 fixture로 가장하지 않았다. 직전 4,559개 통과 뒤 추가 ticker 재시도 회귀를 포함해 다시 전체 실행했다.
+- Node 전체 **57 passed**. 다중 선택 정책(자동 승인/LIVE 전환 금지), ZIP UTF-8/CRC/경로·크기/개수 제한, 정의 전용 패키지 hash/가져오기 권한 계약, 키움 TR별 cooldown/회복/다른 TR 보존, KIS 오류 민감값 비노출, 후보 실패 감사 전달 포함.
+- TypeScript app PASS, renderer `3.9.2.0-ui.20261001.2` 빌드. 기존 번들 크기 경고 유지(JS 약 1.137MB). 고객 계정·외부 거래 없이 실제 React UI에서 선택·필터 해제·개별 실패·활성 삭제 보류·정의/패키지 ZIP·중단을 검증. 홈 기존 15개 명령 회귀도 PASS/JS 오류 0. 최종 화면 재검증과 지문 결과는 아래 후속 기록 참조.
+- 최종 화면 후속: app/node TypeScript PASS, dist 소스 지문 일치 true. 다중 작업 1080/1440px 직접 렌더·시각 확인 PASS(`noah-bulk-yfNP30`, 모의 mutation 4회·export 4회·JS 오류 0). 실제 ZIP 다운로드 확인. 홈 회귀 재검증 `noah-v50-home-KVMOsm` PASS(모의 명령 15개·JS 오류 0). 기존 body 최소폭 1080px 미만 화면을 지원 완료로 표기하지 않는다. 패키징된 Windows 화면 검증과 별개다.
+- 코드 재대조 중 공통 ticker 인자 호환 재시도 실패가 개별 fallback을 건너뛰는 경로를 추가 재현(수정 전 실패 1개). 수정 후 post50 경로 16개 PASS, 최종 전체 4,560개 결과에도 포함했다. 문서 정합 PASS, 인앱 매뉴얼 11절 재생성 완료.
+- Windows 설치/50 업그레이드/실제 OKX PAPER/키움 OCX 종료·장시간 검증은 별도 미완료다. 소스 시험 통과를 해당 고객 계정에서의 완치나 일반 공개 승인으로 바꾸지 않는다. 이번 작업에서는 Windows 빌드·게시, 고객 데이터 변경, 실제 주문을 하지 않았다.
+
+## 2026-10-01 — 3.9.2.0 통합 검증·포털 도메인 운영 전환 (이전 검증)
+
+공개 기준은 사용자 확인 **v3.9.1.50**, 후속 소스는 **v3.9.2.0 / updater 3.9.200**이다. 공개 50 설치기와 보존 manifest를 덮어쓰지 않았다. 아래 50 후속 미배포/시험 실패 기록은 이 작업 이전 이력이다.
+
+- 최종 클라이언트 전체: **4,556 passed / 9 skipped / 3 subtests**, 86.01초. `/tmp/noah-post50-qa.2dnf3L/client-3920-final.xml`. 제외는 실API opt-in 8개, 비공개 고객 fixture 1개. 재현한 OKX/키움 결함·진단·다기관 회귀 포함. 고객 OKX의 실제 계정 해소나 Windows COM 검증은 아니다.
+- Node **36 passed**, TypeScript app/node PASS, renderer `3.9.2.0-ui.20261001.1` 실제 dist 빌드/소스 지문 일치. JS 약 1.128MB의 기존 번들 크기 경고 유지. 홈 모의 브라우저: 명령 15개/JS 오류 0, `noah-v50-home-iavt3o` (시험 파일명과 실제 버전 구분).
+- 현행 문서/Windows workflow 인수 계약/제품·updater·엔진·키움 리소스 동기화. 인앱 매뉴얼 11절 재생성 및 문서 정합 검사 PASS. 소스 회귀 중 확인한 낡은 버전 고정 시험을 수정했으며 외부 인수 게이트는 제거하지 않았다.
+- 웹은 별도 사용자 미커밋 정책·안내문을 제외한 정확한 staged tree에서 **149 passed / 3 subtests**, Worker 경계 시험 **2 passed**. 로컬 전체 dirty tree의 기존 Coinone 정책 충돌을 배포에 섞지 않았다. 서버 DB·JWT 키·회원 등급은 변경하지 않았다.
+- 모바일 계정 6화면×ko/en×320/360/390/430/768/1280px, 원격 4폭 검증 PASS. 실제 새 도메인 홈/로그인/가입 및 구 도메인 안내도 320/390/1280px에서 가로 넘침·JS 오류·업무 POST 0 확인. QA는 Cloudflare RUM 전송만 차단했다. 실제 iOS Safari나 신규 회원 제출·사용자 계정 로그인·원격 명령 실행은 하지 않았다.
+- EC2 웹 런타임 `98e2196`, 주소/브랜드 후속 `5e3df43`. noahai.net 기존 인증서 SAN·유효기간 확인 후 Nginx reverse proxy 적용, `nginx -t` 통과. `/home/ubuntu/daltrading`·기존 DB·JWT·세션·원격 3981 유지. DNS 직접 수정 없음; 새 공개 HTTPS GET 홈/로그인/가입 200, 비로그인 대시보드·원격 302, 비공개 API 401 확인.
+- 구·신 로그인/세션 API에 빈 JSON 검사: 400 JSON, Location 없음. 구 URL의 API POST를 새 도메인 안내 HTML/리다이렉트로 바꾸지 않는다. 서명 CSRF 및 host-only 쿠키 정책 유지, 새 도메인은 기존 계정 재로그인 필요.
+- Cloudflare `noahai-domain-notice` 배포 ID `d21ae2b4-ce42-4ed6-8c19-00d8e01e8e33`: daltrading.net/ 및 www 루트 HTML GET/HEAD만 안내. 쿼리 포함 홈/구 로그인은 원서버 안내 배너로 보완하고 기존 앱 연결은 그대로 통과한다. 상세 서버 기록은 daltrading/DEPLOYMENT.md 참조.
+- 별도 발견: 변경하지 않은 alphaarena.noahai.net이 504. 기존 upstream 127.0.0.1:3031은 프로세스가 listen하지만 8초 내 HTTP 응답 없음. 해당 실행 서비스의 중단/재시작은 이번 포털 전환 범위에서 수행하지 않았다. info/ip 정상 GET 200, noahailabs.com /ko 이동 유지.
+
+**남은 인수:** Windows 50→3.9.2.0 설치/실행/롤백·고객 OKX PAPER 재시험·키움 실제 COM 종료·장시간/실기기 원격 시험. Windows 빌드·릴리스는 사용자가 수행하며 이번 작업으로 공개하지 않았다. 웹 전환 완료와 Windows 배포 승인·모든 서비스 무결함을 동일시하지 않는다.
+
+## 2026-10-01 — 공개 50 후속: OKX 후보·키움 종료·모바일 계정 화면 (이력)
+
+사용자가 50 설치본의 장애를 전달했다. 아래 9월 30일의 공개 49/50 후보 표기는 당시 기록이다. 이번 수정은 **50 이후 미배포 소스**이며 공개 설치기·서명·매니페스트를 갱신하지 않았다. 후속 버전으로 Windows 빌드/설치 검증이 필요하다.
+
+- 수정 전 재현 **4 실패**: OKX 일괄 ticker 실패→실제 어댑터의 개별 조회에서 `info.volCcy24h/open24h` 누락→기존 거래대금 보정이 동작하지 않아 전량 제외, 유동성 필터 OFF 시 없는 시세를 0가격 후보로 생성, 증권 정지의 조회 취소 신호 누락, 키움 120초 읽기 RPC의 취소 경로 부재.
+- OKX: 개별 ticker가 원본 공개 필드와 symbol/timestamp를 보존하도록 수정. 기존 계약 수/거래대금 구분을 유지한다. 공통 선물 선정에서 결측·0·비유한 가격은 제외한다. 목록 조회 실패/거래 가능 상품 없음/유효 시세 없음/선정 필터 제외를 별도 안전 코드와 다음 조치로 전달한다. 상장 상태·유동성·위험 기준을 완화하지 않았다. 공식 단위 정의: https://www.okx.com/docs-v5/en/#rest-api-market-data-get-tickers . 고객 원본 시세가 없어 이 재현 경로가 해당 요청의 유일 원인이었다고 단정하지 않는다.
+- 키움: controller가 워커 join 전에 비차단 읽기 취소를 전달하고 proxy가 대기를 짧은 poll로 나누어 중단을 확인한다. 정지 후 새 호스트/조회/주문을 시작하지 않는다. 이미 전송한 주문·취소는 정상 응답 또는 기존 결과 미확정 처리를 유지한다. 실제 오류 알림은 보존하며 의도된 읽기 취소만 오류 알림에서 제외한다. 살아 있는 워커/호스트를 성공으로 숨기거나 계좌 포지션을 강제 청산하지 않는다.
+- 신규 회귀 **12 통과**, 신규+알림 회귀 **82 통과**, 최종 시작·종료·키움·알림 집중 회귀 **178 통과**. 전체 회귀(뒤에 추가한 전달 코드 4개 시험 이전): **4,551 통과 / 1 실패 / 9 제외 / 3 subtests**, 86.31초, `/tmp/noah-post50-qa.2dnf3L/client-final.xml`. 실패는 이번에 수정하지 않은 `windows-release.yml`의 `confirm_external_gates`와 기존 시험 계약의 불일치. 9 제외는 실API 8개/비공개 자료 1개. 전체 통과·배포 승인으로 표시하지 않는다.
+- Node **36 통과**, TypeScript 앱/Node PASS, 잠금 파일 기반 임시 Mac 의존성으로 실제 `webui/dist` 재빌드·지문 일치. 기존 Windows node_modules/잠금 파일은 보존. 번들 크기 경고 유지. 브라우저 홈·오류 진단 PASS: 모의 명령 15개(일괄 6 + 오류 9), 원래 코드/단계/요청 ID, PAPER의 불필요한 LIVE 복구 조회 0, JS 오류 0. 보고서 `noah-v50-home-Gk6fWG`.
+- daltrading: 회원가입/로그인 viewport 누락, 비밀번호 flex 입력 최소폭, 대시보드의 긴 문자열·UID 입력·모바일 내비게이션/여백을 계정 화면 전용 CSS로 보완. 비밀번호 재설정/변경까지 6화면 × ko/en × 320/360/390/430/768/1280px Chrome 모바일 모사 PASS. 가로 넘침/입력 폭/44px 입력·버튼/16px 입력/표시 전환/JS 오류 0·서버 쓰기 0. 최종 화면 `noah-account-mobile-gvLA5N`; 화면을 직접 열어 검토했다. 실제 iOS Safari·회원가입 제출은 수행하지 않았다.
+- daltrading 인증/보안/회원/진단 회귀 **32 통과**. 전체 **138 통과 / 2 실패 / 3 subtests**: 시작부터 존재한 미커밋 상품 레지스트리/영문 홈과 기존 Coinone LIVE 기대값의 충돌이다. 관련 없는 사용자 변경은 수정·되돌리지 않았다. 웹 서버 게시도 실행하지 않았다.
+- 기존 원격 웹 모바일 회귀도 ko/en × 360/390/430/1280px PASS, JS 오류/쓰기 0 (`noah-v49-remote-ui-XEWQFL`). 클라이언트 문서 정합성 PASS, 매뉴얼 11절 재생성 완료.
+- 브라우저 보고서 상위 경로: `/var/folders/sr/tdlflpnj0qj1qd26s268mdlc0000gn/T/`. Windows 키움 COM/실계좌·실사용자의 OKX 시작 성공은 별도 확인이다. 재현 결함 수정과 해당 고객 해소 확인을 구분한다.
+
 ## 2026-09-30 — v3.9.1.50 공통 시작·정지 후속 수정 / 일반 배포 승인 보류
 
 아래 같은 날짜의 최초 소스 검증보다 이 후속 판정을 우선합니다. 알려진 고객 장애가 해소됐다는 근거 없이 일반 배포 승인으로 표시하지 않습니다.
@@ -1895,3 +1945,6 @@ v3.9.1.35 공개 당시 기록: 원장 전체 건수/기간, 대조 전·가져�
 - NoahAI Labs `39e45d1`은 Cloudflare Pages 운영 배포와 `noahailabs.com`의 전략 스튜디오·`llms.txt` 실제 응답을 확인했습니다.
 - NoahAI 정보/IP 사이트 `e176de7`은 production build `45 pages`를 통과하고 EC2/PM2에 배포했으며 `info.noahai.net`·`ip.noahai.net`·기술 위키·`llms.txt`의 실제 응답을 확인했습니다.
 - Windows v3.9.1.19 설치기·blockmap·`latest.yml`은 게시됐습니다. 6개 거래소 장시간 PAPER/실환경 E2E는 소급 완료로 표시하지 않고 후속 운영 관찰로 유지합니다.
+## 2026-10-01 웹 브랜드·판매/제휴 연결 후속
+
+noahai.net 포털 `3af4ffc`, info/IP 웹 코드 `66ab45a`, 개발사 링크 `c557792` 운영 반영. 포털 152 tests + 3 subtests, info Next 타입/build 47 routes, 공개 metadata 13경로 + 51 브라우저 화면, 개발사 Next 233페이지·별도 TypeScript·4언어 8화면 통과. 공식 아이콘 6종은 개발사 공개 원본과 SHA-256 일치. 현행 도메인/문서 정합 검사 PASS. 상세 웹 증거는 `infonoahai/noahai-info/docs/05_UPDATE_AND_TEST.md`에 기록했다. 사용자 거래·DB·회원권한·Windows 설치본은 변경하지 않았다. SEO 코드/링크 검증은 검색 순위·색인 완료를 뜻하지 않는다.

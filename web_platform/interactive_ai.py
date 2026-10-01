@@ -265,6 +265,12 @@ class InteractiveAIService:
     def _estimate_cost(provider: str, model: str, usage: dict[str, Any]) -> float | None:
         rows = provider_price_rows(provider)
         row = next((item for item in rows if str(item.get("model")) == model), None)
+        if row is None and provider == "openai":
+            # OpenAI responses can identify a dated snapshot instead of the
+            # requested alias. Only accept an exact YYYY-MM-DD suffix.
+            import re
+            base = re.sub(r"-\d{4}-\d{2}-\d{2}$", "", model)
+            row = next((item for item in rows if item["model"] == base), None)
         if not row or row.get("input") is None or row.get("output") is None:
             return None
         # Some providers and older adapters return a successful response
@@ -280,10 +286,14 @@ class InteractiveAIService:
         input_tokens = int(usage.get("input_tokens", 0) or 0)
         cached_tokens = min(input_tokens, int(usage.get("cached_input_tokens", 0) or 0))
         output_tokens = int(usage.get("output_tokens", 0) or 0)
-        # Cached pricing differs by provider and is not consistently available;
-        # count it as ordinary input so this estimate never understates by design.
+        # This is a standard-rate estimate, NOT the provider invoice. Cache
+        # reads count as ordinary input; regional/tier/write charges can differ.
         billable_input = input_tokens if input_tokens else cached_tokens
-        return round((billable_input * float(row["input"]) + output_tokens * float(row["output"])) / 1_000_000, 8)
+        input_rate, output_rate = float(row["input"]), float(row["output"])
+        if provider == "openai" and str(row["model"]).startswith("gpt-6") and input_tokens > 272_000:
+            input_rate *= 2
+            output_rate *= 1.5
+        return round((billable_input * input_rate + output_tokens * output_rate) / 1_000_000, 8)
 
     def ask(
         self,

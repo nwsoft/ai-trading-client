@@ -55,7 +55,7 @@ class UserStatusManager:
                 # path_utils 사용 실패 시 기본 경로 사용
                 self.env_file = os.path.join(os.path.dirname(__file__), 'data', 'token.json')
             
-        self.server_url = "https://daltrading.net"  # 백엔드 서버 URL
+        self.server_url = "https://noahai.net"  # 백엔드 서버 URL
         
         logger.info("UserStatusManager 초기화 완료")
         logger.info("🔍 토큰 파일 경로 설정 완료")

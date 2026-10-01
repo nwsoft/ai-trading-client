@@ -599,6 +599,12 @@ class OkxFuturesAdapter(FuturesExchange):
         try:
             ticker = self.exchange.fetch_ticker(self._normalize_symbol(symbol))  # type: ignore
             return {
+                # The bulk and single-ticker paths must carry the same public
+                # evidence. OKX swap quoteVolume/percentage may be null; the
+                # evaluator needs volCcy24h/open24h, NOT contract baseVolume.
+                'symbol': ticker.get('symbol') or self._normalize_symbol(symbol),
+                'info': dict(ticker.get('info') or {}),
+                'timestamp': ticker.get('timestamp'),
                 'last': ticker.get('last', 0),
                 'high': ticker.get('high', 0),
                 'low': ticker.get('low', 0),

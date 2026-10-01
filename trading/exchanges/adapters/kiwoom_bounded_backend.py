@@ -22,6 +22,7 @@ class BoundedKiwoomMixin:
         self._tr_retry_at = 0.0
         self._login_result = None
         self._rpc_deadline = None
+        self._tr_timeouts = {}
 
     def set_rpc_deadline(self, seconds):
         self._rpc_deadline = None if seconds is None else self._clock() + max(0, seconds)
@@ -93,6 +94,9 @@ class BoundedKiwoomMixin:
             # Do not sleep through the outer RPC deadline during overload.
             raise RuntimeError("kiwoom_tr_cooldown:query_overload")
         trcode = str(trcode).lower()
+        failures, retry_at = self._tr_timeouts.get(trcode, (0, 0.0))
+        if self._clock() < retry_at:
+            raise RuntimeError(f"kiwoom_tr_cooldown:response_timeout:{trcode}")
         schema = self._load_tr_schema(trcode)
         output = kwargs.get("output")
         if not any(output in entry for entry in schema.get("output", [])):
@@ -134,8 +138,17 @@ class BoundedKiwoomMixin:
             if self._tr_error:
                 raise RuntimeError(self._tr_error)
             record_stage("tr_complete", error_type=trcode)
+            self._tr_timeouts.pop(trcode, None)
             return self.tr_data
         except Exception as exc:
+            if isinstance(exc, TimeoutError):
+                # A missing callback is not a reason to repeat the same TR for
+                # every candidate. After three failures pause this read type,
+                # not account/order queries or the whole broker session.
+                failures += 1
+                self._tr_timeouts[trcode] = (
+                    failures, self._clock() + 30.0 if failures >= 3 else 0.0,
+                )
             record_stage("tr_failed", error_type=f"{trcode}:{type(exc).__name__}")
             raise
         finally:

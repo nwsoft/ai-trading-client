@@ -145,7 +145,7 @@ class OpenAIClient:
         lower = str(model or '').lower()
         if self.provider == "kimi":
             return False
-        if self.provider == "gemini" and lower.startswith(("gemini-3.5", "gemini-3.6")):
+        if self.provider == "gemini" and lower.startswith("gemini-3"):
             return False
         return not lower.startswith(('gpt-5', 'gpt-6', 'o1', 'o3', 'o4'))
 
@@ -158,14 +158,19 @@ class OpenAIClient:
         """
         sanitized = dict(options)
         lower = str(model or "").lower()
-        if not self._supports_temperature(model):
-            if "max_tokens" in sanitized and "max_completion_tokens" not in sanitized:
-                sanitized["max_completion_tokens"] = sanitized.pop("max_tokens")
+        if "max_tokens" in sanitized and "max_completion_tokens" in self._completion_limits(model, 1):
+            limit = sanitized.pop("max_tokens")
+            sanitized.setdefault("max_completion_tokens", limit)
+        non_reasoning_gpt6 = self.provider == "openai" and lower.startswith(("gpt-6-luna", "gpt-6-sol")) and sanitized.get("reasoning_effort") == "none"
+        if not self._supports_temperature(model) and not non_reasoning_gpt6:
             sanitized.pop("temperature", None)
-        if lower.startswith("gpt-6"):
+        if self.provider == "openai" and lower.startswith("gpt-6") and not non_reasoning_gpt6:
             sanitized.pop("top_p", None)
             sanitized.pop("top_logprobs", None)
             sanitized.pop("logprobs", None)
+        if self.provider == "kimi":
+            for name in ("top_p", "n", "presence_penalty", "frequency_penalty"):
+                sanitized.pop(name, None)
         return sanitized
 
     def chat_json(self,
@@ -173,7 +178,8 @@ class OpenAIClient:
                   user_prompt: str,
                   temperature: float = 0.2,
                   max_tokens: int = 800,
-                  model: Optional[str] = None) -> Optional[Dict[str, Any]]:
+                  model: Optional[str] = None,
+                  reasoning_effort: Optional[str] = None) -> Optional[Dict[str, Any]]:
         if not self._client:
             self._record_contract_error("credential_missing", "API 키가 없거나 AI 클라이언트를 초기화하지 못했습니다.")
             return None
@@ -194,8 +200,10 @@ class OpenAIClient:
                 request_kwargs['temperature'] = temperature
             if self.provider == "openai":
                 request_kwargs["store"] = False
+                if reasoning_effort is not None:
+                    request_kwargs["reasoning_effort"] = reasoning_effort
             completion = self._client.chat.completions.create(
-                **request_kwargs,
+                **self._sanitize_completion_options(use_model, request_kwargs),
             )
             self._record_usage(completion, use_model)
             content = completion.choices[0].message.content
@@ -309,7 +317,7 @@ class OpenAIClient:
                 request_kwargs["temperature"] = 0.1
             if self.provider == "openai":
                 request_kwargs["store"] = False
-            completion = self._client.chat.completions.create(**request_kwargs)
+            completion = self._client.chat.completions.create(**self._sanitize_completion_options(use_model, request_kwargs))
             self._record_usage(completion, use_model)
             text = str(completion.choices[0].message.content or "").strip()
             parsed = self._safe_parse_json(text)

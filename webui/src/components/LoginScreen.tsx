@@ -77,7 +77,7 @@ export function LoginScreen({ client, onSuccess }: { client: GatewayClient; onSu
           </div>
           {message && <div className="legacy-login-message error-text">{message}</div>}
           <div className="legacy-login-actions">
-            <a className="legacy-signup-button" href="https://daltrading.net" rel="noreferrer" target="_blank">{t("회원가입")}</a>
+            <a className="legacy-signup-button" href="https://noahai.net" rel="noreferrer" target="_blank">{t("회원가입")}</a>
             <button className="legacy-login-button" disabled={busy || !username.trim() || !password} type="submit">{busy ? t("인증 중…") : t("로그인")}</button>
           </div>
         </form>
@@ -98,7 +98,7 @@ const LOGIN_HELP_TABS = [
    • 「로그인 정보 저장」을 켜두면 다음 실행 시 아이디가 채워질 수 있습니다.
 
 2) 회원가입
-   • 「회원가입」 버튼을 누르면 웹(https://daltrading.net)으로 이동합니다.
+   • 「회원가입」 버튼을 누르면 웹(https://noahai.net)으로 이동합니다.
    • 웹에서 회원가입을 완료한 뒤, 이 화면으로 돌아와 다시 로그인합니다.
    • 운영 정책에 따라 가입키가 필요한 계정은 판매 채널 또는 공식 고객지원 경로에서 발급받습니다.
    • 약관·필수 동의는 회원가입 웹 절차에서 진행합니다.

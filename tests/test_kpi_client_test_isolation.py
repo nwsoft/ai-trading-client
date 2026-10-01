@@ -32,7 +32,7 @@ def test_lifecycle_delivery_retries_server_error_and_confirms_success(monkeypatc
     monkeypatch.setattr(kpi_client.time, "sleep", lambda _seconds: None)
 
     delivered = kpi_client._deliver_kpi_item({
-        "url": "https://daltrading.net/auth/kpi/event",
+        "url": "https://noahai.net/auth/kpi/event",
         "payload": {"event_type": "trade_position_closed"},
         "timeout": 1.5,
         "max_attempts": 3,
@@ -52,7 +52,7 @@ def test_lifecycle_delivery_does_not_retry_validation_error(monkeypatch):
     monkeypatch.setattr(kpi_client.requests, "post", fake_post)
 
     delivered = kpi_client._deliver_kpi_item({
-        "url": "https://daltrading.net/auth/kpi/event",
+        "url": "https://noahai.net/auth/kpi/event",
         "payload": {"event_type": "trade_position_closed"},
         "timeout": 1.5,
         "max_attempts": 3,

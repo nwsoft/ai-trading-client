@@ -144,9 +144,17 @@ const SETTING_OPTION_LABELS: Record<string, string> = {
   "10000": "만불 ($10,000)",
   "1000": "천불 ($1,000)",
   "100": "백불 ($100)",
-  "deepseek-v4-flash": "DeepSeek V4 Flash · 자동 최신",
+  "deepseek-flash": "DeepSeek V4.1 Flash · 최신 별칭",
+  "deepseek-v4-flash": "DeepSeek Flash · 구 ID 호환",
   "deepseek-v4-pro": "DeepSeek V4 Pro · 정밀형",
-  "deepseek-v4-flash-vision-exp": "DeepSeek V4 Flash Vision · 실험형",
+  "deepseek-v4-flash-vision-exp": "DeepSeek Flash Vision · 구 ID 호환",
+  "gpt-6-luna": "GPT-6 Luna · 빈번·저비용",
+  "gpt-6.1-sol": "GPT-6.1 Sol · 최신 정밀형",
+  "gpt-6-sol": "GPT-6 Sol · 호환 정밀형",
+  "kimi-k2.7-code": "Kimi K2.7 Code · 코딩 특화",
+  "kimi-k2.7-code-highspeed": "Kimi K2.7 Code · 고속형",
+  "claude-sonnet-5-5": "Claude Sonnet 5.5 · 최신 균형형",
+  "claude-opus-5-5": "Claude Opus 5.5 · 최신 정밀형",
   "gpt-6-astra": "GPT-6 Astra · 최상위 정밀형",
   "gpt-5.6-luna": "GPT-5.6 Luna · 절약형",
   "gpt-5.6-terra": "GPT-5.6 Terra · 균형형",
@@ -960,7 +968,7 @@ export function SettingsCenter({ client, open, initialField, onClose, onAskAssis
           <button className="settings-quick-start-open" type="button" onClick={openQuickStart}>{t("처음 사용 · 빠른 시작")}</button>
           <button className="settings-window-close" type="button" onClick={requestClose} aria-label={t("설정 창 닫기")} title={t("설정 닫기")}>×</button>
         </header>
-        <div className="settings-live-warning"><span>{t("v3.9.1.50 · LIVE는 별도 권한입니다 · PAPER OFF + 주문 대상/증권 LIVE + API 준비 + 가드레일")}</span><button type="button" onClick={() => onAskAssistant("실거래 전 필수 준비, PAPER와 LIVE의 차이, API 권한과 주문 가드레일을 현재 설정 기준으로 설명해줘.", activeSection)}>{t("실거래 필수 안내")}</button></div>
+        <div className="settings-live-warning"><span>{t("v3.9.2.0 · LIVE는 별도 권한입니다 · PAPER OFF + 주문 대상/증권 LIVE + API 준비 + 가드레일")}</span><button type="button" onClick={() => onAskAssistant("실거래 전 필수 준비, PAPER와 LIVE의 차이, API 권한과 주문 가드레일을 현재 설정 기준으로 설명해줘.", activeSection)}>{t("실거래 필수 안내")}</button></div>
         <section className={`settings-readiness-strip ${readinessOpen ? "open" : ""}`}>
           <header><strong>{t("AI 실행 준비도 진단")}</strong><button type="button" onClick={() => setReadinessOpen((value) => !value)}>{readinessOpen ? "상세 닫기" : t("상세 보기")}</button></header>
           {readinessOpen && <div className="readiness-grid"><span><b>{t("AI 키")}</b>{diagnostics?.ai?.configured ? "등록됨" : "미설정"}</span><span><b>{t("기본 Provider")}</b>{String(diagnostics?.ai?.provider || "—").toUpperCase()}</span><span><b>{t("거래 모드")}</b>{diagnostics?.trading?.paper_trading ? "PAPER" : diagnostics?.trading?.live_ready ? "LIVE 준비" : "LIVE 차단"}</span><span><b>{t("런타임")}</b>{diagnostics?.trading?.runtime_status || "확인 중"}</span><span><b>{t("회원 등급")}</b>{String(diagnostics?.membership?.user_grade || "확인 필요").toUpperCase()}</span><span><b>{t("회원 정책")}</b>{diagnostics?.membership?.policy_version || diagnostics?.membership?.status || "서버 확인 필요"}</span></div>}
@@ -1045,7 +1053,7 @@ export function SettingsCenter({ client, open, initialField, onClose, onAskAssis
             </section>}
             {activeSection === "general" && snapshot && <section className="settings-contract-status">
               <strong>{t("설정 정리 상태")}</strong>
-              <p>{t("앱 v3.9.1.50 · 설정 스키마 ")}{snapshot.schema_version}{t(" · 현재 모드 ")}{diagnostics?.trading?.paper_trading ? "PAPER" : "LIVE 확인 필요"}{t(" · 계정 설정 ")}{snapshot.account_scope}</p>
+              <p>{t("앱 v3.9.2.0 · 설정 스키마 ")}{snapshot.schema_version}{t(" · 현재 모드 ")}{diagnostics?.trading?.paper_trading ? "PAPER" : "LIVE 확인 필요"}{t(" · 계정 설정 ")}{snapshot.account_scope}</p>
               {snapshot.storage_status?.ok === false && <p className="error-text">{t("기존 settings.json의 문자 인코딩 또는 JSON 형식을 읽지 못했습니다. 원본 보호를 위해 저장이 차단됩니다. 파일을 삭제하지 말고 설정 백업 복구 또는 지원 로그 전달을 이용하세요.")}</p>}
               {snapshot.storage_status?.needs_normalization && <p>{t("기존 ")}{snapshot.storage_status.encoding}{t(" 설정을 호환해서 읽었습니다. 다음 검증 저장 시 UTF-8 정본으로 변환됩니다.")}</p>}
               <span>{t("기본 설정은 원본 화면의 사용자 항목이며, 고급 설정에는 정본 JSON의 기술 정책이 표시됩니다. 비밀값과 런타임 snapshot은 별도 보호 경로로 관리됩니다.")}</span>
@@ -1111,7 +1119,7 @@ export function SettingsCenter({ client, open, initialField, onClose, onAskAssis
                 })}
                 <div className="fixed"><span>{t("영상·음성 전사")}</span><strong>OPENAI · {SETTING_OPTION_LABELS[String(draft["ai_custom_transcription.model"] || "")] ?? String(draft["ai_custom_transcription.model"] || "gpt-4o-mini-transcribe")}</strong><small>{t("YouTube 공개 자막이 없을 때만 음성 전사 사용")}</small></div>
               </div>
-              <div className="settings-ai-model-notice"><strong>{t("DeepSeek 4.1 표기에 관하여")}</strong><span>{t("공식 API 모델 ID는 현재 ")}<code>deepseek-v4-flash</code>{t("입니다. 이 별칭이 DeepSeek 서버에서 최신 Flash 버전으로 자동 갱신됩니다. 존재가 확인되지 않은 ")}<code>deepseek-v4.1-flash</code>{t(" 문자열은 추가하지 않습니다.")}</span><small>{t("실제 계정의 목록과 선택 모델 호출 가능 여부는 아래 실제 점검에서 따로 확인합니다. 비전 실험형은 deepseek-v4-flash-vision-exp로 별도 선택할 수 있습니다.")}</small></div>
+              <div className="settings-ai-model-notice"><strong>{t("모델 목록 갱신 · 기존 선택 유지")}</strong><span>{t("GPT-6 Luna는 빈번·저비용 작업에 선택할 수 있습니다. DeepSeek V4.1 Flash의 공식 ID는 ")}<code>deepseek-flash</code>{t("이며, 구 deepseek-v4-flash / vision-exp ID는 제공사가 임시 호환합니다. deepseek-v4.1-flash를 임의 입력하지 마세요.")}</span><small>{t("목록 등록은 계정 호출 성공이나 분석 정확도 보장이 아닙니다. 작업별 모델을 선택하고 실제 호출 점검 후 저장하세요. 기존 모델·자동매매·비용 한도는 자동 변경하지 않습니다.")}</small></div>
               <div className="settings-ai-model-catalog">
                 <header><div><strong>{visibleModelProvider.toUpperCase()}{t(" 모델 비교")}</strong><span>{t("호환 목록 ")}{visibleModelDetails.length}{t("개 · 모델 ")}{snapshot?.model_catalog_meta?.model_as_of ?? "기준일 확인 필요"}{t(" · 가격 ")}{snapshot?.model_catalog_meta?.price_as_of ?? "기준일 확인 필요"}</span></div>{snapshot?.model_catalog_meta?.pricing_urls?.[visibleModelProvider] && <a href={snapshot.model_catalog_meta.pricing_urls[visibleModelProvider]} target="_blank" rel="noreferrer">{t("공식 가격표 열기")}</a>}</header>
                 <div className="settings-ai-model-grid">{visibleModelDetails.map((model) => {
@@ -1221,7 +1229,7 @@ export function SettingsCenter({ client, open, initialField, onClose, onAskAssis
             {activeSection === "update" && <section className="settings-update-panel">
               <strong>{t("버전 정보 · 클라이언트 업데이트")}</strong>
               <p>{t("업데이트 확인과 다운로드는 거래 엔진을 중지하지 않습니다. 설치·재시작은 거래 워커 정지와 기록 저장이 완료된 경우에만 진행합니다.")}</p>
-              <UpdateCenter client={client} accountScope={snapshot?.account_scope ?? ""} detailed currentVersion={platform?.release_version ? `v${platform.release_version}` : "v3.9.1.50"} />
+              <UpdateCenter client={client} accountScope={snapshot?.account_scope ?? ""} detailed currentVersion={platform?.release_version ? `v${platform.release_version}` : "v3.9.2.0"} />
               {!window.noahAI && <span>{t("브라우저 개발 실행에서는 데스크톱 업데이트를 사용할 수 없습니다.")}</span>}
               <RecordRecoveryPanel client={client} />
               <StorageMaintenancePanel client={client} />

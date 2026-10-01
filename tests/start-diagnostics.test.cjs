@@ -14,7 +14,10 @@ test('six venues retain request-correlated safe stage without exposing raw detai
  }
 });
 test('PAPER failures never prescribe or read LIVE journal recovery',()=>{
- for(const code of ['exchange_initialization_failed','trading_candidates_unavailable','runtime_start_exception','risk_data_unavailable','managed_position_reconciliation_required'])assert.equal(startGuidance(code,'paper').recovery,false);
+ for(const code of ['exchange_initialization_failed','trading_candidates_unavailable','runtime_start_exception','risk_data_unavailable','managed_position_reconciliation_required', 'trading_candidate_catalogue_unavailable', 'trading_candidate_markets_unavailable', 'trading_candidate_tickers_unavailable', 'trading_candidate_filters_excluded']){
+  assert.equal(startGuidance(code,'paper').recovery,false);
+  assert.equal(startDiagnostic(code+':okx:candidate_selection').code,code);
+ }
  assert.equal(startGuidance('managed_position_reconciliation_required','live').recovery,true);
  assert.equal(startGuidance('daily_loss_limit_exceeded','live').recovery,false);
  assert.equal(startDiagnostic('risk_data_unavailable:managed_position_reconciliation_required:recovery_unavailable').code,'managed_position_reconciliation_required');

@@ -4,6 +4,8 @@ const codes = new Set([
   'runtime_source_not_enabled', 'stock_source_not_enabled', 'exchange_initialization_failed',
   'runtime_source_stopping', 'runtime_start_cancelled',
   'trading_candidates_unavailable', 'runtime_start_exception', 'runtime_command_rejected',
+  'trading_candidate_catalogue_unavailable', 'trading_candidate_markets_unavailable',
+  'trading_candidate_tickers_unavailable', 'trading_candidate_filters_excluded',
   'credential_required', 'risk_data_unavailable', 'daily_loss_limit_exceeded',
   'managed_position_reconciliation_required', 'live_start_confirmation_required',
   'binance_runtime_not_ready', 'binance_worker_shutdown_timeout', 'runtime_shutdown_in_progress',
@@ -38,6 +40,10 @@ export function startGuidance(code: string, mode: string) {
   const action = recovery ? '거래 기록 점검·복구에서 미확정 사유와 필요한 체결 근거를 확인하세요. 복구 결과를 확인한 뒤 시작을 다시 평가하세요.'
     : code === 'runtime_source_stopping' ? '이전 거래 워커가 아직 종료 중입니다. 종료 상태를 확인한 뒤 다시 시작하세요. 강제 종료하거나 시작을 반복하지 마세요.'
     : code === 'runtime_start_cancelled' ? '시작 준비 중 정지 요청이 들어와 시작을 취소했습니다. 자동 재시작하지 않습니다. 현재 상태를 확인한 뒤 필요할 때 직접 시작하세요.'
+    : code === 'trading_candidate_catalogue_unavailable' ? '현재 종목 목록을 조회하지 못했습니다. 해당 기관의 연결·공개 시세 접근과 초기화 로그를 확인하세요. 과거 목록으로 거래를 시작하지 않습니다.'
+    : code === 'trading_candidate_markets_unavailable' ? '현재 목록에서 거래 가능한 지원 상품이 확인되지 않았습니다. 종목 상태·상품 종류·결제통화와 제외 설정을 확인하세요. 상장 상태 검사를 우회하지 마세요.'
+    : code === 'trading_candidate_tickers_unavailable' ? '지원 상품은 있지만 유효한 현재 시세를 받지 못했습니다. 해당 기관의 시세 수신과 조회 오류를 확인한 뒤 다시 시작하세요. 가격을 0으로 간주하지 않습니다.'
+    : code === 'trading_candidate_filters_excluded' ? '받은 시세가 거래대금·변동성 필터를 통과하지 못했습니다. 코인 정보와 거래소별 선정 설정, 로그의 유효 시세·필터 통과 수를 확인하세요. 기준을 자동 완화하지 않습니다.'
     : code === 'trading_candidates_unavailable' ? '해당 기관의 코인·종목 정보에서 선정 결과와 시세 수신 상태를 확인하세요. 후보가 확보된 뒤 다시 시작하세요.'
     : code === 'exchange_initialization_failed' ? '설정에서 해당 기관의 연결을 점검하고 같은 시각의 초기화 로그를 확인하세요. API 키 오류로 단정할 수 없습니다.'
     : code === 'credential_required' ? '설정에서 해당 기관의 필수 인증 정보를 저장하고 연결을 확인하세요.'

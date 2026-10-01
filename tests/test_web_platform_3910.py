@@ -2412,7 +2412,7 @@ def test_session_login_persists_token_write_only_and_assistant_uses_local_knowle
     audit_text = (tmp_path / "audit" / "web_ui_commands.jsonl").read_text(encoding="utf-8")
     assert "server-secret-token" not in audit_text
     assert "login-password" not in audit_text
-    assert observed["url"].startswith("https://daltrading.net/")
+    assert observed["url"].startswith("https://noahai.net/")
 
     answer = services.ask_assistant(
         question="백테스트와 PAPER 차이는?", service="ai_custom", explanation_level="beginner",

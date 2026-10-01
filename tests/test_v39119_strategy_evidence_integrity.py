@@ -97,6 +97,15 @@ def test_legacy_binance_execution_row_is_recovered_to_unique_unified_owner(tmp_p
     assert exported["passport"]["evidence_status"] == "publisher_unsigned_local_package"
     assert exported["passport"]["paper_evidence_by_venue"][0]["exchange"] == "binance"
     assert "personal_trade_history" not in exported["passport"]
+    definition = services.export_strategy_package(
+        scope='unified', strategy_key=created['strategy_key'],
+        version_id=created['version_id'], definition_only=True,
+    )['package']
+    assert definition['passport'] == {}
+    assert definition['strategy']['strategy_ir'] == exported['strategy']['strategy_ir']
+    assert verify_strategy_package(definition)['valid'] is True
+    assert definition['import_contract']['active'] is False
+    assert definition['import_contract']['approval'] is None
 
 
 def test_python_serialized_package_preserves_hash_and_strictly_recovers_legacy_web_numbers():

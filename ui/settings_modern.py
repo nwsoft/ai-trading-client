@@ -245,7 +245,7 @@ class ModernSettingsWindow:
 
     @staticmethod
     def _open_referral_dashboard() -> None:
-        webbrowser.open("https://daltrading.net/auth/dashboard")
+        webbrowser.open("https://noahai.net/auth/dashboard")
 
     def _add_referral_entitlement_banner(self, parent, exchange: str) -> None:
         row = ctk.CTkFrame(parent, fg_color="#0d1b2c", border_width=1, border_color="#31506f")

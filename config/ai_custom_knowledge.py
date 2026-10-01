@@ -127,11 +127,11 @@ def build_ai_custom_knowledge(
             "날짜·일시정지 배치, 최초 버전 변경점 오해, 따라하기 보완 위치를 개선했습니다. 기존 키움 프로세스 프록시의 이벤트 처리·시간 초과 격리를 보강하고 주문 결과가 미확정이면 자동 재시도하지 않습니다. KIS 토큰 인증과 실제 계좌·주문 권한을 구분해 안내합니다.\n"
             "이 안내는 해당 버전 소스 계약입니다. 설치 버전은 설정 → 업데이트에서 확인하세요. Windows 설치본·실계정·장시간 PAPER 확인 전에는 모든 기관의 연결과 배포 완료를 보장하지 않습니다. Level·회원별 포지션 상한·계좌 가드레일을 해제하는 패치가 아닙니다."
         )
-    elif _topic(message, "deepseek 4.1", "4.1 flash", "v4 flash", "deepseek 모델", "작업별 모델", "나만의 ai 구성"):
+    elif _topic(message, "gpt 6", "gpt-6", "luna", "deepseek 4.1", "4.1 flash", "v4 flash", "deepseek 모델", "작업별 모델", "나만의 ai 구성"):
         body = (
-            "DeepSeek 공식 API에서 현재 선택할 정식 별칭은 `deepseek-v4-flash`와 `deepseek-v4-pro`입니다. "
-            "`deepseek-v4-flash`는 DeepSeek 서버가 최신 Flash 버전으로 갱신하는 별칭이므로 확인되지 않은 `deepseek-v4.1-flash` 문자열을 NoahAI가 임의로 만들지 않습니다. "
-            "이미지 입력은 별도 실험 모델 `deepseek-v4-flash-vision-exp`이며, 계정별 제공 여부를 실제 연결 점검으로 확인해야 합니다.\n"
+            "3.9.2.0 모델 목록에는 `gpt-6-luna`(빈번·저비용), `gpt-6.1-sol`, Claude Sonnet/Opus 5.5, Kimi K2.7 Code가 추가됩니다. 기존 Gemini 3.8 Flash도 유지합니다. GPT-6 Luna가 저렴하다는 것이 투자 판단 정확도나 수익을 보장하지는 않습니다.\n"
+            "2026-10-01 확인 기준 DeepSeek 최신 정식 별칭은 `deepseek-flash`와 `deepseek-v4-pro`입니다. "
+            "`deepseek-flash`는 V4.1 Flash의 텍스트·JSON·이미지 입력을 지원합니다. `deepseek-v4-flash`와 `deepseek-v4-flash-vision-exp`는 제공사가 최신 Flash로 연결하는 임시 호환 ID입니다. 확인되지 않은 `deepseek-v4.1-flash`를 임의로 만들지 않습니다. 계정별 제공 여부는 실제 연결 점검으로 확인하세요.\n"
             "설정 → AI 엔진/API의 `나만의 AI 구성 · 작업별 모델`에서 빈번·저비용, 표준 분석, 정밀·전략, AI 애널리스트, AI 어시스턴트를 서로 다른 Provider와 모델로 배치할 수 있습니다. "
             "모델 변경은 초안이며 현재 설정 저장 후 실제 작업에 적용됩니다. `선택 모델 1회 실제 호출 점검`은 Provider 모델 목록만 보여 주는 검사가 아니라 비민감 고정 문장으로 AI 애널리스트 선택 모델을 한 번 호출합니다. 요청 모델·Provider 실제 응답 모델·토큰을 각각 표시하고 AI 비용 관리에 외부 호출 1회로 기록합니다. 목록에 모델이 없어도 실제 호출이 성공하면 호출 결과를 우선하며, 화면의 `변경 대기` 값으로 점검했다면 설정 저장 전까지 다른 작업에는 반영되지 않습니다. "
             "차트 분석은 이미지 기능이 확인된 모델만 허용하고, YouTube는 공개 자막과 다운로드 가능한 자막을 먼저 사용해 비용을 피한 뒤 자막이 없을 때만 별도 OpenAI 전사를 사용합니다. "

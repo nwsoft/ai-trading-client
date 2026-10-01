@@ -177,7 +177,7 @@ def _load_access_token() -> str:
 
 def submit_referral_proof(
     proof: ReferralAccountProof,
-    server_url: str = "https://daltrading.net",
+    server_url: str = "https://noahai.net",
     access_token: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Secret 없는 UID/관계 결과만 전송하고 서버의 Affiliate 판정을 받는다."""

@@ -1,3 +1,13 @@
+## 2026-10-01 도메인 통합 계약 (3.9.2.0)
+
+전략 목록 다중 작업은 `(scope, strategy_key, version_id)` 식별자로 기존 단건 인증·삭제 보호·상태머신 API를 최대 100개 순차 호출한다. 새 우회 권한/일괄 승인/자동 재시도/시장 주문 API를 추가하지 않는다. 화면 해제 시 다음 요청을 중단하며 이미 전송한 요청의 결과는 새로 조회한다. ZIP은 20MB로 제한하고 백그라운드 polling/외부 AI를 추가하지 않는다. 정의 전용 내보내기도 기존 패키지 생성기·hash·금지 필드·검토 전용 가져오기 계약을 사용한다. 고객 사건/정책 정본은 V3920_CUSTOMER_FEEDBACK_REVIEW.md다.
+
+제품 안내·고객 포털·PC 인증/세션·KPI·전략 허브·원격 상태의 기본 origin은 `https://noahai.net`이다. 실행 주체는 고객 PC이며 이번 변경으로 클라우드 거래 실행 권한을 추가하지 않는다. 개발사 공식 사이트는 `noahailabs.com`, 기업 제휴는 `ip.noahai.net`, 상품·라이선스 판매 상세는 `info.noahai.net`이다. 2026-10-01 추가 요청에 따라 info의 과거 설명을 현행 기준에 맞추고 포털의 구매 안내로 연결한다. noahai.net을 info로 리다이렉트하지 않으며 인증/API와 판매 서비스를 혼합하지 않는다. 브랜드 아이콘은 개발사 원본을 공유한다. 웹사이트 갱신은 Windows 3.9.2.0 배포 증거가 아니다.
+
+기존 `/home/ubuntu/daltrading`·회원 DB·JWT·데스크톱 세션 ID를 유지한다. 새 호스트는 host-only 쿠키로 재로그인하며 서브도메인 공유 쿠키를 쓰지 않는다. 웹 원격 명령은 동일 host·허용 origin·CSRF 서명·기존 계정/기기/명령 범위 검사를 모두 통과해야 한다. 구 클라이언트의 daltrading.net API/POST는 전환 기간 같은 서버에서 제공하고 루트 브라우저 안내와 분리한다. 구 도메인 만료 전 업데이트 전환을 완료해야 한다.
+
+현재 구현·검증은 UPDATE_PLAN/TEST_STATUS/DEPLOY_CHECKLIST를 따른다. 아래 버전별 항목은 해당 시점의 설계 이력이다.
+
 ## v3.9.1.50 변경 경계 (2026-09-30)
 
 VisualTradingOverview는 기존 operation_overview 스냅샷의 순수 렌더러입니다. 기관/실행 모드 일치만 표시하고 24개 국면 변화·20개 검사를 상한으로 둡니다. 조회/AI/주문/DB 쓰기를 추가하지 않습니다. GatewayRequestError는 오류의 안전한 StartDiagnostic을 보존합니다. TradingStartHelp는 LIVE 위험/원장 사유에만 복구를 조회하며, 응답 미수신·후보 없음·초기화·권한 문제는 개별 안내합니다. 비바이낸스 시작 실패 단계는 정해진 enum만 감사/공유하며 원문 예외는 공유하지 않습니다. 계획 V39150_VISUAL_OVERVIEW_PLAN.md가 후속 정본이며 아래 버전별 설명은 이력입니다.

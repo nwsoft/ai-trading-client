@@ -97,11 +97,11 @@ class AnthropicClient:
             "messages": [{"role": "user", "content": user_prompt}],
             "max_tokens": int(kwargs.pop("max_completion_tokens", kwargs.pop("max_tokens", 800)) or 800),
         }
-        supports_sampling = model not in {
-            "claude-sonnet-5",
-            "claude-opus-5",
-            "claude-fable-5",
-        }
+        # Include current releases and dated snapshots, not only three exact IDs.
+        supports_sampling = not model.startswith((
+            "claude-sonnet-5", "claude-opus-5", "claude-fable-5",
+            "claude-opus-4-7", "claude-opus-4-8",
+        ))
         if "temperature" in kwargs and supports_sampling:
             payload["temperature"] = max(0.0, min(float(kwargs["temperature"]), 1.0))
         data = self._request_json("POST", "/v1/messages", payload)
@@ -117,7 +117,8 @@ class AnthropicClient:
         output_tokens = int(usage.get("output_tokens", 0) or 0)
         self._usage_local.value = {
             "provider": self.provider,
-            "model": model,
+            "model": str(data.get("model") or model),
+            "requested_model": model,
             "input_tokens": input_tokens,
             "cached_input_tokens": int(usage.get("cache_read_input_tokens", 0) or 0),
             "output_tokens": output_tokens,

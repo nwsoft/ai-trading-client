@@ -8,6 +8,7 @@ uses this narrow RPC proxy instead of constructing QAx in an AnyIO worker.
 from __future__ import annotations
 
 import multiprocessing
+import math
 import struct
 import sys
 import threading
@@ -106,6 +107,7 @@ class KiwoomProcessProxy(StockExchange):
         self._process: Any = None
         self._request_id = 0
         self._rpc_lock = threading.RLock()
+        self._stop_requested = threading.Event()
         self.last_error = ""
         self._order_outcome_unknown = False
         # A timed-out COM/RPC call leaves the Kiwoom login/session state
@@ -136,13 +138,27 @@ class KiwoomProcessProxy(StockExchange):
 
     def _call(self, method_name: str, *args: Any, timeout: Optional[int] = None, **kwargs: Any) -> Any:
         with self._rpc_lock:
+            if self._stop_requested.is_set():
+                raise RuntimeError('kiwoom_runtime_stopping')
             self._ensure_process()
             self._request_id += 1
             request_id = self._request_id
             wait_seconds = int(timeout or self.request_timeout)
             try:
                 self._connection.send((request_id, method_name, args, kwargs))
-                if not self._connection.poll(wait_seconds):
+                ready = False
+                # Only interrupt reads/login. A sent order/cancel must retain
+                # its normal reply/unknown-outcome handling; never retry it.
+                interruptible = method_name.startswith('get_') or method_name in {
+                    'connect', 'is_etf', 'validate_credentials', 'supports_live_trading',
+                }
+                for _ in range(max(1, math.ceil(wait_seconds / .2))):
+                    if interruptible and self._stop_requested.is_set():
+                        raise OSError('kiwoom_runtime_stopping')
+                    if self._connection.poll(min(.2, wait_seconds)):
+                        ready = True
+                        break
+                if not ready:
                     raise TimeoutError(f"kiwoom_rpc_timeout:{method_name}:{wait_seconds}s")
                 response_id, ok, payload = self._connection.recv()
                 if response_id != request_id:
@@ -157,6 +173,9 @@ class KiwoomProcessProxy(StockExchange):
                     f"{type(exc).__name__}: 키움 전용 호스트 응답이 끊겼습니다. "
                     "키움 서버/인터넷 장애로 단정하지 않습니다. logs/kiwoom_host_events.jsonl을 확인하세요."
                 )
+                intentional_stop = str(exc) == 'kiwoom_runtime_stopping'
+                if intentional_stop:
+                    self.last_error = 'kiwoom_runtime_stopping'
                 if method_name in {"place_order", "cancel_order"}:
                     self._order_outcome_unknown = True
                 self._restart_blocked_reason = self.last_error
@@ -165,7 +184,7 @@ class KiwoomProcessProxy(StockExchange):
                     from pathlib import Path
                     from path_utils import get_log_dir
                     record_stage(
-                        "proxy_rpc_transport_fault",
+                        "proxy_read_cancelled" if intentional_stop else "proxy_rpc_transport_fault",
                         error_type=f"{method_name}:{type(exc).__name__}",
                         log_path=str(Path(get_log_dir()) / "kiwoom_host_events.jsonl"),
                     )
@@ -195,7 +214,14 @@ class KiwoomProcessProxy(StockExchange):
         return self.is_connected
 
     def disconnect(self) -> bool:
-        return self._shutdown_process(clear_restart_block=True)
+        result = self._shutdown_process(clear_restart_block=True)
+        if result:
+            self._stop_requested.clear()
+        return result
+
+    def request_stop(self) -> None:
+        """Nonblocking read cancellation; no orders, process kill or relogin."""
+        self._stop_requested.set()
 
     def _manual_reconnect_error(self) -> str:
         return (

@@ -5690,6 +5690,13 @@ class UnifiedTrader:
                     self.last_coin_selection_time_by_exchange[exchange_name] = time.time()
             if not selected:
                 self.logger.warning(f"⚠️ {exchange_name} 거래 시작 취소 - 선택된 코인 없음")
+                failures_by_venue = getattr(getattr(self, 'evaluator', None), 'candidate_failure_by_exchange', {})
+                candidate_reason = failures_by_venue.get(exchange_name) if isinstance(failures_by_venue, dict) else None
+                if candidate_reason in {
+                    'trading_candidate_catalogue_unavailable', 'trading_candidate_markets_unavailable',
+                    'trading_candidate_tickers_unavailable', 'trading_candidate_filters_excluded',
+                }:
+                    return reject(candidate_reason)
                 return reject('trading_candidates_unavailable')
 
             stage = 'worker_start'

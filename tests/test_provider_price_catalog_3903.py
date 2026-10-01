@@ -9,7 +9,7 @@ from trading.ai.provider_catalog import (
 
 def test_price_catalog_covers_every_supported_provider():
     assert set(OFFICIAL_PRICING_URLS) == {"openai", "deepseek", "kimi", "anthropic", "gemini"}
-    assert PRICE_SNAPSHOT_AS_OF == "2026-09-11"
+    assert PRICE_SNAPSHOT_AS_OF == "2026-10-01"
     for provider in OFFICIAL_PRICING_URLS:
         assert provider_price_rows(provider)
 
