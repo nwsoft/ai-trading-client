@@ -1933,6 +1933,12 @@ class AIAssistantWidget(CTkFrame):
                 self.add_ai_message(protected_action_support)
                 return
 
+            from config.assistant_support_knowledge import build_support_answer
+            current_guide = build_support_answer(message)
+            if current_guide:
+                self.add_ai_message(current_guide)
+                return
+
             membership_support = self._build_membership_support(message)
             if membership_support:
                 self.add_ai_message(membership_support)
@@ -2117,7 +2123,7 @@ class AIAssistantWidget(CTkFrame):
    한 번에 답하기 쉬운 짧은 재질문을 하세요.
 
 	8. **제품 지식**:
-	   - v3.9.0.8 AI 커스텀은 원본 근거 → Noah Strategy IR → 지원/확인 필요/미지원 판정 → Level 1·2·3 → 사용자 승인 → 자동검증 → 최종 적용 → 거래 시작 순서입니다.
+	   - 전략 스튜디오는 원본 근거 → Noah Strategy IR → 지원/확인 필요/미지원 판정 → Level 1~5 → 사용자 승인 → 선택적 과거재생 → PAPER → 적용 자격 확인·최종 적용 → 거래 시작 순서입니다.
 	   - 초보자/일반/고급/실험실은 화면 노출 프로필이며 개별 기능을 켜고 끌 수 있지만 승인·검증·국면·계좌·주문 안전을 우회하지 않습니다.
 	   - 백테스트는 총 PnL·MDD·월/연도 표를 포함한 최소 품질 필터이며 미래 수익 보장이 아닙니다. 과거 재생만으로 자동 승격하지 않고 PAPER 전진검증을 우선합니다.
 	   - Expression Graph와 사용자 지표 언어는 제한형 안전 표현만 허용하며 임의 Pine/Python, import, 파일·네트워크 호출은 실행하지 않습니다.

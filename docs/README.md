@@ -1,4 +1,20 @@
-## 2026-10-01 — 현행 소스 후보 v3.9.2.0 / 공개 v3.9.1.50
+## 2026-10-02 - 문서 동기화 (배포 버전 변경 없음)
+
+현재 소스 3.9.2.1은 유지한다. 다음 **3.9.2.2 보험 이해·보장 비교·상담 연계는 계획 단계**이며 새 문서를 복제하지 않고 기존 문서에 통합했다.
+
+- [보험 상세 설계·범위 A/B·데이터/사업 조건](LIFE_FINANCE_PRODUCT_COMPARISON_ANALYSIS_20260429.md#v3922-insurance-plan)
+- [개발 순서](UPDATE_PLAN.md#v3922-insurance) · [시스템 경계](ARCHITECTURE.md#v3922-insurance-boundary)
+- [검증 상태](TEST_STATUS.md#v3922-insurance-validation) · [출시 조건](DEPLOY_CHECKLIST.md#v3922-insurance-release)
+- [현재 생활금융 사용법과 보험의 한계](LIFE_FINANCE_GUIDE.md)
+
+## 2026-10-01 — v3.9.2.1 어시스턴트 안내·JEV 검토 (소스 후보)
+
+현재 소스 후보 버전: **v3.9.2.1** (updater 3.9.201). 현재 공개 기반: v3.9.2.0. 기존 공개 자산은 변경하지 않고 3.9.2.1 설치기와 자동 업데이트 자산을 새로 생성한다.
+
+공통 오류/기능 안내, KO/EN 라우팅, 선택적 과거재생 안내, 최신 빠른 질문을 보강한다. JEV는 첨부 근거 검토와 조건부 개발 계획이며 실행 Provider 미통합이다. 거래 규칙·승인·비용 한도를 변경하지 않는다. 정본: docs/V3921_ASSISTANT_UPDATE_PLAN.md, docs/V3921_JEV_EVALUATION.md. 최신 시험은 TEST_STATUS, Windows 배포는 DEPLOY_CHECKLIST를 따른다. 아래 이전 버전 섹션은 이력이다.
+
+
+## 2026-10-01 — 선행 소스 후보 v3.9.2.0 / 당시 공개 v3.9.1.50
 
 [통합 계획](UPDATE_PLAN.md)·[검증 기록](TEST_STATUS.md)·[Windows 인수](DEPLOY_CHECKLIST.md)를 따릅니다. 고객 포털 noahai.net 통합과 공개 50 후속 OKX/키움 수정을 포함하며 Windows 설치기 게시와 웹 운영 배포는 별도로 확인합니다.
 

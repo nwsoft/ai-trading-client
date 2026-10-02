@@ -239,4 +239,4 @@ def test_local_assistant_explains_declared_timeframe_and_publication_boundary():
     assert '실제 확보된 봉 수' in answer and '미지원 분봉' in answer
     assert '실시간 PAPER' in answer
     update = build_ai_custom_knowledge('3.9.1.30 업데이트는?')
-    assert '모든 기관의 연결과 배포 완료를 보장하지 않습니다' in update
+    assert '설치본 확인 없이 모든 피드백이 해결됐다고 안내하지 않습니다' in update

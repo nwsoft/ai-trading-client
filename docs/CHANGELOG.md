@@ -1,3 +1,19 @@
+## 2026-10-01 - v3.9.2.1 자산통합·생활금융 (2026-10-02 추가, 소스 후보)
+
+- 이번 달 내 돈 점검, 목표 기한·누락 기록 안내, 지출 비중과 어시스턴트 질문 초안 연결.
+- 내 계좌 이체 유형을 추가하여 수입·소비 합산에서 제외. 기존 기록 자동 재분류 없음.
+- 월간 수입·생활비·대출 상환·목표 적립 계획 및 수입 20% 감소 비교. 외부 AI·저장·이체 없음.
+- 자산통합에 같은 점검 연결. 실제 잔액/성과 합산과 분리하며 조회 오류 격리.
+- 폐지된 금투세의 가상 세액 산출 중단, 0원 면세가 아닌 미계산 안내. 근로소득공제 구간과 2천만원 한도 정정.
+- 가계부 차액을 순자산으로 부르던 문구와 월중 기록의 자동 12개월 예측 제거. [상세](V3921_PERSONAL_FINANCE_PLAN.md).
+
+## 2026-10-01 - v3.9.2.1 Assistant Guidance and Decision Model Evidence (Windows 미게시)
+
+현재 소스 후보 버전: **v3.9.2.1** (updater 3.9.201). 현재 공개 기반: v3.9.2.0. 기존 공개 자산은 변경하지 않고 3.9.2.1 설치기와 자동 업데이트 자산을 새로 생성한다.
+
+공통 오류/기능 안내, KO/EN 라우팅, 선택적 과거재생 안내, 최신 빠른 질문을 보강한다. JEV는 첨부 근거 검토와 조건부 개발 계획이며 실행 Provider 미통합이다. 거래 규칙·승인·비용 한도를 변경하지 않는다. 정본: docs/V3921_ASSISTANT_UPDATE_PLAN.md, docs/V3921_JEV_EVALUATION.md. 최신 시험은 TEST_STATUS, Windows 배포는 DEPLOY_CHECKLIST를 따른다. 아래 이전 버전 섹션은 이력이다.
+
+
 ## 2026-10-01 - v3.9.2.0 Portal Migration and Runtime Recovery (Windows 미게시)
 
 - AI 모델 갱신: GPT-6 Luna/6.1 Sol/6 Sol, Claude Sonnet·Opus 5.5, DeepSeek `deepseek-flash`, Kimi K2.7 Code/HighSpeed 추가. Gemini 3.8 Flash 재확인. 기존 사용자 모델·역할·예산 유지. DeepSeek 임시 호환 별칭과 K3/신규 모델 기본 가격 안내 정정.

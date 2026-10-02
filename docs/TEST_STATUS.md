@@ -1,3 +1,46 @@
+## 2026-10-02 - 문서 동기화 (배포 버전 변경 없음)
+
+<a id="v3922-insurance-validation"></a>
+
+### 차기 3.9.2.2 보험 — 시험 설계만 등록
+
+[보험 정본 10절](LIFE_FINANCE_PRODUCT_COMPARISON_ANALYSIS_20260429.md#v3922-insurance-plan)의 계약/필터·추출/근거·도메인·비교/절감·개인정보·통합·성능·UI·Windows·B 전용 시험을 필수로 한다. **보험 신규 코드·정답셋·기능 시험·실보험 검증은 아직 없다.** 아래 3.9.2.1의 4,694개 통과는 새 보험 기능 검증 결과가 아니다.
+
+향후 각 INS 작업마다 수정 전 재현, 변경 경로, 지원 자료 범위, 시험 데이터/권리, 실제 실행 명령, 통과/실패/보류, 근거 파일, 소스·설치본 버전과 한계를 기록한다. 조건부 제휴 시험을 모의 결과로 대체하지 않는다. 이번 작업은 계획·참조 링크·문서 정합성 점검만 수행한다.
+
+이번 문서 검증: `scripts/doc_consistency_check.py` PASS(기준 소스 3.9.2.1). 수정한 기존 Markdown 10개에서 내부 문서 링크 169건의 대상 존재 및 `v3922-*` 명시 앵커·중복 여부 검사 PASS. 기존 renderer 소스 지문 일치 true, updater 3.9.201 유지. 이는 문서 참조/기존 버전 보존 확인이며 새 보험 기능 시험·빌드·게시가 아니다. 과거 문서의 ‘더미 표시로 규제 위험 제로’ 단정도 정정 표시했다.
+
+## 2026-10-02 — v3.9.2.1 자산통합·생활금융 (추가 소스 후보)
+
+- Python 전체 **4,694 passed / 10 skipped / 3 subtests**, 88.82초. `/tmp/noah-v3921-finance-final.xml`. 기존 사용 중단 예정 경고 2개 유지. 신규 금융 회귀 23개는 누락값·이체·미래 날짜·잘못된 금액·목표 중복 합산 방지·로컬 어시스턴트·포트폴리오 오류 격리·폐지 세제·공제 경계값을 포함한다. 이체 파일 분리·재로드·백업·동기화·삭제·손상 시 원본 보존도 검사했다.
+- Node 기존 전체 + updater + JEV 오프라인 시험 **65 passed**. 외부 AI·은행 연결·실주문은 실행하지 않았다.
+- 실제 LifeFinance/PortfolioWorkspace/LifeFinanceAdvanced 컴포넌트 Chrome 1490/1080px PASS. Python 임시 기록으로 이체 제외, 명시적 계획 입력/빈값, 수입 20% 감소 비교, 질문 초안만 열기, 화면 이동, 폐지 세금 안내를 확인했다. JS 오류 및 검사한 데스크톱 가로 넘침 없음. `scripts/test_personal_finance_ui.cjs`로 재현한다. `/tmp/noah-finance-1490.png`, `/tmp/noah-finance-tax-1490.png` 직접 시각 확인. 390px 시험은 **새 공통 패널만**의 반응형 검사이며 기존 전체 앱 최소폭 1080px 제약의 해소가 아니다.
+- TypeScript app/node + Vite build PASS. `3.9.2.1-ui.20261002.2 / UI 2.1.2`, 실제 `webui/dist` 소스 지문 `7c8e27221f3dd8099b195bf91067dff6f462faa0eb6c4d56e0857d6532584619` 일치 true. 이전 renderer는 `/tmp/noah-finance-renderer-backup.CcayYI/dist`에 보존했다. 공유 의존성 실행 권한 문제를 피해 잠금 파일에 맞춘 기존 임시 빌드 환경을 사용했다. 기존 대형 JS chunk 경고 유지(1,174.17kB); 원본 의존성/lockfile은 변경하지 않았다.
+- 추가 점검 함수는 기존 로컬 기록을 사용하며 외부 호출·주문·추가 타이머가 없다. 이 Mac에서 메모리상 10,000건 점검 5회 5.59~5.78ms. 파일 로드/직렬화/전체 화면/Windows 장시간 성능을 포함한 측정은 아니다.
+- 문서 정합성 검사 PASS, 인앱 매뉴얼 11절 재생성. 구버전이 내부 이체를 지출로 해석하지 않도록 신규 이체만 별도 파일로 저장하며 과거 송금 기록은 자동 재분류하지 않는다.
+
+완료 범위는 [생활금융 계획](V3921_PERSONAL_FINANCE_PLAN.md)의 이번 구현 항목이다. 은행 자동 연결·실제 이체·가족 동의/공유·실상품 데이터·전체 세무 신고 계산·음성 전면 접근성은 완료로 표시하지 않는다. **Windows 설치본·고객 OKX/키움 인수·공식 웹사이트 게시·공개 릴리스는 이번 시험에 포함하지 않았다.** 사용자가 Windows에서 빌드·릴리스하며 기존 배포 게이트를 유지한다.
+
+## 2026-10-01 — v3.9.2.1 어시스턴트 안내·JEV 검토 (이전 소스 후보 검증)
+
+최종 결과:
+
+- Python 전체 `pytest tests -q`: **4,672 passed / 10 skipped / 3 subtests**, 85.57초. 근거 `/tmp/noah-v3921-final-tests.xml`. 건너뛴 외부 API/비공개 fixture 등은 실행 완료가 아니다. 기존 deprecation 경고 2개 유지.
+- 신규 지원 안내 시험 **71개**: 15개 주제 KO/EN, 7개 서비스 라우팅, 코드 우선순위, 요청 ID 오인 방지, 원문 snapshot 우선, 비밀키 비노출, Provider/시세 미호출, 선택적 과거재생. 최신 영어 안내 보정 후 영어 회귀 12개 별도 PASS.
+- Node `tests/*.test.cjs` + updater + JEV 오프라인 산술 시험: **65 passed**.
+- TypeScript app/node + Vite build PASS. 기존 단일 JS 번들 약 1.168MB 경고 유지. 원본 QA fixture는 제품 엔트리에 포함하지 않는다.
+- 실제 AssistantWorkspace 컴포넌트 1490/1080px: 빠른 질문 선택만으로 호출 0, 명시 전송 후 OKX/JEV 정본 답변 표시, JS 오류/가로 넘침 0. Python 안내를 읽는 격리 fixture이며 설치 앱·실계정·외부 모델 시험이 아니다. `/tmp/noah-assistant-support-1490.png`, `/tmp/noah-assistant-support-1080.png` 직접 시각 확인.
+- renderer `3.9.2.1-ui.20261001.1`, 실제 dist version 3.9.2.1, source SHA-256 `f6b257c855091c1f50b3c62cd4254c7161cbe0e4f96a64b1819a4d4793cd00d2` 일치. 이전 dist는 `/tmp/noah-model-build.HJfRHX/previous-client-dist-before-3921`에 보존.
+- 문서 정합성 검사·인앱 매뉴얼 11절 재생성 PASS. 오래된 ‘백테스트 최소 통과조건’, ‘모든 429=로컬 한도’ 기대값을 현행 정책에 맞춰 수정했다. 기존 workflow의 외부 게이트 확인은 그대로 유지하고 이를 금지하던 낡은 시험을 실제 게이트 존재·거부/게시 조건 검사로 수정했다.
+- JEV 첨부 10건 재계산 및 공식 문서/저장소 대조 완료. **유료 호출·receipt 인증·JEV Provider 구현·금융 예측 성능 검증·주문 실행은 하지 않았다.**
+
+Windows 설치/업데이트/롤백·고객 OKX PAPER·키움 COM 종료·장시간 시험은 기존 별도 인수 항목으로 유지한다. 위 자동 시험은 이 항목들의 통과나 공개 배포 증명이 아니다.
+
+현재 소스 후보 버전: **v3.9.2.1** (updater 3.9.201). 현재 공개 기반: v3.9.2.0. 기존 공개 자산은 변경하지 않고 3.9.2.1 설치기와 자동 업데이트 자산을 새로 생성한다.
+
+공통 오류/기능 안내, KO/EN 라우팅, 선택적 과거재생 안내, 최신 빠른 질문을 보강한다. JEV는 첨부 근거 검토와 조건부 개발 계획이며 실행 Provider 미통합이다. 거래 규칙·승인·비용 한도를 변경하지 않는다. 정본: docs/V3921_ASSISTANT_UPDATE_PLAN.md, docs/V3921_JEV_EVALUATION.md. 최신 시험은 TEST_STATUS, Windows 배포는 DEPLOY_CHECKLIST를 따른다. 아래 이전 버전 섹션은 이력이다.
+
+
 ## 2026-10-01 — 3.9.2.0 AI 모델 목록·호환 갱신 (현행)
 
 - 공식 문서 확인에 따른 모델/가격/호환 변경과 범위는 [AI 모델 갱신 계약](V3920_AI_MODEL_REFRESH.md). 기존 저장 모델·역할·키·예산·거래 권한은 유지했다.

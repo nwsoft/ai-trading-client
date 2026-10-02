@@ -271,6 +271,8 @@ export interface LogSnapshot {
 
 export interface LifeFinanceSnapshot {
   schema_version: string;
+  finance_review?: Record<string, any>;
+  transaction_count?: number;
   summary: Record<string, any>;
   transactions: Array<Record<string, any>>;
   goals: Array<Record<string, any>>;

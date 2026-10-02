@@ -48,12 +48,12 @@ def test_local_assistant_explains_429_and_user_owned_limit():
         {"ai_cost_control": {"max_daily_interactive_calls": 30, "max_monthly_interactive_calls": 500}},
     )
 
-    assert "거래 오류나 회원 등급 제한이 아니라" in answer
-    assert "하루 30회" in answer
-    assert "1~1000회" in answer
-    assert "월 1~30000회" in answer
-    assert "Provider가 직접 반환하는 429" in answer
-    assert "로컬 컴파일러로 계속" in answer
+    assert "429만으로는 원인을 확정하지 않습니다" in answer
+    assert "interactive_ai_budget_exceeded" in answer
+    assert "Provider가 반환한 429" in answer
+    assert "저장 한도와 사용량" in answer
+    assert "일반 안내는 외부 AI 호출 없이 계속" in answer
+    assert "비용이 증가할 수 있습니다" in answer
 
 
 def test_interactive_ai_status_exposes_exact_limit_reason_and_utc_reset(tmp_path):

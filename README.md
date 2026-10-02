@@ -1,8 +1,19 @@
+## 2026-10-02 — 3.9.2.1 생활금융 추가 업데이트
+
+자산통합·생활금융에 로컬 기록 기반 ‘이번 달 내 돈 점검’, 내 계좌 이체 구분, 월간 계획·수입 감소 비교를 추가합니다. 계좌 자산·가계부 차액·PAPER 성과는 서로 합산하지 않습니다. 세무 계산의 금투세 폐지 안내 및 근로소득공제 구간 오류를 수정했습니다. [범위·공식 자료·검증 계획](docs/V3921_PERSONAL_FINANCE_PLAN.md). 소스 후보이며 Windows 게시 완료가 아닙니다.
+
+## 2026-10-01 — v3.9.2.1 어시스턴트 안내·JEV 검토 (소스 후보)
+
+현재 소스 후보 버전: **v3.9.2.1** (updater 3.9.201). 현재 공개 기반: v3.9.2.0. 기존 공개 자산은 변경하지 않고 3.9.2.1 설치기와 자동 업데이트 자산을 새로 생성한다.
+
+공통 오류/기능 안내, KO/EN 라우팅, 선택적 과거재생 안내, 최신 빠른 질문을 보강한다. JEV는 첨부 근거 검토와 조건부 개발 계획이며 실행 Provider 미통합이다. 거래 규칙·승인·비용 한도를 변경하지 않는다. 정본: docs/V3921_ASSISTANT_UPDATE_PLAN.md, docs/V3921_JEV_EVALUATION.md. 최신 시험은 TEST_STATUS, Windows 배포는 DEPLOY_CHECKLIST를 따른다. 아래 이전 버전 섹션은 이력이다.
+
+
 # NoahAI - AI 금융 동반자 & 의사결정 인프라
 
-현재 공개 버전: **v3.9.1.50** · 사용자 배포 완료 확인 기준. 로컬 보존된 이전 manifest는 최신 게시 증거가 아닙니다.
-현재 공개 기반: v3.9.1.50.
-현재 소스 후보: v3.9.2.0 · updater **3.9.200** · Portal Migration and Runtime Recovery. [통합 계획](docs/UPDATE_PLAN.md)과 [시험 결과](docs/TEST_STATUS.md)를 따릅니다. 고객 포털은 `https://noahai.net`, 개발사 사이트는 `https://noahailabs.com`입니다. Windows 빌드·배포는 사용자가 수행합니다.
+현재 공개 버전: **v3.9.2.0** · GitHub stable/latest 공개 기준. 로컬 보존된 이전 manifest는 최신 게시 증거가 아닙니다.
+현재 공개 기반: v3.9.2.0.
+현재 소스 후보: v3.9.2.1 · updater **3.9.201** · Assistant Guidance and Decision Model Evidence. [통합 계획](docs/UPDATE_PLAN.md)과 [시험 결과](docs/TEST_STATUS.md)를 따릅니다. 고객 포털은 `https://noahai.net`, 개발사 사이트는 `https://noahailabs.com`입니다. Windows 빌드·배포는 사용자가 수행합니다.
 
 이하 49 구현 이력: Strategy Capacity and Operations Evidence Patch.
 

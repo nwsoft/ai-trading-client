@@ -698,7 +698,7 @@ class LifeFinanceWidget(ctk.CTkFrame):
         
         # 아이콘 및 정보
         icon = "" if tx.type == TransactionType.INCOME else ""
-        sign = "+" if tx.type == TransactionType.INCOME else "-"
+        sign = "+" if tx.type == TransactionType.INCOME else "↔" if tx.type == TransactionType.TRANSFER else "-"
         
         info_frame = ctk.CTkFrame(row, fg_color="transparent")
         info_frame.pack(side="left", fill="x", expand=True)

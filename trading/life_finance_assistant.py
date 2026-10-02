@@ -617,7 +617,7 @@ class LifeFinanceAssistant:
         lines = ["📋 최근 7일 거래 내역:\n"]
         for tx in txs[:10]:  # 최근 10개
             icon = "💰" if tx.type == TransactionType.INCOME else "💸"
-            sign = "+" if tx.type == TransactionType.INCOME else "-"
+            sign = "+" if tx.type == TransactionType.INCOME else "↔" if tx.type == TransactionType.TRANSFER else "-"
             lines.append(
                 f"{icon} {tx.date} | {sign}{tx.amount:,}원 | {tx.category} | {tx.description}"
             )
@@ -1078,15 +1078,9 @@ class LifeFinanceAssistant:
             domestic_stock_profit=profit,
             overseas_stock_profit=0,
         )
-        total_tax = result.get('total_tax', 0)
-        basic_deduction = result.get('domestic_deduction', 5_000_000)
         response = (
-            f"📈 금융투자소득세(금투세) 계산\n"
-            f"국내주식 수익: {profit:,.0f}원 기준\n"
-            f"기본공제: {basic_deduction:,.0f}원\n"
-            f"예상 세액: {total_tax:,.0f}원\n\n"
-            f"해외주식·ETF 수익도 알려주시면 통합 계산이 됩니다.\n"
-            f"예: '국내 2000만 해외 1000만 금투세 계산'"
+            f"투자소득 과세 확인\n{result['message']}\n{result['disclaimer']}\n"
+            f"공식 근거: {result['source_url']}"
         )
         return {
             'response': response,

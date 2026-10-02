@@ -224,7 +224,7 @@ class StrategyPackageImportContract(StrictContract):
 class LifeTransactionCreateContract(StrictContract):
     date: str
     amount: float = Field(gt=0, le=1_000_000_000_000)
-    type: Literal["수입", "지출"]
+    type: Literal["수입", "지출", "내 계좌 이체"]
     description: str = Field(min_length=1, max_length=500)
     method: str = Field(default="기타", max_length=100)
     category: str | None = Field(default=None, max_length=100)

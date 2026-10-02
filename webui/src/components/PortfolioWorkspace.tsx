@@ -3,6 +3,7 @@ import { useEffect, useMemo, useState } from "react";
 
 import type { GatewayClient } from "../api";
 import { LiveHistoryEvidence } from "./LiveHistoryEvidence";
+import { FinanceReviewPanel } from "./FinanceReviewPanel";
 
 type Row = Record<string, any>;
 
@@ -140,7 +141,7 @@ function PerformanceSections({ performances, recentTrades }: { performances: Arr
   </>;
 }
 
-export function PortfolioWorkspace({ client, featureId, enabledSources, credentialStatus }: { client: GatewayClient; featureId: string; enabledSources: string[]; credentialStatus: Record<string, boolean> }) {
+export function PortfolioWorkspace({ client, featureId, enabledSources, credentialStatus, onAsk, onOpenFinance }: { client: GatewayClient; featureId: string; enabledSources: string[]; credentialStatus: Record<string, boolean>; onAsk?: (question: string) => void; onOpenFinance?: () => void }) {
   const [data, setData] = useState<Row | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -178,6 +179,7 @@ export function PortfolioWorkspace({ client, featureId, enabledSources, credenti
     <article className="panel portfolio-mode-panel"><label>{t("성과 원장 ")}<select value={mode} onChange={(event) => setMode(event.target.value as "live" | "paper")}><option value="live">{t("LIVE · 체결 대조 완료")}</option><option value="paper">{t("PAPER · 가상 청산")}</option></select></label><p>{data?.performance_basis}</p><p>{t("자산 배분은 실제 잔고 기준이며 PAPER 성과를 실제 잔고에 더하지 않습니다.")}</p><p>{data?.allocation_basis}</p>{Number(data?.unvalued_position_count ?? 0) > 0 && <p className="error-text">{t("가격 미확인 보유 ")}{data?.unvalued_position_count}{t("건은 평가에서 제외했습니다. 현재 비중은 부분 평가이며 전체 계좌 위험을 뜻하지 않습니다.")}</p>}{Object.entries(data?.account_status ?? {}).map(([source, value]) => <small key={source}>{source.toUpperCase()} · {String((value as Row).status)} · {String((value as Row).captured_at ?? "기준 시각 없음")}　</small>)}</article>
     <LiveHistoryEvidence data={data?.live_history_evidence} />
     {featureId.endsWith("insights") && <>
+      <FinanceReviewPanel review={data?.finance_review} onAsk={onAsk} onOpenFinance={onOpenFinance} />
       <p className="workspace-copy">{data?.performance_basis}</p>
       <article className="panel portfolio-section legacy-portfolio-summary">
         <h2>{LEGACY_PORTFOLIO_SECTION_ORDER[0]}</h2>

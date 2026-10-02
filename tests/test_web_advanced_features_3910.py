@@ -49,8 +49,10 @@ def test_life_finance_advanced_engines_return_real_empty_state_and_reference_res
 
     manager = LifeFinanceManager(data_dir=str(tmp_path / "life"))
     analysis = service.life_finance_analysis(manager)
-    assert analysis["projection_basis"]["monthly_income"] == 0
-    assert analysis["projection"] == [0.0] * 12
+    assert analysis["projection_basis"]["monthly_income"] is None
+    assert analysis["projection"] == []
+    assert analysis["monthly_savings"] == {}
+    assert analysis["projection_basis"]["status"] == "requires_explicit_assumptions"
 
     catalog = service.product_catalog()
     assert catalog["counts"]["loan"] > 0

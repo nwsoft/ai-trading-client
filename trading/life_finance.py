@@ -27,6 +27,7 @@ class TransactionType(Enum):
     """거래 유형"""
     INCOME = "수입"
     EXPENSE = "지출"
+    TRANSFER = "내 계좌 이체"
 
 
 class ExpenseCategory(Enum):
@@ -422,6 +423,8 @@ class LifeFinanceManager:
             self.external_sync_dir.mkdir(parents=True, exist_ok=True)
         
         self.transactions_file = self.data_dir / "life_finance_transactions.json"
+        # 구버전은 알 수 없는 거래 유형을 지출로 읽는다. 내부 이체는 별도 보존한다.
+        self.transfers_file = self.data_dir / "life_finance_transfers.json"
         self.goals_file = self.data_dir / "life_finance_goals.json"
         self.monthly_cache_file = self.data_dir / "life_finance_monthly_cache.json"
         
@@ -457,6 +460,26 @@ class LifeFinanceManager:
                 print(f"⚠️ 거래 로드 실패: {e}")
                 self.transactions = []
         
+        # 신규 이체 파일은 손상 시 빈 목록으로 덮어쓰지 않고 로드를 중단한다.
+        if self.transfers_file.exists():
+            try:
+                with open(self.transfers_file, 'r', encoding='utf-8') as f:
+                    transfers = json.load(f)
+                if not isinstance(transfers, list) or any(
+                    t.get('type') != TransactionType.TRANSFER.value for t in transfers
+                ):
+                    raise ValueError("잘못된 이체 파일 형식")
+                self.transactions.extend([
+                    Transaction(
+                        id=t['id'], date=datetime.fromisoformat(t['date']).date(),
+                        amount=t['amount'], type=TransactionType.TRANSFER,
+                        category=t['category'], description=t['description'],
+                        method=t.get('method', '기타'), ai_confidence=t.get('ai_confidence', 1.0),
+                    ) for t in transfers
+                ])
+            except Exception as exc:
+                raise ValueError("내 계좌 이체 기록을 읽지 못했습니다. 원본을 보존하고 백업을 확인하세요.") from exc
+
         # 목표 로드
         if self.goals_file.exists():
             try:
@@ -486,6 +509,8 @@ class LifeFinanceManager:
             return TransactionType.INCOME
         if raw in (TransactionType.EXPENSE.value, 'expense', 'EXPENSE', '지출'):
             return TransactionType.EXPENSE
+        if raw in (TransactionType.TRANSFER.value, 'transfer', 'TRANSFER'):
+            return TransactionType.TRANSFER
         try:
             normalized = raw.split('_')[0].upper()
             if normalized in TransactionType.__members__:
@@ -500,7 +525,7 @@ class LifeFinanceManager:
     def _backup_files(self) -> None:
         """저장 시점의 스냅샷을 백업 디렉터리에 보관"""
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        for src in (self.transactions_file, self.goals_file):
+        for src in (self.transactions_file, self.transfers_file, self.goals_file):
             try:
                 if src.exists():
                     dst = self.backup_dir / f"{timestamp}_{src.name}"
@@ -513,7 +538,7 @@ class LifeFinanceManager:
         """외부 동기화 폴더(예: SynologyDrive)에 최신 파일 복사"""
         if not self.external_sync_dir:
             return
-        for src in (self.transactions_file, self.goals_file):
+        for src in (self.transactions_file, self.transfers_file, self.goals_file):
             try:
                 if src.exists():
                     shutil.copy2(src, self.external_sync_dir / src.name)
@@ -524,7 +549,9 @@ class LifeFinanceManager:
         """데이터를 파일에 저장"""
         # 거래 저장
         with open(self.transactions_file, 'w', encoding='utf-8') as f:
-            json.dump([t.to_dict() for t in self.transactions], f, ensure_ascii=False, indent=2)
+            json.dump([t.to_dict() for t in self.transactions if t.type != TransactionType.TRANSFER], f, ensure_ascii=False, indent=2)
+        with open(self.transfers_file, 'w', encoding='utf-8') as f:
+            json.dump([t.to_dict() for t in self.transactions if t.type == TransactionType.TRANSFER], f, ensure_ascii=False, indent=2)
         
         # 목표 저장
         with open(self.goals_file, 'w', encoding='utf-8') as f:
@@ -558,8 +585,13 @@ class LifeFinanceManager:
             category: 카테고리 (None이면 자동 분류)
             auto_classify: 자동 분류 여부
         """
-        # ID 생성
-        tx_id = f"tx_{int(datetime.now().timestamp() * 1000)}"
+        import math
+        from uuid import uuid4
+        if isinstance(amount, bool) or not math.isfinite(float(amount)) or float(amount) <= 0:
+            raise ValueError("금액은 0보다 큰 유한한 수여야 합니다.")
+        if not isinstance(type_, TransactionType):
+            raise ValueError("지원하지 않는 거래 유형입니다.")
+        tx_id = f"tx_{uuid4().hex}"
         
         # 카테고리 결정
         if category is None and auto_classify and type_ == TransactionType.EXPENSE:
@@ -743,7 +775,7 @@ class LifeFinanceManager:
         key = f"{year}-{month:02d}"
         
         # 캐시 확인
-        if key in self.monthly_reports:
+        if key in self.monthly_reports and key < date.today().strftime("%Y-%m"):
             return self.monthly_reports[key]
         
         # 계산
@@ -756,13 +788,13 @@ class LifeFinanceManager:
         else:
             end = date(year, month + 1, 1) - timedelta(days=1)
         
-        month_transactions = self.get_transactions(start_date=start, end_date=end)
+        month_transactions = self.get_transactions(start_date=start, end_date=min(end, date.today()))
         
         # 수입/지출 계산
         for tx in month_transactions:
             if tx.type == TransactionType.INCOME:
                 report.total_income += tx.amount
-            else:
+            elif tx.type == TransactionType.EXPENSE:
                 report.total_expense += tx.amount
                 # 카테고리별 분류
                 if tx.category not in report.category_breakdown:
@@ -838,6 +870,10 @@ class LifeFinanceManager:
         return dict(reversed(sorted(trend.items())))
     
     # ========== 종합 대시보드 ==========
+
+    def get_finance_review(self) -> Dict[str, Any]:
+        from trading.personal_finance_review import build_finance_review
+        return build_finance_review(self.transactions, self.get_goals())
     
     def get_dashboard_summary(self) -> Dict[str, Any]:
         """대시보드 요약 정보"""
@@ -852,8 +888,8 @@ class LifeFinanceManager:
         last_month_report = self.get_monthly_report(last_month_date.year, last_month_date.month)
         
         # 현재까지의 누적
-        total_savings = sum(t.amount for t in self.transactions if t.type == TransactionType.INCOME)
-        total_spent = sum(t.amount for t in self.transactions if t.type == TransactionType.EXPENSE)
+        total_savings = sum(t.amount for t in self.transactions if t.type == TransactionType.INCOME and t.date <= today)
+        total_spent = sum(t.amount for t in self.transactions if t.type == TransactionType.EXPENSE and t.date <= today)
         
         # 목표 진행
         active_goals = [g for g in self.get_goals() if not g.is_completed]

@@ -447,20 +447,22 @@ class AdvancedFeatureServices:
     @staticmethod
     def life_finance_analysis(manager: LifeFinanceManager) -> dict[str, Any]:
         today = date.today()
-        report = manager.get_monthly_report(today.year, today.month)
-        monthly_income = _number(report.total_income)
-        monthly_expenses = _number(report.total_expense)
+        review = manager.get_finance_review()
+        recorded_months = {tx.date.strftime("%Y-%m") for tx in manager.transactions
+                           if tx.date <= today and tx.type.value in {"수입", "지출"}}
         return {
             "schema_version": "1.0.0",
-            "monthly_savings": manager.get_monthly_stats(12),
-            "spending_trend": manager.get_spending_trend(12),
-            "category_stats": manager.get_category_stats(),
+            "finance_review": review,
+            "monthly_savings": {k: v for k, v in manager.get_monthly_stats(12).items() if k in recorded_months},
+            "spending_trend": {k: v for k, v in manager.get_spending_trend(12).items() if k in recorded_months},
+            "category_stats": manager.get_category_stats(end_date=today),
             "alerts": [alert.to_dict() for alert in manager.get_finance_alerts()],
-            "projection": FinanceSimulator.project_savings(monthly_income, monthly_expenses, months=12),
+            "projection": [],
             "projection_basis": {
-                "monthly_income": monthly_income,
-                "monthly_expenses": monthly_expenses,
-                "inflation_rate": 0.02,
+                "monthly_income": review["income"],
+                "monthly_expenses": review["expense"],
+                "status": "requires_explicit_assumptions",
+                "note": "월중 등록 기록을 12개월 예측으로 자동 확장하지 않습니다. 대시보드에서 월간 계획을 직접 입력하세요.",
             },
             "captured_at": _now(),
         }

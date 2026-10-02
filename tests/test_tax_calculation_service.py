@@ -22,20 +22,17 @@ from trading.tax_calculation_service import (
 
 class TestEarnedIncomeDeduction:
     def test_below_5m(self):
-        # 3,000,000원 × 100% = 3,000,000
-        assert calc_earned_income_deduction(3_000_000) == 3_000_000.0
+        # 소득세법 제47조: 500만원 이하 70%.
+        assert calc_earned_income_deduction(3_000_000) == 2_100_000.0
 
     def test_at_15m(self):
-        # 5,000,000 + (15,000,000 - 5,000,000) × 50% = 10,000,000
-        assert calc_earned_income_deduction(15_000_000) == 10_000_000.0
+        assert calc_earned_income_deduction(15_000_000) == 7_500_000.0
 
     def test_at_45m(self):
-        # 10,000,000 + (45,000,000 - 15,000,000) × 30% = 19,000,000
-        assert calc_earned_income_deduction(45_000_000) == 19_000_000.0
+        assert calc_earned_income_deduction(45_000_000) == 12_000_000.0
 
     def test_at_100m(self):
-        # 16,000,000 + (100,000,000 - 45,000,000) × 20% = 27,000,000
-        assert calc_earned_income_deduction(100_000_000) == 27_000_000.0
+        assert calc_earned_income_deduction(100_000_000) == 14_750_000.0
 
     def test_negative_salary_returns_zero(self):
         assert calc_earned_income_deduction(-1_000_000) == 0.0
@@ -251,32 +248,12 @@ class TestFinancialIncomeTax:
 # ─────────────────────────────────────────────────────────────
 
 class TestFinancialInvestmentTax:
-    def test_zero_profit(self):
-        result = calc_financial_investment_tax()
-        assert result['total_tax'] == 0.0
-        assert result['effective_rate'] == 0.0
-
-    def test_within_domestic_deduction(self):
-        # 국내 주식 500만 이하 → 기본공제로 세금 0
-        result = calc_financial_investment_tax(domestic_stock_profit=5_000_000)
-        assert result['domestic_tax'] == 0.0
-
-    def test_domestic_basic_deduction(self):
-        # 국내 주식 1500만 → 과세표준 1000만 × 20% = 200만
-        result = calc_financial_investment_tax(domestic_stock_profit=15_000_000)
-        assert result['domestic_tax'] == 2_000_000.0
-
-    def test_overseas_basic_deduction(self):
-        # 해외 주식 1000만 → 공제 250만, 과세 750만 × 20% = 150만
-        result = calc_financial_investment_tax(overseas_stock_profit=10_000_000)
-        assert result['overseas_tax'] == 1_500_000.0
-
-    def test_high_rate_bracket(self):
-        # 국내 3.5억 → 3억 × 20% + 0.5억 × 25% - 기본공제500만 적용
-        result = calc_financial_investment_tax(domestic_stock_profit=355_000_000)
-        # 과세표준 = 355,000,000 - 5,000,000 = 350,000,000
-        # 300,000,000 × 20% + 50,000,000 × 25% = 60,000,000 + 12,500,000 = 72,500,000
-        assert result['domestic_tax'] == 72_500_000.0
+    @pytest.mark.parametrize('profit', [0, 5_000_000, 15_000_000, 355_000_000])
+    def test_abolished_regime_does_not_calculate_or_claim_exemption(self, profit):
+        result = calc_financial_investment_tax(domestic_stock_profit=profit, overseas_stock_profit=profit)
+        assert result['total_tax'] is None
+        assert result['status'] == 'abolished_regime'
+        assert '비과세라는 뜻은 아닙니다' in result['message']
 
     def test_returns_disclaimer(self):
         result = calc_financial_investment_tax(domestic_stock_profit=10_000_000)

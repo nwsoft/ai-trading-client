@@ -1,6 +1,26 @@
-# 생활금융 확장 - 완성 가이드
+# 생활금융 사용 가이드
 
-> 현재 기준: 2026-09-18 · NoahAI Client에서 단계적 서비스 중
+> 현재 기준: 2026-10-02 · 3.9.2.1 소스 후보. Windows 설치본 인수는 별도.
+
+## 3.9.2.1에서 사용하는 순서
+
+1. 생활금융 → 거래에서 원화 수입·지출을 등록합니다. 자기 소유 계좌 간 이동만 `내 계좌 이체`로 등록합니다. 타인에게 지급한 생활비를 내부 이체로 제외하지 마세요. 기존 기록은 자동 재분류하지 않습니다.
+2. 대시보드의 `이번 달 내 돈 점검`에서 기간·마지막 기록·누락 안내·지출 비중을 확인합니다. 등록 기록의 차액은 은행 잔액이나 투자 가능액이 아닙니다.
+3. `수입이 줄면 어떻게 달라질까?`에 월 수입·생활비·대출 상환·목표 적립을 직접 입력합니다. 없는 항목은 0, 중복 지출은 제외합니다. 월간 계획은 저장하거나 외부로 전송하지 않습니다.
+4. `이 점검을 AI에게 질문`은 질문 초안만 엽니다. 전송은 사용자가 선택합니다. 자산통합의 같은 점검에서 생활금융으로 이동할 수 있습니다.
+5. 가족 전체 자동 수집·실제 은행 이체·금융상품 가입은 제공하지 않습니다. 목표 적립과 PAPER 성과를 실계좌 자산에 더하지 않습니다.
+
+공식 자료·설계·별도 개발 항목: [현행 업데이트 계획](V3921_PERSONAL_FINANCE_PLAN.md). 아래 예전 화면별 설명과 현행 계약이 다르면 이 절을 우선합니다. 키워드 기반 분류를 별도 외부 AI 호출로 오해하지 마세요.
+
+내 계좌 이체는 별도 `life_finance_transfers.json` 파일로 백업·동기화됩니다. 구버전에서는 이체 목록을 표시하지 않지만 수입·지출에 잘못 합산하지 않으며, 새 버전에서 다시 조회할 수 있습니다. 수동으로 자료를 옮길 때는 이 파일도 수입·지출 및 목표 파일과 함께 보관하세요.
+
+## 보험 기능의 현재 범위와 다음 업데이트
+
+현재 보험 비교는 카탈로그/입력 조건에 따른 시뮬레이션입니다. 화면의 보장 점수·추천 순위는 개인의 실제 보험증권/약관을 검토한 결과나 보험사의 확정 견적이 아닙니다. 실제 보험 해지·교체·가입 근거로 단독 사용하지 마세요.
+
+3.9.2.2에는 보험 자료를 등록해 쉬운 설명·근거·확인 질문을 보고, 생활금융과 함께 부담을 점검하는 기능을 **개발할 계획**입니다. 아직 해당 문서 등록/보장표/상담 연결 버튼이 구현된 것은 아닙니다. 공식 상품 비교와 외부 상담 연결은 자료·제휴·법무 조건 및 별도 동의가 갖춰진 범위에서만 제공할 계획입니다. [상세 설계와 개발 상태](LIFE_FINANCE_PRODUCT_COMPARISON_ANALYSIS_20260429.md#v3922-insurance-plan)
+
+‘보장 자료 없음’과 ‘미가입’, ‘보장 중복’과 ‘해지 필요’, ‘보험료 감소’와 ‘유리한 교체’는 같은 뜻이 아닙니다. 새 보험 인수·보장 개시·제외 조건을 확인하지 않은 상태에서 기존 보험을 먼저 해지하도록 안내하지 않습니다. 아래 보험 명령/코드 예시는 기존 시뮬레이션 사용법입니다.
 
 ## 📌 개요
 
@@ -23,7 +43,7 @@ manager.add_transaction(
     amount=5000,
     type_=TransactionType.EXPENSE,
     description='카페에서 커피',
-    auto_classify=True  # AI가 '식비'로 자동 분류
+    auto_classify=True  # 로컬 키워드 규칙으로 '식비' 분류
 )
 
 # 수입 추가
@@ -150,12 +170,12 @@ AI 명령 예시:
 UI 탭:
 - `🏦 금융상품` 탭에서 대출/보험/예적금 비교 버튼 제공
 
-### 6️⃣ **세무 계산 서비스** ✅ 구현 완료
+### 6️⃣ 세무 간이 계산 및 제도 안내
+
+금융투자소득세는 폐지되어 세액을 계산하지 않습니다. 다른 세금까지 비과세라는 뜻은 아닙니다. 근로소득공제는 소득세법 제47조 구간과 2천만원 한도를 반영했습니다. 다른 간이 계산의 전체 귀속연도·예외 사항은 검증 완료가 아니며, 신고액/환급액 확정에 사용하지 마세요.
 
 ```python
-from trading.tax_calculation_service import TaxCalculationService
-
-svc = TaxCalculationService()
+from trading import tax_calculation_service as svc
 
 # 연말정산 종합 계산
 result = svc.calc_year_end_tax_settlement(
@@ -164,12 +184,11 @@ result = svc.calc_year_end_tax_settlement(
     debit_cash=3_000_000,
     medical_expense=1_500_000,
     education_expense=2_400_000,
-    donation_amount=500_000,
+    donation=500_000,
     pension_savings=6_000_000,
     irp_contribution=3_000_000,
 )
-print(result['final_tax'])           # 최종 납부/환급 세액
-print(result['optimization_tips'])  # 절세 팁 목록
+print(result['final_tax'])  # 일부 입력으로 계산한 간이값. 최종 신고/환급액 아님
 
 # 금융소득 종합과세 판정
 check = svc.check_financial_income_comprehensive_tax(
@@ -177,19 +196,20 @@ check = svc.check_financial_income_comprehensive_tax(
     dividend_income=800_000,
     annual_salary=60_000_000,
 )
-print(check['comprehensive_tax_required'])  # True/False
+print(check['subject_to_comprehensive_tax'])  # 단순 금액 기준 점검
 
-# 금투세 계산
+# 금투세 폐지 안내: 세액을 0으로 반환하지 않음
 tax = svc.calc_financial_investment_tax(
-    domestic_profit=20_000_000,
-    overseas_profit=10_000_000,
+    domestic_stock_profit=20_000_000,
+    overseas_stock_profit=10_000_000,
 )
-print(tax['total_tax'])
+print(tax['message'])  # 폐지 안내
+assert tax['total_tax'] is None
 
 # ISA / 연금저축 / IRP 절세 비교
 comparison = svc.compare_tax_saving_accounts(
     annual_salary=50_000_000,
-    annual_invest=3_000_000,
+    annual_investment=3_000_000,
 )
 ```
 
@@ -304,7 +324,7 @@ asyncio.run(main())
 | 💳 예적금 비교 | "예금 상품 비교해줘" |
 | 🧾 연말정산 계산 | "연말정산 계산해줘" / "환급금 얼마야?" |
 | 💹 금융소득 과세 확인 | "금융소득종합과세 해당돼?" |
-| 📈 금투세 계산 | "금투세 얼마 내야 해?" |
+| 📈 금투세 폐지 안내 | "금투세 얼마 내야 해?" |
 | 🏦 절세 계좌 비교 | "ISA랑 IRP 뭐가 더 유리해?" |
 | 🔍 사기 문자 분석 | "이 문자 사기야?" / "보이스피싱 확인해줘" |
 | ⚠️ 이상 거래 탐지 | "이상한 거래 탐지해줘" |
@@ -612,7 +632,7 @@ spending_trend = manager.get_spending_trend(months=12)
 - ✅ UI 대시보드
 - ✅ 데이터 저장/로드
 - ✅ 금융상품 비교 (대출 20개·보험 20개·예적금 20개, loan_type 필터, 월납입액)
-- ✅ 세무 계산 (연말정산·금융소득종합과세·금투세·ISA/IRP 비교)
+- ✅ 세무 계산 (연말정산·금융소득 간이 점검·금투세 폐지 안내·ISA/IRP 가정 비교)
 - ✅ 금융 이상 탐지 (보이스피싱·스미싱·이상거래·약탈적 대출)
 
 ---
@@ -631,7 +651,7 @@ spending_trend = manager.get_spending_trend(months=12)
 - ✅ 보험 선택 보조 (20개, 카테고리별)
 - ✅ 예금/적금 추천 (20개, ISA형 포함)
 - ✅ 금융 사기 탐지 (보이스피싱·이상거래·약탈적 대출)
-- ✅ 세무 계산 서비스 (연말정산·금투세·절세 비교)
+- ✅ 세무 계산 서비스 (연말정산 간이 계산·금투세 폐지 안내·절세 가정 비교)
 - 🚧 다중 계좌 통합 (미구현)
 
 ---
@@ -673,7 +693,7 @@ spending_trend = manager.get_spending_trend(months=12)
 > `other(생활금융)` 서비스 → `💰 세금 계산` 탭에서 접근
 
 #### 목적
-- 연말정산·금투세·ISA·연금저축·IRP 절세 효과를 한 화면에서 비교합니다.
+- 연말정산 간이 계산·금투세 폐지 안내·ISA/연금저축/IRP 가정 비교를 제공합니다. 확정 세액이나 상품 적합성 판정이 아닙니다.
 - 수치를 입력하면 실시간으로 납부 세액, 실효 세율, 절세 팁을 제공합니다.
 
 #### 입력 항목
@@ -691,14 +711,14 @@ spending_trend = manager.get_spending_trend(months=12)
 | 섹션 | 내용 |
 |---|---|
 | A. 연말정산 | 산출세액 / 총 공제액 / 납부 세액 / 실효 세율 |
-| B. 금투세 | 양도차익 입력 시 조건부 표시 (250만 원 공제 후 세액) |
+| B. 투자소득 과세 안내 | 금투세 폐지로 세액 미계산. 귀속연도·상품·거주성 확인 필요 |
 | C. 절세 계좌 비교 | ISA / 연금저축 / IRP — 기대 절세액 비교 |
 | D. 절세 최적화 팁 | 5가지 우선순위 팁 자동 생성 |
 
 #### 연동 서비스
 - `trading/tax_calculation_service.py`
   - `calc_year_end_tax_settlement(params)` — 연말정산 계산
-  - `calc_financial_investment_tax(params)` — 금투세 계산
+  - `calc_financial_investment_tax(params)` — 금투세 폐지 안내
   - `compare_tax_saving_accounts(params)` — 절세 계좌 비교
   - `generate_tax_optimization_summary(params)` — 절세 팁 생성
 

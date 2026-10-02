@@ -291,7 +291,7 @@ function DesktopApp() {
 
   useEffect(() => {
     const mode = session?.authenticated ? "dashboard" : "login";
-    const displayVersion = platform?.release_version || "3.9.2.0";
+    const displayVersion = platform?.release_version || "3.9.2.1";
     document.title = session?.authenticated ? `Noah AI Client - 대시보드 Beta v${displayVersion}` : "NoahAI Finance Decision OS - 로그인";
     document.body.classList.toggle("dashboard-surface", Boolean(session?.authenticated));
     window.noahAI?.window?.setMode(mode).catch(() => undefined);
@@ -468,7 +468,7 @@ function DesktopApp() {
       {activeSurface === "ai_analyst" && <AIAnalystWorkspace client={client} onOpenAssistant={(question = "") => openAssistant(question, "ai_analyst")} onOpenSummary={() => setActiveFeature("ai_analyst.summary")} onOpenScenario={() => setActiveFeature("ai_analyst.scenario")} />}
       {activeSurface === "ai_analyst_scenario" && <AIAnalystScenarioWorkspace client={client} />}
       {activeSurface === "financial_intelligence" && <FinancialIntelligenceWorkspace client={client} service={activeService === "stock" ? "stock" : activeService === "ai_analyst" ? "ai_analyst" : "blockchain"} summaryOnly={feature?.id === "ai_analyst.summary"} onAskAssistant={(question) => openAssistant(question, activeService)} />}
-      {activeSurface === "portfolio" && <PortfolioWorkspace client={client} featureId={feature?.id ?? "portfolio.insights"} enabledSources={runtime?.enabled_sources ?? []} credentialStatus={runtime?.credential_status ?? {}} />}
+      {activeSurface === "portfolio" && <PortfolioWorkspace onAsk={(question) => openAssistant(question, "personal_finance")} onOpenFinance={() => selectService("personal_finance")} client={client} featureId={feature?.id ?? "portfolio.insights"} enabledSources={runtime?.enabled_sources ?? []} credentialStatus={runtime?.credential_status ?? {}} />}
       {activeSurface === "alpha_arena" && <AlphaArenaWorkspace client={client} />}
       {activeSurface === "life_basic" && <LifeFinance client={client} view={feature?.id ?? "personal_finance.service"} assistantRequest={lifeAssistantRequest} initialQuestion={assistantQuestion} onOpenSettings={() => setSettingsOpen(true)} />}
       {activeSurface === "life_advanced" && <LifeFinanceAdvanced client={client} featureId={feature?.id ?? "personal_finance.security"} />}
@@ -480,7 +480,7 @@ function DesktopApp() {
     </section>
     <footer className="statusbar legacy-statusbar">
       <span className="legacy-status-left">{legacyStatusLabel(runtime, chartSource, statusClock)}</span>
-      <div className="legacy-release-update"><span className="legacy-release" title={`실행 엔진: ${platform?.release_label ?? '미확인'} · 화면 빌드: ${UI_BUILD_TAG}`}>{platform?.release_label ?? "v3.9.2.0"}<small className="ui-build-id"> · UI 2.0.3</small></span><UpdateCenter client={client} accountScope={session?.account ?? ""} onOpenGuide={() => openManual("updates")} /></div>
+      <div className="legacy-release-update"><span className="legacy-release" title={`실행 엔진: ${platform?.release_label ?? '미확인'} · 화면 빌드: ${UI_BUILD_TAG}`}>{platform?.release_label ?? "v3.9.2.1"}<small className="ui-build-id"> · UI 2.1.2</small></span><UpdateCenter client={client} accountScope={session?.account ?? ""} onOpenGuide={() => openManual("updates")} /></div>
       <div className="legacy-ai-summary"><span className="legacy-ai-record" title={aiRecord}>{aiRecord}</span><button className="legacy-record-button" type="button" onClick={() => void refreshAiRecord()}><AppIcon name="record" />{t("기록")}</button></div>
     </footer>
     <SettingsCenter client={client} open={settingsOpen} initialField={settingsInitialField} onClose={() => { setSettingsOpen(false); setSettingsInitialField(undefined); }} onAskAssistant={(question, settingsSection) => openAssistant(question, "settings", settingsSection)} onOpenManual={() => { setSettingsOpen(false); openManual("settings"); }} onSettingsSaved={async () => { setSettingsRevision((value) => value + 1); await refreshRuntimeFromSettings(); }} />

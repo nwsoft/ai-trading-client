@@ -76,7 +76,8 @@ def test_ai_assistant_knows_v3908_profile_and_backtest_boundaries():
     assert "안전을 우회하지 않습니다" in profile_answer
 
     backtest_answer = build_ai_custom_knowledge("AI 커스텀 백테스트 PnL MDD와 PAPER 차이는?", settings)
-    assert "최소 통과조건" in backtest_answer
+    assert "선택적 과거 시뮬레이션" in backtest_answer
+    assert "백테스트 합격은 PAPER 시작의 필수조건이 아닙니다" in backtest_answer
     assert "미래 수익" in backtest_answer
     assert "PAPER 전진검증" in backtest_answer
 

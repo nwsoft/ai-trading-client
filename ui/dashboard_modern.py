@@ -8862,16 +8862,14 @@ class ModernDashboard(ctk.CTk):
                 fin_income = _v("financial_income")
                 stock_profit = _v("stock_profit")
                 if stock_profit > 0 or fin_income > 0:
-                    fit_result = calc_financial_investment_tax(annual_profit=stock_profit)
+                    fit_result = calc_financial_investment_tax(domestic_stock_profit=stock_profit)
                     sec_b = ctk.CTkFrame(result_frame, fg_color="#0a1a2a", corner_radius=8)
                     sec_b.pack(fill="x", padx=10, pady=4)
-                    ctk.CTkLabel(sec_b, text="금융투자소득세 (금투세)",
+                    ctk.CTkLabel(sec_b, text="금투세 폐지 · 세액 미계산",
                                  font=self._get_safe_font("body"), text_color="#60a5fa").pack(anchor="w", padx=12, pady=(8, 2))
                     for k, v in [
-                        ("연간 수익", f"{stock_profit:,.0f}원"),
-                        ("기본공제", f"{float(fit_result.get('deduction', 0)):,.0f}원"),
-                        ("과세표준", f"{float(fit_result.get('taxable', 0)):,.0f}원"),
-                        ("예상 세액", f"{float(fit_result.get('tax', 0)):,.0f}원"),
+                        ("제도 안내", fit_result['message']),
+                        ("확인할 자료", fit_result['disclaimer']),
                     ]:
                         ctk.CTkLabel(sec_b, text=f"{k}: {v}",
                                      font=self._get_safe_font("body"), text_color="#cbd5e1").pack(anchor="w", padx=20, pady=1)

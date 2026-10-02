@@ -28,6 +28,7 @@ from membership_policy import membership_position_cap, membership_source_access
 
 from config.diff_engine import compute_settings_diff
 from config.ai_custom_knowledge import build_ai_custom_knowledge
+from config.assistant_support_knowledge import build_support_answer, support_topic, GUIDE_REVISION
 from config.settings import (
     get_last_settings_save_error,
     get_last_settings_save_diagnostics,
@@ -1786,6 +1787,12 @@ class ApplicationServices:
         result = self.advanced.portfolio_analysis(account_snapshot=self._latest_account_snapshot, paper_records=records)
         persisted = self.queries.portfolio_snapshot()
         result["saved_snapshot"] = deepcopy(persisted.get("saved_snapshot") or {})
+        # Local context is separate from account valuation and PAPER performance.
+        try:
+            with self._lock:
+                result["finance_review"] = self._life_finance().get_finance_review()
+        except Exception:
+            result["finance_review"] = {"status": "unavailable", "actions": ["생활금융 기록을 확인할 수 없습니다. 생활금융에서 다시 확인하세요."]}
         return result
 
     def save_portfolio_snapshot(self) -> dict[str, Any]:
@@ -2116,7 +2123,12 @@ class ApplicationServices:
         settings_section: str | None = None,
     ) -> str:
         """Deterministic NoahAI settings help for beginner and safety flows."""
+        current_guide = build_support_answer(question)
+        if current_guide:
+            return current_guide
         normalized = str(question or "").lower().replace(" ", "")
+        if any(token in normalized for token in ("gpt-6", "gpt6", "luna", "작업별모델", "나만의ai구성", "deepseek모델")):
+            return build_ai_custom_knowledge(question, settings)
         scoped_answer = self._settings_section_support_answer(settings_section or "", question, settings)
         if any(token in normalized for token in ("ai커스텀", "전략스튜디오", "프라이빗전략", "noahstrategy", "전략버전", "백테스트", "전략상담", "워뇨띠", "버핏", "대회우승", "strategyconsultation")):
             return build_ai_custom_knowledge(question, settings)
@@ -2627,24 +2639,22 @@ class ApplicationServices:
             content = str(item.get("content") or "").strip()[:4000] if isinstance(item, dict) else ""
             if role in {"user", "assistant"} and content:
                 safe_recent_messages.append({"role": role, "content": content})
-        safe_flow = (
-            "1. Provider·API 키·모델 확인 → 2. AI 커스텀 엔진 ON → 3. 멘토 또는 자료 입력 → "
-            "4. 기본 AI 후보 확인 역할 선택 → 5. Level 1·2·3 근거·적용값 확인 → "
-            "6. 다중 시간봉 규칙 안전성 검사 → 7. 새 전략 버전 저장 → 8. 사용자 승인 → "
-            "9. 자체 진입조건이면 비용 포함 과거 자동검증, NoahAI 기본 진입 보조면 과거재생 비대상 확인 → 10. PAPER 전진검증 시작 → "
-            "11. 최소 3건·7일 결과 확인 뒤 사용자 최종 적용 → "
-            "12. 실계정 권한·가드레일·소액 E2E 확인 후 제한 LIVE"
-        )
+        from ui.ai_custom_guidance import build_ai_custom_safe_flow
+        safe_flow = build_ai_custom_safe_flow()
         provider_guide = (
             "일반 도움말은 로컬 정본을 사용해 비용이 들지 않습니다. 시장 심층분석만 설정된 "
             "Provider를 호출하며 자동 호출 예산·캐시·역할별 상한을 적용합니다."
         )
         operational_context: dict[str, Any] | None = None
+        current_topic = None if public_general_request else support_topic(question)
+        current_guide = None if public_general_request else build_support_answer(question, locale=output_locale)
         if public_general_request:
             answer = (
                 "공개 일반 질문 모드입니다. 이 답변에는 현재 계좌·포지션·설정·전략·파일·차트·최근 대화가 사용되지 않습니다. "
                 "개인화된 상태 확인이 필요하면 기본 보호 경로로 돌아가 다시 질문하세요."
             )
+        elif current_guide:
+            answer = current_guide
         elif service == "settings":
             answer = self._settings_support_answer(
                 question,
@@ -2664,6 +2674,7 @@ class ApplicationServices:
                 "여러거래소", "다중증권사", "여러증권사", "투자금", "진입금액", "거래금액",
                 "notional", "노셔널", "복리", "성과회복", "레버리지",
                 "전략상담", "워뇨띠", "버핏", "대회우승", "strategyconsultation",
+                "gpt-6", "gpt6", "luna", "작업별모델", "나만의ai구성", "deepseek모델",
             )
             answer = (
                 self._settings_support_answer(question, settings)
@@ -2672,10 +2683,13 @@ class ApplicationServices:
             )
         elif service == "personal_finance":
             finance = self.life_finance_snapshot()
-            answer = (
-                "생활금융 질문은 거래소 포지션과 분리된 수입·지출·목표 저장소를 기준으로 답합니다.\n\n"
-                + json.dumps(sanitize_settings(finance.get("summary") or {}), ensure_ascii=False, default=str)
-            )
+            from trading.personal_finance_review import explain_finance_review
+            if any(word in question for word in ("금투세", "금융투자소득세")):
+                from trading.tax_calculation_service import calc_financial_investment_tax
+                tax_notice = calc_financial_investment_tax()
+                answer = tax_notice["message"] + "\n" + tax_notice["disclaimer"] + "\n" + tax_notice["source_url"]
+            else:
+                answer = explain_finance_review(finance.get("finance_review") or {})
         else:
             answer = "지원 화면과 질문 대상을 확인하지 못했습니다. 현재 탭에서 다시 질문해 주세요."
         if mode == "deep_analysis":
@@ -2861,6 +2875,9 @@ class ApplicationServices:
                     else "explicit_external_provider"
                 ),
                 "captured_at": _utc_now(),
+                "guide_revision": GUIDE_REVISION,
+                "guide_topic": current_topic.key if current_topic else None,
+                "guide_source": current_topic.source if current_topic else None,
             })
             self._audit("assistant.deep_analysis_fallback" if result.get("provider_failed") else "assistant.deep_analysis", {
                 "service": service,
@@ -2872,15 +2889,22 @@ class ApplicationServices:
                 "usage": result.get("usage"),
                 "privacy_route": result.get("privacy_route", "protected_default"),
             })
-            if output_locale == 'en' and result.get('provider_failed'):
+            if output_locale == 'en' and result.get('provider_failed') and current_guide:
+                result['answer'] = current_guide + (
+                    "\n\nExternal analysis did not complete. The local guide above is not a live diagnosis. "
+                    "Check the provider error and budget/connection status before retrying. No automatic retry was made."
+                )
+            elif output_locale == 'en' and result.get('provider_failed'):
                 from web_platform.english_guide import local_answer
                 result['answer'] = local_answer(str(result.get('answer') or answer), service)
             return result
         if explanation_level == "beginner":
-            answer = "초보자 안내\n\n" + answer
+            answer = ("Beginner guide\n\n" if output_locale == 'en' and current_guide else "초보자 안내\n\n") + answer
         elif explanation_level == "advanced":
-            answer += "\n\n고급 확인: 실행 IR 해시, 전략 버전, 실행 모드, 주문 가드레일과 감사 기록을 함께 대조하세요."
-        if output_locale == 'en':
+            answer += ("\n\nAdvanced check: compare execution IR hash, strategy version, mode, order guards and audit evidence."
+                       if output_locale == 'en' and current_guide else
+                       "\n\n고급 확인: 실행 IR 해시, 전략 버전, 실행 모드, 주문 가드레일과 감사 기록을 함께 대조하세요.")
+        if output_locale == 'en' and not current_guide:
             from web_platform.english_guide import local_answer
             answer = local_answer(answer, service)
         result = {
@@ -2889,6 +2913,9 @@ class ApplicationServices:
             "explanation_level": explanation_level,
             "answer": answer,
             "source": "versioned_local_product_knowledge",
+            "guide_revision": GUIDE_REVISION,
+            "guide_topic": current_topic.key if current_topic else None,
+            "guide_source": current_topic.source if current_topic else None,
             "provider_called": False,
             "settings_section": str(settings_section or "") if service == "settings" else "",
             "data_scope": "private",
@@ -5330,6 +5357,8 @@ class ApplicationServices:
             return {
                 "schema_version": "1.0.0",
                 "summary": manager.get_dashboard_summary(),
+                "finance_review": manager.get_finance_review(),
+                "transaction_count": len(manager.transactions),
                 "transactions": [item.to_dict() for item in manager.get_transactions()[:250]],
                 "goals": [item.to_dict() for item in manager.get_goals()],
                 "captured_at": _utc_now(),
@@ -5370,7 +5399,7 @@ class ApplicationServices:
         description: str, method: str = "기타", category: str | None = None,
     ) -> dict[str, Any]:
         parsed_date = date.fromisoformat(transaction_date)
-        type_value = TransactionType.INCOME if transaction_type == "수입" else TransactionType.EXPENSE
+        type_value = TransactionType(transaction_type)
         with self._lock:
             item = self._life_finance().add_transaction(
                 parsed_date, float(amount), type_value, description,

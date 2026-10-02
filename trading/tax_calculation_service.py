@@ -1,6 +1,9 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""세무 계산 및 절세 시나리오 서비스 (2026년 기준).
+"""세무 간이 계산 및 절세 시나리오 서비스.
+
+2026-10-02: 금투세 폐지·근로소득공제 구간을 확인했다.
+모든 귀속연도·상품·공제 예외까지 검증된 신고 계산기가 아니다.
 
 책임 경계:
 - NoahAI는 계산·요약·설명·경고까지만 제공한다.
@@ -11,7 +14,7 @@
 제공 기능:
 1. 근로소득 연말정산 주요 세액공제 계산
 2. 금융소득종합과세 해당 여부 판정
-3. 금융투자소득세 (금투세) 예상 계산
+3. 폐지된 금융투자소득세 안내 (세액 미계산)
 4. ISA / 연금저축 / IRP 절세 효과 비교
 5. 절세 시나리오 종합 요약
 """
@@ -39,11 +42,11 @@ INCOME_TAX_BRACKETS = [
 
 # 근로소득공제율 (급여 → 공제액 계산)
 EARNED_INCOME_DEDUCTION = [
-    (5_000_000,    1.00, 0),
-    (15_000_000,   0.50, 5_000_000),
-    (45_000_000,   0.30, 10_000_000),
-    (100_000_000,  0.20, 16_000_000),
-    (float('inf'), 0.02, 36_000_000),
+    (5_000_000,    0.70, 0),
+    (15_000_000,   0.40, 3_500_000),
+    (45_000_000,   0.15, 7_500_000),
+    (100_000_000,  0.05, 12_000_000),
+    (float('inf'), 0.02, 14_750_000),
 ]
 
 # 세액공제 한도 (2026년 기준)
@@ -70,12 +73,6 @@ ISA_TERM_MIN_MONTHS        = 36         # ISA 최소 유지기간 (개월)
 FINANCIAL_INCOME_TAX_THRESHOLD = 20_000_000  # 금융소득종합과세 기준 금액
 FINANCIAL_INCOME_WITHHOLDING   = 0.154       # 금융소득 원천징수세율 (소득세+지방세)
 
-KFIS_TAX_RATE              = 0.20       # 금융투자소득세율 (기본)
-KFIS_TAX_RATE_HI           = 0.25       # 금투세 고율 구간
-KFIS_TAX_THRESHOLD         = 50_000_000 # 금투세 과세 기준 연간 이익
-KFIS_BASIC_DEDUCTION       = 5_000_000  # 금투세 기본공제 (국내 주식)
-
-
 def _to_float(v: Any, default: float = 0.0) -> float:
     try:
         return float(v) if v is not None else default
@@ -95,8 +92,8 @@ def calc_earned_income_deduction(annual_salary: float) -> float:
             prev_limit = [0, 5_000_000, 15_000_000, 45_000_000, 100_000_000]
             idx = [lim for lim, _, _ in EARNED_INCOME_DEDUCTION].index(limit)
             prev = prev_limit[idx]
-            return round(base + (s - prev) * rate, 0)
-    return round(36_000_000 + (s - 100_000_000) * 0.02, 0)
+            return min(20_000_000.0, round(base + (s - prev) * rate, 0))
+    return 20_000_000.0
 
 
 def calc_income_tax(taxable_income: float) -> float:
@@ -381,60 +378,14 @@ def calc_financial_investment_tax(
     etf_profit: float = 0.0,
     other_profit: float = 0.0,
 ) -> Dict[str, Any]:
-    """금융투자소득세 예상 세액 계산 (2026년 기준).
-
-    국내 주식: 기본공제 500만원, 3억 이하 20% / 초과 25%.
-    해외주식·ETF·기타: 기본공제 250만원, 동일 세율.
-
-    Returns
-    -------
-    {
-      'domestic_profit': float,
-      'overseas_etf_profit': float,
-      'domestic_deduction': float,
-      'overseas_deduction': float,
-      'domestic_taxable': float,
-      'overseas_taxable': float,
-      'domestic_tax': float,
-      'overseas_tax': float,
-      'total_tax': float,
-      'effective_rate': float,
-      'disclaimer': str,
-    }
-    """
-    domestic = max(0.0, _to_float(domestic_stock_profit))
-    overseas = max(0.0, _to_float(overseas_stock_profit) + _to_float(etf_profit) + _to_float(other_profit))
-
-    domestic_deduction = min(domestic, KFIS_BASIC_DEDUCTION)  # 500만원
-    overseas_deduction = min(overseas, 2_500_000)              # 250만원
-
-    domestic_taxable = max(0.0, domestic - domestic_deduction)
-    overseas_taxable = max(0.0, overseas - overseas_deduction)
-
-    def _calc_tax(profit: float) -> float:
-        if profit <= 300_000_000:
-            return round(profit * KFIS_TAX_RATE, 0)
-        else:
-            return round(300_000_000 * KFIS_TAX_RATE + (profit - 300_000_000) * KFIS_TAX_RATE_HI, 0)
-
-    domestic_tax = _calc_tax(domestic_taxable)
-    overseas_tax = _calc_tax(overseas_taxable)
-    total_tax = domestic_tax + overseas_tax
-    total_profit = domestic + overseas
-    effective_rate = (total_tax / total_profit * 100) if total_profit > 0 else 0.0
-
+    """Compatibility entry point; never calculate tax under an abolished regime."""
     return {
-        'domestic_profit': domestic,
-        'overseas_etf_profit': overseas,
-        'domestic_deduction': domestic_deduction,
-        'overseas_deduction': overseas_deduction,
-        'domestic_taxable': domestic_taxable,
-        'overseas_taxable': overseas_taxable,
-        'domestic_tax': domestic_tax,
-        'overseas_tax': overseas_tax,
-        'total_tax': total_tax,
-        'effective_rate': round(effective_rate, 2),
-        'disclaimer': '금투세 계산은 참고용입니다. 세법 변경 및 손익통산 규정을 확인하세요.',
+        'status': 'abolished_regime',
+        'total_tax': None,
+        'message': '금융투자소득세는 폐지되어 이 방식으로 세액을 계산하지 않습니다. 모든 투자소득이 비과세라는 뜻은 아닙니다.',
+        'disclaimer': '제도 안내는 참고용입니다. 귀속연도·거주성·국내/해외·상품 종류·대주주 여부·배당/양도 구분을 확인한 뒤 국세청 또는 세무 전문가에게 확인하세요.',
+        'verified_at': '2026-10-02',
+        'source_url': 'https://www.law.go.kr/lsInfoP.do?chrClsCd=010102&lsiSeq=282431&viewCls=lsRvsDocInfoR',
     }
 
 

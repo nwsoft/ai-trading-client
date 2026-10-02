@@ -7,6 +7,16 @@ import { STRATEGY_EXPLANATION_MARKER } from "../strategyExplanation";
 
 type QuickQuestion = readonly [label: string, prompt: string];
 
+const SUPPORT_QUESTIONS: QuickQuestion[] = [
+  ["시작 오류·409", "거래 시작 진단의 409, 지원 코드와 실패 단계별 확인 방법을 알려줘"],
+  ["OKX 후보 없음", "trading_candidates_unavailable / candidate_selection의 확인 순서를 알려줘"],
+  ["키움 종료 지연", "worker_shutdown_timeout / runtime_still_alive일 때 안전한 확인 순서를 알려줘"],
+  ["최근 업데이트 안내", "업데이트 내용과 설치본 확인 방법을 알려줘"],
+  ["PAPER 평가 용량", "일반·프리미엄 PAPER 평가 한도와 대기 전략의 의미를 알려줘"],
+  ["전략 일괄 작업", "전략 다중 선택 삭제·일시중지·내보내기·PAPER 시작의 차이를 알려줘"],
+  ["JEV 검토 현황", "JEV는 현재 지원되는가? 무엇을 할 수 있고 무엇이 검증되지 않았는가?"],
+];
+
 const ASSISTANT_PROFILES: Record<string, { title: string; placeholder: string; questions: QuickQuestion[] }> = {
   settings: {
     title: "설정·연결 자주 묻는 질문",
@@ -53,7 +63,7 @@ const ASSISTANT_PROFILES: Record<string, { title: string; placeholder: string; q
       ["Pine 수정 순서", "Pine Script에서 지원되지 않는 조건을 NoahAI 실행 규칙으로 명확히 적는 순서를 알려줘"],
       ["TP·SL 작성", "전략 원문에 손절·익절 단위와 값을 안전하게 작성하는 예시를 보여줘"],
       ["시장국면 작성", "상승·하락·횡보 국면과 LONG·SHORT 조건을 혼동하지 않게 작성하는 예시를 보여줘"],
-      ["저장부터 PAPER", "분석이 끝난 전략을 저장·승인·자동검증·PAPER까지 진행하는 순서를 알려줘"],
+      ["저장부터 PAPER", "백테스트 없이 PAPER를 시작하는 자격과 저장·승인·최종 적용의 차이를 알려줘"],
       ["429·30회 한도", "상태 429와 심층분석 기본 30회 한도의 이유, 계속 사용할 수 있는 로컬 기능과 설정 위치를 알려줘"],
     ],
   },
@@ -487,7 +497,8 @@ export function AssistantWorkspace({ client, service, initialQuestion = "", sett
   const budget = status?.budget ?? {};
   const budgetExhausted = Number(budget.daily_used ?? 0) >= Number(budget.daily_limit ?? Number.POSITIVE_INFINITY)
     || Number(budget.monthly_used ?? 0) >= Number(budget.monthly_limit ?? Number.POSITIVE_INFINITY);
-  const profile = ASSISTANT_PROFILES[service] ?? ASSISTANT_PROFILES.blockchain;
+  const baseProfile = ASSISTANT_PROFILES[service] ?? ASSISTANT_PROFILES.blockchain;
+  const profile = { ...baseProfile, questions: [...SUPPORT_QUESTIONS, ...baseProfile.questions] };
   const publicRoute = status?.data_routing ?? {};
   function startStrategyConsultation(prompt = t("내 목적과 예산, 손실 허용 범위를 먼저 물어보고 시장에 맞는 전략 후보를 쉽게 비교해줘.")) {
     setConsultation(true); setMode("deep_analysis"); setDataScope("private"); setStrategyPreferences({});
