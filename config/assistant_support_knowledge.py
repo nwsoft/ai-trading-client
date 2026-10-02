@@ -8,7 +8,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 import re
 
-GUIDE_REVISION = "3.9.2.1-support.20261001.1"
+GUIDE_REVISION = "3.9.2.2-support.20261002.2"
 
 
 @dataclass(frozen=True)
@@ -21,6 +21,37 @@ class SupportTopic:
 
 
 TOPICS = (
+    SupportTopic("finance_products", ("금융상품비교", "대출비교", "원리금균등", "원금균등", "중도상환", "우대조건", "우대금리", "최저광고금리", "예금", "적금", "loan comparison", "savings comparison"),
+        "docs/LIFE_FINANCE_GUIDE.md",
+        "생활금융 → 금융상품의 전체 안내 / 대출 비교 / 보험 비교 / 예금·적금 비교 탭을 이용하세요. 처음에는 가상 예시로 연습하고, 내 조건은 비우고 직접 입력합니다. "
+        "화면의 두 조건은 금융사 실시간 견적이나 전체 상품 순위가 아닙니다. 계산 입력은 PC 화면 메모리에만 두며 계좌/가계부에 저장하거나 신청하지 않습니다.\n"
+        "대출: 원리금균등은 원금+이자를 합한 월 상환액을 일정하게, 원금균등은 매달 같은 원금을 갚아 월 이자가 감소하게 계산합니다. 만기일시는 기간 중 이자, 마지막에 원금을 갚습니다. "
+        "가상으로 120만 원을 무이자로 12개월 균등 상환하면 월 10만 원이지만, 만기일시는 마지막에 원금 120만 원이 필요합니다. "
+        "광고 최저 금리와 실제 적용 금리는 다를 수 있습니다. 변동 주기·우대 요건·인지세/보증료 등 비용·중도상환 수수료를 금융사에 확인하세요. 비용 미입력은 0원이 아닙니다.\n"
+        "예금은 목돈 한 번, 적금은 매달 새 돈을 넣으므로 같은 연 금리라도 이자가 다릅니다. 가상으로 120만 원 예금과 월 10만 원 적금을 12개월, 단리 연 3%로 비교하면 세전 이자는 각각 36,000원과 19,500원입니다(적금 매월 초 납입 가정). "
+        "세율은 자격·상품을 확인해 입력하며 미입력 시 세전 이자까지만 표시합니다. 우대 조건·적용 한도·예금보호 여부·중도해지 금리를 확인하세요.\n"
+        "실제 일수·복리·금리 변경·연체·중도해지는 계산 범위 밖입니다. 금리만으로 가입·대환·해지를 권하지 않습니다. AI 도움은 질문 초안을 연 뒤 직접 전송하며 보험 원문이나 비교 입력을 자동 첨부하지 않습니다.",
+        "Use Everyday Finance → Financial Products: Overview, Loans, Insurance, Deposits and Savings. Examples are fictional; clear them before entering actual terms. Loan calculations support annuity, equal principal and bullet repayment, with constant rates and monthly periods. Unknown fees are not zero. Deposits pay interest on an initial lump sum; installment savings use equal beginning-of-month deposits and simple interest. Enter the applicable tax rate yourself; otherwise only pre-tax interest is shown. Check eligibility, preferential-rate requirements, fees, deposit protection and early termination with the provider. These are local scenarios, not live quotes or recommendations. AI help prepares a draft only and does not automatically attach private documents or inputs."),
+    SupportTopic("insurance_workspace", ("보험", "insurance", "insurance_vault", "insurance_quote_not_found"),
+        "docs/LIFE_FINANCE_GUIDE.md",
+        "생활금융 → 금융상품 → 보험 비교 → 내 보험 이해·비교에서 보험 자료 전용 비밀번호(12자 이상)로 계정별 암호화 저장소를 엽니다. "
+        "앱 로그인 비밀번호와 별개이고 분실하면 복구할 수 없습니다. 암호화 백업과 비밀번호를 별도로 보관하세요.\n"
+        "제공 권한이 있는 PDF·PNG·JPEG를 등록한 뒤 원문과 직접 입력한 보험료·납입 주기·보장·제외 조건을 대조하고 확인 저장하세요. "
+        "스캔·이미지는 자동 OCR/보험 해석을 하지 않으며 수동 대조가 필요합니다. 파일당 20MB·PDF 100쪽, 저장 원본 합계 20MB·5개, 한 번에 1개입니다. "
+        "암호 문서는 여기서 해제하지 않습니다. 잘못된 페이지·인용문은 원문에서 다시 확인하세요.\n"
+        "확인한 계약 1개를 점검하거나 2개를 사실 비교합니다. 미확인 금액은 0원이 아니며 월 환산 차이는 절감액이나 같은 보장을 뜻하지 않습니다. "
+        "실손/정액, 면책·감액·갱신·해약환급 손실·신규 인수 여부는 보험사에 확인하세요. 유지도 선택지입니다. "
+        "자료 수정·삭제 후에는 다시 확인하고 비교하세요. 상담 질문지는 내용을 검토한 뒤 로컬 TXT로 저장하며 자동 가림은 완전하지 않습니다. "
+        "보험금액을 자산에 더하거나 가계부에 자동 기록하지 않습니다. 전 보험사 추천·상담원 자동 접수는 지원하지 않습니다. "
+        "보험 전용 외부 전송 동의 경로가 없으므로 이 질문은 심층분석을 선택해도 로컬 안내로 답하며 보험 원문을 외부 AI로 보내지 않습니다.",
+        "Open Everyday Finance → Financial products → My insurance, using a separate vault password (12+ characters). "
+        "The account-scoped vault is encrypted; a lost password cannot be recovered. Keep an encrypted backup and the password separately. "
+        "Register authorized PDF/PNG/JPEG files, inspect the source and enter premiums, payment cycles, coverage and exclusions yourself. "
+        "Scans/images require manual review, not automatic OCR or policy interpretation. Limits: 20 MB per file, 100 PDF pages, 5 documents/20 MB originals total, one job at a time. "
+        "Confirm before reviewing one contract or comparing two. Unknown is not zero; a monthly premium difference is not a saving or equivalent coverage. "
+        "Verify indemnity/fixed benefits, waiting/reduction/renewal terms, surrender losses and new underwriting with the insurer. Retaining a policy is a valid option. "
+        "Changes invalidate comparisons. Preview and redact consultation questions before local unencrypted TXT export. No ledger writes, asset additions, universal recommendations or adviser submissions occur. "
+        "Insurance-specific external-sharing consent is not available: even deep-analysis insurance questions receive this local guide without sending documents to an external AI."),
     SupportTopic("candidate_selection", ("trading_candidates_unavailable", "candidate_selection", "후보가없", "후보선정실패", "okx시작", "okx거래시작"),
         "docs/V3920_CUSTOMER_FEEDBACK_REVIEW.md",
         "후보 선정 단계의 시작 보류입니다. 거래 원장 복구 오류나 API 키 오류라고 단정할 수 없습니다. "

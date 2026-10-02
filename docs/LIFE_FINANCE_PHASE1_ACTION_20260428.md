@@ -1,6 +1,6 @@
 ## 이력 문서 안내 — 2026-10-02
 
-아래는 2026-04-28의 제안·예상 일정이며 현재 미완료 목록이나 출시 약속이 아니다. 3.9.2.1의 개발 가능한 범위와 남은 인수는 [현행 계획](V3921_PERSONAL_FINANCE_PLAN.md), TEST_STATUS, DEPLOY_CHECKLIST를 따른다.
+아래는 2026-04-28의 제안·예상 일정이며 현재 미완료 목록이나 출시 약속이 아니다. 3.9.2.1의 범위는 [선행 계획](V3921_PERSONAL_FINANCE_PLAN.md), 3.9.2.2 보험 소스 구현과 남은 인수는 아래 정본, TEST_STATUS, DEPLOY_CHECKLIST를 따른다.
 
 차기 3.9.2.2 보험의 작업 정본은 [보험 설계](LIFE_FINANCE_PRODUCT_COMPARISON_ANALYSIS_20260429.md#v3922-insurance-plan)와 [INS 실행 순서](UPDATE_PLAN.md#v3922-insurance)다. 아래 `insurance: 0.1` 같은 신용도 가중치, 단일 보장 점수 추천, 근거 없는 기간/수익 가정은 보험 적합성 분석에 재사용하지 않는다. 현재 구현된 대출/예적금 경로를 이번 문서 작업으로 수정했다는 뜻도 아니다.
 

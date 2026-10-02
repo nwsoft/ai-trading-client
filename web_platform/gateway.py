@@ -752,6 +752,48 @@ def create_gateway_app(
     def finance_product_catalog() -> dict[str, Any]:
         return services.finance_product_catalog()
 
+    @app.get("/api/v1/life-finance/insurance", dependencies=[Depends(require_token)])
+    def insurance_snapshot() -> dict[str, Any]:
+        from fastapi.responses import JSONResponse
+        account = getattr(services, "account", None)
+        result = services.insurance_workspace().snapshot()
+        if account != getattr(services, "account", None):
+            raise HTTPException(409, "insurance_account_changed")
+        return JSONResponse(result, headers={"Cache-Control": "no-store"})
+
+    @app.post("/api/v1/life-finance/insurance", dependencies=[Depends(require_token), Depends(require_confirmed_intent)])
+    async def insurance_action(request: Request):
+        # Never use a validation response which echoes private payload values.
+        import json
+        from fastapi.responses import JSONResponse
+        from starlette.concurrency import run_in_threadpool
+        from trading.insurance_workspace import InsuranceError
+        account = getattr(services, "account", None)
+        workspace = services.insurance_workspace()
+        raw = bytearray()
+        async for chunk in request.stream():
+            if len(raw) + len(chunk) > 57 * 1024 * 1024:
+                raise HTTPException(413, "insurance_request_limit")
+            raw.extend(chunk)
+        try:
+            body = json.loads(raw)
+            if not isinstance(body, dict) or set(body) != {"action", "payload"} or not isinstance(body["action"], str):
+                raise InsuranceError("insurance_invalid_action")
+            if body["action"] not in {"import_document", "restore"} and len(raw) > 512 * 1024:
+                raise InsuranceError("insurance_request_limit")
+            if account != getattr(services, "account", None):
+                raise InsuranceError("insurance_account_changed")
+            result = await run_in_threadpool(workspace.dispatch, body["action"], body["payload"])
+            if account != getattr(services, "account", None):
+                raise InsuranceError("insurance_account_changed")
+            return JSONResponse(result, headers={"Cache-Control": "no-store"})
+        except InsuranceError as exc:
+            raise HTTPException(400, str(exc)) from None
+        except (ValueError, TypeError, UnicodeError, RecursionError):
+            raise HTTPException(400, "insurance_invalid_request") from None
+        except Exception:
+            raise HTTPException(500, "insurance_operation_failed") from None
+
     @app.post(
         "/api/v1/life-finance/products/compare",
         dependencies=[Depends(require_token), Depends(require_confirmed_intent)],

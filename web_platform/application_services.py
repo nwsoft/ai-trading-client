@@ -1288,6 +1288,9 @@ class ApplicationServices:
         set_current_user_account(account)
         if getattr(self,'_drive_authorization',None) is not None:
             self._drive_authorization.disconnect()
+        if getattr(self, '_insurance_workspace', None) is not None:
+            self._insurance_workspace.lock()
+            del self._insurance_workspace
         self.account = account
         # The LogStream singleton exists before login.  Establish a new
         # account/session boundary so another account's buffered diagnostics
@@ -2601,6 +2604,15 @@ class ApplicationServices:
         remains a separate analyst command so a help question cannot accidentally
         trigger a costly or trade-adjacent model call.
         """
+        insurance_topic = support_topic(question)
+        if insurance_topic and insurance_topic.key in {"insurance_workspace", "finance_products"}:
+            # Generic deep-analysis consent is not consent to send health documents.
+            # No insurance records, question, or prior chat are sent to a provider.
+            return {"schema_version": "1.0.0", "service": service, "explanation_level": explanation_level,
+                    "answer": build_support_answer(question, locale=output_locale), "provider_called": False,
+                    "source": "versioned_local_product_knowledge", "guide_revision": GUIDE_REVISION,
+                    "guide_topic": insurance_topic.key, "guide_source": insurance_topic.source,
+                    "data_scope": "private", "captured_at": _utc_now()}
         if conversation_kind == 'strategy' and (
             mode != 'deep_analysis' or data_scope != 'private'
             or service not in {'blockchain', 'stock', 'ai_custom'}
@@ -5370,6 +5382,18 @@ class ApplicationServices:
 
     def finance_product_catalog(self) -> dict[str, Any]:
         return self.advanced.product_catalog()
+
+    def insurance_workspace(self):
+        # Separate lock/storage from trade engine and financial transaction ledger.
+        with self._lock:
+            if not hasattr(self, "_insurance_workspace"):
+                from trading.insurance_workspace import InsuranceWorkspace
+                self._insurance_workspace = InsuranceWorkspace(self.data_dir, self.account)
+            return self._insurance_workspace
+
+    def insurance_summary(self) -> dict[str, Any]:
+        workspace = getattr(self, "_insurance_workspace", None)
+        return workspace.summary() if workspace else {"state": "locked", "ledger_written": False}
 
     def compare_finance_product(
         self, *, product_type: str, amount: float, term_months: int, category: str | None,

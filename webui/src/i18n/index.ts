@@ -3,6 +3,7 @@ import english from './en.json';
 import coreEnglish from './en.core.json';
 import replayEnglish from './en.replay.json';
 import studioEnglish from './en.studio.json';
+import insuranceEnglish from './en.insurance.json';
 
 export type Locale = 'ko' | 'en';
 const listeners = new Set<() => void>();
@@ -44,7 +45,7 @@ export function useLocale(): Locale {
   return useSyncExternalStore(listener => { listeners.add(listener); return () => { listeners.delete(listener); }; }, getLocale, () => 'ko');
 }
 function normalize(value: string): string { return value.replace(/\s+/g, ' ').trim(); }
-const catalog: Record<string, string> = {...english, ...coreEnglish, ...replayEnglish, ...studioEnglish};
+const catalog: Record<string, string> = {...english, ...coreEnglish, ...replayEnglish, ...studioEnglish, ...insuranceEnglish};
 /** Only explicitly marked product copy is localized. Inputs and payloads are untouched. */
 export function t(source: string): string {
   if (locale !== 'en') return source;

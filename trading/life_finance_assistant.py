@@ -961,17 +961,8 @@ class LifeFinanceAssistant:
         }
 
     def _handle_compare_insurance(self, context: FinanceContext) -> Dict[str, Any]:
-        budget = context.extracted_amount if context.extracted_amount else 70000
-        result = self.product_advisor.compare_insurances(budget_monthly=float(budget))
-        best = result['best']
-
-        response = (
-            "🛡️ 보험 상품 비교 결과\n"
-            f"추천: {best['provider']} {best['name']}\n"
-            f"월 보험료: {best['monthly_premium']:,.0f}원\n"
-            f"보장 점수: {best['coverage_score']:.1f}\n"
-            f"요약: {result['summary']}"
-        )
+        result = self.product_advisor.compare_insurances(budget_monthly=context.extracted_amount)
+        response = "보험 자료 확인\n" + str(result['summary']) + "\n생활금융 → 금융상품 → 내 보험 이해·비교에서 확인할 수 있습니다. 가입·해지·보험금 지급을 확정하지 않습니다."
         return {
             'response': response,
             'intent': context.intent.value,

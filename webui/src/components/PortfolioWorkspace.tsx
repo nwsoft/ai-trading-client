@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import type { GatewayClient } from "../api";
 import { LiveHistoryEvidence } from "./LiveHistoryEvidence";
 import { FinanceReviewPanel } from "./FinanceReviewPanel";
+import { InsuranceBudgetSummary } from "./InsuranceWorkspace";
 
 type Row = Record<string, any>;
 
@@ -180,6 +181,7 @@ export function PortfolioWorkspace({ client, featureId, enabledSources, credenti
     <LiveHistoryEvidence data={data?.live_history_evidence} />
     {featureId.endsWith("insights") && <>
       <FinanceReviewPanel review={data?.finance_review} onAsk={onAsk} onOpenFinance={onOpenFinance} />
+      <InsuranceBudgetSummary client={client} />
       <p className="workspace-copy">{data?.performance_basis}</p>
       <article className="panel portfolio-section legacy-portfolio-summary">
         <h2>{LEGACY_PORTFOLIO_SECTION_ORDER[0]}</h2>

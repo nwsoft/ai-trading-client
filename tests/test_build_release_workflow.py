@@ -211,9 +211,8 @@ def test_github_workflow_builds_candidate_before_explicit_release():
     assert "upload-artifact@v4" in workflow
     assert "NOAHAI_PYTHON_X86" in workflow
     assert "requirements_kiwoom_x86.txt" in workflow
-    # Account, live-order, OCX-login, upgrade-UX, and soak checks are recorded
-    # as external validation by the single publisher; they are not a duplicate
-    # workflow input that blocks a reproducible installer build.
+    # External account, OCX, upgrade-UX, and soak checks remain visible in the
+    # release manifest without a second workflow switch blocking the installer.
     assert "confirm_external_gates:" not in workflow
     assert "if: inputs.publish_release" in workflow
     assert "publish_web_ui_windows_release.ps1" in workflow

@@ -358,7 +358,6 @@ class LifeFinanceWidget(ctk.CTkFrame):
         ctk.CTkLabel(input_panel, text="보험 월 예산(원)", font=ctk.CTkFont(size=11),
                      text_color="#94a3b8").grid(row=2, column=0, padx=(14, 4), sticky="w")
         self._insurance_budget_entry = ctk.CTkEntry(input_panel, width=110, placeholder_text="예: 70000")
-        self._insurance_budget_entry.insert(0, "70000")
         self._insurance_budget_entry.grid(row=2, column=1, padx=(0, 10), pady=4, sticky="w")
 
         ctk.CTkLabel(input_panel, text="보험 종류", font=ctk.CTkFont(size=11),
@@ -1123,9 +1122,9 @@ class LifeFinanceWidget(ctk.CTkFrame):
     def _run_insurance_compare(self):
         """보험 비교 실행 (커스텀 입력값 적용)"""
         try:
-            budget = float(self._insurance_budget_entry.get() or "70000")
+            budget = float(self._insurance_budget_entry.get())
         except ValueError:
-            budget = 70000
+            budget = 0
         cat_raw = self._insurance_cat_var.get()
         category = None if cat_raw == "전체" else cat_raw
         result = self.product_advisor.compare_insurances(budget_monthly=budget, category=category)
@@ -1133,14 +1132,9 @@ class LifeFinanceWidget(ctk.CTkFrame):
         self._draw_product_comparison_table(
             section_id="insurance",
             title=f"보험 비교  (월 {budget:,.0f}원 예산 / 종류: {cat_raw})",
-            headers=["순위", "상품명", "제공사", "월보험료(원)", "보장점수", "자기부담금(원)"],
-            rows=[
-                [str(i + 1), a["name"], a["provider"],
-                 f"{a['monthly_premium']:,.0f}원", f"{a['coverage_score']:.0f}/100",
-                 f"{result['best'].get('deductible', 0):,.0f}원" if i == 0 else "–"]
-                for i, a in enumerate(result["alternatives"])
-            ],
-            best_idx=0,
+            headers=["자료 확인"],
+            rows=[],
+            best_idx=-1,
             summary=summary,
             badge_color="#065f46",
         )

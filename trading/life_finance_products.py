@@ -342,43 +342,32 @@ class FinanceProductAdvisor:
             "summary": f"{term_months}개월 기준 총비용이 가장 낮은 상품은 {best[0].provider} {best[0].name}입니다. (월 납입 약 {monthly_payment:,.0f}원)",
         }
 
-    def compare_insurances(self, budget_monthly: float, category: Optional[str] = None) -> Dict[str, object]:
-        candidates = [
-            p for p in self.insurance_products
-            if p.monthly_premium <= budget_monthly and (category is None or p.category == category)
-        ]
-        if not candidates:
-            candidates = list(self.insurance_products)
-
-        scored: List[Tuple[InsuranceProduct, float]] = []
-        for product in candidates:
-            value_score = product.coverage_score - (product.monthly_premium / max(budget_monthly, 1) * 20)
-            scored.append((product, value_score))
-
-        scored.sort(key=lambda x: x[1], reverse=True)
-        best = scored[0]
-
-        return {
-            "best": {
-                "name": best[0].name,
-                "provider": best[0].provider,
-                "monthly_premium": best[0].monthly_premium,
-                "coverage_score": best[0].coverage_score,
-                "deductible": best[0].deductible,
-            },
-            "catalog_source": self.catalog_sources.get("insurance", "unknown"),
+    def compare_insurances(self, budget_monthly: float | None, category: Optional[str] = None) -> Dict[str, object]:
+        """Legacy catalogs are unverified examples, never suitability recommendations."""
+        import math
+        result = {
+            "schema_version": "2.0.0", "best": None, "alternatives": [],
             "catalog_source_kind": self._catalog_source_kind("insurance"),
-            "alternatives": [
-                {
-                    "name": p.name,
-                    "provider": p.provider,
-                    "monthly_premium": p.monthly_premium,
-                    "coverage_score": p.coverage_score,
-                }
-                for p, _ in scored[:3]
-            ],
-            "summary": f"월 {budget_monthly:,.0f}원 예산 기준 보장 대비 효율이 높은 상품은 {best[0].provider} {best[0].name}입니다.",
+            "evidence_status": "unverified_catalog", "recommendation_available": False,
         }
+        try:
+            valid = not isinstance(budget_monthly, bool) and math.isfinite(float(budget_monthly)) and float(budget_monthly) > 0
+        except (TypeError, ValueError, OverflowError):
+            valid = False
+        if not valid:
+            return {**result, "status": "needs_input",
+                    "summary": "월 보험 예산을 직접 입력하세요. 미입력 값을 임의로 채우지 않습니다."}
+        candidates = [p for p in self.insurance_products
+                      if math.isfinite(p.monthly_premium) and p.monthly_premium > 0
+                      and p.monthly_premium <= float(budget_monthly)
+                      and (category is None or p.category == category)]
+        if not candidates:
+            return {**result, "status": "no_matching_candidates",
+                    "summary": "조건에 맞는 자료가 없습니다. 예산·종류 필터를 자동으로 완화하지 않습니다."}
+        return {**result, "status": "insufficient_evidence",
+                "matching_example_count": len(candidates),
+                "summary": "기존 카탈로그는 약관·개인 보험료가 검증되지 않은 예시입니다. 보장 점수로 추천하지 않습니다. 내 보험 이해·비교에서 본인 자료를 등록해 확인하세요."}
+
 
     def compare_savings(self, principal: float, term_months: int) -> Dict[str, object]:
         candidates = [p for p in self.savings_products if term_months <= p.term_months and principal >= p.min_amount]

@@ -85,6 +85,7 @@ export interface GatewayClient {
   alphaArenaCommand: (action: "start" | "stop", liveConfirmation?: boolean) => Promise<Record<string, any>>;
   lifeFinanceAnalysis: () => Promise<Record<string, any>>;
   financeProducts: () => Promise<Record<string, any>>;
+  insuranceWorkspace?: (action?: string, payload?: Record<string, unknown>) => Promise<Record<string, any>>;
   compareFinanceProduct: (payload: Record<string, unknown>) => Promise<Record<string, any>>;
   calculateLifeTax: (payload: Record<string, unknown>) => Promise<Record<string, any>>;
 }
@@ -231,6 +232,9 @@ export function userFacingGatewayError(detail: unknown, status: number): string 
     notification_channel_not_enabled: "설정에서 외부 알림과 하나 이상의 채널을 ON으로 저장한 뒤 다시 시도하세요.",
   };
   if (runtimeMessages[code]) return runtimeMessages[code];
+  // Insurance UI translates allowlisted, value-free codes. Preserve them;
+  // a generic HTTP 400 would hide the actionable local-vault failure reason.
+  if (/^insurance_[a-z0-9_]{1,80}$/.test(normalized)) return normalized;
   if (status === 409 && /^[a-z][a-z0-9_]{0,95}$/.test(code)) return conflictFallback(code);
   if (/[가-힣]/.test(normalized) || /\s/.test(normalized)) return normalized;
   if (status === 409) return conflictFallback();
@@ -448,6 +452,9 @@ export function createGatewayClient(): GatewayClient {
     ),
     lifeFinanceAnalysis: () => get<Record<string, any>>("/api/v1/life-finance/analysis"),
     financeProducts: () => get<Record<string, any>>("/api/v1/life-finance/products"),
+    insuranceWorkspace: (action, payload = {}) => action
+      ? mutate<Record<string, any>>("POST", "/api/v1/life-finance/insurance", { action, payload })
+      : get<Record<string, any>>("/api/v1/life-finance/insurance"),
     compareFinanceProduct: (payload) => mutate<Record<string, any>>("POST", "/api/v1/life-finance/products/compare", payload),
     calculateLifeTax: (payload) => mutate<Record<string, any>>("POST", "/api/v1/life-finance/tax", payload),
   };

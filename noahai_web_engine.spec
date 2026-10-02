@@ -68,6 +68,7 @@ a = Analysis(
         "aiohttp", "dateparser", "colorama", "win32_setctime", "psutil",
         "rapidocr_onnxruntime", "onnxruntime",
         "pypdf", "youtube_transcript_api", "yt_dlp",
+        "trading.insurance_workspace", "cryptography.fernet", "filelock", "PIL.Image",
         *(["paddleocr", "paddle", "speech_recognition", "pyaudio"] if sys.platform.startswith("win") else []),
         # pykiwoom and PyQt5/QAxContainer are packaged only in the dedicated
         # Windows x86 NoahAIKiwoomHost.exe, never in this x64 engine.

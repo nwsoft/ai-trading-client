@@ -1,0 +1,34 @@
+.insurance-workspace { min-width: 0; padding: 20px; }
+.insurance-workspace > * + * { margin-top: 16px; }
+.insurance-workspace label { display: flex; flex-direction: column; gap: 7px; min-width: 0; }
+.insurance-workspace .insurance-check { flex-direction: row; align-items: flex-start; gap: 10px; margin: 14px 0; }
+.insurance-workspace .insurance-check input { flex: 0 0 18px; width: 18px; min-width: 18px; margin-top: 3px; }
+.insurance-workspace input, .insurance-workspace select, .insurance-workspace textarea { max-width: 100%; width: 100%; box-sizing: border-box; font: inherit; }
+.insurance-workspace button, .insurance-budget-link button { min-height: 36px; white-space: normal; background: #203a55; color: #eef5ff; border: 1px solid #486683; border-radius: 7px; padding: 8px 12px; cursor: pointer; }
+.insurance-workspace button:disabled { opacity: .5; cursor: not-allowed; }
+.insurance-workspace :is(input:not([type=checkbox]), select, textarea) { color: #eef5ff; background-color: #0c1929; border: 1px solid #405b75; border-radius: 6px; padding: 8px 10px; min-height: 38px; color-scheme: dark; }
+.insurance-workspace :is(button, input, select, textarea):focus-visible { outline: 2px solid #72d8ff; outline-offset: 2px; }
+.insurance-workspace .command-row, .insurance-documents > div { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.insurance-fields, .insurance-evidence, .insurance-summary { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 210px), 1fr)); gap: 14px; }
+.insurance-fields { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.insurance-editor.with-source .insurance-fields { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.insurance-workspace fieldset { border: 1px solid #405870; border-radius: 8px; padding: 14px; margin: 16px 0; min-width: 0; }
+.insurance-summary > div { display: flex; flex-direction: column; gap: 8px; padding: 14px; border: 1px solid #405870; border-radius: 8px; }
+.insurance-summary strong { font-size: 1.1em; overflow-wrap: anywhere; }
+.insurance-workspace .insurance-wide { grid-column: 1 / -1; }
+.insurance-workspace textarea { min-height: 80px; resize: vertical; }
+.insurance-workspace .insurance-report { min-height: 300px; line-height: 1.6; }
+.insurance-editor { display: grid; gap: 20px; }
+.insurance-editor.with-source { grid-template-columns: minmax(0, .85fr) minmax(0, 1.15fr); }
+.insurance-source { min-width: 0; max-height: 850px; overflow: auto; border: 1px solid #405870; border-radius: 8px; padding: 14px; }
+.insurance-source img { max-width: 100%; height: auto; }
+.insurance-source pre { white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.7; font-family: inherit; }
+.insurance-policy-list, .insurance-comparison { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 310px), 1fr)); gap: 14px; margin: 14px 0; }
+.insurance-policy-list article, .insurance-comparison article { min-width: 0; border: 1px solid #405870; border-radius: 8px; padding: 14px; overflow-wrap: anywhere; }
+.insurance-comparison dl > div { display: grid; grid-template-columns: 90px minmax(0, 1fr); gap: 8px; margin: 8px 0; }
+.insurance-comparison dd { margin: 0; white-space: pre-wrap; }
+.insurance-workspace summary { cursor: pointer; padding: 10px 0; font-weight: 600; }
+.insurance-unlock { display: grid; gap: 14px; max-width: 640px; }
+.insurance-documents > div { margin: 10px 0; }
+@media (max-width: 900px) { .insurance-editor.with-source { grid-template-columns: minmax(0, 1fr); } .insurance-source { max-height: 460px; } .insurance-fields { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 540px) { .insurance-fields, .insurance-editor.with-source .insurance-fields { grid-template-columns: minmax(0, 1fr); } .insurance-workspace { padding: 12px; } }

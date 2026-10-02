@@ -2,9 +2,18 @@
 
 <a id="v3922-insurance-release"></a>
 
-### 차기 3.9.2.2 보험 출시 조건 — 아직 미구현·미인수
+### 3.9.2.2 보험 출시 조건 — 로컬 기술 구현, 외부 인수 미완료
 
-상세 정의는 [보험 정본](LIFE_FINANCE_PRODUCT_COMPARISON_ANALYSIS_20260429.md#v3922-insurance-plan), 작업 순서는 [UPDATE_PLAN](UPDATE_PLAN.md#v3922-insurance)이다. 이 목록을 추가해도 현재 소스 3.9.2.1의 버전·공개 상태는 바뀌지 않는다.
+- [ ] WIN-PRODUCT-GUIDE: 금융상품 전체 안내/대출/보험/예금·적금 탭, 키보드 전환·100/125/150% 배율·최소 창 크기, 가상 예시/직접 입력 구분, 0금리/빈 비용·세율, 월 상환 그래프, AI 초안만 열기/명시 전송·내부 입력 유지, 보험 저장소 연결을 설치본에서 확인. Mac 합성 화면 통과와 구분.
+- [ ] PRODUCT-DATA-BUSINESS: 실제 금융기관 상품/견적·가입/중개·제휴는 미지원임을 사용자 안내에 유지. 기관 데이터/권한/동의/법무/정산 인수 전 샘플 순위나 실시간 최적 상품처럼 홍보하지 않음.
+
+상세 정의는 [보험 정본](LIFE_FINANCE_PRODUCT_COMPARISON_ANALYSIS_20260429.md#v3922-insurance-plan), 작업 순서는 [UPDATE_PLAN](UPDATE_PLAN.md#v3922-insurance)이다. 현재 소스 3.9.2.2 / updater 3.9.202, 공개 v3.9.2.1이다. 아래 과거 버전의 미게시 표시는 당시 이력이며 현재 공개 여부를 뜻하지 않는다.
+
+- [x] INS-01·03~05 기술 경로와 로컬 회귀/화면 점검. 실제 고객 보험 자료·외부 AI·주문 미사용.
+- [ ] WIN-INSURANCE: cryptography/filelock/pypdf/Pillow 포함 sidecar 빌드, PDF spawn 추출·취소·암호화 저장·15분 잠금·백업/새 설치 복원·영문 상태·100/125/150% DPI·스크린리더.
+- [ ] WIN-UPGRADE-3922: 3.9.2.1→3.9.2.2 및 롤백·재업그레이드 시 기존 전략/원장/가계부 보존, 새 보험 vault를 구버전이 수정하지 않음.
+- [ ] DOMAIN-INSURANCE: 실제 권한 있는 약관의 정답셋·보험 전문가/법무 검토. 미확인/조건부 범위를 설명에서 숨기지 않음.
+- [ ] PERF-INSURANCE: 동일 Windows 거래 부하 OFF/ON 비교, 거래 지연/UI/RSS/장시간 기준. Mac 합성 기능 시험만으로 완료하지 않음.
 
 - [ ] INS-01~06: 필수 범위 A 개발·사람 검토 정답셋·전체 소비자 호환·회귀시험·사용 안내 완료.
 - [ ] 실제 제공하는 자료 형식·보험 유형·약관 시점·미지원 범위를 고정하고 자료 이용권·보안·법무 검토 완료. ‘전 보험 비교’/절감 보장 표현 없음.
@@ -32,11 +41,13 @@
 공통 오류/기능 안내, KO/EN 라우팅, 선택적 과거재생 안내, 최신 빠른 질문을 보강한다. JEV는 첨부 근거 검토와 조건부 개발 계획이며 실행 Provider 미통합이다. 거래 규칙·승인·비용 한도를 변경하지 않는다. 정본: docs/V3921_ASSISTANT_UPDATE_PLAN.md, docs/V3921_JEV_EVALUATION.md. 최신 시험은 TEST_STATUS, Windows 배포는 DEPLOY_CHECKLIST를 따른다. 아래 이전 버전 섹션은 이력이다.
 
 
-## 3.9.2.1 Windows 인수 (현행, 사용자 빌드·게시)
+## 3.9.2.2 Windows 인수 (선행 기능 포함, 사용자 빌드·게시)
 
 - [x] 공개 50 다음 버전 3.9.2.0 / updater 3.9.200 / 엔진·키움 리소스·renderer 버전 변경.
 - [x] workflow 외부 인수 확인 게이트를 보존하고 시험의 낡은 반대 조건을 수정.
-<!-- patch-test-plan-version: 3.9.2.1 -->
+<!-- patch-test-plan-version: 3.9.2.2 -->
+- [ ] INS-WINDOWS: 상단 WIN-INSURANCE·WIN-UPGRADE-3922·PERF-INSURANCE 인수. 빌드에는 보험 암호화/파일 잠금/추출 의존성을 포함한다.
+- [ ] INS-DOMAIN: 상단 DOMAIN-INSURANCE와 정본의 지원 범위 검토. 합성 시험을 실제 약관 전문가/법무 인수로 대체하지 않는다. 제휴 B 활성화는 별도 조건이다.
 - [ ] WIN-BUILD: 새 Windows 엔진·렌더러·키움 x86 호스트·설치기 버전/지문/해시.
 - [ ] WIN-UPGRADE: 기존 설치본→3.9.2.1 업그레이드·전략/원장/승인 보존 및 새 도메인 로그인·동시 세션 검사. 이미 3.9.2.0을 게시했다면 해당 설치본도 포함한다.
 - [ ] WIN-ASSISTANT: 일반 안내에서 409/후보·키움 종료·PAPER 한도·JEV 질문을 실제 설치본으로 확인. Provider 미호출·설정/주문 미변경, engine 3.9.2.1/UI 2.1.2 일치(생활금융 후속 화면 포함).

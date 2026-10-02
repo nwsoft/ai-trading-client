@@ -1,4 +1,10 @@
-## 2026-10-02 — 3.9.2.1 생활금융 추가 업데이트
+## 2026-10-02 — 3.9.2.2 내 보험 이해·비교 소스 후보
+
+금융상품 비교는 목적별 전체 안내·대출·보험·예금/적금 탭으로 개선했습니다. 가상 예시·용어 안내·같은 화면 AI 질문 초안, 직접 받은 조건의 월 부담/이자 시각화를 제공합니다. 실제 전체 금융사 견적·가입 중개나 제휴 완료를 뜻하지 않습니다. 사용 흐름과 계산 범위는 [생활금융 가이드](docs/LIFE_FINANCE_GUIDE.md)를 따릅니다.
+
+생활금융의 암호화 보험 자료 정리·근거 대조·사실 비교·상담 질문지를 구현했습니다. 공개 기반은 v3.9.2.1입니다. [사용법](docs/LIFE_FINANCE_GUIDE.md#insurance-workspace)·[시험/미완료 인수](docs/TEST_STATUS.md#v3922-insurance-validation). Windows·실약관 전문가/법무 인수는 남아 있으며 이번에 설치기·공개 자산을 게시하지 않았습니다. 아래 선행 버전 설명은 이력입니다.
+
+## 2026-10-02 — 3.9.2.1 생활금융 추가 업데이트 (이전 이력)
 
 자산통합·생활금융에 로컬 기록 기반 ‘이번 달 내 돈 점검’, 내 계좌 이체 구분, 월간 계획·수입 감소 비교를 추가합니다. 계좌 자산·가계부 차액·PAPER 성과는 서로 합산하지 않습니다. 세무 계산의 금투세 폐지 안내 및 근로소득공제 구간 오류를 수정했습니다. [범위·공식 자료·검증 계획](docs/V3921_PERSONAL_FINANCE_PLAN.md). 소스 후보이며 Windows 게시 완료가 아닙니다.
 
@@ -11,9 +17,9 @@
 
 # NoahAI - AI 금융 동반자 & 의사결정 인프라
 
-현재 공개 버전: **v3.9.2.0** · GitHub stable/latest 공개 기준. 로컬 보존된 이전 manifest는 최신 게시 증거가 아닙니다.
-현재 공개 기반: v3.9.2.0.
-현재 소스 후보: v3.9.2.1 · updater **3.9.201** · Assistant Guidance and Decision Model Evidence. [통합 계획](docs/UPDATE_PLAN.md)과 [시험 결과](docs/TEST_STATUS.md)를 따릅니다. 고객 포털은 `https://noahai.net`, 개발사 사이트는 `https://noahailabs.com`입니다. Windows 빌드·배포는 사용자가 수행합니다.
+현재 공개 버전: **v3.9.2.1** · GitHub stable/latest 확인. 로컬 보존된 이전 manifest는 최신 게시 증거가 아닙니다.
+현재 공개 기반: v3.9.2.1.
+현재 소스 후보: v3.9.2.2 · updater **3.9.202** · Private Insurance Evidence Workspace. 생활금융 → 금융상품에 내 보험 암호화 정리·근거 확인·사실 비교·로컬 질문지를 구현했습니다. [지원 범위](docs/LIFE_FINANCE_GUIDE.md#insurance-workspace), [계획](docs/UPDATE_PLAN.md), [시험·미완료 인수](docs/TEST_STATUS.md)를 따릅니다. 고객 포털 `https://noahai.net`, 개발사 `https://noahailabs.com`. Windows 빌드·배포는 사용자가 수행합니다. 위·아래 3.9.2.1 이하 후보/미게시 문구는 당시 이력이며 현행은 이 절입니다.
 
 이하 49 구현 이력: Strategy Capacity and Operations Evidence Patch.
 

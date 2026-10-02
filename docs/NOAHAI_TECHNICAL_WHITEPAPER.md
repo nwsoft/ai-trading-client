@@ -3,11 +3,13 @@
 
 ### 2026-10-02 · 3.9.2.1 자산통합·생활금융 추가 계약
 
+후속 3.9.2.2는 보험 자료의 계정별 암호화·로컬 근거·사용자 확인·결정적 비교를 추가했다. 보험금 지급/인수/해지나 최적 상품을 자동 판정하지 않고 보험료 계획을 실제 지출·자산과 분리한다. [보험 정본](LIFE_FINANCE_PRODUCT_COMPARISON_ANALYSIS_20260429.md#v3922-insurance-plan)의 지원 범위·인수 경계를 따른다.
+
 `personal_finance_review`가 계정별 원화 기록의 기간·이체 제외·누락·목표 상태를 읽기 전용으로 설명한다. 자산통합과 생활금융이 이 근거를 공유하되 계좌 평가액·가계부 차액·PAPER 성과·목표 적립을 하나의 순자산으로 합치지 않는다. 월간 계획은 명시적 가정 계산이며 별도 외부 AI·은행 실행은 없다. 근로소득공제 오류와 금투세 폐지 안내를 정정했다. 전체 세무 신고 정확도·가족 공유·은행 자동 수집·전면 음성 접근성까지 완료한 것은 아니다. [현행 범위](V3921_PERSONAL_FINANCE_PLAN.md). 아래 비전과 과거 구현 이력은 배포 증거가 아니다.
 
 > 문서 동기화 기준 (2026-10-01)
-> - 현재 소스 후보: NoahAI Client v3.9.2.1 (어시스턴트 안내 정합성·JEV 근거 검토, Windows 인수 전)
-> - 현재 공개 기반: NoahAI Client v3.9.2.0 (GitHub stable/latest 공개 기준, 로컬 과거 manifest와 외부 검증 기록 별도)
+> - 현재 소스 후보: NoahAI Client v3.9.2.2 (로컬 보험 암호화 정리·근거 비교·질문지, Windows·보험 도메인 인수 전)
+> - 현재 공개 기반: NoahAI Client v3.9.2.1 (GitHub stable/latest 2026-10-02 확인, 로컬 과거 manifest와 외부 검증 기록 별도)
 > - v47 설치본·실계좌·실제 알림 수신은 소스 시험과 별도이며 이 백서로 완료를 인증하지 않는다.
 > - 제품 상태 정본: `docs/V39147_RUNTIME_BOUNDARY_TEST_PLAN.md`·`docs/TEST_STATUS.md`, 계획: `docs/UPDATE_PLAN.md`, 변경 이력: `docs/CHANGELOG.md`, 실행 계약: `docs/ARCHITECTURE.md`·`docs/TRADING_FLOW.md`
 > - 이 백서의 v1.6은 문서 판본이다. 아래 과거 버전 사례는 당시 설계·개발 이력이며 현재 배포 신원을 대체하지 않는다.

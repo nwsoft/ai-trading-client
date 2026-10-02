@@ -65,7 +65,9 @@ class TestLifeFinanceAssistantCompareCommands:
 
         assert result["intent"] == "compare_insurance"
         assert result["action_taken"] == "compare_insurance"
-        assert "보험 상품 비교 결과" in result["response"]
+        assert "보험 자료 확인" in result["response"]
+        assert "직접 입력" in result["response"]
+        assert result["data"]["best"] is None
         assert isinstance(result.get("data"), dict)
 
     def test_process_command_compare_savings(self, tmp_path):

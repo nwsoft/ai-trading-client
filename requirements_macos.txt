@@ -11,6 +11,8 @@ python-binance==1.0.19
 ccxt==4.5.50
 openai==2.49.0
 pypdf==6.18.1
+cryptography>=46.0.0
+filelock>=3.20.0
 youtube-transcript-api==1.2.4
 yt-dlp==2026.8.19
 numpy==2.4.4

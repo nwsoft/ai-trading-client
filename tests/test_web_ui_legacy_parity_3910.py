@@ -667,7 +667,12 @@ def test_life_finance_exposes_full_legacy_tax_inputs_and_human_results() -> None
         assert key in life
     for label in ["세금 계산 결과", "절세 점검 제안", "생활금융 AI 상담", "대출 비교", "보험 점검", "신용 관리"]:
         assert label in life or label in assistant
-    assert "legacy-product-table" in life
+    # v3.9.2.2 replaces mixed sample rankings with a guided, local comparison.
+    guide = (ROOT / "webui" / "src" / "components" / "GuidedProductComparison.tsx").read_text(encoding="utf-8")
+    assert "GuidedProductComparison" in life
+    for label in ["대출 비교", "보험 비교", "예금·적금 비교", "전체 안내", "product-result-grid"]:
+        assert label in guide
+    assert "compareFinanceProduct" not in guide
     assert '<pre className="json-summary"' not in life
     assert "life-finance-kpi-grid" in operations
     assert "life-finance-form" in operations

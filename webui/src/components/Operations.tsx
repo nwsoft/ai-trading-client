@@ -6,6 +6,7 @@ import type { LifeFinanceSnapshot, LogSnapshot, RuntimeSnapshot, WorkspaceSnapsh
 import { AssistantWorkspace } from "./AssistantWorkspace";
 import { LifeFinanceAdvanced } from "./LifeFinanceAdvanced";
 import { FinanceReviewPanel, MonthlyPlanCalculator } from "./FinanceReviewPanel";
+import { InsuranceBudgetSummary } from "./InsuranceWorkspace";
 import { LogHelpDialog } from "./LogHelpDialog";
 import { startSequentialPoll } from "../sequentialPoll";
 import { sourcesForService, venueProfile } from "../venueSources";
@@ -328,6 +329,7 @@ export function LifeFinance({
   const dashboardPanel = <section className="life-dashboard-stack">
     <FinanceReviewPanel review={data?.finance_review} onAsk={question => { setReviewQuestion(question); setInnerTab("AI 어시스턴트"); }} />
     <MonthlyPlanCalculator />
+    <InsuranceBudgetSummary client={client} />
     <article className="panel legacy-life-monthly">
       <div className="panel-heading"><div><h2>{String(thisMonth.date_str ?? "이번 달")}{t(" 월간 재무 요약")}</h2></div><button className="secondary-button" type="button" onClick={refresh}>{t("새로고침")}</button></div>
       {error && <div className="inline-notice error-text">{error}</div>}{message && <div className="inline-notice">{message}</div>}
