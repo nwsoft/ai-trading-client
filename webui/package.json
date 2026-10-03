@@ -32,7 +32,8 @@
     "vite": "^6.1.0"
   },
   "overrides": {
-    "js-yaml": "4.3.2"
+    "js-yaml": "4.3.2",
+    "@electron/get": "5.1.0"
   },
   "build": {
     "appId": "ai.noah.client",
