@@ -6,6 +6,9 @@
 - [ ] WIN-BUILD: 새 x64 엔진·x86 키움 호스트·NSIS 설치기, 전체 Python·문서·TS/Vite·audit·PE/인증 IPC·해시·provenance 검증.
 - [ ] WIN-UPGRADE: 3.9.2.2에서 업데이트·기존 전략/원장/설정 보존, 설치본 UI 및 거래 병행 확인.
 - [ ] ROLLBACK: 설치 롤백·재업그레이드·사용자 데이터 보존.
+- [ ] UPLOAD: 설치본의 전략 파일 입력·업로드 회귀 및 사용자 자료 보존.
+- [ ] REPLAY-COST: 설치본의 과거재생 비용·차트 표시 회귀.
+- [ ] CATALOG: 설치본의 기관별 종목 상태·지정 종목 보호 보존.
 - [ ] EXTERNAL: 실계좌·OCX 로그인·장시간 운용·실제 공급사/상담사 수신·전문가 인수.
 <!-- patch-test-plan-end -->
 
