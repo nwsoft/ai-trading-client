@@ -16,6 +16,7 @@ import type {
 } from "./types";
 
 export interface GatewayClient {
+  profitabilityDiagnostic?: (source: string) => Promise<Record<string, any>>;
   recordRecovery: (source: string, start?: boolean) => Promise<Record<string, any>>;
   recoveryStatement?: (payload: Record<string, unknown>) => Promise<Record<string, any>>;
   storageMaintenance: (action?: 'optimize' | 'debug', hours?: number) => Promise<Record<string, any>>;
@@ -85,6 +86,7 @@ export interface GatewayClient {
   alphaArenaCommand: (action: "start" | "stop", liveConfirmation?: boolean) => Promise<Record<string, any>>;
   lifeFinanceAnalysis: () => Promise<Record<string, any>>;
   financeProducts: () => Promise<Record<string, any>>;
+  productIntelligence?: (payload?: Record<string, unknown>) => Promise<Record<string, any>>;
   insuranceWorkspace?: (action?: string, payload?: Record<string, unknown>) => Promise<Record<string, any>>;
   compareFinanceProduct: (payload: Record<string, unknown>) => Promise<Record<string, any>>;
   calculateLifeTax: (payload: Record<string, unknown>) => Promise<Record<string, any>>;
@@ -435,6 +437,7 @@ export function createGatewayClient(): GatewayClient {
     runFinancialIntelligence: (service, action, payload = {}) => mutate<Record<string, any>>(
       "POST", "/api/v1/financial-intelligence/action", { service, action, payload },
     ),
+    profitabilityDiagnostic: source => get<Record<string, any>>(`/api/v1/maintenance/profitability?source=${encodeURIComponent(source)}`),
     recordRecovery: (source, start = false) => start
       ? mutate<Record<string, any>>("POST", "/api/v1/maintenance/trade-records", { source })
       : get<Record<string, any>>(`/api/v1/maintenance/trade-records?source=${encodeURIComponent(source)}`),
@@ -452,6 +455,7 @@ export function createGatewayClient(): GatewayClient {
     ),
     lifeFinanceAnalysis: () => get<Record<string, any>>("/api/v1/life-finance/analysis"),
     financeProducts: () => get<Record<string, any>>("/api/v1/life-finance/products"),
+    productIntelligence: payload => payload ? mutate<Record<string, any>>("POST", "/api/v1/life-finance/product-intelligence", payload) : get<Record<string, any>>("/api/v1/life-finance/product-intelligence"),
     insuranceWorkspace: (action, payload = {}) => action
       ? mutate<Record<string, any>>("POST", "/api/v1/life-finance/insurance", { action, payload })
       : get<Record<string, any>>("/api/v1/life-finance/insurance"),

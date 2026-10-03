@@ -1,0 +1,12 @@
+{
+  "backup": "/var/folders/sr/tdlflpnj0qj1qd26s268mdlc0000gn/T/noah-v3923-completion-renderer-before-h9lsk67w/dist",
+  "build_metadata": {
+    "version": "3.9.2.2",
+    "source_sha256": "cdcde35a3b388b151c99025338fee53cc8b3a871f00636ab995b9b1903cc9008",
+    "built_at": "2026-10-03T09:32:31.234Z"
+  },
+  "local_renderer_updated": true,
+  "source_hash_matches": true,
+  "windows_installed": false,
+  "published": false
+}

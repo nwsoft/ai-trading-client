@@ -128,6 +128,42 @@ class HeadlessRuntimeBridge:
         self._lock = threading.RLock()
         self._record_recovery = None
 
+    def profitability_diagnostic(self, source: str) -> dict[str, Any]:
+        """Recompute local evidence only; never starts an engine or changes policy/orders."""
+        from trading.record_recovery import RecordRecovery
+        from trading.profitability_validation import ProfitabilityValidator
+        from trading.advanced_layer_config import deep_merge_policy
+        source = RecordRecovery.venue(source)
+        if self.account == 'local':
+            raise RuntimeError('recovery_login_required')
+        app = self._app
+        if source in STOCK_SOURCES:
+            controller = getattr(app, 'stock_runtime_controller', None)
+            service = (getattr(controller, '_services', {}) or {}).get(STOCK_CONFIG_KEYS.get(source, source))
+            if service is not None and callable(getattr(service, 'profitability_diagnostic', None)):
+                return {**service.profitability_diagnostic(), 'source': source, 'evaluated_at': time.time()}
+        engine = getattr(app, 'trader' if source == 'binance' else 'unified_trader', None)
+        if engine is None or source in STOCK_SOURCES:
+            return {'source': source, 'status': 'engine_evidence_unavailable',
+                    'message': '현재 엔진의 수익성 평가 근거가 없습니다. 기존 운용 화면에서 연결·실행 상태를 확인하세요.',
+                    'order_permission_granted': False}
+        settings = getattr(engine, 'settings', {}) or {}
+        root = settings.get('advanced_trading_layers', {}) or {}
+        override = (root.get('exchange_overrides', {}) or {}).get(source, {}) or {}
+        layers = deep_merge_policy(root, override)
+        policy = layers.get('profitability_validation', {}) or {}
+        rows = (engine._get_recent_trade_samples_binance() if source == 'binance'
+                else engine._get_local_trade_samples_unified(source, limit=200))
+        report = ProfitabilityValidator().evaluate_strategy(rows, policy)
+        fields = (override.get('profitability_validation') or {})
+        report.update({'source': source, 'status': 'evaluated', 'evaluated_at': time.time(),
+                       'sample_days': 45 if source == 'binance' else 30,
+                       'sample_limit': 300 if source == 'binance' else 200,
+                       'sample_scope': 'live_closed_trades',
+                       'policy_origins': {key: 'exchange_override' if key in fields else 'global' if key in (root.get('profitability_validation') or {}) else 'validator_default'
+                                          for key in report['effective_policy']}})
+        return report
+
     def recovery_statement(self, payload: dict[str, Any], *, commit=False):
         if self.account == 'local':
             raise RuntimeError('recovery_login_required')

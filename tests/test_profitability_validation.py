@@ -209,7 +209,8 @@ class TestProfitabilityValidatorCalculations:
         assert result["total_trades"] == 0
         assert result["raw_trade_rows"] == 1
         assert result["excluded_return_rows"] == 1
-        assert result["reason"] == "insufficient_trades"
+        assert result["reason"] == "return_evidence_required"
+        assert result["enabled"] is False
 
     def test_report_keeps_cash_pnl_but_uses_return_curve_for_mdd(self):
         v = ProfitabilityValidator()
@@ -371,7 +372,8 @@ class TestProfitabilityValidatorEdgeCases:
         v = ProfitabilityValidator()
         trades = [_make_trade(pnl=100.0, price=0.0) for _ in range(5)]
         result = v.evaluate_strategy(trades, policy={"enabled": True, "min_trades": 1})
-        assert "net_pnl" in result
+        assert result["reason"] == "return_evidence_required"
+        assert result["enabled"] is False
 
     def test_walkforward_single_split(self):
         """splits=1 → 전체가 하나의 윈도우."""

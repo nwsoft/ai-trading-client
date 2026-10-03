@@ -1,0 +1,74 @@
+const { chromium } = require('playwright');
+const assert = require('node:assert/strict');
+const fs = require('node:fs/promises');
+
+(async () => {
+  const browser = await chromium.launch({ channel: 'chrome', headless: true });
+  const errors = [];
+  const page = await browser.newPage({ viewport: { width: 390, height: 1000 } });
+  page.on('pageerror', error => errors.push(String(error)));
+  try {
+    await page.goto('http://127.0.0.1:4193/qa/v3923.html?kind=savings');
+    await page.getByLabel('예금 원금 / 매월 적금액', { exact: true }).fill('1000000');
+    await page.getByLabel('기간(개월)', { exact: true }).fill('24');
+    const first = page.locator('fieldset').first();
+    await first.getByLabel('상품·견적 이름').fill('합성 복리 조건');
+    await first.getByLabel('적용 연 금리(%)').fill('10');
+    await first.getByLabel('확인한 이자 세율(%)').fill('0');
+    await page.getByText('복리·목표·중도해지·만기 분산', { exact: true }).click();
+    await page.getByLabel('이자 계산', { exact: true }).selectOption('annual');
+    await page.getByLabel('목표 만기 금액(원)').fill('2420000');
+    await page.getByLabel('목돈 만기 분산 가정').selectOption('true');
+    await page.getByRole('button', { name: '조건 비교·필요한 질문 만들기' }).click();
+    await page.getByText('세후 이자 210,000원 · 만기 1,210,000원', { exact: true }).waitFor();
+    await page.getByText('설계·변경 시나리오 상세', { exact: true }).click();
+    await page.getByText('목표 2,420,000원 · 필요한 납입액 2,000,000원', { exact: false }).waitFor();
+    await page.getByLabel('조건 변경 질문').fill('기간을 12개월로 바꾸면?');
+    await page.getByRole('button', { name: '조건 반영·재계산' }).click();
+    await page.getByText('세후 이자 100,000원 · 만기 1,100,000원', { exact: true }).waitFor();
+    assert.equal(await page.getByLabel('기간(개월)', { exact: true }).inputValue(), '12');
+    await page.screenshot({ path: '/tmp/v3923-savings-advanced-390.png', fullPage: true });
+    await page.getByRole('button', { name: '현재 근거로 다시 진단' }).click();
+    const downloadPromise = page.waitForEvent('download');
+    await page.getByRole('button', { name: '진단 요약 파일로 받기' }).click();
+    const download = await downloadPromise;
+    const diagnostic = JSON.parse(await fs.readFile(await download.path(), 'utf8'));
+    assert.equal(diagnostic.diagnostic_state, 'strict_stop');
+    assert.equal(diagnostic.orders_submitted, false);
+    assert.equal(diagnostic.credentials_included, false);
+
+    await page.goto('http://127.0.0.1:4193/qa/v3923.html?kind=insurance');
+    await page.getByLabel('현재 가입 상태').selectOption('none');
+    await page.getByText('필요한 보장·예산·기존 보험 변경 비교', { exact: true }).click();
+    await page.getByLabel('지속 가능한 월 보험료 예산(원)').fill('20000');
+    await page.getByLabel('필요한 보장 항목 · 쉼표로 구분').fill('벌금');
+    const quote = page.locator('fieldset').first();
+    await quote.getByLabel('상품·견적 이름').fill('합성 운전자 견적');
+    await quote.getByLabel('월 보험료(원)', { exact: true }).fill('18000');
+    await quote.getByLabel('보장·가입금액·지급 조건', { exact: true }).fill('사건별 약관 확인');
+    await quote.getByLabel('면책·감액·제외 사유').fill('합성 제외 원문');
+    await quote.getByLabel('갱신·납입·보장 기간').fill('합성 갱신 원문');
+    await quote.getByLabel('벌금 지급 조건·한도 근거').fill('합성 약관 한도');
+    await quote.getByLabel('본인 견적의 보험료·보장·제외·갱신 조건을 확인했습니다').check();
+    await quote.getByLabel('월 보험료(원)', { exact: true }).fill('18001');
+    assert.equal(await quote.getByLabel('본인 견적의 보험료·보장·제외·갱신 조건을 확인했습니다').isChecked(), false);
+    await quote.getByLabel('월 보험료(원)', { exact: true }).fill('18000');
+    await quote.getByLabel('본인 견적의 보험료·보장·제외·갱신 조건을 확인했습니다').check();
+    await page.getByRole('button', { name: '조건 비교·필요한 질문 만들기' }).click();
+    await page.getByText('설계·변경 시나리오 상세', { exact: true }).click();
+    const design = page.locator('article').filter({ has: page.getByRole('heading', { name: '최소 부담', exact: true }) });
+    await design.getByText('합성 운전자 견적', { exact: true }).waitFor();
+    await page.screenshot({ path: '/tmp/v3923-insurance-design-390.png', fullPage: true });
+    assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
+
+    await page.goto('http://127.0.0.1:4193/qa/v3923.html?guided=1');
+    await page.getByRole('tab', { name: '대출 비교', exact: true }).click();
+    await page.getByLabel('빌릴 금액', { exact: true }).fill('1234567');
+    await page.getByRole('tab', { name: '예금·적금 비교', exact: true }).click();
+    await page.getByLabel('예금 원금 / 매월 적금액', { exact: true }).fill('700000');
+    await page.getByRole('tab', { name: '대출 비교', exact: true }).click();
+    assert.equal(await page.getByLabel('빌릴 금액', { exact: true }).inputValue(), '1234567');
+    assert.deepEqual(errors, []);
+    console.log('PASS compound goal/ladder, natural-language recalculation, sanitized diagnostic export, insurance design, draft tab continuity, 390px');
+  } finally { await browser.close(); }
+})().catch(error => { console.error(error); process.exitCode = 1; });

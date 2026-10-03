@@ -394,7 +394,8 @@ EDITABLE_SETTINGS: tuple[EditableSetting, ...] = (
     EditableSetting("ai_custom_features.profile", "전략 스튜디오 사용 난이도", "전략 스튜디오", "select", "Level 1·2는 쉬운 제작, 3·4는 상세 설계·운용, 5는 연구 비교입니다. 기존 단계 설정과 가드레일·실거래 권한은 유지됩니다.", options=("beginner", "standard", "advanced", "lab", "research")),
     EditableSetting("life_finance_sync_dir", "생활금융 동기화 폴더", "주식·증권", "text", "생활금융 자료를 동기화할 계정 전용 폴더입니다. 비워 두면 기본 위치를 사용합니다."),
     EditableSetting("life_finance_backup_dir", "생활금융 백업 폴더", "주식·증권", "text", "생활금융 백업을 저장할 계정 전용 폴더입니다. 비워 두면 기본 위치를 사용합니다."),
-    EditableSetting("advanced_trading_layers.profitability_validation.enabled", "수익성 검증 (Profitability Gate)", "고급 매매 계층", "boolean", "최근 거래 KPI를 검사하고 일반 미달은 제한 회복 학습, Hard MDD는 신규 진입 차단으로 처리합니다.", risk="high"),
+    EditableSetting("advanced_trading_layers.profitability_validation.enabled", "수익성 검증 (Profitability Gate)", "고급 매매 계층", "boolean", "최근 거래 KPI를 검사합니다. 일반 미달은 선택한 정책에 따라 엄격 중지 또는 제한 회복하며, 미대조·계산 근거 부족·Hard MDD는 차단합니다.", risk="high"),
+    EditableSetting("advanced_trading_layers.profitability_validation.underperformance_mode", "성과 미달 처리 정책", "고급 매매 계층", "select", "strict_stop: 신규 진입 중지. limited_learning: 확정 손익·Hard MDD 검사 통과 시 축소 위험으로 후보 평가. 실거래 권한이나 수익을 보장하지 않습니다. 거래소별 별도 정책이 있으면 수익성 진단에서 확인하세요.", options=("strict_stop", "limited_learning"), risk="critical"),
     EditableSetting("advanced_trading_layers.portfolio_orchestration.enabled", "포트폴리오 오케스트레이션", "고급 매매 계층", "boolean", "코인·주식·ETF의 위험예산과 단일 자산 집중도를 제한합니다.", risk="high"),
     EditableSetting("advanced_trading_layers.strategy_engine.enabled", "전략 엔진 (레짐 필터/합의)", "고급 매매 계층", "boolean", "AI 진입 후보를 시장 국면·다중 신호 합의·재진입 쿨다운으로 후행 필터링합니다.", risk="high"),
     EditableSetting("advanced_trading_layers.execution_optimizer.enabled", "실행 최적화 (슬리피지 제어)", "고급 매매 계층", "boolean", "주문 재시도·시간 제한·허용 슬리피지를 관리합니다.", risk="high"),
@@ -2605,11 +2606,24 @@ class ApplicationServices:
         trigger a costly or trade-adjacent model call.
         """
         insurance_topic = support_topic(question)
+        if service == "personal_finance" and not insurance_topic and recent_messages:
+            from trading.finance_product_intelligence import product_question_answer
+            followup = product_question_answer(question, recent_messages,
+                catalog=self.product_intelligence() if self.account != "local" else None)
+            if followup:
+                return {"schema_version": "1.0.0", "service": service, "explanation_level": explanation_level,
+                        "answer": followup, "provider_called": False, "source": "local_product_evidence",
+                        "data_scope": "private", "captured_at": _utc_now()}
         if insurance_topic and insurance_topic.key in {"insurance_workspace", "finance_products"}:
             # Generic deep-analysis consent is not consent to send health documents.
             # No insurance records, question, or prior chat are sent to a provider.
+            from trading.finance_product_intelligence import product_question_answer
+            product_answer = None
+            if output_locale == "ko":
+                catalog = self.product_intelligence() if self.account != "local" else None
+                product_answer = product_question_answer(question, recent_messages, catalog=catalog)
             return {"schema_version": "1.0.0", "service": service, "explanation_level": explanation_level,
-                    "answer": build_support_answer(question, locale=output_locale), "provider_called": False,
+                    "answer": product_answer or build_support_answer(question, locale=output_locale), "provider_called": False,
                     "source": "versioned_local_product_knowledge", "guide_revision": GUIDE_REVISION,
                     "guide_topic": insurance_topic.key, "guide_source": insurance_topic.source,
                     "data_scope": "private", "captured_at": _utc_now()}
@@ -5379,6 +5393,35 @@ class ApplicationServices:
     def life_finance_analysis(self) -> dict[str, Any]:
         with self._lock:
             return self.advanced.life_finance_analysis(self._life_finance())
+
+    def product_intelligence(self, payload=None):
+        from trading.finance_product_intelligence import ProductCatalog, compare_scenario
+        from trading.finance_source_connector import refresh_sources
+        with self._lock:
+            if self.account == "local":
+                raise ValueError("finance_login_required")
+            account, directory = self.account, self.data_dir
+        store = ProductCatalog(directory / "finance_product_catalog.sqlite3")
+        force = bool(payload and payload.get('action') == 'refresh')
+        catalog = store.refresh_feeds(force=force)
+        catalog = refresh_sources(store, directory, force=force)
+        if account != self.account:
+            raise ValueError('finance_account_changed')
+        if payload and payload.get('action') == 'refresh':
+            return catalog
+        if payload and payload.get('action') in {'ai_preview','ai_explain'}:
+            from web_platform.finance_ai import preview, explain
+            settings = load_settings(persist_migrations=False) or {}
+            with self._lock:
+                if account != self.account:raise ValueError('finance_account_changed')
+                ai = self.interactive_ai
+            response = preview(ai,settings,payload.get('scenario'),payload.get('question'),catalog,payload.get('scopes')) if payload['action']=='ai_preview' else explain(ai,settings,payload,catalog)
+            if account != self.account:raise ValueError('finance_account_changed')
+            return response
+        if payload is not None and payload.get('action') == 'dialogue':
+            from trading.finance_product_dialogue import revise_scenario
+            return revise_scenario(payload.get('scenario'), payload.get('question'), catalog)
+        return catalog if payload is None else compare_scenario(payload, catalog)
 
     def finance_product_catalog(self) -> dict[str, Any]:
         return self.advanced.product_catalog()

@@ -594,8 +594,57 @@ class InsuranceWorkspace:
             self._arm_timeout()
             return self.snapshot()
 
+    def finance_plan(self, operation="list", scenario=None, plan_id=None, reminder_date=None):
+        """Personal scenarios use the existing account-bound encrypted vault."""
+        from trading.finance_product_intelligence import ProductCatalog, compare_scenario
+        with self._mutex:
+            self._require()
+            data = copy.deepcopy(self._data)
+            plans = data.setdefault("finance_plans", {})
+            if operation == "save":
+                if len(plans) >= 50 or len(json.dumps(scenario, ensure_ascii=False, allow_nan=False)) > 100000:
+                    raise InsuranceError("finance_plan_limit")
+                try:
+                    catalog = ProductCatalog(self.directory.parents[1] / "finance_product_catalog.sqlite3").snapshot()
+                    result = compare_scenario(scenario, catalog)
+                except ValueError:
+                    raise InsuranceError("finance_invalid_scenario") from None
+                plan_id = secrets.token_hex(12)
+                plans[plan_id] = {"id": plan_id, "saved_at": _now(), "scenario": scenario, "result": result}
+                self._persist(data)
+            elif operation == "delete":
+                if plan_id not in plans:
+                    raise InsuranceError("finance_plan_not_found")
+                del plans[plan_id]
+                self._persist(data)
+            elif operation == "reminder":
+                if plan_id not in plans:
+                    raise InsuranceError("finance_plan_not_found")
+                try:
+                    if reminder_date:date.fromisoformat(reminder_date)
+                except (ValueError,TypeError):
+                    raise InsuranceError("finance_reminder_date_invalid") from None
+                plans[plan_id]['reminder_date']=reminder_date or None
+                self._persist(data)
+            elif operation != "list":
+                raise InsuranceError("finance_invalid_operation")
+            from trading.finance_followup import review_saved_plans
+            catalog=ProductCatalog(self.directory.parents[1] / "finance_product_catalog.sqlite3").snapshot()
+            output=copy.deepcopy(list(plans.values()))
+            return {"plans": output, "reviews":review_saved_plans(output,catalog), "state": "unlocked"}
+
+    def finance_handoff(self, operation="list", **kwargs):
+        from trading.finance_handoff import FinanceHandoff
+        from trading.finance_connections import FinanceConnectionError
+        try:
+            return FinanceHandoff(self).dispatch(operation, **kwargs)
+        except FinanceConnectionError as exc:
+            raise InsuranceError(str(exc)) from None
+        except (ValueError, KeyError, TypeError):
+            raise InsuranceError("finance_handoff_invalid_or_unavailable") from None
+
     def dispatch(self, action, payload):
-        routes = {"unlock": self.unlock, "lock": self.lock, "summary": self.summary, "save_policy": self.save_policy,
+        routes = {"finance_handoff": self.finance_handoff, "finance_plan": self.finance_plan, "unlock": self.unlock, "lock": self.lock, "summary": self.summary, "save_policy": self.save_policy,
                   "delete": self.delete, "import_document": self.import_document, "cancel": self.cancel,
                   "document": self.document, "suggest_fields": self.suggest_fields, "compare": self.compare, "report": self.report,
                   "backup": self.backup, "restore": self.restore}

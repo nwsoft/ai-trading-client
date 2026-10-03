@@ -296,51 +296,19 @@ class FinanceProductAdvisor:
         term_months: int,
         loan_type: Optional[str] = None,
     ) -> Dict[str, object]:
-        candidates = [p for p in self.loan_products if p.max_amount >= amount and p.term_months >= term_months]
-        if loan_type:
-            typed = [p for p in candidates if p.loan_type == loan_type]
-            if typed:
-                candidates = typed
-        if not candidates:
-            candidates = list(self.loan_products)
+        return self._unverified_comparison("loan", amount, term_months)
 
-        scored: List[Tuple[LoanProduct, float, float]] = []
-        for product in candidates:
-            total_interest = amount * (product.annual_rate / 100.0) * (term_months / 12.0)
-            fee = amount * (product.fee_rate / 100.0)
-            total_cost = total_interest + fee
-            score = (1 / max(total_cost, 1)) * 1_000_000
-            scored.append((product, total_cost, score))
-
-        scored.sort(key=lambda x: x[1])
-        best = scored[0]
-
-        monthly_payment = self._calc_monthly_payment(amount, best[0].annual_rate, term_months)
-        return {
-            "best": {
-                "name": best[0].name,
-                "provider": best[0].provider,
-                "annual_rate": best[0].annual_rate,
-                "loan_type": best[0].loan_type,
-                "total_cost": best[1],
-                "monthly_payment": monthly_payment,
-                "term_months": term_months,
-            },
-            "catalog_source": self.catalog_sources.get("loan", "unknown"),
-            "catalog_source_kind": self._catalog_source_kind("loan"),
-            "alternatives": [
-                {
-                    "name": p.name,
-                    "provider": p.provider,
-                    "annual_rate": p.annual_rate,
-                    "loan_type": p.loan_type,
-                    "total_cost": total_cost,
-                    "monthly_payment": self._calc_monthly_payment(amount, p.annual_rate, term_months),
-                }
-                for p, total_cost, _ in scored[:3]
-            ],
-            "summary": f"{term_months}개월 기준 총비용이 가장 낮은 상품은 {best[0].provider} {best[0].name}입니다. (월 납입 약 {monthly_payment:,.0f}원)",
-        }
+    def _unverified_comparison(self, kind, amount, months):
+        from trading.finance_product_intelligence import number
+        try:
+            number(amount, minimum=1)
+            term = number(months, minimum=1, maximum=600)
+            valid = term == int(term)
+        except ValueError:
+            valid = False
+        return {"best": None, "alternatives": [], "status": "insufficient_evidence" if valid else "needs_input",
+                "recommendation_available": False, "catalog_source_kind": self._catalog_source_kind(kind),
+                "summary": "기존 카탈로그는 현재 판매 조건과 개인 적용 조건이 검증되지 않았습니다. 금융상품의 맞춤 비교에서 출처·유효기간이 있는 자료 또는 직접 받은 조건을 비교하세요." if valid else "금액과 기간을 직접 입력해 주세요. 임의의 조건을 대신 사용하지 않습니다."}
 
     def compare_insurances(self, budget_monthly: float | None, category: Optional[str] = None) -> Dict[str, object]:
         """Legacy catalogs are unverified examples, never suitability recommendations."""
@@ -370,101 +338,17 @@ class FinanceProductAdvisor:
 
 
     def compare_savings(self, principal: float, term_months: int) -> Dict[str, object]:
-        candidates = [p for p in self.savings_products if term_months <= p.term_months and principal >= p.min_amount]
-        if not candidates:
-            candidates = list(self.savings_products)
+        return self._unverified_comparison("savings", principal, term_months)
 
-        scored: List[Tuple[SavingsProduct, float]] = []
-        for product in candidates:
-            expected_interest = principal * (product.annual_rate / 100.0) * (term_months / 12.0)
-            if not product.tax_free:
-                expected_interest *= 0.846
-            scored.append((product, expected_interest))
-
-        scored.sort(key=lambda x: x[1], reverse=True)
-        best = scored[0]
-
-        return {
-            "best": {
-                "name": best[0].name,
-                "provider": best[0].provider,
-                "annual_rate": best[0].annual_rate,
-                "expected_interest": best[1],
-                "tax_free": best[0].tax_free,
-            },
-            "catalog_source": self.catalog_sources.get("savings", "unknown"),
-            "catalog_source_kind": self._catalog_source_kind("savings"),
-            "alternatives": [
-                {
-                    "name": p.name,
-                    "provider": p.provider,
-                    "annual_rate": p.annual_rate,
-                    "expected_interest": interest,
-                }
-                for p, interest in scored[:3]
-            ],
-            "summary": f"{term_months}개월 기준 예상 이자가 가장 높은 상품은 {best[0].provider} {best[0].name}입니다.",
-        }
-
-    # ========== Phase 1: 신용도 기반 조정 ==========
-    
     def apply_credit_adjustment_to_loans(self, result: Dict, credit_score: str) -> Dict:
-        """대출 결과에 신용도 기반 금리 조정 적용
-        
-        Args:
-            result: compare_loans() 반환값
-            credit_score: "좋음 (750~900)" | "보통 (650~750)" | "낮음 (~650)"
-        
-        Returns:
-            신용도가 적용된 결과 딕셔너리
-        """
-        adjustments = {
-            "좋음 (750~900)": -0.5,    # 금리 -0.5% 우대
-            "보통 (650~750)": 0.0,     # 표준 금리
-            "낮음 (~650)": 0.5          # 금리 +0.5% (불리)
-        }
-        
-        adjustment = adjustments.get(credit_score, 0.0)
-        if adjustment == 0.0:
-            return result
-        
-        # 신용도 적용 결과 복사
-        adjusted = dict(result)
-        
-        # best 금리 조정
-        adjusted["best"]["adjusted_annual_rate"] = adjusted["best"]["annual_rate"] + adjustment
-        adjusted["best"]["credit_label"] = self._format_credit_label(credit_score)
-        
-        # best 총비용 재계산
-        amount = (adjusted["best"].get("total_cost", 0) / 
-                 (adjusted["best"]["annual_rate"] / 100.0)) * 0.1  # 대략 역계산
-        term_months = adjusted["best"].get("term_months", 24)
-        
-        # 더 정확한 재계산을 위해 요약 문자열 업데이트
-        adjusted["summary"] += f"\n💡 신용도({self._format_credit_label(credit_score)}): 실제 금리는 {adjusted['best']['adjusted_annual_rate']:.2f}%일 수 있습니다."
-        
-        return adjusted
+        # Credit bands cannot establish a lender's personal offer.
+        from copy import deepcopy
+        return deepcopy(result)
 
     def apply_credit_adjustment_to_savings(self, result: Dict, credit_score: str) -> Dict:
-        """예적금 결과에 신용도 기반 금리 조정 적용"""
-        adjustments = {
-            "좋음 (750~900)": 0.3,      # 금리 +0.3% 우대
-            "보통 (650~750)": 0.0,      # 표준 금리
-            "낮음 (~650)": -0.1          # 금리 -0.1% (불리)
-        }
-        
-        adjustment = adjustments.get(credit_score, 0.0)
-        if adjustment == 0.0:
-            return result
-        
-        adjusted = dict(result)
-        adjusted["best"]["adjusted_annual_rate"] = adjusted["best"]["annual_rate"] + adjustment
-        adjusted["best"]["credit_label"] = self._format_credit_label(credit_score)
-        
-        adjusted["summary"] += f"\n💡 신용도({self._format_credit_label(credit_score)}): 실제 금리는 {adjusted['best']['adjusted_annual_rate']:.2f}%일 수 있습니다."
-        
-        return adjusted
-    
+        from copy import deepcopy
+        return deepcopy(result)
+
     @staticmethod
     def _format_credit_label(credit_score: str) -> str:
         """신용도를 친화적 텍스트로 포맷"""

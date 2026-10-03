@@ -1,3 +1,4 @@
+import { ProfitabilityDiagnostic } from './ProfitabilityDiagnostic';
 import { useEffect, useRef, useState } from 'react';
 import type { GatewayClient } from '../api';
 import { localized } from '../i18n';
@@ -124,6 +125,7 @@ export function RecordRecoveryPanel({ client, initialSource = 'binance', sources
   }
   return <section className="settings-parity-panel record-recovery" aria-label={localized('거래 기록 점검·복구', 'Trade record recovery')}>
     <h3>{localized('유지관리 · 거래 기록 점검·복구', 'Maintenance · Trade record recovery')}</h3>
+    <ProfitabilityDiagnostic key={`profit-${source}`} client={client} source={source} />
     {client.recoveryStatement && <RecoveryStatementImport key={source} client={client} source={source}/>}
     <p>{localized('새 점검은 보관된 전체 기간의 LIVE 미확정 기록을 300건 제한 없이 확인합니다. 진행 중인 작업은 기존 범위에서 이어집니다. 거래소의 과거 조회 제한으로 근거를 확보하지 못한 기록은 미확정으로 보존합니다. PAPER 기록·손실 한도는 변경하지 않습니다.', 'A new check covers unresolved LIVE records across the entire stored history, beyond the 300-record policy sample. Existing jobs continue within their original range. Records outside exchange history availability remain unresolved. PAPER records and loss limits are unchanged.')}</p>
     <p>{localized('한 번 실행하면 앱이 켜져 있는 동안 이 화면을 닫아도 조회량을 조절하며 이어갑니다. 일시적 오류·정산 지연은 최대 2회 자동 재시도합니다. 앱 종료 시 진행을 보존하고 다음 실행에서 이어갈 수 있습니다.', 'Start once: while the app is open, recovery continues with bounded queries even if you close this panel. Temporary errors or settlement delays retry at most twice. App exit preserves progress for your next check.')}</p>

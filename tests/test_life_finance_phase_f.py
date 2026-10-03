@@ -299,8 +299,9 @@ class TestFinanceProductAdvisorExternalCatalog:
             auto_refresh_interval=0,
         )
         result = advisor.compare_loans(amount=100_000_000, term_months=60)
-        assert result["best"]["name"] == "저금리론"
-        assert result["catalog_source"] == str(loan_file)
+        assert result["best"] is None
+        assert result["status"] == "insufficient_evidence"
+        assert result["recommendation_available"] is False
 
     def test_invalid_json_falls_back_without_stopping_app(self, tmp_catalog_dir: Path):
         """손상된 운영자 파일도 앱을 중단하지 않고 예비 데이터로 대체"""

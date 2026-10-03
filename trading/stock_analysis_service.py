@@ -3202,6 +3202,42 @@ class StockAnalysisService:
 
         return decisions, executed_orders
 
+    def _profitability_samples(self, execution_mode: str, limit: int = 400):
+        """One sample contract shared by the cycle and read-only diagnostics."""
+        if execution_mode == ExecutionMode.PAPER.value:
+            return self._get_recent_paper_trade_samples(limit=limit)
+        if execution_mode == 'mock':
+            return self._get_recent_trade_samples(limit=limit)
+        from trading.recorder import Recorder
+        recorder = getattr(self, 'recorder', None)
+        getter = getattr(recorder, 'get_recent_trades', None)
+        if not callable(getter):
+            return [{'performance_evidence_ready': False, 'reconciliation_status': 'ledger_unavailable'}]
+        try:
+            rows = getter(coin='', exchange=self.broker_name, days=30,
+                          **({'strict': True} if isinstance(recorder, Recorder) else {})) or []
+            return rows[-limit:]
+        except Exception:
+            return [{'performance_evidence_ready': False, 'reconciliation_status': 'ledger_read_failed'}]
+
+    def profitability_diagnostic(self):
+        from copy import deepcopy
+        context = deepcopy(getattr(self, '_last_profitability_context', None))
+        if not context:
+            return {'status': 'engine_evidence_unavailable', 'order_permission_granted': False}
+        if context['mode'] == 'mock':
+            # Mock adapter history can still perform IO; diagnostics must stay local.
+            report = deepcopy(context['report'])
+        else:
+            report = ProfitabilityValidator().evaluate_strategy(
+                self._profitability_samples(context['mode']), context['policy'])
+        report.update({'status': 'evaluated', 'execution_mode': context['mode'],
+                       'sample_days': None if context['mode'] == 'paper' else 30,
+                       'sample_limit': 400, 'sample_scope': context['mode'] + '_closed_trades',
+                       'policy_origins': {key: 'last_executed_stock_policy' for key in report['effective_policy']},
+                       'order_permission_granted': False})
+        return report
+
     def run_auto_trade_cycle(
         self,
         symbols: List[str],
@@ -3309,18 +3345,7 @@ class StockAnalysisService:
         # PAPER 성과 판단은 PAPER 원장만, LIVE는 증권사 체결만 사용한다.
         # 두 범위를 섞으면 실제 계좌 거래가 가상 전략을 차단하거나 PAPER
         # 수익을 LIVE 성과로 오인할 수 있다.
-        if execution_mode == ExecutionMode.PAPER.value:
-            cached_recent_trades = self._get_recent_paper_trade_samples(limit=400)
-        elif execution_mode == 'mock':
-            cached_recent_trades = self._get_recent_trade_samples(limit=400)
-        else:
-            # Buy/sell executions alone are not completed net-PnL outcomes.
-            recorder = getattr(self, 'recorder', None)
-            getter = getattr(recorder, 'get_recent_trades', None)
-            cached_recent_trades = (
-                getter(coin='', exchange=self.broker_name, days=30) or []
-                if callable(getter) else []
-            )[-400:]
+        cached_recent_trades = self._profitability_samples(execution_mode, limit=400)
         strategy_performance_context = {
             'recent_win_rate': 0.5,
             'consecutive_losses': 0,
@@ -3394,6 +3419,9 @@ class StockAnalysisService:
             recent_trades=cached_recent_trades,
             policy=effective_profitability_policy,
         )
+        from copy import deepcopy
+        self._last_profitability_context = deepcopy({'mode': execution_mode,
+            'policy': effective_profitability_policy, 'report': profitability_report})
         profitability_blocked = bool(
             effective_profitability_policy.get('enabled', True)
             and not bool(profitability_report.get('enabled', True))

@@ -1,3 +1,19 @@
+## 2026-10-03 — v3.9.2.3 수익성 근거·생활금융 확장 (Windows 빌드 후보)
+
+제품/설치기 **3.9.2.3**, updater **3.9.203**으로 승격했다. 공개 기반은 v3.9.2.2이며 새 Windows 빌드·검증·게시 결과는 별도 증거로 기록한다. 외부 기관·전문가·실계좌 인수는 미완료다.
+
+- 거래 수익성 검증: 기관별 부분 설정의 재귀 병합, Binance 표본 시간순 정렬·최근 구간 선택, 소표본 Hard MDD 검사, 수익률 근거 누락/비정상 숫자 및 원장 읽기 실패 구분을 반영했다. 유지관리의 수익성 재진단·진단 요약 내려받기, 원인별 복구 조건·최대 3회 로컬 재확인/취소와 오프라인 정책 복구 도구를 추가했다. 고객의 실제 거래 차단 해소는 미확인이다.
+- 생활금융: 출처/권리/버전/만료/판매 상태를 관리하는 상품 카탈로그, 검토된 공급 파일·정규화 API 갱신/복원, 대출 변동금리·대환·추가 상환, 예적금 복리·자유 납입·부분인출, 확인된 보장/예산에 따른 보험 세 설계안, 공동 예산을 추가했다. 미확인 비용·세율·조건은 0으로 채우지 않는다.
+- 현재 조건을 반영하는 후속 질문·재계산, 약관 근거 문단 검색, 암호화 결과 보관·버전/만료/재점검 안내, 전송 내용 미리보기·동의 후 선택 AI 설명을 추가했다.
+- 상담 연결 준비: 지정 수신처 등록, 선택 정보 미리보기·동의, 수동 전달과 API 접수 구분, 중복 방지·접수 상태·철회를 구현했다. 실제 상품 공급사/상담사 등록과 실제 수신 확인은 미완료다.
+- 기존 로컬 검증 기록: Python **4,939 passed / 0 failed / 9 skipped / 3 subtests**, TypeScript/Vite 및 합성 로컬 게이트웨이 화면 시험 PASS. Windows 설치본·업그레이드·고객 복구·실기관 인수·공개 게시는 미완료다.
+
+[구현·잔여 범위](V3923_IMPLEMENTATION_STATUS.md) · [시험 정본](TEST_STATUS.md) · [검증 기록](../reports/v3923-implementation-validation.json) · [배포 게이트](DEPLOY_CHECKLIST.md). 아래 날짜별 후보/미게시 설명은 당시 이력이다.
+
+## 2026-10-02 - v3.9.2.2 공개 기준 (차기 수정은 아래 별도 기록)
+
+2026-10-03 GitHub API 재확인: 최신 공개 설치본은 v3.9.2.2이며 차기 수정은 아래에 기록한 로컬 구현 범위다.
+
 ## 2026-10-02 - v3.9.2.2 Private Insurance Evidence Workspace (소스 후보)
 
 - 초보자 금융상품 비교 재구성: 전체 안내/대출/보험/예금·적금 탭, 목적 카드·3단계 가이드·가상 예시·쉬운 용어·금융사 질문 목록. 기존 혼합 입력/샘플 순위 화면을 직접 받은 조건 비교로 대체.
@@ -26,7 +42,6 @@
 현재 소스 후보 버전: **v3.9.2.1** (updater 3.9.201). 현재 공개 기반: v3.9.2.0. 기존 공개 자산은 변경하지 않고 3.9.2.1 설치기와 자동 업데이트 자산을 새로 생성한다.
 
 공통 오류/기능 안내, KO/EN 라우팅, 선택적 과거재생 안내, 최신 빠른 질문을 보강한다. JEV는 첨부 근거 검토와 조건부 개발 계획이며 실행 Provider 미통합이다. 거래 규칙·승인·비용 한도를 변경하지 않는다. 정본: docs/V3921_ASSISTANT_UPDATE_PLAN.md, docs/V3921_JEV_EVALUATION.md. 최신 시험은 TEST_STATUS, Windows 배포는 DEPLOY_CHECKLIST를 따른다. 아래 이전 버전 섹션은 이력이다.
-
 
 ## 2026-10-01 - v3.9.2.0 Portal Migration and Runtime Recovery (Windows 미게시)
 
@@ -134,8 +149,6 @@
 
 소스 검증: 전체 회귀 3,736 통과·9 제외·3 subtests 통과. 코인/증권 브라우저 신규 등록·명시적 기존 버전 전환·미완성 초안 보관 6경로 통과(실제 로컬 컴파일러/검증기, 저장 API fixture). 숫자 30.0/30 직렬화 차이의 오차단과 기존 고정 TP/SL 불러오기 충돌도 수정했습니다. Windows 설치본·실계좌·9월 24일 미대조 1건은 미검증입니다. 현재 data/Teayu-001이 없어 고객 사본 회귀 1개도 제외됐습니다. 설치기 빌드·게시를 하지 않았고, 미확정 손익의 조건부 LIVE 재개는 구현하지 않았습니다. 상세 범위는 TEST_STATUS와 최신 V39147 검증 원장을 따릅니다. 아래 이전 수치는 이력입니다.
 
-## 2026-09-23 - v3.9.1.46 Runtime Boundary and Protection Contract Patch (미배포 소스 후보)
-
 ## Coinone 공통 실행 조건 적용 — 2026-09-24
 
 2026-09-24 최종 정책 정정 (v3.9.1.46 소스 후보): Coinone 전용 E2E 승인 차단을 제거했습니다. 등록부의 LIVE 허용과 주문 어댑터를 공통 실행 조건에 맞추며, 옛 coinone_live_e2e_verified 값은 사용하지 않습니다. API 인증·명시적 LIVE 시작·회원/주문 범위·위험/최소주문/소유권 조건은 유지합니다. 실제 계좌 검증은 테스터가 진행하며 자동시험 통과를 실계좌 검증 완료로 표시하지 않습니다. 업데이트가 자동 거래를 시작하지 않습니다.
@@ -189,6 +202,8 @@
 - Binance 일반+Algo 보호 조회 통합, OKX OCO·Bybit position trading-stop·Bitget 양쪽 접수 계약 수정. 실패한 조회를 주문 없음으로 취급하지 않으며 외부/부분 보호주문을 임의 취소하지 않음.
 - 긴 전략명이 거래소 카드 설명을 세로로 밀던 레이아웃 수정. 손익 대조와 전략 버전 근거 누락을 구분한 문구 및 안내 추가.
 - [상세 원인·수정·검증 경계](../reports/v39145-cross-venue-feedback-audit-20260923.md). 실제 기관/Telegram/Windows 확인 전 배포 완료로 안내하지 않음.
+
+## 2026-09-23 - v3.9.1.46 Runtime Boundary and Protection Contract Patch (미배포 소스 후보)
 
 ## 2026-09-22 - v3.9.1.45 Indicator Evidence and Regime Notification Patch (배포 이력)
 
@@ -364,8 +379,6 @@ v3.9.1.37은 stable/latest로 공개됐습니다. 아래 후보·공개 v36 표�
 - 공개 v3.9.1.36 자산은 보존합니다. 실제 통신 단절·주문 불명확 상태의 안전 차단은 유지합니다.
 - [검증 계획](V39137_KIWOOM_BOUNDED_QUERIES_TEST_PLAN.md) · [사용자 로그 분석](V39137_KIWOOM_USER_LOG_ANALYSIS.md).
 
-## 이전 버전 기록 (이하 후보·공개·검증 상태는 당시 기록)
-
 ## 2026-09-16 - v3.9.1.36 키움 세션·증권 PAPER·전략검증 정합 소스 후보
 
 현재 소스 후보 버전: **v3.9.1.36** · updater **3.9.136**. 현재 공개 버전: **v3.9.1.35** stable/latest. 공개된 v3.9.1.35 자산은 교체하지 않으며 v3.9.1.36 Windows 새 빌드와 실계정 게이트는 미완료입니다.
@@ -376,7 +389,6 @@ v3.9.1.37은 stable/latest로 공개됐습니다. 아래 후보·공개 v36 표�
 - 네 증권사의 주식/ETF 과거 전략검증을 선택 기관 일봉과 증권 PAPER 비용계약에 맞춥니다. 주식 매도세와 ETF 세금 차이를 반영하고 범위·SHORT·시간봉 실패 폐쇄를 유지합니다.
 - 대시보드 매뉴얼과 업데이트 내역에 v3.9.1.35 공개 이력과 v3.9.1.36 후보 경계를 함께 표시합니다.
 - 검증 정본: [v3.9.1.36 검증 계획](V39136_KIWOOM_SESSION_STOCK_PAPER_VALIDATION_TEST_PLAN.md).
-
 
 ## 2026-09-16 - v3.9.1.35 전략 범위·자산·대화 연속성 공개
 
@@ -396,9 +408,6 @@ v3.9.1.37은 stable/latest로 공개됐습니다. 아래 후보·공개 v36 표�
 - Web 설정의 `종료 시 자동 설치`가 저장만 되고 Electron에 전달되지 않던 누락을 수정했습니다. 자동 확인 주기·자동 다운로드·종료 설치를 각각 저장값대로 적용하고 현재 적용 상태를 업데이트 화면에 표시합니다.
 - 다운로드 완료 뒤 옵션을 켠 경우에도 정상 종료 시 다시 판정하며, 거래 엔진 안전 종료가 성공한 뒤에만 Windows 설치기를 실행합니다.
 - 3.9.1 Beta가 GitHub prerelease를 조회하도록 채널을 일치시켰습니다. 공개된 v3.9.1.35 자산은 불변이며 이 후속 수정은 다음 새 제품 버전의 빌드·업데이트 E2E를 통과해야 사용자 설치본에 반영됩니다.
-
-
-## 이전 버전 기록 (아래 현재·공개 표기는 당시 기록이며 현행 판단에 사용하지 않음)
 
 ## 2026-09-16 - v3.9.1.34 키움 x86·릴리즈 무결성 검증 후보
 
@@ -784,6 +793,14 @@ v3.9.1.32는 국면 재선정 대기를 실제 변경 알림과 분리하고, �
 - 심층분석 Provider에도 동일한 구조화 실행 근거를 전달해 화면 정보만으로 보유 이유를 추정하지 않게 했습니다.
 - Web 증권 런타임의 키움 QAx/COM 프로세스 경계를 명시하고 KIS ETF/ETN 공식 현재가 경로를 유지했습니다.
 - 제품 버전 `3.9.1.9`, updater SemVer `3.9.109`. Windows 재빌드·실계정·7일 PAPER·실제 Provider 검증 전에는 배포 완료가 아닙니다.
+
+## 2026-08-24 - v3.9.1.9 PAPER 전진검증·근거형 AI 어시스턴트 패치
+
+- 자동검증 완료 전략을 PAPER 전용 실행 풀에 등록하는 상태머신을 추가해 검증 전에는 실행할 수 없고 실행해야 검증 결과가 생기는 순환 의존을 제거했습니다.
+- 기본·AI 커스텀 PAPER 가상 청산을 동일 append-only 원장에 기록하고, 전략 버전 자동 합산과 거래소별 최근 내역 표시를 분리했습니다.
+- AI 어시스턴트 서비스 분기와 포지션 정본을 수정해 일반 안내 반복 응답을 제거하고, 심층분석에 관리 포지션·TP/SL·전략 버전·최근 신호를 우선 근거로 전달합니다.
+- 키움 Web COM 프로세스 선택을 명시적 런타임 표식으로 고정하고 KIS ETF 비공식 404 경로 회귀를 차단했습니다.
+- 제품 버전 `3.9.1.9`, updater SemVer `3.9.109`. Windows 재빌드·업데이트·외부 증권 API·PAPER/Provider E2E 전에는 배포 완료가 아닙니다.
 
 ## 2026-08-24 - v3.9.1.8 체결 원장 정합·증권 API 안정화 패치
 
@@ -2399,7 +2416,6 @@ v3.9.1.32는 국면 재선정 대기를 실제 변경 알림과 분리하고, �
 - `python -m pytest -q --tb=no`
   - 결과: **239 passed, 6 skipped, 5 warnings**
 
-
 ## 2026-04-28 (이어서) - 대시보드 UX 개선 + 가드레일/ETF 신호 분기 강화 (v3.8.9.15)
 
 ### ✅ 대시보드 UX 개선
@@ -2539,6 +2555,45 @@ v3.9.1.32는 국면 재선정 대기를 실제 변경 알림과 분리하고, �
 ### 🧪 검증
 - `python -m pytest tests/ -q`
   - 결과: **170 passed, 6 skipped** (기존 대비 변동 없음)
+
+---
+
+## 2026-04-28 - v3.8.9.15 전면 고도화 패치
+
+### 🐛 버그 수정
+- `ui/dashboard_modern.py`
+  - **블록체인↔주식 탭 전환 버그 수정**: `show_blockchain_content()`가 탭 내용을 재빌드하지 않아
+    blockchain→stock→blockchain 전환 후 거래통계/시장트렌드에 주식 내용이 잔존하던 문제 해결
+    - `show_blockchain_content()` 내에 `_ensure_trading_stats_tab()` 및 `_ensure_trend_tab()` 호출 추가
+
+### ✅ 기능 개선
+- `ui/dashboard_modern.py`
+  - **주식 증권사 드롭다운**: `enabled_stock_brokers` 미설정 시 kiwoom만 폴백하던 것을
+    kiwoom/shinhan/miraeAsset 전체를 폴백으로 표시하도록 변경 (AI학습·서비스전환 소스 드롭다운 동일 적용)
+  - 버전 표기 `Beta 3.8.9.14` → `Beta 3.8.9.15` 갱신
+
+- `data/settings.json`
+  - `enabled_stock_brokers: []` → `["kiwoom","shinhan","miraeAsset"]` 기본값 설정
+
+- `ui/widgets/market_trend_widget.py`
+  - **시장트렌드 AI전략 섹션 '미제공' 제거**:
+    - 커스텀 지표 직접 추가 UI: `_custom_indicators` 목록 기반 실시간 표시
+    - 기관/고래 활동 연계 분석: long_short_ratio·OI 기반 고래 매수/매도/중립 판단 표시
+    - 전략 신뢰도 점수: 가용 지표 수(RSI/MACD/거래량/롱숏비 등) 기반 0~100 점수 및 바 표시
+
+- `ui/widgets/ai_assistant_widget.py`
+  - **자산통합(real_estate) 서비스 AI 프로필 추가**: 자산 진단·리밸런싱·리스크·노후준비 퀵질문 9개
+  - **생활금융(other_investment) 서비스 AI 프로필 추가**: 대출비교·보험점검·적금추천·현금흐름 퀵질문 9개
+  - **AI 애널리스트(ai_analyst) 서비스 AI 프로필 추가**: 시장진단·시나리오·멀티에셋 퀵질문 5개
+  - **커스텀 지표 자연어 명령 지원**:
+    - `지표 추가 [이름]` → MarketTrendWidget에 즉시 반영
+    - `지표 삭제 [이름]` / `지표 목록` 명령 지원
+
+- `ui/widgets/user_manual_widget.py`
+  - v3.8.9.15 릴리스 노트 및 업데이트 날짜 갱신
+
+### 📦 테스트/스크립트
+- 기존 테스트 모두 통과 (test_stock_nonkey_hardening, test_life_finance_assistant 등)
 
 ---
 
@@ -2741,45 +2796,6 @@ v3.9.1.32는 국면 재선정 대기를 실제 변경 알림과 분리하고, �
 
 ---
 
-## 2026-04-28 - v3.8.9.15 전면 고도화 패치
-
-### 🐛 버그 수정
-- `ui/dashboard_modern.py`
-  - **블록체인↔주식 탭 전환 버그 수정**: `show_blockchain_content()`가 탭 내용을 재빌드하지 않아
-    blockchain→stock→blockchain 전환 후 거래통계/시장트렌드에 주식 내용이 잔존하던 문제 해결
-    - `show_blockchain_content()` 내에 `_ensure_trading_stats_tab()` 및 `_ensure_trend_tab()` 호출 추가
-
-### ✅ 기능 개선
-- `ui/dashboard_modern.py`
-  - **주식 증권사 드롭다운**: `enabled_stock_brokers` 미설정 시 kiwoom만 폴백하던 것을
-    kiwoom/shinhan/miraeAsset 전체를 폴백으로 표시하도록 변경 (AI학습·서비스전환 소스 드롭다운 동일 적용)
-  - 버전 표기 `Beta 3.8.9.14` → `Beta 3.8.9.15` 갱신
-
-- `data/settings.json`
-  - `enabled_stock_brokers: []` → `["kiwoom","shinhan","miraeAsset"]` 기본값 설정
-
-- `ui/widgets/market_trend_widget.py`
-  - **시장트렌드 AI전략 섹션 '미제공' 제거**:
-    - 커스텀 지표 직접 추가 UI: `_custom_indicators` 목록 기반 실시간 표시
-    - 기관/고래 활동 연계 분석: long_short_ratio·OI 기반 고래 매수/매도/중립 판단 표시
-    - 전략 신뢰도 점수: 가용 지표 수(RSI/MACD/거래량/롱숏비 등) 기반 0~100 점수 및 바 표시
-
-- `ui/widgets/ai_assistant_widget.py`
-  - **자산통합(real_estate) 서비스 AI 프로필 추가**: 자산 진단·리밸런싱·리스크·노후준비 퀵질문 9개
-  - **생활금융(other_investment) 서비스 AI 프로필 추가**: 대출비교·보험점검·적금추천·현금흐름 퀵질문 9개
-  - **AI 애널리스트(ai_analyst) 서비스 AI 프로필 추가**: 시장진단·시나리오·멀티에셋 퀵질문 5개
-  - **커스텀 지표 자연어 명령 지원**:
-    - `지표 추가 [이름]` → MarketTrendWidget에 즉시 반영
-    - `지표 삭제 [이름]` / `지표 목록` 명령 지원
-
-- `ui/widgets/user_manual_widget.py`
-  - v3.8.9.15 릴리스 노트 및 업데이트 날짜 갱신
-
-### 📦 테스트/스크립트
-- 기존 테스트 모두 통과 (test_stock_nonkey_hardening, test_life_finance_assistant 등)
-
----
-
 ## 2026-04-22 - v3.8.9.14 거래통계-실거래 정합성 패치
 
 ### 🔧 핵심 수정
@@ -2837,14 +2853,6 @@ v3.9.1.32는 국면 재선정 대기를 실제 변경 알림과 분리하고, �
 
 ---
 
-## 2026-04-17 - 문서: AI 어시스턴트 가이드 전면 개편
-
-### 📖 문서
-- **`docs/AI_ASSISTANT_GUIDE.md`**: `ai_assistant_widget.py` 실제 동작과 정합(전제 조건·컨텍스트·설정 변경 키워드·JSON 자동 적용·채팅으로 불가능한 조작·트러블슈팅·STT/TTS 로드맵 및 관련 문서 링크).
-- **`docs/README.md`**: 문서 허브 바로가기에 AI 어시스턴트 가이드 추가.
-
----
-
 ## 2026-04-20 - 문서 정합 및 버전 표기 정상화
 
 ### 📖 문서/표기 정정
@@ -2852,6 +2860,14 @@ v3.9.1.32는 국면 재선정 대기를 실제 변경 알림과 분리하고, �
 - 2026-03-30, 2026-04-03 버전 표기를 **v3.8.9.12**, **v3.8.9.13** 기준으로 재정렬
 - 대시보드 창 제목과 사용자 메뉴얼 제목의 버전 정합 재확인
 - 고객 대응용 근거 자료는 별도 피드백 문서에 날짜 기준으로 정리
+
+---
+
+## 2026-04-17 - 문서: AI 어시스턴트 가이드 전면 개편
+
+### 📖 문서
+- **`docs/AI_ASSISTANT_GUIDE.md`**: `ai_assistant_widget.py` 실제 동작과 정합(전제 조건·컨텍스트·설정 변경 키워드·JSON 자동 적용·채팅으로 불가능한 조작·트러블슈팅·STT/TTS 로드맵 및 관련 문서 링크).
+- **`docs/README.md`**: 문서 허브 바로가기에 AI 어시스턴트 가이드 추가.
 
 ---
 
@@ -2929,170 +2945,6 @@ v3.9.1.32는 국면 재선정 대기를 실제 변경 알림과 분리하고, �
 - **조건부 주문 자동 라우팅 구현**: `place_futures_order()`에서 조건부 주문 타입 감지
 - **Algo Order API 직접 호출 구현**: `requests.post`를 사용하여 `/fapi/v1/algoOrder` 엔드포인트 직접 호출
 - **⚠️ 한계**: 서명 생성 규칙 미준수로 `-1022` 오류 발생 (v3.8.9.9에서 해결)
-
----
-
-## 2025-01-26 - v3.8.9.7 Binance API 규칙 준수 및 백업 TP/SL 설정 개선
-
-### 🔧 Binance API 규칙 준수 및 백업 TP/SL 설정 개선
-
-#### 🎯 배경
-- **Binance API -4120 에러 발생**: "Order type not supported for this endpoint. Please use the Algo Order API endpoints instead."
-  - **원인**: `closePosition=True`와 `quantity` 파라미터를 동시에 전송
-  - **Binance 공식 규칙**: `closePosition=True`일 때는 `quantity`를 전송하면 안 됨
-- **TP/SL 설정 실패 문제**: TP/SL이 설정되지 않아도 거래가 진행되어 즉시 청산
-- **백업 TP/SL 값 하드코딩**: 변동성 기반 multiplier가 코드에 고정되어 AI가 조정 불가
-- **⚠️ 하드코딩된 경로 문제 (중요)**: 
-  - **문제**: `api/binance_client.py`에서 `settings.json` 경로를 하드코딩하여 PyInstaller 패키지 환경에서 설정 파일을 찾지 못함
-  - **증상**: 패키지 환경에서 `backup_tp_sl_settings`를 읽지 못해 기본값(고정값)만 사용됨
-  - **영향**: 사용자들이 TP/SL이 제대로 설정되지 않는 문제 경험
-  - **원인**: `C:\Users\user\AppData\Local\Temp\_MEI29162\data\nwsoft\config\settings.json` 같은 임시 경로를 하드코딩
-  - **해결**: `path_utils.get_config_dir()`를 사용하여 올바른 경로 자동 감지
-- **⚠️ Binance 정책 변경 미반영**: 
-  - 2025-12-09 이후 Binance 정책 변경으로 조건부 주문이 Algo Service로 강제 분류됨
-  - 기존 패치(v3.8.9.6, v3.8.9.7)는 내부적으로 여전히 `/fapi/v1/order` 사용
-  - **v3.8.9.8에서 완전 해결**: 조건부 주문을 `/fapi/v1/algoOrder`로 자동 라우팅
-
-#### ✅ 주요 변경사항
-- **Binance API 공식 규칙 완벽 준수**:
-  - `closePosition=True`일 때 `quantity` 파라미터 완전 제거
-  - `closePosition=True`는 `STOP_MARKET`, `TAKE_PROFIT_MARKET`에서만 허용
-  - `reduceOnly`와 `closePosition` 동시 사용 금지
-- **백업 TP/SL 설정을 settings.json으로 이동**:
-  - `backup_tp_sl_settings` 섹션 추가
-  - 변동성 기반 multiplier (2.0x ~ 3.0x) 설정 가능
-  - 안전 범위 제한 (TP: 1.0% ~ 5.0%, SL: 0.8% ~ 3.0%) 설정 가능
-  - AI가 시장 상황에 따라 자동 조정 가능
-- **TP/SL 역할 명확화**:
-  - 실시간 모니터링: 동적 임계값 사용 (주력 청산)
-  - 백업 TP/SL: 동적 임계값 × 2~3배 (보험 역할)
-  - 실시간 모니터링이 먼저 청산되도록 보장
-
-#### 🔧 수정된 파일
-- `api/binance_client.py`:
-  - `place_futures_order()`: `closePosition=True`일 때 `quantity` 제거 (line 1941-1964)
-  - `closePosition=True`는 `STOP_MARKET`, `TAKE_PROFIT_MARKET`에서만 허용 (line 1930-1934)
-  - `reduceOnly`와 `closePosition` 충돌 방지 (line 1936-1939)
-  - **`_load_debug_settings()`: 하드코딩된 경로 제거, `path_utils.get_config_dir()` 사용 (PyInstaller 환경 대응)**
-- `trading/trader.py`:
-  - `execute_single_trade()`: 백업 TP/SL 계산 시 `settings.json` 읽기 (line 2421-2443)
-  - `_tp_sl_watchdog()`: 백업 TP/SL 계산 시 `settings.json` 읽기 (line 330-369)
-  - **PENDING 상태 처리 개선**: 주문 상태가 PENDING일 때도 성공으로 처리하고 체결 대기 (line 2322-2353)
-  - **포지션 관리 개선**: 주문 실패 처리되었지만 실제 포지션이 있으면 성공으로 처리 (line 2412-2431)
-- `data/settings.json`: `backup_tp_sl_settings` 섹션 추가
-- `config/settings_template.json`: `backup_tp_sl_settings` 섹션 추가
-- `config/settings.py`: `get_default_settings()`에 `backup_tp_sl_settings` 추가
-
-#### 💡 주요 효과
-- ✅ Binance API -4120 에러 완전 해결
-- ✅ TP/SL 설정 실패 문제 해결
-- ✅ 백업 TP/SL을 AI가 자동 조정 가능
-- ✅ 사용자가 settings.json에서 직접 조정 가능
-- ✅ 실시간 모니터링과 백업 TP/SL 역할 분리로 안정성 향상
-- ✅ **패키지 환경에서도 settings.json 올바르게 로드 (하드코딩된 경로 문제 해결)**
-- ✅ **PENDING 상태 주문 올바르게 처리 (주문 실패로 오인식 문제 해결)**
-- ✅ **포지션 관리 정확도 향상 (실제 포지션 확인 후 메모리 업데이트)**
-
----
-
-## 2025-01-26 - v3.8.9.6 TP/SL Algo Order API 대응 및 핫픽스
-
-### 🔧 Binance Algo Order API 대응
-
-#### 🎯 배경
-- 바이낸스가 TP/SL 주문에 대해 Algo Order API 사용을 요구하는 경우 발생
-- `-4120` 에러: "Order type not supported for this endpoint. Please use the Algo Order API endpoints instead."
-- 기존 코드에서 `client.futures_create_order()` 직접 호출 시 에러 발생
-
-#### ✅ 주요 변경사항
-- **BinanceClient.place_tp_sl_orders() 사용으로 통일**:
-  - `execute_single_trade()`: `place_tp_sl_orders()` 사용 (기존 `futures_create_order()` 직접 호출 제거)
-  - `_retry_tp_sl_setup()`: `place_tp_sl_orders()` 사용
-  - `_tp_sl_watchdog()`: `place_tp_sl_orders()` 사용
-  - `place_tp_sl_orders()`는 `closePosition=True`와 `workingType='MARK_PRICE'`를 올바르게 처리
-- **TP/SL 모듈화 준비 (Phase 6 Step 2)**:
-  - `TpSlManager` 클래스 생성 및 초기화
-  - `audit_tp_sl_state()` 메서드로 기존 코드와 결과 비교 로그 추가
-  - 기존 코드와 공존하여 롤백 가능성 보장
-
-#### 🔧 수정된 파일
-- `trading/trader.py`:
-  - `execute_single_trade()`: `place_tp_sl_orders()` 사용 (line 2409-2456)
-  - `_retry_tp_sl_setup()`: `place_tp_sl_orders()` 사용 (line 518-527)
-  - `_tp_sl_watchdog()`: `place_tp_sl_orders()` 사용 (line 341-358)
-  - `TpSlManager` 초기화 및 audit 로그 추가 (line 132, 2609-2618)
-- `trading/tp_sl_manager.py`:
-  - `TpSlManager` 클래스 생성
-  - `validate_tp_sl()` 메서드 구현
-  - `audit_tp_sl_state()` 메서드 구현 (비파괴적 상태 점검)
-
-#### 💡 주요 효과
-- ✅ Binance Algo Order API 대응: `-4120` 에러 해결
-- ✅ 코드 일관성: 모든 TP/SL 주문 생성이 `place_tp_sl_orders()`를 통해 처리
-- ✅ 모듈화 준비: `TpSlManager` 기반 모듈화 진행 가능
-- ✅ 롤백 가능: 기존 코드 유지로 문제 발생 시 즉시 롤백 가능
-
----
-
-## 2025-01-26 - v3.8.9.5 TP/SL 검증 로직 개선 및 원자성 보장 강화
-
-### 🔧 TP/SL 검증 로직 개선
-
-#### 🎯 배경
-- TP/SL 검증 로직에서 주문 타입 필터링이 불일치하여 검증 실패 가능
-- 고정 3초 대기로 API 지연 시 검증 실패
-- TP/SL 중 하나만 성공 시 원자성 보장 부족
-- 재설정 후 재검증이 없어 실패 여부를 알 수 없음
-- **TP/SL 검증 실패 시에도 거래가 진행되는 문제**: TP/SL이 설정되지 않아도 거래가 실행됨
-- **거래 통계 및 AI 학습 데이터 경로 문제**: 사용자 계정별 경로를 사용하지 않아 데이터 초기화 가능성
-
-#### ✅ 주요 변경사항
-- **주문 타입 필터링 통일**:
-  - 모든 검증 로직에서 `('TAKE_PROFIT', 'TAKE_PROFIT_MARKET')` 및 `('STOP', 'STOP_MARKET')` 모두 확인
-  - 검증 로직과 Watchdog 간 일관성 확보
-- **검증 대기 시간 개선**:
-  - 고정 3초 → 재시도 로직 (2초, 3초, 4초)으로 변경
-  - API 지연 시에도 검증 성공 가능성 향상
-- **원자성 보장 강화**:
-  - TP/SL 중 하나라도 실패 시 둘 다 롤백
-  - 재설정 시에도 원자성 보장 (주문 생성 실패 시 생성된 주문 자동 롤백)
-- **재설정 후 재검증 추가**:
-  - 재설정 성공 후 즉시 재검증 추가
-  - 재검증 실패 시 Watchdog에 의존
-- **Watchdog 재검증 개선**:
-  - 재설정 후 최대 2회 재검증 (1초, 1.5초 간격)
-  - 주문 상태 검증 추가 (개수뿐만 아니라 상태도 확인)
-- **TP/SL 검증 실패 시 거래 차단 (v3.8.9.5 핫픽스)**:
-  - TP/SL 검증 실패 시 포지션을 즉시 청산하도록 수정
-  - TP/SL 주문 생성 실패 시에도 포지션을 즉시 청산
-  - 거래 실패로 처리하여 통계에 반영
-- **거래 통계 및 AI 학습 데이터 경로 수정 (v3.8.9.5 핫픽스)**:
-  - `recorder.py`가 `get_db_file_path()`를 사용하도록 수정하여 사용자 계정별 경로 보장
-  - 로그 경로도 `get_log_dir()`를 사용하도록 수정
-
-#### 🔧 수정된 파일
-- `trading/trader.py`:
-  - `execute_single_trade()`: 검증 로직 개선 (2408-2450줄)
-  - `execute_single_trade()`: TP/SL 검증 실패 시 포지션 즉시 청산 로직 추가 (2643-2700줄)
-  - `execute_single_trade()`: TP/SL 주문 생성 실패 시 포지션 즉시 청산 로직 추가 (2711-2751줄)
-  - `_retry_tp_sl_setup()`: 원자성 보장 강화 (460-519줄)
-  - `_tp_sl_watchdog()`: 재검증 로직 개선 (253-411줄)
-- `trading/recorder.py`:
-  - `__init__()`: `get_db_file_path()`, `get_log_dir()` 사용하도록 수정하여 사용자 계정별 경로 보장
-- `trading/tp_sl_manager.py`:
-  - `TpSlManager` 도입으로 TP/SL 생성·검증·재설정·감시 로직을 단일 모듈에서 관리할 준비
-  - `audit_tp_sl_state()`: TP/SL 상태를 변경 없이 점검하는 비파괴 audit 헬퍼 추가
-- `docs/UPDATE_PLAN.md`:
-  - Phase 6 "TP/SL 및 거래 엔진 모듈화" 상세 설계 및 검증용 로그·사용자 체크리스트 추가
-
-#### 💡 주요 효과
-- ✅ 검증 안정성 향상: 재시도 로직으로 API 지연 대응
-- ✅ 원자성 보장: TP/SL 중 하나 실패 시 자동 롤백
-- ✅ 일관성 개선: 모든 검증 로직에서 동일한 필터링 사용
-- ✅ 모듈화 준비: TP/SL 관련 책임을 `TpSlManager`로 집중시켜 Trader/AlphaArena에서 재사용 가능
-- ✅ 디버깅 용이성: `[TP_SL_AUDIT]`, `[TP_SL_VERIFY]` 등 세분화된 로그로 문제 위치를 빠르게 추적 가능
-- ✅ **TP/SL 필수 보장**: TP/SL이 설정되지 않으면 거래가 실행되지 않음
-- ✅ **데이터 영구성 보장**: 사용자 계정별 경로를 사용하여 거래 통계 및 AI 학습 데이터가 올바르게 저장됨
 
 ---
 
@@ -3743,157 +3595,6 @@ def _restore_positions_from_exchange(self):
 - **실시간 로그 시스템**: 사용자 가시성을 위한 카테고리별 로그 분류
 - **AI 시스템 문서화**: 거래 진행부터 청산까지 전체 과정 상세 설명
 
-## 2025-01-15
-
-### 거래소별 시스템 분리 가이드라인 수립 🚨
-**문제**: 바이낸스와 CCXT 거래소 간의 시스템 혼재로 인한 "거래소 클라이언트 없음" 오류
-
-**원인 분석**:
-- `unified_trader.py`에서 바이낸스 처리 시도
-- `main.py`에서 거래소별로 올바른 라우팅 부족
-- 거래소별 시스템 간 명확한 분리 원칙 부재
-
-**해결 방법**:
-
-#### 1. 거래소별 시스템 완전 분리
-- **바이낸스**: `trader.py` + `api/binance_client.py` (python-binance) - 독립 시스템
-- **CCXT 거래소**: `unified_trader.py` + CCXT 어댑터 - 통합 시스템
-- **절대 금지**: 바이낸스에서 `unified_trader.py` 사용, CCXT 거래소에서 `trader.py` 사용
-
-#### 2. main.py 라우팅 개선
-- **바이낸스 시작**: `_start_binance_trading()` → `start_trading_loop()`
-- **CCXT 거래소 시작**: `_start_unified_trading(exchange)` → `unified_trader.start_trading(exchange)`
-- **바이낸스 정지**: `_stop_binance_trading()` → `stop_trading_loop()`
-- **CCXT 거래소 정지**: `_stop_unified_trading(exchange)` → `unified_trader.stop_trading(exchange)`
-
-#### 3. unified_trader.py에서 바이낸스 완전 제거
-- `get_exchange_client()`: 바이낸스 처리 완전 제거
-- 바이낸스 관련 설정값들 모두 제거
-- 바이낸스 관련 주문 실행 코드 제거
-- 바이낸스 관련 필터링 로직 제거
-
-#### 4. 가이드라인 문서 생성
-- **`docs/EXCHANGE_SEPARATION_GUIDELINES.md`**: 거래소별 시스템 분리 가이드라인
-- **`docs/ARCHITECTURE.md`**: 아키텍처 문서 업데이트
-- **`docs/TRADING_FLOW.md`**: 거래 실행 흐름 문서 업데이트
-- **`docs/MASTER_DOCUMENTATION.md`**: 마스터 문서 업데이트
-
-**수정된 파일**:
-- `main.py`: 거래소별 올바른 라우팅 구현
-- `trading/unified_trader.py`: 바이낸스 관련 코드 완전 제거
-- `docs/EXCHANGE_SEPARATION_GUIDELINES.md`: 새로운 가이드라인 문서
-- `docs/ARCHITECTURE.md`: 아키텍처 문서 업데이트
-- `docs/TRADING_FLOW.md`: 거래 실행 흐름 문서 업데이트
-- `docs/MASTER_DOCUMENTATION.md`: 마스터 문서 업데이트
-
-**결과**:
-- ✅ "거래소 클라이언트 없음" 오류 완전 해결
-- ✅ 바이낸스와 CCXT 거래소 간 명확한 분리
-- ✅ 향후 유사한 문제 발생 방지
-- ✅ 개발자 가이드라인 수립
-
-### 거래 통계 및 포지션 관리 시스템 완전 개선 🔧
-**문제**: 거래 통계와 포지션이 앱 재시작 시 초기화되는 문제
-
-**원인 분석**:
-- 거래 통계가 메모리에만 저장되어 앱 재시작 시 손실
-- 포지션 정보가 메모리에만 저장되어 실제 거래소와 불일치
-- 바이낸스와 CCXT 거래소의 서로 다른 아키텍처로 인한 복잡성
-
-**해결 방법**:
-
-#### 1. 거래 통계 영구 저장 시스템 구축
-- **`trading/recorder.py`**: `exchange_trade_stats` 테이블 추가
-- **`trading/trader.py`**: 바이낸스 거래 통계 DB 저장/로드 기능 추가
-- **`trading/unified_trader.py`**: CCXT 거래소 통계 DB 저장/로드 기능 추가
-
-#### 2. 포지션 복구 시스템 구축
-- **바이낸스**: `Trader._restore_positions_from_exchange()` 메서드 추가
-- **CCXT 거래소**: `UnifiedTrader._restore_positions_from_exchange()` 메서드 추가
-- 앱 시작 시 실제 거래소에서 포지션 조회하여 복구
-
-#### 3. 대시보드 통계 표시 최적화
-- **`ui/dashboard_modern.py`**: DB + 메모리 통합 통계 표시
-- **`ui/widgets/market_trend_widget.py`**: 포트폴리오 통계 DB 기반으로 개선
-
-**수정된 파일**:
-- `trading/recorder.py`: 거래 통계 저장/로드 기능 추가
-- `trading/trader.py`: 바이낸스 통계/포지션 영구 저장 및 복구
-- `trading/unified_trader.py`: CCXT 거래소 통계/포지션 영구 저장 및 복구
-- `ui/dashboard_modern.py`: 통합 통계 표시 로직
-- `ui/widgets/market_trend_widget.py`: DB 기반 통계 표시
-
-**결과**:
-- 앱 재시작 후에도 거래 통계 유지
-- 실제 거래소 포지션과 앱 내 포지션 동기화
-- 바이낸스와 CCXT 거래소 모두 정상 작동
-- 대시보드에서 정확한 통계 표시
-
----
-
-### 바이낸스 포지션 표시 문제 해결 🔧
-**문제**: 바이낸스 거래 후 포지션이 대시보드에 표시되지 않는 문제
-
-**원인 분석**:
-- 바이낸스는 `Trader` 클래스 사용 → 포지션은 `main_app.trader.active_positions`에 저장
-- CCXT 거래소는 `UnifiedTrader` 클래스 사용 → 포지션은 `unified_trader.active_positions`에 저장
-- 대시보드는 `UnifiedTrader`만 참조하여 바이낸스 포지션이 누락됨
-
-**해결 방법**:
-1. **대시보드 포지션 표시 로직 수정** (`ui/dashboard_modern.py`)
-   - 바이낸스: `main_app.trader.active_positions` 참조
-   - CCXT 거래소: `unified_trader.active_positions[exchange]` 참조
-
-2. **거래 현황 통계 통합** (`ui/dashboard_modern.py`)
-   - 바이낸스와 CCXT 거래소 포지션 수 합산
-   - 모든 거래소 손익 통합 계산
-
-3. **시장 트렌드 위젯 수정** (`ui/widgets/market_trend_widget.py`)
-   - 포트폴리오 통계에서 바이낸스 포지션 포함
-
-**수정된 파일**:
-- `ui/dashboard_modern.py`: 포지션 표시 및 통계 통합 로직
-- `ui/widgets/market_trend_widget.py`: 포트폴리오 통계 수정
-- `docs/MASTER_DOCUMENTATION.md`: 아키텍처 설명 업데이트
-- `docs/ARCHITECTURE.md`: 시스템 구조 문서 업데이트
-- `docs/DASHBOARD_POSITION_SYSTEM.md`: 개발자 가이드 신규 작성
-
-**결과**:
-- 바이낸스 거래 후 포지션이 대시보드에 정상 표시
-- 거래 현황 패널에 바이낸스 포지션 수 포함
-- CCXT 거래소들은 기존대로 정상 작동
-- 향후 동일 문제 방지를 위한 문서화 완료
-
----
-
-## 2025-01-15
-
-### 시스템 설계 원칙 재확인 🔍
-**목표**: 리스크 관리 원칙에 따른 올바른 시스템 설계 확인
-
-**중요한 발견**:
-
-1. **시스템이 올바르게 작동하고 있음**
-   - 거래 이력이 없을 때 손실률 70%는 "데이터 부족"을 의미하는 보수적 가정
-   - 이는 리스크 관리 원칙에 따른 올바른 설계
-
-2. **AI 학습 기반 점진적 조정**
-   - 거래 이력이 쌓이면서 더 정확한 판단
-   - AI가 학습하면서 점진적으로 임계값 조정
-   - 사용자가 직접 임계값을 조정하지 않음
-
-3. **올바른 접근 방법**
-   - 초기에는 보수적으로 접근
-   - 데이터가 쌓이면서 점진적으로 더 정확한 판단
-   - 리스크 관리 원칙 준수
-
-**기술적 세부사항**:
-- 거래 이력이 없을 때 보수적 기본값 사용 (손실률 70%)
-- AI가 학습하면서 점진적으로 더 정확한 임계값 적용
-- 사용자 개입 없이 시스템이 자체적으로 최적화
-
----
-
 ## 2025-10-14
 
 ### API 검증 기능 확장 🔐
@@ -4331,6 +4032,20 @@ def _restore_positions_from_exchange(self):
 
 ---
 
+## 2025-10-05
+
+- Binance 어댑터 보강: 네이티브 OrderRequest 경로로 주문/청산 위임, 24h 티커/취소 일부 구현. (trading/exchanges/adapters/binance_futures_adapter.py)
+- Binance 수량 정밀도 적용: `quantityPrecision` 기반 수량 포맷 적용으로 LOT_SIZE/정밀도 불일치 완화. (api/binance_client.py)
+- Binance 주문 정규화 강화: `stepSize`·`tickSize`·`minNotional`를 주문 직전에 보정(+0.5% 여유)하여 -1013(Filter failure) 발생을 추가로 감소. (api/binance_client.py)
+- UnifiedTrader 청산 경로 분기: CCXT/바이낸스 네이티브 경로를 안전히 분기해 시그니처 오류 제거. (trading/unified_trader.py)
+- UnifiedTradingManager 에러 전달 개선: 하위 에러 메시지를 상위로 원문 전달해 원인 파악 용이. (trading/unified_trading_manager.py)
+- 현물(KRW) 코인 선정 정렬 적용: KRW 페어 거래량(quoteVolume) 기준 내림차순 정렬 후 상위 N개 선정. (trading/evaluator.py)
+- 설정 템플릿 확장: `exchange_risk_overrides.max_leverage` 추가, `strategy_config`(임계값/가중치/기본점수) 추가. (config/settings_template.json)
+- 시그널 임계값 강화: `rsi_oversold` 28, `rsi_overbought` 72 등 보수화, 모멘텀 임계 상향. (config/settings_template.json)
+- HIGH 국면 보수화: `rsi_oversold_delta -4`, `rsi_overbought_delta +4`, `momentum_threshold_scale 1.25`, 히스테리시스 `high_enter_mult 1.65`, `high_exit_mult 1.28`. (config/settings_template.json)
+- 알트 기본 개수 축소: `num_alt_coins` 기본 10으로 조정(이전 15). (config/settings_template.json)
+- 설정 UI 개선: 테마 프리뷰 실시간 반영(텍스트/아이콘 대비 포함), AI 시스템 상태 카드 정리/실시간 배지. (ui/settings_modern.py)
+
 ## 2025-09-26
 
 ### 개선
@@ -4346,12 +4061,6 @@ def _restore_positions_from_exchange(self):
 ### 검증
 - 스모크 테스트: `noahai_client/test_unified_system.py`, `noahai_client/test_paper_flow.py` 실행 PASS
 - 변경 파일 정적 오류 검사 PASS
-
-## [Unreleased]
-- Docs/UI Planning
-  - archive/dashboard/DASHBOARD_REDESIGN_PLAN.md Draft v2: 글로벌+개별 Start/Stop 공존(Tri-State), 서비스 전환 destroy, Settings Exchanges/AI 탭 명시, LogStream 단일화 계획 반영
-  - 설정 키 입력 경로 및 AI 기본 탭 고정 전략 문서화
-  - 향후 feature branch(`feature/dashboard-v2`) 기반 단계적 적용 예정
 
 ## v3.8.2 (2025-09-24)
 - Runtime/API/WS
@@ -4399,6 +4108,16 @@ def _restore_positions_from_exchange(self):
   - ARCHITECTURE 최신화: CustomTkinter-only 명시, WebSocket 명칭 통일, 구독 유지 정책 문서화, ExchangeManager 역할 확장
   - main.py 타입 안정화: websocket_manager 가드, selected_coins dict 정규화, coin_symbol 기본값, 안전 로깅
 
+## v3.7.7 (2025-09-19)
+- Trading guardrails
+  - Leverage clamp by exchange overrides and global cap; default margin type enforced with Binance naming compatibility
+  - Min-notional auto-adjustment before order based on current price and per-symbol overrides
+- Order path/shape normalization
+  - Prefer UnifiedTradingManager for standard order result; fallback to CCXT adapter or python-binance client with side mapping
+  - Robust success detection across result shapes (status/id/orderId)
+- Tests
+  - Smoke-test hooks in `test_unified_system.py` to validate clamp/min-notional/success-detection without API keys
+
 ## v3.7.6 (2025-09-18)
 - Settings/Runtime
   - Runtime reinit on settings save, manager instance reuse (dashboard)
@@ -4418,32 +4137,327 @@ def _restore_positions_from_exchange(self):
 - Docs/Deploy
   - Architecture/Guides updated; Deploy checklist + FAQ
 
-## v3.7.7 (2025-09-19)
-- Trading guardrails
-  - Leverage clamp by exchange overrides and global cap; default margin type enforced with Binance naming compatibility
-  - Min-notional auto-adjustment before order based on current price and per-symbol overrides
-- Order path/shape normalization
-  - Prefer UnifiedTradingManager for standard order result; fallback to CCXT adapter or python-binance client with side mapping
-  - Robust success detection across result shapes (status/id/orderId)
-- Tests
-  - Smoke-test hooks in `test_unified_system.py` to validate clamp/min-notional/success-detection without API keys
-## 2025-10-05
+## 2025-01-26 - v3.8.9.7 Binance API 규칙 준수 및 백업 TP/SL 설정 개선
 
-- Binance 어댑터 보강: 네이티브 OrderRequest 경로로 주문/청산 위임, 24h 티커/취소 일부 구현. (trading/exchanges/adapters/binance_futures_adapter.py)
-- Binance 수량 정밀도 적용: `quantityPrecision` 기반 수량 포맷 적용으로 LOT_SIZE/정밀도 불일치 완화. (api/binance_client.py)
-- Binance 주문 정규화 강화: `stepSize`·`tickSize`·`minNotional`를 주문 직전에 보정(+0.5% 여유)하여 -1013(Filter failure) 발생을 추가로 감소. (api/binance_client.py)
-- UnifiedTrader 청산 경로 분기: CCXT/바이낸스 네이티브 경로를 안전히 분기해 시그니처 오류 제거. (trading/unified_trader.py)
-- UnifiedTradingManager 에러 전달 개선: 하위 에러 메시지를 상위로 원문 전달해 원인 파악 용이. (trading/unified_trading_manager.py)
-- 현물(KRW) 코인 선정 정렬 적용: KRW 페어 거래량(quoteVolume) 기준 내림차순 정렬 후 상위 N개 선정. (trading/evaluator.py)
-- 설정 템플릿 확장: `exchange_risk_overrides.max_leverage` 추가, `strategy_config`(임계값/가중치/기본점수) 추가. (config/settings_template.json)
-- 시그널 임계값 강화: `rsi_oversold` 28, `rsi_overbought` 72 등 보수화, 모멘텀 임계 상향. (config/settings_template.json)
-- HIGH 국면 보수화: `rsi_oversold_delta -4`, `rsi_overbought_delta +4`, `momentum_threshold_scale 1.25`, 히스테리시스 `high_enter_mult 1.65`, `high_exit_mult 1.28`. (config/settings_template.json)
-- 알트 기본 개수 축소: `num_alt_coins` 기본 10으로 조정(이전 15). (config/settings_template.json)
-- 설정 UI 개선: 테마 프리뷰 실시간 반영(텍스트/아이콘 대비 포함), AI 시스템 상태 카드 정리/실시간 배지. (ui/settings_modern.py)
-## 2026-08-24 - v3.9.1.9 PAPER 전진검증·근거형 AI 어시스턴트 패치
+### 🔧 Binance API 규칙 준수 및 백업 TP/SL 설정 개선
 
-- 자동검증 완료 전략을 PAPER 전용 실행 풀에 등록하는 상태머신을 추가해 검증 전에는 실행할 수 없고 실행해야 검증 결과가 생기는 순환 의존을 제거했습니다.
-- 기본·AI 커스텀 PAPER 가상 청산을 동일 append-only 원장에 기록하고, 전략 버전 자동 합산과 거래소별 최근 내역 표시를 분리했습니다.
-- AI 어시스턴트 서비스 분기와 포지션 정본을 수정해 일반 안내 반복 응답을 제거하고, 심층분석에 관리 포지션·TP/SL·전략 버전·최근 신호를 우선 근거로 전달합니다.
-- 키움 Web COM 프로세스 선택을 명시적 런타임 표식으로 고정하고 KIS ETF 비공식 404 경로 회귀를 차단했습니다.
-- 제품 버전 `3.9.1.9`, updater SemVer `3.9.109`. Windows 재빌드·업데이트·외부 증권 API·PAPER/Provider E2E 전에는 배포 완료가 아닙니다.
+#### 🎯 배경
+- **Binance API -4120 에러 발생**: "Order type not supported for this endpoint. Please use the Algo Order API endpoints instead."
+  - **원인**: `closePosition=True`와 `quantity` 파라미터를 동시에 전송
+  - **Binance 공식 규칙**: `closePosition=True`일 때는 `quantity`를 전송하면 안 됨
+- **TP/SL 설정 실패 문제**: TP/SL이 설정되지 않아도 거래가 진행되어 즉시 청산
+- **백업 TP/SL 값 하드코딩**: 변동성 기반 multiplier가 코드에 고정되어 AI가 조정 불가
+- **⚠️ 하드코딩된 경로 문제 (중요)**: 
+  - **문제**: `api/binance_client.py`에서 `settings.json` 경로를 하드코딩하여 PyInstaller 패키지 환경에서 설정 파일을 찾지 못함
+  - **증상**: 패키지 환경에서 `backup_tp_sl_settings`를 읽지 못해 기본값(고정값)만 사용됨
+  - **영향**: 사용자들이 TP/SL이 제대로 설정되지 않는 문제 경험
+  - **원인**: `C:\Users\user\AppData\Local\Temp\_MEI29162\data\nwsoft\config\settings.json` 같은 임시 경로를 하드코딩
+  - **해결**: `path_utils.get_config_dir()`를 사용하여 올바른 경로 자동 감지
+- **⚠️ Binance 정책 변경 미반영**: 
+  - 2025-12-09 이후 Binance 정책 변경으로 조건부 주문이 Algo Service로 강제 분류됨
+  - 기존 패치(v3.8.9.6, v3.8.9.7)는 내부적으로 여전히 `/fapi/v1/order` 사용
+  - **v3.8.9.8에서 완전 해결**: 조건부 주문을 `/fapi/v1/algoOrder`로 자동 라우팅
+
+#### ✅ 주요 변경사항
+- **Binance API 공식 규칙 완벽 준수**:
+  - `closePosition=True`일 때 `quantity` 파라미터 완전 제거
+  - `closePosition=True`는 `STOP_MARKET`, `TAKE_PROFIT_MARKET`에서만 허용
+  - `reduceOnly`와 `closePosition` 동시 사용 금지
+- **백업 TP/SL 설정을 settings.json으로 이동**:
+  - `backup_tp_sl_settings` 섹션 추가
+  - 변동성 기반 multiplier (2.0x ~ 3.0x) 설정 가능
+  - 안전 범위 제한 (TP: 1.0% ~ 5.0%, SL: 0.8% ~ 3.0%) 설정 가능
+  - AI가 시장 상황에 따라 자동 조정 가능
+- **TP/SL 역할 명확화**:
+  - 실시간 모니터링: 동적 임계값 사용 (주력 청산)
+  - 백업 TP/SL: 동적 임계값 × 2~3배 (보험 역할)
+  - 실시간 모니터링이 먼저 청산되도록 보장
+
+#### 🔧 수정된 파일
+- `api/binance_client.py`:
+  - `place_futures_order()`: `closePosition=True`일 때 `quantity` 제거 (line 1941-1964)
+  - `closePosition=True`는 `STOP_MARKET`, `TAKE_PROFIT_MARKET`에서만 허용 (line 1930-1934)
+  - `reduceOnly`와 `closePosition` 충돌 방지 (line 1936-1939)
+  - **`_load_debug_settings()`: 하드코딩된 경로 제거, `path_utils.get_config_dir()` 사용 (PyInstaller 환경 대응)**
+- `trading/trader.py`:
+  - `execute_single_trade()`: 백업 TP/SL 계산 시 `settings.json` 읽기 (line 2421-2443)
+  - `_tp_sl_watchdog()`: 백업 TP/SL 계산 시 `settings.json` 읽기 (line 330-369)
+  - **PENDING 상태 처리 개선**: 주문 상태가 PENDING일 때도 성공으로 처리하고 체결 대기 (line 2322-2353)
+  - **포지션 관리 개선**: 주문 실패 처리되었지만 실제 포지션이 있으면 성공으로 처리 (line 2412-2431)
+- `data/settings.json`: `backup_tp_sl_settings` 섹션 추가
+- `config/settings_template.json`: `backup_tp_sl_settings` 섹션 추가
+- `config/settings.py`: `get_default_settings()`에 `backup_tp_sl_settings` 추가
+
+#### 💡 주요 효과
+- ✅ Binance API -4120 에러 완전 해결
+- ✅ TP/SL 설정 실패 문제 해결
+- ✅ 백업 TP/SL을 AI가 자동 조정 가능
+- ✅ 사용자가 settings.json에서 직접 조정 가능
+- ✅ 실시간 모니터링과 백업 TP/SL 역할 분리로 안정성 향상
+- ✅ **패키지 환경에서도 settings.json 올바르게 로드 (하드코딩된 경로 문제 해결)**
+- ✅ **PENDING 상태 주문 올바르게 처리 (주문 실패로 오인식 문제 해결)**
+- ✅ **포지션 관리 정확도 향상 (실제 포지션 확인 후 메모리 업데이트)**
+
+---
+
+## 2025-01-26 - v3.8.9.6 TP/SL Algo Order API 대응 및 핫픽스
+
+### 🔧 Binance Algo Order API 대응
+
+#### 🎯 배경
+- 바이낸스가 TP/SL 주문에 대해 Algo Order API 사용을 요구하는 경우 발생
+- `-4120` 에러: "Order type not supported for this endpoint. Please use the Algo Order API endpoints instead."
+- 기존 코드에서 `client.futures_create_order()` 직접 호출 시 에러 발생
+
+#### ✅ 주요 변경사항
+- **BinanceClient.place_tp_sl_orders() 사용으로 통일**:
+  - `execute_single_trade()`: `place_tp_sl_orders()` 사용 (기존 `futures_create_order()` 직접 호출 제거)
+  - `_retry_tp_sl_setup()`: `place_tp_sl_orders()` 사용
+  - `_tp_sl_watchdog()`: `place_tp_sl_orders()` 사용
+  - `place_tp_sl_orders()`는 `closePosition=True`와 `workingType='MARK_PRICE'`를 올바르게 처리
+- **TP/SL 모듈화 준비 (Phase 6 Step 2)**:
+  - `TpSlManager` 클래스 생성 및 초기화
+  - `audit_tp_sl_state()` 메서드로 기존 코드와 결과 비교 로그 추가
+  - 기존 코드와 공존하여 롤백 가능성 보장
+
+#### 🔧 수정된 파일
+- `trading/trader.py`:
+  - `execute_single_trade()`: `place_tp_sl_orders()` 사용 (line 2409-2456)
+  - `_retry_tp_sl_setup()`: `place_tp_sl_orders()` 사용 (line 518-527)
+  - `_tp_sl_watchdog()`: `place_tp_sl_orders()` 사용 (line 341-358)
+  - `TpSlManager` 초기화 및 audit 로그 추가 (line 132, 2609-2618)
+- `trading/tp_sl_manager.py`:
+  - `TpSlManager` 클래스 생성
+  - `validate_tp_sl()` 메서드 구현
+  - `audit_tp_sl_state()` 메서드 구현 (비파괴적 상태 점검)
+
+#### 💡 주요 효과
+- ✅ Binance Algo Order API 대응: `-4120` 에러 해결
+- ✅ 코드 일관성: 모든 TP/SL 주문 생성이 `place_tp_sl_orders()`를 통해 처리
+- ✅ 모듈화 준비: `TpSlManager` 기반 모듈화 진행 가능
+- ✅ 롤백 가능: 기존 코드 유지로 문제 발생 시 즉시 롤백 가능
+
+---
+
+## 2025-01-26 - v3.8.9.5 TP/SL 검증 로직 개선 및 원자성 보장 강화
+
+### 🔧 TP/SL 검증 로직 개선
+
+#### 🎯 배경
+- TP/SL 검증 로직에서 주문 타입 필터링이 불일치하여 검증 실패 가능
+- 고정 3초 대기로 API 지연 시 검증 실패
+- TP/SL 중 하나만 성공 시 원자성 보장 부족
+- 재설정 후 재검증이 없어 실패 여부를 알 수 없음
+- **TP/SL 검증 실패 시에도 거래가 진행되는 문제**: TP/SL이 설정되지 않아도 거래가 실행됨
+- **거래 통계 및 AI 학습 데이터 경로 문제**: 사용자 계정별 경로를 사용하지 않아 데이터 초기화 가능성
+
+#### ✅ 주요 변경사항
+- **주문 타입 필터링 통일**:
+  - 모든 검증 로직에서 `('TAKE_PROFIT', 'TAKE_PROFIT_MARKET')` 및 `('STOP', 'STOP_MARKET')` 모두 확인
+  - 검증 로직과 Watchdog 간 일관성 확보
+- **검증 대기 시간 개선**:
+  - 고정 3초 → 재시도 로직 (2초, 3초, 4초)으로 변경
+  - API 지연 시에도 검증 성공 가능성 향상
+- **원자성 보장 강화**:
+  - TP/SL 중 하나라도 실패 시 둘 다 롤백
+  - 재설정 시에도 원자성 보장 (주문 생성 실패 시 생성된 주문 자동 롤백)
+- **재설정 후 재검증 추가**:
+  - 재설정 성공 후 즉시 재검증 추가
+  - 재검증 실패 시 Watchdog에 의존
+- **Watchdog 재검증 개선**:
+  - 재설정 후 최대 2회 재검증 (1초, 1.5초 간격)
+  - 주문 상태 검증 추가 (개수뿐만 아니라 상태도 확인)
+- **TP/SL 검증 실패 시 거래 차단 (v3.8.9.5 핫픽스)**:
+  - TP/SL 검증 실패 시 포지션을 즉시 청산하도록 수정
+  - TP/SL 주문 생성 실패 시에도 포지션을 즉시 청산
+  - 거래 실패로 처리하여 통계에 반영
+- **거래 통계 및 AI 학습 데이터 경로 수정 (v3.8.9.5 핫픽스)**:
+  - `recorder.py`가 `get_db_file_path()`를 사용하도록 수정하여 사용자 계정별 경로 보장
+  - 로그 경로도 `get_log_dir()`를 사용하도록 수정
+
+#### 🔧 수정된 파일
+- `trading/trader.py`:
+  - `execute_single_trade()`: 검증 로직 개선 (2408-2450줄)
+  - `execute_single_trade()`: TP/SL 검증 실패 시 포지션 즉시 청산 로직 추가 (2643-2700줄)
+  - `execute_single_trade()`: TP/SL 주문 생성 실패 시 포지션 즉시 청산 로직 추가 (2711-2751줄)
+  - `_retry_tp_sl_setup()`: 원자성 보장 강화 (460-519줄)
+  - `_tp_sl_watchdog()`: 재검증 로직 개선 (253-411줄)
+- `trading/recorder.py`:
+  - `__init__()`: `get_db_file_path()`, `get_log_dir()` 사용하도록 수정하여 사용자 계정별 경로 보장
+- `trading/tp_sl_manager.py`:
+  - `TpSlManager` 도입으로 TP/SL 생성·검증·재설정·감시 로직을 단일 모듈에서 관리할 준비
+  - `audit_tp_sl_state()`: TP/SL 상태를 변경 없이 점검하는 비파괴 audit 헬퍼 추가
+- `docs/UPDATE_PLAN.md`:
+  - Phase 6 "TP/SL 및 거래 엔진 모듈화" 상세 설계 및 검증용 로그·사용자 체크리스트 추가
+
+#### 💡 주요 효과
+- ✅ 검증 안정성 향상: 재시도 로직으로 API 지연 대응
+- ✅ 원자성 보장: TP/SL 중 하나 실패 시 자동 롤백
+- ✅ 일관성 개선: 모든 검증 로직에서 동일한 필터링 사용
+- ✅ 모듈화 준비: TP/SL 관련 책임을 `TpSlManager`로 집중시켜 Trader/AlphaArena에서 재사용 가능
+- ✅ 디버깅 용이성: `[TP_SL_AUDIT]`, `[TP_SL_VERIFY]` 등 세분화된 로그로 문제 위치를 빠르게 추적 가능
+- ✅ **TP/SL 필수 보장**: TP/SL이 설정되지 않으면 거래가 실행되지 않음
+- ✅ **데이터 영구성 보장**: 사용자 계정별 경로를 사용하여 거래 통계 및 AI 학습 데이터가 올바르게 저장됨
+
+---
+
+## 2025-01-15
+
+### 거래소별 시스템 분리 가이드라인 수립 🚨
+**문제**: 바이낸스와 CCXT 거래소 간의 시스템 혼재로 인한 "거래소 클라이언트 없음" 오류
+
+**원인 분석**:
+- `unified_trader.py`에서 바이낸스 처리 시도
+- `main.py`에서 거래소별로 올바른 라우팅 부족
+- 거래소별 시스템 간 명확한 분리 원칙 부재
+
+**해결 방법**:
+
+#### 1. 거래소별 시스템 완전 분리
+- **바이낸스**: `trader.py` + `api/binance_client.py` (python-binance) - 독립 시스템
+- **CCXT 거래소**: `unified_trader.py` + CCXT 어댑터 - 통합 시스템
+- **절대 금지**: 바이낸스에서 `unified_trader.py` 사용, CCXT 거래소에서 `trader.py` 사용
+
+#### 2. main.py 라우팅 개선
+- **바이낸스 시작**: `_start_binance_trading()` → `start_trading_loop()`
+- **CCXT 거래소 시작**: `_start_unified_trading(exchange)` → `unified_trader.start_trading(exchange)`
+- **바이낸스 정지**: `_stop_binance_trading()` → `stop_trading_loop()`
+- **CCXT 거래소 정지**: `_stop_unified_trading(exchange)` → `unified_trader.stop_trading(exchange)`
+
+#### 3. unified_trader.py에서 바이낸스 완전 제거
+- `get_exchange_client()`: 바이낸스 처리 완전 제거
+- 바이낸스 관련 설정값들 모두 제거
+- 바이낸스 관련 주문 실행 코드 제거
+- 바이낸스 관련 필터링 로직 제거
+
+#### 4. 가이드라인 문서 생성
+- **`docs/EXCHANGE_SEPARATION_GUIDELINES.md`**: 거래소별 시스템 분리 가이드라인
+- **`docs/ARCHITECTURE.md`**: 아키텍처 문서 업데이트
+- **`docs/TRADING_FLOW.md`**: 거래 실행 흐름 문서 업데이트
+- **`docs/MASTER_DOCUMENTATION.md`**: 마스터 문서 업데이트
+
+**수정된 파일**:
+- `main.py`: 거래소별 올바른 라우팅 구현
+- `trading/unified_trader.py`: 바이낸스 관련 코드 완전 제거
+- `docs/EXCHANGE_SEPARATION_GUIDELINES.md`: 새로운 가이드라인 문서
+- `docs/ARCHITECTURE.md`: 아키텍처 문서 업데이트
+- `docs/TRADING_FLOW.md`: 거래 실행 흐름 문서 업데이트
+- `docs/MASTER_DOCUMENTATION.md`: 마스터 문서 업데이트
+
+**결과**:
+- ✅ "거래소 클라이언트 없음" 오류 완전 해결
+- ✅ 바이낸스와 CCXT 거래소 간 명확한 분리
+- ✅ 향후 유사한 문제 발생 방지
+- ✅ 개발자 가이드라인 수립
+
+### 거래 통계 및 포지션 관리 시스템 완전 개선 🔧
+**문제**: 거래 통계와 포지션이 앱 재시작 시 초기화되는 문제
+
+**원인 분석**:
+- 거래 통계가 메모리에만 저장되어 앱 재시작 시 손실
+- 포지션 정보가 메모리에만 저장되어 실제 거래소와 불일치
+- 바이낸스와 CCXT 거래소의 서로 다른 아키텍처로 인한 복잡성
+
+**해결 방법**:
+
+#### 1. 거래 통계 영구 저장 시스템 구축
+- **`trading/recorder.py`**: `exchange_trade_stats` 테이블 추가
+- **`trading/trader.py`**: 바이낸스 거래 통계 DB 저장/로드 기능 추가
+- **`trading/unified_trader.py`**: CCXT 거래소 통계 DB 저장/로드 기능 추가
+
+#### 2. 포지션 복구 시스템 구축
+- **바이낸스**: `Trader._restore_positions_from_exchange()` 메서드 추가
+- **CCXT 거래소**: `UnifiedTrader._restore_positions_from_exchange()` 메서드 추가
+- 앱 시작 시 실제 거래소에서 포지션 조회하여 복구
+
+#### 3. 대시보드 통계 표시 최적화
+- **`ui/dashboard_modern.py`**: DB + 메모리 통합 통계 표시
+- **`ui/widgets/market_trend_widget.py`**: 포트폴리오 통계 DB 기반으로 개선
+
+**수정된 파일**:
+- `trading/recorder.py`: 거래 통계 저장/로드 기능 추가
+- `trading/trader.py`: 바이낸스 통계/포지션 영구 저장 및 복구
+- `trading/unified_trader.py`: CCXT 거래소 통계/포지션 영구 저장 및 복구
+- `ui/dashboard_modern.py`: 통합 통계 표시 로직
+- `ui/widgets/market_trend_widget.py`: DB 기반 통계 표시
+
+**결과**:
+- 앱 재시작 후에도 거래 통계 유지
+- 실제 거래소 포지션과 앱 내 포지션 동기화
+- 바이낸스와 CCXT 거래소 모두 정상 작동
+- 대시보드에서 정확한 통계 표시
+
+---
+
+### 바이낸스 포지션 표시 문제 해결 🔧
+**문제**: 바이낸스 거래 후 포지션이 대시보드에 표시되지 않는 문제
+
+**원인 분석**:
+- 바이낸스는 `Trader` 클래스 사용 → 포지션은 `main_app.trader.active_positions`에 저장
+- CCXT 거래소는 `UnifiedTrader` 클래스 사용 → 포지션은 `unified_trader.active_positions`에 저장
+- 대시보드는 `UnifiedTrader`만 참조하여 바이낸스 포지션이 누락됨
+
+**해결 방법**:
+1. **대시보드 포지션 표시 로직 수정** (`ui/dashboard_modern.py`)
+   - 바이낸스: `main_app.trader.active_positions` 참조
+   - CCXT 거래소: `unified_trader.active_positions[exchange]` 참조
+
+2. **거래 현황 통계 통합** (`ui/dashboard_modern.py`)
+   - 바이낸스와 CCXT 거래소 포지션 수 합산
+   - 모든 거래소 손익 통합 계산
+
+3. **시장 트렌드 위젯 수정** (`ui/widgets/market_trend_widget.py`)
+   - 포트폴리오 통계에서 바이낸스 포지션 포함
+
+**수정된 파일**:
+- `ui/dashboard_modern.py`: 포지션 표시 및 통계 통합 로직
+- `ui/widgets/market_trend_widget.py`: 포트폴리오 통계 수정
+- `docs/MASTER_DOCUMENTATION.md`: 아키텍처 설명 업데이트
+- `docs/ARCHITECTURE.md`: 시스템 구조 문서 업데이트
+- `docs/DASHBOARD_POSITION_SYSTEM.md`: 개발자 가이드 신규 작성
+
+**결과**:
+- 바이낸스 거래 후 포지션이 대시보드에 정상 표시
+- 거래 현황 패널에 바이낸스 포지션 수 포함
+- CCXT 거래소들은 기존대로 정상 작동
+- 향후 동일 문제 방지를 위한 문서화 완료
+
+---
+
+## 2025-01-15
+
+### 시스템 설계 원칙 재확인 🔍
+**목표**: 리스크 관리 원칙에 따른 올바른 시스템 설계 확인
+
+**중요한 발견**:
+
+1. **시스템이 올바르게 작동하고 있음**
+   - 거래 이력이 없을 때 손실률 70%는 "데이터 부족"을 의미하는 보수적 가정
+   - 이는 리스크 관리 원칙에 따른 올바른 설계
+
+2. **AI 학습 기반 점진적 조정**
+   - 거래 이력이 쌓이면서 더 정확한 판단
+   - AI가 학습하면서 점진적으로 임계값 조정
+   - 사용자가 직접 임계값을 조정하지 않음
+
+3. **올바른 접근 방법**
+   - 초기에는 보수적으로 접근
+   - 데이터가 쌓이면서 점진적으로 더 정확한 판단
+   - 리스크 관리 원칙 준수
+
+**기술적 세부사항**:
+- 거래 이력이 없을 때 보수적 기본값 사용 (손실률 70%)
+- AI가 학습하면서 점진적으로 더 정확한 임계값 적용
+- 사용자 개입 없이 시스템이 자체적으로 최적화
+
+---
+
+## 이전 버전 기록 (이하 후보·공개·검증 상태는 당시 기록)
+
+## 이전 버전 기록 (아래 현재·공개 표기는 당시 기록이며 현행 판단에 사용하지 않음)
+
+## [Unreleased]
+- Docs/UI Planning
+  - archive/dashboard/DASHBOARD_REDESIGN_PLAN.md Draft v2: 글로벌+개별 Start/Stop 공존(Tri-State), 서비스 전환 destroy, Settings Exchanges/AI 탭 명시, LogStream 단일화 계획 반영
+  - 설정 키 입력 경로 및 AI 기본 탭 고정 전략 문서화
+  - 향후 feature branch(`feature/dashboard-v2`) 기반 단계적 적용 예정

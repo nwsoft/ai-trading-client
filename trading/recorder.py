@@ -4303,6 +4303,7 @@ class Recorder:
         days: int = 30,
         *,
         symbol: Optional[str] = None,
+        strict: bool = False,
     ) -> List[Dict[str, Any]]:
         """최근 청산 거래를 조회한다.
 
@@ -4369,6 +4370,8 @@ class Recorder:
             return results
         except Exception as e:
             log_event('trade', f"최근 거래 이력 조회 오류: {e}", exchange=self.exchange, level='ERROR')
+            if strict:
+                raise
             return []
 
     def flush_to_db(self, timeout: int = 10) -> bool:

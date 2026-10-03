@@ -1796,9 +1796,8 @@ class Trader:
         try:
             root = self.settings.get('advanced_trading_layers', {}) if isinstance(self.settings, dict) else {}
             overrides = (root.get('exchange_overrides', {}) or {}).get('binance', {})
-            merged = dict(root or {})
-            merged.update(overrides or {})
-            return merged
+            from trading.advanced_layer_config import deep_merge_policy
+            return deep_merge_policy(root, overrides)
         except Exception:
             return {}
 
@@ -1854,7 +1853,9 @@ class Trader:
                 filtered = [dict(r) for r in rows if isinstance(r, dict)
                             and str(r.get('exchange') or 'binance').lower() == 'binance'
                             and str(r.get('execution_mode') or '').lower() not in {'paper', 'learning', 'mock', 'demo'}]
-                return filtered[:limit]
+                from trading.recorder import Recorder
+                ordered = sorted(filtered, key=lambda row: Recorder._ledger_time_epoch(row.get("exit_time")) or 0)
+                return ordered[-max(1, int(limit)):]
         except Exception:
             # A failed ledger read is not an empty history/cold start.
             return [{'performance_evidence_ready': False,

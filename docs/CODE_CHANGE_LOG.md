@@ -1,5 +1,12 @@
 # 🔄 코드 수정 이력 추적
 
+## 2026-10-03: v3.9.2.3 차기 소스 수정 (로컬 구현·미배포)
+
+- `trading/profitability_validation.py`, `trader.py`, `unified_trader.py`, `recorder.py`: 정책 병합·최근 표본·소표본 손실 보호·수익률 근거·조회 실패를 교정. `web_platform/application_services.py`, `runtime_bridge.py`, `gateway.py`와 `ProfitabilityDiagnostic.tsx`에 로컬 진단 경로 연결.
+- `finance_product_intelligence.py`, `finance_scenarios.py`, `insurance_design.py`, `finance_product_dialogue.py` 및 관련 근거/공급/규칙 모듈: 검토 상품 카탈로그·결정적 계산·보험 설계·후속 대화·갱신/복원. 기존 생활금융 소비 경로와 `ProductIntelligenceWorkspace.tsx`에 연결.
+- `finance_handoff.py`, `finance_connections.py`, `web_platform/finance_ai.py`, 상담/AI 화면: 선택 정보·동의·접수/철회·선택 AI 설명. 실제 수신처/공급사 인수는 미완료.
+- 기존 전체 회귀 기록 **4,939 passed / 9 skipped / 3 subtests**. 현재 제품 식별자는 3.9.2.3 / updater 3.9.203, 공개 기반은 3.9.2.2다. 신규 빌드·게시 결과는 별도 기록하며 고객 복구 완료를 뜻하지 않는다. [변경 로그](CHANGELOG.md) · [구현·검증 현황](V3923_IMPLEMENTATION_STATUS.md).
+
 ## 2026-09-20: v3.9.1.42 한국어 기본·영어 베타
 
 - UI 후속: 로그인 하단·일반 설정으로 언어 선택기 이동. 저장된 언어 우선, 미저장 시 Electron OS 첫 선호 언어/브라우저 언어 참고, 미지원은 한국어. 국가/IP 조회·거래 변경 없음. 로그인 450×680 한/영 배치와 입력 보존, 설정 즉시 전환·저장 확인.
@@ -351,6 +358,238 @@
 
 ---
 
+## 🔥 **2026-01-18: 주식/ETF 서비스 UI 구조 추가**
+
+### **📋 작업 개요:**
+주식/증권 서비스를 위한 기본 UI 구조를 추가했습니다. 블록체인 서비스와 동일한 방식으로 증권사별 탭을 생성하고 관리할 수 있도록 구현했습니다.
+
+### **✅ 완료된 작업들:**
+
+#### **1. 설정 구조 추가** ✅
+- **파일**: `config/settings_template.json`
+- **추가 내용**:
+  - `enabled_stock_brokers`: 활성화된 증권사 목록
+  - `stock_broker_configs`: 증권사별 설정 (키움증권 포함)
+- **구조**:
+```json
+"enabled_stock_brokers": [],
+"stock_broker_configs": {
+  "kiwoom": {
+    "enabled": false,
+    "api_type": "openapi",
+    "account_no": "",
+    "password": "",
+    "asset_types": ["stock", "etf"],
+    "cert_password": "",
+    "id": ""
+  }
+}
+```
+
+#### **2. 설정 UI 확장** ✅
+- **파일**: `ui/settings_modern.py`
+- **추가 내용**:
+  - "거래소 API" 탭에 키움증권 입력 필드 추가 (ID, 비밀번호, 공인인증서, 계좌번호)
+  - "거래소 선택" 탭에 "📈 주식/증권사 선택" 섹션 추가
+  - 키움증권 체크박스 추가 (`stock_broker_vars`)
+- **로드/저장 로직**:
+  - `load_current_settings()`: `enabled_stock_brokers`와 `stock_broker_configs` 로드
+  - `save_settings()`: 체크박스 상태를 `enabled_stock_brokers`에 저장
+
+#### **3. 대시보드 서비스 전환 로직 구현** ✅
+- **파일**: `ui/dashboard_modern.py`
+- **구현 내용**:
+  - `show_stock_content()`: 블록체인과 동일한 패턴으로 기본 탭 선택
+  - `create_service_sub_tabs('stock')`: 증권사별 탭 생성 로직 추가
+  - 증권사별 섹션 메서드들 구현:
+    - `create_broker_control_section()`: 제어 섹션
+    - `create_broker_balance_section()`: 잔고 섹션
+    - `create_broker_positions_section()`: 포지션 섹션
+    - `create_broker_stats_section()`: 거래 통계 섹션
+    - `create_broker_logs_section()`: 로그 섹션
+
+#### **4. 탭 정리 로직 개선** ✅
+- **문제**: 블록체인과 주식 탭이 모두 `🏦` 패턴을 사용하여 잘못 제거될 수 있음
+- **해결**: `service_sub_tabs` 딕셔너리를 확인하여 현재 서비스의 탭은 보호
+- **위치**: `_destroy_previous_service_tabs()` 메서드 (라인 3496-3521)
+- **개선**: `service_sub_tabs['blockchain']`과 `service_sub_tabs['stock']`을 명확히 구분
+
+### **🔍 검증 완료 사항:**
+- ✅ `service_sub_tabs`에 `'stock': {}` 초기화 확인
+- ✅ `show_stock_content()`가 블록체인과 동일한 패턴 사용
+- ✅ `create_service_sub_tabs('stock')`이 블록체인과 동일한 레이아웃 구조 사용
+- ✅ 탭 정리 로직이 `service_sub_tabs` 기반으로 올바르게 작동
+- ✅ 블록체인 코드와 완전히 분리 (독립 메서드 `create_broker_*` 사용)
+- ✅ 설정 저장/로드가 정상 작동
+
+### **📝 수정된 파일들:**
+1. **`config/settings_template.json`**: 주식/증권 설정 구조 추가
+2. **`ui/settings_modern.py`**: 
+   - 키움증권 입력 필드 추가
+   - 증권사 선택 체크박스 추가
+   - 로드/저장 로직 추가
+3. **`ui/dashboard_modern.py`**: 
+   - `show_stock_content()` 구현
+   - `create_service_sub_tabs('stock')` 케이스 추가
+   - `create_broker_*` 섹션 메서드들 구현
+   - `_destroy_previous_service_tabs()` 로직 개선
+
+### **💡 향후 작업:**
+- 키움증권 API 어댑터 구현 (실제 거래 실행)
+- `create_broker_*` 메서드에 실제 데이터 로드 로직 추가
+- 주식/ETF 필터링 및 표시 로직 구현
+
+### **⚠️ 주의사항:**
+- 현재는 UI 구조만 완성되었으며, 실제 증권사 API 연동은 향후 구현 예정
+- `enabled_stock_brokers`에 증권사를 추가해야 대시보드에 탭이 표시됨
+- 블록체인 기능에는 영향을 주지 않으며, 독립적으로 작동
+
+### **🐛 알려진 문제점:**
+1. **BINANCE 탭이 주식/증권 서비스에서 나타나는 문제** ✅ 해결됨
+   - 증상: 설정에서 키움증권을 체크하고 저장한 후 주식/증권 버튼을 클릭하면 "🏦 BINANCE" 탭이 나타남
+   - 원인: `switch_service()`에서 `service_sub_tabs` 딕셔너리를 초기화하지 않아 이전 서비스 탭 참조가 남아있음
+   - 해결: `_destroy_all_service_tabs_except_protected()` 호출 후 `service_sub_tabs` 딕셔너리 초기화 추가
+   - 위치: `ui/dashboard_modern.py` 라인 3269-3272
+   - 검증: ✅ 주식/증권 서비스 전환 시 "🏦 KIWOOM" 탭이 정상 표시됨
+
+2. **기본 탭 이름 및 기능이 블록체인용으로만 구현됨**
+   - 증상: 주식/증권 서비스 전환 시에도 "🪙 코인 정보", "📈 거래 통계", "📈 시장 트렌드"가 그대로 표시됨 (블록체인 데이터만 표시)
+   - 원인: 기본 탭들이 한 번 생성되고 이후 유지됨, 서비스별로 다른 위젯으로 교체하는 로직 없음
+   - 해결 방안: 다음 단계에서 주식/종목 정보 위젯, 주식 거래 통계 위젯, 주식 시장 트렌드 위젯 개발 후 `show_stock_content()`에서 교체 로직 구현 필요
+
+### **📝 다음 단계 계획:**
+- **단계 1**: 알려진 문제 해결 (BINANCE 탭 표시 문제, 설정 저장 확인)
+- **단계 2**: 기본 탭 교체 로직 구현 (주식용 위젯 개발)
+- **단계 3**: 키움증권 API 어댑터 개발
+- **단계 4**: `create_broker_*` 메서드 실제 구현
+
+**상세 계획**: `docs/STOCK_ETF_CURRENT_STATUS_20260118.md` 참고
+
+---
+
+## 🔥 **2026-01-18: 거래 실행 실패 문제 해결 및 로깅 개선**
+
+### **✅ 해결된 문제들:**
+
+#### **1. TP/SL Algo Order 필드명 오류 해결** ✅
+- **원인**: Binance Algo Order API는 `type` 대신 `orderType` 필드를 사용하는데, 코드에서 `type` 필드를 참조함
+- **증상**: 기존 TP/SL 주문이 감지되지 않아 `-4130` (기존 주문 존재) 오류 발생
+- **해결**: 
+  - `api/binance_client.py`의 `place_tp_sl_orders()` 메서드에서 `algo_order.get('type')` → `algo_order.get('orderType')`로 변경
+  - `trading/trader.py`의 모든 Algo Order 필터링 로직에서 동일한 수정 적용
+- **위치**: 
+  - `api/binance_client.py` 라인 2409, 2436
+  - `trading/trader.py` 라인 285, 485, 2744, 2795, 2927, 5137, 5152
+- **검증**: `get_open_algo_orders()`가 Algo Order를 반환하지만 필터링에서 누락되던 문제 해결
+
+#### **2. 슬리피지 버퍼로 인한 min_notional 미달 문제 해결** ✅
+- **원인**: `execute_single_trade()`에서 슬리피지 버퍼(-0.5%)를 적용한 후 `final_amount < min_notional` 검증을 `_compute_quantity_once()` 호출 **전**에 수행
+- **증상**: `final_amount=19.94 < min_notional=20`로 거래 실패 (DOTUSDT, MANAUSDT 등)
+- **해결**: 
+  - `_compute_quantity_once()`를 먼저 호출하여 `min_notional`을 보장하는 수량 계산
+  - `_compute_quantity_once()`가 `ref_price`(슬리피지 버퍼 적용된 가격)를 받아서 수량을 계산하고, `min_notional`에 2% 버퍼를 추가로 적용하여 보장
+  - 수량 계산 후 최종 검증 단계에서 재확인
+- **위치**: `trading/trader.py`의 `execute_single_trade()` 메서드 (라인 2295-2322)
+- **개선**: 
+  - 슬리피지 버퍼 적용 후에도 `min_notional` 보장
+  - `_compute_quantity_once()`가 `ceil` 사용하여 수량 증가 보장
+  - 최종 검증 단계에서 재확인
+
+#### **3. 최대 포지션 수 초과 로그 개선** ✅
+- **원인**: 최대 포지션 수 초과는 정상 동작(거래 제한)인데 WARNING 레벨로 로깅되어 사용자 혼란 발생
+- **해결**: 
+  - 로그 레벨: WARNING → INFO
+  - 로그 내용: "❌ 거래 차단 사유" → "✅ 최대 포지션 수 도달로 거래 제한 - 정상 동작"으로 변경
+- **위치**: `trading/trader.py`의 `should_execute_trade()` 메서드 (라인 2032-2034)
+- **개선**: 사용자가 정상 동작임을 명확히 인식 가능
+
+#### **4. 멈춤 시 포지션 정리 로직 개선** ✅
+- **원인**: `stop_trading_gracefully()`에서 실시간 모니터링을 중지하지 않아 모니터링이 계속 실행됨
+- **해결**: 
+  - 모든 실시간 모니터링 플래그를 설정하여 중지 신호 전송
+  - 모든 모니터링 스레드 종료 대기 (타임아웃 5초)
+  - 포지션 정리 로직에 상세 로깅 추가
+- **위치**: `trading/trader.py`의 `stop_trading_gracefully()` 메서드 (라인 5090-5138)
+- **개선**: 
+  - 멈춤 시 실시간 모니터링이 정상적으로 종료됨
+  - 포지션별 TP/SL 확인 및 정리 여부를 명확히 로깅
+  - TP/SL이 있는 포지션은 정리하지 않고 TP/SL에 맡김
+
+#### **5. TP/SL 정상 설정 로그 개선** ✅
+- **원인**: TP/SL이 있어서 포지션을 정리하지 않는 것이 정상 동작인데 WARNING 레벨로 로깅되어 사용자 혼란 발생
+- **해결**: 
+  - 로그 레벨: WARNING → INFO
+  - 로그 내용: "⚠️ TP/SL 있음 - 포지션 정리 건너뜀 (TP/SL에 맡김)" → "✅ TP/SL 정상 설정됨 - 포지션은 TP/SL 체결까지 유지 (정상 동작)"으로 변경
+- **위치**: `trading/trader.py`의 `_close_all_positions_and_orders_blocking()` 메서드 (라인 5165)
+- **개선**: 사용자가 정상 동작임을 명확히 인식 가능, XAI 정책에 부합하는 명확한 로그 메시지
+
+#### **6. 코인 재선택 로직 개선** ✅
+- **원인 1**: 코인이 비어있을 때 재선택을 하지 않고 `return`만 하여 코인 선택이 누락됨
+- **원인 2**: 시장 상황이 유지되고 1시간 < 경과 < 3시간일 때 시간을 무조건 업데이트하여 다음 사이클에서 1시간을 다시 기다려야 함
+- **증상**: 
+  - 코인이 비어있을 때 재선택 안 됨
+  - 시장 상황 유지 시 재선택 타이밍이 지연됨 (3시간까지 기다려야 함)
+- **해결**: 
+  - 코인이 비어있을 때: `main_app.select_trading_coins()` 즉시 호출 (1072-1080 라인)
+  - 시간 업데이트 로직을 조건부로 변경: 재선택 실행/연기한 경우에만 시간 업데이트 (1104-1145 라인)
+    - 시장 상황 변경 + 재선택 실행/연기 → 시간 업데이트
+    - 시장 상황 유지 + 3시간 경과 + 재선택 실행/연기 → 시간 업데이트
+    - 시장 상황 유지 + 1시간 < 경과 < 3시간 → 시간 업데이트 안 함 (다음 사이클에서 계속 1시간 체크)
+- **위치**: `trading/trader.py`의 `_check_and_reselect_coins_optimized()` 메서드 (라인 1064-1145)
+- **개선**: 
+  - 코인이 비어있을 때 즉시 선택되어 거래 사이클이 정상 작동
+  - 시장 상황 유지 시에도 적절한 타이밍에 재선택 수행 가능
+  - 시간 업데이트 로직이 명확하고 일관성 있게 작동
+
+### **🔍 검증 완료 사항:**
+- ✅ Algo Order 필드명 수정으로 기존 TP/SL 주문 감지 정상 작동
+- ✅ 슬리피지 버퍼 적용 후에도 `min_notional` 보장되도록 수량 계산 순서 변경
+- ✅ 최대 포지션 수 초과 로그가 정상 동작임을 명확히 표시 (INFO 레벨)
+- ✅ 멈춤 시 실시간 모니터링 중지 및 포지션 정리 로직 정상 작동
+- ✅ TP/SL 정상 설정 로그가 정상 동작임을 명확히 표시 (INFO 레벨)
+- ✅ 코인 재선택 로직 개선으로 코인 선택 누락 및 타이밍 문제 해결
+
+### **📝 수정된 파일들:**
+1. **`api/binance_client.py`**: Algo Order 필드명 수정 (`type` → `orderType`)
+2. **`trading/trader.py`**: 
+   - Algo Order 필터링 로직 수정 (모든 위치)
+   - `execute_single_trade()`에서 수량 계산 순서 변경
+   - 최대 포지션 수 초과 로그 개선 (WARNING → INFO)
+   - `stop_trading_gracefully()`에 모니터링 중지 로직 추가
+   - `_close_all_positions_and_orders_blocking()`에 상세 로깅 추가 및 TP/SL 로그 개선 (WARNING → INFO)
+   - `_check_and_reselect_coins_optimized()`에서 코인 비어있을 때 즉시 선택 및 시간 업데이트 로직 개선
+
+### **💡 기술적 설명: 슬리피지로 인한 min_notional 미달 문제 해결 방법**
+
+**문제 상황:**
+- 시장가 주문 시 가격 변동성을 대비하여 슬리피지 버퍼(-0.5% SELL, +0.5% BUY)를 적용
+- 슬리피지 버퍼 적용 후 `ref_price`가 낮아지면 `final_amount = quantity * ref_price`가 `min_notional`보다 작아질 수 있음
+- 예: `qty=9.3, ref_price=2.144225 (-0.5%) → final_amount=19.94 < min_notional=20`
+
+**해결 방법:**
+1. **`_compute_quantity_once()` 먼저 호출**: 슬리피지 버퍼가 적용된 `ref_price`를 전달
+2. **`_compute_quantity_once()` 내부 처리**:
+   - `min_notional`에 2% 버퍼 추가 적용: `target_notional = min_notional * 1.02`
+   - `actual_notional < target_notional`이면 수량 증가: `required_qty = target_notional / ref_price`
+   - `math.ceil()` 사용하여 수량을 올림하여 `min_notional` 보장
+3. **최종 검증**: `_compute_quantity_once()` 결과로 `final_amount` 재계산 및 재확인
+
+**결과:**
+- 슬리피지 버퍼 적용 후에도 `min_notional` 보장
+- 수량이 자동으로 조정되어 거래 실행 가능
+- 시장가 주문 시 가격 변동성에도 안전하게 대응
+
+---
+
+**다음 수정 시 참고사항**:
+1. 상태 머신 기반 설계 우선 적용
+2. 포지션 안전성 최우선 고려
+3. 기존 코드와의 호환성 보장
+4. 단계적 마이그레이션 진행
+5. **반드시 `docs/archive/history/START_STOP_ANALYSIS.md` 가이드라인 준수**
+6. **재진입 방지 로직 필수 적용**
+7. **STOP_PENDING 상태에서 신규 주문 차단 필수**
+8. **DB flush 보장 로직 필수 적용**
 
 ## 2025-10-31: 차트 이미지 분석 위젯 복구 — UTF-8 인코딩 손상 수정
 
@@ -806,6 +1045,7 @@ python main.py
 - 통합 프로젝트 전체 보고서: `docs/archive/history/WIDGET_CONSOLIDATION_REPORT.md`
 - 위젯 변형 비교: `docs/WIDGET_VARIANTS_REFERENCE.md`
 - 사용자 매뉴얼: 앱 내 모달창 → "📅 업데이트" 탭 → v3.8.9
+
 ## 2025-10-27: 버튼 디자인 - 높이, 모서리, 색상 수정
 
 ### 문제
@@ -1186,288 +1426,6 @@ except Exception:
 
 ---
 
-## �🚨 **2025-01-26: TP/SL이 자동 정리되던 문제 해결**
-
-### **📊 문제 상황**
-- **증상**: TP/SL 주문이 설정된 후 몇 초 내에 자동으로 취소됨
-- **결과**: 워치독이 재설정하려 하지만 거래 사이클마다 계속 취소됨
-- **로그 증거**: `trading_binance.log`에서 "🔍 전체 오픈오더 정리 시작" 후 "총 6개 오픈오더 정리 완료" 메시지 확인
-
-### **🔍 근본 원인**
-- **함수**: `trading/trader.py::_cleanup_all_open_orders()` (line 552-639)
-- **문제**: 거래 사이클 시작 시마다 **모든** 오픈오더를 정리 (TP/SL 포함)
-- **호출 위치**: `execute_trading_cycle()` → `_cleanup_all_open_orders()` (line 1111)
-- **결과**: TP/SL이 설정되어도 다음 사이클에서 즉시 취소됨
-
-### **✅ 해결 방안**
-- **수정 내용**: TP/SL 타입 주문은 정리 대상에서 제외
-- **필터링 로직**: `type`이 `TAKE_PROFIT`, `TAKE_PROFIT_MARKET`, `STOP`, `STOP_MARKET`인 주문은 보존
-- **정리 대상**: TP/SL 외의 오픈오더만 취소
-
-### **🔧 수정된 코드 (trading/trader.py)**
-```python
-# BEFORE (❌ 문제 코드)
-# 모든 오픈오더를 전체 취소
-if self.binance_client.cancel_all_orders(symbol):
-    success = True
-
-# AFTER (✅ 수정된 코드)
-# TP/SL 제외하고 정리할 주문 필터링
-tp_sl_types = ('TAKE_PROFIT', 'TAKE_PROFIT_MARKET', 'STOP', 'STOP_MARKET')
-other_orders = [o for o in orders if o.get('type') not in tp_sl_types]
-
-if not other_orders:
-    self.log_event('trade', f"[{symbol}] TP/SL만 존재 - 정리 건너뜀")
-    continue
-
-# TP/SL이 아닌 주문만 개별 취소
-for order in other_orders:
-    cancel_result = self.binance_client.client.futures_cancel_order(...)
-```
-
-### **📝 주요 변경 사항**
-- **line 567-580**: TP/SL 타입 필터링 로직 추가
-- **line 582-599**: TP/SL이 아닌 주문만 개별 취소
-- **효과**: TP/SL 주문은 유지되고, 다른 오픈오더만 정리됨
-
-### **🎯 예상 효과**
-- ✅ TP/SL 주문이 거래 사이클 사이에도 유지됨
-- ✅ 워치독이 재설정을 시도할 필요가 없어짐
-- ✅ 포지션 보호 기능 정상 작동
-
-### **📋 검증 방법**
-1. 포지션 진입 후 TP/SL 설정 확인
-2. 다음 거래 사이클에서도 TP/SL 유지 확인
-3. 로그에서 "TP/SL만 존재 - 정리 건너뜀" 메시지 확인
-
----
-
-## 🎯 **2025-01-26: 불필요한 코인 분석 방지 로직 순서 수정**
-
-### **📊 문제 상황**
-- **증상**: 이미 보유 중인 코인(ZECUSDT, ROSEUSDT, NEARUSDT 등)에 대해 계속 분석을 수행
-- **결과**: 불필요한 API 호출 및 분석 오버헤드 발생
-- **로그 증거**: "최대 포지션 수 초과 (3/3)" 메시지가 보유 중인 코인 분석 후 나타남
-
-### **🔍 근본 원인**
-- **기존 순서**: 포지션 수 체크 → 필터링 → 분석
-  - 포지션이 3개면 즉시 `return`하여 필터링 로직까지 도달하지 않음
-  - 이미 보유 중인 코인이 `selected_coins`에 포함되어 있을 경우, 필터링 전에 분석이 진행됨
-  
-### **✅ 해결 방안**
-- **수정된 순서**: 필터링 → 포지션 수 체크 → 분석
-  - 먼저 보유 중인 심볼을 `open_symbols`에서 제외
-  - 필터링된 `filtered` 리스트에서만 분석 진행
-  - 포지션 수 체크는 필터링 후에 수행하여 불필요한 분석 방지
-
-### **🔧 수정된 코드 (trading/trader.py)**
-```python
-# BEFORE (❌ 문제 코드)
-# 1. 포지션 수 체크 (조기 종료)
-if len(active_positions) >= self.settings['max_positions']:
-    return  # 필터링 이전에 종료
-
-# 2. 필터링 (도달하지 못함)
-filtered = [c for c in selected_coins if coin_symbol(c) not in open_symbols]
-
-# AFTER (✅ 수정된 코드)
-# 1. 필터링 먼저 실행
-open_symbols = {p.symbol for p in active_positions}
-filtered = [c for c in selected_coins if coin_symbol(c) not in open_symbols]
-if not filtered:
-    return  # 필터링 후 신규 대상 없음
-
-# 2. 필터링 후 포지션 수 체크
-if len(active_positions) >= max_positions:
-    return  # 필터링 후에도 포지션 수 초과
-```
-
-### **📝 주요 변경 사항**
-- **line 1133-1140**: 포지션 수 체크 로직 제거 및 재배치
-- **line 1141**: 필터링 로직을 조기 실행하도록 순서 변경
-- **line 1161-1163**: 필터링 후 포지션 수 체크 추가
-- **효과**: 보유 중인 코인은 분석 대상에서 제외, 신규 코인만 분석
-
-### **🎯 예상 효과**
-- ✅ 불필요한 API 호출 감소 (보유 중인 코인 제외)
-- ✅ 분석 오버헤드 감소
-- ✅ 리소스 사용 최적화
-- ✅ 로그 메시지: "다중포지션 모드 - 보유 심볼 제외 후 신규 대상 없음" 표시
-
-### **📋 검증 방법**
-1. 포지션 3개 보유 상태에서 거래 사이클 실행
-2. 로그에서 "보유 심볼 제외 후 신규 대상 없음" 메시지 확인
-3. 보유 중인 코인에 대한 분석 로그가 나타나지 않음을 확인
-
----
-
-## 🚨 **2025-01-25: TP/SL 워치독 기반 재설정 로직 유지**
-
-### **📊 원래 설계 확인**
-- **TP/SL 역할**: 보험 기능 (실패해도 거래 진행)
-- **워치독 존재**: `_tp_sl_watchdog()` 함수로 실시간 모니터링 중 TP/SL 재설정
-- **설계 원칙**: TP/SL은 보조 장치, 모니터링이 주 역할
-
-### **🔍 워치독 동작 방식**
-1. **실시간 모니터링**: 모니터링 루프에서 주기적 TP/SL 존재 여부 확인
-2. **자동 복구**: TP/SL 없거나 비정상 시 즉시 재설정 시도
-3. **디바운스**: 5초 이내 재설정 방지 (과도한 API 호출 방지)
-4. **재검증**: 재설정 후 즉시 검증하여 성공 여부 확인
-
-### **🔍 TP/SL 최초 설정 실패 원인 분석**
-
-#### **가능한 원인들**
-1. **API 오류**: 바이낸스 API 호출 실패 (네트워크, 권한, 파라미터 오류)
-2. **가격 스냅 오류**: tickSize 기반 스냅 실패 시 잘못된 가격으로 주문 생성
-3. **트리거 가격 문제**: stopPrice가 현재 가격과 너무 가까워 즉시 발동 위험
-4. **포지션 모드 불일치**: 원웨이/헤지 모드 설정 불일치
-5. **재시도 부족**: 일시적 오류 시 재시도 로직 없음
-
-#### **디버깅 강화**
-- **예외 상세 로그**: `traceback.format_exc()` 추가로 전체 스택 트레이스 출력
-- **주문 상태 확인**: `status`, `orderId` 등 상세 정보 로깅
-- **가격 검증**: TP/SL 가격이 진입가 기준 유효 범위 내인지 확인
-
-#### **문제 발생 시나리오**
-```
-1. 포지션 진입 성공 ✅
-2. TP/SL 가격 계산 ✅
-3. TP/SL 주문 API 호출 ❌ (예외 발생)
-   └─ tp_sl_result = [None, None]
-4. if tp_sl_result and tp_sl_result[0] and tp_sl_result[1]: ❌ False
-   └─ else 블록으로 이동
-5. 수동 모니터링으로 전환 ✅
-   └─ 워치독이 재설정 시도
-```
-
-### **✅ 올바른 로직**
-```python
-# TP/SL 실패 시 → 포지션 유지 → 모니터링 시작 → 워치독이 재설정
-if tp_sl_failed:
-    # 포지션 생성 및 모니터링 시작
-    self.active_positions[symbol] = position
-    self._start_monitoring(symbol, position, manual=True)
-    return True  # ✅ 거래 성공으로 처리 (워치독이 처리)
-```
-
-### **📝 주의사항**
-- **TP/SL은 보험**: 실패해도 거래는 진행
-- **워치독이 책임**: 모니터링 중 재설정
-- **마크다운 문서**: `docs/TP_SL_GUIDELINES.md`에 가이드라인 명시
-- **디버깅 로그**: 예외 발생 시 상세 스택 트레이스 확인 필요
-
----
-
-## 🚀 **2025-01-XX: 시작/멈춤 기능 상태 머신 설계 및 구현 완료**
-
-### **📊 전체 개요**
-- **목표**: 트레이딩 워커 즉시 중지 요청 시 앱 다운 문제 해결
-- **핵심 문제**: 즉시 종료로 인한 포지션 미청산과 다중 진입점으로 인한 상태 불일치
-- **해결 방안**: 상태 머신 기반 안전한 시작/정지 시스템 구축
-
-### **🔧 구현된 주요 기능**
-
-#### **1. 경량 상태 관리자 (TradingStateManager)**
-- **파일**: `main.py`
-- **기능**: IDLE, STARTING, RUNNING, STOPPING 상태 관리
-- **특징**: 거래소별 분기 처리, UI 상태 동기화
-
-#### **2. 시작/중지 진입점 일원화**
-- **파일**: `main.py`
-- **수정 메서드**: `on_start_exchange()`, `on_stop_exchange()`, `on_toggle_trading()`
-- **특징**: 상태 매니저 우선 체크, 기존 로직 폴백
-
-#### **3. 우아한 정지 로직**
-- **파일**: `trading/trader.py`
-- **새 메서드**: `stop_trading_gracefully()`
-- **순서**: 신규 진입 차단 → 포지션/오더 정리 → DB flush → WebSocket 종료
-
-#### **4. WebSocket 안전 종료**
-- **파일**: `api/binance_client.py`
-- **새 메서드**: `unsubscribe_all_safely()`
-- **기능**: 모든 구독 해제, WebSocket 매니저 정지, 구독 심볼 목록 정리
-
-#### **5. TP/SL 워치독 reduceOnly 금지**
-- **파일**: `trading/trader.py`
-- **수정 메서드**: `_tp_sl_order_params()`, `_tp_sl_watchdog()`, `execute_single_trade()`, `_retry_tp_sl_setup()`
-- **특징**: closePosition=True 사용 시 reduceOnly 완전 제거, 방어 코드 추가
-
-#### **6. 수량 계산 단일화**
-- **파일**: `trading/trader.py`
-- **새 메서드**: `_compute_quantity_once()`
-- **기능**: 중복 계산 방지, 단일 권위 수량 계산
-
-#### **7. UI 일관성 보장**
-- **파일**: `ui/widgets/trading_control_widget.py`, `ui/dashboard_modern.py`
-- **수정 메서드**: `toggle_trading()`, `_start_exchange_trading()`, `_stop_exchange_trading()`
-- **특징**: 상태 머신 기반 제어, 기존 로직 폴백
-
-#### **8. DB flush 보장**
-- **파일**: `trading/recorder.py`
-- **새 메서드**: `flush_to_db()`
-- **기능**: 타임아웃 처리, 강제 동기화, WAL 모드 사용
-
-### **🎯 핵심 개선사항**
-
-#### **상태 관리**
-- ✅ 단일 상태 소스 (TradingStateManager)
-- ✅ 상태 기반 제어 로직
-- ✅ UI-실제 상태 동기화
-
-#### **안전한 종료**
-- ✅ 포지션 청산 보장
-- ✅ DB 저장 완료 보장
-- ✅ WebSocket 안전 종료
-
-#### **TP/SL 안정성**
-- ✅ reduceOnly/closePosition 충돌 해결
-- ✅ -1106 에러 원천 차단
-- ✅ 워치독 안정성 강화
-
-#### **코드 품질**
-- ✅ 중복 계산 제거
-- ✅ 일관된 UI 제어
-- ✅ 기존 코드 호환성 보장
-
-### **📋 테스트 체크리스트**
-
-#### **기본 기능**
-- [ ] 상태 머신 정상 동작 (IDLE → STARTING → RUNNING → STOPPING → IDLE)
-- [ ] UI 컴포넌트 상태 동기화
-- [ ] 거래소별 분기 처리
-
-#### **안전한 종료**
-- [ ] 포지션 청산 완료 확인
-- [ ] DB 저장 완료 확인
-- [ ] WebSocket 안전 종료 확인
-
-#### **TP/SL 안정성**
-- [ ] reduceOnly 에러 없음
-- [ ] 워치독 정상 동작
-- [ ] 주문 생성/검증 정상
-
-#### **호환성**
-- [ ] 기존 UI 동작 유지
-- [ ] 기존 설정값 호환
-- [ ] 폴백 로직 정상 동작
-
-### **🚨 주의사항**
-
-1. **상태 머신 우선**: 모든 시작/정지 요청은 상태 머신을 통해 처리
-2. **폴백 로직**: 상태 머신이 없을 때 기존 로직으로 폴백
-3. **안전한 종료**: 포지션 청산 → DB flush → WebSocket 종료 순서 준수
-4. **TP/SL 규칙**: closePosition=True 사용 시 reduceOnly 절대 사용 금지
-
-### **📈 예상 효과**
-
-- **안정성 향상**: 앱 다운 문제 해결
-- **포지션 안전**: 미청산 포지션 방지
-- **TP/SL 안정**: -1106 에러 해결
-- **코드 품질**: 중복 제거, 일관성 향상
-- **사용자 경험**: 안정적인 거래 환경 제공
-
----
-
 ## 2025-10-24 TP/SL 주문 오류 수정 (완전 해결)
 
 ### 🚨 **심각한 문제 발견**
@@ -1667,530 +1625,118 @@ if final_amount < min_notional:
 
 ---
 
-## 📅 **2025-01-XX: 시작/멈춤 기능 상태 머신 설계 및 개선 방향**
+## �🚨 **2025-01-26: TP/SL이 자동 정리되던 문제 해결**
 
-### 🎯 **수정 목적**
-트레이딩 워커 즉시 중지 요청 시 앱 다운 문제 해결 및 포지션 안전성 보장을 위한 상태 머신 기반 설계 도입
+### **📊 문제 상황**
+- **증상**: TP/SL 주문이 설정된 후 몇 초 내에 자동으로 취소됨
+- **결과**: 워치독이 재설정하려 하지만 거래 사이클마다 계속 취소됨
+- **로그 증거**: `trading_binance.log`에서 "🔍 전체 오픈오더 정리 시작" 후 "총 6개 오픈오더 정리 완료" 메시지 확인
 
-### 🔍 **문제점 분석**
-1. **즉시 종료**: `self.stop_event.set()` → 포지션 청산 없이 즉시 종료
-2. **다중 진입점**: 7개 파일에 분산된 14개 메서드
-3. **상태 불일치**: UI 상태와 실제 상태가 독립적으로 관리
-4. **포지션 안전성**: 미청산 포지션으로 손실 발생 가능
+### **🔍 근본 원인**
+- **함수**: `trading/trader.py::_cleanup_all_open_orders()` (line 552-639)
+- **문제**: 거래 사이클 시작 시마다 **모든** 오픈오더를 정리 (TP/SL 포함)
+- **호출 위치**: `execute_trading_cycle()` → `_cleanup_all_open_orders()` (line 1111)
+- **결과**: TP/SL이 설정되어도 다음 사이클에서 즉시 취소됨
 
-### 🏗️ **상태 머신 설계**
+### **✅ 해결 방안**
+- **수정 내용**: TP/SL 타입 주문은 정리 대상에서 제외
+- **필터링 로직**: `type`이 `TAKE_PROFIT`, `TAKE_PROFIT_MARKET`, `STOP`, `STOP_MARKET`인 주문은 보존
+- **정리 대상**: TP/SL 외의 오픈오더만 취소
+
+### **🔧 수정된 코드 (trading/trader.py)**
 ```python
-class TradingState(Enum):
-    IDLE = "IDLE"           # 거래 안 함
-    STARTING = "STARTING"   # 거래 시작 중
-    RUNNING = "RUNNING"     # 거래 & 모니터링 정상
-    STOP_PENDING = "STOP_PENDING"  # 포지션 청산 대기 중
-    STOPPED = "STOPPED"     # 완전 종료
+# BEFORE (❌ 문제 코드)
+# 모든 오픈오더를 전체 취소
+if self.binance_client.cancel_all_orders(symbol):
+    success = True
+
+# AFTER (✅ 수정된 코드)
+# TP/SL 제외하고 정리할 주문 필터링
+tp_sl_types = ('TAKE_PROFIT', 'TAKE_PROFIT_MARKET', 'STOP', 'STOP_MARKET')
+other_orders = [o for o in orders if o.get('type') not in tp_sl_types]
+
+if not other_orders:
+    self.log_event('trade', f"[{symbol}] TP/SL만 존재 - 정리 건너뜀")
+    continue
+
+# TP/SL이 아닌 주문만 개별 취소
+for order in other_orders:
+    cancel_result = self.binance_client.client.futures_cancel_order(...)
 ```
 
-### 🔧 **핵심 개선사항**
+### **📝 주요 변경 사항**
+- **line 567-580**: TP/SL 타입 필터링 로직 추가
+- **line 582-599**: TP/SL이 아닌 주문만 개별 취소
+- **효과**: TP/SL 주문은 유지되고, 다른 오픈오더만 정리됨
 
-#### **1. 상태 관리자 강화**
-- `transition_id` 도입으로 재진입 방지
-- `last_error`, `stop_deadline` 추가로 오류 추적 및 타임아웃 관리
-- `request_start()` / `request_stop()` 메서드 반환값을 `tuple[bool, int]`로 수정
+### **🎯 예상 효과**
+- ✅ TP/SL 주문이 거래 사이클 사이에도 유지됨
+- ✅ 워치독이 재설정을 시도할 필요가 없어짐
+- ✅ 포지션 보호 기능 정상 작동
 
-#### **2. 주문 실행 가드 함수**
-- `should_place_order()` 메서드 추가
-- STOP_PENDING 상태에서 신규 주문 차단
-- 기존 `trading_worker.running` 체크와 병행
-
-#### **3. 워치독/모니터 루프 상태 인식**
-- STOP_PENDING 상태에서 읽기 전용 모드 구현
-- 기존 포지션 유지 로직만 허용
-- 신규 거래 로직 차단
-
-#### **4. DB flush 보장**
-- `flush_to_db()` 메서드 추가
-- 타임아웃 처리 및 강제 동기화 로직 구현
-- 안전한 종료 프로세스에서 DB 저장 보장
-
-#### **5. WebSocket 안전 종료**
-- `unsubscribe_all_safely()` 메서드 추가
-- 포지션 청산 완료 후 WebSocket 종료
-- 기존 즉시 종료 코드 단계적 제거
-
-### 📋 **구현 단계별 계획**
-
-#### **🚨 1단계: 상태 관리자 강화 (즉시)**
-- [ ] `TradingStateManager`에 `transition_id`, `last_error`, `stop_deadline` 추가
-- [ ] `request_start()` / `request_stop()` 메서드 반환값을 `tuple[bool, int]`로 수정
-- [ ] 재진입 방지 로직 구현
-
-#### **⚠️ 2단계: 주문 실행 가드 (단기)**
-- [ ] `trading/trader.py`에 `should_place_order()` 메서드 추가
-- [ ] `execute_single_trade()` 메서드에 가드 함수 적용
-- [ ] 모든 주문 실행 경로에 상태 체크 추가
-
-#### **📋 3단계: 워치독 상태 인식 (중기)**
-- [ ] `start_realtime_monitoring()` 메서드에 상태 기반 분기 로직 추가
-- [ ] STOP_PENDING 상태에서 읽기 전용 모드 구현
-- [ ] 기존 `trading_worker.running` 체크와 병행
-
-#### **🔧 4단계: DB flush 보장 (중기)**
-- [ ] `trading/recorder.py`에 `flush_to_db()` 메서드 추가
-- [ ] 타임아웃 처리 및 강제 동기화 로직 구현
-- [ ] `stop_trading_gracefully()`에 DB flush 보장 로직 추가
-
-#### **🚀 5단계: WebSocket 안전 종료 (장기)**
-- [ ] `api/binance_client.py`에 `unsubscribe_all_safely()` 메서드 추가
-- [ ] 포지션 청산 완료 후 WebSocket 종료 로직 구현
-- [ ] 기존 즉시 종료 코드 단계적 제거
-
-### 🎯 **기존 코드와의 호환성**
-
-#### **✅ 호환성 보장 방안**
-1. **점진적 마이그레이션**: 기존 `trading_worker.running` 체크와 상태 머신 병행
-2. **백워드 호환성**: 기존 메서드들을 래퍼로 유지
-3. **단계적 제거**: 상태 머신 도입 → UI 수정 → 기존 메서드 제거
-
-### 📚 **업데이트된 문서**
-- **`docs/archive/history/START_STOP_ANALYSIS.md`**: 상태 머신 설계 및 실제 코드 검증 결과 추가
-- **`docs/CODE_CHANGE_LOG.md`**: 시작/멈춤 기능 개선 이력 기록
+### **📋 검증 방법**
+1. 포지션 진입 후 TP/SL 설정 확인
+2. 다음 거래 사이클에서도 TP/SL 유지 확인
+3. 로그에서 "TP/SL만 존재 - 정리 건너뜀" 메시지 확인
 
 ---
 
-## 🔥 **2025-01-XX: 정지 신호 및 정밀도 오류 해결 완료**
+## 🎯 **2025-01-26: 불필요한 코인 분석 방지 로직 순서 수정**
 
-### **✅ 해결된 문제들:**
+### **📊 문제 상황**
+- **증상**: 이미 보유 중인 코인(ZECUSDT, ROSEUSDT, NEARUSDT 등)에 대해 계속 분석을 수행
+- **결과**: 불필요한 API 호출 및 분석 오버헤드 발생
+- **로그 증거**: "최대 포지션 수 초과 (3/3)" 메시지가 보유 중인 코인 분석 후 나타남
 
-#### **1. 정지 신호 후 신규 주문 계속 실행 문제** ✅
-- **원인**: `execute_single_trade()`에서 주문 실행 직전 중지 신호 확인 누락
-- **해결**: 4단계 중지 신호 확인 추가 (기존 3단계 + 1단계 추가)
-- **위치**: `trading/trader.py`의 `place_futures_order()` 직전
-- **검증**: 실제 코드에서 올바른 위치에 구현됨 확인
+### **🔍 근본 원인**
+- **기존 순서**: 포지션 수 체크 → 필터링 → 분석
+  - 포지션이 3개면 즉시 `return`하여 필터링 로직까지 도달하지 않음
+  - 이미 보유 중인 코인이 `selected_coins`에 포함되어 있을 경우, 필터링 전에 분석이 진행됨
+  
+### **✅ 해결 방안**
+- **수정된 순서**: 필터링 → 포지션 수 체크 → 분석
+  - 먼저 보유 중인 심볼을 `open_symbols`에서 제외
+  - 필터링된 `filtered` 리스트에서만 분석 진행
+  - 포지션 수 체크는 필터링 후에 수행하여 불필요한 분석 방지
 
-#### **2. 바이낸스 APIError(code=-1111) 정밀도 오류** ✅
-- **원인**: `_compute_quantity_once()`에서 정밀도 규칙 불완전, `ENABLE_FINAL_QUANTITY_FIX = False`
-- **해결**: 
-  - `api/binance_client.py`에서 `ENABLE_FINAL_QUANTITY_FIX = True` 활성화
-  - `trading/trader.py`의 `_compute_quantity_once()`에서 정밀도 규칙 강화
-- **검증**: `step_size`, `min_qty`, `quantity_precision` 모두 준수하도록 수정됨
-
-#### **3. 상태 매니저 일관성 문제** ✅
-- **원인**: `STOP_PENDING` 상태 없음, `stop_requested` 플래그 없음
-- **해결**: `main.py`에 `STOP_PENDING` 상태와 `stop_requested` 플래그 추가
-- **검증**: UI 상태와 실제 워커 상태 간 불일치 해결됨
-
-### **🔍 검증 완료 사항:**
-- ✅ 모든 수정된 함수가 실제 코드에 존재함
-- ✅ 모든 호출 경로가 올바른 위치에서 구현됨
-- ✅ 기존 코드와 호환성 유지
-- ✅ 중복 코드 없이 핵심 문제만 해결
-
-### **📝 수정된 파일들:**
-1. **`trading/trader.py`**: 4단계 중지 신호 확인, 정밀도 규칙 강화, 분석 사이 딜레이 수정
-2. **`api/binance_client.py`**: 최종 정밀도 보정 활성화
-3. **`main.py`**: 상태 매니저 일관성 개선
-4. **`docs/archive/history/START_STOP_ANALYSIS.md`**: 검증 결과 및 수정 내용 업데이트
-
-### **🔧 추가 수정사항:**
-
-#### **4. 분석 사이 딜레이 문제 해결** ✅
-- **원인**: `execute_trading_cycle()`에서 딜레이가 첫 번째 코인 처리 전에만 적용됨
-- **해결**: `enumerate()`를 사용하여 각 코인 분석 사이에 딜레이 적용 (첫 번째 코인 제외)
-- **위치**: `trading/trader.py`의 `execute_trading_cycle()` 함수
-- **개선**: 딜레이 적용 시 진행 상황 로그 추가 (`{i}/{len(selected_coins)}`)
-
-#### **5. 터미널 실시간 로그 출력 문제 해결** ✅
-- **원인**: `log_event()` 함수가 UI용 스트림과 파일 저장만 하고 터미널 출력 없음
-- **해결**: `log_system/log_adapter.py`에 `print(formatted_message)` 추가
-- **위치**: `log_event()` 함수 내부
-- **개선**: 개발 환경에서 터미널로도 실시간 거래 로그 확인 가능
-
-#### **6. 수량 계산 일관성 문제 해결** ✅
-- **원인**: 
-  - `_compute_quantity_once()`에서 `math.floor()` 사용으로 수량 감소
-  - `api/binance_client.py`에서 `math.floor()` 사용으로 추가 감소
-  - `min_notional` 검증이 step_size 보정 이후에 되어 순서 문제 발생
-  - 시장가 주문 시 가격 변동에 대한 버퍼 없음
-  - **최종 산출 값 ≠ 실제 전송 값** 불일치로 인한 -4164 에러
-- **해결**: 
-  - **이중 안전장치**: `trader.py`와 `binance_client.py` 모두 수정
-  - `trader.py`: `min_notional` 검증을 먼저 수행하고, 2% 버퍼 적용
-  - `trader.py`: `math.floor()` → `math.ceil()`로 변경하여 수량 증가 보장
-  - `binance_client.py`: `math.floor()` → `math.ceil()`로 변경하여 추가 감소 방지
-  - 최종 검증에서 `min_notional` 재확인 및 재보정
-- **위치**: 
-  - `trading/trader.py`의 `_compute_quantity_once()` 함수 (라인 3938-3974)
-  - `api/binance_client.py`의 `place_futures_order()` 함수 (라인 1922-1947)
-- **개선**: 
-  - 계산 순서 변경: `min_notional` 검증 → step_size 보정 → 최종 재확인
-  - 시장가 주문 변동성 대응을 위한 2% 버퍼 적용
-  - **이중 보정 문제 해결**: 트레이더와 클라이언트 모두 `ceil` 사용으로 일관성 확보
-  - `step_size`, `quantity_precision`, `min_qty`, `min_notional` 모두 준수하도록 강화
-
-#### **7. 정지 게이트 완화 및 대시보드 안전 호출** ✅
-- **원인**: 
-  - `on_stop_exchange()`에서 상태 게이트가 너무 엄격해서 워커 실행 중에도 정지 거부
-  - `dashboard.set_trading_status()`를 `hasattr` 체크 없이 직접 호출
-- **해결**: 
-  - 워커 실행 중이면 상태와 무관하게 정지 허용하는 로직 추가
-  - 모든 `dashboard.set_trading_status()` 호출에 `hasattr` 체크 추가
-- **위치**: `main.py`의 `on_stop_exchange()` 메서드, `on_start_exchange()` 메서드
-- **개선**: Tkinter 에러 방지 및 상태 불일치 문제 해결
-
----
-
-## 🔥 **2026-01-18: 주식/ETF 서비스 UI 구조 추가**
-
-### **📋 작업 개요:**
-주식/증권 서비스를 위한 기본 UI 구조를 추가했습니다. 블록체인 서비스와 동일한 방식으로 증권사별 탭을 생성하고 관리할 수 있도록 구현했습니다.
-
-### **✅ 완료된 작업들:**
-
-#### **1. 설정 구조 추가** ✅
-- **파일**: `config/settings_template.json`
-- **추가 내용**:
-  - `enabled_stock_brokers`: 활성화된 증권사 목록
-  - `stock_broker_configs`: 증권사별 설정 (키움증권 포함)
-- **구조**:
-```json
-"enabled_stock_brokers": [],
-"stock_broker_configs": {
-  "kiwoom": {
-    "enabled": false,
-    "api_type": "openapi",
-    "account_no": "",
-    "password": "",
-    "asset_types": ["stock", "etf"],
-    "cert_password": "",
-    "id": ""
-  }
-}
-```
-
-#### **2. 설정 UI 확장** ✅
-- **파일**: `ui/settings_modern.py`
-- **추가 내용**:
-  - "거래소 API" 탭에 키움증권 입력 필드 추가 (ID, 비밀번호, 공인인증서, 계좌번호)
-  - "거래소 선택" 탭에 "📈 주식/증권사 선택" 섹션 추가
-  - 키움증권 체크박스 추가 (`stock_broker_vars`)
-- **로드/저장 로직**:
-  - `load_current_settings()`: `enabled_stock_brokers`와 `stock_broker_configs` 로드
-  - `save_settings()`: 체크박스 상태를 `enabled_stock_brokers`에 저장
-
-#### **3. 대시보드 서비스 전환 로직 구현** ✅
-- **파일**: `ui/dashboard_modern.py`
-- **구현 내용**:
-  - `show_stock_content()`: 블록체인과 동일한 패턴으로 기본 탭 선택
-  - `create_service_sub_tabs('stock')`: 증권사별 탭 생성 로직 추가
-  - 증권사별 섹션 메서드들 구현:
-    - `create_broker_control_section()`: 제어 섹션
-    - `create_broker_balance_section()`: 잔고 섹션
-    - `create_broker_positions_section()`: 포지션 섹션
-    - `create_broker_stats_section()`: 거래 통계 섹션
-    - `create_broker_logs_section()`: 로그 섹션
-
-#### **4. 탭 정리 로직 개선** ✅
-- **문제**: 블록체인과 주식 탭이 모두 `🏦` 패턴을 사용하여 잘못 제거될 수 있음
-- **해결**: `service_sub_tabs` 딕셔너리를 확인하여 현재 서비스의 탭은 보호
-- **위치**: `_destroy_previous_service_tabs()` 메서드 (라인 3496-3521)
-- **개선**: `service_sub_tabs['blockchain']`과 `service_sub_tabs['stock']`을 명확히 구분
-
-### **🔍 검증 완료 사항:**
-- ✅ `service_sub_tabs`에 `'stock': {}` 초기화 확인
-- ✅ `show_stock_content()`가 블록체인과 동일한 패턴 사용
-- ✅ `create_service_sub_tabs('stock')`이 블록체인과 동일한 레이아웃 구조 사용
-- ✅ 탭 정리 로직이 `service_sub_tabs` 기반으로 올바르게 작동
-- ✅ 블록체인 코드와 완전히 분리 (독립 메서드 `create_broker_*` 사용)
-- ✅ 설정 저장/로드가 정상 작동
-
-### **📝 수정된 파일들:**
-1. **`config/settings_template.json`**: 주식/증권 설정 구조 추가
-2. **`ui/settings_modern.py`**: 
-   - 키움증권 입력 필드 추가
-   - 증권사 선택 체크박스 추가
-   - 로드/저장 로직 추가
-3. **`ui/dashboard_modern.py`**: 
-   - `show_stock_content()` 구현
-   - `create_service_sub_tabs('stock')` 케이스 추가
-   - `create_broker_*` 섹션 메서드들 구현
-   - `_destroy_previous_service_tabs()` 로직 개선
-
-### **💡 향후 작업:**
-- 키움증권 API 어댑터 구현 (실제 거래 실행)
-- `create_broker_*` 메서드에 실제 데이터 로드 로직 추가
-- 주식/ETF 필터링 및 표시 로직 구현
-
-### **⚠️ 주의사항:**
-- 현재는 UI 구조만 완성되었으며, 실제 증권사 API 연동은 향후 구현 예정
-- `enabled_stock_brokers`에 증권사를 추가해야 대시보드에 탭이 표시됨
-- 블록체인 기능에는 영향을 주지 않으며, 독립적으로 작동
-
-### **🐛 알려진 문제점:**
-1. **BINANCE 탭이 주식/증권 서비스에서 나타나는 문제** ✅ 해결됨
-   - 증상: 설정에서 키움증권을 체크하고 저장한 후 주식/증권 버튼을 클릭하면 "🏦 BINANCE" 탭이 나타남
-   - 원인: `switch_service()`에서 `service_sub_tabs` 딕셔너리를 초기화하지 않아 이전 서비스 탭 참조가 남아있음
-   - 해결: `_destroy_all_service_tabs_except_protected()` 호출 후 `service_sub_tabs` 딕셔너리 초기화 추가
-   - 위치: `ui/dashboard_modern.py` 라인 3269-3272
-   - 검증: ✅ 주식/증권 서비스 전환 시 "🏦 KIWOOM" 탭이 정상 표시됨
-
-2. **기본 탭 이름 및 기능이 블록체인용으로만 구현됨**
-   - 증상: 주식/증권 서비스 전환 시에도 "🪙 코인 정보", "📈 거래 통계", "📈 시장 트렌드"가 그대로 표시됨 (블록체인 데이터만 표시)
-   - 원인: 기본 탭들이 한 번 생성되고 이후 유지됨, 서비스별로 다른 위젯으로 교체하는 로직 없음
-   - 해결 방안: 다음 단계에서 주식/종목 정보 위젯, 주식 거래 통계 위젯, 주식 시장 트렌드 위젯 개발 후 `show_stock_content()`에서 교체 로직 구현 필요
-
-### **📝 다음 단계 계획:**
-- **단계 1**: 알려진 문제 해결 (BINANCE 탭 표시 문제, 설정 저장 확인)
-- **단계 2**: 기본 탭 교체 로직 구현 (주식용 위젯 개발)
-- **단계 3**: 키움증권 API 어댑터 개발
-- **단계 4**: `create_broker_*` 메서드 실제 구현
-
-**상세 계획**: `docs/STOCK_ETF_CURRENT_STATUS_20260118.md` 참고
-
----
-
-## 🔥 **2026-01-18: 거래 실행 실패 문제 해결 및 로깅 개선**
-
-### **✅ 해결된 문제들:**
-
-#### **1. TP/SL Algo Order 필드명 오류 해결** ✅
-- **원인**: Binance Algo Order API는 `type` 대신 `orderType` 필드를 사용하는데, 코드에서 `type` 필드를 참조함
-- **증상**: 기존 TP/SL 주문이 감지되지 않아 `-4130` (기존 주문 존재) 오류 발생
-- **해결**: 
-  - `api/binance_client.py`의 `place_tp_sl_orders()` 메서드에서 `algo_order.get('type')` → `algo_order.get('orderType')`로 변경
-  - `trading/trader.py`의 모든 Algo Order 필터링 로직에서 동일한 수정 적용
-- **위치**: 
-  - `api/binance_client.py` 라인 2409, 2436
-  - `trading/trader.py` 라인 285, 485, 2744, 2795, 2927, 5137, 5152
-- **검증**: `get_open_algo_orders()`가 Algo Order를 반환하지만 필터링에서 누락되던 문제 해결
-
-#### **2. 슬리피지 버퍼로 인한 min_notional 미달 문제 해결** ✅
-- **원인**: `execute_single_trade()`에서 슬리피지 버퍼(-0.5%)를 적용한 후 `final_amount < min_notional` 검증을 `_compute_quantity_once()` 호출 **전**에 수행
-- **증상**: `final_amount=19.94 < min_notional=20`로 거래 실패 (DOTUSDT, MANAUSDT 등)
-- **해결**: 
-  - `_compute_quantity_once()`를 먼저 호출하여 `min_notional`을 보장하는 수량 계산
-  - `_compute_quantity_once()`가 `ref_price`(슬리피지 버퍼 적용된 가격)를 받아서 수량을 계산하고, `min_notional`에 2% 버퍼를 추가로 적용하여 보장
-  - 수량 계산 후 최종 검증 단계에서 재확인
-- **위치**: `trading/trader.py`의 `execute_single_trade()` 메서드 (라인 2295-2322)
-- **개선**: 
-  - 슬리피지 버퍼 적용 후에도 `min_notional` 보장
-  - `_compute_quantity_once()`가 `ceil` 사용하여 수량 증가 보장
-  - 최종 검증 단계에서 재확인
-
-#### **3. 최대 포지션 수 초과 로그 개선** ✅
-- **원인**: 최대 포지션 수 초과는 정상 동작(거래 제한)인데 WARNING 레벨로 로깅되어 사용자 혼란 발생
-- **해결**: 
-  - 로그 레벨: WARNING → INFO
-  - 로그 내용: "❌ 거래 차단 사유" → "✅ 최대 포지션 수 도달로 거래 제한 - 정상 동작"으로 변경
-- **위치**: `trading/trader.py`의 `should_execute_trade()` 메서드 (라인 2032-2034)
-- **개선**: 사용자가 정상 동작임을 명확히 인식 가능
-
-#### **4. 멈춤 시 포지션 정리 로직 개선** ✅
-- **원인**: `stop_trading_gracefully()`에서 실시간 모니터링을 중지하지 않아 모니터링이 계속 실행됨
-- **해결**: 
-  - 모든 실시간 모니터링 플래그를 설정하여 중지 신호 전송
-  - 모든 모니터링 스레드 종료 대기 (타임아웃 5초)
-  - 포지션 정리 로직에 상세 로깅 추가
-- **위치**: `trading/trader.py`의 `stop_trading_gracefully()` 메서드 (라인 5090-5138)
-- **개선**: 
-  - 멈춤 시 실시간 모니터링이 정상적으로 종료됨
-  - 포지션별 TP/SL 확인 및 정리 여부를 명확히 로깅
-  - TP/SL이 있는 포지션은 정리하지 않고 TP/SL에 맡김
-
-#### **5. TP/SL 정상 설정 로그 개선** ✅
-- **원인**: TP/SL이 있어서 포지션을 정리하지 않는 것이 정상 동작인데 WARNING 레벨로 로깅되어 사용자 혼란 발생
-- **해결**: 
-  - 로그 레벨: WARNING → INFO
-  - 로그 내용: "⚠️ TP/SL 있음 - 포지션 정리 건너뜀 (TP/SL에 맡김)" → "✅ TP/SL 정상 설정됨 - 포지션은 TP/SL 체결까지 유지 (정상 동작)"으로 변경
-- **위치**: `trading/trader.py`의 `_close_all_positions_and_orders_blocking()` 메서드 (라인 5165)
-- **개선**: 사용자가 정상 동작임을 명확히 인식 가능, XAI 정책에 부합하는 명확한 로그 메시지
-
-#### **6. 코인 재선택 로직 개선** ✅
-- **원인 1**: 코인이 비어있을 때 재선택을 하지 않고 `return`만 하여 코인 선택이 누락됨
-- **원인 2**: 시장 상황이 유지되고 1시간 < 경과 < 3시간일 때 시간을 무조건 업데이트하여 다음 사이클에서 1시간을 다시 기다려야 함
-- **증상**: 
-  - 코인이 비어있을 때 재선택 안 됨
-  - 시장 상황 유지 시 재선택 타이밍이 지연됨 (3시간까지 기다려야 함)
-- **해결**: 
-  - 코인이 비어있을 때: `main_app.select_trading_coins()` 즉시 호출 (1072-1080 라인)
-  - 시간 업데이트 로직을 조건부로 변경: 재선택 실행/연기한 경우에만 시간 업데이트 (1104-1145 라인)
-    - 시장 상황 변경 + 재선택 실행/연기 → 시간 업데이트
-    - 시장 상황 유지 + 3시간 경과 + 재선택 실행/연기 → 시간 업데이트
-    - 시장 상황 유지 + 1시간 < 경과 < 3시간 → 시간 업데이트 안 함 (다음 사이클에서 계속 1시간 체크)
-- **위치**: `trading/trader.py`의 `_check_and_reselect_coins_optimized()` 메서드 (라인 1064-1145)
-- **개선**: 
-  - 코인이 비어있을 때 즉시 선택되어 거래 사이클이 정상 작동
-  - 시장 상황 유지 시에도 적절한 타이밍에 재선택 수행 가능
-  - 시간 업데이트 로직이 명확하고 일관성 있게 작동
-
-### **🔍 검증 완료 사항:**
-- ✅ Algo Order 필드명 수정으로 기존 TP/SL 주문 감지 정상 작동
-- ✅ 슬리피지 버퍼 적용 후에도 `min_notional` 보장되도록 수량 계산 순서 변경
-- ✅ 최대 포지션 수 초과 로그가 정상 동작임을 명확히 표시 (INFO 레벨)
-- ✅ 멈춤 시 실시간 모니터링 중지 및 포지션 정리 로직 정상 작동
-- ✅ TP/SL 정상 설정 로그가 정상 동작임을 명확히 표시 (INFO 레벨)
-- ✅ 코인 재선택 로직 개선으로 코인 선택 누락 및 타이밍 문제 해결
-
-### **📝 수정된 파일들:**
-1. **`api/binance_client.py`**: Algo Order 필드명 수정 (`type` → `orderType`)
-2. **`trading/trader.py`**: 
-   - Algo Order 필터링 로직 수정 (모든 위치)
-   - `execute_single_trade()`에서 수량 계산 순서 변경
-   - 최대 포지션 수 초과 로그 개선 (WARNING → INFO)
-   - `stop_trading_gracefully()`에 모니터링 중지 로직 추가
-   - `_close_all_positions_and_orders_blocking()`에 상세 로깅 추가 및 TP/SL 로그 개선 (WARNING → INFO)
-   - `_check_and_reselect_coins_optimized()`에서 코인 비어있을 때 즉시 선택 및 시간 업데이트 로직 개선
-
-### **💡 기술적 설명: 슬리피지로 인한 min_notional 미달 문제 해결 방법**
-
-**문제 상황:**
-- 시장가 주문 시 가격 변동성을 대비하여 슬리피지 버퍼(-0.5% SELL, +0.5% BUY)를 적용
-- 슬리피지 버퍼 적용 후 `ref_price`가 낮아지면 `final_amount = quantity * ref_price`가 `min_notional`보다 작아질 수 있음
-- 예: `qty=9.3, ref_price=2.144225 (-0.5%) → final_amount=19.94 < min_notional=20`
-
-**해결 방법:**
-1. **`_compute_quantity_once()` 먼저 호출**: 슬리피지 버퍼가 적용된 `ref_price`를 전달
-2. **`_compute_quantity_once()` 내부 처리**:
-   - `min_notional`에 2% 버퍼 추가 적용: `target_notional = min_notional * 1.02`
-   - `actual_notional < target_notional`이면 수량 증가: `required_qty = target_notional / ref_price`
-   - `math.ceil()` 사용하여 수량을 올림하여 `min_notional` 보장
-3. **최종 검증**: `_compute_quantity_once()` 결과로 `final_amount` 재계산 및 재확인
-
-**결과:**
-- 슬리피지 버퍼 적용 후에도 `min_notional` 보장
-- 수량이 자동으로 조정되어 거래 실행 가능
-- 시장가 주문 시 가격 변동성에도 안전하게 대응
-
----
-
-**다음 수정 시 참고사항**:
-1. 상태 머신 기반 설계 우선 적용
-2. 포지션 안전성 최우선 고려
-3. 기존 코드와의 호환성 보장
-4. 단계적 마이그레이션 진행
-5. **반드시 `docs/archive/history/START_STOP_ANALYSIS.md` 가이드라인 준수**
-6. **재진입 방지 로직 필수 적용**
-7. **STOP_PENDING 상태에서 신규 주문 차단 필수**
-8. **DB flush 보장 로직 필수 적용**
-
-## 🔍 **TP/SL 최초 설정 실패 원인 분석 (2025-01-25)**
-
-### **📊 코드 흐름 검증**
-
-#### **1. 예외 처리 및 분기 로직 검증**
+### **🔧 수정된 코드 (trading/trader.py)**
 ```python
-# trader.py 라인 2099-2145
-try:
-    tp_order = self.binance_client.client.futures_create_order(...)
-    tp_sl_result.append(tp_order)  # ✅ 성공
-    sl_order = self.binance_client.client.futures_create_order(...)
-    tp_sl_result.append(sl_order)  # ✅ 성공
-    
-except Exception as e:
-    tp_sl_result = [None, None]  # ❌ 예외 시 [None, None]
+# BEFORE (❌ 문제 코드)
+# 1. 포지션 수 체크 (조기 종료)
+if len(active_positions) >= self.settings['max_positions']:
+    return  # 필터링 이전에 종료
 
-# 라인 2140-2145
-if tp_sl_result and tp_sl_result[0] and tp_sl_result[1]:
-    # ✅ 검증 블록 진입
-else:
-    # ❌ 검증 블록 스킵 → 실패 경로
+# 2. 필터링 (도달하지 못함)
+filtered = [c for c in selected_coins if coin_symbol(c) not in open_symbols]
+
+# AFTER (✅ 수정된 코드)
+# 1. 필터링 먼저 실행
+open_symbols = {p.symbol for p in active_positions}
+filtered = [c for c in selected_coins if coin_symbol(c) not in open_symbols]
+if not filtered:
+    return  # 필터링 후 신규 대상 없음
+
+# 2. 필터링 후 포지션 수 체크
+if len(active_positions) >= max_positions:
+    return  # 필터링 후에도 포지션 수 초과
 ```
 
-**검증 결과**: `[None, None]`이면 `if` 조건은 `False` → 검증 블록 실행 안 됨 ✅
+### **📝 주요 변경 사항**
+- **line 1133-1140**: 포지션 수 체크 로직 제거 및 재배치
+- **line 1141**: 필터링 로직을 조기 실행하도록 순서 변경
+- **line 1161-1163**: 필터링 후 포지션 수 체크 추가
+- **효과**: 보유 중인 코인은 분석 대상에서 제외, 신규 코인만 분석
 
-#### **2. tp_sl_verified 초기화 검증**
-```python
-# trader.py 라인 1737
-tp_sl_verified = False  # ✅ 명시적 초기화
-```
+### **🎯 예상 효과**
+- ✅ 불필요한 API 호출 감소 (보유 중인 코인 제외)
+- ✅ 분석 오버헤드 감소
+- ✅ 리소스 사용 최적화
+- ✅ 로그 메시지: "다중포지션 모드 - 보유 심볼 제외 후 신규 대상 없음" 표시
 
-**검증 결과**: 함수 초발에 `False`로 초기화되어 있음 ✅
-
-#### **3. 로그 시스템 통일성 검증**
-```python
-# trader.py 라인 2132-2134 (최근 수정)
-self.log_event('trade', f"[{symbol}] TP/SL 주문 설정 실패: {e}", level='ERROR')
-self.log_event('trade', f"[{symbol}] TP/SL 주문 설정 상세 오류: {traceback.format_exc()}", level='ERROR')
-```
-
-**검증 결과**: `self.logger.error()` → `self.log_event()`로 통일됨 ✅
-
----
-
-### **🔍 TP/SL 최초 설정 실패 가능 원인**
-
-#### **1️⃣ 체결 직후 타이밍 이슈 (레이스 컨디션)**
-- **문제**: 포지션 체결 정보가 거래소에 완전히 반영되기 전에 TP/SL 즉시 호출
-- **현황**: TP/SL 생성 직전 백오프 없음, 검증 단계에서만 `time.sleep(3.0)`
-- **개선안**: 포지션 체결 직후 `100-300ms` 대기 + 재시도 로직 추가
-
-#### **2️⃣ 가격 스냅/트리거 근접 문제**
-- **문제**: `stopPrice`가 현재가에 과도하게 근접하면 거래소 거부/즉시 트리거
-- **현황**: 스냅 로직은 있으나 엔트리와의 최소 간격 보장 없음
-- **개선안**: `abs(stopPrice - entry) >= k * tick_size` (k=3~5) 보장
-
-#### **3️⃣ 포지션 모드/파라미터 이슈**
-- **문제**: 일시적 서버/권한/세션 문제로 API 예외 발생
-- **현황**: `closePosition=True` 기반 안전 구성이나 예외 처리만 존재
-- **개선안**: 바이낸스 에러코드별 분기 로깅 강화
-
-#### **4️⃣ 재시도 로직 부재**
-- **문제**: 일시적 오류 시 재시도 없음
-- **현황**: 예외 발생 시 즉시 `[None, None]` 처리 후 워치독에 위임
-- **개선안**: 지수 백오프(0.2 → 0.4 → 0.8s)로 2~3회 재시도
-
----
-
-### **🚀 제안된 개선 방안**
-
-#### **A. TP/SL 생성 시 백오프 + 재시도 추가**
-```python
-# 포지션 체결 직후 대기
-time.sleep(0.2)  # 200ms 백오프
-
-# TP/SL 생성 (재시도 로직 포함)
-max_retries = 3
-for attempt in range(max_retries):
-    try:
-        tp_order = self.binance_client.client.futures_create_order(...)
-        break
-    except Exception as e:
-        if attempt < max_retries - 1:
-            time.sleep(0.2 * (2 ** attempt))  # 지수 백오프
-            continue
-        raise
-```
-
-#### **B. 최소 트리거 간격 강제**
-```python
-# 스냅 후 최소 간격 검증
-min_distance = 3 * tick_size
-if abs(tp_price - entry_price) < min_distance:
-    tp_price = entry_price + min_distance  # LONG: 위로
-if abs(sl_price - entry_price) < min_distance:
-    sl_price = entry_price - min_distance  # LONG: 아래로
-```
-
-#### **C. 에러코드별 분기 로깅**
-```python
-except BinanceAPIException as e:
-    error_code = e.code
-    if error_code == -1021:  # 타임스탬프 동기화 문제
-        self.log_event('trade', f"[{symbol}] ⚠️ 타임스탬프 동기화 필요", level='WARNING')
-    elif error_code == -2022:  # ReduceOnly 조건 위반
-        self.log_event('trade', f"[{symbol}] ⚠️ ReduceOnly 파라미터 이슈", level='WARNING')
-    # ... 기타 에러코드 처리
-```
-
----
-
-### **✅ 결론**
-
-1. **코드 분기 로직은 정합**: `[None, None]`이면 검증 블록 실행 안 됨
-2. **초발 실패의 핵심 원인**: TP/SL 주문 API 호출 시점의 예외 (레이스/근접/일시적 API 이슈)
-3. **워치독 기반 재설정 유지**: TP/SL은 보험 기능, 모니터링이 주 역할
-4. **개선 우선순위**: 
-   - 포지션 체결 직후 백오프 (100-300ms)
-   - TP/SL 생성 재시도 (2-3회)
-   - 최소 트리거 간격 강제
-   - 에러코드별 분기 로깅
+### **📋 검증 방법**
+1. 포지션 3개 보유 상태에서 거래 사이클 실행
+2. 로그에서 "보유 심볼 제외 후 신규 대상 없음" 메시지 확인
+3. 보유 중인 코인에 대한 분석 로그가 나타나지 않음을 확인
 
 ---
 
@@ -2413,5 +1959,466 @@ DB path: data/test_user/trading.db
 2. **완전한 분리**: 사용자별 완전한 데이터 분리
 3. **확장성**: 다중 사용자 시스템으로 확장 가능
 4. **일관성**: 전체 시스템에서 일관된 경로 사용
+
+---
+
+## 🚨 **2025-01-25: TP/SL 워치독 기반 재설정 로직 유지**
+
+### **📊 원래 설계 확인**
+- **TP/SL 역할**: 보험 기능 (실패해도 거래 진행)
+- **워치독 존재**: `_tp_sl_watchdog()` 함수로 실시간 모니터링 중 TP/SL 재설정
+- **설계 원칙**: TP/SL은 보조 장치, 모니터링이 주 역할
+
+### **🔍 워치독 동작 방식**
+1. **실시간 모니터링**: 모니터링 루프에서 주기적 TP/SL 존재 여부 확인
+2. **자동 복구**: TP/SL 없거나 비정상 시 즉시 재설정 시도
+3. **디바운스**: 5초 이내 재설정 방지 (과도한 API 호출 방지)
+4. **재검증**: 재설정 후 즉시 검증하여 성공 여부 확인
+
+### **🔍 TP/SL 최초 설정 실패 원인 분석**
+
+#### **가능한 원인들**
+1. **API 오류**: 바이낸스 API 호출 실패 (네트워크, 권한, 파라미터 오류)
+2. **가격 스냅 오류**: tickSize 기반 스냅 실패 시 잘못된 가격으로 주문 생성
+3. **트리거 가격 문제**: stopPrice가 현재 가격과 너무 가까워 즉시 발동 위험
+4. **포지션 모드 불일치**: 원웨이/헤지 모드 설정 불일치
+5. **재시도 부족**: 일시적 오류 시 재시도 로직 없음
+
+#### **디버깅 강화**
+- **예외 상세 로그**: `traceback.format_exc()` 추가로 전체 스택 트레이스 출력
+- **주문 상태 확인**: `status`, `orderId` 등 상세 정보 로깅
+- **가격 검증**: TP/SL 가격이 진입가 기준 유효 범위 내인지 확인
+
+#### **문제 발생 시나리오**
+```
+1. 포지션 진입 성공 ✅
+2. TP/SL 가격 계산 ✅
+3. TP/SL 주문 API 호출 ❌ (예외 발생)
+   └─ tp_sl_result = [None, None]
+4. if tp_sl_result and tp_sl_result[0] and tp_sl_result[1]: ❌ False
+   └─ else 블록으로 이동
+5. 수동 모니터링으로 전환 ✅
+   └─ 워치독이 재설정 시도
+```
+
+### **✅ 올바른 로직**
+```python
+# TP/SL 실패 시 → 포지션 유지 → 모니터링 시작 → 워치독이 재설정
+if tp_sl_failed:
+    # 포지션 생성 및 모니터링 시작
+    self.active_positions[symbol] = position
+    self._start_monitoring(symbol, position, manual=True)
+    return True  # ✅ 거래 성공으로 처리 (워치독이 처리)
+```
+
+### **📝 주의사항**
+- **TP/SL은 보험**: 실패해도 거래는 진행
+- **워치독이 책임**: 모니터링 중 재설정
+- **마크다운 문서**: `docs/TP_SL_GUIDELINES.md`에 가이드라인 명시
+- **디버깅 로그**: 예외 발생 시 상세 스택 트레이스 확인 필요
+
+---
+
+## 🔍 **TP/SL 최초 설정 실패 원인 분석 (2025-01-25)**
+
+### **📊 코드 흐름 검증**
+
+#### **1. 예외 처리 및 분기 로직 검증**
+```python
+# trader.py 라인 2099-2145
+try:
+    tp_order = self.binance_client.client.futures_create_order(...)
+    tp_sl_result.append(tp_order)  # ✅ 성공
+    sl_order = self.binance_client.client.futures_create_order(...)
+    tp_sl_result.append(sl_order)  # ✅ 성공
+    
+except Exception as e:
+    tp_sl_result = [None, None]  # ❌ 예외 시 [None, None]
+
+# 라인 2140-2145
+if tp_sl_result and tp_sl_result[0] and tp_sl_result[1]:
+    # ✅ 검증 블록 진입
+else:
+    # ❌ 검증 블록 스킵 → 실패 경로
+```
+
+**검증 결과**: `[None, None]`이면 `if` 조건은 `False` → 검증 블록 실행 안 됨 ✅
+
+#### **2. tp_sl_verified 초기화 검증**
+```python
+# trader.py 라인 1737
+tp_sl_verified = False  # ✅ 명시적 초기화
+```
+
+**검증 결과**: 함수 초발에 `False`로 초기화되어 있음 ✅
+
+#### **3. 로그 시스템 통일성 검증**
+```python
+# trader.py 라인 2132-2134 (최근 수정)
+self.log_event('trade', f"[{symbol}] TP/SL 주문 설정 실패: {e}", level='ERROR')
+self.log_event('trade', f"[{symbol}] TP/SL 주문 설정 상세 오류: {traceback.format_exc()}", level='ERROR')
+```
+
+**검증 결과**: `self.logger.error()` → `self.log_event()`로 통일됨 ✅
+
+---
+
+### **🔍 TP/SL 최초 설정 실패 가능 원인**
+
+#### **1️⃣ 체결 직후 타이밍 이슈 (레이스 컨디션)**
+- **문제**: 포지션 체결 정보가 거래소에 완전히 반영되기 전에 TP/SL 즉시 호출
+- **현황**: TP/SL 생성 직전 백오프 없음, 검증 단계에서만 `time.sleep(3.0)`
+- **개선안**: 포지션 체결 직후 `100-300ms` 대기 + 재시도 로직 추가
+
+#### **2️⃣ 가격 스냅/트리거 근접 문제**
+- **문제**: `stopPrice`가 현재가에 과도하게 근접하면 거래소 거부/즉시 트리거
+- **현황**: 스냅 로직은 있으나 엔트리와의 최소 간격 보장 없음
+- **개선안**: `abs(stopPrice - entry) >= k * tick_size` (k=3~5) 보장
+
+#### **3️⃣ 포지션 모드/파라미터 이슈**
+- **문제**: 일시적 서버/권한/세션 문제로 API 예외 발생
+- **현황**: `closePosition=True` 기반 안전 구성이나 예외 처리만 존재
+- **개선안**: 바이낸스 에러코드별 분기 로깅 강화
+
+#### **4️⃣ 재시도 로직 부재**
+- **문제**: 일시적 오류 시 재시도 없음
+- **현황**: 예외 발생 시 즉시 `[None, None]` 처리 후 워치독에 위임
+- **개선안**: 지수 백오프(0.2 → 0.4 → 0.8s)로 2~3회 재시도
+
+---
+
+### **🚀 제안된 개선 방안**
+
+#### **A. TP/SL 생성 시 백오프 + 재시도 추가**
+```python
+# 포지션 체결 직후 대기
+time.sleep(0.2)  # 200ms 백오프
+
+# TP/SL 생성 (재시도 로직 포함)
+max_retries = 3
+for attempt in range(max_retries):
+    try:
+        tp_order = self.binance_client.client.futures_create_order(...)
+        break
+    except Exception as e:
+        if attempt < max_retries - 1:
+            time.sleep(0.2 * (2 ** attempt))  # 지수 백오프
+            continue
+        raise
+```
+
+#### **B. 최소 트리거 간격 강제**
+```python
+# 스냅 후 최소 간격 검증
+min_distance = 3 * tick_size
+if abs(tp_price - entry_price) < min_distance:
+    tp_price = entry_price + min_distance  # LONG: 위로
+if abs(sl_price - entry_price) < min_distance:
+    sl_price = entry_price - min_distance  # LONG: 아래로
+```
+
+#### **C. 에러코드별 분기 로깅**
+```python
+except BinanceAPIException as e:
+    error_code = e.code
+    if error_code == -1021:  # 타임스탬프 동기화 문제
+        self.log_event('trade', f"[{symbol}] ⚠️ 타임스탬프 동기화 필요", level='WARNING')
+    elif error_code == -2022:  # ReduceOnly 조건 위반
+        self.log_event('trade', f"[{symbol}] ⚠️ ReduceOnly 파라미터 이슈", level='WARNING')
+    # ... 기타 에러코드 처리
+```
+
+---
+
+### **✅ 결론**
+
+1. **코드 분기 로직은 정합**: `[None, None]`이면 검증 블록 실행 안 됨
+2. **초발 실패의 핵심 원인**: TP/SL 주문 API 호출 시점의 예외 (레이스/근접/일시적 API 이슈)
+3. **워치독 기반 재설정 유지**: TP/SL은 보험 기능, 모니터링이 주 역할
+4. **개선 우선순위**: 
+   - 포지션 체결 직후 백오프 (100-300ms)
+   - TP/SL 생성 재시도 (2-3회)
+   - 최소 트리거 간격 강제
+   - 에러코드별 분기 로깅
+
+---
+
+## 🚀 **2025-01-XX: 시작/멈춤 기능 상태 머신 설계 및 구현 완료**
+
+### **📊 전체 개요**
+- **목표**: 트레이딩 워커 즉시 중지 요청 시 앱 다운 문제 해결
+- **핵심 문제**: 즉시 종료로 인한 포지션 미청산과 다중 진입점으로 인한 상태 불일치
+- **해결 방안**: 상태 머신 기반 안전한 시작/정지 시스템 구축
+
+### **🔧 구현된 주요 기능**
+
+#### **1. 경량 상태 관리자 (TradingStateManager)**
+- **파일**: `main.py`
+- **기능**: IDLE, STARTING, RUNNING, STOPPING 상태 관리
+- **특징**: 거래소별 분기 처리, UI 상태 동기화
+
+#### **2. 시작/중지 진입점 일원화**
+- **파일**: `main.py`
+- **수정 메서드**: `on_start_exchange()`, `on_stop_exchange()`, `on_toggle_trading()`
+- **특징**: 상태 매니저 우선 체크, 기존 로직 폴백
+
+#### **3. 우아한 정지 로직**
+- **파일**: `trading/trader.py`
+- **새 메서드**: `stop_trading_gracefully()`
+- **순서**: 신규 진입 차단 → 포지션/오더 정리 → DB flush → WebSocket 종료
+
+#### **4. WebSocket 안전 종료**
+- **파일**: `api/binance_client.py`
+- **새 메서드**: `unsubscribe_all_safely()`
+- **기능**: 모든 구독 해제, WebSocket 매니저 정지, 구독 심볼 목록 정리
+
+#### **5. TP/SL 워치독 reduceOnly 금지**
+- **파일**: `trading/trader.py`
+- **수정 메서드**: `_tp_sl_order_params()`, `_tp_sl_watchdog()`, `execute_single_trade()`, `_retry_tp_sl_setup()`
+- **특징**: closePosition=True 사용 시 reduceOnly 완전 제거, 방어 코드 추가
+
+#### **6. 수량 계산 단일화**
+- **파일**: `trading/trader.py`
+- **새 메서드**: `_compute_quantity_once()`
+- **기능**: 중복 계산 방지, 단일 권위 수량 계산
+
+#### **7. UI 일관성 보장**
+- **파일**: `ui/widgets/trading_control_widget.py`, `ui/dashboard_modern.py`
+- **수정 메서드**: `toggle_trading()`, `_start_exchange_trading()`, `_stop_exchange_trading()`
+- **특징**: 상태 머신 기반 제어, 기존 로직 폴백
+
+#### **8. DB flush 보장**
+- **파일**: `trading/recorder.py`
+- **새 메서드**: `flush_to_db()`
+- **기능**: 타임아웃 처리, 강제 동기화, WAL 모드 사용
+
+### **🎯 핵심 개선사항**
+
+#### **상태 관리**
+- ✅ 단일 상태 소스 (TradingStateManager)
+- ✅ 상태 기반 제어 로직
+- ✅ UI-실제 상태 동기화
+
+#### **안전한 종료**
+- ✅ 포지션 청산 보장
+- ✅ DB 저장 완료 보장
+- ✅ WebSocket 안전 종료
+
+#### **TP/SL 안정성**
+- ✅ reduceOnly/closePosition 충돌 해결
+- ✅ -1106 에러 원천 차단
+- ✅ 워치독 안정성 강화
+
+#### **코드 품질**
+- ✅ 중복 계산 제거
+- ✅ 일관된 UI 제어
+- ✅ 기존 코드 호환성 보장
+
+### **📋 테스트 체크리스트**
+
+#### **기본 기능**
+- [ ] 상태 머신 정상 동작 (IDLE → STARTING → RUNNING → STOPPING → IDLE)
+- [ ] UI 컴포넌트 상태 동기화
+- [ ] 거래소별 분기 처리
+
+#### **안전한 종료**
+- [ ] 포지션 청산 완료 확인
+- [ ] DB 저장 완료 확인
+- [ ] WebSocket 안전 종료 확인
+
+#### **TP/SL 안정성**
+- [ ] reduceOnly 에러 없음
+- [ ] 워치독 정상 동작
+- [ ] 주문 생성/검증 정상
+
+#### **호환성**
+- [ ] 기존 UI 동작 유지
+- [ ] 기존 설정값 호환
+- [ ] 폴백 로직 정상 동작
+
+### **🚨 주의사항**
+
+1. **상태 머신 우선**: 모든 시작/정지 요청은 상태 머신을 통해 처리
+2. **폴백 로직**: 상태 머신이 없을 때 기존 로직으로 폴백
+3. **안전한 종료**: 포지션 청산 → DB flush → WebSocket 종료 순서 준수
+4. **TP/SL 규칙**: closePosition=True 사용 시 reduceOnly 절대 사용 금지
+
+### **📈 예상 효과**
+
+- **안정성 향상**: 앱 다운 문제 해결
+- **포지션 안전**: 미청산 포지션 방지
+- **TP/SL 안정**: -1106 에러 해결
+- **코드 품질**: 중복 제거, 일관성 향상
+- **사용자 경험**: 안정적인 거래 환경 제공
+
+---
+
+## 📅 **2025-01-XX: 시작/멈춤 기능 상태 머신 설계 및 개선 방향**
+
+### 🎯 **수정 목적**
+트레이딩 워커 즉시 중지 요청 시 앱 다운 문제 해결 및 포지션 안전성 보장을 위한 상태 머신 기반 설계 도입
+
+### 🔍 **문제점 분석**
+1. **즉시 종료**: `self.stop_event.set()` → 포지션 청산 없이 즉시 종료
+2. **다중 진입점**: 7개 파일에 분산된 14개 메서드
+3. **상태 불일치**: UI 상태와 실제 상태가 독립적으로 관리
+4. **포지션 안전성**: 미청산 포지션으로 손실 발생 가능
+
+### 🏗️ **상태 머신 설계**
+```python
+class TradingState(Enum):
+    IDLE = "IDLE"           # 거래 안 함
+    STARTING = "STARTING"   # 거래 시작 중
+    RUNNING = "RUNNING"     # 거래 & 모니터링 정상
+    STOP_PENDING = "STOP_PENDING"  # 포지션 청산 대기 중
+    STOPPED = "STOPPED"     # 완전 종료
+```
+
+### 🔧 **핵심 개선사항**
+
+#### **1. 상태 관리자 강화**
+- `transition_id` 도입으로 재진입 방지
+- `last_error`, `stop_deadline` 추가로 오류 추적 및 타임아웃 관리
+- `request_start()` / `request_stop()` 메서드 반환값을 `tuple[bool, int]`로 수정
+
+#### **2. 주문 실행 가드 함수**
+- `should_place_order()` 메서드 추가
+- STOP_PENDING 상태에서 신규 주문 차단
+- 기존 `trading_worker.running` 체크와 병행
+
+#### **3. 워치독/모니터 루프 상태 인식**
+- STOP_PENDING 상태에서 읽기 전용 모드 구현
+- 기존 포지션 유지 로직만 허용
+- 신규 거래 로직 차단
+
+#### **4. DB flush 보장**
+- `flush_to_db()` 메서드 추가
+- 타임아웃 처리 및 강제 동기화 로직 구현
+- 안전한 종료 프로세스에서 DB 저장 보장
+
+#### **5. WebSocket 안전 종료**
+- `unsubscribe_all_safely()` 메서드 추가
+- 포지션 청산 완료 후 WebSocket 종료
+- 기존 즉시 종료 코드 단계적 제거
+
+### 📋 **구현 단계별 계획**
+
+#### **🚨 1단계: 상태 관리자 강화 (즉시)**
+- [ ] `TradingStateManager`에 `transition_id`, `last_error`, `stop_deadline` 추가
+- [ ] `request_start()` / `request_stop()` 메서드 반환값을 `tuple[bool, int]`로 수정
+- [ ] 재진입 방지 로직 구현
+
+#### **⚠️ 2단계: 주문 실행 가드 (단기)**
+- [ ] `trading/trader.py`에 `should_place_order()` 메서드 추가
+- [ ] `execute_single_trade()` 메서드에 가드 함수 적용
+- [ ] 모든 주문 실행 경로에 상태 체크 추가
+
+#### **📋 3단계: 워치독 상태 인식 (중기)**
+- [ ] `start_realtime_monitoring()` 메서드에 상태 기반 분기 로직 추가
+- [ ] STOP_PENDING 상태에서 읽기 전용 모드 구현
+- [ ] 기존 `trading_worker.running` 체크와 병행
+
+#### **🔧 4단계: DB flush 보장 (중기)**
+- [ ] `trading/recorder.py`에 `flush_to_db()` 메서드 추가
+- [ ] 타임아웃 처리 및 강제 동기화 로직 구현
+- [ ] `stop_trading_gracefully()`에 DB flush 보장 로직 추가
+
+#### **🚀 5단계: WebSocket 안전 종료 (장기)**
+- [ ] `api/binance_client.py`에 `unsubscribe_all_safely()` 메서드 추가
+- [ ] 포지션 청산 완료 후 WebSocket 종료 로직 구현
+- [ ] 기존 즉시 종료 코드 단계적 제거
+
+### 🎯 **기존 코드와의 호환성**
+
+#### **✅ 호환성 보장 방안**
+1. **점진적 마이그레이션**: 기존 `trading_worker.running` 체크와 상태 머신 병행
+2. **백워드 호환성**: 기존 메서드들을 래퍼로 유지
+3. **단계적 제거**: 상태 머신 도입 → UI 수정 → 기존 메서드 제거
+
+### 📚 **업데이트된 문서**
+- **`docs/archive/history/START_STOP_ANALYSIS.md`**: 상태 머신 설계 및 실제 코드 검증 결과 추가
+- **`docs/CODE_CHANGE_LOG.md`**: 시작/멈춤 기능 개선 이력 기록
+
+---
+
+## 🔥 **2025-01-XX: 정지 신호 및 정밀도 오류 해결 완료**
+
+### **✅ 해결된 문제들:**
+
+#### **1. 정지 신호 후 신규 주문 계속 실행 문제** ✅
+- **원인**: `execute_single_trade()`에서 주문 실행 직전 중지 신호 확인 누락
+- **해결**: 4단계 중지 신호 확인 추가 (기존 3단계 + 1단계 추가)
+- **위치**: `trading/trader.py`의 `place_futures_order()` 직전
+- **검증**: 실제 코드에서 올바른 위치에 구현됨 확인
+
+#### **2. 바이낸스 APIError(code=-1111) 정밀도 오류** ✅
+- **원인**: `_compute_quantity_once()`에서 정밀도 규칙 불완전, `ENABLE_FINAL_QUANTITY_FIX = False`
+- **해결**: 
+  - `api/binance_client.py`에서 `ENABLE_FINAL_QUANTITY_FIX = True` 활성화
+  - `trading/trader.py`의 `_compute_quantity_once()`에서 정밀도 규칙 강화
+- **검증**: `step_size`, `min_qty`, `quantity_precision` 모두 준수하도록 수정됨
+
+#### **3. 상태 매니저 일관성 문제** ✅
+- **원인**: `STOP_PENDING` 상태 없음, `stop_requested` 플래그 없음
+- **해결**: `main.py`에 `STOP_PENDING` 상태와 `stop_requested` 플래그 추가
+- **검증**: UI 상태와 실제 워커 상태 간 불일치 해결됨
+
+### **🔍 검증 완료 사항:**
+- ✅ 모든 수정된 함수가 실제 코드에 존재함
+- ✅ 모든 호출 경로가 올바른 위치에서 구현됨
+- ✅ 기존 코드와 호환성 유지
+- ✅ 중복 코드 없이 핵심 문제만 해결
+
+### **📝 수정된 파일들:**
+1. **`trading/trader.py`**: 4단계 중지 신호 확인, 정밀도 규칙 강화, 분석 사이 딜레이 수정
+2. **`api/binance_client.py`**: 최종 정밀도 보정 활성화
+3. **`main.py`**: 상태 매니저 일관성 개선
+4. **`docs/archive/history/START_STOP_ANALYSIS.md`**: 검증 결과 및 수정 내용 업데이트
+
+### **🔧 추가 수정사항:**
+
+#### **4. 분석 사이 딜레이 문제 해결** ✅
+- **원인**: `execute_trading_cycle()`에서 딜레이가 첫 번째 코인 처리 전에만 적용됨
+- **해결**: `enumerate()`를 사용하여 각 코인 분석 사이에 딜레이 적용 (첫 번째 코인 제외)
+- **위치**: `trading/trader.py`의 `execute_trading_cycle()` 함수
+- **개선**: 딜레이 적용 시 진행 상황 로그 추가 (`{i}/{len(selected_coins)}`)
+
+#### **5. 터미널 실시간 로그 출력 문제 해결** ✅
+- **원인**: `log_event()` 함수가 UI용 스트림과 파일 저장만 하고 터미널 출력 없음
+- **해결**: `log_system/log_adapter.py`에 `print(formatted_message)` 추가
+- **위치**: `log_event()` 함수 내부
+- **개선**: 개발 환경에서 터미널로도 실시간 거래 로그 확인 가능
+
+#### **6. 수량 계산 일관성 문제 해결** ✅
+- **원인**: 
+  - `_compute_quantity_once()`에서 `math.floor()` 사용으로 수량 감소
+  - `api/binance_client.py`에서 `math.floor()` 사용으로 추가 감소
+  - `min_notional` 검증이 step_size 보정 이후에 되어 순서 문제 발생
+  - 시장가 주문 시 가격 변동에 대한 버퍼 없음
+  - **최종 산출 값 ≠ 실제 전송 값** 불일치로 인한 -4164 에러
+- **해결**: 
+  - **이중 안전장치**: `trader.py`와 `binance_client.py` 모두 수정
+  - `trader.py`: `min_notional` 검증을 먼저 수행하고, 2% 버퍼 적용
+  - `trader.py`: `math.floor()` → `math.ceil()`로 변경하여 수량 증가 보장
+  - `binance_client.py`: `math.floor()` → `math.ceil()`로 변경하여 추가 감소 방지
+  - 최종 검증에서 `min_notional` 재확인 및 재보정
+- **위치**: 
+  - `trading/trader.py`의 `_compute_quantity_once()` 함수 (라인 3938-3974)
+  - `api/binance_client.py`의 `place_futures_order()` 함수 (라인 1922-1947)
+- **개선**: 
+  - 계산 순서 변경: `min_notional` 검증 → step_size 보정 → 최종 재확인
+  - 시장가 주문 변동성 대응을 위한 2% 버퍼 적용
+  - **이중 보정 문제 해결**: 트레이더와 클라이언트 모두 `ceil` 사용으로 일관성 확보
+  - `step_size`, `quantity_precision`, `min_qty`, `min_notional` 모두 준수하도록 강화
+
+#### **7. 정지 게이트 완화 및 대시보드 안전 호출** ✅
+- **원인**: 
+  - `on_stop_exchange()`에서 상태 게이트가 너무 엄격해서 워커 실행 중에도 정지 거부
+  - `dashboard.set_trading_status()`를 `hasattr` 체크 없이 직접 호출
+- **해결**: 
+  - 워커 실행 중이면 상태와 무관하게 정지 허용하는 로직 추가
+  - 모든 `dashboard.set_trading_status()` 호출에 `hasattr` 체크 추가
+- **위치**: `main.py`의 `on_stop_exchange()` 메서드, `on_start_exchange()` 메서드
+- **개선**: Tkinter 에러 방지 및 상태 불일치 문제 해결
 
 ---

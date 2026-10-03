@@ -1,0 +1,64 @@
+{
+  "version_target": "3.9.2.3",
+  "date": "2026-10-03",
+  "status": "local_implementation_partial_not_release_ready",
+  "source_release_version_unchanged": "3.9.2.2",
+  "public_release_version_unchanged": "3.9.2.1",
+  "full_python": {
+    "passed": 4750,
+    "failed": 3,
+    "skipped": 9,
+    "subtests_passed": 3,
+    "duration_seconds": 89.2,
+    "failures": [
+      {
+        "test": "tests.test_ai_engine_docs_sync_3903::test_release_metadata_and_installed_manual_are_scoped_separately",
+        "message": "AssertionError: assert '3.9.1.49' == '3.9.2.2'\n  \n  - 3.9.2.2\n  + 3.9.1.49"
+      },
+      {
+        "test": "tests.test_build_release_workflow::test_github_workflow_builds_candidate_before_explicit_release",
+        "message": "assert 'confirm_external_gates:' not in 'name: Windo...elease.ps1\\n'\n  \n  'confirm_external_gates:' is contained here:\n    lse\n          confirm_external_gates:\n            description: \"Confirm Windows install/update/rollback, UI repetition, broker/PAPER and signature-policy gates\"\n            type: boolean\n            required: true...\n  \n  ...Full output truncated (82 lines hidden), use '-vv' to show"
+      },
+      {
+        "test": "tests.test_v38929_dashboard_custom_coldstart::test_windows_executable_metadata_is_aligned_to_current_release",
+        "message": "AssertionError: assert '3.9.1.49' == '3.9.2.2'\n  \n  - 3.9.2.2\n  + 3.9.1.49"
+      }
+    ]
+  },
+  "focused_previous_run": {
+    "passed": 281,
+    "failed": 0
+  },
+  "new_profitability_including_offline_repair": {
+    "passed": 12,
+    "failed": 0
+  },
+  "frontend": {
+    "node": "22.23.1",
+    "typescript": "passed",
+    "vite_build": "passed",
+    "isolated_directory": "/tmp/noah-v3923-web-build",
+    "artifact_is_installed_or_published": false
+  },
+  "ui": {
+    "actual_components_with_local_gateway": true,
+    "fixture": "synthetic only, no real account or external orders",
+    "widths": [
+      1440,
+      390
+    ],
+    "scenarios": [
+      "loan costs and unknown fees",
+      "refinance cost",
+      "encrypted save and lock",
+      "profitability diagnosis",
+      "uninsured driver questions"
+    ],
+    "result": "passed"
+  },
+  "docs_check": "passed",
+  "customer_actual_recovery_verified": false,
+  "external_product_source_connected": false,
+  "windows_installer_verified": false,
+  "remaining_scope": "docs/V3923_IMPLEMENTATION_STATUS.md"
+}

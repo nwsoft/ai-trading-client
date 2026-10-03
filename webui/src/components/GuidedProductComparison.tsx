@@ -1,3 +1,4 @@
+import { ProductIntelligenceWorkspace } from './ProductIntelligenceWorkspace';
 import { useState, type KeyboardEvent } from 'react';
 import type { GatewayClient } from '../api';
 import { InsuranceWorkspace } from './InsuranceWorkspace';
@@ -19,9 +20,9 @@ const guide: Record<Exclude<Tab, 'overview'>, { title: string; intro: string; st
   savings: { title: '목돈을 맡길까요, 매달 모을까요?', intro: '예금은 지금 가진 목돈, 적금은 앞으로 매달 넣을 돈입니다. 같은 연 금리라도 돈이 맡겨진 기간이 달라 이자가 다릅니다.',
     steps: ['목돈 예금 / 매월 적금 선택', '납입액·기간·금리 입력', '원금·이자·세금 나눠 보기'],
     questions: ['예금과 적금은 같은 금리인데 왜 이자가 다른가요?', '최고 금리의 우대 조건을 어떻게 확인하나요?', '만기 전에 해지할 때 무엇이 달라지나요?'],
-    glossary: [['예금과 적금', '예금은 원금 전체가 기간 내내, 적금은 매달 새로 넣은 돈이 남은 기간만큼 이자를 만드는 가정입니다.'], ['세전·세후', '세전은 세금을 빼기 전, 세후는 입력한 세율 가정으로 뺀 금액입니다. 실제 과세 유형은 상품·개인 조건을 확인해야 합니다.'], ['우대금리', '급여이체·카드 사용 등 조건 충족 여부를 확인하세요. 최고 금리가 모두에게 적용되는 것은 아닙니다.'], ['계산 범위', '단리·정시 납입·월 단위 가정입니다. 일수, 복리, 납입 누락, 중도해지, 우대 적용 상한·변경은 계산하지 않습니다.']] },
-  insurance: { title: '보험료보다 먼저, 무엇을 보장하는지 확인해요', intro: '증권과 보장내역을 준비하고 쉬운 설명을 읽은 뒤 원문을 대조하세요. 부족한 정보는 확인할 질문으로 남기며 해지나 가입을 자동 권하지 않습니다.',
-    steps: ['내 증권·보장내역 준비', '원문과 입력값 대조·확인', '두 계약 비교·상담 질문 준비'],
+    glossary: [['예금과 적금', '예금은 원금 전체가 기간 내내, 적금은 매달 새로 넣은 돈이 남은 기간만큼 이자를 만드는 가정입니다.'], ['세전·세후', '세전은 세금을 빼기 전, 세후는 입력한 세율 가정으로 뺀 금액입니다. 실제 과세 유형은 상품·개인 조건을 확인해야 합니다.'], ['우대금리', '급여이체·카드 사용 등 조건 충족 여부를 확인하세요. 최고 금리가 모두에게 적용되는 것은 아닙니다.'], ['계산 범위', '기본 계산은 단리·정시 납입 가정입니다. 맞춤 비교의 상세 조건에서 복리·중도해지·목표·만기 분산을 선택할 수 있습니다. 약관에 따른 납입 누락·우대 적용 상한은 별도 확인합니다.']] },
+  insurance: { title: '보험료보다 먼저, 무엇을 보장하는지 확인해요', intro: '보험이 없어도 필요한 보장과 예산부터 정할 수 있습니다. 기존 보험이 있다면 증권·보장내역과 새 견적을 대조하세요. 부족한 정보는 확인할 질문으로 남기며 해지나 가입을 자동 권하지 않습니다.',
+    steps: ['가입 상태·필요한 보장 정하기', '예산·받은 견적·약관 확인', '설계 비교·상담 질문 준비'],
     questions: ['보험증권에서 어떤 항목부터 확인하나요?', '실손과 정액 보장은 어떻게 다른가요?', '보험을 바꾸기 전에 무엇을 확인해야 하나요?'],
     glossary: [['보험료와 가입금액', '보험료는 내가 내는 돈, 가입금액은 약정의 기준 금액입니다. 가입금액이 언제나 그대로 지급되는 것은 아닙니다.'], ['면책·감액', '보장이 제외되는 조건이나 기간, 지급액이 줄어드는 조건을 뜻합니다. 가입 시점의 약관을 확인하세요.'], ['갱신과 납입 종료', '갱신 시 보험료·조건이 달라질 수 있습니다. 돈을 내는 기간과 보장받는 기간은 다를 수 있습니다.'], ['두 보험 비교', '가격이 낮아도 보장·제외·피보험자·가입 시기가 다를 수 있습니다. 같은 이름의 보장이 있어도 불필요한 중복이라고 단정하지 않습니다.']] },
 };
@@ -84,6 +85,7 @@ export function GuidedProductComparison({ client }: { client: GatewayClient }) {
       <details><summary>처음이라면: 준비할 자료와 개인정보 안내</summary><p>대출·예적금은 금융사 안내의 금리·기간·비용·조건을 준비하세요. 보험은 본인에게 제공 권한이 있는 증권·약관을 준비하세요. 주민번호·계좌번호·건강정보는 질문에 넣지 마세요.</p><p>계산 입력은 이 화면의 메모리에만 있습니다. 상위 화면 이동·앱 종료 시 사라집니다. 내부 탭 전환과 아래 AI 도움은 입력을 유지하며, 보험 저장은 별도 암호화 저장소를 사용합니다.</p></details>
     </section>}
     {tab !== 'overview' && <article className="panel product-guide"><h3>{guide[tab].title}</h3><p>{guide[tab].intro}</p><ol className="product-steps">{guide[tab].steps.map((s, i) => <li key={s}><b>{i + 1}</b>{s}</li>)}</ol><details><summary>용어가 어렵다면 · 쉬운 설명 펼치기</summary><dl>{guide[tab].glossary.map(([word, meaning]) => <div key={word}><dt>{word}</dt><dd>{meaning}</dd></div>)}</dl></details></article>}
+    {(['loan', 'insurance', 'savings'] as const).map(kind => <div key={kind} hidden={tab !== kind}><ProductIntelligenceWorkspace client={client} kind={kind} /></div>)}
     {(tab === 'loan' || tab === 'savings') && <section role="tabpanel" id={`product-panel-${tab}`} aria-labelledby={`product-tab-${tab}`} className="panel product-calculator">
       <div className="product-section-heading"><h3>1. 같은 기준으로 조건 입력</h3><div className="command-row"><button type="button" onClick={() => reset(true)}>가상 예시로 연습</button><button type="button" onClick={() => reset(false)}>비우고 내 조건 입력</button></div></div>
       <p className={draft.example ? 'product-example' : 'workspace-copy'}>{draft.example ? '가상 예시입니다. 편집해도 실제 상품으로 바뀌지 않습니다. 내 조건은 비우고 새로 입력하세요.' : '직접 받은 조건을 입력하세요. 입력값은 금융사가 확인한 견적·가입 가능 판정이 아닙니다.'}</p>
@@ -100,6 +102,6 @@ export function GuidedProductComparison({ client }: { client: GatewayClient }) {
       {tab === 'insurance' && <details className="panel product-insurance-example"><summary>보험 비교 예시 보기 · 내 계약에는 저장하지 않음</summary><div className="product-result-grid"><article><h4>가상 계약 A</h4><p>월 50,000원 · 특정 질환 정액 보장</p><p>지급 조건·면책 기간은 원문 확인 필요</p></article><article><h4>가상 계약 B</h4><p>월 35,000원 · 다른 보장 범위</p><p>피보험자·갱신·보장 제외는 원문 확인 필요</p></article></div><p>15,000원 차이만으로 B가 낫거나 그만큼 절약된다고 결론 내릴 수 없습니다. 같은 보장인지부터 확인합니다.</p></details>}
       {visitedInsurance && <InsuranceWorkspace client={client} />}
     </section>
-    {tab !== 'overview' && <section className="panel product-help"><h3>모르면 여기에서 질문하세요</h3><p>자주 묻는 질문을 골라 초안을 만들거나 직접 적으세요. 내 입력 조건·보험 원문을 자동 첨부하지 않습니다.</p><div className="command-row">{guide[tab].questions.map(q => <button type="button" key={q} onClick={() => setQuestion(`${q} 초보자가 이해하도록 가상 예시로 설명하고 확인할 사항을 알려줘. 실제 상품 추천이나 가입 판단은 하지 마.`)}>{q}</button>)}</div><label>AI에게 물어볼 질문 초안<textarea maxLength={2000} value={question} onChange={e => setQuestion(e.target.value)} placeholder="예: 두 조건에서 어떤 차이를 먼저 봐야 하나요?" /></label><button type="button" disabled={!question.trim()} onClick={() => setAssistantQuestion(question)}>AI 도움 열기 · 아직 전송하지 않음</button><p className="workspace-copy">아래 기존 어시스턴트에서 직접 전송합니다. 외부 AI 사용 여부·비용·범위 안내를 확인하세요. 개인정보·건강정보는 넣지 마세요.</p>{assistantQuestion && <div className="product-assistant"><button type="button" onClick={() => setAssistantQuestion('')}>도움 닫기 · 비교 입력 유지</button><AssistantWorkspace client={client} service="personal_finance" initialQuestion={assistantQuestion} /></div>}</section>}
+    {tab !== 'overview' && <section className="panel product-help"><h3>모르면 여기에서 질문하세요</h3><p>자주 묻는 질문을 골라 초안을 만들거나 직접 적으세요. 내 입력 조건·보험 원문을 자동 첨부하지 않습니다.</p><div className="command-row">{guide[tab].questions.map(q => <button type="button" key={q} onClick={() => setQuestion(`${q} 초보자가 이해하도록 가상 예시로 설명하고 확인할 사항을 알려줘. 출처와 확인 시점을 구분하고, 내 조건에서 비교할 기준·빠진 정보·다음 확인 질문을 알려줘.`)}>{q}</button>)}</div><label>AI에게 물어볼 질문 초안<textarea maxLength={2000} value={question} onChange={e => setQuestion(e.target.value)} placeholder="예: 두 조건에서 어떤 차이를 먼저 봐야 하나요?" /></label><button type="button" disabled={!question.trim()} onClick={() => setAssistantQuestion(question)}>AI 도움 열기 · 아직 전송하지 않음</button><p className="workspace-copy">아래 기존 어시스턴트에서 직접 전송합니다. 외부 AI 사용 여부·비용·범위 안내를 확인하세요. 개인정보·건강정보는 넣지 마세요.</p>{assistantQuestion && <div className="product-assistant"><button type="button" onClick={() => setAssistantQuestion('')}>도움 닫기 · 비교 입력 유지</button><AssistantWorkspace client={client} service="personal_finance" initialQuestion={assistantQuestion} /></div>}</section>}
   </section>;
 }

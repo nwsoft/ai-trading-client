@@ -1,0 +1,322 @@
+{
+  "date": "2026-10-03",
+  "boundary": "synthetic source-method audit; no customer ledger, network or order calls",
+  "candidate": "3.9.2.2",
+  "template_policy": {
+    "enabled": true,
+    "min_trades": 10,
+    "min_win_rate": 0.42,
+    "min_sharpe": 0.2,
+    "max_mdd": 0.3,
+    "min_expectancy": 0.0,
+    "min_walkforward_pass_rate": 0.4,
+    "underperformance_mode": "limited_learning",
+    "recovery_risk_multiplier": 0.15,
+    "recovery_max_positions": 1,
+    "recovery_max_leverage": 1,
+    "recovery_review_interval_trades": 20,
+    "hard_stop_mdd": 0.45
+  },
+  "cases": {
+    "full_template": {
+      "enabled": true,
+      "reasons": [
+        "win_rate_below_threshold",
+        "sharpe_below_threshold",
+        "mdd_above_threshold",
+        "expectancy_below_threshold",
+        "walkforward_below_threshold"
+      ],
+      "stage": "recovery_learning",
+      "total_trades": 300,
+      "win_rate": 0.28,
+      "mdd": 0.3135,
+      "recent_expectancy": -0.0012,
+      "risk_multiplier": 0.2,
+      "raw_trade_rows": 300,
+      "excluded_return_rows": 0,
+      "next_review_at_trades": 320
+    },
+    "strict_stop": {
+      "enabled": false,
+      "reasons": [
+        "win_rate_below_threshold",
+        "sharpe_below_threshold",
+        "mdd_above_threshold",
+        "expectancy_below_threshold",
+        "walkforward_below_threshold"
+      ],
+      "total_trades": 300,
+      "win_rate": 0.28,
+      "mdd": 0.3135,
+      "raw_trade_rows": 300,
+      "excluded_return_rows": 0
+    },
+    "binance_partial_override": {
+      "effective_config": {
+        "enabled": true
+      },
+      "result": {
+        "enabled": false,
+        "reasons": [
+          "win_rate_below_threshold",
+          "sharpe_below_threshold",
+          "mdd_above_threshold",
+          "expectancy_below_threshold",
+          "walkforward_below_threshold"
+        ],
+        "total_trades": 300,
+        "win_rate": 0.28,
+        "mdd": 0.3135,
+        "raw_trade_rows": 300,
+        "excluded_return_rows": 0
+      }
+    },
+    "bybit_partial_override": {
+      "effective_config": {
+        "enabled": true
+      },
+      "result": {
+        "enabled": false,
+        "reasons": [
+          "win_rate_below_threshold",
+          "sharpe_below_threshold",
+          "mdd_above_threshold",
+          "expectancy_below_threshold",
+          "walkforward_below_threshold"
+        ],
+        "total_trades": 300,
+        "win_rate": 0.28,
+        "mdd": 0.3135,
+        "raw_trade_rows": 300,
+        "excluded_return_rows": 0
+      }
+    },
+    "below_minimum_large_loss": {
+      "enabled": true,
+      "reason": "insufficient_trades",
+      "stage": "limited_live_learning",
+      "total_trades": 1,
+      "win_rate": 0.0,
+      "mdd": 0.5,
+      "risk_multiplier": 0.14,
+      "raw_trade_rows": 1,
+      "excluded_return_rows": 0,
+      "next_review_at_trades": 10
+    },
+    "old_to_new": {
+      "enabled": true,
+      "reasons": [
+        "sharpe_below_threshold",
+        "mdd_above_threshold"
+      ],
+      "stage": "recovery_learning",
+      "total_trades": 40,
+      "win_rate": 0.5,
+      "mdd": 0.3324,
+      "recent_expectancy": -0.02,
+      "risk_multiplier": 0.15,
+      "raw_trade_rows": 40,
+      "excluded_return_rows": 0,
+      "next_review_at_trades": 60
+    },
+    "new_to_old": {
+      "enabled": true,
+      "reasons": [
+        "sharpe_below_threshold",
+        "mdd_above_threshold"
+      ],
+      "stage": "recovery_learning",
+      "total_trades": 40,
+      "win_rate": 0.5,
+      "mdd": 0.3324,
+      "recent_expectancy": 0.02,
+      "risk_multiplier": 0.2,
+      "raw_trade_rows": 40,
+      "excluded_return_rows": 0,
+      "next_review_at_trades": 60
+    },
+    "cash_only_missing_basis": {
+      "enabled": true,
+      "reason": "insufficient_trades",
+      "stage": "limited_live_learning",
+      "total_trades": 0,
+      "win_rate": 0.0,
+      "mdd": 0.0,
+      "risk_multiplier": 0.1,
+      "raw_trade_rows": 30,
+      "excluded_return_rows": 30,
+      "next_review_at_trades": 10
+    },
+    "binance_order": [
+      2,
+      1
+    ]
+  },
+  "source_sha256": {
+    "trading/profitability_validation.py": "7c9312b0be987907f5c5806c2917b30ded79d988006e1e975a96c2c30e91c0e3",
+    "trading/trader.py": "01eb64e8e39718bb25e5c8dacef59ada76a703c1588dc4364a6c9e663aa5c13f",
+    "trading/unified_trader.py": "78a726e148d524860dd6a2aced2f45c4f08dca858a266cf444c21e2e7c49280f",
+    "trading/recorder.py": "da235943ed1276994a96d40a31605ea47862864567eb672a50f9567ff373630e",
+    "config/settings_template.json": "c8db497501feb3e33456cb7bbd37406934548a148545cab60dcd2316c05a4d4c"
+  },
+  "inputs": {
+    "baseline_300": {
+      "count": 300,
+      "return_formula": "0.001 if i % 11 < 3 else -0.0021 for i in range(300)",
+      "net_pnl_formula": "0.1 if i % 11 < 3 else -0.21",
+      "performance_evidence_ready": true
+    },
+    "order_case": {
+      "chronological_returns": [
+        0.02,
+        0.02,
+        0.02,
+        0.02,
+        0.02,
+        0.02,
+        0.02,
+        0.02,
+        0.02,
+        0.02,
+        0.02,
+        0.02,
+        0.02,
+        0.02,
+        0.02,
+        0.02,
+        0.02,
+        0.02,
+        0.02,
+        0.02,
+        -0.02,
+        -0.02,
+        -0.02,
+        -0.02,
+        -0.02,
+        -0.02,
+        -0.02,
+        -0.02,
+        -0.02,
+        -0.02,
+        -0.02,
+        -0.02,
+        -0.02,
+        -0.02,
+        -0.02,
+        -0.02,
+        -0.02,
+        -0.02,
+        -0.02,
+        -0.02
+      ],
+      "net_pnl": "return * 100"
+    },
+    "below_minimum_large_loss": [
+      {
+        "net_pnl_fraction": -0.5,
+        "net_pnl": -50,
+        "performance_evidence_ready": true
+      }
+    ],
+    "cash_only_missing_basis": [
+      {
+        "net_pnl": -1
+      },
+      {
+        "net_pnl": -1
+      },
+      {
+        "net_pnl": -1
+      },
+      {
+        "net_pnl": -1
+      },
+      {
+        "net_pnl": -1
+      },
+      {
+        "net_pnl": -1
+      },
+      {
+        "net_pnl": -1
+      },
+      {
+        "net_pnl": -1
+      },
+      {
+        "net_pnl": -1
+      },
+      {
+        "net_pnl": -1
+      },
+      {
+        "net_pnl": -1
+      },
+      {
+        "net_pnl": -1
+      },
+      {
+        "net_pnl": -1
+      },
+      {
+        "net_pnl": -1
+      },
+      {
+        "net_pnl": -1
+      },
+      {
+        "net_pnl": -1
+      },
+      {
+        "net_pnl": -1
+      },
+      {
+        "net_pnl": -1
+      },
+      {
+        "net_pnl": -1
+      },
+      {
+        "net_pnl": -1
+      },
+      {
+        "net_pnl": -1
+      },
+      {
+        "net_pnl": -1
+      },
+      {
+        "net_pnl": -1
+      },
+      {
+        "net_pnl": -1
+      },
+      {
+        "net_pnl": -1
+      },
+      {
+        "net_pnl": -1
+      },
+      {
+        "net_pnl": -1
+      },
+      {
+        "net_pnl": -1
+      },
+      {
+        "net_pnl": -1
+      },
+      {
+        "net_pnl": -1
+      }
+    ]
+  },
+  "existing_regression": {
+    "command": ".venv/bin/python -m pytest tests/test_profitability_validation.py tests/test_advanced_trading_layers.py tests/test_trade_candidate_contract_3904.py tests/test_v39143_record_recovery.py -q",
+    "passed": 109,
+    "warning_count": 1,
+    "seconds": 3.53,
+    "meaning": "Existing tests pass; newly identified defects are not fixed."
+  }
+}

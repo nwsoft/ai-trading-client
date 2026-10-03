@@ -59,7 +59,8 @@ def test_life_finance_advanced_engines_return_real_empty_state_and_reference_res
     assert "path" not in json.dumps(catalog)
     compared = service.compare_product(product_type="savings", amount=10_000_000, term_months=12, category=None)
     assert compared["application_submitted"] is False
-    assert compared["result"]["best"]["expected_interest"] >= 0
+    assert compared["result"]["best"] is None
+    assert compared["result"]["recommendation_available"] is False
 
     tax = service.calculate_tax(calculation="financial_income", values={
         "interest_income": 15_000_000,
@@ -119,7 +120,8 @@ def test_advanced_gateway_requires_auth_and_explicit_intent(tmp_path, monkeypatc
     )
     assert preferred.status_code == 200
     assert preferred.json()["credit_profile"] == "좋음 (750~900)"
-    assert "신용도" in preferred.json()["result"]["summary"]
+    assert preferred.json()["result"]["best"] is None
+    assert "예상 금리" not in preferred.json()["result"]["summary"]
 
     unknown = dict(body, unexpected=True)
     assert client.post("/api/v1/life-finance/products/compare", headers=CONFIRMED, json=unknown).status_code == 422

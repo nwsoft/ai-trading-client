@@ -291,7 +291,7 @@ function DesktopApp() {
 
   useEffect(() => {
     const mode = session?.authenticated ? "dashboard" : "login";
-    const displayVersion = platform?.release_version || "3.9.2.2";
+    const displayVersion = platform?.release_version || "3.9.2.3";
     document.title = session?.authenticated ? `Noah AI Client - 대시보드 Beta v${displayVersion}` : "NoahAI Finance Decision OS - 로그인";
     document.body.classList.toggle("dashboard-surface", Boolean(session?.authenticated));
     window.noahAI?.window?.setMode(mode).catch(() => undefined);
@@ -480,7 +480,7 @@ function DesktopApp() {
     </section>
     <footer className="statusbar legacy-statusbar">
       <span className="legacy-status-left">{legacyStatusLabel(runtime, chartSource, statusClock)}</span>
-      <div className="legacy-release-update"><span className="legacy-release" title={`실행 엔진: ${platform?.release_label ?? '미확인'} · 화면 빌드: ${UI_BUILD_TAG}`}>{platform?.release_label ?? "v3.9.2.2"}<small className="ui-build-id"> · UI 2.2.2</small></span><UpdateCenter client={client} accountScope={session?.account ?? ""} onOpenGuide={() => openManual("updates")} /></div>
+      <div className="legacy-release-update"><span className="legacy-release" title={`실행 엔진: ${platform?.release_label ?? '미확인'} · 화면 빌드: ${UI_BUILD_TAG}`}>{platform?.release_label ?? "v3.9.2.3"}<small className="ui-build-id"> · UI 2.3.1</small></span><UpdateCenter client={client} accountScope={session?.account ?? ""} onOpenGuide={() => openManual("updates")} /></div>
       <div className="legacy-ai-summary"><span className="legacy-ai-record" title={aiRecord}>{aiRecord}</span><button className="legacy-record-button" type="button" onClick={() => void refreshAiRecord()}><AppIcon name="record" />{t("기록")}</button></div>
     </footer>
     <SettingsCenter client={client} open={settingsOpen} initialField={settingsInitialField} onClose={() => { setSettingsOpen(false); setSettingsInitialField(undefined); }} onAskAssistant={(question, settingsSection) => openAssistant(question, "settings", settingsSection)} onOpenManual={() => { setSettingsOpen(false); openManual("settings"); }} onSettingsSaved={async () => { setSettingsRevision((value) => value + 1); await refreshRuntimeFromSettings(); }} />

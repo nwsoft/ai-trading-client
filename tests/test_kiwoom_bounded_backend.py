@@ -304,10 +304,9 @@ def test_manual_boundary_uses_release_source_not_mutable_manifest():
         _render_release_boundary,
     )
     text = _render_release_boundary('custom', 'guide')
-    assert (
-        f'v{RELEASE_VERSION} Windows stable/latest 배포 후보 · '
-        f'공개 stable/latest는 v{PUBLIC_RELEASE_VERSION}'
-    ) in text
+    expected = (f'v{RELEASE_VERSION} Windows stable/latest 공개 제품' if RELEASE_VERSION == PUBLIC_RELEASE_VERSION
+                else f'v{RELEASE_VERSION} Windows stable/latest 배포 후보 · 공개 stable/latest는 v{PUBLIC_RELEASE_VERSION}')
+    assert expected in text
 
 
 def test_parent_fault_diagnostics_do_not_require_child_environment(tmp_path, monkeypatch):

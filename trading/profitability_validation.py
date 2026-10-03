@@ -77,9 +77,18 @@ class ProfitabilityValidator:
         try:
             if value is None:
                 return default
-            return float(value)
+            number = float(value)
+            return number if math.isfinite(number) else default
         except Exception:
             return default
+
+    @staticmethod
+    def _finite_return(value: Any) -> Optional[float]:
+        try:
+            number = float(value)
+            return number if math.isfinite(number) else None
+        except (TypeError, ValueError, OverflowError):
+            return None
 
     def _extract_trade_return(self, trade: Dict[str, Any]) -> Optional[float]:
         """Return one closed trade as a unitless net return fraction.
@@ -92,11 +101,17 @@ class ProfitabilityValidator:
         """
         for key in ("net_pnl_fraction", "pnl_fraction", "return_fraction"):
             if trade.get(key) is not None:
-                return self._to_float(trade.get(key), 0.0)
+                return self._finite_return(trade.get(key))
         for key in ("net_pnl_percent", "pnl_percent", "return_percent"):
             if trade.get(key) is not None:
-                return self._to_float(trade.get(key), 0.0) / 100.0
+                value = self._finite_return(trade.get(key))
+                return None if value is None else value / 100.0
 
+        if not any(trade.get(key) is not None for key in ("net_pnl", "pnl", "realized_pnl", "profit")):
+            return None
+        for key in ("net_pnl", "pnl", "realized_pnl", "profit", "fee", "fees", "slippage_bps", "quantity", "filled_quantity", "entry_price", "filled_price", "price", "entry_notional", "notional"):
+            if trade.get(key) is not None and self._finite_return(trade[key]) is None:
+                return None
         pnl = self._to_float(
             trade.get("net_pnl", trade.get("pnl", trade.get("realized_pnl", trade.get("profit", 0.0)))),
             0.0,
@@ -128,7 +143,7 @@ class ProfitabilityValidator:
             if bool(trade.get("pnl_is_net", False)) or trade.get("net_pnl") is not None
             else pnl - fee - slippage_cost
         )
-        return net / notional
+        return self._finite_return(net / notional)
 
     def _extract_net_pnl_ccy(self, trade: Dict[str, Any]) -> float:
         """Return cash PnL once, preserving the row's quote currency."""
@@ -223,7 +238,7 @@ class ProfitabilityValidator:
             return 0.0
         return passed / windows
 
-    def evaluate_strategy(self, recent_trades: List[Dict[str, Any]], policy: Dict[str, Any] | None = None) -> Dict[str, Any]:
+    def _evaluate_strategy(self, recent_trades: List[Dict[str, Any]], policy: Dict[str, Any] | None = None) -> Dict[str, Any]:
         effective = dict(self.DEFAULT_POLICY)
         effective.update(policy or {})
 
@@ -250,6 +265,10 @@ class ProfitabilityValidator:
         returns = [value for value in extracted_returns if value is not None]
         total_trades = len(returns)
         excluded_return_rows = len(trade_rows) - total_trades
+        if excluded_return_rows:
+            return {"enabled": False, "bypassed": False, "reason": "return_evidence_required",
+                    "reasons": ["return_evidence_required"], "total_trades": total_trades,
+                    "raw_trade_rows": len(trade_rows), "excluded_return_rows": excluded_return_rows}
         gross_pnl = sum(self._to_float(t.get("pnl", t.get("realized_pnl", t.get("profit", 0.0))), 0.0) for t in trade_rows)
         net_pnl = sum(self._extract_net_pnl_ccy(t) for t in trade_rows)
         return_basis = self._return_basis(trade_rows)
@@ -270,6 +289,15 @@ class ProfitabilityValidator:
         mdd = self._max_drawdown_from_equity(equity)
         walkforward = self._walkforward_pass_rate(returns, int(effective.get("walkforward_splits", 4) or 4))
 
+        hard_stop_mdd = self._to_float(effective.get("hard_stop_mdd", 0.45), 0.45)
+        if mdd > hard_stop_mdd:
+            return {"enabled": False, "bypassed": False, "reason": "hard_stop_mdd_exceeded",
+                    "reasons": ["hard_stop_mdd_exceeded", "mdd_above_threshold"],
+                    "stage": "hard_stop", "mdd": round(mdd, 4), "total_trades": total_trades,
+                    "raw_trade_rows": len(trade_rows), "excluded_return_rows": 0,
+                    "win_rate": round(win_rate, 4), "sharpe": round(sharpe, 4),
+                    "expectancy": round(expectancy, 6), "walkforward_pass_rate": round(walkforward, 4),
+                    "return_basis": return_basis}
         reasons: List[str] = []
         if total_trades < int(effective.get("min_trades", 20) or 20):
             # 거래 데이터가 부족해도 영구 차단하지 않는다. 시장 데이터/가드레일이 통과하면
@@ -351,7 +379,8 @@ class ProfitabilityValidator:
                 "risk_multiplier": round(min(0.50, base_risk + recovery_bonus), 4),
                 "max_positions": max(1, int(effective.get("recovery_max_positions", 1) or 1)),
                 "max_leverage": max(1, int(effective.get("recovery_max_leverage", 1) or 1)),
-                "next_review_at_trades": total_trades + review_interval,
+                "next_review_at_trades": None,
+                "review_window_trades": review_interval,
                 "recheck_policy": "each_closed_trade",
                 "recent_expectancy": round(recent_expectancy, 4),
                 "note": "수수료 차감 후 성과 회복 표본을 최소 위험으로 계속 수집",
@@ -418,3 +447,31 @@ class ProfitabilityValidator:
             "excluded_return_rows": excluded_return_rows,
         })
         return result
+
+    def evaluate_strategy(self, recent_trades: List[Dict[str, Any]], policy: Dict[str, Any] | None = None) -> Dict[str, Any]:
+        effective = dict(self.DEFAULT_POLICY)
+        effective.update(policy or {})
+        report = self._evaluate_strategy(recent_trades, policy)
+        reasons = report.get("reasons", [])
+        if "pnl_reconciliation_required" in reasons:
+            state, actions = "reconciliation_required", ["record_recovery", "recheck"]
+        elif "return_evidence_required" in reasons:
+            state, actions = "return_evidence_required", ["record_recovery", "recheck"]
+        elif "hard_stop_mdd_exceeded" in reasons:
+            state, actions = "hard_stop", ["review_strategy", "paper_validation", "recheck"]
+        elif not report.get("enabled"):
+            state, actions = "strict_stop", ["review_policy", "paper_validation", "recheck"]
+        else:
+            state, actions = report.get("stage", "validation_disabled"), ["recheck"]
+        report.update({"diagnostic_state": state, "available_actions": actions,
+                       "effective_policy": effective, "raw_trade_rows": len(recent_trades or []),
+                       "recheck_policy": "each_cycle_and_closed_trade", "new_entry_scope": "base_and_confirm",
+                       "order_permission_granted": False})
+        from trading.operational_recovery_contract import recovery_contract
+        report["recovery"] = recovery_contract(reasons)
+        report["criteria"] = [{"metric": metric, "actual": report.get(metric), "threshold": effective[key], "operator": op}
+            for metric, key, op in [("win_rate", "min_win_rate", ">="), ("sharpe", "min_sharpe", ">="),
+                                    ("mdd", "max_mdd", "<="), ("expectancy", "min_expectancy", ">="),
+                                    ("walkforward_pass_rate", "min_walkforward_pass_rate", ">="),
+                                    ("mdd", "hard_stop_mdd", "<=")]]
+        return report

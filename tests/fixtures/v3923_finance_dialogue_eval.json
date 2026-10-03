@@ -1,0 +1,1383 @@
+{
+  "scope": "Synthetic deterministic Korean interpretation reference; not external-model or professional financial accuracy certification.",
+  "single": [
+    {
+      "id": "loan-01",
+      "kind": "loan",
+      "question": "대출 5000만원 24개월",
+      "initial": {},
+      "expected": {
+        "amount": "50000000.0",
+        "months": "24"
+      },
+      "error": false,
+      "unresolved": false
+    },
+    {
+      "id": "loan-02",
+      "kind": "loan",
+      "question": "빌릴 금액 1억원 기간 10년",
+      "initial": {},
+      "expected": {
+        "amount": "100000000.0",
+        "months": "120"
+      },
+      "error": false,
+      "unresolved": false
+    },
+    {
+      "id": "loan-03",
+      "kind": "loan",
+      "question": "대출 금액 250만원 기간 6개월",
+      "initial": {},
+      "expected": {
+        "amount": "2500000.0",
+        "months": "6"
+      },
+      "error": false,
+      "unresolved": false
+    },
+    {
+      "id": "loan-04",
+      "kind": "loan",
+      "question": "금액 1.5억원 기간 30년",
+      "initial": {},
+      "expected": {
+        "amount": "150000000.0",
+        "months": "360"
+      },
+      "error": false,
+      "unresolved": false
+    },
+    {
+      "id": "loan-05",
+      "kind": "loan",
+      "question": "대출 2천만원 만기 5년",
+      "initial": {},
+      "expected": {
+        "amount": "20000000.0",
+        "months": "60"
+      },
+      "error": false,
+      "unresolved": false
+    },
+    {
+      "id": "loan-06",
+      "kind": "loan",
+      "question": "대출 300만원 거치 2개월 기간 12개월",
+      "initial": {},
+      "expected": {
+        "amount": "3000000.0",
+        "grace_months": "2",
+        "months": "12"
+      },
+      "error": false,
+      "unresolved": false
+    },
+    {
+      "id": "loan-07",
+      "kind": "loan",
+      "question": "원금균등으로 바꿔줘",
+      "initial": {},
+      "expected": {
+        "method": "principal"
+      },
+      "error": false,
+      "unresolved": false
+    },
+    {
+      "id": "loan-08",
+      "kind": "loan",
+      "question": "원리금균등으로 변경",
+      "initial": {},
+      "expected": {
+        "method": "annuity"
+      },
+      "error": false,
+      "unresolved": false
+    },
+    {
+      "id": "loan-09",
+      "kind": "loan",
+      "question": "만기일시로 비교",
+      "initial": {},
+      "expected": {
+        "method": "bullet"
+      },
+      "error": false,
+      "unresolved": false
+    },
+    {
+      "id": "loan-10",
+      "kind": "loan",
+      "question": "기간을 36개월로",
+      "initial": {},
+      "expected": {
+        "months": "36"
+      },
+      "error": false,
+      "unresolved": false
+    },
+    {
+      "id": "loan-11",
+      "kind": "loan",
+      "question": "만기 2년",
+      "initial": {},
+      "expected": {
+        "months": "24"
+      },
+      "error": false,
+      "unresolved": false
+    },
+    {
+      "id": "loan-12",
+      "kind": "loan",
+      "question": "월소득 400만원",
+      "initial": {},
+      "expected": {
+        "monthly_income": "4000000.0"
+      },
+      "error": false,
+      "unresolved": false
+    },
+    {
+      "id": "loan-13",
+      "kind": "loan",
+      "question": "생활비 180만원",
+      "initial": {},
+      "expected": {
+        "monthly_expenses": "1800000.0"
+      },
+      "error": false,
+      "unresolved": false
+    },
+    {
+      "id": "loan-14",
+      "kind": "loan",
+      "question": "기존 월 상환액 50만원",
+      "initial": {},
+      "expected": {
+        "other_repayments": "500000.0"
+      },
+      "error": false,
+      "unresolved": false
+    },
+    {
+      "id": "loan-15",
+      "kind": "loan",
+      "question": "대출 1000만원 기간 24개월 월소득 300만원 생활비 100만원",
+      "initial": {},
+      "expected": {
+        "amount": "10000000.0",
+        "months": "24",
+        "monthly_income": "3000000.0",
+        "monthly_expenses": "1000000.0"
+      },
+      "error": false,
+      "unresolved": false
+    },
+    {
+      "id": "loan-16",
+      "kind": "loan",
+      "question": "카드 조건은 제외",
+      "initial": {},
+      "expected": {
+        "declined_conditions": [
+          "카드"
+        ]
+      },
+      "error": false,
+      "unresolved": false
+    },
+    {
+      "id": "loan-17",
+      "kind": "loan",
+      "question": "급여 조건 못 맞춰",
+      "initial": {},
+      "expected": {
+        "declined_conditions": [
+          "급여"
+        ]
+      },
+      "error": false,
+      "unresolved": false
+    },
+    {
+      "id": "loan-18",
+      "kind": "loan",
+      "question": "자동이체는 안 할래",
+      "initial": {},
+      "expected": {
+        "declined_conditions": [
+          "자동이체"
+        ]
+      },
+      "error": false,
+      "unresolved": false
+    },
+    {
+      "id": "loan-19",
+      "kind": "loan",
+      "question": "카드 조건은 제외하지 마",
+      "initial": {},
+      "expected": {},
+      "error": false,
+      "unresolved": false
+    },
+    {
+      "id": "loan-20",
+      "kind": "loan",
+      "question": "원금균등 기간 48개월",
+      "initial": {},
+      "expected": {
+        "method": "principal",
+        "months": "48"
+      },
+      "error": false,
+      "unresolved": false
+    },
+    {
+      "id": "loan-21",
+      "kind": "loan",
+      "question": "거치 0개월 기간 12개월",
+      "initial": {},
+      "expected": {
+        "grace_months": "0",
+        "months": "12"
+      },
+      "error": false,
+      "unresolved": false
+    },
+    {
+      "id": "loan-22",
+      "kind": "loan",
+      "question": "금액 100만원 기간 600개월",
+      "initial": {},
+      "expected": {
+        "amount": "1000000.0",
+        "months": "600"
+      },
+      "error": false,
+      "unresolved": false
+    },
+    {
+      "id": "loan-23",
+      "kind": "loan",
+      "question": "수수료를 모르면?",
+      "initial": {},
+      "expected": {},
+      "error": false,
+      "unresolved": false
+    },
+    {
+      "id": "loan-24",
+      "kind": "loan",
+      "question": "내 대출이 승인될까요?",
+      "initial": {},
+      "expected": {},
+      "error": false,
+      "unresolved": false
+    },
+    {
+      "id": "loan-25",
+      "kind": "loan",
+      "question": "DSR이 뭐야?",
+      "initial": {},
+      "expected": {},
+      "error": false,
+      "unresolved": false
+    },
+    {
+      "id": "loan-26",
+      "kind": "loan",
+      "question": "금액 -100만원",
+      "initial": {},
+      "expected": {},
+      "error": true,
+      "unresolved": false
+    },
+    {
+      "id": "loan-27",
+      "kind": "loan",
+      "question": "기간 601개월",
+      "initial": {},
+      "expected": {},
+      "error": true,
+      "unresolved": false
+    },
+    {
+      "id": "loan-28",
+      "kind": "loan",
+      "question": "100만원에서 200만원으로",
+      "initial": {},
+      "expected": {},
+      "error": false,
+      "unresolved": true
+    },
+    {
+      "id": "loan-29",
+      "kind": "loan",
+      "question": "12개월과 24개월 비교",
+      "initial": {},
+      "expected": {},
+      "error": false,
+      "unresolved": true
+    },
+    {
+      "id": "loan-30",
+      "kind": "loan",
+      "question": "기간 24개월 거치 3개월",
+      "initial": {},
+      "expected": {
+        "months": "24",
+        "grace_months": "3"
+      },
+      "error": false,
+      "unresolved": false
+    },
+    {
+      "id": "savings-01",
+      "kind": "savings",
+      "question": "목돈 100만원 12개월 예금",
+      "initial": {},
+      "expected": {
+        "amount": "1000000.0",
+        "months": "12",
+        "method": "deposit"
+      },
+      "error": false,
+      "unresolved": false
+    },
+    {
+      "id": "savings-02",
+      "kind": "savings",
+      "question": "매달 30만원 기간 24개월 적금",
+      "initial": {},
+      "expected": {
+        "amount": "300000.0",
+        "months": "24",
+        "method": "installment"
+      },
+      "error": false,
+      "unresolved": false
+    },
+    {
+      "id": "savings-03",
+      "kind": "savings",
+      "question": "예금 원금 1억원 만기 1년",
+      "initial": {},
+      "expected": {
+        "amount": "100000000.0",
+        "months": "12",
+        "method": "deposit"
+      },
+      "error": false,
+      "unresolved": false
+    },
+    {
+      "id": "savings-04",
+      "kind": "savings",
+      "question": "납입액 15만원 기간 6개월 적금",
+      "initial": {},
+      "expected": {
+        "amount": "150000.0",
+        "months": "6",
+        "method": "installment"
+      },
+      "error": false,
+      "unresolved": false
+    },
+    {
+      "id": "savings-05",
+      "kind": "savings",
+      "question": "목표 금액 200만원 매달 10만원 기간 24개월",
+      "initial": {},
+      "expected": {
+        "target_amount": "2000000.0",
+        "amount": "100000.0",
+        "months": "24"
+      },
+      "error": false,
+      "unresolved": false
+    },
+    {
+      "id": "savings-06",
+      "kind": "savings",
+      "question": "월소득 300만원 생활비 150만원 매달 20만원",
+      "initial": {},
+      "expected": {
+        "monthly_income": "3000000.0",
+        "monthly_expenses": "1500000.0",
+        "amount": "200000.0"
+      },
+      "error": false,
+      "unresolved": false
+    },
+    {
+      "id": "savings-07",
+      "kind": "savings",
+      "question": "월복리로 바꿔줘",
+      "initial": {},
+      "expected": {
+        "compounding": "monthly"
+      },
+      "error": false,
+      "unresolved": false
+    },
+    {
+      "id": "savings-08",
+      "kind": "savings",
+      "question": "연복리로 비교해줘",
+      "initial": {},
+      "expected": {
+        "compounding": "annual"
+      },
+      "error": false,
+      "unresolved": false
+    },
+    {
+      "id": "savings-09",
+      "kind": "savings",
+      "question": "단리로 계산해줘",
+      "initial": {},
+      "expected": {
+        "compounding": "simple"
+      },
+      "error": false,
+      "unresolved": false
+    },
+    {
+      "id": "savings-10",
+      "kind": "savings",
+      "question": "만기를 분산할래",
+      "initial": {},
+      "expected": {
+        "ladder": "true"
+      },
+      "error": false,
+      "unresolved": false
+    },
+    {
+      "id": "savings-11",
+      "kind": "savings",
+      "question": "만기 분산 취소",
+      "initial": {},
+      "expected": {
+        "ladder": "false"
+      },
+      "error": false,
+      "unresolved": false
+    },
+    {
+      "id": "savings-12",
+      "kind": "savings",
+      "question": "카드 조건은 싫어",
+      "initial": {},
+      "expected": {
+        "declined_conditions": [
+          "카드"
+        ]
+      },
+      "error": false,
+      "unresolved": false
+    },
+    {
+      "id": "savings-13",
+      "kind": "savings",
+      "question": "급여 조건 제외",
+      "initial": {},
+      "expected": {
+        "declined_conditions": [
+          "급여"
+        ]
+      },
+      "error": false,
+      "unresolved": false
+    },
+    {
+      "id": "savings-14",
+      "kind": "savings",
+      "question": "첫 거래 조건 제외",
+      "initial": {},
+      "expected": {
+        "declined_conditions": [
+          "첫 거래"
+        ]
+      },
+      "error": false,
+      "unresolved": false
+    },
+    {
+      "id": "savings-15",
+      "kind": "savings",
+      "question": "자동이체 제외",
+      "initial": {},
+      "expected": {
+        "declined_conditions": [
+          "자동이체"
+        ]
+      },
+      "error": false,
+      "unresolved": false
+    },
+    {
+      "id": "savings-16",
+      "kind": "savings",
+      "question": "카드 제외하지 마",
+      "initial": {},
+      "expected": {},
+      "error": false,
+      "unresolved": false
+    },
+    {
+      "id": "savings-17",
+      "kind": "savings",
+      "question": "기간 3년",
+      "initial": {},
+      "expected": {
+        "months": "36"
+      },
+      "error": false,
+      "unresolved": false
+    },
+    {
+      "id": "savings-18",
+      "kind": "savings",
+      "question": "목표금액 1억원",
+      "initial": {},
+      "expected": {
+        "target_amount": "100000000.0"
+      },
+      "error": false,
+      "unresolved": false
+    },
+    {
+      "id": "savings-19",
+      "kind": "savings",
+      "question": "예금 2백만원 6개월",
+      "initial": {},
+      "expected": {
+        "amount": "2000000.0",
+        "months": "6"
+      },
+      "error": false,
+      "unresolved": false
+    },
+    {
+      "id": "savings-20",
+      "kind": "savings",
+      "question": "적금 5만원 12개월",
+      "initial": {},
+      "expected": {
+        "amount": "50000.0",
+        "months": "12"
+      },
+      "error": false,
+      "unresolved": false
+    },
+    {
+      "id": "savings-21",
+      "kind": "savings",
+      "question": "목돈 1.5천만원 기간 12개월",
+      "initial": {},
+      "expected": {
+        "amount": "15000000.0",
+        "months": "12"
+      },
+      "error": false,
+      "unresolved": false
+    },
+    {
+      "id": "savings-22",
+      "kind": "savings",
+      "question": "목돈 500만원 6개월 단리",
+      "initial": {},
+      "expected": {
+        "amount": "5000000.0",
+        "months": "6",
+        "compounding": "simple"
+      },
+      "error": false,
+      "unresolved": false
+    },
+    {
+      "id": "savings-23",
+      "kind": "savings",
+      "question": "중도해지 금리를 모르면?",
+      "initial": {},
+      "expected": {},
+      "error": false,
+      "unresolved": false
+    },
+    {
+      "id": "savings-24",
+      "kind": "savings",
+      "question": "보호되는지 확인하고 싶어",
+      "initial": {},
+      "expected": {},
+      "error": false,
+      "unresolved": false
+    },
+    {
+      "id": "savings-25",
+      "kind": "savings",
+      "question": "세후 이자가 뭐야?",
+      "initial": {},
+      "expected": {},
+      "error": false,
+      "unresolved": false
+    },
+    {
+      "id": "savings-26",
+      "kind": "savings",
+      "question": "예금 -100만원",
+      "initial": {},
+      "expected": {},
+      "error": true,
+      "unresolved": false
+    },
+    {
+      "id": "savings-27",
+      "kind": "savings",
+      "question": "기간 0개월",
+      "initial": {},
+      "expected": {},
+      "error": true,
+      "unresolved": false
+    },
+    {
+      "id": "savings-28",
+      "kind": "savings",
+      "question": "100만원 또는 300만원",
+      "initial": {},
+      "expected": {},
+      "error": false,
+      "unresolved": true
+    },
+    {
+      "id": "savings-29",
+      "kind": "savings",
+      "question": "6개월 아니면 12개월",
+      "initial": {},
+      "expected": {},
+      "error": false,
+      "unresolved": true
+    },
+    {
+      "id": "savings-30",
+      "kind": "savings",
+      "question": "적금으로 바꾸면?",
+      "initial": {
+        "amount": "1000000",
+        "method": "deposit"
+      },
+      "expected": {
+        "amount": "",
+        "method": "installment"
+      },
+      "error": false,
+      "unresolved": true
+    },
+    {
+      "id": "insurance-01",
+      "kind": "insurance",
+      "question": "보험이 없어요",
+      "initial": {},
+      "expected": {
+        "insurance_state": "none"
+      },
+      "error": false,
+      "unresolved": false
+    },
+    {
+      "id": "insurance-02",
+      "kind": "insurance",
+      "question": "보험 없음",
+      "initial": {},
+      "expected": {
+        "insurance_state": "none"
+      },
+      "error": false,
+      "unresolved": false
+    },
+    {
+      "id": "insurance-03",
+      "kind": "insurance",
+      "question": "보험 미가입",
+      "initial": {},
+      "expected": {
+        "insurance_state": "none"
+      },
+      "error": false,
+      "unresolved": false
+    },
+    {
+      "id": "insurance-04",
+      "kind": "insurance",
+      "question": "보험이 있어요",
+      "initial": {},
+      "expected": {
+        "insurance_state": "existing"
+      },
+      "error": false,
+      "unresolved": false
+    },
+    {
+      "id": "insurance-05",
+      "kind": "insurance",
+      "question": "가입했는지 몰라요",
+      "initial": {},
+      "expected": {
+        "insurance_state": "unknown"
+      },
+      "error": false,
+      "unresolved": false
+    },
+    {
+      "id": "insurance-06",
+      "kind": "insurance",
+      "question": "보험 있는지 몰라",
+      "initial": {},
+      "expected": {
+        "insurance_state": "unknown"
+      },
+      "error": false,
+      "unresolved": false
+    },
+    {
+      "id": "insurance-07",
+      "kind": "insurance",
+      "question": "운전자보험 알아봐줘",
+      "initial": {},
+      "expected": {
+        "insurance_kind": "driver"
+      },
+      "error": false,
+      "unresolved": false
+    },
+    {
+      "id": "insurance-08",
+      "kind": "insurance",
+      "question": "실손보험 알고 싶어",
+      "initial": {},
+      "expected": {
+        "insurance_kind": "medical"
+      },
+      "error": false,
+      "unresolved": false
+    },
+    {
+      "id": "insurance-09",
+      "kind": "insurance",
+      "question": "암보험 비교해줘",
+      "initial": {},
+      "expected": {
+        "insurance_kind": "cancer"
+      },
+      "error": false,
+      "unresolved": false
+    },
+    {
+      "id": "insurance-10",
+      "kind": "insurance",
+      "question": "자동차보험 확인",
+      "initial": {},
+      "expected": {
+        "insurance_kind": "auto"
+      },
+      "error": false,
+      "unresolved": false
+    },
+    {
+      "id": "insurance-11",
+      "kind": "insurance",
+      "question": "여행보험 알려줘",
+      "initial": {},
+      "expected": {
+        "insurance_kind": "travel"
+      },
+      "error": false,
+      "unresolved": false
+    },
+    {
+      "id": "insurance-12",
+      "kind": "insurance",
+      "question": "종신보험 설명",
+      "initial": {},
+      "expected": {
+        "insurance_kind": "whole_life"
+      },
+      "error": false,
+      "unresolved": false
+    },
+    {
+      "id": "insurance-13",
+      "kind": "insurance",
+      "question": "정기보험 설명",
+      "initial": {},
+      "expected": {
+        "insurance_kind": "term"
+      },
+      "error": false,
+      "unresolved": false
+    },
+    {
+      "id": "insurance-14",
+      "kind": "insurance",
+      "question": "상해보험 설명",
+      "initial": {},
+      "expected": {
+        "insurance_kind": "accident"
+      },
+      "error": false,
+      "unresolved": false
+    },
+    {
+      "id": "insurance-15",
+      "kind": "insurance",
+      "question": "소득보험 설명",
+      "initial": {},
+      "expected": {
+        "insurance_kind": "income"
+      },
+      "error": false,
+      "unresolved": false
+    },
+    {
+      "id": "insurance-16",
+      "kind": "insurance",
+      "question": "주택보험 설명",
+      "initial": {},
+      "expected": {
+        "insurance_kind": "home"
+      },
+      "error": false,
+      "unresolved": false
+    },
+    {
+      "id": "insurance-17",
+      "kind": "insurance",
+      "question": "연금보험 설명",
+      "initial": {},
+      "expected": {
+        "insurance_kind": "pension"
+      },
+      "error": false,
+      "unresolved": false
+    },
+    {
+      "id": "insurance-18",
+      "kind": "insurance",
+      "question": "저축성보험 설명",
+      "initial": {},
+      "expected": {
+        "insurance_kind": "saving"
+      },
+      "error": false,
+      "unresolved": false
+    },
+    {
+      "id": "insurance-19",
+      "kind": "insurance",
+      "question": "보험 예산 2만원",
+      "initial": {},
+      "expected": {
+        "insurance_budget": "20000.0"
+      },
+      "error": false,
+      "unresolved": false
+    },
+    {
+      "id": "insurance-20",
+      "kind": "insurance",
+      "question": "월 보험료 3만원",
+      "initial": {},
+      "expected": {
+        "insurance_budget": "30000.0"
+      },
+      "error": false,
+      "unresolved": false
+    },
+    {
+      "id": "insurance-21",
+      "kind": "insurance",
+      "question": "부양가족 2명",
+      "initial": {},
+      "expected": {
+        "dependents": "2.0"
+      },
+      "error": false,
+      "unresolved": false
+    },
+    {
+      "id": "insurance-22",
+      "kind": "insurance",
+      "question": "보험이 없고 운전자보험 예산 2만원",
+      "initial": {},
+      "expected": {
+        "insurance_state": "none",
+        "insurance_kind": "driver",
+        "insurance_budget": "20000.0"
+      },
+      "error": false,
+      "unresolved": false
+    },
+    {
+      "id": "insurance-23",
+      "kind": "insurance",
+      "question": "부양가족 0명 예산 1만원",
+      "initial": {},
+      "expected": {
+        "dependents": "0.0",
+        "insurance_budget": "10000.0"
+      },
+      "error": false,
+      "unresolved": false
+    },
+    {
+      "id": "insurance-24",
+      "kind": "insurance",
+      "question": "해지하면 무조건 좋나요?",
+      "initial": {},
+      "expected": {},
+      "error": false,
+      "unresolved": false
+    },
+    {
+      "id": "insurance-25",
+      "kind": "insurance",
+      "question": "보험금 지급을 보장하나요?",
+      "initial": {},
+      "expected": {},
+      "error": false,
+      "unresolved": false
+    },
+    {
+      "id": "insurance-26",
+      "kind": "insurance",
+      "question": "변호사비 얼마까지 나오나요?",
+      "initial": {},
+      "expected": {},
+      "error": false,
+      "unresolved": false
+    },
+    {
+      "id": "insurance-27",
+      "kind": "insurance",
+      "question": "가입 승인 받을 수 있어?",
+      "initial": {},
+      "expected": {},
+      "error": false,
+      "unresolved": false
+    },
+    {
+      "id": "insurance-28",
+      "kind": "insurance",
+      "question": "예산 -2만원",
+      "initial": {},
+      "expected": {},
+      "error": true,
+      "unresolved": false
+    },
+    {
+      "id": "insurance-29",
+      "kind": "insurance",
+      "question": "1만원 또는 3만원",
+      "initial": {},
+      "expected": {},
+      "error": false,
+      "unresolved": true
+    },
+    {
+      "id": "insurance-30",
+      "kind": "insurance",
+      "question": "부양가족 31명",
+      "initial": {},
+      "expected": {},
+      "error": true,
+      "unresolved": false
+    }
+  ],
+  "multi": [
+    {
+      "id": "loan-multi-1",
+      "kind": "loan",
+      "initial": {},
+      "turns": [
+        "대출 1000만원 기간 12개월",
+        "기간 24개월"
+      ],
+      "expected": {
+        "amount": "10000000.0",
+        "months": "24"
+      }
+    },
+    {
+      "id": "loan-multi-2",
+      "kind": "loan",
+      "initial": {},
+      "turns": [
+        "월소득 300만원 생활비 100만원",
+        "생활비 150만원"
+      ],
+      "expected": {
+        "monthly_income": "3000000.0",
+        "monthly_expenses": "1500000.0"
+      }
+    },
+    {
+      "id": "loan-multi-3",
+      "kind": "loan",
+      "initial": {},
+      "turns": [
+        "원금균등",
+        "원리금균등"
+      ],
+      "expected": {
+        "method": "annuity"
+      }
+    },
+    {
+      "id": "loan-multi-4",
+      "kind": "loan",
+      "initial": {},
+      "turns": [
+        "거치 3개월 기간 24개월",
+        "거치 0개월"
+      ],
+      "expected": {
+        "grace_months": "0",
+        "months": "24"
+      }
+    },
+    {
+      "id": "loan-multi-5",
+      "kind": "loan",
+      "initial": {},
+      "turns": [
+        "카드 조건 제외",
+        "카드 조건 다시 포함"
+      ],
+      "expected": {
+        "declined_conditions": []
+      }
+    },
+    {
+      "id": "loan-multi-6",
+      "kind": "loan",
+      "initial": {},
+      "turns": [
+        "급여 조건 제외",
+        "카드 조건 제외"
+      ],
+      "expected": {
+        "declined_conditions": [
+          "급여",
+          "카드"
+        ]
+      }
+    },
+    {
+      "id": "loan-multi-7",
+      "kind": "loan",
+      "initial": {},
+      "turns": [
+        "대출 100만원",
+        "100만원에서 200만원으로"
+      ],
+      "expected": {
+        "amount": "1000000.0"
+      }
+    },
+    {
+      "id": "loan-multi-8",
+      "kind": "loan",
+      "initial": {},
+      "turns": [
+        "기간 2년",
+        "수수료가 뭔가요?"
+      ],
+      "expected": {
+        "months": "24"
+      }
+    },
+    {
+      "id": "loan-multi-9",
+      "kind": "loan",
+      "initial": {},
+      "turns": [
+        "기존 상환액 50만원",
+        "월소득 200만원"
+      ],
+      "expected": {
+        "other_repayments": "500000.0",
+        "monthly_income": "2000000.0"
+      }
+    },
+    {
+      "id": "loan-multi-10",
+      "kind": "loan",
+      "initial": {},
+      "turns": [
+        "대출 5000만원 기간 10년",
+        "만기일시로 변경",
+        "원금균등으로 다시"
+      ],
+      "expected": {
+        "amount": "50000000.0",
+        "months": "120",
+        "method": "principal"
+      }
+    },
+    {
+      "id": "savings-multi-1",
+      "kind": "savings",
+      "initial": {},
+      "turns": [
+        "목돈 100만원 기간 12개월 예금",
+        "기간 24개월"
+      ],
+      "expected": {
+        "amount": "1000000.0",
+        "months": "24",
+        "method": "deposit"
+      }
+    },
+    {
+      "id": "savings-multi-2",
+      "kind": "savings",
+      "initial": {},
+      "turns": [
+        "목돈 100만원 예금",
+        "적금으로 바꿔줘",
+        "매달 10만원"
+      ],
+      "expected": {
+        "amount": "100000.0",
+        "method": "installment"
+      }
+    },
+    {
+      "id": "savings-multi-3",
+      "kind": "savings",
+      "initial": {},
+      "turns": [
+        "매달 30만원 적금",
+        "예금으로 바꿔줘",
+        "목돈 300만원"
+      ],
+      "expected": {
+        "amount": "3000000.0",
+        "method": "deposit"
+      }
+    },
+    {
+      "id": "savings-multi-4",
+      "kind": "savings",
+      "initial": {},
+      "turns": [
+        "월복리",
+        "단리"
+      ],
+      "expected": {
+        "compounding": "simple"
+      }
+    },
+    {
+      "id": "savings-multi-5",
+      "kind": "savings",
+      "initial": {},
+      "turns": [
+        "연복리",
+        "월복리"
+      ],
+      "expected": {
+        "compounding": "monthly"
+      }
+    },
+    {
+      "id": "savings-multi-6",
+      "kind": "savings",
+      "initial": {},
+      "turns": [
+        "만기 분산",
+        "분산 취소"
+      ],
+      "expected": {
+        "ladder": "false"
+      }
+    },
+    {
+      "id": "savings-multi-7",
+      "kind": "savings",
+      "initial": {},
+      "turns": [
+        "카드 조건 제외",
+        "카드 조건 다시 포함"
+      ],
+      "expected": {
+        "declined_conditions": []
+      }
+    },
+    {
+      "id": "savings-multi-8",
+      "kind": "savings",
+      "initial": {},
+      "turns": [
+        "목표 금액 200만원",
+        "목표 금액 300만원"
+      ],
+      "expected": {
+        "target_amount": "3000000.0"
+      }
+    },
+    {
+      "id": "savings-multi-9",
+      "kind": "savings",
+      "initial": {},
+      "turns": [
+        "목돈 100만원 예금",
+        "100만원 혹은 200만원"
+      ],
+      "expected": {
+        "amount": "1000000.0",
+        "method": "deposit"
+      }
+    },
+    {
+      "id": "savings-multi-10",
+      "kind": "savings",
+      "initial": {},
+      "turns": [
+        "기간 6개월",
+        "6개월 또는 12개월"
+      ],
+      "expected": {
+        "months": "6"
+      }
+    },
+    {
+      "id": "insurance-multi-1",
+      "kind": "insurance",
+      "initial": {},
+      "turns": [
+        "보험이 없어요",
+        "운전자보험",
+        "예산 2만원"
+      ],
+      "expected": {
+        "insurance_state": "none",
+        "insurance_kind": "driver",
+        "insurance_budget": "20000.0"
+      }
+    },
+    {
+      "id": "insurance-multi-2",
+      "kind": "insurance",
+      "initial": {},
+      "turns": [
+        "보험이 없어요",
+        "보험 있는지 몰라"
+      ],
+      "expected": {
+        "insurance_state": "unknown"
+      }
+    },
+    {
+      "id": "insurance-multi-3",
+      "kind": "insurance",
+      "initial": {},
+      "turns": [
+        "보험 있는지 몰라",
+        "보험이 있어요"
+      ],
+      "expected": {
+        "insurance_state": "existing"
+      }
+    },
+    {
+      "id": "insurance-multi-4",
+      "kind": "insurance",
+      "initial": {},
+      "turns": [
+        "운전자보험",
+        "자동차보험"
+      ],
+      "expected": {
+        "insurance_kind": "auto"
+      }
+    },
+    {
+      "id": "insurance-multi-5",
+      "kind": "insurance",
+      "initial": {},
+      "turns": [
+        "종신보험",
+        "정기보험"
+      ],
+      "expected": {
+        "insurance_kind": "term"
+      }
+    },
+    {
+      "id": "insurance-multi-6",
+      "kind": "insurance",
+      "initial": {},
+      "turns": [
+        "예산 3만원",
+        "예산 2만원"
+      ],
+      "expected": {
+        "insurance_budget": "20000.0"
+      }
+    },
+    {
+      "id": "insurance-multi-7",
+      "kind": "insurance",
+      "initial": {},
+      "turns": [
+        "부양가족 2명",
+        "부양가족 3명"
+      ],
+      "expected": {
+        "dependents": "3.0"
+      }
+    },
+    {
+      "id": "insurance-multi-8",
+      "kind": "insurance",
+      "initial": {},
+      "turns": [
+        "실손보험",
+        "암보험"
+      ],
+      "expected": {
+        "insurance_kind": "cancer"
+      }
+    },
+    {
+      "id": "insurance-multi-9",
+      "kind": "insurance",
+      "initial": {},
+      "turns": [
+        "예산 2만원",
+        "1만원 또는 3만원"
+      ],
+      "expected": {
+        "insurance_budget": "20000.0"
+      }
+    },
+    {
+      "id": "insurance-multi-10",
+      "kind": "insurance",
+      "initial": {},
+      "turns": [
+        "연금보험",
+        "저축성보험"
+      ],
+      "expected": {
+        "insurance_kind": "saving"
+      }
+    }
+  ]
+}

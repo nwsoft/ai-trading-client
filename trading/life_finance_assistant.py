@@ -928,13 +928,16 @@ class LifeFinanceAssistant:
     # ========== 금융상품 핸들러 ==========
 
     def _handle_compare_loan(self, context: FinanceContext) -> Dict[str, Any]:
-        amount = context.extracted_amount if context.extracted_amount else 100000000
-        result = self.product_advisor.compare_loans(amount=float(amount), term_months=24)
+        amount = context.extracted_amount
+        result = self.product_advisor.compare_loans(amount=amount, term_months=24)
         
         # Phase 1: 신용도 기반 조정 적용
         if context.credit_score:
             result = self.product_advisor.apply_credit_adjustment_to_loans(result, context.credit_score)
         
+        if not result.get('best'):
+            return {'response': result['summary'], 'intent': context.intent.value,
+                    'action_taken': context.intent.value, 'data': result, 'requires_confirmation': False}
         best = result['best']
         
         # 신용도가 있으면 추가 설명
@@ -972,13 +975,16 @@ class LifeFinanceAssistant:
         }
 
     def _handle_compare_savings_product(self, context: FinanceContext) -> Dict[str, Any]:
-        principal = context.extracted_amount if context.extracted_amount else 5000000
-        result = self.product_advisor.compare_savings(principal=float(principal), term_months=12)
+        principal = context.extracted_amount
+        result = self.product_advisor.compare_savings(principal=principal, term_months=12)
         
         # Phase 1: 신용도 기반 조정 적용
         if context.credit_score:
             result = self.product_advisor.apply_credit_adjustment_to_savings(result, context.credit_score)
         
+        if not result.get('best'):
+            return {'response': result['summary'], 'intent': context.intent.value,
+                    'action_taken': context.intent.value, 'data': result, 'requires_confirmation': False}
         best = result['best']
         
         # 신용도가 있으면 추가 설명

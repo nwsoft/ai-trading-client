@@ -305,6 +305,8 @@ class InteractiveAIService:
         system_prompt: str,
         max_tokens: int,
         privacy_class: str = "private",
+        persist_response: bool = True,
+        expected_route: tuple[str, str] | None = None,
     ) -> dict[str, Any]:
         normalized_privacy = "public_general" if str(privacy_class).strip().lower() == "public_general" else "private"
         if normalized_privacy == "public_general":
@@ -315,6 +317,8 @@ class InteractiveAIService:
             router = self.router_factory(settings, workload=workload)
         provider = str(router.spec.provider)
         model = str(router.adapter.model)
+        if expected_route is not None and (provider, model) != expected_route:
+            raise ValueError('finance_ai_route_changed')
         privacy_route = str(getattr(router, "privacy_route", "protected_default") or "protected_default")
         privacy_reason = str(getattr(router, "privacy_reason", "기본 보호 경로") or "기본 보호 경로")
         if not router.adapter.is_ready():
@@ -323,7 +327,7 @@ class InteractiveAIService:
         policy = self._policy(settings)
         cache_key = self._cache_key(provider=provider, model=model, workload=workload, prompt=question, context=context, privacy_route=privacy_route)
         with self._lock:
-            cache = self._read(self.cache_path, {"entries": {}})
+            cache = self._read(self.cache_path, {"entries": {}}) if persist_response else {"entries": {}}
             cached = dict((cache.get("entries") or {}).get(cache_key) or {})
             if cached and now - float(cached.get("created_at_epoch", 0) or 0) <= policy["cache_sec"]:
                 return {**cached["result"], "cache_hit": True, "budget": self.status(settings)}
@@ -363,7 +367,7 @@ class InteractiveAIService:
         }
         self.record_usage(provider, usage, model=response.model, role=workload, privacy_route=privacy_route)
         with self._lock:
-            if policy["cache_sec"] > 0:
+            if persist_response and policy["cache_sec"] > 0:
                 entries = cache.setdefault("entries", {})
                 entries[cache_key] = {"created_at_epoch": now, "result": result}
                 if len(entries) > 200:

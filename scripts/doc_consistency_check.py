@@ -174,7 +174,8 @@ def check_current_release_and_marketplace(text_map: Dict[str, str]) -> List[str]
 
 def check_for_higher_version_mentions(text_map: Dict[str, str]) -> List[str]:
     errors: List[str] = []
-    # RELEASE_VERSION보다 큰 vX.Y.Z.W 형태 표기가 핵심 문서에 있으면 실패
+    # 핵심 문서의 무단 버전 상향을 차단한다. CHANGELOG에서 명시적으로
+    # 분리한 차기 로컬 수정 절의 해당 버전만 허용하며 공개 버전은 유지한다.
     release_tuple = parse_version_tuple(RELEASE_VERSION)
     if release_tuple is None:
         return [f"[VERSION_PARSE] RELEASE_VERSION 형식 오류: {RELEASE_VERSION}"]
@@ -183,6 +184,7 @@ def check_for_higher_version_mentions(text_map: Dict[str, str]) -> List[str]:
 
     for key in ("user_guide", "changelog", "policy"):
         text = text_map.get(key, "")
+        headings = list(re.finditer(r"^## .+$", text, flags=re.MULTILINE))
         for m in version_regex.finditer(text):
             detected = (
                 int(m.group(1)),
@@ -191,6 +193,12 @@ def check_for_higher_version_mentions(text_map: Dict[str, str]) -> List[str]:
                 int(m.group(4)),
             )
             if detected > release_tuple:
+                if key == "changelog":
+                    heading = next((h.group(0) for h in reversed(headings) if h.start() <= m.start()), "")
+                    version = ".".join(str(part) for part in detected)
+                    candidate_heading = rf"## \d{{4}}-\d{{2}}-\d{{2}} — v{re.escape(version)} 차기 수정 내역 \(로컬 구현·미배포\)"
+                    if re.fullmatch(candidate_heading, heading):
+                        continue
                 errors.append(f"[VERSION_HIGH] {key}: 배포 버전(v{RELEASE_VERSION})보다 높은 표기 감지 -> {m.group(0)}")
     return errors
 

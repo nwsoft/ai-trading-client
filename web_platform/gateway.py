@@ -170,6 +170,18 @@ def create_gateway_app(
             release_label=RELEASE_BUILD_LABEL,
         )
 
+    @app.get('/api/v1/maintenance/profitability', dependencies=[Depends(require_token)])
+    def profitability_diagnostic(source: str = Query(max_length=32)):
+        method = getattr(services.runtime_bridge, 'profitability_diagnostic', None)
+        if not callable(method):
+            raise HTTPException(409, 'recovery_runtime_unavailable')
+        try:
+            return method(source)
+        except ValueError as exc:
+            raise HTTPException(400, str(exc)) from exc
+        except RuntimeError as exc:
+            raise HTTPException(409, str(exc)) from exc
+
     @app.get('/api/v1/maintenance/trade-records', dependencies=[Depends(require_token)])
     def record_recovery_status(source: str = Query(max_length=32)):
         return record_recovery_call(source, False)
@@ -747,6 +759,32 @@ def create_gateway_app(
     @app.get("/api/v1/life-finance/analysis", dependencies=[Depends(require_token)])
     def life_finance_analysis() -> dict[str, Any]:
         return services.life_finance_analysis()
+
+    @app.get('/api/v1/life-finance/product-intelligence', dependencies=[Depends(require_token)])
+    def product_intelligence_catalog():
+        from fastapi.responses import JSONResponse
+        try:
+            return JSONResponse(services.product_intelligence(), headers={'Cache-Control':'no-store'})
+        except ValueError as exc:
+            raise HTTPException(400, str(exc)) from None
+
+    @app.post('/api/v1/life-finance/product-intelligence', dependencies=[Depends(require_token), Depends(require_confirmed_intent)])
+    async def product_intelligence_compare(request: Request):
+        import json
+        from fastapi.responses import JSONResponse
+        raw=bytearray()
+        async for chunk in request.stream():
+            if len(raw)+len(chunk)>128*1024:
+                raise HTTPException(413, 'finance_request_limit')
+            raw.extend(chunk)
+        account=getattr(services,'account',None)
+        try:
+            result=services.product_intelligence(json.loads(raw))
+            if account!=getattr(services,'account',None):
+                raise ValueError('finance_account_changed')
+            return JSONResponse(result,headers={'Cache-Control':'no-store'})
+        except (ValueError, TypeError, KeyError, AttributeError):
+            raise HTTPException(400, 'finance_invalid_scenario') from None
 
     @app.get("/api/v1/life-finance/products", dependencies=[Depends(require_token)])
     def finance_product_catalog() -> dict[str, Any]:

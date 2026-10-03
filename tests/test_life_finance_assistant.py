@@ -56,7 +56,8 @@ class TestLifeFinanceAssistantCompareCommands:
 
         assert result["intent"] == "compare_loan"
         assert result["action_taken"] == "compare_loan"
-        assert "대출 상품 비교 결과" in result["response"]
+        assert result["data"]["status"] == "needs_input"
+        assert result["data"]["best"] is None
         assert isinstance(result.get("data"), dict)
 
     def test_process_command_compare_insurance(self, tmp_path):
@@ -76,81 +77,28 @@ class TestLifeFinanceAssistantCompareCommands:
 
         assert result["intent"] == "compare_savings_product"
         assert result["action_taken"] == "compare_savings_product"
-        assert "예적금 상품 비교 결과" in result["response"]
+        assert result["data"]["status"] == "needs_input"
+        assert result["data"]["best"] is None
         assert isinstance(result.get("data"), dict)
 
 
-class TestPhase1CreditAdjustment:
-    """Phase 1: 신용도/위험도 개인화 회귀 테스트"""
-
-    def test_loan_credit_good_lowers_rate(self, tmp_path):
-        """신용도 좋음 → 대출 금리 인하(-0.5%) 반영"""
+class TestCreditAdjustmentEvidence:
+    """Credit bands must never invent personal quotes or mutate supplied evidence."""
+    def test_no_credit_band_invents_a_quote(self, tmp_path):
         assistant = _build_assistant(tmp_path)
-        result = asyncio.run(
-            assistant.process_command("대출 비교해줘", credit_score="좋음 (750~900)")
-        )
-        assert result["action_taken"] == "compare_loan"
-        best = result["data"]["best"]
-        assert "adjusted_annual_rate" in best
-        assert best["adjusted_annual_rate"] == best["annual_rate"] - 0.5
-        assert "좋음 🟢" in result["response"] or "신용도" in result["response"]
+        for question in ("대출 비교해줘", "예금 상품 비교해줘"):
+            for credit in ("좋음 (750~900)", "보통 (650~750)", "낮음 (~650)"):
+                result = asyncio.run(assistant.process_command(question, credit_score=credit))
+                assert result["data"]["best"] is None
+                assert "예상 금리" not in result["response"]
 
-    def test_loan_credit_low_raises_rate(self, tmp_path):
-        """신용도 낮음 → 대출 금리 인상(+0.5%) 반영"""
-        assistant = _build_assistant(tmp_path)
-        result = asyncio.run(
-            assistant.process_command("대출 비교해줘", credit_score="낮음 (~650)")
-        )
-        best = result["data"]["best"]
-        assert "adjusted_annual_rate" in best
-        assert best["adjusted_annual_rate"] == best["annual_rate"] + 0.5
-
-    def test_loan_credit_normal_no_adjustment(self, tmp_path):
-        """신용도 보통 → 금리 조정 없음(adjusted_annual_rate 없음)"""
-        assistant = _build_assistant(tmp_path)
-        result = asyncio.run(
-            assistant.process_command("대출 비교해줘", credit_score="보통 (650~750)")
-        )
-        best = result["data"]["best"]
-        # 보통은 adjustment=0.0 → adjusted_annual_rate 키 없음
-        assert "adjusted_annual_rate" not in best
-
-    def test_savings_credit_good_raises_rate(self, tmp_path):
-        """신용도 좋음 → 예적금 우대 금리(+0.3%) 반영"""
-        assistant = _build_assistant(tmp_path)
-        result = asyncio.run(
-            assistant.process_command("예금 상품 비교해줘", credit_score="좋음 (750~900)")
-        )
-        best = result["data"]["best"]
-        assert "adjusted_annual_rate" in best
-        assert best["adjusted_annual_rate"] == best["annual_rate"] + 0.3
-
-    def test_savings_credit_low_lowers_rate(self, tmp_path):
-        """신용도 낮음 → 예적금 금리 불이익(-0.1%) 반영"""
-        assistant = _build_assistant(tmp_path)
-        result = asyncio.run(
-            assistant.process_command("예금 상품 비교해줘", credit_score="낮음 (~650)")
-        )
-        best = result["data"]["best"]
-        assert "adjusted_annual_rate" in best
-        assert best["adjusted_annual_rate"] == best["annual_rate"] - 0.1
-
-    def test_credit_adjustment_no_credit_score(self, tmp_path):
-        """신용도 미전달 → 조정 없이 일반 결과 반환"""
-        assistant = _build_assistant(tmp_path)
-        result = asyncio.run(assistant.process_command("대출 비교해줘"))
-        best = result["data"]["best"]
-        assert "adjusted_annual_rate" not in best
-
-    def test_product_advisor_credit_adjustment_directly(self):
-        """FinanceProductAdvisor.apply_credit_adjustment_to_loans 직접 검증"""
+    def test_quote_is_not_adjusted_or_mutated(self):
         from trading.life_finance_products import FinanceProductAdvisor
-        advisor = FinanceProductAdvisor()
-        base = advisor.compare_loans(amount=100_000_000, term_months=24)
-        base_rate = base["best"]["annual_rate"]
-
-        good = advisor.apply_credit_adjustment_to_loans(base, "좋음 (750~900)")
-        assert good["best"]["adjusted_annual_rate"] == base_rate - 0.5
-
-        low = advisor.apply_credit_adjustment_to_loans(base, "낮음 (~650)")
-        assert low["best"]["adjusted_annual_rate"] == base_rate + 0.5
+        advisor = FinanceProductAdvisor(auto_refresh_interval=0)
+        original = {"best": {"annual_rate": 3.5}, "summary": "confirmed quote"}
+        for function in (advisor.apply_credit_adjustment_to_loans, advisor.apply_credit_adjustment_to_savings):
+            for credit in ("좋음 (750~900)", "낮음 (~650)"):
+                adjusted = function(original, credit)
+                assert adjusted == original
+                adjusted["best"]["annual_rate"] = 99
+                assert original["best"]["annual_rate"] == 3.5

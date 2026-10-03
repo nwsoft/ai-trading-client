@@ -1,0 +1,500 @@
+{
+  "baseline": "/tmp/noah-v3923-baseline-20261003-151554",
+  "continuation_baseline": "/tmp/noah-v3923-continuation-baseline",
+  "changes": [
+    {
+      "path": "README.md",
+      "before": null,
+      "after": "319835ce7b53060c12c9e296ae8eb42e618ee076ee1e5991b91b3422450d8186",
+      "baseline_status": "before_not_captured"
+    },
+    {
+      "path": "RELEASE_NOTES.md",
+      "before": null,
+      "after": "f6e924e697211ad2eadbe0e93643cb63115d380417332638339b3a8c2cd98321",
+      "baseline_status": "before_not_captured"
+    },
+    {
+      "path": "config/app_version.py",
+      "before": "ea2ce8f270ac700a99eca2e1f857773cf8146b6b9a1a5cf88f59f90bc5533fae",
+      "after": "38536b2dfb397899a03b8f6e97944b3301bef28ce02c70e240164ef310f7ccb3",
+      "baseline_status": "captured"
+    },
+    {
+      "path": "deploy/release_notes.md",
+      "before": null,
+      "after": "d4872538fc718f660a9d142085e6b38b26510aaeaad9e773e21004b73ecdad5d",
+      "baseline_status": "before_not_captured"
+    },
+    {
+      "path": "deploy/version.txt",
+      "before": "f7972e0c114e3595a3fd3cc17c8cd9458924a6104cc0c091c184ad7c77ecb6e8",
+      "after": "fcae6059a6c5628cf566b8e37991fb4a3ceb16ec6e009d6ba36500820c14f7ff",
+      "baseline_status": "continuation_baseline"
+    },
+    {
+      "path": "docs/DEPLOY_CHECKLIST.md",
+      "before": "e392bb60e7da158713d0ceb210255c3665650d8d0721536bfa64504f8cefa159",
+      "after": "8684b97db1ae51a51b4a5e9a6ad23b5832f66d4207e1a1da8df6c64230bbbcb8",
+      "baseline_status": "captured"
+    },
+    {
+      "path": "docs/NOAHAI_TECHNICAL_WHITEPAPER.md",
+      "before": "3023ec62967146de6a7294557482afbb6242de07d1afa9748c4b63a5e0b9222d",
+      "after": "8281310eac982e755def7bd7e72cff733f129c5f29486ce2d2e6a6c364472c01",
+      "baseline_status": "captured"
+    },
+    {
+      "path": "docs/README.md",
+      "before": "ce4f1b76cfdec6d77b46b1d9d8cd993320656dea31f7b613562c8101d809fea6",
+      "after": "7305038730f6cfcc08eefaf10e82c16baf34dcd616cd3ffabcdfc1c0c091a30e",
+      "baseline_status": "captured"
+    },
+    {
+      "path": "docs/TEST_STATUS.md",
+      "before": "4376774ee91352d8c2bec919682bea3b2929c9ad67fc319bf87fdd1adfe97993",
+      "after": "17ff5935e8a2099e08b5a365ca78139e49ae0c046ec96ab20d9dbf4509af212c",
+      "baseline_status": "captured"
+    },
+    {
+      "path": "docs/UPDATE_PLAN.md",
+      "before": "17d5d4d65bac4c22a0bd033f76b302909c86dfc3d162e0c02553d40e1da32988",
+      "after": "de4aa8350f84ee35171596f914ac75bfe4706e84ec849e19a78d596bcdc584e5",
+      "baseline_status": "captured"
+    },
+    {
+      "path": "docs/USER_GUIDE.md",
+      "before": "88538e81b571c49d087251c9114f651d8d1cf56d20438bc5acd3f9ebf4b83387",
+      "after": "7cee8931ccc0532c9f4bb2c210b6faa323ac965d72b14a60a859f42480363c1a",
+      "baseline_status": "captured"
+    },
+    {
+      "path": "docs/USER_MANUAL_SECTIONS.json",
+      "before": "0d087ad94b4757ace7fd49175ac5e00dff6441954f31a2dbe5025b799ab4c25f",
+      "after": "abe5bbad13c63594bcc8200cb3b82ce9d9051c449faf8950c7b6dbba2fd7622c",
+      "baseline_status": "captured"
+    },
+    {
+      "path": "docs/V3923_FINANCE_CONNECTIONS.md",
+      "before": null,
+      "after": "6ba324d1513ff55e0ca1f979f2556877aaba485ec8b99e7fb805d3023d0fedc9",
+      "baseline_status": "before_not_captured"
+    },
+    {
+      "path": "docs/V3923_IMPLEMENTATION_STATUS.md",
+      "before": null,
+      "after": "d88c7917ac1a54183334094e6baf14667cbe626513a67893b89967f01c0fa954",
+      "baseline_status": "new_file"
+    },
+    {
+      "path": "docs/V3923_LIFE_FINANCE_PRODUCT_INTELLIGENCE_PLAN.md",
+      "before": "07120e02b1a4ce27a9941d746093c2057f7fbe44b99139ff7abc9d2888329cfb",
+      "after": "d18af3e00c5a03ee5bf3699456a9bf6a1e5e636f5ed855c1ba6201f7a3d2cca9",
+      "baseline_status": "captured"
+    },
+    {
+      "path": "docs/V3923_PROFITABILITY_FEEDBACK_REVIEW.md",
+      "before": "48504337e0cb806c0c657322908ab7577bba1736d30ccb590dc88522b5005e53",
+      "after": "15f7dcc4bec0304dc9834780126fbc713a3d8472663d29864bad8c6cc0afd329",
+      "baseline_status": "captured"
+    },
+    {
+      "path": "scripts/configure_finance_recipients.py",
+      "before": null,
+      "after": "ea35c0946f67522295899986bd0419675ca55e8fae16c4abdb2a6bf1f2aa6044",
+      "baseline_status": "before_not_captured"
+    },
+    {
+      "path": "scripts/import_finance_product_catalog.py",
+      "before": null,
+      "after": "b03993d8102b52f07a153d824bb1c4827eebbd50ce4337142fcee4fa81195359",
+      "baseline_status": "new_file"
+    },
+    {
+      "path": "scripts/refresh_finance_sources.py",
+      "before": null,
+      "after": "fe3be14bdb9612c98c0c664499c6ce0eb11722bf432a850a4fd9815041c71732",
+      "baseline_status": "before_not_captured"
+    },
+    {
+      "path": "scripts/repair_profitability_policy.py",
+      "before": null,
+      "after": "e08e2cb7535effd36c6a6a6ed28c2d31d0188edf298ad739520faf11bc4d6f9d",
+      "baseline_status": "new_file"
+    },
+    {
+      "path": "scripts/serve_v3923_qa.py",
+      "before": null,
+      "after": "c652ae9ab7f578392f75aec14b80fd45da85d7679cb315b71a904fde1dbcda19",
+      "baseline_status": "new_file"
+    },
+    {
+      "path": "scripts/test_v3923_advanced_ui.cjs",
+      "before": null,
+      "after": "b299748fde8e02a7fbce742907a7fff3a3d5fbdc39b8eaf3057a2d71a16961e1",
+      "baseline_status": "new_file"
+    },
+    {
+      "path": "scripts/test_v3923_connections_ui.cjs",
+      "before": null,
+      "after": "774e41e552bf38b94806dbf7d1c4fd0c69690bf5d53b6486e4130642236b3739",
+      "baseline_status": "before_not_captured"
+    },
+    {
+      "path": "scripts/test_v3923_ui.cjs",
+      "before": null,
+      "after": "2e2e4ee3cd84232ba265ff84c3db4cc52deeed65e3a418225f3af4d33d8b01c0",
+      "baseline_status": "new_file"
+    },
+    {
+      "path": "tests/fixtures/v3923_finance_dialogue_eval.json",
+      "before": null,
+      "after": "d2a227414f1c6caddc84d2cb50bb9bfa2e091e8e964f4421d631b7a8e8a3ce17",
+      "baseline_status": "before_not_captured"
+    },
+    {
+      "path": "tests/test_advanced_trading_layers.py",
+      "before": "59a38a36aac8eef1c730bd7b944fcc8d1f55770d493058249ac6371c5058fe16",
+      "after": "01a0c1c4d23489c245d99bf8919426099017c703889c2aab1af0ac074d5fb3d7",
+      "baseline_status": "captured"
+    },
+    {
+      "path": "tests/test_build_release_workflow.py",
+      "before": "c716cabb352aa1089234420c9196eb7954eb61146315312405ab10902bc08ecf",
+      "after": "c1a3ac031f0cfbfb69c946b984d69ba91b71cac65598b1e098550ed8645fefc3",
+      "baseline_status": "captured"
+    },
+    {
+      "path": "tests/test_kiwoom_bounded_backend.py",
+      "before": "252790cefcc9908faf1d5c198b19a137fb7f2b27bb1259205bb4b5fedcdb81fc",
+      "after": "3f0ce32f1c4efa05321a5dce5d1b7b16ad647b15d0f567c4c84dae3a74ac9607",
+      "baseline_status": "captured"
+    },
+    {
+      "path": "tests/test_life_finance_assistant.py",
+      "before": "4c968272796142dabe30e149d6b496eb638b01d79bc9e8851bee40fd11fa5221",
+      "after": "0f407069e61535f9a1c3a66bdd3cfdee8f24c278c0965e41e60ea2c70ed9c809",
+      "baseline_status": "captured"
+    },
+    {
+      "path": "tests/test_life_finance_phase_f.py",
+      "before": "e76e943e4066aefd7fe0c50484b9aa63b5f5fc4691c3a45f2b3f9810237de850",
+      "after": "f4383e56ef3b8c0e855ab8389f548f1f5c9b99cc39c0f4280b732629309c9e08",
+      "baseline_status": "captured"
+    },
+    {
+      "path": "tests/test_profitability_validation.py",
+      "before": "3a800c576b1452b84339b9cd055a3be03efa1fde9bcb375e0133237fab251598",
+      "after": "044a72daed3e06adf5bc601e46195aa6beeede645a82c3eb185935cd7bae4d82",
+      "baseline_status": "captured"
+    },
+    {
+      "path": "tests/test_v39128_version_and_quick_start.py",
+      "before": "7ec8bb87502f37ad6a13eceb47bc2e04c5ed158ffe8ef3b1f7aebee924c0e05e",
+      "after": "78b1317fe676caab2e200e3537be8d7d569e1dc116f0713763461056c1e6876e",
+      "baseline_status": "captured"
+    },
+    {
+      "path": "tests/test_v39137_updater_channel.py",
+      "before": "598ad72eb3095be27a03d9b7c9638b9a734d705604d6f270672f7d88dea9f7df",
+      "after": "502a550dc1e8dce2eb09634c673f174241be47cb58f5bfde69238dfc2c5b229e",
+      "baseline_status": "captured"
+    },
+    {
+      "path": "tests/test_v3923_completion.py",
+      "before": null,
+      "after": "62c3247aee13ba3b18c786da2596209d8c733f65f0262454eaa7d927d3cdbc75",
+      "baseline_status": "before_not_captured"
+    },
+    {
+      "path": "tests/test_v3923_dialogue_evaluation.py",
+      "before": null,
+      "after": "df6e5d5a71c7a3e7e6615087df3c6cfd014cc073579b4fe425f1dcb2e48636d3",
+      "baseline_status": "before_not_captured"
+    },
+    {
+      "path": "tests/test_v3923_evidence_and_sources.py",
+      "before": null,
+      "after": "f74bfaee10d4e4f474829bb7ac675e5a2e0b0d5ea300881c9879590befcdf04d",
+      "baseline_status": "before_not_captured"
+    },
+    {
+      "path": "tests/test_v3923_handoff.py",
+      "before": null,
+      "after": "bca6c5a10ff481c50e5cd4f4622f25d4b44549036dad7dc7ce4bc00436041e19",
+      "baseline_status": "before_not_captured"
+    },
+    {
+      "path": "tests/test_v3923_product_intelligence.py",
+      "before": null,
+      "after": "fdb1d58934f8725745ae952564f29b9a000e196bb14c4c7fd70210f08da2cb6b",
+      "baseline_status": "new_file"
+    },
+    {
+      "path": "tests/test_v3923_profitability_regressions.py",
+      "before": null,
+      "after": "c5b7bfd16e3b0fe09b7f2c61367316f03145e9a6359b76b83c35dd208baaac7f",
+      "baseline_status": "new_file"
+    },
+    {
+      "path": "tests/test_v3923_scenarios_dialogue.py",
+      "before": null,
+      "after": "6236c30ee7e8bcdb18d2108fc19aea356cc51b9646d3fecbc2c160edd7e34802",
+      "baseline_status": "new_file"
+    },
+    {
+      "path": "tests/test_web_advanced_features_3910.py",
+      "before": "431c1d36dd8380f7d890dd30c249a522129ee64fc70807ba1db22463353c11e0",
+      "after": "3dd602df6aa6fe108405425ea09841fc6a56f8fe30de41ea09acbce178645bb2",
+      "baseline_status": "captured"
+    },
+    {
+      "path": "trading/finance_connections.py",
+      "before": null,
+      "after": "238dc572123114787eba34c9b0c667622549c97be2e909bc355786c701c4f1d9",
+      "baseline_status": "before_not_captured"
+    },
+    {
+      "path": "trading/finance_evidence.py",
+      "before": null,
+      "after": "13d918d5b38b22b23c3d10c63e35357681a64c2a3a2c5d1c302c962e1ad5a379",
+      "baseline_status": "before_not_captured"
+    },
+    {
+      "path": "trading/finance_explanations.py",
+      "before": null,
+      "after": "642882ac6b0810ff9e9238db858da2c681c2fc21d8e2da4132feb08d4ba7fb46",
+      "baseline_status": "before_not_captured"
+    },
+    {
+      "path": "trading/finance_followup.py",
+      "before": null,
+      "after": "82c48a806c8531b21d97ffc1eabe464e0243b98a1bf2f1af3c3fcee323333f1d",
+      "baseline_status": "before_not_captured"
+    },
+    {
+      "path": "trading/finance_handoff.py",
+      "before": null,
+      "after": "a22f1ec9779395046d2beda2e09fa6455ca5584e4934ab328cdc0306d25b2f2c",
+      "baseline_status": "before_not_captured"
+    },
+    {
+      "path": "trading/finance_product_dialogue.py",
+      "before": null,
+      "after": "02bce84d7a3d82856a95892fe833c59e0329c505045d8aab913c11f9d84e41f1",
+      "baseline_status": "new_file"
+    },
+    {
+      "path": "trading/finance_product_intelligence.py",
+      "before": null,
+      "after": "ce56495aebf55b30565d5efd3322a1419035eb32fb3c06ba24d8062b3955e30a",
+      "baseline_status": "new_file"
+    },
+    {
+      "path": "trading/finance_profile_parser.py",
+      "before": null,
+      "after": "e1e71ed507ae865b4683318f2b540ffd15c3f5314f4cfbaa5b5740ec7487652d",
+      "baseline_status": "before_not_captured"
+    },
+    {
+      "path": "trading/finance_rule_evidence.py",
+      "before": null,
+      "after": "d022515706aec2a3b421c4797032c819aff28d8c2df8a2c59806762def0c9780",
+      "baseline_status": "before_not_captured"
+    },
+    {
+      "path": "trading/finance_scenarios.py",
+      "before": null,
+      "after": "6e1202adc9a12f23850d340c0d1e79e6d8ab5bb2d92604e8e5a5f12dc8989449",
+      "baseline_status": "new_file"
+    },
+    {
+      "path": "trading/finance_source_connector.py",
+      "before": null,
+      "after": "e8ba03984549d84546c057e73abaea4ed07a73e1aace9a1dfcb86c6e26cf2c43",
+      "baseline_status": "before_not_captured"
+    },
+    {
+      "path": "trading/finance_terms.py",
+      "before": null,
+      "after": "7753300c8282b9102389133d0b6334379f640f546f0f417dbc6b5dc7ef75d137",
+      "baseline_status": "before_not_captured"
+    },
+    {
+      "path": "trading/insurance_design.py",
+      "before": null,
+      "after": "bc9993539ff2b16c11c11e07247f0ac630c8a84f333719f9d13891362383b7fa",
+      "baseline_status": "new_file"
+    },
+    {
+      "path": "trading/insurance_workspace.py",
+      "before": "b0ae45ca5f5f4feb0ca5c241e236bb84d77e0f791630cf02e7d2b37b435b18ea",
+      "after": "357758262243b627f6305504f91a10579bd8c1bb3ec6500f07491e3c2bb78979",
+      "baseline_status": "captured"
+    },
+    {
+      "path": "trading/life_finance_assistant.py",
+      "before": "556e599cbec43adfbd38e745a9e2c70e384dc2e224f68205990e7139c0aead74",
+      "after": "ff19d9d3408669d9e77a290e3a6e0de56538d662e6f62fad7ea54a5c9d13556d",
+      "baseline_status": "captured"
+    },
+    {
+      "path": "trading/life_finance_products.py",
+      "before": "96dba3ce9e8182c3510461ac5249d08d094736c76dd28b03d611e359d19bb434",
+      "after": "cd47d4c4c144b2cf5cc2daeb0bc8f3593ba94baa56134cb7bbf5a5c1e7f6e097",
+      "baseline_status": "captured"
+    },
+    {
+      "path": "trading/operational_recovery_contract.py",
+      "before": null,
+      "after": "b3eb4cd942cab8a17743172c0f12cd88b2f49132874706ca05550dc537f5996f",
+      "baseline_status": "before_not_captured"
+    },
+    {
+      "path": "trading/profitability_validation.py",
+      "before": "7c9312b0be987907f5c5806c2917b30ded79d988006e1e975a96c2c30e91c0e3",
+      "after": "3105b16568eb0dbb16594c22bba6ab118ffa67cff1d6cf3f48f6e777a7ad330b",
+      "baseline_status": "captured"
+    },
+    {
+      "path": "trading/record_recovery.py",
+      "before": "c9fac20e9f71183fc8972b2576cf53b85e51e7de49f98f2c17f4e467dde1cd00",
+      "after": "9e3b19dc5bee792e2005c2d0d426f88dff10330171631bbe482df2e11e8b7a2e",
+      "baseline_status": "captured"
+    },
+    {
+      "path": "trading/recorder.py",
+      "before": "da235943ed1276994a96d40a31605ea47862864567eb672a50f9567ff373630e",
+      "after": "1b70c9fdec774bd3ea029e5890f10fa48cbfb0c083dca83ed56cc9605dd1b81d",
+      "baseline_status": "captured"
+    },
+    {
+      "path": "trading/stock_analysis_service.py",
+      "before": "7e33a7f68ce6c7d6ad0bb1ee2948238d3b5e0aa9b59c04b966b93d7d8d2aa8cd",
+      "after": "95bc9bf4b9c2cbc4d9fffe4b929cef7f121a6f3122ec9926c1ab31ec2ed9fe20",
+      "baseline_status": "captured"
+    },
+    {
+      "path": "trading/trader.py",
+      "before": "01eb64e8e39718bb25e5c8dacef59ada76a703c1588dc4364a6c9e663aa5c13f",
+      "after": "4876ec364c0e3042465caf21a9f6cf963b2cba873a89a3a99e3784a625bdc676",
+      "baseline_status": "captured"
+    },
+    {
+      "path": "trading/unified_trader.py",
+      "before": "78a726e148d524860dd6a2aced2f45c4f08dca858a266cf444c21e2e7c49280f",
+      "after": "b6878d51e0800ff23c3254c7c3e9ab2ae52eaf94568141882cefcf0f82fa6831",
+      "baseline_status": "captured"
+    },
+    {
+      "path": "web_platform/application_services.py",
+      "before": "dfd0dc554478526664098c668fd6419def05634a8203b6c0414a249b7a8cfc8a",
+      "after": "4fb731cd565c222da15906bcc16a7b58c31f54625b7a24dee89524116e95568b",
+      "baseline_status": "captured"
+    },
+    {
+      "path": "web_platform/finance_ai.py",
+      "before": null,
+      "after": "dcaf1eb6dcf6b616acf32537c773351f56704be10b407f572b29666545f63ac5",
+      "baseline_status": "before_not_captured"
+    },
+    {
+      "path": "web_platform/gateway.py",
+      "before": "47f2472aacbfbb531ee5136804abff938619171e9efb4a2ee0cfb28b59441a59",
+      "after": "85b728f21d8407f2cad827a4b62150de1881ba335f264999bf2dd05fe668f93c",
+      "baseline_status": "captured"
+    },
+    {
+      "path": "web_platform/interactive_ai.py",
+      "before": "08cb66b2dbd27b758dc879128b0b6fbd4de87a93e07f0dfd5ff38f233b513815",
+      "after": "929eb46d153b64dc1a56512f84d15c90bae9d80bc0bb1097bc09a3308a4d1e64",
+      "baseline_status": "captured"
+    },
+    {
+      "path": "web_platform/runtime_bridge.py",
+      "before": "5f7f8531b014a7e365fc69c771191f90c28a36abe9b816105e4661da4ec9f4ad",
+      "after": "25360d2fc4e5f2eaa1b2a7765b7508d41de382e29a4bac3bb5abc223fc613ac4",
+      "baseline_status": "captured"
+    },
+    {
+      "path": "webui/qa/v3923.html",
+      "before": null,
+      "after": "04e34a365e8a8fbb10789307f33669d8f399c4024f682bfe01062049a8af0188",
+      "baseline_status": "new_file"
+    },
+    {
+      "path": "webui/qa/v3923.tsx",
+      "before": null,
+      "after": "9c5dd71a5f8ac269382ba45ef399549b31f1bd06e436e238ed822d1ad2859cc7",
+      "baseline_status": "new_file"
+    },
+    {
+      "path": "webui/src/api.ts",
+      "before": "28e0b67d10e7e9549946bccdef95c50ae1efba2eb55dee4cb118a808314d91a4",
+      "after": "471a91561d6de409192db892d02adf4d29c115710ee77f4dd49d869a1a79f17f",
+      "baseline_status": "captured"
+    },
+    {
+      "path": "webui/src/components/AssistantWorkspace.tsx",
+      "before": "4fdb81b2b0aa0e114b5739d5f78366a162c38a257e0a60591caa6d7ae296d046",
+      "after": "9ee7c4602efd8f7129355c257c51a8460ff6a4ec03c05833b00efabce7c16616",
+      "baseline_status": "captured"
+    },
+    {
+      "path": "webui/src/components/FinanceAIExplanation.tsx",
+      "before": null,
+      "after": "30a9744b928c9eceafe0fc0a2b65488846541896f49f4e4655e0f33d1d7901e2",
+      "baseline_status": "before_not_captured"
+    },
+    {
+      "path": "webui/src/components/FinanceConsultation.tsx",
+      "before": null,
+      "after": "9637a38b15db15fba9fae46df7f5269f1e89d654adf959a0a582bc3dddd2e021",
+      "baseline_status": "before_not_captured"
+    },
+    {
+      "path": "webui/src/components/FinanceReviewPanel.tsx",
+      "before": "6b22274f05c859746af32654f6f7b0c912a703f5dec6f63c8e98645e1c66d614",
+      "after": "6b22274f05c859746af32654f6f7b0c912a703f5dec6f63c8e98645e1c66d614",
+      "baseline_status": "captured"
+    },
+    {
+      "path": "webui/src/components/FinancialScenarioControls.tsx",
+      "before": null,
+      "after": "c1131a27a31c6ddab85dda1220f34cf52baf5eec049d7b8c6e35c5de0d07a36b",
+      "baseline_status": "new_file"
+    },
+    {
+      "path": "webui/src/components/GuidedProductComparison.tsx",
+      "before": "1e4978bcb670e258cdee704d9998c2b365996be751980edba6401d61f491693c",
+      "after": "e2dc539873c52c6918fc1dbc22683c9cb56498cc2cee0d387a33ae95107bac33",
+      "baseline_status": "captured"
+    },
+    {
+      "path": "webui/src/components/ProductIntelligenceWorkspace.css",
+      "before": null,
+      "after": "8dd920f5ccab5624f86a00c9f7a2242e1c7210bfb589c02d031d7df34474ad66",
+      "baseline_status": "new_file"
+    },
+    {
+      "path": "webui/src/components/ProductIntelligenceWorkspace.tsx",
+      "before": null,
+      "after": "b0df823f0a42b0a534b5ad0d5984af33ec899d276b8a67e06a2c1284da0fc28a",
+      "baseline_status": "new_file"
+    },
+    {
+      "path": "webui/src/components/ProfitabilityDiagnostic.tsx",
+      "before": null,
+      "after": "8f3a667e15f5843a78371900ef278e31856cc173121803c4e959098c83074343",
+      "baseline_status": "new_file"
+    },
+    {
+      "path": "webui/src/components/RecordRecoveryPanel.tsx",
+      "before": "51229b70b9cbf177836bef882cb4fa8d303f0f7d84c61900ad4f05d3b6cee1eb",
+      "after": "33c766fdb05b53e2428903c2ed996061734513f267a8b74bd91eb63e38cca632",
+      "baseline_status": "captured"
+    }
+  ],
+  "note": "Working directory comparison, no Git commit identity; missing baseline is not proof of new creation.",
+  "completion_baseline": "/var/folders/sr/tdlflpnj0qj1qd26s268mdlc0000gn/T/noah-v3923-completion-baseline-jpxw9tda"
+}

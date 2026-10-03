@@ -31,4 +31,18 @@ def test_manual_boundary_is_independent_of_mutable_release_manifest(tmp_path, mo
     second = exporter._render_release_boundary('custom', 'guide')
     assert first == second
     from config.app_version import RELEASE_VERSION, PUBLIC_RELEASE_VERSION
-    assert f'v{RELEASE_VERSION} Windows stable/latest 배포 후보 · 공개 stable/latest는 v{PUBLIC_RELEASE_VERSION}' in second
+    expected = (f'v{RELEASE_VERSION} Windows stable/latest 공개 제품' if RELEASE_VERSION == PUBLIC_RELEASE_VERSION
+                else f'v{RELEASE_VERSION} Windows stable/latest 배포 후보 · 공개 stable/latest는 v{PUBLIC_RELEASE_VERSION}')
+    assert expected in second
+
+
+def test_manual_labels_public_and_candidate_separately(monkeypatch):
+    from scripts import export_legacy_manual_sections as exporter
+    monkeypatch.setattr(exporter,'RELEASE_VERSION','3.9.2.3')
+    monkeypatch.setattr(exporter,'PUBLIC_RELEASE_VERSION','3.9.2.2')
+    candidate=exporter._render_release_boundary('custom','guide')
+    assert 'v3.9.2.3 Windows stable/latest 배포 후보 · 공개 stable/latest는 v3.9.2.2' in candidate
+    monkeypatch.setattr(exporter,'PUBLIC_RELEASE_VERSION','3.9.2.3')
+    public=exporter._render_release_boundary('custom','guide')
+    assert 'v3.9.2.3 Windows stable/latest 공개 제품' in public
+    assert '배포 후보' not in public

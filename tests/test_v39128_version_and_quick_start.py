@@ -103,10 +103,9 @@ def test_manual_current_support_and_release_boundaries_match_runtime_registry():
     assert "암호화폐 LIVE 준비 경로: Binance, Bybit, OKX, Bitget, Upbit, Bithumb, Coinone" in contents["live"]
     assert "유안타·LS증권·대신·NH투자증권은 확장 검토 대상" in contents["stocks"]
     from config.app_version import PUBLIC_RELEASE_VERSION
-    assert (
-        f"v{RELEASE_VERSION} Windows stable/latest 배포 후보 · "
-        f"공개 stable/latest는 v{PUBLIC_RELEASE_VERSION}"
-    ) in contents["custom"]
+    expected = (f'v{RELEASE_VERSION} Windows stable/latest 공개 제품' if RELEASE_VERSION == PUBLIC_RELEASE_VERSION
+                else f'v{RELEASE_VERSION} Windows stable/latest 배포 후보 · 공개 stable/latest는 v{PUBLIC_RELEASE_VERSION}')
+    assert expected in contents["custom"]
     assert 0 <= contents["updates"].find(f"v{RELEASE_VERSION} 최신 업데이트") < contents["updates"].find("v3.9.1.30 업데이트")
 
     for section_id in ("live", "settings", "assets", "stocks", "custom", "updates"):

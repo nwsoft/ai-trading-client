@@ -552,8 +552,9 @@ def test_life_finance_advisor_loads_external_catalog(tmp_path):
     advisor = FinanceProductAdvisor(catalog_paths={"loan": str(loan_path)})
     result = advisor.compare_loans(amount=100_000_000, term_months=24)
 
-    assert result["best"]["name"] == "테스트 대출"
-    assert result["catalog_source"] == str(loan_path)
+    assert result["best"] is None
+    assert result["status"] == "insufficient_evidence"
+    assert result["recommendation_available"] is False
     assert result["catalog_source_kind"] == "operator_catalog"
 
 

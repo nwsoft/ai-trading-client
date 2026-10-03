@@ -1037,9 +1037,8 @@ class UnifiedTrader:
         try:
             root = self.settings.get('advanced_trading_layers', {}) if isinstance(self.settings, dict) else {}
             exchange_overrides = (root.get('exchange_overrides', {}) or {}).get(exchange_name, {})
-            merged = dict(root or {})
-            merged.update(exchange_overrides or {})
-            return merged
+            from trading.advanced_layer_config import deep_merge_policy
+            return deep_merge_policy(root, exchange_overrides)
         except Exception:
             return {}
 
@@ -1060,7 +1059,8 @@ class UnifiedTrader:
         if callable(completed_getter):
             try:
                 rows = completed_getter(
-                    coin='', exchange=str(exchange_name or '').lower(), days=30
+                    coin='', exchange=str(exchange_name or '').lower(), days=30,
+                    **({'strict': True} if isinstance(recorder, Recorder) else {})
                 ) or []
                 completed = [dict(row) for row in rows if isinstance(row, dict)]
                 if completed:
@@ -1068,12 +1068,9 @@ class UnifiedTrader:
                     # 사용자에게 가장 오래된 표본만 계속 사용돼 회복 판단이
                     # 현재 성과를 반영하지 못한다.
                     return completed[-max(1, int(limit)):]
-            except (TypeError, ValueError):
-                pass
             except Exception as exc:
-                self.logger.warning(
-                    f"{exchange_name} 로컬 완료 거래 조회 실패: {exc}"
-                )
+                self.logger.warning(f"{exchange_name} 로컬 완료 거래 조회 실패: {type(exc).__name__}")
+                return [{"performance_evidence_ready": False, "reconciliation_status": "ledger_read_failed"}]
 
         execution_getter = getattr(recorder, 'get_recent_exchange_executions', None)
         if callable(execution_getter):
@@ -1084,9 +1081,8 @@ class UnifiedTrader:
                 return [{**row, 'performance_evidence_ready': False, 'pnl_is_net': False}
                         for row in rows if isinstance(row, dict)]
             except Exception as exc:
-                self.logger.warning(
-                    f"{exchange_name} 로컬 체결 원장 조회 실패: {exc}"
-                )
+                self.logger.warning(f"{exchange_name} 로컬 체결 원장 조회 실패: {type(exc).__name__}")
+                return [{"performance_evidence_ready": False, "reconciliation_status": "ledger_read_failed"}]
         return []
 
     def _get_recent_trade_samples_unified(self, exchange_name: str, limit: int = 100) -> List[Dict[str, Any]]:

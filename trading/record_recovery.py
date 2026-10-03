@@ -22,8 +22,13 @@ from trading.binance_history_recovery import HistoryPending
 
 
 def recovery_hint(report):
-    if 'pnl_reconciliation_required' not in report.get('reasons', []):
-        return '수익성 검증 기준과 전략 성과를 확인하세요.'
+    reasons = report.get('reasons', [])
+    if 'hard_stop_mdd_exceeded' in reasons:
+        return '최대 손실 한도 초과: 신규 진입을 보호 차단했습니다. 거래 기록 점검·복구의 수익성 진단에서 실제 수치와 전략을 검토하세요. 기록 초기화는 해결 방법이 아닙니다.'
+    if 'return_evidence_required' in reasons:
+        return '수익률 계산 근거가 부족합니다. 거래 기록 점검·복구에서 원금·순손익 근거를 보완한 뒤 다시 진단하세요.'
+    if 'pnl_reconciliation_required' not in reasons:
+        return '엄격 중지 정책에서 성과 기준이 미달했습니다. 유지관리의 수익성 진단에서 적용 정책과 수치를 확인하세요. 설정 → 고급 매매 계층에서 정책을 검토할 수 있습니다.' 
     return ('설정 → 업데이트 → 유지관리 → 거래 기록 점검·복구에서 확인하세요. '
             '거래 통계에서도 같은 점검을 열 수 있습니다. 주문 근거가 없으면 추가 확인이 필요합니다. '
             '기록 초기화나 전략 전환으로 우회하지 마세요.')

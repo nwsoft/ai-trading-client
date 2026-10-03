@@ -1,0 +1,130 @@
+{
+  "version_target": "3.9.2.3",
+  "date": "2026-10-03",
+  "status": "local_connection_preparation_implemented_and_tested_not_full_release",
+  "source_release_version_unchanged": "3.9.2.2",
+  "full_python": {
+    "passed": 4939,
+    "failed": 0,
+    "skipped": 9,
+    "subtests_passed": 3,
+    "duration_seconds": 90.8,
+    "junit": "reports/v3923-completion-python.xml"
+  },
+  "focused_previous_run": {
+    "passed": 281,
+    "failed": 0
+  },
+  "new_profitability_including_offline_repair": {
+    "passed": 12,
+    "failed": 0
+  },
+  "frontend": {
+    "node": "22.23.1",
+    "typescript": "passed",
+    "vite_build": "passed",
+    "isolated_directory": "/tmp/noah-v3923-web-build",
+    "artifact_is_installed_or_published": false,
+    "local_dist_updated": true,
+    "source_hash_matches": true,
+    "source_sha256": "cdcde35a3b388b151c99025338fee53cc8b3a871f00636ab995b9b1903cc9008"
+  },
+  "ui": {
+    "actual_components_with_local_gateway": true,
+    "fixture": "synthetic only, no real account or external orders",
+    "widths": [
+      1440,
+      390
+    ],
+    "scenarios": [
+      "loan costs and unknown fees",
+      "refinance cost",
+      "encrypted save and lock",
+      "profitability diagnosis",
+      "uninsured driver questions",
+      "compound savings and goal/ladder",
+      "scenario dialogue recalculation",
+      "three evidence-bounded insurance designs",
+      "sanitized diagnostic download",
+      "draft persistence across tabs",
+      "insurance quote edits invalidate prior confirmation",
+      "explicit AI payload preview with no model call",
+      "consent-bound AI call and consent invalidation",
+      "manual advisor packet and user-reported receipt",
+      "synthetic API receipt and immediate withdrawal",
+      "private consultation data cleared on vault lock"
+    ],
+    "result": "passed"
+  },
+  "docs_check": "passed; designated current-version consistency only",
+  "customer_actual_recovery_verified": false,
+  "external_product_source_connected": false,
+  "windows_installer_verified": false,
+  "remaining_scope": "docs/V3923_IMPLEMENTATION_STATUS.md",
+  "public_release_version_verified": "3.9.2.2",
+  "catalog_operations": {
+    "atomic_source_snapshots": true,
+    "registered_local_feed_refresh": true,
+    "backoff_and_last_good_retention": true,
+    "reviewed_revision_rollback": true,
+    "external_provider_connected": false,
+    "reviewed_normalized_api_connector": true,
+    "shared_refresh_rollback_lock": true
+  },
+  "stock_diagnostic": {
+    "paper_live_separated": true,
+    "broker_io_on_diagnostic": false,
+    "last_executed_policy_required": true
+  },
+  "public_release_evidence": "reports/v3923-previous-release-identity.json",
+  "previous_installer_restored_sha256": "f417abe4edf346132e713815adb3d9b65a8ca97314e0616100ab77d4b6db5fdb",
+  "focused_final_quote_and_scenario_tests": {
+    "passed": 39,
+    "failed": 0
+  },
+  "handoff": {
+    "manual_advisor_registry": true,
+    "api_transport_contract": true,
+    "preview_scoped_consent": true,
+    "encrypted_checkpoint": true,
+    "idempotency_and_status_first": true,
+    "withdrawal_and_receipt_states": true,
+    "real_recipient_configured": false,
+    "real_delivery_performed": false,
+    "test_transport": "synthetic only"
+  },
+  "dialogue_evaluation": {
+    "single": 90,
+    "multi": 30,
+    "passed": 120,
+    "scope": "Korean deterministic condition interpretation reference, not professional financial or external-model accuracy certification",
+    "fixture": "tests/fixtures/v3923_finance_dialogue_eval.json"
+  },
+  "ai_explanation": {
+    "preview_bound_consent": true,
+    "private_response_cached": false,
+    "synthetic_provider_tested": true,
+    "real_provider_invoked": false
+  },
+  "financial_scenarios": [
+    "variable rate resets",
+    "separate existing/new amortization",
+    "irregular installment contributions",
+    "partial withdrawal intermediate/maturity cash",
+    "earned bonus rates and cap",
+    "dated tax/lending rule contracts",
+    "confirmed same-institution deposit protection",
+    "saved-plan expiry/version/reminder review"
+  ],
+  "completion_baseline": "/var/folders/sr/tdlflpnj0qj1qd26s268mdlc0000gn/T/noah-v3923-completion-baseline-jpxw9tda",
+  "prior_reports_backup": "/var/folders/sr/tdlflpnj0qj1qd26s268mdlc0000gn/T/noah-v3923-completion-renderer-before-h9lsk67w",
+  "node_contract_tests": {
+    "passed": 10,
+    "failed": 0,
+    "files": [
+      "tests/finance-comparison.test.cjs",
+      "tests/ui-build-contract.test.cjs"
+    ]
+  },
+  "qa_servers_stopped": true
+}
