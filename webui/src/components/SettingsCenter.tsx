@@ -62,9 +62,14 @@ const SETTINGS_GUIDE_PROFILE_LABELS: Record<SettingsGuideProfile, string> = {
   advanced: "숙련 사용자 · 상세 설명",
 };
 
+const FINANCE_DECISION_MODEL = "ai_provider_profiles.finance_decision.model";
+const FINANCE_DECISION_PROVIDER = "ai_provider_profiles.finance_decision.provider";
+const FINANCE_FAST_CANDIDATES: Record<string,string> = {openai:"gpt-6-luna",gemini:"gemini-3.5-flash-lite",deepseek:"deepseek-flash",anthropic:"claude-haiku-4-5",kimi:"kimi-k2.6"};
+
 const MODEL_PROVIDER_PATHS: Record<string, string> = {
   "ai_provider_profiles.analyst.model": "ai_provider_profiles.analyst.provider",
   "ai_provider_profiles.assistant.model": "ai_provider_profiles.assistant.provider",
+  [FINANCE_DECISION_MODEL]: FINANCE_DECISION_PROVIDER,
   "ai_data_routing.public_openai_model": "__openai_fixed__",
   "ai_model_roles.frequent_cheap.model": "ai_model_roles.frequent_cheap.provider",
   "ai_model_roles.standard.model": "ai_model_roles.standard.provider",
@@ -74,6 +79,7 @@ const MODEL_PROVIDER_PATHS: Record<string, string> = {
 const MODEL_CAPABILITIES: Record<string, "chat_text" | "chat_json" | "transcribe"> = {
   "ai_provider_profiles.analyst.model": "chat_json",
   "ai_provider_profiles.assistant.model": "chat_text",
+  [FINANCE_DECISION_MODEL]: "chat_json",
   "ai_model_roles.frequent_cheap.model": "chat_json",
   "ai_model_roles.standard.model": "chat_json",
   "ai_model_roles.premium.model": "chat_json",
@@ -284,7 +290,8 @@ export function SettingsCenter({ client, open, initialField, onClose, onAskAssis
       .then((next) => {
         setSnapshot(next);
         setDraft(Object.fromEntries(next.fields.map((field) => [field.path, field.value])));
-        setActiveSection(initialField === STRATEGY_DIFFICULTY_PATH ? "ai_engine" : "general");
+        setActiveSection(initialField === STRATEGY_DIFFICULTY_PATH || initialField === FINANCE_DECISION_MODEL ? "ai_engine" : "general");
+        if(initialField === FINANCE_DECISION_MODEL) setCredentialProvider(String(next.fields.find(f=>f.path===FINANCE_DECISION_PROVIDER)?.value || "openai"));
         setShowTechnicalFields(false);
         setReadinessOpen(false);
         setBackupOpen(false);
@@ -316,9 +323,9 @@ export function SettingsCenter({ client, open, initialField, onClose, onAskAssis
   }, [client, open, initialField]);
 
   useEffect(() => {
-    if (!open || busy || !snapshot || focusedTarget.current || initialField !== STRATEGY_DIFFICULTY_PATH || activeSection !== 'ai_engine') return;
+    if (!open || busy || !snapshot || focusedTarget.current || ![STRATEGY_DIFFICULTY_PATH, FINANCE_DECISION_MODEL].includes(initialField || '') || activeSection !== 'ai_engine') return;
     const frame = window.requestAnimationFrame(() => {
-      const target = document.querySelector<HTMLElement>('[data-setting-path="ai_custom_features.profile"]');
+      const target = document.querySelector<HTMLElement>(`[data-setting-path="${initialField}"]`);
       if (!target) return;
       target.scrollIntoView({ block: 'center' });
       target.querySelector<HTMLSelectElement>('select')?.focus({ preventScroll: true });
@@ -379,6 +386,14 @@ export function SettingsCenter({ client, open, initialField, onClose, onAskAssis
     const provider = providerPath === "__openai_fixed__" ? "openai" : providerPath ? String(candidateDraft[providerPath] || "openai") : "openai";
     const capability = MODEL_CAPABILITIES[path] ?? "chat_text";
     const fallback = snapshot?.model_catalogs?.[provider]?.[capability] ?? [];
+    if(path === FINANCE_DECISION_MODEL){
+      const current=String(candidateDraft[path] || "").trim();
+      if(!snapshot?.credential_status?.[`ai:${provider}`]) return includeCurrent && current ? [current] : [];
+      const checked=accountModelCatalogs[provider];
+      const eligible=checked ? fallback.filter(model=>checked.includes(model)) : fallback;
+      const preferred=FINANCE_FAST_CANDIDATES[provider];
+      return Array.from(new Set([...(includeCurrent&&current?[current]:[]),...eligible.filter(model=>model===preferred),...eligible.filter(model=>model!==preferred)]));
+    }
     const discovered = capability !== "transcribe" ? accountModelCatalogs[path === "ai_data_routing.public_openai_model" ? "openai_shared" : provider] ?? [] : [];
     const current = String(candidateDraft[path] || "").trim();
     return Array.from(new Set([...(includeCurrent && current ? [current] : []), ...fallback, ...discovered]));
@@ -811,8 +826,8 @@ export function SettingsCenter({ client, open, initialField, onClose, onAskAssis
     } finally { setBusy(false); }
   }
 
-  async function runProviderCheck() {
-    const provider = ["openai", "openai_shared", "deepseek", "kimi", "anthropic", "gemini", "alpha:deepseek"].includes(credentialProvider)
+  async function runProviderCheck(financeDecision = false) {
+    const provider = financeDecision ? String(draft[FINANCE_DECISION_PROVIDER] || "") : ["openai", "openai_shared", "deepseek", "kimi", "anthropic", "gemini", "alpha:deepseek"].includes(credentialProvider)
       ? credentialProvider : String(draft.ai_provider || "openai");
     const pending = credentialDrafts[provider] ?? {};
     if (Object.values(pending).some((value) => value.trim())) {
@@ -820,8 +835,8 @@ export function SettingsCenter({ client, open, initialField, onClose, onAskAssis
       if (!saved) return;
     }
     const analystProvider = String(draft["ai_provider_profiles.analyst.provider"] || draft.ai_provider || "openai");
-    const model = String(provider === "alpha:deepseek" ? draft["alpha_arena.engine"] || "deepseek-v4-flash" : provider === "openai_shared" ? draft["ai_data_routing.public_openai_model"] || "" : analystProvider === provider ? draft["ai_provider_profiles.analyst.model"] || "" : "");
-    const selectionPending = provider === "openai_shared"
+    const model = String(financeDecision ? draft[FINANCE_DECISION_MODEL] || "" : provider === "alpha:deepseek" ? draft["alpha_arena.engine"] || "deepseek-v4-flash" : provider === "openai_shared" ? draft["ai_data_routing.public_openai_model"] || "" : analystProvider === provider ? draft["ai_provider_profiles.analyst.model"] || "" : "");
+    const selectionPending = financeDecision ? Object.prototype.hasOwnProperty.call(changed, FINANCE_DECISION_MODEL) || Object.prototype.hasOwnProperty.call(changed, FINANCE_DECISION_PROVIDER) : provider === "openai_shared"
       ? Object.prototype.hasOwnProperty.call(changed, "ai_data_routing.public_openai_model")
       : analystProvider === provider && (
         Object.prototype.hasOwnProperty.call(changed, "ai_provider_profiles.analyst.provider")
@@ -832,7 +847,7 @@ export function SettingsCenter({ client, open, initialField, onClose, onAskAssis
     setProviderCheck(null);
     setBusy(true); setMessage(`Provider 모델 목록과 ${model || "기본 모델"} 실제 호출을 확인하는 중입니다…`);
     try {
-      const result = await client.checkAIProvider(provider, model, "chat_text");
+      const result = await client.checkAIProvider(provider, model, financeDecision ? "chat_json" : "chat_text");
       if (checkEpoch !== diagnosticEpoch.current) return;
       setProviderCheck({ ...result, credential_scope: provider, selection_pending: selectionPending });
       if (result.model_callable) {
@@ -968,7 +983,7 @@ export function SettingsCenter({ client, open, initialField, onClose, onAskAssis
           <button className="settings-quick-start-open" type="button" onClick={openQuickStart}>{t("처음 사용 · 빠른 시작")}</button>
           <button className="settings-window-close" type="button" onClick={requestClose} aria-label={t("설정 창 닫기")} title={t("설정 닫기")}>×</button>
         </header>
-        <div className="settings-live-warning"><span>{t("v3.9.2.3 · LIVE는 별도 권한입니다 · PAPER OFF + 주문 대상/증권 LIVE + API 준비 + 가드레일")}</span><button type="button" onClick={() => onAskAssistant("실거래 전 필수 준비, PAPER와 LIVE의 차이, API 권한과 주문 가드레일을 현재 설정 기준으로 설명해줘.", activeSection)}>{t("실거래 필수 안내")}</button></div>
+        <div className="settings-live-warning"><span>{t("v3.9.2.4 · LIVE는 별도 권한입니다 · PAPER OFF + 주문 대상/증권 LIVE + API 준비 + 가드레일")}</span><button type="button" onClick={() => onAskAssistant("실거래 전 필수 준비, PAPER와 LIVE의 차이, API 권한과 주문 가드레일을 현재 설정 기준으로 설명해줘.", activeSection)}>{t("실거래 필수 안내")}</button></div>
         <section className={`settings-readiness-strip ${readinessOpen ? "open" : ""}`}>
           <header><strong>{t("AI 실행 준비도 진단")}</strong><button type="button" onClick={() => setReadinessOpen((value) => !value)}>{readinessOpen ? "상세 닫기" : t("상세 보기")}</button></header>
           {readinessOpen && <div className="readiness-grid"><span><b>{t("AI 키")}</b>{diagnostics?.ai?.configured ? "등록됨" : "미설정"}</span><span><b>{t("기본 Provider")}</b>{String(diagnostics?.ai?.provider || "—").toUpperCase()}</span><span><b>{t("거래 모드")}</b>{diagnostics?.trading?.paper_trading ? "PAPER" : diagnostics?.trading?.live_ready ? "LIVE 준비" : "LIVE 차단"}</span><span><b>{t("런타임")}</b>{diagnostics?.trading?.runtime_status || "확인 중"}</span><span><b>{t("회원 등급")}</b>{String(diagnostics?.membership?.user_grade || "확인 필요").toUpperCase()}</span><span><b>{t("회원 정책")}</b>{diagnostics?.membership?.policy_version || diagnostics?.membership?.status || "서버 확인 필요"}</span></div>}
@@ -1053,7 +1068,7 @@ export function SettingsCenter({ client, open, initialField, onClose, onAskAssis
             </section>}
             {activeSection === "general" && snapshot && <section className="settings-contract-status">
               <strong>{t("설정 정리 상태")}</strong>
-              <p>{t("앱 v3.9.2.3 · 설정 스키마 ")}{snapshot.schema_version}{t(" · 현재 모드 ")}{diagnostics?.trading?.paper_trading ? "PAPER" : "LIVE 확인 필요"}{t(" · 계정 설정 ")}{snapshot.account_scope}</p>
+              <p>{t("앱 v3.9.2.4 · 설정 스키마 ")}{snapshot.schema_version}{t(" · 현재 모드 ")}{diagnostics?.trading?.paper_trading ? "PAPER" : "LIVE 확인 필요"}{t(" · 계정 설정 ")}{snapshot.account_scope}</p>
               {snapshot.storage_status?.ok === false && <p className="error-text">{t("기존 settings.json의 문자 인코딩 또는 JSON 형식을 읽지 못했습니다. 원본 보호를 위해 저장이 차단됩니다. 파일을 삭제하지 말고 설정 백업 복구 또는 지원 로그 전달을 이용하세요.")}</p>}
               {snapshot.storage_status?.needs_normalization && <p>{t("기존 ")}{snapshot.storage_status.encoding}{t(" 설정을 호환해서 읽었습니다. 다음 검증 저장 시 UTF-8 정본으로 변환됩니다.")}</p>}
               <span>{t("기본 설정은 원본 화면의 사용자 항목이며, 고급 설정에는 정본 JSON의 기술 정책이 표시됩니다. 비밀값과 런타임 snapshot은 별도 보호 경로로 관리됩니다.")}</span>
@@ -1104,6 +1119,18 @@ export function SettingsCenter({ client, open, initialField, onClose, onAskAssis
               <div className="settings-ai-budget-boundary"><div><strong>{t("한도에 포함")}</strong><span>{t("심층분석 · 차트/이미지 해석 · 영상/음성 전사 · 외부 AI 전략 보조")}</span></div><div><strong>{t("한도 후에도 계속")}</strong><span>{t("일반 안내 · 텍스트/Pine 로컬 규칙 분석 · 5분 따라 만들기 · 거래 엔진")}</span></div></div>
               <div className="settings-ai-budget-error"><strong>{t("상태 429를 구분하세요")}</strong><span><code>interactive_ai_budget_exceeded</code>{t("는 NoahAI가 Provider 요청 전에 막은 로컬 비용 보호입니다. 제공사 자체 429는 해당 Provider의 속도·쿼터·결제 제한이며 별도 문제입니다.")}</span><small>{t("Provider 전송을 시도한 요청은 응답 실패 여부와 관계없이 반복 폭주 방지를 위해 1회로 집계합니다. 현재 일일 집계는 UTC 00:00에 갱신됩니다(한국시간 09:00). 월간 집계도 UTC 달력 기준입니다.")}</small></div>
             </section>}
+            {activeSection === "ai_engine" && <section className="settings-parity-panel" aria-label="생활금융 빠른 판단 설정 안내">
+              <h3>생활금융 빠른 판단 · API 연결과 모델 선택</h3>
+              <p>생활금융에서 질문을 이해하는 데 사용할 AI를 여기서 관리합니다. 위 연결 정보에서 서비스의 API 키를 저장한 뒤, 아래 생활금융 빠른 판단 제공사와 모델을 선택하고 설정을 저장하세요. 키가 등록된 제공사만 새로 선택할 수 있습니다. 키 등록은 연결 성공 확인과 다르므로 연결 점검도 실행하세요.</p>
+              <p>현재 선택: {String(draft[FINANCE_DECISION_PROVIDER] || "미선택")} · {snapshot?.credential_status?.[`ai:${String(draft[FINANCE_DECISION_PROVIDER] || "")}`] ? "API 키 등록됨 · 실제 계정 연결 점검 필요" : "API 키 없음 · 생활금융 AI 요청 불가"}. 생활금융의 상황 버튼은 API 키 없이 이용할 수 있습니다.</p>
+              <button className="secondary-button" type="button" disabled={busy || !snapshot?.credential_status?.[`ai:${String(draft[FINANCE_DECISION_PROVIDER] || "")}`] || !draft[FINANCE_DECISION_MODEL]} onClick={()=>{setCredentialProvider(String(draft[FINANCE_DECISION_PROVIDER]));void runProviderCheck(true);}}>생활금융 선택 모델 연결 점검</button>
+              <p>연결 점검은 개인 질문 대신 고정 시험 문장으로 선택한 모델을 1회 호출하며 API 비용이 발생할 수 있습니다.</p>
+              <details><summary>왜 빠른 판단을 따로 쓰나요? · Jev와 모델 선택 기준</summary>
+                <p>“보험은 없고 차로 출퇴근해요” 같은 질문의 목적만 짧게 정리해 알맞은 안내로 연결합니다. 기본 안내가 내 표현을 이해하지 못할 때 사용하는 선택 기능이며, 긴 비교 설명은 생활금융의 ‘AI 설명 더 보기’에서 요청합니다. 반복 질문의 대기 시간·비용을 줄이려는 용도이며 실제 성능은 모델과 질문에 따라 달라집니다.</p>
+                <p>Jev에서 검토한 짧은 판단 용도를 기존 지원 모델로 이용하는 기능입니다. Jev 자체를 연결하거나 같은 속도·정확도·확률 기능을 검증한 것은 아닙니다. Jev를 따로 설치할 필요가 없습니다.</p>
+                <p>API 키가 등록된 서비스의 후보 중에서 선택합니다. GPT-6 Luna, Gemini Flash-Lite, DeepSeek Flash, Claude Haiku, Kimi K2.6을 우선 후보로 두며 성능 순위는 아닙니다. 다른 지원 모델도 선택할 수 있습니다. ‘현재 설정 저장’ 후 생활금융에 적용되며 거래 모델 설정은 바뀌지 않습니다.</p>
+              </details>
+            </section>}
             {activeSection === "ai_engine" && <section className="settings-ai-routing-panel" aria-label={t("나만의 AI 구성")}>
               <header><div><strong>{t("나만의 AI 구성 · 작업별 모델")}</strong><p>{t("한 모델을 모든 작업에 강제하지 않고 비용·속도·정밀도에 따라 역할별 Provider와 모델을 선택합니다. 아래 표는 현재 화면 선택값이며 저장 전에는 실행에 반영되지 않습니다.")}</p></div></header>
               <div className="settings-ai-route-grid">
@@ -1112,10 +1139,11 @@ export function SettingsCenter({ client, open, initialField, onClose, onAskAssis
                   ["표준 분석", "ai_model_roles.standard.provider", "ai_model_roles.standard.model", "일반적인 구조화 분석"],
                   ["정밀·전략", "ai_model_roles.premium.provider", "ai_model_roles.premium.model", "Strategy Studio 외부 보조"],
                   ["AI 애널리스트", "ai_provider_profiles.analyst.provider", "ai_provider_profiles.analyst.model", "시장·차트 분석"],
+                  ["생활금융 빠른 판단", FINANCE_DECISION_PROVIDER, FINANCE_DECISION_MODEL, "질문 목적 해석 · API 키 등록 후 사용"],
                   ["AI 어시스턴트", "ai_provider_profiles.assistant.provider", "ai_provider_profiles.assistant.model", "사용자가 누른 심층질문"],
                 ].map(([label, providerPath, modelPath, purpose]) => {
                   const pending = Object.prototype.hasOwnProperty.call(changed, providerPath) || Object.prototype.hasOwnProperty.call(changed, modelPath);
-                  return <div key={label}><span>{label}<em>{pending ? "변경 대기 · 아직 미적용" : "저장됨 · 실행값"}</em></span><strong>{String(draft[providerPath] || "미선택").toUpperCase()} · {SETTING_OPTION_LABELS[String(draft[modelPath] || "")] ?? String(draft[modelPath] || "자동 선택")}</strong><small>{purpose}</small></div>;
+                  return <div key={label}><span>{label}<em>{pending ? "변경 대기 · 아직 미적용" : modelPath===FINANCE_DECISION_MODEL && !snapshot?.credential_status?.[`ai:${String(draft[providerPath] || "")}`] ? "API 키 필요" : "저장됨 · 실행값"}</em></span><strong>{String(draft[providerPath] || "미선택").toUpperCase()} · {SETTING_OPTION_LABELS[String(draft[modelPath] || "")] ?? String(draft[modelPath] || "자동 선택")}</strong><small>{purpose}</small></div>;
                 })}
                 <div className="fixed"><span>{t("영상·음성 전사")}</span><strong>OPENAI · {SETTING_OPTION_LABELS[String(draft["ai_custom_transcription.model"] || "")] ?? String(draft["ai_custom_transcription.model"] || "gpt-4o-mini-transcribe")}</strong><small>{t("YouTube 공개 자막이 없을 때만 음성 전사 사용")}</small></div>
               </div>
@@ -1152,7 +1180,7 @@ export function SettingsCenter({ client, open, initialField, onClose, onAskAssis
             </section>}
             {(activeSection === "ai_engine" || activeSection === "alpha") && <section className="settings-parity-panel">
               {activeSection === "alpha" && <p>{t("AlphaArena 전용 키를 점검합니다. 엔진 변경은 먼저 현재 설정 저장을 누르세요. 실행 중 설정 변경은 실험을 정지시킵니다.")}</p>}<div className="settings-default-ai-note"><strong>{t("기본 자동매매와 전략 스튜디오는 별개입니다.")}</strong><span>{t("기본 모드는 외부 AI 키가 없어도 로컬 규칙·통계로 실행되며, 키가 연결되면 필요한 시장 이벤트에서 AI 판단을 보강합니다. ‘AI 최소 학습 표본 20’을 채워야 시작하는 절차는 없습니다.")}</span></div>
-              <header><div><strong>{t("AI 모델·기능 실제 점검")}</strong><p>{t("Provider 모델 목록 조회 후 선택 모델을 비민감 고정 문장으로 1회 실제 호출합니다. AlphaArena는 전용 키와 저장된 엔진, 공개 질문용 키는 공개 질문 모델을 사용합니다. 진단도 외부 호출 1회와 실제 토큰 비용이 발생하며 AI 비용 관리에 기록됩니다.")}</p></div><button className="primary-button" type="button" disabled={busy || !selectedCredentialReady} onClick={runProviderCheck}>{t("선택 모델 1회 실제 호출 점검")}</button></header>
+              <header><div><strong>{t("AI 모델·기능 실제 점검")}</strong><p>{t("Provider 모델 목록 조회 후 선택 모델을 비민감 고정 문장으로 1회 실제 호출합니다. AlphaArena는 전용 키와 저장된 엔진, 공개 질문용 키는 공개 질문 모델을 사용합니다. 진단도 외부 호출 1회와 실제 토큰 비용이 발생하며 AI 비용 관리에 기록됩니다.")}</p></div><button className="primary-button" type="button" disabled={busy || !selectedCredentialReady} onClick={()=>void runProviderCheck()}>{t("선택 모델 1회 실제 호출 점검")}</button></header>
               <div className="settings-preset-row settings-ai-action-row"><span>{t("설명 프리셋")}</span><button type="button" onClick={() => applyAssistantPreset("saver")}>{t("절약형")}</button><button type="button" onClick={() => applyAssistantPreset("standard")}>{t("균형형")}</button><button type="button" onClick={() => applyAssistantPreset("premium")}>{t("정밀형")}</button><button type="button" onClick={() => onAskAssistant("AI 엔진/API를 처음 연결하는 사용자입니다. 공식 키 발급, 최소 권한, Provider와 모델 선택, 예상 비용, 연결 점검을 3단계로 안내해줘. 비밀키를 답변에 붙여 넣으라고 하지 말고 설정을 자동 저장하지 마.", activeSection)}>{t("초보자 연결 3단계")}</button><button type="button" onClick={() => onAskAssistant("현재 저장된 AI 엔진 설정의 등록 여부만 보고 비용 절약형·균형형·정밀형 차이를 설명해줘. 키 값은 표시하지 말고 변경 후보만 제안해줘.", activeSection)}>{t("AI 설정 도우미")}</button><button type="button" onClick={() => onAskAssistant("NoahAI 초기 설정을 5문항으로 진행해줘. 1) 투자 경험 2) 운용 서비스 3) PAPER/LIVE 범위 4) 위험 허용도 5) AI 비용 선호를 한 번에 하나씩 묻고, 마지막에 변경 후보와 영향만 요약해줘. 내 확인 전에는 설정을 저장하거나 거래를 실행하지 마.", activeSection)}>{t("AI로 초기 설정 (5문항)")}</button></div>
               {providerCheck && providerCheck.credential_scope === credentialProvider && <div className={providerCheck.model_callable ? "diagnostic-result ready" : "diagnostic-result error-text"}>
                 <b>{providerCheck.model_callable ? "선택 모델 실제 호출 확인됨" : providerCheck.catalog_checked ? "Provider 목록 연결됨 · 선택 모델 호출 실패" : "Provider 연결 확인 실패"}</b>
@@ -1174,7 +1202,7 @@ export function SettingsCenter({ client, open, initialField, onClose, onAskAssis
                   <div className="notification-channel-title"><div><span>{t("가장 쉬움")}</span><h3>{t("Discord 웹훅")}</h3></div><b>{snapshot?.credential_status?.["notification:discord"] ? "저장됨" : "연결 필요"}</b></div>
                   <ol><li>{t("Discord 채널의 설정을 엽니다.")}</li><li>{t("연동 → 웹후크 → 새 웹후크 → URL 복사를 누릅니다.")}</li><li>{t("아래에 붙여 넣고 저장한 뒤 테스트합니다.")}</li></ol>
                   <label><span>{t("웹훅 URL · 저장 후 다시 표시하지 않음")}</span><input type={showCredentialDraft ? "text" : "password"} autoComplete="off" placeholder={snapshot?.credential_field_status?.["notification:discord"]?.webhook_url ? "•••••••• 저장됨 · 변경할 때만 입력" : "https://discord.com/api/webhooks/…"} value={credentialDrafts["notification:discord"]?.webhook_url ?? ""} onChange={(event) => setCredentialDrafts((current) => ({ ...current, "notification:discord": { ...(current["notification:discord"] ?? {}), webhook_url: event.target.value } }))} /></label>
-                  <div className="notification-actions"><button type="button" disabled={busy} onClick={() => void saveNotificationCredential("notification:discord")}>{t("1. 연결 저장")}</button><button type="button" disabled={busy || !snapshot?.credential_status?.["notification:discord"]} onClick={() => void runNotificationTest("discord")}>{t("2. 테스트 보내기")}</button><button className="danger-button" type="button" disabled={busy || !snapshot?.credential_status?.["notification:discord"]} onClick={() => void saveNotificationCredential("notification:discord", true)}>{t("삭제")}</button></div>
+                  <div className="notification-actions"><button type="button" disabled={busy} onClick={() => void saveNotificationCredential("notification:discord")}>{t("1. 연결 저장")}</button><button className="secondary-button" type="button" disabled={busy || !snapshot?.credential_status?.["notification:discord"]} onClick={() => void runNotificationTest("discord")}>{t("2. 테스트 보내기")}</button><button className="danger-button" type="button" disabled={busy || !snapshot?.credential_status?.["notification:discord"]} onClick={() => void saveNotificationCredential("notification:discord", true)}>{t("삭제")}</button></div>
                   <a href="https://support.discord.com/hc/ko/articles/228383668" target="_blank" rel="noreferrer">{t("↗ Discord 웹훅 안내")}</a>
                 </article>
                 <article className={snapshot?.credential_status?.["notification:telegram"] ? "ready" : ""}>
@@ -1182,7 +1210,7 @@ export function SettingsCenter({ client, open, initialField, onClose, onAskAssis
                   <ol><li>{t("Telegram의 @BotFather에서 /newbot으로 봇 토큰을 발급합니다.")}</li><li>{t("토큰을 저장하고 만든 봇 대화에서 Start 또는 /start를 보냅니다.")}</li><li>{t("대화방 자동 찾기 → 받을 곳 선택 → 저장 → 테스트 순서로 진행합니다.")}</li></ol>
                   <label><span>{t("봇 토큰 · 저장 후 다시 표시하지 않음")}</span><input type={showCredentialDraft ? "text" : "password"} autoComplete="off" placeholder={snapshot?.credential_field_status?.["notification:telegram"]?.bot_token ? "•••••••• 저장됨 · 변경할 때만 입력" : "123456789:AA…"} value={credentialDrafts["notification:telegram"]?.bot_token ?? ""} onChange={(event) => setCredentialDrafts((current) => ({ ...current, "notification:telegram": { ...(current["notification:telegram"] ?? {}), bot_token: event.target.value } }))} /></label>
                   <label><span>{t("받을 대화방 ID · 자동 찾기 권장")}</span><input type="text" inputMode="numeric" autoComplete="off" placeholder={snapshot?.credential_field_status?.["notification:telegram"]?.chat_id ? "저장됨 · 바꿀 때 자동 찾기" : "대화방 자동 찾기로 선택"} value={credentialDrafts["notification:telegram"]?.chat_id ?? ""} onChange={(event) => setCredentialDrafts((current) => ({ ...current, "notification:telegram": { ...(current["notification:telegram"] ?? {}), chat_id: event.target.value } }))} /></label>
-                  <div className="notification-actions telegram"><button type="button" disabled={busy} onClick={() => void saveNotificationCredential("notification:telegram")}>{t("1. 토큰/대화방 저장")}</button><button type="button" disabled={busy || !(snapshot?.credential_field_status?.["notification:telegram"]?.bot_token || credentialDrafts["notification:telegram"]?.bot_token)} onClick={() => void discoverTelegram()}>{t("2. 대화방 자동 찾기")}</button><button type="button" disabled={busy || !snapshot?.credential_status?.["notification:telegram"]} onClick={() => void runNotificationTest("telegram")}>{t("3. 테스트 보내기")}</button><button className="danger-button" type="button" disabled={busy || !(snapshot?.credential_field_status?.["notification:telegram"]?.bot_token || snapshot?.credential_field_status?.["notification:telegram"]?.chat_id)} onClick={() => void saveNotificationCredential("notification:telegram", true)}>{t("삭제")}</button></div>
+                  <div className="notification-actions telegram"><button type="button" disabled={busy} onClick={() => void saveNotificationCredential("notification:telegram")}>{t("1. 토큰/대화방 저장")}</button><button type="button" disabled={busy || !(snapshot?.credential_field_status?.["notification:telegram"]?.bot_token || credentialDrafts["notification:telegram"]?.bot_token)} onClick={() => void discoverTelegram()}>{t("2. 대화방 자동 찾기")}</button><button className="secondary-button" type="button" disabled={busy || !snapshot?.credential_status?.["notification:telegram"]} onClick={() => void runNotificationTest("telegram")}>{t("3. 테스트 보내기")}</button><button className="danger-button" type="button" disabled={busy || !(snapshot?.credential_field_status?.["notification:telegram"]?.bot_token || snapshot?.credential_field_status?.["notification:telegram"]?.chat_id)} onClick={() => void saveNotificationCredential("notification:telegram", true)}>{t("삭제")}</button></div>
                   {telegramChats.length > 0 && <div className="telegram-chat-list"><strong>{t("받을 대화방 선택")}</strong>{telegramChats.map((chat) => <button type="button" key={chat.chat_id} onClick={() => setCredentialDrafts((current) => ({ ...current, "notification:telegram": { ...(current["notification:telegram"] ?? {}), chat_id: chat.chat_id } }))}><span>{chat.label}</span><small>{chat.type} · {chat.chat_id}</small></button>)}</div>}
                   <a href="https://core.telegram.org/bots/tutorial" target="_blank" rel="noreferrer">{t("↗ Telegram 공식 봇 안내")}</a>
                 </article>
@@ -1229,7 +1257,7 @@ export function SettingsCenter({ client, open, initialField, onClose, onAskAssis
             {activeSection === "update" && <section className="settings-update-panel">
               <strong>{t("버전 정보 · 클라이언트 업데이트")}</strong>
               <p>{t("업데이트 확인과 다운로드는 거래 엔진을 중지하지 않습니다. 설치·재시작은 거래 워커 정지와 기록 저장이 완료된 경우에만 진행합니다.")}</p>
-              <UpdateCenter client={client} accountScope={snapshot?.account_scope ?? ""} detailed currentVersion={platform?.release_version ? `v${platform.release_version}` : "v3.9.2.3"} />
+              <UpdateCenter client={client} accountScope={snapshot?.account_scope ?? ""} detailed currentVersion={platform?.release_version ? `v${platform.release_version}` : "v3.9.2.4"} />
               {!window.noahAI && <span>{t("브라우저 개발 실행에서는 데스크톱 업데이트를 사용할 수 없습니다.")}</span>}
               <RecordRecoveryPanel client={client} />
               <StorageMaintenancePanel client={client} />
@@ -1241,10 +1269,10 @@ export function SettingsCenter({ client, open, initialField, onClose, onAskAssis
                   <input type="checkbox" checked={Boolean(draft[field.path])} onChange={(event) => setDraft({ ...draft, [field.path]: event.target.checked })} />
                 ) : field.kind === "select" ? (
                   <select value={String(draft[field.path] ?? "")} onChange={(event) => updateDraftField(field.path, event.target.value)}>
-                    {field.options.map((option) => <option value={option} key={option}>{field.path === STRATEGY_DIFFICULTY_PATH ? strategyDifficultyLabel(option) : t(SETTING_OPTION_LABELS[option] ?? option)}</option>)}
+                    {field.options.filter(option=>field.path!==FINANCE_DECISION_PROVIDER || snapshot?.credential_status?.[`ai:${option}`] || option===draft[field.path]).map((option) => <option disabled={field.path===FINANCE_DECISION_PROVIDER && !snapshot?.credential_status?.[`ai:${option}`]} value={option} key={option}>{field.path===FINANCE_DECISION_PROVIDER ? `${option} · ${snapshot?.credential_status?.[`ai:${option}`] ? "API 키 등록됨" : "키 없음 · 기존 설정"}` : field.path === STRATEGY_DIFFICULTY_PATH ? strategyDifficultyLabel(option) : t(SETTING_OPTION_LABELS[option] ?? option)}</option>)}
                   </select>
                 ) : field.kind === "model_select" ? (
-                  <select value={String(draft[field.path] ?? "")} onChange={(event) => updateDraftField(field.path, event.target.value)}>
+                  <select disabled={field.path===FINANCE_DECISION_MODEL && !snapshot?.credential_status?.[`ai:${String(draft[FINANCE_DECISION_PROVIDER] || "")}`]} value={String(draft[field.path] ?? "")} onChange={(event) => updateDraftField(field.path, event.target.value)}>
                     {!String(draft[field.path] ?? "") && <option value="" disabled>{t("모델을 선택하세요")}</option>}
                     {modelOptions(field.path).map((option) => <option value={option} key={option}>{SETTING_OPTION_LABELS[option] ?? option}</option>)}
                   </select>

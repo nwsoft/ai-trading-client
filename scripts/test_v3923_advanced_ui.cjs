@@ -63,8 +63,12 @@ const fs = require('node:fs/promises');
 
     await page.goto('http://127.0.0.1:4193/qa/v3923.html?guided=1');
     await page.getByRole('tab', { name: '대출 비교', exact: true }).click();
+    await page.locator('[role=tabpanel]:visible').getByText('이미 견적이 있거나 비교 입력을 직접 하고 싶어요',{exact:true}).click();
+    await page.getByRole('button',{name:'받은 견적 직접 비교하기'}).click();
     await page.getByLabel('빌릴 금액', { exact: true }).fill('1234567');
     await page.getByRole('tab', { name: '예금·적금 비교', exact: true }).click();
+    await page.locator('[role=tabpanel]:visible').getByText('이미 견적이 있거나 비교 입력을 직접 하고 싶어요',{exact:true}).click();
+    await page.getByRole('button',{name:'받은 견적 직접 비교하기'}).click();
     await page.getByLabel('예금 원금 / 매월 적금액', { exact: true }).fill('700000');
     await page.getByRole('tab', { name: '대출 비교', exact: true }).click();
     assert.equal(await page.getByLabel('빌릴 금액', { exact: true }).inputValue(), '1234567');

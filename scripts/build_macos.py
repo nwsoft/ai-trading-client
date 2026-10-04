@@ -35,6 +35,7 @@ def main():
     if not args.signed:
         env["CSC_IDENTITY_AUTO_DISCOVERY"] = "false"
     py = sys.executable
+    run([py, "scripts/verify_branding.py", "--root", ROOT])
     from importlib.metadata import version
     for line in (ROOT / "requirements_macos.txt").read_text().splitlines():
         if "==" in line and not line.startswith("#"):

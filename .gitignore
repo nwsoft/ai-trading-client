@@ -1,5 +1,6 @@
 # Python environment/cache
 .venv/
+.venv_broken_*/
 __pycache__/
 .pytest_cache/
 *.py[cod]
@@ -8,6 +9,12 @@ __pycache__/
 build/
 dist/
 deploy/
+webui/node_modules/
+webui/release/
+webui/*.tsbuildinfo
+output/
+test-output/
+tmp/
 
 # Runtime/generated data (do not commit)
 data/

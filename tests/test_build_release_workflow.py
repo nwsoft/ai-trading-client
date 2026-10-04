@@ -211,12 +211,11 @@ def test_github_workflow_builds_candidate_before_explicit_release():
     assert "upload-artifact@v4" in workflow
     assert "NOAHAI_PYTHON_X86" in workflow
     assert "requirements_kiwoom_x86.txt" in workflow
-    # The Windows workflow uses the same verified publisher as local releases.
-    # External acceptance stays pending in its manifest without being invented
-    # by an additional workflow confirmation switch.
-    assert "confirm_external_gates:" not in workflow
+    # Publication is explicitly requested; the shared publisher verifies the
+    # candidate and records pending manual checks without inventing their results.
     assert "if: inputs.publish_release" in workflow
     assert workflow.index("Upload release candidate") < workflow.index("Publish verified release")
+    assert workflow.count("default: false") == 1
     assert "publish_web_ui_windows_release.ps1" in workflow
     assert "softprops/action-gh-release" not in workflow  # no second publisher bypassing guards
     assert "deploy/web-release/NoahAI-${{ steps.app_version.outputs.version }}-Setup.exe" in workflow

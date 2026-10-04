@@ -34,13 +34,16 @@ def diagnose(source):
  report.update(status='evaluated',source=source,sample_days=45,sample_limit=300,policy_origins={'underperformance_mode':'validator_default'})
  return report
 def product_intelligence(payload=None):
+ if payload and payload.get('action')=='discover':
+  from trading.finance_discovery import discover
+  return discover(payload,catalog.snapshot())
  if payload and payload.get('action')=='refresh':return catalog.refresh_feeds(force=True)
  if payload and payload.get('action')=='dialogue':
   from trading.finance_product_dialogue import revise_scenario
   return revise_scenario(payload.get('scenario'),payload.get('question'),catalog.snapshot())
  if payload and payload.get('action') in {'ai_preview','ai_explain'}:
   from web_platform.finance_ai import preview,explain
-  return preview(ai,{},payload['scenario'],payload['question'],catalog.snapshot(),payload['scopes']) if payload['action']=='ai_preview' else explain(ai,{},payload,catalog.snapshot())
+  return preview(ai,{},payload['scenario'],payload['question'],catalog.snapshot(),payload['scopes'],payload.get('workload','assistant')) if payload['action']=='ai_preview' else explain(ai,{},payload,catalog.snapshot())
  return catalog.snapshot() if payload is None else compare_scenario(payload,catalog.snapshot())
 services=SimpleNamespace(account='synthetic-ui',runtime_snapshot=lambda:{},insurance_workspace=lambda:vault,
  product_intelligence=product_intelligence,

@@ -10,7 +10,7 @@ def test_difficulty_target_and_saved_refresh_are_wired_without_remount():
     assert 'settingsRevision={settingsRevision}' in app
     assert 'setSettingsInitialField("ai_custom_features.profile")' in app
     assert 'setSettingsInitialField(undefined)' in app
-    assert 'initialField === STRATEGY_DIFFICULTY_PATH ? "ai_engine" : "general"' in settings
+    assert 'initialField === STRATEGY_DIFFICULTY_PATH || initialField === FINANCE_DECISION_MODEL ? "ai_engine" : "general"' in settings
     assert 'target.scrollIntoView({ block: \'center\' })' in settings
     assert "focus({ preventScroll: true })" in settings
     assert 'field.path === STRATEGY_DIFFICULTY_PATH ? strategyDifficultyLabel(option)' in settings

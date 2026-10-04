@@ -1,0 +1,88 @@
+const {chromium}=require('playwright');
+const assert=require('node:assert/strict');
+(async()=>{
+ const browser=await chromium.launch({channel:'chrome',headless:true});
+ const page=await browser.newPage({viewport:{width:390,height:950}}),errors=[];
+ page.setDefaultTimeout(10000);
+ page.on('pageerror',e=>errors.push(String(e)));
+ const active=()=>page.locator('[role=tabpanel]:visible');
+ try{
+  await page.goto('http://127.0.0.1:4193/qa/v3923.html?guided=1');
+  await page.getByRole('tab',{name:'보험 비교',exact:true}).click();
+  await page.getByRole('button',{name:'보험이 없어요',exact:true}).click();
+  await page.getByRole('button',{name:'운전을 해요',exact:true}).click();
+  await active().getByRole('heading',{name:'자동차보험과 운전자 보장',exact:true}).waitFor();
+  assert.equal(await page.getByLabel('상품·견적 이름').count(),0);
+  assert.equal(await page.getByLabel('유지 가능한 월 보험료 예산(원)').isVisible(),false);
+  assert.ok(await active().getByText('현재 이 목적에 연결된 유효 상품 자료가 없습니다.',{exact:false}).isVisible());
+  await page.getByLabel('내 상황이나 궁금한 점').fill('보험 예산 2만원');
+  await page.getByRole('button',{name:'내 상황으로 안내받기'}).click();
+  await page.getByText('금액·기간도 알고 있다면 · 선택 입력',{exact:true}).click();
+  await page.waitForFunction(()=>Array.from(document.querySelectorAll('input')).some(i=>i.value==='20000.0'));
+  await page.locator('.finance-discovery:visible').screenshot({path:'reports/v3923-discovery-insurance-390.png'});
+  await page.getByRole('button',{name:'이 상황으로 비교·상담 준비하기'}).click();
+  assert.equal(await page.getByLabel('현재 가입 상태').inputValue(),'none');
+  assert.equal(await page.getByLabel('먼저 알아볼 보장').inputValue(),'driver');
+  assert.equal(await page.getByLabel('지속 가능한 월 보험료 예산(원)').inputValue(),'20000.0');
+  await page.getByLabel('상품·견적 이름').first().fill('작성 중인 합성 견적');
+  await page.getByRole('button',{name:'← 상황 안내로 돌아가기 · 비교 입력 유지'}).click();
+  await page.getByRole('tab',{name:'대출 비교',exact:true}).click();
+  await active().getByRole('button',{name:'기존 대출 부담을 줄이고 싶어요'}).click();
+  await active().getByRole('heading',{name:'대환·상환 방식 비교'}).waitFor();
+  await page.getByRole('tab',{name:'보험 비교',exact:true}).click();
+  await active().getByRole('button',{name:'작성 중인 비교로 돌아가기'}).click();
+  assert.equal(await active().getByLabel('상품·견적 이름').first().inputValue(),'작성 중인 합성 견적');
+  await active().getByRole('button',{name:'← 상황 안내로 돌아가기 · 비교 입력 유지'}).click();
+  await active().getByLabel('내 상황이나 궁금한 점').fill('운전을 안 해요');
+  await active().getByRole('button',{name:'내 상황으로 안내받기'}).click();
+  await active().getByText('여러 목적 또는 부정 표현이 있어',{exact:false}).waitFor();
+  assert.equal(await active().getByRole('button',{name:'이 상황으로 비교·상담 준비하기'}).isDisabled(),true);
+  await page.getByRole('tab',{name:'예금·적금 비교',exact:true}).click();
+  await active().getByLabel('내 상황이나 궁금한 점').fill('매달 30만원 기간 1년');
+  await active().getByRole('button',{name:'내 상황으로 안내받기'}).click();
+  await active().getByRole('heading',{name:'정기·자유적금',exact:true}).waitFor();
+  await active().getByText('선택한 내용으로 AI 설명 더 보기',{exact:true}).click();
+  assert.equal(await active().getByLabel('AI 처리 방식').inputValue(),'frequent_cheap');
+  const counters=async()=>(await (await fetch('http://127.0.0.1:3919/qa-counters')).json()).ai;
+  const before=await counters();
+  await active().getByRole('button',{name:'AI에 보낼 내용 먼저 확인'}).click();
+  await active().getByText('수신 AI: synthetic · fixture',{exact:true}).waitFor();
+  assert.equal(await counters(),before);
+  assert.equal(await active().getByRole('button',{name:'선택한 내용 전송·AI 설명 요청'}).isDisabled(),true);
+  await active().getByLabel('AI 처리 방식').selectOption('assistant');
+  assert.equal(await active().getByRole('button',{name:'선택한 내용 전송·AI 설명 요청'}).count(),0);
+  await active().getByRole('button',{name:'이 상황으로 비교·상담 준비하기'}).click();
+  assert.equal(await active().getByLabel('계산 방식').inputValue(),'installment');
+  assert.equal(await active().getByLabel('예금 원금 / 매월 적금액',{exact:true}).inputValue(),'300000.0');
+  assert.equal(await active().getByLabel('기간(개월)',{exact:true}).inputValue(),'12');
+  await page.evaluate(()=>window.dispatchEvent(new Event('noah-finance-vault-locked')));
+  await page.getByLabel('상품·견적 이름').first().waitFor({state:'detached'});
+  assert.equal(await page.getByLabel('상품·견적 이름').count(),0);
+  await page.setViewportSize({width:1440,height:1000});
+  await page.getByRole('tab',{name:'보험 비교',exact:true}).click();
+  await active().getByRole('button',{name:'병원비가 걱정돼요'}).click();
+  await active().getByRole('heading',{name:'실손·의료비 보장',exact:true}).waitFor();
+  await page.locator('.finance-discovery:visible').screenshot({path:'reports/v3923-discovery-insurance-1440.png'});
+  assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false);
+  // Synthetic public-product UI fixture; the real filter/expiry rules are backend-tested.
+  let selectedRequest=null;
+  await page.route('**/api/v1/life-finance/product-intelligence',async route=>{
+   const request=route.request(),body=request.method()==='POST'?request.postDataJSON():null;
+   if(body?.action==='discover'){
+    const response=await route.fetch(),data=await response.json();
+    if(data.profile.discovery_goal==='driver')data.products=['A','B'].map(id=>({id,source_id:'synthetic',provider:'합성 회사 '+id,name:'합성 운전자 '+id,version:'fixture',verified_at:'2026-10-04',valid_until:'2099-01-01',source_url:'https://example.org/fixture'}));
+    await route.fulfill({response,json:data});
+   }else{if(body&&!body.action)selectedRequest=body;await route.continue();}
+  });
+  await active().getByRole('button',{name:'운전을 해요',exact:true}).click();
+  await active().getByLabel('회사·상품 이름으로 좁히기').fill('합성 회사 B');
+  await active().getByLabel('합성 회사 B · 합성 운전자 B').check();
+  assert.equal(await active().getByLabel('합성 회사 A · 합성 운전자 A').count(),0);
+  await active().getByRole('button',{name:'이 상황으로 비교·상담 준비하기'}).click();
+  await active().getByRole('button',{name:'조건 비교·필요한 질문 만들기'}).click();
+  await active().getByRole('heading',{name:'보장 필요부터 확인하세요',exact:true}).waitFor();
+  assert.deepEqual(selectedRequest.profile.discovery_product_ids,['synthetic:B']);
+  assert.deepEqual(errors,[]);
+  console.log('PASS: novice insurance/loan/savings, negation, preserved comparison, low-cost preview consent, vault clearing, desktop/mobile');
+ }finally{await browser.close();}
+})().catch(e=>{console.error(e);process.exitCode=1});

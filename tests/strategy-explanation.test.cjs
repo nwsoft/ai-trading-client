@@ -59,7 +59,8 @@ test('large escaped source remains valid JSON within Gateway question budget', (
 
 test('TypeScript snapshot round-trips to real Python local explanation without Provider calls', () => {
   const prompt = strategyExplanationPrompt(analysis, 'RSI 데모', 'stock');
-  const answer = execFileSync(path.join(root, '.venv/bin/python'), ['-c', 'import sys; from config.ai_custom_knowledge import build_ai_custom_knowledge; print(build_ai_custom_knowledge(sys.stdin.read()))'], { cwd: root, input: prompt, encoding: 'utf8' });
+  const python = process.env.NOAHAI_BUILD_PYTHON || (process.platform === 'win32' ? 'python' : path.join(root, '.venv/bin/python'));
+  const answer = execFileSync(python, ['-c', 'import sys; from config.ai_custom_knowledge import build_ai_custom_knowledge; print(build_ai_custom_knowledge(sys.stdin.read()))'], { cwd: root, input: prompt, encoding: 'utf8', env: {...process.env, PYTHONUTF8: '1'} });
   assert.match(answer, /RSI 30 이하 LONG/);
   assert.match(answer, /현재 초안 쉽게 읽기/);
   assert.match(answer, /저자의 주장인지/);

@@ -670,7 +670,7 @@ def test_life_finance_exposes_full_legacy_tax_inputs_and_human_results() -> None
     # v3.9.2.2 replaces mixed sample rankings with a guided, local comparison.
     guide = (ROOT / "webui" / "src" / "components" / "GuidedProductComparison.tsx").read_text(encoding="utf-8")
     assert "GuidedProductComparison" in life
-    for label in ["대출 비교", "보험 비교", "예금·적금 비교", "전체 안내", "product-result-grid"]:
+    for label in ["대출 비교", "보험 비교", "예금·적금 비교", "전체 안내", "FinanceDiscovery"]:
         assert label in guide
     assert "compareFinanceProduct" not in guide
     assert '<pre className="json-summary"' not in life

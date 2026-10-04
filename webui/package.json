@@ -1,7 +1,7 @@
 {
   "name": "noahai-web-ui",
   "private": true,
-  "version": "3.9.203",
+  "version": "3.9.204",
   "main": "electron/main.cjs",
   "type": "module",
   "engines": {
@@ -12,8 +12,8 @@
     "build": "tsc --noEmit -p tsconfig.app.json && tsc --noEmit -p tsconfig.node.json && vite build",
     "preview": "vite preview --host 127.0.0.1",
     "electron:dev": "node electron/run-electron.cjs",
-    "desktop:pack": "npm run build && electron-builder --dir",
-    "desktop:dist": "npm run build && electron-builder --win nsis --x64"
+    "desktop:pack": "npm run build && electron-builder --dir --publish never",
+    "desktop:dist": "npm run build && electron-builder --win nsis --x64 --publish never"
   },
   "dependencies": {
     "electron-updater": "^6.6.2",
@@ -38,8 +38,9 @@
   "build": {
     "appId": "ai.noah.client",
     "productName": "NoahAI",
-    "buildVersion": "3.9.2.3",
+    "buildVersion": "3.9.2.4",
     "asar": true,
+    "beforePack": "electron/branding-preflight.cjs",
     "directories": {
       "output": "release"
     },
@@ -61,15 +62,17 @@
       "target": [
         "nsis"
       ],
-      "artifactName": "NoahAI-3.9.2.3-Setup.${ext}",
+      "artifactName": "NoahAI-3.9.2.4-Setup.${ext}",
       "executableName": "NoahAI",
-      "icon": "build/icon.ico"
+      "icon": "../icon.ico"
     },
     "mac": {
-      "icon": "build/icon.png",
+      "icon": "../icon.png",
       "category": "public.app-category.finance"
     },
     "nsis": {
+      "installerIcon": "../icon.ico",
+      "uninstallerIcon": "../icon.ico",
       "oneClick": false,
       "perMachine": false,
       "allowToChangeInstallationDirectory": true,

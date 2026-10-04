@@ -1490,6 +1490,7 @@ def get_default_settings() -> Dict[str, Any]:
             'public_openai_model': 'gpt-5.6-luna',
         },
         'ai_provider_profiles': {
+            'finance_decision': {'provider': 'openai', 'model': 'gpt-6-luna'},
             'analyst': {'provider': 'openai', 'model': ''},
             'assistant': {'provider': 'openai', 'model': ''},
             'transcription': {'provider': 'openai', 'model': 'gpt-4o-mini-transcribe'},

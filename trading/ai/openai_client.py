@@ -179,7 +179,8 @@ class OpenAIClient:
                   temperature: float = 0.2,
                   max_tokens: int = 800,
                   model: Optional[str] = None,
-                  reasoning_effort: Optional[str] = None) -> Optional[Dict[str, Any]]:
+                  reasoning_effort: Optional[str] = None,
+                  timeout_seconds: Optional[float] = None) -> Optional[Dict[str, Any]]:
         if not self._client:
             self._record_contract_error("credential_missing", "API 키가 없거나 AI 클라이언트를 초기화하지 못했습니다.")
             return None
@@ -202,7 +203,8 @@ class OpenAIClient:
                 request_kwargs["store"] = False
                 if reasoning_effort is not None:
                     request_kwargs["reasoning_effort"] = reasoning_effort
-            completion = self._client.chat.completions.create(
+            transport = self._client if timeout_seconds is None else self._client.with_options(timeout=max(1,min(float(timeout_seconds),30)),max_retries=0)
+            completion = transport.chat.completions.create(
                 **self._sanitize_completion_options(use_model, request_kwargs),
             )
             self._record_usage(completion, use_model)

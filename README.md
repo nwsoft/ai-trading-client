@@ -1,3 +1,10 @@
+## 2026-10-04 — v3.9.2.4 상황 기반 탐색·선택형 AI 판단 (소스 후보)
+
+현재 소스 후보: v3.9.2.4 · Finance Discovery and Selectable Decisions · updater 3.9.204. 현재 공개 기반: v3.9.2.3 (사용자 배포 확인).
+현재 소스 후보 버전: **v3.9.2.4**
+
+공개 v3.9.2.3 이후 변경은 v3.9.2.4로 배포합니다. 상황부터 상품 찾기, 기존 지원 모델 선택·질문 분류·검토 후 적용, Mac 소스 실행 복구를 포함합니다. [구현·검증·남은 인수](docs/V3924_FINANCE_DECISION_UPDATE_PLAN.md). v3.9.2.4 설치본은 아직 게시하지 않았습니다. 아래 날짜별 후보·공개 상태는 당시 기록입니다.
+
 ## 2026-10-03 — v3.9.2.3 Windows 릴리스 후보
 
 현재 소스 후보: v3.9.2.3 · Profitability Evidence and Finance Intelligence · Windows 검증 후보.
@@ -29,7 +36,7 @@
 
 # NoahAI - AI 금융 동반자 & 의사결정 인프라
 
-현재 공개 버전: **v3.9.2.1** · GitHub stable/latest 확인. 로컬 보존된 이전 manifest는 최신 게시 증거가 아닙니다.
+당시 공개 버전: **v3.9.2.1** · GitHub stable/latest 확인. 로컬 보존된 이전 manifest는 최신 게시 증거가 아닙니다.
 현재 공개 기반: v3.9.2.1.
 현재 소스 후보: v3.9.2.2 · updater **3.9.202** · Private Insurance Evidence Workspace. 생활금융 → 금융상품에 내 보험 암호화 정리·근거 확인·사실 비교·로컬 질문지를 구현했습니다. [지원 범위](docs/LIFE_FINANCE_GUIDE.md#insurance-workspace), [계획](docs/UPDATE_PLAN.md), [시험·미완료 인수](docs/TEST_STATUS.md)를 따릅니다. 고객 포털 `https://noahai.net`, 개발사 `https://noahailabs.com`. Windows 빌드·배포는 사용자가 수행합니다. 위·아래 3.9.2.1 이하 후보/미게시 문구는 당시 이력이며 현행은 이 절입니다.
 

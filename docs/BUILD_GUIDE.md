@@ -1,3 +1,17 @@
+## 2026-10-04 — Windows 아이콘 누락 재발 방지
+
+Windows/NSIS 아이콘은 추적된 루트 `icon.ico`, Mac 아이콘은 루트 `icon.png`를 사용합니다. 무시되는 `webui/build` 자산은 빌드 입력으로 사용하지 않습니다. 기존 NoahAI 파랑·보라·분홍 로고를 그대로 사용하며 새 로고를 생성하지 않습니다.
+
+`scripts/verify_branding.py`는 빌드 전 파일 존재·정본 SHA-256·이미지 디코딩·ICO의 16/32/48/256 크기·패키징 경로를 검사합니다. Electron beforePack에서도 같은 검사를 실행하므로 직접 패키징도 누락 시 실패합니다. 소스 fingerprint에는 두 루트 아이콘, public PNG, 검사기와 Electron hook이 포함됩니다.
+
+빌드 후 `win-unpacked/NoahAI.exe`와 버전별 Setup.exe의 실제 PE 아이콘 그룹 및 모든 이미지 payload를 정본 ICO와 대조합니다. 기본 Electron/NSIS 아이콘이나 잘린 리소스이면 빌드와 게시가 실패합니다. 증거는 `deploy/branding-verification.json`과 release-manifest의 `verification.branding`에 기록하며 게시 직전 다시 검사합니다. `python -m pytest -q tests/test_branding.py`는 누락·잘못된 이미지·기본 아이콘·패키징 경로·fingerprint 변경을 검사합니다.
+
+전체 Python 및 Node 회귀, Web typecheck/build와 dependency audit, x64 엔진·x86 키움 호스트 빌드/스모크는 생략하지 않습니다. OCX 로그인·실계좌·설치 업그레이드·장시간 운용은 별도 실제 증거가 있을 때만 통과로 기록합니다. 이전 3.9.2.3 게시 자산은 교체하지 않습니다.
+
+## 2026-10-04 — Mac 로컬 실행 복구
+
+3.9.2.3 소스에 3.9.2.2 화면이 남아 실행이 종료되던 경로를 수정했다. 로컬 실행기가 설치된 호환 Node로 오래된 화면을 자동 재빌드하고 검증한 뒤 실행한다. Mac 의존성은 기존 lockfile로 복원했다. 바탕화면 `NoahAI.app`은 현재 작업본 실행기에 연결했다. 실제 Electron 화면 준비 이벤트·엔진 health 3.9.2.3, 누락 빌드 자동 복구, Node 계약 73개 통과. Finder/아이콘 시각 인수는 native UI 도구 장애로 미검증. [상세 원인·검증](V3923_MAC_LOCAL_LAUNCH_FIX.md). 공개 설치기·거래 정책·계정 자료는 변경하지 않았다.
+
 ## 2026-10-03 — v3.9.2.3 Windows 릴리스 후보
 
 현재 소스 후보 버전: **v3.9.2.3** · updater **3.9.203**. 현재 공개 기반: v3.9.2.2. 공개 v3.9.2.2 자산은 보존하며 새 설치본은 전체 자동 검증 후 게시한다. 수익성 재진단·생활금융 조건 계산·암호화 보관·상담 연결 준비를 포함한다. 실계좌·OCX 로그인·전문가·실제 공급사/상담사 인수와 설치 업그레이드·장시간 운용은 미완료다. 아래 후보·미게시 설명은 작성 당시 이력이다.

@@ -96,7 +96,7 @@ function suggestionText(value: unknown) {
   return String(row.message ?? row.suggestion ?? row.title ?? Object.values(row).filter((item) => ["string", "number"].includes(typeof item)).join(" · ") ?? "점검 제안");
 }
 
-export function LifeFinanceAdvanced({ client, featureId }: { client: GatewayClient; featureId: string }) {
+export function LifeFinanceAdvanced({ client, featureId, onOpenAISettings, settingsRevision=0 }: { client: GatewayClient; featureId: string; onOpenAISettings?:()=>void; settingsRevision?:number }) {
   const [data, setData] = useState<Record<string, any> | null>(null);
   const [taxResult, setTaxResult] = useState<Record<string, any> | null>(null);
   const [error, setError] = useState("");
@@ -125,7 +125,7 @@ export function LifeFinanceAdvanced({ client, featureId }: { client: GatewayClie
     finally { setBusy(false); }
   }
 
-  if (featureId.endsWith("products")) return <GuidedProductComparison client={client} />;
+  if (featureId.endsWith("products")) return <GuidedProductComparison client={client} onOpenAISettings={onOpenAISettings} settingsRevision={settingsRevision} />;
 
   if (featureId.endsWith("security")) {
     const alerts = (data?.alerts ?? []) as Array<Record<string, any>>;

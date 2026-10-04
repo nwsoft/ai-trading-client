@@ -91,7 +91,7 @@
     "position_sizing_cache_sec": 900,
     "position_sizing_retry_cooldown_sec": 120,
     "position_sizing_price_change_bps": 100.0,
-    "position_sizing_confidence_delta": 0.10,
+    "position_sizing_confidence_delta": 0.1,
     "position_sizing_max_cache_entries": 100,
     "pattern_similarity_cache_sec": 900,
     "pattern_similarity_retry_cooldown_sec": 120,
@@ -106,21 +106,52 @@
   "openai_base_url": "",
   "ai_provider": "openai",
   "ai_credentials": {
-    "openai": {"api_key": "", "base_url": ""},
-    "openai_shared": {"api_key": "", "base_url": ""},
-    "deepseek": {"api_key": "", "base_url": "https://api.deepseek.com"},
-    "kimi": {"api_key": "", "base_url": "https://api.moonshot.ai/v1"},
-    "anthropic": {"api_key": "", "base_url": "https://api.anthropic.com"},
-    "gemini": {"api_key": "", "base_url": "https://generativelanguage.googleapis.com/v1beta/openai/"}
+    "openai": {
+      "api_key": "",
+      "base_url": ""
+    },
+    "openai_shared": {
+      "api_key": "",
+      "base_url": ""
+    },
+    "deepseek": {
+      "api_key": "",
+      "base_url": "https://api.deepseek.com"
+    },
+    "kimi": {
+      "api_key": "",
+      "base_url": "https://api.moonshot.ai/v1"
+    },
+    "anthropic": {
+      "api_key": "",
+      "base_url": "https://api.anthropic.com"
+    },
+    "gemini": {
+      "api_key": "",
+      "base_url": "https://generativelanguage.googleapis.com/v1beta/openai/"
+    }
   },
   "ai_data_routing": {
     "public_general_sharing_enabled": false,
     "public_openai_model": "gpt-5.6-luna"
   },
   "ai_provider_profiles": {
-    "analyst": {"provider": "openai", "model": ""},
-    "assistant": {"provider": "openai", "model": ""},
-    "transcription": {"provider": "openai", "model": "gpt-4o-mini-transcribe"}
+    "analyst": {
+      "provider": "openai",
+      "model": ""
+    },
+    "assistant": {
+      "provider": "openai",
+      "model": ""
+    },
+    "transcription": {
+      "provider": "openai",
+      "model": "gpt-4o-mini-transcribe"
+    },
+    "finance_decision": {
+      "provider": "openai",
+      "model": "gpt-6-luna"
+    }
   },
   "ai_models": {
     "analyst": "",
@@ -196,7 +227,10 @@
     },
     "strategy_engine": {
       "enabled": true,
-      "allow_regimes": ["trend", "range"],
+      "allow_regimes": [
+        "trend",
+        "range"
+      ],
       "high_vol_action": "evaluate",
       "consensus_threshold": 0.6,
       "cooldown_sec": 60
@@ -217,11 +251,21 @@
   },
   "advanced_trading_policy_presets": {
     "dev": {
-      "profitability_validation": {"enabled": false},
-      "portfolio_orchestration": {"enabled": false},
-      "execution_optimizer": {"enabled": false},
-      "strategy_engine": {"enabled": false},
-      "ops_automation": {"enabled": false}
+      "profitability_validation": {
+        "enabled": false
+      },
+      "portfolio_orchestration": {
+        "enabled": false
+      },
+      "execution_optimizer": {
+        "enabled": false
+      },
+      "strategy_engine": {
+        "enabled": false
+      },
+      "ops_automation": {
+        "enabled": false
+      }
     },
     "safe": {
       "profitability_validation": {
@@ -351,7 +395,10 @@
       "allow_live_order": false,
       "account_no": "",
       "password": "",
-      "asset_types": ["stock", "etf"],
+      "asset_types": [
+        "stock",
+        "etf"
+      ],
       "cert_password": "",
       "id": ""
     },
@@ -365,7 +412,10 @@
       "app_secret": "",
       "account_no": "",
       "password": "",
-      "asset_types": ["stock", "etf"],
+      "asset_types": [
+        "stock",
+        "etf"
+      ],
       "cert_password": "",
       "id": ""
     },
@@ -379,7 +429,10 @@
       "app_secret": "",
       "account_no": "",
       "password": "",
-      "asset_types": ["stock", "etf"],
+      "asset_types": [
+        "stock",
+        "etf"
+      ],
       "cert_password": "",
       "id": ""
     },
@@ -393,7 +446,10 @@
       "app_secret": "",
       "account_no": "",
       "password": "",
-      "asset_types": ["stock", "etf"],
+      "asset_types": [
+        "stock",
+        "etf"
+      ],
       "cert_password": "",
       "id": ""
     }
@@ -402,20 +458,50 @@
   "assistant_ai_model": "gpt-5.6-terra",
   "ai_model_roles": {
     "_comment": "역할별 Provider+모델 배치 - 빈도·중요도에 따라 서로 다른 엔진을 선택",
-    "frequent_cheap": {"provider": "openai", "model": "gpt-5.6-luna"},
-    "standard": {"provider": "openai", "model": "gpt-5.6-terra"},
-    "premium": {"provider": "openai", "model": "gpt-5.6-sol"}
+    "frequent_cheap": {
+      "provider": "openai",
+      "model": "gpt-5.6-luna"
+    },
+    "standard": {
+      "provider": "openai",
+      "model": "gpt-5.6-terra"
+    },
+    "premium": {
+      "provider": "openai",
+      "model": "gpt-5.6-sol"
+    }
   },
   "assistant_response_mode": "standard",
   "assistant_token_budget": {
-    "standard": {"max_input_chars": 12000, "max_output_tokens": 1200},
-    "saver": {"max_input_chars": 6000, "max_output_tokens": 500},
-    "premium": {"max_input_chars": 20000, "max_output_tokens": 2200}
+    "standard": {
+      "max_input_chars": 12000,
+      "max_output_tokens": 1200
+    },
+    "saver": {
+      "max_input_chars": 6000,
+      "max_output_tokens": 500
+    },
+    "premium": {
+      "max_input_chars": 20000,
+      "max_output_tokens": 2200
+    }
   },
   "assistant_context_policy": {
-    "standard": {"include_recent_turns": 8, "include_summary": true, "include_market_snapshot": true},
-    "saver": {"include_recent_turns": 4, "include_summary": true, "include_market_snapshot": true},
-    "premium": {"include_recent_turns": 12, "include_summary": true, "include_market_snapshot": true}
+    "standard": {
+      "include_recent_turns": 8,
+      "include_summary": true,
+      "include_market_snapshot": true
+    },
+    "saver": {
+      "include_recent_turns": 4,
+      "include_summary": true,
+      "include_market_snapshot": true
+    },
+    "premium": {
+      "include_recent_turns": 12,
+      "include_summary": true,
+      "include_market_snapshot": true
+    }
   },
   "ai_custom_transcription": {
     "enabled": true,
@@ -647,10 +733,10 @@
   "trading_strategies": {
     "scalping": {
       "weights": {
-        "volatility_weight": 0.30,
+        "volatility_weight": 0.3,
         "volume_stability_weight": 0.25,
         "trend_weight": 0.25,
-        "frequency_weight": 0.10,
+        "frequency_weight": 0.1,
         "depth_weight": 0.05
       },
       "criteria": {
@@ -689,7 +775,7 @@
           ]
         },
         "depth_thresholds": [
-          1e5
+          100000.0
         ],
         "volume_thresholds": {
           "optimal_min": 1000000,
@@ -802,13 +888,13 @@
       "major_min": 0.0002,
       "major_max": 0.015,
       "altcoin_min": 0.0006,
-      "altcoin_max": 0.020
+      "altcoin_max": 0.02
     },
     "base_trading_params": {
       "tp_percent": 0.0018,
       "sl_percent": 0.002,
       "leverage": 10,
-      "position_size": 0.10
+      "position_size": 0.1
     }
   },
   "symbol_filters": {
@@ -855,7 +941,7 @@
   },
   "ai_trading_preferences": {
     "risk_tolerance": "MODERATE",
-    "balance_utilization_limit": 0.20,
+    "balance_utilization_limit": 0.2,
     "max_position_size_factor": 5.0,
     "min_position_size_factor": 0.5,
     "risk_levels": {
@@ -870,7 +956,7 @@
         "description": "중간 접근 - 균형 잡힌 리스크"
       },
       "aggressive": {
-        "balance_utilization": 0.40,
+        "balance_utilization": 0.4,
         "max_position_factor": 10.0,
         "description": "적극적 접근 - 수익 극대화"
       }
@@ -905,8 +991,8 @@
   "dynamic_thresholds_manual_regime": "NORMAL",
   "operation_mode": "guided",
   "tuning": {
-    "slippage_abs_warn": 0.0010,
-    "slippage_abs_high": 0.0020,
+    "slippage_abs_warn": 0.001,
+    "slippage_abs_high": 0.002,
     "adjust_step_volume": 0.15,
     "adjust_step_volatility": 5.0,
     "min_min_quote_volume": 5000000,
@@ -988,12 +1074,15 @@
   "risk_downshift_threshold": 40,
   "risk_upshift_threshold": 60,
   "risk_shift_factor_down": 0.85,
-  "risk_shift_factor_up": 1.10,
+  "risk_shift_factor_up": 1.1,
   "alpha_arena": {
     "enabled": false,
     "exchange": "binance-futures",
     "engine": "deepseek-v4-flash",
-    "available_engines": ["deepseek-v4-flash", "qwen3-max"],
+    "available_engines": [
+      "deepseek-v4-flash",
+      "qwen3-max"
+    ],
     "initial_capital_benchmark": 10000,
     "deepseek_api_key": "",
     "qwen_api_key": "",
@@ -1042,16 +1131,31 @@
     "source_scores": {
       "company_ir": 0.95,
       "regulator": 0.95,
-      "exchange_notice": 0.90,
-      "wire": 0.80,
-      "rss": 0.60,
-      "unknown": 0.40
+      "exchange_notice": 0.9,
+      "wire": 0.8,
+      "rss": 0.6,
+      "unknown": 0.4
     },
     "entity_aliases": {
-      "BTC": ["bitcoin", "비트코인", "btc"],
-      "ETH": ["ethereum", "이더리움", "eth"],
-      "005930": ["삼성전자", "samsung electronics"],
-      "AAPL": ["apple", "애플", "aapl"]
+      "BTC": [
+        "bitcoin",
+        "비트코인",
+        "btc"
+      ],
+      "ETH": [
+        "ethereum",
+        "이더리움",
+        "eth"
+      ],
+      "005930": [
+        "삼성전자",
+        "samsung electronics"
+      ],
+      "AAPL": [
+        "apple",
+        "애플",
+        "aapl"
+      ]
     }
   },
   "ui_settings": {

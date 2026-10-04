@@ -295,6 +295,28 @@ class InteractiveAIService:
             output_rate *= 1.5
         return round((billable_input * input_rate + output_tokens * output_rate) / 1_000_000, 8)
 
+    def ask_decision(self, *, settings, question, context, system_prompt, expected_route):
+        """One bounded JSON invocation, sharing interactive budgets but no private cache."""
+        router = self.router_factory(settings, workload='finance_decision')
+        provider, model = str(router.spec.provider), str(router.adapter.model)
+        if (provider, model) != expected_route:raise ValueError('finance_ai_route_changed')
+        if not router.adapter.is_ready():raise ValueError('finance_decision_credential_missing')
+        if len(question)>2000 or len(context)>8000:raise ValueError('finance_decision_context_limit')
+        self.reserve_operation(settings, role='finance_decision')
+        options={'max_tokens':400,'timeout_seconds':15}
+        if provider=='openai' and model.startswith('gpt-6'):
+            options['reasoning_effort']='none'
+        started=time.monotonic()
+        response=router.adapter.chat_json(system_prompt, json.dumps({'question':question,'task':json.loads(context)},ensure_ascii=False), **options)
+        elapsed=round((time.monotonic()-started)*1000,2)
+        usage=dict(response.usage or {})
+        # Invalid JSON can still consume tokens. Record provider-reported usage.
+        self.record_usage(provider, usage, model=response.model, role='finance_decision', privacy_route='protected_default')
+        if not response.ok or not isinstance(response.content,dict) or response.finish_reason in {'length','max_tokens'}:
+            raise InteractiveProviderFailure(provider=provider,model=model,code='decision_invalid_response')
+        return {'decision':response.content,'provider_called':True,'provider':response.provider,'model':response.model,
+                'usage':usage,'elapsed_ms':elapsed,'estimated_cost_usd':self._estimate_cost(response.provider,response.model,usage)}
+
     def ask(
         self,
         *,

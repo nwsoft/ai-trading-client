@@ -167,6 +167,7 @@ def _log_metadata(raw: str, *, fallback_source: str = "") -> dict[str, str]:
     return {"level": level, "exchange": exchange, "category": category}
 
 MODEL_SELECT_PROVIDER_PATHS = {
+    "ai_provider_profiles.finance_decision.model": "ai_provider_profiles.finance_decision.provider",
     "ai_provider_profiles.analyst.model": "ai_provider_profiles.analyst.provider",
     "ai_provider_profiles.assistant.model": "ai_provider_profiles.assistant.provider",
     "ai_model_roles.frequent_cheap.model": "ai_model_roles.frequent_cheap.provider",
@@ -174,6 +175,7 @@ MODEL_SELECT_PROVIDER_PATHS = {
     "ai_model_roles.premium.model": "ai_model_roles.premium.provider",
 }
 MODEL_SELECT_CAPABILITIES = {
+    "ai_provider_profiles.finance_decision.model": "chat_json",
     "ai_provider_profiles.analyst.model": "chat_json",
     "ai_provider_profiles.assistant.model": "chat_text",
     "ai_model_roles.frequent_cheap.model": "chat_json",
@@ -356,6 +358,8 @@ EDITABLE_SETTINGS: tuple[EditableSetting, ...] = (
     EditableSetting("ai_provider_profiles.analyst.model", "AI 애널리스트 모델", "AI 엔진", "model_select", "선택한 Provider의 지원 모델을 고른 뒤 실제 계정 연결 검증을 실행하세요."),
     EditableSetting("ai_provider_profiles.assistant.provider", "AI 어시스턴트 Provider", "AI 엔진", "select", "사용자가 명시적으로 요청한 심층분석에 사용할 Provider입니다.", options=("openai", "deepseek", "kimi", "anthropic", "gemini")),
     EditableSetting("ai_provider_profiles.assistant.model", "AI 어시스턴트 모델", "AI 엔진", "model_select", "선택한 Provider의 대화형 심층분석 모델입니다. 일반 안내는 외부 Provider를 호출하지 않습니다."),
+    EditableSetting("ai_provider_profiles.finance_decision.provider", "생활금융 빠른 판단 Provider", "AI 엔진", "select", "상품 탐색의 목적 분류용 AI입니다. 거래 엔진 모델과 별도로 적용합니다.", options=("openai", "deepseek", "kimi", "anthropic", "gemini")),
+    EditableSetting("ai_provider_profiles.finance_decision.model", "생활금융 빠른 판단 모델", "AI 엔진", "model_select", "정해진 선택지로 목적·가입 상태를 분류합니다. JSON 지원 모델, 계정 권한 및 한국어 품질 별도 확인."),
     EditableSetting("ai_model_roles.frequent_cheap.provider", "빈번 호출 Provider", "AI 엔진", "select", "빈번한 저비용 작업에 사용할 Provider입니다.", options=("openai", "deepseek", "kimi", "anthropic", "gemini")),
     EditableSetting("ai_model_roles.frequent_cheap.model", "빈번 호출 모델", "AI 엔진", "model_select", "선택한 Provider에서 빈번한 저비용 작업에 사용할 모델입니다."),
     EditableSetting("ai_model_roles.standard.provider", "표준 분석 Provider", "AI 엔진", "select", "일반 분석 작업에 사용할 Provider입니다.", options=("openai", "deepseek", "kimi", "anthropic", "gemini")),
@@ -5402,6 +5406,21 @@ class ApplicationServices:
                 raise ValueError("finance_login_required")
             account, directory = self.account, self.data_dir
         store = ProductCatalog(directory / "finance_product_catalog.sqlite3")
+        if payload and payload.get('action') in {'decision_status','decision_options','decision_preview','decision_run'}:
+            from web_platform.finance_decision import decision_status, preview, decide
+            settings=load_settings(persist_migrations=False) or {}
+            with self._lock:
+                if account != self.account:raise ValueError('finance_account_changed')
+                ai=self.interactive_ai
+            action=payload['action']
+            response=decision_status(settings) if action in {'decision_status','decision_options'} else preview(ai,settings,payload) if action=='decision_preview' else decide(ai,settings,payload)
+            if account != self.account:raise ValueError('finance_account_changed')
+            return response
+        if payload and payload.get('action') == 'discover':
+            from trading.finance_discovery import discover
+            response = discover(payload, store.snapshot())
+            if account != self.account:raise ValueError('finance_account_changed')
+            return response
         force = bool(payload and payload.get('action') == 'refresh')
         catalog = store.refresh_feeds(force=force)
         catalog = refresh_sources(store, directory, force=force)
@@ -5415,7 +5434,7 @@ class ApplicationServices:
             with self._lock:
                 if account != self.account:raise ValueError('finance_account_changed')
                 ai = self.interactive_ai
-            response = preview(ai,settings,payload.get('scenario'),payload.get('question'),catalog,payload.get('scopes')) if payload['action']=='ai_preview' else explain(ai,settings,payload,catalog)
+            response = preview(ai,settings,payload.get('scenario'),payload.get('question'),catalog,payload.get('scopes'),payload.get('workload','assistant')) if payload['action']=='ai_preview' else explain(ai,settings,payload,catalog)
             if account != self.account:raise ValueError('finance_account_changed')
             return response
         if payload is not None and payload.get('action') == 'dialogue':

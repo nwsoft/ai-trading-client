@@ -1,3 +1,7 @@
+## 2026-10-04 — v3.9.2.4 금융 탐색·독립 모델 역할 (소스 후보)
+
+현재 공개 기반은 v3.9.2.3 (사용자 배포 확인)이며 이후 소스 변경을 v3.9.2.4로 배포합니다. `FinanceDiscovery`가 상품명 없는 상황 입력·유형 안내·유효 카탈로그 후보 선택을 비교 프로필에 연결합니다. `FinanceDecision` → `product_intelligence`의 decision 상태/미리보기/실행 → `finance_decision` 계약 검증 → `InteractiveAIService.ask_decision` → 기존 Provider JSON 어댑터로 요청합니다. 모델은 `ai_provider_profiles.finance_decision`에 따로 저장하며 거래·주문 권한을 변경하지 않습니다. [구현·테스트·외부 인수](V3924_FINANCE_DECISION_UPDATE_PLAN.md). 아래 계획·미구현·공개 표기는 당시 기록입니다.
+
 ## 2026-10-03 — v3.9.2.3 Windows 릴리스 후보
 
 현재 소스 후보 버전: **v3.9.2.3** · updater **3.9.203**. 현재 공개 기반: v3.9.2.2. 공개 v3.9.2.2 자산은 보존하며 새 설치본은 전체 자동 검증 후 게시한다. 수익성 재진단·생활금융 조건 계산·암호화 보관·상담 연결 준비를 포함한다. 실계좌·OCX 로그인·전문가·실제 공급사/상담사 인수와 설치 업그레이드·장시간 운용은 미완료다. 아래 후보·미게시 설명은 작성 당시 이력이다.

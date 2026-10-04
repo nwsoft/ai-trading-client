@@ -16,15 +16,27 @@ function sourceHash(root) {
   return hash.digest('hex');
 }
 function buildPlugin(root) {
-  return {name:'noah-renderer-build-contract',generateBundle() {
+  let startedHash;
+  return {name:'noah-renderer-build-contract',buildStart() {startedHash=sourceHash(root);},generateBundle() {
+    const finalHash=sourceHash(root);
+    if(startedHash && startedHash!==finalHash)throw new Error('Renderer source changed during build; retry after synchronization finishes.');
     this.emitFile({type:'asset',fileName:'ui-build.json',source:JSON.stringify({
       version:JSON.parse(fs.readFileSync(path.join(root,'package.json'))).build.buildVersion,
-      source_sha256:sourceHash(root),built_at:new Date().toISOString(),
+      source_sha256:finalHash,built_at:new Date().toISOString(),
     })});
   }};
 }
 function isCurrent(root) {
-  try {return JSON.parse(fs.readFileSync(path.join(root,'dist/ui-build.json'))).source_sha256===sourceHash(root);}
+  try {
+    if(JSON.parse(fs.readFileSync(path.join(root,'dist/ui-build.json'))).source_sha256!==sourceHash(root))return false;
+    const dist=path.join(root,'dist');
+    const html=fs.readFileSync(path.join(dist,'index.html'),'utf8');
+    for(const match of html.matchAll(/(?:src|href)=["']((?:\.\/|\/)?assets\/[^"']+)["']/g)) {
+      const asset=path.resolve(dist,match[1].replace(/^\/?(?:\.\/)?/,''));
+      if(!asset.startsWith(path.resolve(dist)+path.sep)||!fs.statSync(asset).isFile())return false;
+    }
+    return true;
+  }
   catch {return false;}
 }
 module.exports={sourceHash,buildPlugin,isCurrent};

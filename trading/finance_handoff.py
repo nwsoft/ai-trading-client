@@ -41,6 +41,8 @@ class FinanceHandoff:
             packet['summary'] = {'note': text(note, 3000), 'questions': result['questions'], 'rule_version': result['rule_version']}
         if 'comparison' in scopes:
             packet['comparison'] = {k: result[k] for k in ('candidates', 'excluded', 'best', 'status')}
+            if result.get('reference_products'):
+                packet['comparison']['reference_products']=[{k:r.get(k) for k in ('id','name','provider','source_url','version','observed_at','review_due','evidence_status')} for r in result['reference_products']]
             # Hundreds of amortization rows do not belong in a lead payload.
             for row in packet['comparison']['candidates']:
                 if 'estimate' in row:

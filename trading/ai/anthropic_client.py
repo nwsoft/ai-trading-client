@@ -36,7 +36,7 @@ class AnthropicClient:
             "user-agent": "NoahAI/3.9",
         }
 
-    def _request_json(self, method: str, path: str, payload: Optional[Dict[str, Any]] = None) -> Any:
+    def _request_json(self, method: str, path: str, payload: Optional[Dict[str, Any]] = None, *, timeout_seconds: float = 45) -> Any:
         body = None if payload is None else json.dumps(payload).encode("utf-8")
         req = urllib_request.Request(
             f"{self.base_url}{path}",
@@ -45,7 +45,7 @@ class AnthropicClient:
             method=method,
         )
         try:
-            with urllib_request.urlopen(req, timeout=45) as response:
+            with urllib_request.urlopen(req, timeout=timeout_seconds) as response:
                 return json.loads(response.read().decode("utf-8", errors="replace"))
         except urllib_error.HTTPError as exc:
             try:
@@ -104,7 +104,8 @@ class AnthropicClient:
         ))
         if "temperature" in kwargs and supports_sampling:
             payload["temperature"] = max(0.0, min(float(kwargs["temperature"]), 1.0))
-        data = self._request_json("POST", "/v1/messages", payload)
+        timeout=kwargs.pop('timeout_seconds',None)
+        data = self._request_json("POST", "/v1/messages", payload) if timeout is None else self._request_json("POST", "/v1/messages", payload,timeout_seconds=max(1,min(float(timeout),30)))
         if not isinstance(data, dict):
             return None
         text = "".join(
@@ -140,6 +141,7 @@ class AnthropicClient:
         temperature: float = 0.2,
         max_tokens: int = 800,
         model: Optional[str] = None,
+        timeout_seconds: Optional[float] = None,
     ) -> Optional[Dict[str, Any]]:
         json_system = (
             f"{system_prompt}\n\n반드시 설명이나 마크다운 없이 유효한 JSON 객체 하나만 반환하세요."
@@ -150,6 +152,7 @@ class AnthropicClient:
             str(model or self.model),
             temperature=temperature,
             max_tokens=max_tokens,
+            timeout_seconds=timeout_seconds,
         )
         parsed = OpenAIClient._safe_parse_json(text or "") if text else None
         if parsed is None and text is not None:

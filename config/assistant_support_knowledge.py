@@ -8,7 +8,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 import re
 
-GUIDE_REVISION = "3.9.2.2-support.20261002.2"
+GUIDE_REVISION = "3.9.2.4-support.20261004.1"
 
 
 @dataclass(frozen=True)
@@ -152,11 +152,14 @@ TOPICS = (
     SupportTopic("jev", ("jev", "제브", "typesafe"),
         "docs/V3921_JEV_EVALUATION.md",
         "JEV는 텍스트 상태에 대해 미리 정의한 선택·점수·예/아니오 확률을 반환하는 의사결정 모델입니다. 자유로운 설명을 생성하는 어시스턴트 대체 모델이 아닙니다. "
-        "현재 NoahAI 실행 Provider로 통합되지 않았으며 검토 문서와 오프라인 자료 대조 단계입니다. "
+        "JEV 자체는 NoahAI 실행 Provider로 통합되지 않았습니다. 3.9.2.4의 생활금융 → 금융상품 → 내 말을 AI로 이해하기에서는 짧은 목적 판단을 기존 지원 모델로 이용할 수 있습니다. "
+        "예를 들어 ‘보험은 없고 차로 출퇴근해요’를 ‘보험 없음 · 운전 관련 보장’ 안내로 연결하는 초안을 만듭니다. 반복 질문의 대기 시간·비용을 줄이려는 용도이며 JEV와의 성능 동등성은 검증하지 않았습니다. "
+        "상황 버튼으로 고를 수 있다면 모델 설정은 필요 없습니다. 기본 안내는 외부 호출이 없고, 빠른 분류는 내 표현의 뜻을 찾으며, AI 설명 더 보기는 비교 이유를 자세히 묻는 기능입니다. "
+        "모델 선택·API 키 등록·연결 점검은 설정 → AI 엔진/API에서 관리합니다. 생활금융에는 모델 목록을 나열하지 않고 저장된 AI와 키 등록 상태를 표시하며, 키가 없으면 설정으로 안내합니다. 전송 내용·비용을 확인해 동의한 후 요청하며, 해석을 직접 확인하고 적용합니다. 거래 모델 설정은 바꾸지 않습니다. "
         "형식이 제한돼도 의미 판단·수익 예측의 오류가 없어지는 것은 아닙니다. confidence, 선택 확률, 별도 noul 응답을 혼동하지 않습니다. "
         "첨부 10건만으로 실거래 성과·긴급 청산·100% 정확도를 입증할 수 없습니다. 연구한다면 기본 OFF·동의 후 비식별 입력·판단 기록만 하는 shadow 평가부터 진행합니다. "
         "손절·보호주문·승인·실행식·비용 한도는 JEV가 대체하거나 해제하지 않습니다.",
-        "JEV returns typed choices, scores and yes/no probabilities from text; it is not a free-text assistant replacement. NoahAI has not integrated it as an execution provider. Current work is evidence review and offline audit. Structured output does not eliminate semantic errors or establish trading returns. Confidence, option probability and a separate noul answer differ. Ten supplied records cannot prove accuracy, live returns or emergency execution. A future opt-in shadow evaluation must not control orders or bypass protections/budgets."),
+        "JEV returns typed choices, scores and yes/no probabilities from text; it is not a free-text assistant replacement. NoahAI has not integrated JEV itself as an execution provider. In 3.9.2.4, Everyday Finance → Financial Products offers optional intent classification with existing supported models. It connects a user's wording to a relevant guide, aiming to reduce repeated-question latency and cost; equivalent JEV performance has not been established. Situation buttons need no model setup or external call. Classification identifies intent; AI explanation covers comparison reasons. Manage API keys, model selection and connection checks in Settings → AI Engine/API. Everyday Finance only displays the saved route and key status; it has no model selector and blocks AI requests without a key. This does not change trading models. Preview and consent precede a request, and the user reviews the interpretation before applying it. Structured output does not eliminate semantic errors or establish trading returns. Confidence, option probability and a separate noul answer differ. Ten supplied records cannot prove accuracy, live returns or emergency execution. A future opt-in shadow evaluation must not control orders or bypass protections/budgets."),
     SupportTopic("release", ("업데이트내용", "업데이트된", "새기능", "최신기능", "이번버전", "버전변경", "3.9.2.1"),
         "docs/UPDATE_PLAN.md",
         "최근 변경 안내: 48은 업로드·비용/종목 자격 점검, 49는 전략 평가 용량·지표·운용 근거, 50은 시각 요약·시작 진단, "

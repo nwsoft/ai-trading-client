@@ -281,6 +281,7 @@ try {
     if ($packageBuildVersion -ne $version) { throw "Windows buildVersion mismatch: expected=$version actual=$packageBuildVersion" }
     $expectedArtifact = "NoahAI-$version-Setup.`${ext}"
     if ($packageArtifactName -ne $expectedArtifact) { throw "Windows artifactName mismatch: expected=$expectedArtifact actual=$packageArtifactName" }
+    Invoke-Checked "Tracked NoahAI branding preflight" { & python scripts/verify_branding.py --root $repoRoot }
     Invoke-Checked "Export exact legacy manual contract" { & python scripts/export_legacy_manual_sections.py }
     Invoke-Checked "Export canonical venue registry" { & python scripts/export_strategy_venue_registry.py }
     Repair-ExistingManifestPreviousAsset $repoRoot $version
@@ -292,6 +293,7 @@ try {
     # Provider regression uses the exact electron-updater from package-lock.
     if (-not $SkipNpmCi) { Invoke-Checked "Install locked Web dependencies" { & npm --prefix webui ci } }
     if (-not $SkipTests) {
+        Invoke-Checked "Web and Electron Node regression" { & node --test (Get-ChildItem -LiteralPath "tests" -Filter "*.test.cjs" | ForEach-Object { $_.FullName }) }
         Invoke-Checked "Python focused Web UI regression" { & python -m pytest -q tests/test_web_platform_3910.py }
         Invoke-Checked "Python full regression" { & python -m pytest -q }
         Invoke-Checked "Python source and release preflight" { & python scripts/active_source_audit.py }
@@ -350,6 +352,9 @@ try {
     }
     $installer = Get-ChildItem -Path "webui\release" -Filter "NoahAI-$version-Setup.exe" | Select-Object -First 1
     if (-not $installer) { throw "NSIS installer was not produced" }
+    $brandingReport = Join-Path $repoRoot "deploy\branding-verification.json"
+    Invoke-Checked "Verify actual application and installer NoahAI icon resources" { & python scripts/verify_branding.py --root $repoRoot --exe "webui\release\win-unpacked\NoahAI.exe" --exe $installer.FullName --output $brandingReport }
+    $brandingVerification = Get-Content -LiteralPath $brandingReport -Raw | ConvertFrom-Json
     $latestYml = Join-Path $repoRoot "webui\release\latest.yml"
     if (-not (Test-Path -LiteralPath $latestYml)) { throw "electron-updater latest.yml was not produced" }
     $latestText = Get-Content -LiteralPath $latestYml -Raw
@@ -391,6 +396,7 @@ try {
             sha256_required = $true
             authenticode_required = $false
             source = "github_release_manifest"
+            branding = $brandingVerification
         }
         assets = [ordered]@{
             installer = [ordered]@{

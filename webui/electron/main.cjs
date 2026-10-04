@@ -295,7 +295,10 @@ function createWindow() {
   });
   mainWindow.webContents.setWindowOpenHandler(({ url }) => { if (url.startsWith("https://")) shell.openExternal(url); return { action: "deny" }; });
   mainWindow.webContents.on("will-navigate", (event) => event.preventDefault());
-  mainWindow.once("ready-to-show", () => mainWindow.show());
+  mainWindow.once("ready-to-show", () => {
+    mainWindow.show();
+    if (!app.isPackaged) console.info(`[NoahAI] v${currentProductVersion()} 화면 준비 완료`);
+  });
   mainWindow.on("close", (event) => {
     if (app.isQuitting || shutdownComplete) return;
     event.preventDefault();

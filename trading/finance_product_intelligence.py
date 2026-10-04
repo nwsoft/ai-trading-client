@@ -244,7 +244,8 @@ class ProductCatalog:
             imports = [{'revision':r[0],'source_id':r[1],'imported_at':r[2],'count':r[3]} for r in db.execute('SELECT * FROM imports ORDER BY imported_at DESC LIMIT 20')]
         for row in rows:
             row['evidence_status'] = 'withdrawn' if row['status']=='withdrawn' else 'stale' if instant(row['valid_until'])<=now else 'current'
-        return {'products':rows,'imports':imports,'feeds':feeds,'status':'available' if rows else 'source_not_connected',
+        from trading.insurance_reference_directory import snapshot as reference_snapshot
+        return {'reference_products':reference_snapshot(self.path, now=now), 'products':rows,'imports':imports,'feeds':feeds,'status':'available' if rows else 'source_not_connected',
                 'current_count':sum(r['evidence_status']=='current' for r in rows),'rule_version':RULE_VERSION}
 
 
@@ -255,6 +256,11 @@ def compare_scenario(payload, catalog=None):
     if not isinstance(profile,dict) or not isinstance(offers,list) or len(offers)>20:
         raise ValueError('finance_invalid_scenario')
     profile=dict(profile)
+    selected=profile.get('discovery_product_ids')
+    if selected is not None:
+        if not isinstance(selected,list) or len(selected)>20 or not all(isinstance(v,str) and len(v)<=250 for v in selected):
+            raise ValueError('finance_invalid_product_selection')
+        catalog={**(catalog or {}),'products':[r for r in (catalog or {}).get('products',[]) if f"{r.get('source_id')}:{r.get('id')}" in selected]}
     for field in ('confirmed_conditions','declined_conditions'):
         values=profile.get(field) or []
         if isinstance(values,str):values=[v.strip() for v in values.split(',') if v.strip()]
@@ -271,6 +277,9 @@ def compare_scenario(payload, catalog=None):
                        'priorities':['일상생활에서 큰 지출이 생길 위험', '이미 가입한 보장과 공적 보장 확인', '지속 가능한 월 보험료와 제외 조건'],
                        'questions':(['자가용·업무용 운전 중 어느 쪽인가요?', '자동차보험의 법률비용 특약이나 기존 운전자 보장이 있나요?', '벌금·변호사 선임비용·교통사고처리지원금의 지급 조건과 제외 사유를 확인했나요?'] if driver else ['현재 보험이 없나요, 가입 여부를 모르나요?', '가족 부양·소득 중단·의료비 중 먼저 대비하려는 위험은 무엇인가요?', '매달 유지할 수 있는 보험료는 얼마인가요?']),
                        'explanation':('보험이 없다면 증권 업로드 없이 필요한 보장부터 정리할 수 있습니다.' if state=='none' else '가입 여부를 모르면 보험이 없는 것으로 판단하지 않습니다.' if state=='unknown' else '기존 증권의 보장·면책·갱신 조건을 새 견적과 같은 항목으로 비교하세요.')})
+        from trading.insurance_reference_directory import selected_references
+        result['reference_products']=selected_references(profile,catalog)
+        result['questions'] += [f"관심 상품 {r['name']}: 현재 판매 여부와 같은 보장 기준의 개인 견적을 확인하세요." for r in result['reference_products']]
         result['questions'].append('상담에서 같은 보장·가입 조건의 개인별 견적과 약관 원문을 요청하세요.')
         from trading.insurance_design import enrich_insurance
         return enrich_insurance(result, profile, offers, catalog)
@@ -419,6 +428,20 @@ def product_question_answer(question, recent_messages=None, *, catalog=None):
             answer+='\n'.join(plan['questions'])
             if not plan['candidates']:answer+='\n입력 조건에 맞는 유효 자료가 없습니다. 금융상품 화면에서 받은 개인 견적을 입력해 비교할 수 있습니다.'
     clauses=search_evidence(catalog,current,kind)
+    if any(word in current for word in ('모르','몰라','추천','처음','없어','어떤','걱정','운전')):
+        from trading.finance_discovery import discover
+        discovery_profile={}
+        try:
+            for message in messages:
+                # Keep only messages concerning the current kind or a short follow-up.
+                if any(w in message for w in ('대출','예금','적금','보험')) and not any(w in message for w in ({'loan':('대출','상환'),'savings':('예금','적금','저축'),'insurance':('보험','보장','운전')}[kind])):
+                    discovery_profile={};continue
+                discovery=discover({'kind':kind,'profile':discovery_profile,'question':message},catalog)
+                discovery_profile=discovery['profile']
+            guide=discovery['answer']+'\n'+'\n'.join(c['title']+': '+c['explanation']+' 확인할 것: '+c['checks'] for c in discovery['cards'])
+            answer=guide+'\n금융상품 화면에서 상황을 선택하면 같은 조건으로 비교·상담 준비를 이어갈 수 있습니다.\n\n'+answer
+        except (ValueError,UnboundLocalError):
+            pass
     for clause in clauses[:3]:
         answer+='\n[상품 근거 · '+clause['product']+' · 버전 '+clause['version']+'] '+clause['text'][:600]+'\n'+str(clause.get('page') or '쪽수 미기재')+'쪽 · '+str(clause.get('clause') or '조항 미기재')+' · '+clause['source_url']
     count=sum(r.get('kind')==kind and r.get('evidence_status')=='current' for r in (catalog or {}).get('products',[]))

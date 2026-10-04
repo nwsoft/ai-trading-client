@@ -31,7 +31,8 @@ def test_default_settings_include_router_models_and_saver_policy():
 
     settings = get_default_settings()
     assert settings["ai_provider"] == "openai"
-    assert set(settings["ai_provider_profiles"]) == {"analyst", "assistant", "transcription"}
+    assert set(settings["ai_provider_profiles"]) == {"analyst", "assistant", "transcription", "finance_decision"}
+    assert settings["ai_provider_profiles"]["finance_decision"] == {"provider": "openai", "model": "gpt-6-luna"}
     assert settings["ai_provider_profiles"]["transcription"]["provider"] == "openai"
     assert settings["ai_model_roles"]["premium"] == {
         "provider": "openai",

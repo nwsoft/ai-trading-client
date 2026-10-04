@@ -1,0 +1,24 @@
+.finance-discovery {min-width:0;}
+.finance-discovery .discovery-choices {display:flex;flex-wrap:wrap;gap:8px;}
+.finance-discovery button[aria-pressed=true] {background:#235b68;border-color:#79e0eb;box-shadow:0 0 0 1px #79e0eb;}
+.finance-discovery .discovery-answer {border-left:3px solid #79e0eb;padding:14px 18px;background:#152d40;border-radius:4px;}
+.finance-discovery input,.finance-discovery textarea {max-width:100%;}
+.finance-discovery a {color:#90e1f0;}
+.finance-discovery .eyebrow {line-height:1.7;display:block;}
+.finance-discovery [hidden] {display:none!important;}
+@media(max-width:700px){.finance-discovery .discovery-choices button {width:100%;margin:0;text-align:left;}.finance-discovery fieldset{padding:10px;}}
+
+.insurance-product-browser {margin-top:24px;border-top:1px solid #426076;padding-top:12px;}
+.insurance-product-browser article {min-width:0;overflow-wrap:anywhere;}
+.insurance-product-browser label {display:block;}
+.insurance-product-browser select {width:100%;max-width:100%;}
+.insurance-product-browser input[type=checkbox] {width:auto;margin-right:8px;}
+.product-studio .insurance-product-browser dd {margin:5px 0 14px;text-align:left;}
+.reference-notice {color:#bdcfdf;font-size:.9rem;}
+.reference-comparison {overflow:auto;max-width:100%;margin:16px 0;}
+.reference-comparison table {border-collapse:collapse;min-width:620px;table-layout:fixed;}
+.reference-comparison th,.reference-comparison td {min-width:170px;max-width:260px;padding:12px;vertical-align:top;border:1px solid #426076;overflow-wrap:anywhere;white-space:normal;}
+.reference-comparison caption {text-align:left;padding:8px;}
+
+.reference-comparison th:first-child {width:110px;min-width:110px;position:sticky;left:0;background:#112033;z-index:1;}
+.reference-swipe-hint {font-size:13px;color:#97dce8;}

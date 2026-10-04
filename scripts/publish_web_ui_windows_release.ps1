@@ -135,6 +135,9 @@ try {
     Assert-Hash $installerPath $manifest.assets.installer.sha256
     Assert-Hash $latestPath $manifest.assets.latest_yml.sha256
     Assert-Hash $blockmapPath $manifest.assets.blockmap.sha256
+    & python scripts/verify_branding.py --root $repoRoot --exe "webui\release\win-unpacked\NoahAI.exe" --exe $installerPath
+    if ($LASTEXITCODE -ne 0) { throw "Packaged NoahAI branding verification failed; publication blocked" }
+    if (-not $manifest.verification.branding -or @($manifest.verification.branding.executables).Count -ne 2) { throw "Build manifest is missing actual PE branding evidence" }
     Assert-Hash (Join-Path $repoRoot "deploy\web-engine\NoahAIEngine.exe") $manifest.assets.engine_sidecar.sha256
     if (-not $manifest.assets.kiwoom_host -or $manifest.assets.kiwoom_host.supported -ne $true) {
         throw "Stable/prerelease publication requires the packaged Kiwoom x86 host"
