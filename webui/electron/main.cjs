@@ -47,7 +47,6 @@ function currentProductVersion() {
 
 function productIconPath() {
   const candidates = [
-    path.resolve(__dirname, "..", "build", "icon.png"),
     path.resolve(__dirname, "..", "dist", "icon.png"),
     path.resolve(__dirname, "..", "..", "icon.png"),
   ];

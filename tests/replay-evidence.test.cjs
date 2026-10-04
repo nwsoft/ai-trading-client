@@ -21,7 +21,8 @@ test('English replay labels retain short-entry SELL and short-exit BUY semantics
 const venvPython = process.platform === 'win32'
   ? path.join(root, '.venv', 'Scripts', 'python.exe')
   : path.join(root, '.venv', 'bin', 'python');
-const metrics = JSON.parse(execFileSync(process.env.NOAHAI_QA_PYTHON || venvPython, ['tests/test_v39137_replay_visualization.py'], { cwd: root, env: { ...process.env, PYTHONPATH: root }, encoding: 'utf8' }));
+const python = process.env.NOAHAI_QA_PYTHON || process.env.NOAHAI_BUILD_PYTHON || (fs.existsSync(venvPython) ? venvPython : (process.platform === 'win32' ? 'python' : 'python3'));
+const metrics = JSON.parse(execFileSync(python, ['tests/test_v39137_replay_visualization.py'], { cwd: root, env: { ...process.env, PYTHONPATH: root, PYTHONUTF8: '1' }, encoding: 'utf8' }));
 
 test('actual Python replay is accepted without recomputing returns', () => {
   const evidence = readReplayEvidence(metrics, 'fixture_v1');

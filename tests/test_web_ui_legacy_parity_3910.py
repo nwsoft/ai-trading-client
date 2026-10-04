@@ -507,7 +507,10 @@ def test_desktop_icon_and_fixed_log_scroller_are_part_of_the_shell_contract() ->
     assert "productIconPath" in main
     assert "app.dock.setIcon" in main
     assert main.index('app.setName("NoahAI")') < main.index("app.whenReady()")
-    assert '"icon": "build/icon.ico"' in package
+    assert '"icon": "../icon.ico"' in package
+    assert '"installerIcon": "../icon.ico"' in package
+    assert '"mac"' in package and '"icon": "../icon.png"' in package
+    assert '"build", "icon.png"' not in main
     assert "body.dashboard-surface #root { height: 100vh" in styles
     assert ".legacy-log-console" in styles
     assert "height: 100%;" in styles
