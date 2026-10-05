@@ -48,7 +48,7 @@ def test_purpose_routing(kind,q,goal):
     r=run(kind,q)
     assert r['profile']['discovery_goal']==goal
     if goal=='installment':assert float(r['profile']['amount'])==300000 and r['profile']['months']=='12'
-    if goal=='liquid':assert not r['can_compare'] and not r['products']
+    if goal=='liquid':assert r['can_compare'] and r['can_prepare'] and r['profile']['method']=='liquid' and not r['products']
 
 def test_switching_monthly_to_lump_sum_does_not_reuse_money():
     r=run('savings',profile={'method':'installment','amount':'300000','discovery_goal':'deposit'})

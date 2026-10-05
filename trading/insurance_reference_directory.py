@@ -10,7 +10,7 @@ from datetime import datetime, timezone
 from trading.finance_product_intelligence import instant, public_url
 
 VERSION = 'insurance-reference-20261004-1'
-CATEGORIES = {'driver': '운전자', 'medical': '실손·의료비', 'cancer': '암·건강', 'income': '가족·소득'}
+CATEGORIES = {'driver':'운전자','medical':'실손·의료비','cancer':'암·건강','income':'가족·소득','accident':'상해','auto':'자동차','term':'정기','whole_life':'종신','travel':'여행','home':'주택','pension':'연금','saving':'저축성'}
 
 
 def _row(id, provider, name, category, url, coverage, renewal, checks):
@@ -83,9 +83,9 @@ def snapshot(path, *, now=None):
         for row in BUNDLED:
             db.execute("INSERT INTO insurance_references VALUES (?, 'bundled', ?) ON CONFLICT(id) DO UPDATE SET payload=excluded.payload WHERE insurance_references.origin='bundled' AND insurance_references.payload!=excluded.payload",
                        (row['id'],json.dumps(row,ensure_ascii=False)))
-        rows=[json.loads(r[0]) for r in db.execute('SELECT payload FROM insurance_references ORDER BY id')]
+        rows=[dict(json.loads(r[1]),_editorial_owned=r[0]=='bundled' or r[0].startswith('owned-feed:')) for r in db.execute('SELECT origin,payload FROM insurance_references ORDER BY id')]
     for row in rows:
-        row.update(data_class='public_reference', quote_available=False, ai_processing_allowed=False,
+        row.update(data_class='public_reference', quote_available=False, ai_processing_allowed=row.pop('_editorial_owned',False),
                    category_label=CATEGORIES[row['category']],
                    evidence_status='withdrawn' if row['status']=='withdrawn' else 'review_due' if instant(row['review_due'])<=now else 'reference')
     return rows

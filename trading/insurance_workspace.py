@@ -594,7 +594,7 @@ class InsuranceWorkspace:
             self._arm_timeout()
             return self.snapshot()
 
-    def finance_plan(self, operation="list", scenario=None, plan_id=None, reminder_date=None):
+    def finance_plan(self, operation="list", scenario=None, plan_id=None, reminder_date=None, reminder_kind="review"):
         """Personal scenarios use the existing account-bound encrypted vault."""
         from trading.finance_product_intelligence import ProductCatalog, compare_scenario
         with self._mutex:
@@ -624,7 +624,9 @@ class InsuranceWorkspace:
                     if reminder_date:date.fromisoformat(reminder_date)
                 except (ValueError,TypeError):
                     raise InsuranceError("finance_reminder_date_invalid") from None
+                if reminder_kind not in {'review','renewal','maturity','rate_change','payment'}:raise InsuranceError('finance_reminder_kind_invalid')
                 plans[plan_id]['reminder_date']=reminder_date or None
+                plans[plan_id]['reminder_kind']=reminder_kind
                 self._persist(data)
             elif operation != "list":
                 raise InsuranceError("finance_invalid_operation")
@@ -632,6 +634,11 @@ class InsuranceWorkspace:
             catalog=ProductCatalog(self.directory.parents[1] / "finance_product_catalog.sqlite3").snapshot()
             output=copy.deepcopy(list(plans.values()))
             return {"plans": output, "reviews":review_saved_plans(output,catalog), "state": "unlocked"}
+
+    def finance_profile(self, operation="get", profile=None, confirmed=False):
+        from trading.finance_profile import dispatch
+        try:return dispatch(self,operation,profile,confirmed)
+        except ValueError as exc:raise InsuranceError(str(exc)) from None
 
     def finance_handoff(self, operation="list", **kwargs):
         from trading.finance_handoff import FinanceHandoff
@@ -644,7 +651,7 @@ class InsuranceWorkspace:
             raise InsuranceError("finance_handoff_invalid_or_unavailable") from None
 
     def dispatch(self, action, payload):
-        routes = {"finance_handoff": self.finance_handoff, "finance_plan": self.finance_plan, "unlock": self.unlock, "lock": self.lock, "summary": self.summary, "save_policy": self.save_policy,
+        routes = {"finance_profile": self.finance_profile, "finance_handoff": self.finance_handoff, "finance_plan": self.finance_plan, "unlock": self.unlock, "lock": self.lock, "summary": self.summary, "save_policy": self.save_policy,
                   "delete": self.delete, "import_document": self.import_document, "cancel": self.cancel,
                   "document": self.document, "suggest_fields": self.suggest_fields, "compare": self.compare, "report": self.report,
                   "backup": self.backup, "restore": self.restore}

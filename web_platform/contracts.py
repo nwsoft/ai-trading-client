@@ -330,6 +330,7 @@ class FinanceProductCompareContract(StrictContract):
 
 
 class TaxCalculationContract(StrictContract):
+    tax_year: int | None = Field(default=None, ge=2000, le=2100)
     calculation: Literal["year_end", "financial_income", "investment", "saving_accounts", "optimization"]
     annual_salary: float = Field(default=0, ge=0, le=10_000_000_000)
     credit_card: float = Field(default=0, ge=0, le=10_000_000_000)

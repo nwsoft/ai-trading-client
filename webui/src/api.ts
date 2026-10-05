@@ -66,6 +66,7 @@ export interface GatewayClient {
   exportStrategyExecutionEvidence: (scope: string, strategyKey: string, versionId: string) => Promise<Record<string, any>>;
   importStrategyPackage: (scope: string, fileName: string, strategyPackage: Record<string, unknown>) => Promise<Record<string, unknown>>;
   lifeFinance: () => Promise<LifeFinanceSnapshot>;
+  lifeLedger?: (payload: Record<string, unknown>) => Promise<Record<string, any>>;
   addLifeTransaction: (payload: Record<string, unknown>) => Promise<Record<string, unknown>>;
   deleteLifeTransaction: (id: string) => Promise<Record<string, unknown>>;
   addLifeGoal: (payload: Record<string, unknown>) => Promise<Record<string, unknown>>;
@@ -393,6 +394,7 @@ export function createGatewayClient(): GatewayClient {
       "POST", "/api/v1/strategies/package", { scope, file_name: fileName, package: strategyPackage },
     ),
     lifeFinance: () => get<LifeFinanceSnapshot>("/api/v1/life-finance"),
+    lifeLedger: (payload) => mutate<Record<string, any>>("POST", "/api/v1/life-finance/ledger", payload),
     addLifeTransaction: (payload) => mutate<Record<string, unknown>>("POST", "/api/v1/life-finance/transactions", payload),
     deleteLifeTransaction: (id) => mutate<Record<string, unknown>>("DELETE", `/api/v1/life-finance/transactions/${encodeURIComponent(id)}`, {}),
     addLifeGoal: (payload) => mutate<Record<string, unknown>>("POST", "/api/v1/life-finance/goals", payload),

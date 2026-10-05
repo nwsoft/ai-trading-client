@@ -5424,6 +5424,9 @@ class ApplicationServices:
         force = bool(payload and payload.get('action') == 'refresh')
         catalog = store.refresh_feeds(force=force)
         catalog = refresh_sources(store, directory, force=force)
+        from trading.finance_reference_feed import refresh as refresh_references
+        reference_feeds=refresh_references(store.path,directory,force=force)
+        catalog={**store.snapshot(),'reference_feeds':reference_feeds,'feeds':catalog['feeds']}
         if account != self.account:
             raise ValueError('finance_account_changed')
         if payload and payload.get('action') == 'refresh':
@@ -5475,10 +5478,20 @@ class ApplicationServices:
         })
         return result
 
-    def calculate_life_tax(self, *, calculation: str, values: dict[str, Any]) -> dict[str, Any]:
+    def calculate_life_tax(self, *, calculation: str, values: dict[str, Any], tax_year: int | None = None) -> dict[str, Any]:
         result = self.advanced.calculate_tax(calculation=calculation, values=values)
+        if tax_year is not None and (type(tax_year) is not int or not 2000<=tax_year<=2100):raise ValueError("tax_year_invalid")
+        result["year_context"]={"requested_year":tax_year,"applied_law_year":None,"status":"year_specific_review_required","basis":"입력 가정의 참고 계산. 선택 귀속연도 전체 세법·예외 검증 전이며 신고액·납세 완료를 확정하지 않습니다."}
         self._audit("life_finance.tax_calculate", {"calculation": calculation})
         return result
+
+    def life_ledger(self, payload):
+        from trading.finance_ledger import dispatch
+        with self._lock:
+            result=dispatch(self._life_finance(),payload)
+            if payload.get('operation') in {'update','import'}:
+                self._audit('life_finance.ledger.'+payload['operation'],{'count':result.get('imported',1)})
+            return result
 
     def add_life_transaction(
         self, *, transaction_date: str, amount: float, transaction_type: str,

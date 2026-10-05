@@ -1,0 +1,17 @@
+[
+ {"id":"uninsured_driver","kind":"insurance","question":"보험이 없고 운전을 해요","goal":"driver","state":"none"},
+ {"id":"unknown_policy","kind":"insurance","question":"보험 있는지 모르고 병원비가 걱정돼요","goal":"medical","state":"unknown"},
+ {"id":"family","kind":"insurance","question":"가족 생활비와 소득 공백이 걱정돼요","goal":"family"},
+ {"id":"health","kind":"insurance","question":"큰 질병에 대비하고 싶어요","goal":"health"},
+ {"id":"negation","kind":"insurance","question":"운전자 보험은 필요 없어요","goal":"unknown"},
+ {"id":"multiple","kind":"insurance","question":"운전과 의료비 둘 다 궁금해요","goal":"unknown"},
+ {"id":"housing","kind":"loan","question":"전세 자금이 필요해요","goal":"housing","purpose":"jeonse"},
+ {"id":"mortgage","kind":"loan","question":"집 구입 자금이 필요해요","goal":"housing","purpose":"mortgage"},
+ {"id":"refinance","kind":"loan","question":"기존 대출 갈아타고 싶어요","goal":"refinance"},
+ {"id":"policy","kind":"loan","question":"정책 지원 대상인지 알고 싶어요","goal":"policy"},
+ {"id":"living","kind":"loan","question":"생활 자금이 필요해요","goal":"living"},
+ {"id":"deposit","kind":"savings","question":"목돈 100만원을 기간 1년 맡기고 싶어요","goal":"deposit","amount":1000000},
+ {"id":"installment","kind":"savings","question":"매달 30만원 기간 12개월 모을래요","goal":"installment","amount":300000},
+ {"id":"emergency","kind":"savings","question":"비상금 200만원을 30일 동안 보관하고 싶어요","goal":"liquid","amount":2000000},
+ {"id":"unknown","kind":"savings","question":"상품을 전혀 모르겠어요","goal":"unknown"}
+]

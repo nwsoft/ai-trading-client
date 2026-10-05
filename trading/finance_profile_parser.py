@@ -47,7 +47,10 @@ def interpret(profile,question,kind):
         for word,method in (('원리금균등','annuity'),('원금균등','principal'),('만기일시','bullet')):
             if word in q:updates['method']=method
     if kind=='savings':
-        method='installment' if any(w in q for w in ('적금','매달','매월')) else 'deposit' if any(w in q for w in ('예금','목돈')) else None
+        days=re.findall(r'(\d+)\s*일(?:간|동안|로|\s|$)',q)
+        if len(days)==1:updates['liquid_days']=str(int(number(days[0],minimum=1,maximum=3660)))
+        elif len(days)>1:unresolved.append('보관 일수')
+        method='liquid' if any(w in q for w in ('비상금','수시입출금','수시 입출금')) else 'installment' if any(w in q for w in ('적금','매달','매월')) else 'deposit' if any(w in q for w in ('예금','목돈')) else None
         if method and method!=profile.get('method'):
             updates['method']=method
             if 'amount' not in updates:updates['amount']='';unresolved.append('목돈 또는 월 납입액')

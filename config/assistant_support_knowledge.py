@@ -8,7 +8,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 import re
 
-GUIDE_REVISION = "3.9.2.4-support.20261004.1"
+GUIDE_REVISION = "3.9.2.5-support.20261005.1"
 
 
 @dataclass(frozen=True)

@@ -3,6 +3,7 @@ from trading.finance_product_intelligence import number, instant
 from datetime import datetime, timezone
 
 TYPES = {
+ 'unknown':('목적 미정','의료비·운전·가족 생활비 중 먼저 확인할 위험과 유지 가능한 예산'),
  'driver':('운전자','운전 용도·기존 자동차보험 특약·벌금/형사합의/변호사 비용의 사건별 지급 조건'),
  'medical':('의료비','실손/정액 지급 방식·자기부담·비급여/제외·갱신 조건'),
  'cancer':('암·건강','진단 정의·병기/종류별 지급액·면책/감액·재진단 조건'),
@@ -19,7 +20,7 @@ TYPES = {
 
 
 def enrich_insurance(result, profile, offers, catalog):
-    category=profile.get('insurance_kind','medical')
+    category=profile.get('insurance_kind') or ('unknown' if profile.get('discovery_goal')=='unknown' else 'medical')
     if category not in TYPES:raise ValueError('finance_insurance_kind_unsupported')
     label,checks=TYPES[category]
     result['insurance_type']={'id':category,'label':label,'check':checks}
@@ -30,6 +31,8 @@ def enrich_insurance(result, profile, offers, catalog):
         raise ValueError('finance_invalid_coverages')
     rows=[]
     facts=[]
+    from trading.finance_coverage import normalize
+    existing_details=normalize(profile.get('existing_coverage_details') or [])
     for raw in offers:
         if not isinstance(raw,dict) or not isinstance(raw.get('terms',{}),dict):raise ValueError('finance_invalid_offer')
         row=dict(raw);row['source_kind']='user_quote';rows.append(row)
@@ -43,7 +46,10 @@ def enrich_insurance(result, profile, offers, catalog):
         if row.get('source_kind')=='user_quote' and row.get('valid_until') and instant(row['valid_until'])<=datetime.now(timezone.utc):
             result['excluded'].append({'name':str(row.get('name','받은 견적'))[:200],'reason':'견적 유효기간 만료'});continue
         terms=row.get('terms') or {}
+        if terms.get('category') and terms['category']!=category:
+            result['excluded'].append({'name':str(row.get('name','받은 견적'))[:200],'reason':'보험 종류 불일치'});continue
         premium=number(terms.get('monthly_premium'),optional=True)
+        structured=normalize(terms.get('coverage_details') or [])
         benefits=terms.get('benefits') or {}
         if not isinstance(benefits,dict) or len(benefits)>50:raise ValueError('finance_invalid_benefits')
         confirmed=terms.get('confirmed') is True and row.get('source_kind')=='user_quote'
@@ -53,13 +59,14 @@ def enrich_insurance(result, profile, offers, catalog):
                'coverage':str(terms.get('coverage') or '미확인')[:2000], 'exclusions':str(terms.get('exclusions') or '미확인')[:2000],
                'renewal':str(terms.get('renewal') or '미확인')[:300], 'source_url':row.get('source_url'),
                'source_kind':row.get('source_kind'),'version':row.get('version'),'verified_at':row.get('verified_at'),'valid_until':row.get('valid_until'),
+               'coverage_details':structured,
                'status':'user_confirmed_quote' if confirmed else 'quote_confirmation_required',
                'budget_fit':None if budget is None or premium is None else premium<=budget,
                'known_required_coverages':known,'unconfirmed_required_coverages':missing,
                'terms_complete':all(terms.get(k) for k in ('coverage','exclusions','renewal')),
                'representative_premium_only':row.get('source_kind')!='user_quote'}
         result['candidates'].append(entry);facts.append(benefits)
-    result['coverage_matrix']=[{'coverage':name,'offers':[{'id':row['id'],'facts':facts[i].get(name),'status':'document_check_required' if facts[i].get(name) else 'unknown'} for i,row in enumerate(result['candidates'])]} for name in required]
+    result['coverage_matrix']=[{'coverage':name,'existing':next((c for c in existing_details if c['name']==name),None),'offers':[{'id':row['id'],'structured':next((c for c in row['coverage_details'] if c['name']==name),None),'facts':facts[i].get(name),'status':'document_check_required' if facts[i].get(name) else 'unknown'} for i,row in enumerate(result['candidates'])]} for name in required]
     comparable=[r for r in result['candidates'] if r['monthly_premium'] is not None and r['status']=='user_confirmed_quote' and r['terms_complete']]
     affordable=[r for r in comparable if r['budget_fit'] is True]
     by_cost=sorted(affordable,key=lambda r:r['monthly_premium'])
@@ -95,5 +102,8 @@ def enrich_insurance(result, profile, offers, catalog):
     checked=profile.get('existing_coverages_confirmed') in (True,'true') or profile.get('insurance_state')=='none'
     result['coverage_needs']=[{'coverage':name,'status':'existing_evidence_recorded' if name in existing_coverages else 'potential_gap' if checked else 'unknown',
                               'explanation':'보장 이름 기준 확인 목록이며 지급 여부·충분한 한도·불필요한 중복은 약관 대조가 필요합니다.'} for name in required]
+    preference=profile.get('priority','balanced')
+    if preference not in {'balanced','minimum_cost','coverage_priority'}:raise ValueError('finance_insurance_priority')
+    result['preferred_design']=next(d for d in result['design_options'] if d['id']==preference)
     result['best']=None
     return result

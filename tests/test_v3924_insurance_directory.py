@@ -16,7 +16,7 @@ def test_novice_browses_real_names_without_turning_references_into_quotes(tmp_pa
     assert len(r['reference_products'])==7
     assert len({p['provider'] for p in r['reference_products']})==4
     assert not r['products'] and catalog['current_count']==0
-    assert all(p['quote_available'] is False and p['ai_processing_allowed'] is False for p in r['reference_products'])
+    assert all(p['quote_available'] is False and p['ai_processing_allowed'] is True for p in r['reference_products'])
     compared=compare_scenario({'kind':'insurance','profile':{'insurance_kind':'driver','reference_product_ids':['samsung-driver']}},catalog)
     assert compared['best'] is None and compared['candidates']==[]
     assert compared['reference_products'][0]['name']==BUNDLED[0]['name']

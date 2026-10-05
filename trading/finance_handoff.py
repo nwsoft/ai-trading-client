@@ -8,7 +8,7 @@ from trading.finance_connections import RecipientRegistry, FinanceConnectionErro
 from trading.finance_product_intelligence import ProductCatalog, compare_scenario
 
 SCOPES = {'summary', 'comparison', 'profile', 'contact'}
-PROFILE_FIELDS = {'amount', 'months', 'method', 'insurance_state', 'insurance_kind', 'insurance_budget', 'required_coverages', 'target_amount', 'monthly_income', 'monthly_expenses', 'other_repayments', 'monthly_saving'}
+PROFILE_FIELDS = {'amount', 'months', 'method', 'insurance_state', 'insurance_kind', 'insurance_budget', 'required_coverages', 'target_amount', 'monthly_income', 'monthly_expenses', 'other_repayments', 'monthly_saving','loan_purpose','liquid_days'}
 RECEIPT_STATES = {'received', 'in_consultation', 'closed', 'withdrawn', 'deleted'}
 
 
@@ -159,6 +159,12 @@ class FinanceHandoff:
                 row['consent']=None
                 row['receipt']={'id':receipt_id,'basis':'user_reported','at':now()}
                 return save(state)
+            if operation == 'record_result':
+                if args.get('confirmed') is not True or row['state'] not in {'receipt_reported','received','in_consultation','closed'}:raise FinanceConnectionError('finance_result_confirmation_required')
+                from trading.finance_consultation_result import validate
+                row['result']=validate(args.get('result'),row['packet']['kind'])
+                row['result']['basis']='user_reported'
+                return save(row['state'])
             if operation == 'withdraw' and recipient['mode'] == 'manual':
                 row['consent'] = None
                 return save('withdrawal_requested')
@@ -206,6 +212,11 @@ class FinanceHandoff:
                         return save('withdrawal_requested')
                 if prior_state in {'closed','withdrawn','deleted'} and state not in {'withdrawn','deleted'}:
                     return save(prior_state)
+                if response.get('result') is not None and state not in {'withdrawn','deleted'}:
+                    from trading.finance_consultation_result import validate
+                    row['result']=validate(response['result'],row['packet']['kind'])
+                    row['result']['basis']='recipient_api'
+                if state in {'withdrawn','deleted'}:row.pop('result',None)
                 row['external_delivery'] = True
                 row['receipt'] = {'id': response['receipt_id'], 'basis': 'recipient_api', 'at': now()}
                 row['next_attempt'] = time.time() + 5

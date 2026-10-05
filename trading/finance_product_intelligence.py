@@ -15,7 +15,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from urllib.parse import urlparse
 
-RULE_VERSION = 'finance-products-3923-1'
+RULE_VERSION = 'finance-products-3925-1'
 KINDS = {'loan', 'insurance', 'savings'}
 
 
@@ -245,8 +245,11 @@ class ProductCatalog:
         for row in rows:
             row['evidence_status'] = 'withdrawn' if row['status']=='withdrawn' else 'stale' if instant(row['valid_until'])<=now else 'current'
         from trading.insurance_reference_directory import snapshot as reference_snapshot
-        return {'reference_products':reference_snapshot(self.path, now=now), 'products':rows,'imports':imports,'feeds':feeds,'status':'available' if rows else 'source_not_connected',
+        result = {'reference_products':reference_snapshot(self.path, now=now), 'products':rows,'imports':imports,'feeds':feeds,'status':'available' if rows else 'source_not_connected',
                 'current_count':sum(r['evidence_status']=='current' for r in rows),'rule_version':RULE_VERSION}
+        from trading.finance_journey import catalog_coverage
+        result['coverage']=catalog_coverage(result)
+        return result
 
 
 def compare_scenario(payload, catalog=None):
@@ -283,6 +286,10 @@ def compare_scenario(payload, catalog=None):
         result['questions'].append('상담에서 같은 보장·가입 조건의 개인별 견적과 약관 원문을 요청하세요.')
         from trading.insurance_design import enrich_insurance
         return enrich_insurance(result, profile, offers, catalog)
+    if any(not isinstance(r,dict) or not isinstance(r.get('terms',{}),dict) for r in offers):raise ValueError('finance_invalid_offer')
+    if kind=='savings' and (profile.get('method')=='liquid' or profile.get('discovery_goal')=='liquid'):
+        from trading.finance_liquidity import compare_liquidity
+        return compare_liquidity(result,profile,offers,catalog)
     amount=number(profile.get('amount'), minimum=1, optional=True)
     months=number(profile.get('months'), minimum=1, maximum=600, optional=True)
     if amount is None or months is None:
@@ -305,6 +312,9 @@ def compare_scenario(payload, catalog=None):
         if number(terms.get('min_amount',0))>amount or number(terms.get('max_amount',1e12))<amount: reason='금액 조건 불일치'
         if terms.get('months') and months not in terms['months']: reason='가입 기간 불일치'
         if profile.get('category') and terms.get('category')!=profile['category']: reason='상품 종류 불일치'
+        if kind=='loan' and (row.get('source_kind')!='user_quote' or terms.get('category') or terms.get('loan_purposes')):
+            from trading.finance_journey import loan_match
+            if loan_match(profile,terms) is False or (profile.get('discovery_goal')=='unknown' and not profile.get('loan_purpose')):reason='대출 용도 불일치 또는 용도 미확인'
         from trading.finance_terms import rate_terms, tax_terms, lending_rules
         rate_detail=rate_terms(terms,profile)
         rate=number(rate_detail['annual_rate'],maximum=100,optional=True)
@@ -325,7 +335,7 @@ def compare_scenario(payload, catalog=None):
                'source_url':row.get('source_url'),'verified_at':row.get('verified_at'),'valid_until':row.get('valid_until'),
                'version':row.get('version'),'estimate':estimate,'unconfirmed_conditions':unmet,'rate_detail':rate_detail,'tax_detail':tax_detail,
                'documents':terms.get('documents',[]),'channels':terms.get('channels',[]),'application_url':terms.get('application_url'),
-               'eligibility':eligibility['status'],'eligibility_detail':eligibility,'terms_to_check':['중도해지·상환 비용','실제 적용 금리','가입 한도·자격','우대 조건 유효기간']}
+               'quote_confirmation_required':bool(row.get('returned_quote_key') and terms.get('confirmed') is not True),'eligibility':eligibility['status'],'eligibility_detail':eligibility,'terms_to_check':['중도해지·상환 비용','실제 적용 금리','가입 한도·자격','우대 조건 유효기간']}
         if kind=='loan':
             from trading.finance_scenarios import parse_month_values
             stress_profile=dict(profile)
@@ -349,19 +359,33 @@ def compare_scenario(payload, catalog=None):
                     old_profile={key[len('existing_'):]:value for key,value in profile.items() if key.startswith('existing_')}
                     old=loan_projection(amount,months,old_rate,old_method,old_fees,old_profile)
                     net_saving=None if exit_fee is None or estimate['total_cost'] is None or old['total_cost'] is None else old['total_cost']-estimate['total_cost']-exit_fee
-                entry['refinance']={'same_remaining_principal':amount,'same_remaining_months':months,
+                breakeven=None
+                if net_saving is not None and (not detailed_old or old_fees==0):
+                    cumulative=-(exit_fee+estimate['fees'])
+                    balances=[]
+                    for old_row,new_row in zip(old['schedule'],estimate['schedule']):
+                        cumulative+=old_row['interest']-new_row['interest'];balances.append(cumulative)
+                    # Report a lasting recovery, not an early crossing later reversed.
+                    for i in range(len(balances)):
+                        if min(balances[i:])>=0:breakeven=i+1;break
+                entry['refinance']={'breakeven_month':breakeven,'breakeven_basis':'기존·신규 누적 이자 차이로 초기 신규 비용과 기존 종료 비용을 회수하는 가정. 기존 추가 비용의 납부 시점이 불명확하면 미계산.', 'same_remaining_principal':amount,'same_remaining_months':months,
                     'old_remaining_interest':old['interest'],'exit_fee':exit_fee,'estimated_saving':net_saving,
                     'assumptions':('기존·신규의 각각 확인한 계산 조건을 동일 남은 원금·기간에 적용한 가정. 미래 변동금리와 조기상환은 예상이며 확정 절감액이 아닙니다.' if detailed_old else '거치·일수 계산·조기상환 조건을 변경했습니다. 기존 대출의 동일 조건을 확인하기 전 대환 절감액은 미확정입니다.' if loan_advanced else '기존·신규 대출의 같은 잔여 원금·기간·상환 방식·고정 금리 가정. 이미 낸 이자는 절감액에 포함하지 않음.')}
         if kind=='savings':
             from trading.finance_rule_evidence import protection_check
             entry['deposit_protection']=protection_check(profile,terms,estimate['principal'])
+            from trading.finance_use_date import availability
+            entry['liquidity']=availability(profile,months,terms)
         result['candidates'].append(entry)
     key='total_cost' if kind=='loan' else 'net_interest'
-    rankable=[r for r in result['candidates'] if r['estimate'][key] is not None and not r['unconfirmed_conditions'] and r['eligibility']!='needs_confirmation']
-    rankable.sort(key=lambda r:r['estimate'][key],reverse=kind=='savings')
+    rankable=[r for r in result['candidates'] if r['estimate'][key] is not None and not r['unconfirmed_conditions'] and r['eligibility']!='needs_confirmation' and not r.get('quote_confirmation_required')]
+    priority=profile.get('priority','total_cost' if kind=='loan' else 'net_interest')
+    if priority not in ({'total_cost','monthly_payment'} if kind=='loan' else {'net_interest','liquidity'}):raise ValueError('finance_priority_invalid')
+    if kind=='savings' and priority=='liquidity':rankable=[r for r in rankable if r['liquidity']['fits_use_date'] is True]
+    rankable.sort(key=lambda r:r['estimate']['max_payment' if kind=='loan' and priority=='monthly_payment' else key],reverse=kind=='savings')
     result['status']='compared' if result['candidates'] else 'no_matching_candidates'
     result['best']=rankable[0]['name'] if rankable else None
-    result['ranking_basis']='입력·확인된 조건의 총비용 오름차순' if kind=='loan' else '입력·확인된 조건의 세후 이자 내림차순'
+    result['ranking_basis']=('입력·확인된 조건의 최대 월 상환액 오름차순' if priority=='monthly_payment' else '입력·확인된 조건의 총비용 오름차순') if kind=='loan' else '사용 날짜까지 만기 도래가 확인된 조건의 세후 이자순' if priority=='liquidity' else '입력·확인된 조건의 세후 이자 내림차순'
     result['questions']=['개인 적용 금리·가입 자격은 기관 확인이 필요합니다. 미확인 비용·세율·우대 조건이 있으면 순위에서 제외합니다.']
     if not result['candidates']: result['questions'].append('유효한 자료가 없거나 조건에 맞지 않습니다. 필터를 풀지 않고 받은 견적을 직접 비교할 수 있습니다.')
     # Budget decisions retain unknown values; not a DSR or approval determination.
@@ -444,7 +468,12 @@ def product_question_answer(question, recent_messages=None, *, catalog=None):
             pass
     for clause in clauses[:3]:
         answer+='\n[상품 근거 · '+clause['product']+' · 버전 '+clause['version']+'] '+clause['text'][:600]+'\n'+str(clause.get('page') or '쪽수 미기재')+'쪽 · '+str(clause.get('clause') or '조항 미기재')+' · '+clause['source_url']
+    if kind=='insurance':
+        from trading.finance_journey import reference_rows,reference_summary
+        reference_text=reference_summary(reference_rows(session_profile,catalog,current))
+        if reference_text:answer=reference_text+'\n\n'+answer
     count=sum(r.get('kind')==kind and r.get('evidence_status')=='current' for r in (catalog or {}).get('products',[]))
+    if kind=='insurance':answer+=f"\n상품 탐색 안내 {(len((catalog or {}).get('reference_products',[])))}건과 비교용 견적 자료는 구분됩니다."
     answer+=f'\n현재 연결된 이 종류의 유효 상품 자료는 {count}건입니다. '+('금융상품의 맞춤 비교에서 출처와 조건을 확인하세요.' if count else '현재 실상품 순위를 제시할 근거가 없습니다. 받은 조건을 입력하면 비용·만기금액·보장 차이를 비교할 수 있습니다.')
     from trading.finance_explanations import explain_terms
     direct=explain_terms(current)

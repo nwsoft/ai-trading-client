@@ -213,9 +213,11 @@ def test_github_workflow_builds_candidate_before_explicit_release():
     assert "requirements_kiwoom_x86.txt" in workflow
     # Publication is explicitly requested; the shared publisher verifies the
     # candidate and records pending manual checks without inventing their results.
-    assert "if: inputs.publish_release" in workflow
-    assert workflow.index("Upload release candidate") < workflow.index("Publish verified release")
-    assert workflow.count("default: false") == 1
+    assert "if: ${{ inputs.publish_release && inputs.confirm_external_gates }}" in workflow
+    assert "if: ${{ inputs.publish_release && !inputs.confirm_external_gates }}" in workflow
+    assert 'run: throw "Public release requires confirm_external_gates=true' in workflow
+    assert workflow.index("Upload internal test candidate") < workflow.index("Publish only the verified immutable candidate")
+    assert workflow.count("default: false") == 2
     assert "publish_web_ui_windows_release.ps1" in workflow
     assert "softprops/action-gh-release" not in workflow  # no second publisher bypassing guards
     assert "deploy/web-release/NoahAI-${{ steps.app_version.outputs.version }}-Setup.exe" in workflow

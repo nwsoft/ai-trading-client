@@ -5,7 +5,7 @@ from datetime import datetime, timezone
 
 from trading.finance_product_intelligence import instant, number
 
-VERSION = 'discovery-20261004-1'
+VERSION = 'discovery-20261005-1'
 # Cards describe types, not offered products. Reasons must follow explicit goals.
 GUIDES = {
  'insurance': {
@@ -17,6 +17,7 @@ GUIDES = {
  'loan': {
   'living': ('생활자금이 필요해요', '신용·정책자금 조건 확인', '필요한 금액과 매달 갚을 여력을 먼저 정합니다.', '소득·기존 부채·자격에 따라 개인 한도와 금리가 달라집니다. 광고 최저금리로 상환 부담을 확정하지 않습니다.', '필요 금액·월 상환 여력·실제 금리·수수료', 'method', 'annuity'),
   'housing': ('집·전세 자금이 필요해요', '주거 목적 대출', '주거 목적과 자금이 필요한 날짜부터 구분합니다.', '구입과 전세는 담보·보증·계약 요건이 다릅니다. 주거 형태와 보증 가능 여부를 기관에 확인합니다.', '구입/전세·입주일·자기자금·담보/보증·변동금리', 'method', 'annuity'),
+  'policy': ('정책 지원 대상인지 알아보고 싶어요', '정책 지원 대출', '대상 요건과 신청 기간을 먼저 확인합니다.', '상품별 소득·자산·용도·보증 요건이 다릅니다. 자격과 승인 금리는 기관 확인 전 확정하지 않습니다.', '지원 대상·용도·공급 기간·보증료·중복 지원 제한', 'method', 'annuity'),
   'refinance': ('기존 대출 부담을 줄이고 싶어요', '대환·상환 방식 비교', '현재 대출을 유지할 때와 바꿀 때의 총비용을 같은 남은 기간으로 비교합니다.', '금리가 낮아져도 중도상환수수료와 신규 비용 때문에 이득이 줄 수 있습니다.', '남은 원금·기간·기존 금리·종료 비용·새 견적', 'method', 'annuity'),
  },
  'savings': {
@@ -27,7 +28,7 @@ GUIDES = {
 }
 PATTERNS = {
  'insurance': {'medical':r'병원비|의료비|실손', 'driver':r'운전|자동차', 'family':r'부양|가족\s*생활비|소득\s*공백', 'health':r'암보험|큰\s*질병|암\s*보장'},
- 'loan': {'living':r'생활\s*자금', 'housing':r'전세|주택|집\s*구입', 'refinance':r'대환|갈아타|기존\s*대출'},
+ 'loan': {'policy':r'정책\s*(?:대출|지원|자금)|지원\s*대상', 'living':r'생활\s*자금', 'housing':r'전세|주택|집\s*구입', 'refinance':r'대환|갈아타|기존\s*대출'},
  'savings': {'deposit':r'목돈|예금', 'installment':r'매달|매월|적금', 'liquid':r'비상금|곧\s*쓸|곧\s*쓰|수시\s*입출금'},
 }
 
@@ -41,13 +42,16 @@ def discover(payload, catalog=None):
     if not isinstance(profile, dict) or not isinstance(question, str) or len(question) > 2000:
         raise ValueError('finance_discovery_input')
     # Only these fields are needed by discovery; never echo arbitrary private fields.
-    fields = {'discovery_goal','insurance_state','insurance_budget','amount','months','method','insurance_kind','declined_conditions'}
+    fields = {'discovery_goal','insurance_state','insurance_budget','amount','months','method','insurance_kind','declined_conditions','loan_purpose','liquid_days','reference_product_ids','discovery_product_ids'}
     profile = deepcopy({k:v for k,v in profile.items() if k in fields})
-    if any(not isinstance(v, str) for k,v in profile.items() if k!='declined_conditions'):
+    if any(not isinstance(v, str) for k,v in profile.items() if k not in {'declined_conditions','reference_product_ids','discovery_product_ids'}):
         raise ValueError('finance_discovery_profile')
     conditions=profile.get('declined_conditions',[])
     if not isinstance(conditions,list) or len(conditions)>50 or not all(isinstance(v,str) and len(v)<=200 for v in conditions):
         raise ValueError('finance_discovery_profile')
+    for key in ('reference_product_ids','discovery_product_ids'):
+        ids=profile.get(key,[])
+        if not isinstance(ids,list) or len(ids)>20 or not all(isinstance(v,str) and len(v)<=250 for v in ids):raise ValueError('finance_invalid_product_selection')
     if len(str(profile)) > 4000:
         raise ValueError('finance_discovery_profile_limit')
     if profile.get('insurance_state', 'unknown') not in {'unknown','none','existing'}:
@@ -70,6 +74,10 @@ def discover(payload, catalog=None):
     elif len(matches)==1:
         goal=matches[0]
     profile['discovery_goal'] = goal
+    if goal=='unknown':profile.pop('insurance_kind',None)
+    if kind=='loan' and goal!='unknown':
+        if goal!='housing':profile['loan_purpose']=goal
+        elif profile.get('loan_purpose') not in {'housing','mortgage','jeonse'}:profile['loan_purpose']='jeonse' if '전세' in question else 'mortgage' if re.search(r'구입|매매',question) else 'housing'
     profile.setdefault('insurance_state', 'unknown')
     selected = [goal] if goal!='unknown' else list(GUIDES[kind])
     cards=[]
@@ -80,8 +88,7 @@ def discover(payload, catalog=None):
             if field=='method' and kind=='savings' and profile.get('method') not in (None,value) and not any(c['field']=='amount' for c in changes):
                 profile.pop('amount',None)
             profile[field]=value
-    if goal=='liquid':
-        profile.pop('method',None)
+    if goal=='liquid':profile['method']='liquid'
     state=profile['insurance_state']
     answer = ('보험이 없어도 상품명이나 증권 없이 시작할 수 있습니다.' if state=='none' else
               '가입 여부를 몰라도 괜찮습니다. 보장이 없는 것으로 단정하지 않고 확인할 목록을 만듭니다.' if state=='unknown' else
@@ -108,14 +115,19 @@ def discover(payload, catalog=None):
             if instant(row.get('valid_until')) <= datetime.now(timezone.utc):continue
         except (ValueError,TypeError,AttributeError):continue
         terms=row.get('terms') or {}
-        if goal=='liquid':continue
+        if kind=='loan':
+            from trading.finance_journey import loan_match
+            if loan_match(profile,terms) is False:continue
         if goal!='unknown' and kind=='insurance' and terms.get('category')!=profile.get('insurance_kind'):continue
         if goal!='unknown' and kind=='savings' and terms.get('method')!=profile.get('method'):continue
         products.append({k:row.get(k) for k in ('id','source_id','name','provider','version','verified_at','valid_until','source_url')})
-    return dict(kind=kind,profile=profile,cards=cards,answer=answer,questions=questions,
+    from trading.finance_journey import reference_rows,reference_summary
+    references=reference_rows(profile,catalog,question) if kind=='insurance' else []
+    detail=reference_summary(references) if references and (profile.get('reference_product_ids') or any(r.get('provider','?') in question for r in references)) else ''
+    return dict(reference_answer=detail,kind=kind,profile=profile,cards=cards,answer=answer,questions=questions,
                 goal_options=[{'id':key,'label':value[0]} for key,value in GUIDES[kind].items()],
                 products=products,reference_products=[r for r in (catalog or {}).get('reference_products',[]) if r.get('evidence_status')!='withdrawn'] if kind=='insurance' else [],unresolved=unresolved,rule_version=VERSION,
                 decision=dict(route='local_rules',provider_called=False,next_action='clarify' if goal=='unknown' else 'review_types',reason='명시된 상황과 검증 자료만 사용'),
                 catalog_notice='선택한 유형의 유효 자료입니다. 개인별 가입 자격·보험료·금리는 기관 확인이 필요합니다.' if products else
                 '현재 이 목적에 연결된 유효 상품 자료가 없습니다. 회사·상품 순위를 만들지 않고 유형과 확인할 질문을 먼저 안내합니다.',
-                can_compare=goal not in {'unknown','liquid'}, saved=False, application_submitted=False)
+                can_compare=goal!='unknown', can_prepare=True, saved=False, application_submitted=False)

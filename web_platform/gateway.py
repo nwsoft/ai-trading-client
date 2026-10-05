@@ -868,9 +868,30 @@ def create_gateway_app(
             return services.calculate_life_tax(
                 calculation=calculation,
                 values={key: value for key, value in payload.items() if key in fields},
+                **({"tax_year":body.tax_year} if body.tax_year is not None else {}),
             )
         except (TypeError, ValueError) as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    @app.post('/api/v1/life-finance/ledger', dependencies=[Depends(require_token), Depends(require_confirmed_intent)])
+    async def life_ledger(request: Request):
+        import json
+        from fastapi.responses import JSONResponse
+        from starlette.concurrency import run_in_threadpool
+        account=getattr(services,'account',None)
+        raw=bytearray()
+        async for chunk in request.stream():
+            if len(raw)+len(chunk)>512000:raise HTTPException(413,'ledger_request_limit')
+            raw.extend(chunk)
+        try:
+            body=json.loads(raw)
+            if not isinstance(body,dict):raise ValueError('ledger_request_invalid')
+            if account!=getattr(services,'account',None):raise ValueError('ledger_account_changed')
+            result=await run_in_threadpool(services.life_ledger,body)
+            if account!=getattr(services,'account',None):raise ValueError('ledger_account_changed')
+            return JSONResponse(result,headers={'Cache-Control':'no-store'})
+        except (ValueError,TypeError,KeyError,UnicodeError):
+            raise HTTPException(status_code=400,detail='기록 형식·수정 버전·가져오기 미리보기를 다시 확인하세요.') from None
 
     @app.post(
         "/api/v1/life-finance/transactions",

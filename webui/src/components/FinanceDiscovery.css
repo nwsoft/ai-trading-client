@@ -22,3 +22,5 @@
 
 .reference-comparison th:first-child {width:110px;min-width:110px;position:sticky;left:0;background:#112033;z-index:1;}
 .reference-swipe-hint {font-size:13px;color:#97dce8;}
+
+.finance-discovery > div > button {min-height:44px;padding:10px 16px;margin-bottom:12px;background:#17465a;color:#eafaff;border:1px solid #39717d;border-radius:8px;font:inherit;cursor:pointer;}

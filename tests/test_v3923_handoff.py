@@ -115,3 +115,24 @@ def test_manual_followup_can_finish_without_claiming_api_or_deletion(setup):
     assert out['state']=='withdrawn' and out['receipt']['basis']=='user_reported'
     assert w.dispatch('delete',request_id=r['id'],confirmed=True)['external_deletion_confirmed'] is False
     assert not calls
+
+
+def test_returned_quote_is_bound_to_receipt_and_not_auto_confirmed(setup):
+    vault,w,calls=setup;r=consent(w,prepare(w))
+    from datetime import datetime,timezone,timedelta
+    expiry=(datetime.now(timezone.utc)+timedelta(days=1)).isoformat()
+    response={'request_id':r['id'],'status':'in_consultation','receipt_id':'bound',
+              'result':{'assigned_advisor':'합성 담당자','expected_reply_at':expiry,'quotes':[{'id':'q','name':'시험 견적','provider':'fixture','source_url':'https://example.org/q','valid_until':expiry,'terms':{'annual_rate':3,'fees':0}}]}}
+    w.transport=lambda *a:response
+    out=w.dispatch('submit',request_id=r['id'])['request']
+    assert out['result']['basis']=='recipient_api' and not out['result']['quotes'][0]['terms']['confirmed']
+    assert out['result']['assigned_advisor']=='합성 담당자'
+    w.dispatch('withdraw',request_id=r['id'])
+    with pytest.raises(FinanceConnectionError):w.dispatch('record_result',request_id=r['id'],confirmed=True,result=response['result'])
+
+
+def test_mismatched_return_request_cannot_replace_result(setup):
+    vault,w,calls=setup;r=consent(w,prepare(w))
+    w.transport=lambda *a:{'request_id':'other','status':'received','receipt_id':'x','result':{'assigned_advisor':'wrong'}}
+    out=w.dispatch('submit',request_id=r['id'])['request']
+    assert out['state']=='delivery_unknown' and not out.get('result')

@@ -81,6 +81,15 @@ def lending_rules(terms, profile, estimate, at=None):
 
 def validate_terms(terms):
     rate_terms(terms,{})
+    if terms.get('coverage_details') is not None:
+        from trading.finance_coverage import normalize
+        normalize(terms['coverage_details'])
+    if terms.get('rate_tiers') is not None:
+        from trading.finance_liquidity import liquid_interest
+        liquid_interest(1,1,terms)
+    if terms.get('loan_purposes') is not None:
+        from trading.finance_journey import loan_match
+        loan_match({'loan_purpose':'living'},terms)
     tax_terms(terms,{})
     lending_rules(terms,{}, {})
     for key in ('documents','channels'):

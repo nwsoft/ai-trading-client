@@ -1,3 +1,7 @@
+# 3.9.2.5 후속 운영 변경
+
+공개 3.9.2.4 자료를 유지하며 [검토 피드 배포·복구 명세](V3925_LIFE_FINANCE_COMPLETION.md#상품-자료를-앱-패치-없이-갱신하는-방법)를 추가했다. 직접 작성한 내장 안내 요약은 선택 범위 동의 후 AI 설명에 사용할 수 있다. 수동 CLI 자료는 기본 AI 공유 금지, 검토 피드는 운영 설정에서 처리 권한을 확인한 경우에만 허용한다. 약관 원문 전체·가격·개인 견적의 이용 권한을 자동 부여하지 않는다. 실제 운영 피드 URL·고객 설정 배포는 미완료다. 아래 3.9.2.4 설명은 초기 계약 이력이다.
+
 # 보험 내부 탐색 자료 운영 — 3.9.2.4
 
 ## 자료 계약과 초기 범위
@@ -20,7 +24,7 @@
 
 기존 계정별 `finance_product_catalog.sqlite3`의 `insurance_references` 테이블에 저장한다. `products` 및 rights_verified 기반 공급사 피드와 별도다. `snapshot.reference_products`로만 반환하고 `current_count`/실제 비교 후보/최적 후보에는 넣지 않는다. 외부 AI에 요약 본문을 자동 첨부하지 않는다.
 
-필드: id, provider, name, category(driver/medical/cancer/income), source_url(HTTPS), coverage, renewal, checks, version, observed_at, review_due, status(listed/withdrawn). 보험료 필드는 허용하지 않는다. 확인일부터 재확인 기한까지 최대 90일, 미래 확인일 거절. `listed`는 안내 목록 상태이며 판매 확인 의미가 아니다.
+필드: id, provider, name, category(driver/medical/cancer/income/accident/auto/term/whole_life/travel/home/pension/saving; 실제 자료가 있는 유형만 노출), source_url(HTTPS), coverage, renewal, checks, version, observed_at, review_due, status(listed/withdrawn). 보험료 필드는 허용하지 않는다. 확인일부터 재확인 기한까지 최대 90일, 미래 확인일 거절. `listed`는 안내 목록 상태이며 판매 확인 의미가 아니다.
 
 검토한 변경 자료를 JSON 배열로 작성한 뒤 다음 명령으로 반영한다. 원본 예시는 `trading/insurance_reference_directory.py`의 BUNDLED이며 실제 내용과 확인일을 검토 후 바꾼다.
 

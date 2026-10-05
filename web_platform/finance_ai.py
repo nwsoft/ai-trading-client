@@ -1,6 +1,8 @@
 """Explicit, preview-bound finance explanation. Private responses are not cached."""
 import json
 import re
+from datetime import datetime, timezone
+from trading.finance_product_intelligence import instant
 from trading.finance_connections import digest
 from trading.finance_product_dialogue import revise_scenario
 
@@ -27,12 +29,18 @@ def preview(service,settings,scenario,question,catalog,scopes,workload='assistan
                                 'unconfirmed_conditions':r.get('unconfirmed_conditions',[])} for r in local['result']['candidates'][:20]]
     if 'public_evidence' in scopes:
         facts['clauses']=[row for row in local['clauses'] if row.get('ai_processing_allowed') is True]
+    if scenario.get('kind')=='insurance':
+        from trading.finance_journey import reference_rows,reference_summary
+        rows=reference_rows(scenario.get('profile') or {},catalog,question)
+        local['reference_answer']=reference_summary(rows)
+        if 'public_evidence' in scopes:
+            facts['reference_products']=[{k:r.get(k) for k in ('id','name','provider','coverage','renewal','checks','source_url','version','observed_at','review_due')} for r in rows if r.get('ai_processing_allowed') is True and r.get('evidence_status')=='reference' and instant(r['review_due'])>datetime.now(timezone.utc)]
     raw=json.dumps(facts,ensure_ascii=False,allow_nan=False)
     if len(raw)>12000:raise ValueError('finance_ai_context_limit')
     router=service.router_factory(settings,workload=workload)
     provider=str(router.spec.provider);model=str(router.adapter.model)
     packet={'provider':provider,'model':model,'workload':workload,'scopes':scopes,'facts':facts}
-    return {'packet':packet,'payload_hash':digest(packet),'local':local,'provider_called':False,
+    return {'packet':packet,'payload_hash':digest(packet),'local':local,'provider_called':False,'available':bool(getattr(router.adapter,'is_ready',lambda:False)()),
             'notice':'질문과 선택한 수치·공개 근거만 사용합니다. 질문에 개인정보가 있으면 직접 제거하세요. 보험 원문·건강정보·연락처를 자동 첨부하지 않습니다. 일반 응답 캐시에 저장하지 않습니다.'}
 
 
@@ -55,5 +63,5 @@ def explain(service,settings,payload,catalog):
                 'usage':response.get('usage'),'estimated_cost_usd':response.get('estimated_cost_usd'),'payload_hash':data['payload_hash'],
                 'status':'explanation_draft','calculations_changed':False,'saved':False,'local':data['local']}
     except (ValueError,RuntimeError,KeyError):
-        return {'answer':data['local']['answer'],'status':'local_fallback','provider_called':None,'calculations_changed':False,'saved':False,
+        return {'answer':data['local']['answer']+'\n'+data['local'].get('reference_answer',''),'status':'local_fallback','provider_called':None,'calculations_changed':False,'saved':False,
                 'reason':'AI 연결·예산 또는 근거 확인 문제로 로컬 계산·설명을 표시합니다. 새로운 금융 사실을 대신 생성하지 않습니다.','local':data['local']}

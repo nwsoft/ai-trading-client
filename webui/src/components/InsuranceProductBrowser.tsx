@@ -2,16 +2,16 @@ import {useEffect,useState} from 'react';
 
 export type InsuranceReference={id:string;name:string;provider:string;category:string;category_label:string;coverage:string;renewal:string;checks:string;source_url:string;observed_at:string;review_due:string;version:string;evidence_status:string};
 const date=(s:string)=>s?.slice(0,10)||'미확인';
-export function InsuranceProductBrowser({products,goalCategory,onPrepare,busy=false}:{products:InsuranceReference[];goalCategory?:string;onPrepare:(ids:string[],category:string)=>void;busy?:boolean}) {
- const [search,setSearch]=useState(''),[company,setCompany]=useState(''),[category,setCategory]=useState(''),[selected,setSelected]=useState<string[]>([]);
+export function InsuranceProductBrowser({products,goalCategory,onPrepare,busy=false,selected,onSelectionChange}:{products:InsuranceReference[];selected:string[];onSelectionChange:(ids:string[])=>void;goalCategory?:string;onPrepare:(ids:string[],category:string)=>void;busy?:boolean}) {
+ const [search,setSearch]=useState(''),[company,setCompany]=useState(''),[category,setCategory]=useState('');
  useEffect(()=>{setCategory(goalCategory||'');},[goalCategory]);
- useEffect(()=>{setSelected(old=>old.filter(id=>products.some(p=>p.id===id&&p.evidence_status==='reference')));},[products]);
+ useEffect(()=>{const valid=selected.filter(id=>products.some(p=>p.id===id&&p.evidence_status==='reference'));if(valid.length!==selected.length)onSelectionChange(valid);},[products,selected]);
  const companies=[...new Set(products.map(p=>p.provider))].sort((a,b)=>a.localeCompare(b,'ko'));
  const categories=[...new Map(products.map(p=>[p.category,p.category_label])).entries()];
  const visible=products.filter(p=>(!company||p.provider===company)&&(!category||p.category===category)&&`${p.name} ${p.provider} ${p.coverage}`.toLowerCase().includes(search.toLowerCase()));
  const chosen=selected.map(id=>products.find(p=>p.id===id)).filter((p):p is InsuranceReference=>!!p);
  const sameType=chosen.length>0&&chosen.every(p=>p.category===chosen[0].category);
- function toggle(id:string){setSelected(old=>old.includes(id)?old.filter(v=>v!==id):[...old,id].slice(0,4));}
+ function toggle(id:string){onSelectionChange(selected.includes(id)?selected.filter(v=>v!==id):[...selected,id].slice(0,4));}
  return <section className="insurance-product-browser" aria-label="보험회사·상품 둘러보기">
   <h4>보험회사·상품 둘러보기</h4>
   <p>상품 이름을 몰라도 종류와 회사별로 살펴보세요. 관심 상품을 최대 4개 골라 이 화면에서 비교할 수 있습니다.</p>
