@@ -8,6 +8,11 @@ on:
         required: true
         type: boolean
         default: false
+      confirm_external_gates:
+        description: Acknowledge pending external acceptance checks and authorize public release; this does not mark them passed
+        required: true
+        type: boolean
+        default: false
 
 permissions:
   contents: write
@@ -56,7 +61,7 @@ jobs:
           $version = python -c "from config.app_version import RELEASE_VERSION; print(RELEASE_VERSION)"
           "version=$version" >> $env:GITHUB_OUTPUT
 
-      - name: Upload release candidate
+      - name: Upload internal test candidate
         uses: actions/upload-artifact@v4
         with:
           name: NoahAI-${{ steps.app_version.outputs.version }}-windows-candidate
@@ -67,8 +72,13 @@ jobs:
             deploy/web-release/latest.yml
             deploy/release-manifest.json
 
-      - name: Publish verified release
-        if: inputs.publish_release
+      - name: Reject publication without external gate acknowledgement
+        if: ${{ inputs.publish_release && !inputs.confirm_external_gates }}
+        shell: powershell
+        run: throw "Public release requires confirm_external_gates=true; pending manual checks must remain recorded honestly."
+
+      - name: Publish only the verified immutable candidate
+        if: ${{ inputs.publish_release && inputs.confirm_external_gates }}
         shell: powershell
         env:
           GH_TOKEN: ${{ github.token }}
