@@ -538,7 +538,7 @@ class OpportunityCoordinator:
         identity = str(values.get('account_scope') or '') + ':' + str(values.get('idempotency_key') or '')
         return 'na26' + hashlib.sha256(identity.encode()).hexdigest()[:28]
 
-    def pending_submissions(self, *, account_scope: str, target: str, limit=3):
+    def pending_submissions(self, *, account_scope: str, target: str, limit=3, offset=0):
         with self._transaction():
             prefix = self._scope_key('', account_scope)
             pending = []
@@ -549,7 +549,10 @@ class OpportunityCoordinator:
                 authorization = {**item, 'opportunity_id':key.split(':',1)[1], 'account_scope':account_scope}
                 pending.append({**authorization, 'order_id':(self._results.get(key,{}).get(target) or {}).get('order_id',''),
                                 'client_order_id':self.client_order_id(authorization)})
-            return pending[:max(0,min(3,int(limit)))]
+            if not pending:
+                return []
+            start = max(0, int(offset)) % len(pending)
+            return (pending[start:] + pending[:start])[:max(0,min(3,int(limit)))]
 
     def reconcile(self, authorization, *, status: str, order_id: str = '') -> None:
         """Only callers with provider-confirmed evidence may use terminal states."""

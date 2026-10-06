@@ -27,7 +27,10 @@ def reconcile_owned_pending_entries(owner):
         return
     owner._pending_entry_lookup_at = now
     coordinator = get_opportunity_coordinator(owner)
-    for row in coordinator.pending_submissions(account_scope=account_scope_for(owner,'live'),target='binance'):
+    offset = getattr(owner, '_pending_entry_lookup_offset', 0)
+    pending = coordinator.pending_submissions(account_scope=account_scope_for(owner,'live'),target='binance',offset=offset)
+    owner._pending_entry_lookup_offset = offset + len(pending)
+    for row in pending:
         symbol = row.get('symbol')
         if not symbol:
             continue

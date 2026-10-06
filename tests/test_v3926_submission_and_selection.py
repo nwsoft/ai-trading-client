@@ -274,3 +274,19 @@ def test_unknown_native_order_is_read_only_reconciled_by_durable_client_id(tmp_p
     assert len(calls)==1
     rows=owner._opportunity_coordinator.pending_submissions(account_scope=a.account_scope,target='binance')
     assert bool(rows)==(reply in {'not_found','wrong_identity'})
+
+
+def test_pending_lookup_rotation_does_not_starve_later_unknown_orders():
+    from trading.entry_fill_evidence import reconcile_owned_pending_entries
+    c=OpportunityCoordinator();owner=SimpleNamespace(settings={'account_id':'fixture'},_opportunity_coordinator=c)
+    scope=account_scope_for(owner,'live')
+    for index in range(4):
+        a=c.authorize(policy={'authorized_targets':['binance']},asset_class='crypto',target='binance',symbol=f'COIN{index}USDT',direction='LONG',quantity=1.,price=100.,stop_fraction=.01,account_scope=scope)
+        assert a.allowed;c.mark_submitting(a)
+    calls=[]
+    def lookup(**kwargs):calls.append(kwargs['symbol']);raise TimeoutError('unavailable')
+    owner.binance_client=SimpleNamespace(client=SimpleNamespace(futures_get_order=lookup))
+    with patch('time.monotonic',side_effect=[0.,31.]):
+        reconcile_owned_pending_entries(owner);reconcile_owned_pending_entries(owner)
+    assert len(calls)==6 and set(calls)=={f'COIN{i}USDT' for i in range(4)}
+    assert c.runtime_snapshot(account_scope=scope,target='binance')['pending_orders']==4
