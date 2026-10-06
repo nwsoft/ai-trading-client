@@ -250,3 +250,18 @@ def test_builder_uses_atomic_deploy_replacement():
     assert 'dest.with_suffix(dest.suffix + ".tmp")' in source
     assert "os.replace(temp_dest, dest)" in source
     assert "verify_windows_executable_version" in source
+
+
+def test_automatic_windows_candidate_has_no_publication_permission_or_step():
+    import yaml
+    workflow=yaml.safe_load((ROOT/'.github/workflows/windows-candidate.yml').read_text())
+    triggers=workflow.get('on',workflow.get(True))
+    assert set(triggers)=={'push','workflow_dispatch'}
+    branches=triggers['push']['branches']
+    assert len(branches)==1 and branches[0].startswith(f'release/v{RELEASE_VERSION}-')
+    assert not any(char in branches[0] for char in '*?[')
+    assert workflow['permissions']=={'contents':'read'}
+    steps=workflow['jobs']['build-candidate']['steps']
+    assert any('build_web_ui_windows.ps1' in str(step.get('run','')) for step in steps)
+    assert any(step.get('uses')=='actions/upload-artifact@v4' for step in steps)
+    assert not any('publish_web_ui_windows_release' in str(step) or 'action-gh-release' in str(step) for step in steps)

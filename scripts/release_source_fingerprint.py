@@ -35,6 +35,7 @@ DIRECTORY_RULES: tuple[tuple[str, frozenset[str] | None], ...] = (
 EXPLICIT_FILES = (
     ".gitattributes",
     ".github/workflows/windows-release.yml",
+    ".github/workflows/windows-candidate.yml",
     "deploy/release_notes.md",
     "docs/USER_GUIDE.md",
     "docs/USER_MANUAL_SECTIONS.json",
