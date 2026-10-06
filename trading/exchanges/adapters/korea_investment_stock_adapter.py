@@ -19,6 +19,7 @@ _KIS_VTS_URL = "https://openapivts.koreainvestment.com:29443"
 
 
 from trading.instrument_eligibility import instrument_order
+from trading.market_data_utils import optional_market_number
 
 
 class KoreaInvestmentStockAdapter(MiraeAssetStockAdapter):
@@ -164,6 +165,7 @@ class KoreaInvestmentStockAdapter(MiraeAssetStockAdapter):
             '/uapi/etfetn/v1/quotations/inquire-price': 'FHPST02400000',
             '/uapi/etfetn/v1/quotations/nav-comparison-trend': 'FHPST02440000',
             '/uapi/domestic-stock/v1/trading/inquire-balance': 'TTTC8434R',
+            '/uapi/domestic-stock/v1/trading/inquire-psbl-order': 'TTTC8908R',
             '/uapi/domestic-stock/v1/trading/inquire-psbl-rvsecncl': 'TTTC0084R',
             '/uapi/domestic-stock/v1/trading/inquire-daily-ccld': 'TTTC0081R',
             '/uapi/domestic-stock/v1/trading/order-rvsecncl': 'TTTC0013U',
@@ -299,6 +301,29 @@ class KoreaInvestmentStockAdapter(MiraeAssetStockAdapter):
             'profit_loss': self._to_float(item.get('evlu_pfls_smtl_amt')),
             'profit_rate': self._to_float(item.get('asst_icdc_erng_rt')),
         }
+
+    def get_orderable_cash(self, *, symbol: str, price: float, order_type: str = 'MARKET'):
+        """Official buying-power read; exclude margin, overseas and CMA funds."""
+        code = self._normalize_symbol(symbol)
+        amount = optional_market_number(price)
+        kind = str(order_type).upper()
+        if not self.is_connected or not code.isdigit() or len(code) != 6 or amount is None or amount <= 0 or kind not in {'MARKET', 'LIMIT'}:
+            return {'status':'error', 'error':'orderable_cash_request_unverified'}
+        cano, product = self._account_parts()
+        data = self._get('/uapi/domestic-stock/v1/trading/inquire-psbl-order', params={
+            'CANO':cano, 'ACNT_PRDT_CD':product, 'PDNO':code,
+            'ORD_UNPR':str(int(amount)), 'ORD_DVSN':'01' if kind == 'MARKET' else '00',
+            'CMA_EVLU_AMT_ICLD_YN':'N', 'OVRS_ICLD_YN':'N',
+        })
+        item = data.get('output') if isinstance(data, dict) else None
+        if not self._kis_success(data) or not isinstance(item, dict):
+            return {'status':'error', 'error':'orderable_cash_unavailable'}
+        cash = optional_market_number(item.get('ord_psbl_cash'))
+        without_margin = optional_market_number(item.get('nrcvb_buy_amt'))
+        if cash is None or without_margin is None or cash < 0 or without_margin < 0:
+            return {'status':'error', 'error':'orderable_cash_unavailable'}
+        return {'status':'ok', 'quote_currency':'KRW', 'orderable_cash':min(cash, without_margin),
+                'basis':'kis_cash_only_buying_power', 'symbol':code}
 
     @instrument_order('kis')
     def place_order(self, symbol: str, side: str, quantity: float, 

@@ -39,6 +39,19 @@ def available_quote_balance(snapshot: Any, quote: str, *, allow_cash: bool = Fal
         return 0.0, 'available_balance_unverified'
 
 
+def live_stock_available_funds(adapter, symbol: str, price: float, order_type: str = 'MARKET'):
+    """Use a broker-owned cash-only buying-power contract, never deposits."""
+    getter = getattr(adapter, 'get_orderable_cash', None)
+    try:
+        if callable(getter) and symbol:
+            snapshot = getter(symbol=symbol, price=price, order_type=order_type)
+            if isinstance(snapshot, dict):
+                return available_quote_balance(snapshot, 'KRW')
+        return available_quote_balance(adapter.get_balance(), 'KRW')
+    except Exception:
+        return 0.0, 'available_balance_unverified'
+
+
 class PortfolioOrchestrator:
     DEFAULT_RISK_BUDGETS = {
         "crypto": 0.40,

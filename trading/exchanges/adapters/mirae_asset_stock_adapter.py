@@ -701,6 +701,7 @@ class MiraeAssetStockAdapter(StockExchange):
                 'api_type': self.api_type,
                 'api_version': self.api_version,
                 'cash': cash,
+                'orderable_cash': optional_market_number(item.get('ord_psbl_cash'), item.get('orderable_cash')),
                 'stock_eval': stock_eval,
                 'total_assets': total_assets or cash + stock_eval,
                 'profit_loss': profit_loss,

@@ -3511,10 +3511,10 @@ class StockAnalysisService:
                     total_capital, capital_basis = funds['available_capital'], funds['capital_basis']
             else:
                 try:
-                    balance = self.adapter.get_balance() if hasattr(self.adapter, 'get_balance') else {}
-                    if isinstance(balance, dict):
-                        from trading.portfolio_orchestrator import available_quote_balance
-                        total_capital, capital_basis = available_quote_balance(balance, 'KRW')
+                    from trading.portfolio_orchestrator import live_stock_available_funds
+                    first_symbol = next(iter(pre_analyzed), '')
+                    first_price = self._to_float((pre_analyzed.get(first_symbol) or {}).get('current_price'))
+                    total_capital, capital_basis = live_stock_available_funds(self.adapter, first_symbol, first_price, str(order_type or 'MARKET'))
                 except Exception:
                     total_capital = 0.0
 
@@ -4109,10 +4109,10 @@ class StockAnalysisService:
                 from trading.paper_capital import remember_capital
                 remember_capital(self, venue=self.broker_name, mode=execution_mode, funds=funds)
             elif bool(portfolio_policy.get('enabled')) and signal == 'BUY' and execution_mode == ExecutionMode.LIVE.value:
-                from trading.portfolio_orchestrator import available_quote_balance
+                from trading.portfolio_orchestrator import live_stock_available_funds
                 from trading.paper_capital import remember_capital
                 try:
-                    available_capital, basis = available_quote_balance(self.adapter.get_balance(), 'KRW')
+                    available_capital, basis = live_stock_available_funds(self.adapter, symbol, current_price, selected_order_type)
                 except Exception:
                     available_capital, basis = 0.0, 'available_balance_unverified'
                 remember_capital(self, venue=self.broker_name, mode=execution_mode, funds={'available_capital':available_capital, 'capital_basis':basis, 'quote_currency':'KRW'})

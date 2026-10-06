@@ -999,6 +999,21 @@ class KiwoomStockAdapter(StockExchange):
             self.log_event('system', f"계정 정보 조회 실패: {e}", level='ERROR')
             return {"status": "error", "error": str(e)}
     
+    def get_orderable_cash(self, *, symbol: str, price: float, order_type: str = 'MARKET'):
+        """Deposit-detail read; only explicitly returned orderable money counts."""
+        if not self.is_connected or not self.account_no:
+            return {'status':'error', 'error':'orderable_cash_unavailable'}
+        raw = self._call_block_request('opw00001', 계좌번호=self.account_no,
+            비밀번호=self.account_password, 비밀번호입력매체구분='00', 조회구분='2',
+            output='예수금상세현황', next=0)
+        record = (raw.get('single') or {}) if isinstance(raw, dict) else {}
+        if not isinstance(record, dict) or not record:
+            record = self._extract_first_record(raw)
+        cash = optional_market_number(self._get_field(record, '주문가능금액', '주문가능현금', 'orderable_cash', default=None))
+        if cash is None or cash < 0:
+            return {'status':'error', 'error':'orderable_cash_unavailable'}
+        return {'status':'ok', 'quote_currency':'KRW', 'orderable_cash':cash}
+
     def get_balance(self) -> Dict[str, Any]:
         """잔고 조회 (주식 계좌 잔고)"""
         try:

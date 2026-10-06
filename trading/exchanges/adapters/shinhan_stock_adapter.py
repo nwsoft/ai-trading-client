@@ -617,6 +617,7 @@ class ShinhanStockAdapter(StockExchange):
                 'api_type': self.api_type,
                 'api_version': self.api_version,
                 'cash': cash,
+                'orderable_cash': optional_market_number(data.get('ordAblAmt'), data.get('orderable_cash')),
                 'stock_eval': stock_eval,
                 'total_assets': total_assets or cash + stock_eval,
                 'profit_loss': profit_loss,
