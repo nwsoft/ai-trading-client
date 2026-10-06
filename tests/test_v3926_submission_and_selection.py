@@ -303,3 +303,35 @@ def test_provider_filter_rejection_is_not_a_permanent_unknown_reservation(code,e
     from trading.opportunity_coordinator import finish_submission
     finish_submission(SimpleNamespace(_opportunity_coordinator=c),a,receipt)
     assert c.runtime_snapshot(account_scope=a.account_scope,target=a.target)['pending_orders']==(0 if expected=='rejected' else 1)
+
+
+@pytest.mark.parametrize('phase,code,status',[('before_submit',-1007,'REJECTED'),('submit',-4164,'REJECTED'),('submit',-1007,'UNKNOWN')])
+def test_real_native_order_wrapper_distinguishes_preflight_from_submission(phase,code,status):
+    import logging,json
+    from api.binance_client import BinanceClient
+    from binance.exceptions import BinanceAPIException
+    client=BinanceClient.__new__(BinanceClient)
+    client._has_api_keys=lambda:True;client.logger=logging.getLogger('fixture')
+    client.get_symbol_filters=lambda _:{'stepSize':.01,'minQty':.01}
+    client.get_synced_timestamp=lambda:1
+    calls=[]
+    def fail():raise BinanceAPIException(None,400,json.dumps({'code':code,'msg':'private detail'}))
+    def info():
+        if phase=='before_submit':fail()
+        return {'symbols':[{'symbol':'BTCUSDT','quantityPrecision':2}]}
+    def submit(**kwargs):calls.append(kwargs);fail()
+    client.client=SimpleNamespace(futures_exchange_info=info,futures_create_order=submit)
+    result=BinanceClient.place_futures_order.__wrapped__(client,'BTCUSDT','BUY',quantity=1,client_order_id='fixture-cid')
+    assert result['status']==status and len(calls)==(1 if phase=='submit' else 0)
+    if calls:assert calls[0]['newClientOrderId']=='fixture-cid'
+    assert 'private detail' not in str(result)
+
+
+def test_instrument_preflight_error_releases_reservation_without_order_call(monkeypatch):
+    from trading import instrument_eligibility as eligibility
+    @eligibility.instrument_order('binance')
+    def place(owner,symbol,side):raise AssertionError('must not submit')
+    monkeypatch.setattr(eligibility,'entry_check',lambda *_:{'allowed':False,'reason':'instrument_halted','message':'halted'})
+    receipt=place(SimpleNamespace(),'BTCUSDT','BUY')
+    assert receipt['status']=='error' and receipt['submission_attempted'] is False
+    assert ExecutionOptimizer._submission_state(False,receipt)=='rejected'

@@ -9,16 +9,16 @@
 
 ### .6 로컬 구현·검증 증거
 
-- 최종 전체 Python: **5,229 passed / 10 skipped / 3 subtests**, 실패 0, 91.84초. `reports/v3926-python-regression-final.txt`. Node/Electron **79 passed**, 실패 0. `reports/v3926-node-electron.txt`.
+- 최종 전체 Python: **5,245 passed / 10 skipped / 3 subtests**, 실패 0, 90.61초. `reports/v3926-python-regression-final.txt`. Node/Electron **79 passed**, 실패 0. `reports/v3926-node-electron.txt`.
 - TypeScript/Vite 완료, 실제 renderer 지문 current=true. 인앱 매뉴얼 11섹션 재생성과 저장 snapshot 일치. 문서/버전 검사 PASS. JS 큰 chunk 경고는 남으며 기능 검사 실패가 아니다.
 - 실제 빌드 React의 거래 화면 **31개** 검사와 전략 분리 평가 근거 **5개** 검사 PASS/JS 오류 0. 모두 응답을 가로챈 합성 자료이며 실계좌 주문·전략/설정/AI 변경 없음. 거래 화면에서 사용자 명시 정책 취소 2건·읽기 계좌 snapshot 2건만 발생. `reports/v3926-trading-views-20261006/`, `reports/v3926-strategy-evidence-20261006/`. 데스크톱 최소 폭 1080을 유지하며 390 viewport를 모바일 완료 증거로 사용하지 않는다.
-- 10/30 전략 × 11기관 **22개** 합성 시나리오: 1.214초, 측정한 최장 주기 37.14ms, 프로세스 peak RSS 25.31MiB(macOS). 대기 5개 추가 조회 없음, 같은 봉 숫자 상태 불변·재시작 상태 보존·버전 분리 PASS. 실제 API/AI 지연·동시 기관 워커·24~72시간 측정이 아니다. `reports/v3926-strategy-pool-benchmark.json`.
-- Markdown **325개 / 내부 MD 파일 연결 747건 / 깨진 연결 0**(추가 본문 링크 이전 측정, 최종 inventory 별도). 파일 경로 검사이며 전체 역사 의미·외부 URL/anchor의 인증은 아니다.
+- 10/30 전략 × 11기관 **22개** 합성 시나리오: 0.911초, 측정한 최장 주기 18.9ms, 프로세스 peak RSS 25.59MiB(macOS). 대기 5개 추가 조회 없음, 같은 봉 숫자 상태 불변·재시작 상태 보존·버전 분리 PASS. 실제 API/AI 지연·동시 기관 워커·24~72시간 측정이 아니다. `reports/v3926-strategy-pool-benchmark.json`.
+- Markdown **325개 / 내부 MD 파일 연결 748건 / 깨진 연결 0**. 파일 경로 검사이며 전체 역사 의미·외부 URL/anchor의 인증은 아니다.
 - 공개 .5 태그·게시 시각·4개 자산 digest와 보관된 보고서가 일치. `reports/v3926-preserved-v3925-public-assets.json`. .5 설치본을 같은 이름으로 교체하지 않았다.
 
 ### 실제 반영한 기능과 보호 계약
 
-선정 완료 근거의 bounded snapshot·캐시 신선도, 세 엔진의 허용 실행 정책 SQLite 복원/취소, 계정/모드/기관/통화별 원자 예약·미확정 상태 영속화를 연결했다. 접수 후 품질 실패로 재제출하거나 요청량/외부 포지션만으로 체결하지 않는다. Binance는 신규 주문의 앱 식별자로 다음 LIVE 주기에서 최대 3건/30초 읽기 대조하며 조회 실패·주문 없음은 취소 근거가 아니다. 명시 provider terminal 증거만 예약을 해제한다. 부분 체결과 요청 수량/완료 체결은 구분한다.
+선정 완료 근거의 bounded snapshot·캐시 신선도, 세 엔진의 허용 실행 정책 SQLite 복원/취소, 계정/모드/기관/통화별 원자 예약·미확정 상태 영속화를 연결했다. 접수 후 품질 실패로 재제출하거나 요청량/외부 포지션만으로 체결하지 않는다. Binance는 신규 주문의 앱 식별자로 다음 LIVE 주기에서 최대 3건/30초 순환 읽기 대조하며 조회 실패·주문 없음은 취소 근거가 아니다. 제출 전 검사 차단과 기관의 확인된 요청/주문 규격 거절은 접수 미확정과 구분해 예약을 해제한다. 시간 초과·알 수 없는 응답·중복 앱 주문 ID는 대조를 유지한다. [Binance 공식 오류 계약](https://developers.binance.com/docs/derivatives/usds-margined-futures/error-code)을 확인했고 실제 API 편의 메서드의 제출 전/후 예외를 별도로 시험했다. 부분 체결과 요청 수량/완료 체결은 구분한다.
 
 전략 평가에서 수익률·gross/net/비용을 보존하고 비용 미확인 기록의 승격 준비를 차단했다. 선언된 RSI/ADX/거래량 비율/ATR 비율 조건 하나의 제한 학습·시간 순서 분리 검증·고정 기준선/비용 2배·입력 지문·수치 제안을 기록한다. 기존 거래 구간 안정성은 재학습 OOS가 아니다. 제안은 기존 버전/승인/성과를 수정하거나 LIVE를 허가하지 않고 새 버전 검토·승인·PAPER로 진행한다. 정상 실행 정책은 품질이 관측된 주문 시도 근거이며 수익 인증이 아니다.
 

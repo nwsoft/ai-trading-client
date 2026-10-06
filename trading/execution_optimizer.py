@@ -31,6 +31,8 @@ class ExecutionOptimizer:
         if success or status in {'NEW', 'PENDING', 'OPEN', 'ACCEPTED', 'SUCCESS',
                                   'FILLED', 'PARTIALLY_FILLED', 'CLOSED'}:
             return 'accepted'
+        if not identity and result.get('submission_attempted') is False:
+            return 'rejected'
         # A rejection with an order identity still needs provider reconciliation
         # (it may describe a failed post-submit validation).
         if identity:

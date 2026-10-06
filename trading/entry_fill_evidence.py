@@ -51,7 +51,7 @@ def reconcile_owned_pending_entries(owner):
             continue
 
 
-def binance_submission_error(error):
+def binance_submission_error(error, *, submission_attempted=True):
     """Separate documented request/filter rejection from uncertain execution.
 
     https://developers.binance.com/docs/derivatives/usds-margined-futures/error-code
@@ -68,8 +68,21 @@ def binance_submission_error(error):
         -2014,-2015,-2018,-2019,-2021,-2022,-2025,-2026,-2027,-2028,
         -4001,-4002,-4003,-4004,-4005,-4006,-4007,-4013,-4014,-4023,-4164,
     }
-    rejected = code in rejection_codes
+    rejected = not submission_attempted or code in rejection_codes
+    explanations = {
+        -4164:'최소 주문금액 미달 — 종목 주문 규격과 가용금액을 확인하세요.',
+        -2018:'주문 가능 잔고 부족 — 기관 가용잔고와 다른 주문을 확인하세요.',
+        -2019:'주문 가능 증거금 부족 — 기관 가용잔고와 예약 주문을 확인하세요.',
+        -1111:'수량·가격 정밀도 초과 — 최신 종목 주문 규격을 다시 확인하세요.',
+        -1121:'지원하지 않는 종목 — 선택 종목과 현물·선물 시장을 확인하세요.',
+        -1122:'거래 불가 종목 — 기관의 현재 종목 상태를 확인하세요.',
+        -1021:'요청 시간 범위 오류 — PC 시각과 기관 시간 동기화를 확인하세요.',
+        -1022:'API 서명 오류 — 설정의 API 연결 정보를 확인하세요.',
+        -2014:'API 키 형식 오류 — 설정의 API 연결 정보를 확인하세요.',
+        -2015:'API 권한·IP 제한 오류 — 기관의 API 권한과 허용 IP를 확인하세요.',
+    }
     return {'status':'REJECTED' if rejected else 'UNKNOWN',
             'provider_error_code':code or None,
-            'error':f'provider_rejected:{code}' if rejected else type(error).__name__,
+            'submission_attempted':bool(submission_attempted),
+            'error':('주문 제출 전 확인 실패 — API 연결·시세·종목 규격 자료를 다시 확인하세요.' if not submission_attempted else explanations.get(code,f'기관이 주문 요청을 거절했습니다 ({code}). 주문 규격·잔고·기관 상태를 확인하세요.')) if rejected else type(error).__name__,
             'reconciliation_required':not rejected}

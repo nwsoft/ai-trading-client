@@ -2287,6 +2287,7 @@ class BinanceClient:
             self.logger.debug(f"선물 주문 건너뜀: API 키 없음 ({symbol} {side} {order_type} {quantity})")
             return {'status': 'SKIPPED', 'error': 'NO_API_KEYS'}
 
+        submission_attempted = False
         try:
             # Normalize order_type
             ot = order_type.strip().upper()
@@ -2408,6 +2409,7 @@ class BinanceClient:
                 if reduce_only is not None and not close_position:
                     algo_params["reduceOnly"] = bool(reduce_only)
 
+                submission_attempted = True
                 result = self._post_futures_signed("/fapi/v1/algoOrder", algo_params)
 
                 if isinstance(result, dict) and ("code" in result) and int(result.get("code", 0)) != 0:
@@ -2431,6 +2433,7 @@ class BinanceClient:
                     return {'status': 'ERROR', 'error': f"AlgoOrder 생성 실패: {result}"}
             else:
                 # 일반 주문: 기존 방식 사용 (POST /fapi/v1/order)
+                submission_attempted = True
                 result = self.client.futures_create_order(**params)
 
                 # 응답 파싱 (일반 주문 응답 처리)
@@ -2456,17 +2459,17 @@ class BinanceClient:
         except BinanceAPIException as e:
             self.logger.error(f"바이낸스 API 오류: {e}")
             from trading.entry_fill_evidence import binance_submission_error
-            return binance_submission_error(e)
+            return binance_submission_error(e, submission_attempted=submission_attempted)
 
         except BinanceOrderException as e:
             self.logger.error(f"주문 오류: {e}")
             from trading.entry_fill_evidence import binance_submission_error
-            return binance_submission_error(e)
+            return binance_submission_error(e, submission_attempted=submission_attempted)
 
         except Exception as e:
             self.logger.error(f"주문 실행 오류: {e}")
             from trading.entry_fill_evidence import binance_submission_error
-            return binance_submission_error(e)
+            return binance_submission_error(e, submission_attempted=submission_attempted)
 
     def is_order_success(self, order_result: Optional[Dict[str, Any]]) -> bool:
         """바이낸스 주문 결과를 기반으로 성공 여부를 통일된 기준으로 판별"""

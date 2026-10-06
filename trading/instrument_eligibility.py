@@ -273,7 +273,7 @@ def instrument_order(venue):
             if not reduction:
                 result = entry_check(self, venue, symbol)
                 if not result['allowed']:
-                    return {'status': 'error', 'error': result['reason'], 'reason': result['reason'], 'message': result['message'], 'instrument': result}
+                    return {'status': 'error', 'error': result['reason'], 'reason': result['reason'], 'message': result['message'], 'instrument': result, 'submission_attempted': False}
             result = fn(self, *args, **kwargs)
             if isinstance(result, dict) and str(result.get('status', '')).lower() in {'error', 'failed', 'rejected'}:
                 error = str(result.get('error') or result.get('message') or '').lower()
