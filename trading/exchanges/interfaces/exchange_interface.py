@@ -33,6 +33,20 @@ class ExchangeInterface(ABC):
     def get_balance(self) -> Dict[str, float]:
         """잔고 조회"""
         pass
+
+    def get_available_funds_result(self, quote_currency: str) -> Dict[str, Any]:
+        """CCXT cash available for entry; legacy get_balance remains a total view."""
+        from ..balance_normalizer import normalize_ccxt_available_funds
+        unavailable = {'status': 'unavailable', 'quote_currency': quote_currency,
+                       'reason': 'available_balance_unverified'}
+        exchange = getattr(self, 'exchange', None)
+        if (not self.is_connected or exchange is None
+                or not getattr(self, 'api_key', None) or not getattr(self, 'secret_key', None)):
+            return unavailable
+        try:
+            return normalize_ccxt_available_funds(exchange.fetch_balance(), quote_asset=quote_currency)
+        except Exception:
+            return unavailable
     
     @abstractmethod
     def get_positions(self) -> List[Dict[str, Any]]:

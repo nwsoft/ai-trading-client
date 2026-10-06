@@ -3,6 +3,7 @@
 """CCXT 잔고 응답을 거래소에 관계없는 자산별 total 값으로 정규화한다."""
 
 from typing import Any, Dict
+import math
 
 
 _META_KEYS = {
@@ -14,6 +15,33 @@ _META_KEYS = {
     "DATETIME",
     "DEBT",
 }
+
+
+def normalize_ccxt_available_funds(raw_balance: Any, *, quote_asset: str) -> Dict[str, Any]:
+    """Read a verified free amount without altering legacy total-balance display."""
+    quote = str(quote_asset or '').strip().upper()
+    unknown = {'status': 'error', 'quote_currency': quote, 'reason': 'available_balance_unverified'}
+    if not isinstance(raw_balance, dict) or not quote:
+        return unknown
+    if str(raw_balance.get('status') or '').lower() in {'error', 'failed', 'unavailable'}:
+        return unknown
+    values = []
+    currency = raw_balance.get(quote)
+    free = raw_balance.get('free')
+    for container, key in ((currency, 'free'), (free, quote)):
+        if isinstance(container, dict) and key in container:
+            raw = container[key]
+            try:
+                number = float(raw) if raw is not None and not isinstance(raw, bool) else float('nan')
+            except (TypeError, ValueError):
+                return unknown
+            if not math.isfinite(number) or number < 0:
+                return unknown
+            values.append(number)
+    if not values or any(v != values[0] for v in values):
+        return unknown
+    return {'status': 'ok', 'quote_currency': quote, 'available_balance': values[0],
+            'basis': 'ccxt_provider_free_balance'}
 
 
 def normalize_ccxt_total_balances(

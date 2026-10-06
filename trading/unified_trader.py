@@ -1342,7 +1342,7 @@ class UnifiedTrader:
         if not bool(policy.get('enabled', False)):
             return {'allocations': {}, 'portfolio_risk': 0.0, 'risk_scale': 1.0}
 
-        from trading.portfolio_orchestrator import available_quote_balance
+        from trading.portfolio_orchestrator import live_crypto_available_funds
         funds = {}
         quote = 'KRW' if exchange_name in {'upbit', 'bithumb', 'coinone'} else 'USDT'
         if self._execution_mode(exchange_name) != ExecutionMode.LIVE:
@@ -1356,7 +1356,7 @@ class UnifiedTrader:
         else:
             try:
                 client = self.get_exchange_client(exchange_name)
-                total_capital, basis = available_quote_balance(client.get_balance(), quote)
+                total_capital, basis = live_crypto_available_funds(client, quote)
             except Exception:
                 total_capital, basis = 0.0, 'available_balance_unverified'
 
@@ -2930,11 +2930,11 @@ class UnifiedTrader:
                 from trading.paper_capital import remember_capital
                 remember_capital(self, venue=exchange_name, mode=execution_mode, funds=funds)
             elif capital_policy_enabled and execution_mode == ExecutionMode.LIVE:
-                from trading.portfolio_orchestrator import available_quote_balance
+                from trading.portfolio_orchestrator import live_crypto_available_funds
                 from trading.paper_capital import remember_capital
                 quote = 'KRW' if exchange_name in {'upbit', 'bithumb', 'coinone'} else 'USDT'
                 try:
-                    available_capital, basis = available_quote_balance(self.get_exchange_client(exchange_name).get_balance(), quote)
+                    available_capital, basis = live_crypto_available_funds(self.get_exchange_client(exchange_name), quote)
                 except Exception:
                     available_capital, basis = 0.0, 'available_balance_unverified'
                 remember_capital(self, venue=exchange_name, mode=execution_mode, funds={'available_capital':available_capital, 'capital_basis':basis, 'quote_currency':quote})

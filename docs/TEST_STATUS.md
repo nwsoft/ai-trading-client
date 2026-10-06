@@ -13,7 +13,7 @@
 
 최종 소스 후속: Windows의 90초 복구 분할을 동일 작업 ID로 재개해 600건·순손익을 대조하는 시험을 보강했다(운영 제한시간 변경 없음). 새 개선 평가의 다중 시간봉 구조형 지표가 예외를 일으키는 경로를 수정하고, 지원 수치 조건만 탐색하며 기존 규칙을 보존하는 회귀를 추가했다. 원인·영향: `reports/v3926-followup-root-causes.json`. Windows 재검사는 별도다.
 
-- 최종 전체 Python: **5,288 passed / 10 skipped / 3 subtests**, 실패 0, 97.64초. `reports/v3926-python-regression-final.txt`. Node/Electron **79 passed**, 실패 0. `reports/v3926-node-electron.txt`.
+- 최종 전체 Python: **5,311 passed / 10 skipped / 3 subtests**, 실패 0, 97.18초. `reports/v3926-python-regression-final.txt`. Node/Electron **79 passed**, 실패 0. `reports/v3926-node-electron.txt`.
 - TypeScript/Vite 완료, 실제 renderer 지문 current=true. 인앱 매뉴얼 11섹션 재생성과 저장 snapshot 일치. 문서/버전 검사 PASS. JS 큰 chunk 경고는 남으며 기능 검사 실패가 아니다.
 - 실제 빌드 React의 거래 화면 **33개** 검사와 전략 분리 평가 근거 **5개** 검사 PASS/JS 오류 0. 모두 응답을 가로챈 합성 자료이며 실계좌 주문·전략/설정/AI 변경 없음. 거래 화면에서 사용자 명시 정책 취소 2건·읽기 계좌 snapshot 2건만 발생. `reports/v3926-trading-views-20261006/`, `reports/v3926-strategy-evidence-20261006/`. 데스크톱 최소 폭 1080을 유지하며 390 viewport를 모바일 완료 증거로 사용하지 않는다.
 - 10/30 전략 × 11기관 **22개** 합성 시나리오: 0.986초, 측정한 최장 주기 19.42ms, 프로세스 peak RSS 25.50MiB(macOS). 대기 5개 추가 조회 없음, 같은 봉 숫자 상태 불변·재시작 상태 보존·버전 분리 PASS. 실제 API/AI 지연·동시 기관 워커·24~72시간 측정이 아니다. `reports/v3926-strategy-pool-benchmark.json`.
@@ -21,6 +21,8 @@
 - 공개 .5 태그·게시 시각·4개 자산 digest와 보관된 보고서가 일치. `reports/v3926-preserved-v3925-public-assets.json`. .5 설치본을 같은 이름으로 교체하지 않았다.
 
 ### 실제 반영한 기능과 보호 계약
+
+추가 연결 결함: Unified 6기관의 기존 잔고 메서드는 표시용 total만 반환해 새 free 기반 예약 검사에서 미확인으로 분류될 수 있었다. 어댑터 공통 읽기 `get_available_funds_result()`를 추가하고 배분 및 주문 직전 경로에 연결했다. 실제 6개 어댑터 클래스의 fixture에서 확인된 0/양수·total 배제·잘못된/충돌한 free·실패 후 재조회 없음·미등록 키의 private 호출 없음 등을 121개 관련 시험으로 검증했다. 기존 보유자산 표시용 total 반환값은 보존한다. `reports/v3926-crypto-free-funds-check.txt`. [CCXT 정본 잔고 구조 구현](https://github.com/ccxt/ccxt/blob/master/python/ccxt/base/exchange.py). 실제 계정 인수는 별도다.
 
 PAPER 초기자금/보유 증거금/청산 순손익 가용액과 동시 예약을 대조하고 불명확한 기록을 보류한다. LIVE 증권 예수금 fallback을 제거하고 KIS 공식 매수가능조회에서 주문가능현금과 미수 없는 금액의 최솟값을 사용한다. CMA/해외/최대 미수 금액을 사용하지 않는다. 키움 예수금 상세 조회를 x86 호스트의 중단 가능한 읽기에 연결하며 제휴 응답은 실제 주문 가능 필드만 사용한다. 관련 183개 회귀·3 subtests 통과. [KIS 공식 매수가능조회](https://github.com/koreainvestment/open-trading-api/blob/main/examples_llm/domestic_stock/inquire_psbl_order/inquire_psbl_order.py). 자금 근거의 화면 조회는 추가 계좌 요청 없이 메모리 기록만 사용한다. 선정 완료 근거의 bounded snapshot·캐시 신선도, 세 엔진의 허용 실행 정책 SQLite 복원/취소, 계정/모드/기관/통화별 원자 예약·미확정 상태 영속화를 연결했다. 접수 후 품질 실패로 재제출하거나 요청량/외부 포지션만으로 체결하지 않는다. Binance는 신규 주문의 앱 식별자로 다음 LIVE 주기에서 최대 3건/30초 순환 읽기 대조하며 조회 실패·주문 없음은 취소 근거가 아니다. 제출 전 검사 차단과 기관의 확인된 요청/주문 규격 거절은 접수 미확정과 구분해 예약을 해제한다. 시간 초과·알 수 없는 응답·중복 앱 주문 ID는 대조를 유지한다. [Binance 공식 오류 계약](https://developers.binance.com/docs/derivatives/usds-margined-futures/error-code)을 확인했고 실제 API 편의 메서드의 제출 전/후 예외를 별도로 시험했다. 부분 체결과 요청 수량/완료 체결은 구분한다.
 

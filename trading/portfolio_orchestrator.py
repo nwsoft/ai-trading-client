@@ -52,6 +52,16 @@ def live_stock_available_funds(adapter, symbol: str, price: float, order_type: s
         return 0.0, 'available_balance_unverified'
 
 
+def live_crypto_available_funds(adapter, quote: str):
+    """Prefer the typed provider-free contract; never retry with total balances."""
+    try:
+        getter = getattr(adapter, 'get_available_funds_result', None)
+        snapshot = getter(quote_currency=quote) if callable(getter) else adapter.get_balance()
+        return available_quote_balance(snapshot, quote)
+    except Exception:
+        return 0.0, 'available_balance_unverified'
+
+
 class PortfolioOrchestrator:
     DEFAULT_RISK_BUDGETS = {
         "crypto": 0.40,
