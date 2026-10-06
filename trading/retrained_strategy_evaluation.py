@@ -16,7 +16,7 @@ def _parameter(rules):
     def find(node, path):
         if isinstance(node, dict):
             field, value = node.get('field'), node.get('value')
-            if (field in bounds and node.get('operator') in {'lt', 'lte', 'gt', 'gte'}
+            if (isinstance(field, str) and field in bounds and node.get('operator') in {'lt', 'lte', 'gt', 'gte'}
                 and not isinstance(value, bool) and isinstance(value, (int, float)) and math.isfinite(value)):
                 return path + ['value'], field, float(value), bounds[field]
             for key, child in node.items():

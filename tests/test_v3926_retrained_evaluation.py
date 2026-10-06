@@ -66,3 +66,24 @@ def test_resource_budget_cannot_promote_partial_evaluation():
     result=run_retrained_evaluation(rules(),candles(),cost_profile={'rates':{'fee':0}},budget_seconds=0.)
     assert result['status']=='evaluation_resource_budget_exceeded'
     assert not result.get('proposal',{}).get('accepted_for_review')
+
+
+def test_structured_multitimeframe_fields_are_not_plain_refit_parameters():
+    complex_rule = {'executable_entry': {'all': [
+        {'field': {'indicator': 'ema', 'period': 17, 'timeframe': '1h', 'source': 'close'},
+         'operator': 'gt', 'value': 100}]}}
+    before = deepcopy(complex_rule)
+    result = run_retrained_evaluation(complex_rule, candles())
+    assert result['status'] == 'declared_adjustable_entry_parameter_required'
+    assert complex_rule == before
+    assert not result['auto_applied'] and not result['live_permission_granted']
+
+    # A structured field before a supported numeric condition must not hide it.
+    complex_rule['executable_entry']['all'].append({'field': 'rsi', 'operator': 'lt', 'value': 50})
+    calls = []
+    def runner(variant, rows, **kw):
+        calls.append(deepcopy(variant))
+        return {'decisions': 5, 'net_pnl_percent': 1., 'max_drawdown_percent': 1.}
+    result = run_retrained_evaluation(complex_rule, candles(), runner=runner, cost_profile={'rates': {'fee': .001}})
+    assert result['proposal']['parameter_path'] == ['executable_entry', 'all', 1, 'value']
+    assert all(c['executable_entry']['all'][0] == before['executable_entry']['all'][0] for c in calls)

@@ -11,7 +11,7 @@
 .5의 WIN-BUILD 통과를 .6의 빌드 근거로 승계하지 않습니다. 동일 .6 커밋의 새 산출물과 실제 실행 결과만 기록합니다.
 
 - [x] SOURCE — .5 공개 소스 커밋에서 격리 .6 작업트리, 현재 소스/커밋 지문 대조, .5 공개 자산 보존
-- [x] LOCAL-REGRESSION — 현재 Python 5,286 / Node 79, TS/Vite·renderer 지문·매뉴얼·문서 검사
+- [x] LOCAL-REGRESSION — 현재 Python 5,288 / Node 79, TS/Vite·renderer 지문·매뉴얼·문서 검사
 - [x] LOCAL-VIEWS — 합성 React 거래 33·전략 평가 5 과업, 실제 계좌·주문 없음
 - [x] LOCAL-CAPITAL — 가용 통화·계정/모드 예약·PAPER 보유/청산 대조·불확실 기록 보류·예약 상한 보존
 - [ ] WIN-BUILD — 동일 .6 커밋의 Windows x64 엔진/x86 호스트·NSIS·PE/아이콘·hash·bootstrap/IPC·전체 회귀
