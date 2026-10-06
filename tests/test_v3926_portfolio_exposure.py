@@ -132,7 +132,9 @@ def test_started_venue_publishes_positions_even_without_entry_signal(tmp_path):
 
 @pytest.mark.parametrize('venue',['upbit','bithumb','coinone'])
 def test_spot_external_holdings_are_valued_including_used_not_only_free(venue):
-    ticker=Mock(return_value={'timestamp':time.time()*1000,'last':100})
+    # Provider timestamps are integer milliseconds; a float roundtrip can become
+    # fractionally future-dated on Windows' coarser wall clock.
+    ticker=Mock(return_value={'timestamp':int(time.time()*1000),'last':100})
     exchange=SimpleNamespace(fetch_balance=Mock(return_value={'total':{'KRW':5000,'BTC':3}}),
         markets={'BTC/KRW':{}},fetch_ticker=ticker)
     adapter=SimpleNamespace(is_connected=True,api_key='fixture',secret_key='fixture',exchange=exchange)
@@ -178,12 +180,17 @@ def test_kiwoom_complete_pages_and_proxy_use_the_actual_new_host_method():
     proxy._call.assert_called_once_with('get_portfolio_exposure_result')
 
 
-def test_submitted_rejection_keeps_gross_until_positions_read_but_preflight_rejection_releases():
+def test_submitted_rejection_keeps_gross_until_positions_read_but_preflight_rejection_releases(monkeypatch):
+    clock=[1000.0]
+    monkeypatch.setattr(time, 'time', lambda: clock[0])
     coordinator=OpportunityCoordinator(); before=time.time()
     submitted=auth(coordinator,observed=snapshot({'USDT':800},checked=before),amount=150)
     coordinator.mark_submitting(submitted)
     coordinator.reconcile(submitted,status='rejected',order_id='fixture-receipt')
     assert not auth(coordinator,symbol='ETHUSDT',observed=snapshot({'USDT':800},checked=before),amount=100).allowed
+    # An equal timestamp does not establish a read after the terminal receipt.
+    assert not auth(coordinator,symbol='SOLUSDT',observed=snapshot({'USDT':800}),amount=100).allowed
+    clock[0]+=1
     assert auth(coordinator,symbol='SOLUSDT',observed=snapshot({'USDT':800}),amount=100).allowed
     preflight=auth(coordinator,symbol='ADAUSDT',observed=snapshot({'USDT':0}),amount=100)
     assert preflight.allowed
