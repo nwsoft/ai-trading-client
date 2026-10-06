@@ -49,3 +49,27 @@ def reconcile_owned_pending_entries(owner):
             # Lookup errors/not-found retain the reservation. No retry order,
             # balance adoption, key mutation or automatic LIVE resume.
             continue
+
+
+def binance_submission_error(error):
+    """Separate documented request/filter rejection from uncertain execution.
+
+    https://developers.binance.com/docs/derivatives/usds-margined-futures/error-code
+    Timeout (-1007), unexpected response (-1006), and duplicate client IDs stay
+    uncertain: the original order must be looked up, never blindly retried.
+    """
+    try:
+        code = int(getattr(error,'code',0))
+    except (TypeError,ValueError):
+        code = 0
+    rejection_codes = {
+        -1021,-1022,-1100,-1101,-1102,-1103,-1104,-1105,-1106,
+        -1111,-1114,-1115,-1116,-1117,-1118,-1121,-1122,-1128,-1130,
+        -2014,-2015,-2018,-2019,-2021,-2022,-2025,-2026,-2027,-2028,
+        -4001,-4002,-4003,-4004,-4005,-4006,-4007,-4013,-4014,-4023,-4164,
+    }
+    rejected = code in rejection_codes
+    return {'status':'REJECTED' if rejected else 'UNKNOWN',
+            'provider_error_code':code or None,
+            'error':f'provider_rejected:{code}' if rejected else type(error).__name__,
+            'reconciliation_required':not rejected}

@@ -2314,18 +2314,18 @@ class BinanceClient:
             if close_position:
                 if order_type not in ['STOP_MARKET', 'TAKE_PROFIT_MARKET']:
                     self.logger.error(f"[{symbol}] ❌ closePosition=True는 STOP_MARKET 또는 TAKE_PROFIT_MARKET에서만 사용 가능 (현재: {order_type})")
-                    return {'status': 'ERROR', 'error': 'INVALID_ORDER_TYPE_FOR_CLOSE_POSITION'}
+                    return {'status': 'REJECTED', 'error': 'INVALID_ORDER_TYPE_FOR_CLOSE_POSITION', 'reconciliation_required': False}
             
             # --- reduceOnly vs closePosition conflict ---
             if reduce_only and close_position:
                 self.logger.error(f"[{symbol}] ❌ closePosition=True와 reduceOnly는 동시 사용 불가 (Binance API 규칙)")
-                return {'status': 'ERROR', 'error': 'REDUCE_ONLY_AND_CLOSE_POSITION_CONFLICT'}
+                return {'status': 'REJECTED', 'error': 'REDUCE_ONLY_AND_CLOSE_POSITION_CONFLICT', 'reconciliation_required': False}
 
             # --- quantity 처리 (일반 주문만, 조건부 주문은 Algo Order API에서 별도 처리) ---
             if not is_conditional_order and not close_position:
                 if quantity is None:
                     self.logger.error(f"[{symbol}] ❌ quantity가 None입니다 (closePosition=False). 수량은 필수입니다.")
-                    return {'status': 'ERROR', 'error': 'QUANTITY_REQUIRED'}
+                    return {'status': 'REJECTED', 'error': 'QUANTITY_REQUIRED', 'reconciliation_required': False}
 
                 # stepSize/minQty/precision 보정
                 filters = self.get_symbol_filters(symbol) or {}
@@ -2382,7 +2382,7 @@ class BinanceClient:
             if is_conditional_order:
                 if stop_price is None:
                     self.logger.error(f"[{symbol}] ❌ 조건부 주문({order_type})에는 stop_price(=triggerPrice)가 필수입니다.")
-                    return {'status': 'ERROR', 'error': 'TRIGGER_PRICE_REQUIRED'}
+                    return {'status': 'REJECTED', 'error': 'TRIGGER_PRICE_REQUIRED', 'reconciliation_required': False}
 
                 algo_params = {
                     "symbol": symbol,
@@ -2402,7 +2402,7 @@ class BinanceClient:
                 else:
                     if quantity is None:
                         self.logger.error(f"[{symbol}] ❌ 조건부 주문({order_type}) closePosition=False 인 경우 quantity가 필수입니다.")
-                        return {'status': 'ERROR', 'error': 'QUANTITY_REQUIRED'}
+                        return {'status': 'REJECTED', 'error': 'QUANTITY_REQUIRED', 'reconciliation_required': False}
                     algo_params["quantity"] = float(quantity)
 
                 if reduce_only is not None and not close_position:
@@ -2455,15 +2455,18 @@ class BinanceClient:
 
         except BinanceAPIException as e:
             self.logger.error(f"바이낸스 API 오류: {e}")
-            return {'status': 'ERROR', 'error': str(e)}
+            from trading.entry_fill_evidence import binance_submission_error
+            return binance_submission_error(e)
 
         except BinanceOrderException as e:
             self.logger.error(f"주문 오류: {e}")
-            return {'status': 'ERROR', 'error': str(e)}
+            from trading.entry_fill_evidence import binance_submission_error
+            return binance_submission_error(e)
 
         except Exception as e:
             self.logger.error(f"주문 실행 오류: {e}")
-            return {'status': 'ERROR', 'error': str(e)}
+            from trading.entry_fill_evidence import binance_submission_error
+            return binance_submission_error(e)
 
     def is_order_success(self, order_result: Optional[Dict[str, Any]]) -> bool:
         """바이낸스 주문 결과를 기반으로 성공 여부를 통일된 기준으로 판별"""

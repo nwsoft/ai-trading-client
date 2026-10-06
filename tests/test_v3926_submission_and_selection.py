@@ -290,3 +290,16 @@ def test_pending_lookup_rotation_does_not_starve_later_unknown_orders():
         reconcile_owned_pending_entries(owner);reconcile_owned_pending_entries(owner)
     assert len(calls)==6 and set(calls)=={f'COIN{i}USDT' for i in range(4)}
     assert c.runtime_snapshot(account_scope=scope,target='binance')['pending_orders']==4
+
+
+@pytest.mark.parametrize('code,expected',[(-4164,'rejected'),(-2019,'rejected'),(-1111,'rejected'),(-1121,'rejected'),(-1022,'rejected'),(-1006,'unknown'),(-1007,'unknown'),(-4116,'unknown'),(-2010,'unknown'),(-1000,'unknown')])
+def test_provider_filter_rejection_is_not_a_permanent_unknown_reservation(code,expected):
+    from trading.entry_fill_evidence import binance_submission_error
+    error=RuntimeError('private provider detail');error.code=code
+    receipt=binance_submission_error(error)
+    assert ExecutionOptimizer._submission_state(False,receipt)==expected
+    assert 'private provider detail' not in str(receipt)
+    c=OpportunityCoordinator();a=auth(c);c.mark_submitting(a)
+    from trading.opportunity_coordinator import finish_submission
+    finish_submission(SimpleNamespace(_opportunity_coordinator=c),a,receipt)
+    assert c.runtime_snapshot(account_scope=a.account_scope,target=a.target)['pending_orders']==(0 if expected=='rejected' else 1)
