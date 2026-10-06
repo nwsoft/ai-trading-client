@@ -15,7 +15,8 @@ git worktree add --detach ..\noahai_client_release_3926 origin/release/v3.9.2.6-
 Set-Location ..\noahai_client_release_3926
 # 기존 Windows 가상환경/Node 및 x86 Python을 준비한 뒤 실행
 powershell -ExecutionPolicy Bypass -File .\scripts\build_windows.ps1
-# 자동 검사 통과와 산출물 확인 후 사용자가 공개 게시
+# 자동 검사·산출물 확인 후 DEPLOY_CHECKLIST의 설치/운영 인수를 진행
+# 현재 상태만으로 즉시 공개하지 않으며, 인수 결과 확인 후 사용자가 게시
 powershell -ExecutionPolicy Bypass -File .\scripts\release_windows.ps1
 ```
 
@@ -27,6 +28,8 @@ git rev-parse HEAD
 ```
 
 검사를 생략하지 않고 미확정 주문·원장·기존 키/설정·전략을 보존한다. 로컬 검사 통과를 Windows 산출물 통과로 승계하지 않는다. 수동 검사가 끝나기 전 새 Windows 설치본/공개 게시를 완료로 표시하지 않는다.
+
+Mac 로그인 이후 전체 사용자 과업도 아직 인수하지 않았다. 후보 빌드가 가능한 상태와 일반 공개 배포 준비 완료는 구분하며 [상태 재확인](UPDATE_PLAN.md#v3926-autonomous-studio-release)과 [인수 목록](DEPLOY_CHECKLIST.md)을 확인한다.
 
 ### .6 깨끗한 Windows 환경의 재현 빌드
 

@@ -11,6 +11,20 @@
 
 ### .6 로컬 구현·검증 증거
 
+<a id="v3926-mac-status-audit-20261006"></a>
+
+#### Mac 실제 실행 재확인과 미검증 경계
+
+2026-10-06 상태 질의 후 현재 renderer의 `current=true`를 재확인하고 실제 소스 Electron을 별도 로그인 저장 프로필로 실행했다. 콘솔 `v3.9.2.6 화면 준비 완료`와 `noahai://app/index.html` 로그인 화면을 확인했다. 도움말 열기→이용·책임 탭→닫기→로그인 복귀→창 닫기의 안전 종료를 확인했다(종료 코드 0). 계정 로그인·키 입력·설정 저장·주문·외부 AI 호출은 하지 않았다. 배포용 Mac 패키지 검증은 아니다.
+
+격리 후보 작업트리의 실제 Python sidecar도 실행했다. platform/session/features/runtime snapshot 4개 경로 HTTP 200·CORS·버전 .6·미로그인·실행 기관 없음, 누락 토큰 401을 확인했다. API 응답을 가로채지 않았다. `reports/v3926-mac-source-bootstrap-20261006.json`.
+
+실제 공개 네트워크로 Binance/Bybit/OKX/Bitget의 선물, Upbit/Bithumb/Coinone 현물 BTC 15분봉을 각각 10개 읽어 가격 유효성과 시간순 정렬을 확인했다(7/7 PASS). 한 번의 공개 봉 조회이며 후보 선정·계좌/주문·보호·AI 판단·장시간 운용을 인증하지 않는다. `reports/v3926-mac-public-market-smoke-20261006.json`.
+
+**Mac에서 주식/OCX를 제외한 모든 기능을 실행해 본 상태가 아니다.** 실제 로그인 이후 코인 PAPER 시작/정지·요약/로그, 전략 생성/저장/공유/가져오기/평가, 생활금융 저장/재열람/자료 복구와 실제 지원 모델 호출은 전체 사용자 과업 인수로 남긴다. 기존 합성 화면 40개와 Python/Node 통과를 이 실제 과업의 완료 증거로 합산하지 않는다. 이번 재확인은 로그인 전 경로까지이며 로그인 이후 검증은 수행하지 않았다.
+
+Windows 후보 빌드 진행과 일반 공개 릴리스 준비 완료는 구분한다. 현 증거로 후보 빌드는 가능하나 Windows 설치/업그레이드/복구·실기관/장시간 및 위 Mac 과업 검증을 마친 일반 릴리스로 판정하지 않는다. 기존 자동 검사 수치는 아래 기록의 이전 실행 결과이며 이번 상태 점검에서 전체 회귀를 다시 실행한 것은 아니다.
+
 최종 소스 후속: Windows의 90초 복구 분할을 동일 작업 ID로 재개해 600건·순손익을 대조하는 시험을 보강했다(운영 제한시간 변경 없음). 새 개선 평가의 다중 시간봉 구조형 지표가 예외를 일으키는 경로를 수정하고, 지원 수치 조건만 탐색하며 기존 규칙을 보존하는 회귀를 추가했다. 원인·영향: `reports/v3926-followup-root-causes.json`. Windows 재검사는 별도다.
 
 - 최종 전체 Python: **5,364 passed / 10 skipped / 3 subtests**, 실패 0, 97.77초. `reports/v3926-python-regression-final.txt`. Node/Electron **79 passed**, 실패 0. `reports/v3926-node-electron.txt`.

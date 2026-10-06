@@ -13,8 +13,10 @@
 .5의 WIN-BUILD 통과를 .6의 빌드 근거로 승계하지 않습니다. 동일 .6 커밋의 새 산출물과 실제 실행 결과만 기록합니다.
 
 - [x] SOURCE — .5 공개 소스 커밋에서 격리 .6 작업트리, 현재 소스/커밋 지문 대조, .5 공개 자산 보존
-- [x] LOCAL-REGRESSION — 현재 Python 5,288 / Node 79, TS/Vite·renderer 지문·매뉴얼·문서 검사
-- [x] LOCAL-VIEWS — 합성 React 거래 33·전략 평가 5 과업, 실제 계좌·주문 없음
+- [x] LOCAL-REGRESSION — 현재 Python 5,364 / Node 79, TS/Vite·renderer 지문·매뉴얼·문서 검사
+- [x] LOCAL-VIEWS — 합성 React 거래 35·전략 평가 5 과업, 실제 계좌·주문 없음
+- [x] MAC-BOOTSTRAP — 2026-10-06 실제 소스 Electron 로그인/도움말/안전 종료, 실제 Python gateway 4개 bootstrap 경로·토큰 거부, 7개 코인 기관 공개 15분봉 읽기. 설치 패키지·로그인 이후 전체 과업 검증은 아님
+- [ ] MAC-ACCOUNT-E2E — 실제 로그인 이후 종목 선택→PAPER 시작/정지→요약/로그, 전략 생성/저장/가져오기/공유/평가, 생활금융 저장/재열람/자료 복구와 설정/지원 모델 호출. Mac에서 가능한 항목이며 Windows 전용이라는 이유로 제외하지 않음
 - [x] LOCAL-CAPITAL — 가용 통화·계정/모드 예약·PAPER 보유/청산 대조·불확실 기록 보류·예약 상한 보존
 - [ ] WIN-BUILD — 동일 .6 커밋의 Windows x64 엔진/x86 호스트·NSIS·PE/아이콘·hash·bootstrap/IPC·전체 회귀
 - [ ] WIN-UPGRADE — .5→.6 설치/업데이트, 계정·키·설정·원장·가상 포지션·기존 전략 보존
