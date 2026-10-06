@@ -284,6 +284,7 @@ try {
     Invoke-Checked "Tracked NoahAI branding preflight" { & python scripts/verify_branding.py --root $repoRoot }
     Invoke-Checked "Export exact legacy manual contract" { & python scripts/export_legacy_manual_sections.py }
     Invoke-Checked "Export canonical venue registry" { & python scripts/export_strategy_venue_registry.py }
+    Invoke-Checked "Restore verified previous published installer" { & python scripts/restore_previous_release_asset.py --root $repoRoot }
     Repair-ExistingManifestPreviousAsset $repoRoot $version
     $existingManifest = Get-ExistingManifest $repoRoot
     Initialize-PendingReleaseManifest $repoRoot $version $releaseLabel $updaterVersion $existingManifest

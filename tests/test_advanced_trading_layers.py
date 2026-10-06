@@ -402,6 +402,7 @@ def test_unified_trader_cycle_records_allocation_and_ops_metrics():
     trader._check_and_reselect_coins_unified_optimized = MagicMock()
     trader.analyze_coins_unified = MagicMock(return_value={"BTCUSDT": {"signal": "LONG", "confidence": 0.91, "market_volatility": 1.2}})
     trader.get_exchange_client = MagicMock(return_value=SimpleNamespace(
+        get_balance=lambda: {'USDT': {'free': 10000}},
         get_trade_history=lambda limit=100: [
             {"symbol": "BTCUSDT", "pnl": 800, "quantity": 1, "filled_price": 10000, "timestamp": "2026-04-30T09:00:00"},
             {"symbol": "BTCUSDT", "pnl": 600, "quantity": 1, "filled_price": 10000, "timestamp": "2026-04-30T09:05:00"},
@@ -501,7 +502,7 @@ def test_remote_pause_blocks_all_unified_venue_entry_submissions(tmp_path, monke
     from trading import unified_trader
     from trading.opportunity_coordinator import OpportunityCoordinator
     coordinator = OpportunityCoordinator()
-    monkeypatch.setattr(unified_trader, 'get_opportunity_coordinator', lambda: coordinator)
+    monkeypatch.setattr(unified_trader, 'get_opportunity_coordinator', lambda owner=None: coordinator)
     gate = remote_entry_pause.EntryPause(tmp_path)
     monkeypatch.setattr(remote_entry_pause, 'gate', lambda: gate)
     for venue in ('bybit', 'okx', 'bitget', 'upbit', 'bithumb', 'coinone'):
