@@ -1059,6 +1059,34 @@ class KiwoomStockAdapter(StockExchange):
                 "error": f"잔고 조회 중 오류 발생: {str(e)}"
             }
     
+    def get_portfolio_exposure_result(self):
+        """Read all OCX holdings pages within a bounded request budget."""
+        from ..position_snapshot import validate_quantities
+        if not self.is_connected or not self.account_no:
+            return {'status':'unavailable', 'complete':False, 'positions':None}
+        rows, identities, started = [], set(), time.monotonic()
+        try:
+            for page in range(10):
+                if time.monotonic()-started > 15: raise ValueError('exposure_valuation_budget')
+                raw = self._call_block_request('opw00018', 계좌번호=self.account_no, 비밀번호=self.account_password,
+                    비밀번호입력매체구분='00', 조회구분='2', output='계좌평가잔고개별합산', next=0 if page == 0 else 2)
+                if raw is None: raise ValueError('exposure_provider_unverified')
+                records = raw.get('multi') if isinstance(raw, dict) else self._extract_records(raw)
+                if not isinstance(records, list): raise ValueError('exposure_positions_unverified')
+                validate_quantities(records, ('보유수량', '매매가능수량', 'quantity'))
+                for record in records:
+                    row = self._parse_position_record(record)
+                    if row['quantity'] <= 0: continue
+                    if not row['code'] or row['code'] in identities: raise ValueError('exposure_position_duplicate')
+                    identities.add(row['code']); rows.append(row)
+                more = getattr(self.kiwoom, 'tr_remained', None)
+                if more is False:
+                    return {'status':'success', 'complete':True, 'positions':rows, 'checked_at':time.time()}
+                if more is not True: raise ValueError('exposure_pagination_unverified')
+            raise ValueError('exposure_positions_incomplete')
+        except Exception:
+            return {'status':'error', 'complete':False, 'positions':None, 'reason':'exposure_positions_incomplete'}
+
     def get_positions_result(self):
         from ..position_snapshot import stock_snapshot
         return stock_snapshot(self)

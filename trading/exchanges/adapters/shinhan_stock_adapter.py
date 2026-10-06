@@ -644,6 +644,8 @@ class ShinhanStockAdapter(StockExchange):
             data = self._get('/v1/account/domestic/holdings', params={'accNo': self.account_no})
             if strict and (not isinstance(data, dict) or not any(isinstance(data.get(k), list) for k in ('holdings','hldsList'))):
                 raise ValueError('position_list_missing')
+            from ..position_snapshot import partner_holdings_complete
+            self._last_positions_complete = partner_holdings_complete(data)
             items = data.get('holdings') or data.get('hldsList') or []
             if strict:
                 from ..position_snapshot import validate_quantities

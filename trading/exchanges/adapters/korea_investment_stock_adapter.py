@@ -195,6 +195,8 @@ class KoreaInvestmentStockAdapter(MiraeAssetStockAdapter):
         tr_id = self._tr_id(path, method='GET')
         history = path == '/uapi/domestic-stock/v1/trading/inquire-daily-ccld'
         headers = self._request_headers(tr_id) if tr_id else {}
+        balance_query = path == '/uapi/domestic-stock/v1/trading/inquire-balance'
+        if balance_query and (params or {}).get('CTX_AREA_NK100'): headers['tr_cont'] = 'N'
         if history:
             if (params or {}).get('CTX_AREA_NK100'):
                 headers['tr_cont'] = 'N'
@@ -223,7 +225,7 @@ class KoreaInvestmentStockAdapter(MiraeAssetStockAdapter):
                     headers=headers, timeout=self.request_timeout,
                 )
             data = self._response_to_dict(response, method='GET', path=path)
-            if history and isinstance(data,dict):
+            if (history or balance_query) and isinstance(data,dict):
                 continuation = (getattr(response,'headers',{}) or {}).get('tr_cont')
                 if continuation is not None: data['_tr_cont'] = continuation
             return data
@@ -301,6 +303,39 @@ class KoreaInvestmentStockAdapter(MiraeAssetStockAdapter):
             'profit_loss': self._to_float(item.get('evlu_pfls_smtl_amt')),
             'profit_rate': self._to_float(item.get('asst_icdc_erng_rt')),
         }
+
+    def get_portfolio_exposure_result(self):
+        """Complete bounded account holdings; a partial page cannot authorize risk."""
+        from ..position_snapshot import validate_quantities
+        if not self.is_connected:
+            return {'status':'unavailable', 'complete':False, 'positions':None}
+        cano, product = self._account_parts()
+        params = {'CANO':cano, 'ACNT_PRDT_CD':product, 'AFHR_FLPR_YN':'N', 'OFL_YN':'',
+            'INQR_DVSN':'02', 'UNPR_DVSN':'01', 'FUND_STTL_ICLD_YN':'N',
+            'FNCG_AMT_AUTO_RDPT_YN':'N', 'PRCS_DVSN':'00', 'CTX_AREA_FK100':'', 'CTX_AREA_NK100':''}
+        rows, seen, identities = [], set(), set()
+        started = time.monotonic()
+        try:
+            for page in range(10):
+                if time.monotonic()-started > 15: raise ValueError('exposure_valuation_budget')
+                data = self._get('/uapi/domestic-stock/v1/trading/inquire-balance', params=params)
+                if not self._kis_success(data) or not isinstance(data.get('output1'), list): raise ValueError('exposure_provider_unverified')
+                validate_quantities(data['output1'], ('hldg_qty', 'quantity'))
+                for raw in data['output1']:
+                    row = self._parse_position(raw)
+                    if row['quantity'] <= 0: continue
+                    if row['code'] in identities: raise ValueError('exposure_position_duplicate')
+                    identities.add(row['code']); rows.append(row)
+                continuation = data.get('_tr_cont')
+                if continuation in ('D','E',''):
+                    return {'status':'success', 'complete':True, 'positions':rows, 'checked_at':time.time()}
+                if continuation not in ('M','F'): raise ValueError('exposure_pagination_unverified')
+                cursor = (str(data.get('ctx_area_fk100') or ''), str(data.get('ctx_area_nk100') or ''))
+                if not cursor[1] or cursor in seen: raise ValueError('exposure_pagination_unverified')
+                seen.add(cursor); params['CTX_AREA_FK100'],params['CTX_AREA_NK100'] = cursor
+            raise ValueError('exposure_positions_incomplete')
+        except Exception:
+            return {'status':'error', 'complete':False, 'positions':None, 'reason':'exposure_positions_incomplete'}
 
     def get_orderable_cash(self, *, symbol: str, price: float, order_type: str = 'MARKET'):
         """Official buying-power read; exclude margin, overseas and CMA funds."""

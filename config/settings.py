@@ -1534,6 +1534,8 @@ def get_default_settings() -> Dict[str, Any]:
             'max_loss_by_currency': {'USDT': 0.0, 'KRW': 0.0},
             'best_target': '',
             'target_cost_bps': {},
+            'portfolio_exposure': {'enabled': False, 'venues': [], 'max_gross_krw': 0,
+                'max_gross_usdt': 0, 'max_reference_gross': 0, 'reference_currency': 'KRW', 'fx_venue': 'upbit'},
         },
         'enabled_stock_brokers': [],
         'stock_broker_configs': {

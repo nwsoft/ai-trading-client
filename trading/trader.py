@@ -23,6 +23,8 @@ from trading.market_observation import track_market_observation, observation_pro
 from .execution_optimizer import ExecutionOptimizer
 from .ops_automation import OpsAutomationEngine
 from .portfolio_orchestrator import PortfolioOrchestrator
+from trading.portfolio_exposure import collect_exposure, refresh_exposure
+from trading.observed_correlation import apply_observed_correlations
 from trading.opportunity_coordinator import account_scope_for, capture_account_scope
 from trading.runtime_policy_recovery import observe_execution_policy
 from .opportunity_coordinator import (
@@ -1916,6 +1918,11 @@ class Trader:
             'volatility': max(0.005, abs(float(signal_data.get('volatility', 0.5) or 0.5)) / 100.0),
             'avg_correlation': float(((policy.get('correlation_overrides', {}) or {}).get(str(symbol).upper(), 0.25)) or 0.25),
         }
+        peers = [{'symbol':str(row.get('symbol') or '').upper()} for row in (getattr(getattr(self, 'main_app', None), 'selected_coins', []) or []) if isinstance(row, dict) and row.get('symbol')]
+        peers = [candidate] + [row for row in peers if row['symbol'] != candidate['symbol']]
+        measured = apply_observed_correlations(self, venue='binance', candidates=peers, policy=policy, mode=self._execution_mode(),
+            fetcher=lambda symbol, limit: self.binance_client.get_klines(symbol, '1d', limit))
+        candidate = measured[0]
         result = PortfolioOrchestrator().allocate(candidates=[candidate], total_capital=capital, policy=policy)
         result.update({'capital_basis': basis, 'quote_currency': 'USDT', 'available_capital': capital})
         from trading.paper_capital import remember_capital
@@ -2041,6 +2048,8 @@ class Trader:
             # an unresolved fill prevents the very retry needed to recover it.
             if live_orders_enabled:
                 self._sync_owned_binance_closes()
+            refresh_exposure(self, venue='binance', mode=execution_mode,
+                policy=(self.settings.get('multi_venue_execution') or {}).get('portfolio_exposure'))
 
             # 1. 일일 손실 한도 체크
             if live_orders_enabled and self.risk_manager:
@@ -2892,6 +2901,8 @@ class Trader:
                                             candidate.strategy_version_id or "noah_base"
                                         ),
                                         account_scope=account_scope_for(self, ExecutionMode.PAPER),
+                                        exposure_snapshot=collect_exposure(
+                                            self, venue='binance', mode=ExecutionMode.PAPER, policy=self.settings.get('multi_venue_execution', {}).get('portfolio_exposure')),
                                         capital_guard_enabled=bool((layer_settings.get('portfolio_orchestration') or {}).get('enabled')),
                                         available_capital=(self.portfolio_allocation_cache.get(symbol) or {}).get('available_capital'),
                                         leverage=float(optimized_params.get('leverage') or 1),
@@ -3218,6 +3229,8 @@ class Trader:
                             ),
                             account_scope=account_scope_for(self, self._execution_mode()),
                             reserve=not dry_run,
+                            exposure_snapshot=collect_exposure(
+                                self, venue='binance', mode=self._execution_mode(), policy=self.settings.get('multi_venue_execution', {}).get('portfolio_exposure')) if not dry_run else None,
                             capital_guard_enabled=bool((self._get_advanced_layers_settings_binance().get('portfolio_orchestration') or {}).get('enabled')),
                             available_capital=((getattr(self, 'portfolio_allocation_cache', {}) or {}).get(symbol) or {}).get('available_capital'),
                             leverage=float(trade_params.get('leverage') or 1),

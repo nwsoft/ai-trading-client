@@ -190,7 +190,16 @@
       "KRW": 0.0
     },
     "best_target": "",
-    "target_cost_bps": {}
+    "target_cost_bps": {},
+    "portfolio_exposure": {
+      "enabled": false,
+      "venues": [],
+      "max_gross_krw": 0,
+      "max_gross_usdt": 0,
+      "max_reference_gross": 0,
+      "reference_currency": "KRW",
+      "fx_venue": "upbit"
+    }
   },
   "advanced_trading_layers": {
     "profitability_validation": {
@@ -216,7 +225,10 @@
         "etf": 0.25
       },
       "max_single_asset_weight": 0.35,
-      "correlation_penalty": 0.25
+      "correlation_penalty": 0.25,
+      "observed_correlation": {
+        "enabled": false
+      }
     },
     "execution_optimizer": {
       "enabled": true,

@@ -141,6 +141,7 @@ def normalize_multi_venue_policy(values: Mapping[str, Any] | None) -> Dict[str, 
         "best_target": _normalize_target(raw.get("best_target")),
         "target_cost_bps": costs,
         "max_loss_by_currency": max_loss,
+        "portfolio_exposure": dict(raw.get("portfolio_exposure", {}) or {}),
     }
 
 
@@ -165,6 +166,7 @@ class OpportunityAuthorization:
     aggregate_estimated_loss: float
     account_scope: str = 'default'
     reserved_capital: float = 0.0
+    portfolio_exposure: Dict[str, Any] | None = None
 
     def to_dict(self) -> Dict[str, Any]:
         return asdict(self)
@@ -180,6 +182,9 @@ class OpportunityCoordinator:
         self._results: Dict[str, Dict[str, Dict[str, Any]]] = {}
         self.storage_path = Path(storage_path) if storage_path is not None else None
         self._state_loaded = storage_path is None
+        self._exposure_snapshots = {}
+        self._exposure_evidence = {}
+        self._observed_market_returns = {}
 
     @contextmanager
     def _transaction(self):
@@ -197,10 +202,13 @@ class OpportunityCoordinator:
                     self._reservations = state['reservations']
                     self._idempotency = state['idempotency']
                     self._results = state['results']
+                    self._exposure_snapshots = state.get('exposure_snapshots', {})
+                    self._exposure_evidence = state.get('exposure_evidence', {})
                 self._state_loaded = True
                 yield
                 state = json.dumps({'reservations': self._reservations, 'idempotency': self._idempotency,
-                                    'results': self._results}, allow_nan=False)
+                                    'results': self._results, 'exposure_snapshots': self._exposure_snapshots,
+                                    'exposure_evidence': self._exposure_evidence}, allow_nan=False)
                 db.execute('INSERT OR REPLACE INTO opportunity_runtime VALUES (1, ?)', (state,))
 
     @staticmethod
@@ -248,7 +256,8 @@ class OpportunityCoordinator:
                 self._idempotency.pop(key, None)
         for opportunity_id, targets in list(self._reservations.items()):
             for target, reservation in list(targets.items()):
-                if (reservation.get('status') not in {'submitting', 'unknown', 'pending'}
+                if (not (reservation.get('exposure_pending') and reservation.get('status') in {'filled','cancelled','rejected'})
+                    and reservation.get('status') not in {'submitting', 'unknown', 'pending'}
                     and now - _float(reservation.get("created_at"), now) > ttl):
                     targets.pop(target, None)
             if not targets:
@@ -280,6 +289,7 @@ class OpportunityCoordinator:
         available_capital: float | None = None,
         leverage: float = 1.0,
         contract_size: float = 1.0,
+        exposure_snapshot: Mapping[str, Any] | None = None,
     ) -> OpportunityAuthorization:
         normalized = normalize_multi_venue_policy(policy)
         current_target = _normalize_target(target)
@@ -338,6 +348,7 @@ class OpportunityCoordinator:
         estimated_loss = estimated_notional * stop_value
         required_capital = estimated_notional / max(1.0, _float(leverage, 1.0)) * 1.02
         now = float(signal_time if signal_time is not None else time.time())
+        exposure_evidence = None
 
         with self._transaction():
             ttl = max(
@@ -400,6 +411,42 @@ class OpportunityCoordinator:
                 if not allowed:
                     authorized_quantity = estimated_notional = estimated_loss = 0.0
 
+            # Gross risk is account-wide; collection is done before this lock.
+            # Confirmed fills/cancels remain counted until a later full snapshot.
+            from .portfolio_exposure import normalize_exposure_policy, normalize_exposure_snapshot, evaluate_exposure
+            global_config = normalize_exposure_policy(normalized.get('portfolio_exposure'))
+            if reserve and global_config['enabled'] and (asset_class != 'stock' or direction_value != 'SHORT'):
+                exposure_key = self._scope_key('', account_scope)
+                snapshots = self._exposure_snapshots.setdefault(exposure_key, {})
+                if isinstance(exposure_snapshot, Mapping):
+                    row = normalize_exposure_snapshot(exposure_snapshot, now=time.time())
+                    # An older concurrent query must never replace newer evidence.
+                    if _float(row.get('checked_at')) >= _float((snapshots.get(current_target) or {}).get('checked_at')):
+                        snapshots[current_target] = row
+                for key, rows in list(self._reservations.items()):
+                    if not key.startswith(account_prefix): continue
+                    for target_name, item in list(rows.items()):
+                        observed = snapshots.get(target_name) or {}
+                        if (item.get('exposure_pending') and item.get('status') in {'filled', 'cancelled', 'rejected'}
+                            and observed.get('status') == 'verified'
+                            and _float(observed.get('started_at')) > _float(item.get('terminal_at'), float('inf'))):
+                            item['exposure_pending'] = False
+                            if item.get('status') in {'cancelled', 'rejected'}:
+                                rows.pop(target_name, None)
+                pending_gross = [item for key, rows in self._reservations.items() if key.startswith(account_prefix)
+                                 for item in rows.values()]
+                exposure_evidence = evaluate_exposure(global_config, snapshots, pending_gross, now=time.time(),
+                    proposed_currency=quote, proposed_gross=quantity_value * factor * price_value * max(0.0, _float(contract_size)))
+                if current_target not in global_config['venues']:
+                    exposure_evidence.update(status='blocked', reason='portfolio_current_venue_not_covered')
+                self._exposure_evidence[exposure_key] = exposure_evidence
+                while len(self._exposure_snapshots) > 128:
+                    old = next(iter(self._exposure_snapshots))
+                    self._exposure_snapshots.pop(old, None); self._exposure_evidence.pop(old, None)
+                if allowed and exposure_evidence['status'] != 'allowed':
+                    allowed, reason = False, exposure_evidence['reason']
+                    authorized_quantity = estimated_notional = estimated_loss = 0.0
+
             max_targets = int(normalized["max_parallel_targets"] or 0)
             if (
                 allowed
@@ -436,6 +483,8 @@ class OpportunityCoordinator:
                     "base_symbol": base,
                     "symbol": str(symbol).upper(),
                     "reserved_capital": required_capital if capital_guard_enabled else 0.0,
+                    "exposure_pending": bool(exposure_evidence and exposure_evidence["status"] == "allowed"),
+                    "opens_exposure": asset_class != "stock" or direction_value != "SHORT",
                 }
                 reservations[current_target] = reservation
                 self._idempotency[idempotency_key] = now
@@ -471,6 +520,7 @@ class OpportunityCoordinator:
             aggregate_estimated_loss=aggregate_loss,
             account_scope=account_scope,
             reserved_capital=required_capital if allowed and capital_guard_enabled else 0.0,
+            portfolio_exposure=exposure_evidence,
         )
 
     def release(self, authorization: Mapping[str, Any] | OpportunityAuthorization) -> None:
@@ -485,7 +535,8 @@ class OpportunityCoordinator:
         with self._transaction():
             targets = self._reservations.get(opportunity_id, {})
             reservation = targets.get(target)
-            if reservation and reservation.get('status') in {'submitting', 'unknown', 'pending'}:
+            if reservation and (reservation.get('status') in {'submitting', 'unknown', 'pending'}
+                                or reservation.get('exposure_pending') and reservation.get('status') in {'filled', 'cancelled', 'rejected'}):
                 return
             targets.pop(target, None)
             if not targets:
@@ -528,6 +579,10 @@ class OpportunityCoordinator:
             reservation = self._reservations.get(opportunity_id, {}).get(target)
             if reservation is not None:
                 reservation["status"] = str(status or "unknown")
+                if status in {"filled", "cancelled", "rejected"}:
+                    reservation["terminal_at"] = time.time()
+                if status == "rejected" and previous == "reserved":
+                    reservation["exposure_pending"] = False
 
     def mark_submitting(self, authorization) -> None:
         self.record_result(authorization, status='submitting')
@@ -574,9 +629,36 @@ class OpportunityCoordinator:
                 reservation = self._reservations.get(key, {}).get(target)
                 if reservation:
                     reservation['status'] = status
-                    if status in {'rejected', 'cancelled'}:
+                    reservation['terminal_at'] = time.time()
+                    if status in {'rejected', 'cancelled'} and not reservation.get('exposure_pending'):
                         self._reservations[key].pop(target, None)
                         self._idempotency.pop(reservation.get('idempotency_key'), None)
+
+    def observed_return_peers(self, *, account_scope, venue, quote, histories, history_times, now):
+        """Account/mode-scoped bounded public history; no UI/provider/disk I/O."""
+        with self._lock:
+            scope = self._observed_market_returns.setdefault(account_scope, {})
+            for symbol, returns in histories.items():
+                scope[(venue,symbol)] = {'venue':venue, 'symbol':symbol, 'quote':quote,
+                                        'returns':returns, 'observed_at':history_times[symbol]}
+            for key,row in list(scope.items()):
+                if not 0 <= now-row['observed_at'] < 3600: scope.pop(key,None)
+            while len(scope)>330: scope.pop(next(iter(scope)))
+            while len(self._observed_market_returns)>32:
+                self._observed_market_returns.pop(next(iter(self._observed_market_returns)))
+            return [row for row in scope.values() if row['quote']==quote]
+
+    def publish_exposure(self, *, account_scope, target, snapshot):
+        from .portfolio_exposure import normalize_exposure_snapshot
+        clean = normalize_exposure_snapshot(snapshot, now=time.time())
+        key = self._scope_key('', account_scope)
+        with self._transaction():
+            snapshots = self._exposure_snapshots.setdefault(key, {})
+            if _float(clean.get('checked_at')) >= _float((snapshots.get(target) or {}).get('checked_at')):
+                snapshots[target] = clean
+            while len(self._exposure_snapshots) > 128:
+                old = next(iter(self._exposure_snapshots))
+                self._exposure_snapshots.pop(old, None); self._exposure_evidence.pop(old, None)
 
     def runtime_snapshot(self, *, account_scope: str, target: str) -> Dict[str, Any]:
         # Presentation never performs disk/provider I/O. Other processes are
@@ -591,7 +673,8 @@ class OpportunityCoordinator:
             return {'pending_orders': len(unresolved), 'reserved_orders': sum(r.get('status') == 'reserved' for r in items),
                     'oldest_pending_at': min((r['created_at'] for r in unresolved), default=None),
                     'requires_reconciliation': bool(unresolved), 'restart_persistent': self.storage_path is not None,
-                    'scope': 'account_mode_venue', 'available_funds_certified': False}
+                    'scope': 'account_mode_venue', 'available_funds_certified': False,
+                    'portfolio_exposure': self._exposure_evidence.get(prefix)}
 
     def snapshot(self, opportunity_id: str, *, account_scope: str = 'default') -> Dict[str, Any]:
         scoped_id = self._scope_key(opportunity_id, account_scope)

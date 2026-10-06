@@ -120,6 +120,8 @@ class PortfolioOrchestrator:
                 "signal": signal,
                 "volatility": vol,
                 "avg_correlation": corr,
+                "correlation_basis": c.get("correlation_basis", "configured_input"),
+                "correlation_pairs": c.get("correlation_pairs", []),
             }
 
         norm = self._normalize_weights(raw_weights)
@@ -130,6 +132,12 @@ class PortfolioOrchestrator:
 
         portfolio_risk = sum(norm.values())
         risk_scale = min(1.0, max(0.0, max_portfolio_risk / max(portfolio_risk, 1e-6)))
+
+        if (effective.get('observed_correlation') or {}).get('enabled') is True and norm:
+            # Normalizing identical correlated scores would cancel their risk
+            # penalty. Also reduce overall deployed capital, never increase it.
+            average = sum(norm[s] * explanations[s]['avg_correlation'] for s in norm) / max(sum(norm.values()), 1e-6)
+            risk_scale *= max(0.0, min(1.0, 1.0 - max(0.0, corr_penalty) * average))
 
         allocations: Dict[str, Dict[str, float]] = {}
         for symbol, weight in norm.items():

@@ -40,6 +40,8 @@ from trading.stock_risk_governance import evaluate_stock_risk_governance
 from trading.execution_optimizer import ExecutionOptimizer
 from trading.ops_automation import OpsAutomationEngine
 from trading.portfolio_orchestrator import PortfolioOrchestrator
+from trading.portfolio_exposure import collect_exposure, refresh_exposure
+from trading.observed_correlation import apply_observed_correlations
 from trading.profitability_validation import ProfitabilityValidator
 from trading.position_sizing_policy import (
     ACCOUNT_RISK,
@@ -3530,6 +3532,8 @@ class StockAnalysisService:
                         default=0.25,
                     ),
                 })
+            candidates = apply_observed_correlations(self, venue=self.broker_name, candidates=candidates, policy=portfolio_policy, mode=execution_mode,
+                fetcher=lambda symbol, limit: self.adapter.get_daily_candles(symbol, limit))
             allocation_result = orchestrator.allocate(
                 candidates=candidates,
                 total_capital=total_capital,
@@ -3554,6 +3558,8 @@ class StockAnalysisService:
             paper_cost_policy=auto_risk_policy,
         )
         decisions.extend(exit_decisions)
+        refresh_exposure(self, venue=self.broker_name, mode=execution_mode,
+            policy=((auto_risk_policy or {}).get('multi_venue_execution') or {}).get('portfolio_exposure'))
         executed_orders += exit_orders
 
         for symbol in normalized_symbols:
@@ -4131,6 +4137,8 @@ class StockAnalysisService:
                 strategy_version=candidate.strategy_version_id,
                 account_scope=account_scope_for(self, execution_mode),
                 reserve=execution_mode != ExecutionMode.LEARNING.value,
+                exposure_snapshot=collect_exposure(
+                    self, venue=self.broker_name, mode=execution_mode, policy=multi_venue_policy.get('portfolio_exposure')) if signal == 'BUY' else None,
                 capital_guard_enabled=bool(portfolio_policy.get('enabled')) and signal == 'BUY',
                 available_capital=available_capital,
             )

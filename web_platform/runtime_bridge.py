@@ -513,6 +513,10 @@ scoped_pool(list(getattr(app, "active_custom_strategy_pool", []) or []), asset_c
         capital = (getattr(owner, '_last_capital_evidence', {}) or {}).get((source, mode))
         if isinstance(capital, dict):
             result['capital'] = _runtime_safe(capital)
+        correlations = getattr(owner, '_last_correlation_evidence_by_scope', None)
+        correlation = correlations.get((source,mode)) if isinstance(correlations, dict) else getattr(owner, '_last_correlation_evidence', None)
+        if isinstance(correlation, dict) and _public_source(correlation.get('source')) == source:
+            result['correlation'] = _runtime_safe(correlation)
         if isinstance(recovery, dict):
             result['recovery'] = _runtime_safe(recovery)
         if owner is not None:

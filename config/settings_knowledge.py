@@ -108,6 +108,8 @@ def _safe_current_summary(settings: Dict[str, Any]) -> str:
         f"- 관찰·분석 거래소: {', '.join(enabled) if enabled else '없음'}",
         f"- 실제 주문 거래소: {', '.join(live) if live else '없음'}",
         f"- 다중 실행 방식: {multi.get('mode', 'parallel')}",
+        f"- 기관 통합 노출 검사: {'ON' if (multi.get('portfolio_exposure') or {}).get('enabled') else 'OFF'} · 완전한 기관 자료/통화별 상한/확인된 환산 시세 필요",
+        f"- 완료 일봉 관측 상관 배분: {'ON' if ((advanced.get('portfolio_orchestration') or {}).get('observed_correlation') or {}).get('enabled') else 'OFF'} · 부족 표본은 무상관으로 추정하지 않음",
         f"- 최대 동시 포지션: {settings.get('max_positions', 3)}",
         f"- 대시보드 최상단: {'ON' if ui_settings.get('always_on_top') else 'OFF'}",
         f"- AI 커스텀 런타임: {'ON' if ai_runtime.get('enabled') else 'OFF'}",

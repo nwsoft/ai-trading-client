@@ -40,6 +40,8 @@ from .exchange_manager import ExchangeManager
 from .unified_trading_manager import UnifiedTradingManager
 from .ops_automation import OpsAutomationEngine
 from .portfolio_orchestrator import PortfolioOrchestrator
+from trading.portfolio_exposure import collect_exposure, refresh_exposure
+from trading.observed_correlation import apply_observed_correlations
 from trading.opportunity_coordinator import account_scope_for, capture_account_scope
 from trading.runtime_policy_recovery import observe_execution_policy
 from .opportunity_coordinator import (
@@ -1375,6 +1377,8 @@ class UnifiedTrader:
                 'volatility': max(0.005, abs(float(analysis.get('market_volatility', 0.5) or 0.5)) / 100.0),
                 'avg_correlation': float(((policy.get('correlation_overrides', {}) or {}).get(symbol, 0.25)) or 0.25),
             })
+        candidates = apply_observed_correlations(self, venue=exchange_name, candidates=candidates, policy=policy, mode=self._execution_mode(exchange_name),
+            fetcher=lambda symbol, limit: self.exchange_manager.get_klines(symbol, interval='1d', limit=limit, exchange_name=exchange_name))
         result = PortfolioOrchestrator().allocate(candidates=candidates, total_capital=total_capital, policy=policy)
         result.update({'capital_basis': basis, 'quote_currency': quote, 'available_capital': total_capital})
         from trading.paper_capital import remember_capital
@@ -1875,6 +1879,8 @@ class UnifiedTrader:
             # 신규 후보가 없거나 상장 상태 조회가 실패해도 기존 포지션의
             # 체결 대조·보호·청산 점검은 매 사이클 한 번 유지한다.
             self._monitor_exchange_positions(exchange_name)
+            refresh_exposure(self, venue=exchange_name, mode=execution_mode,
+                policy=(self.settings.get('multi_venue_execution') or {}).get('portfolio_exposure'))
 
             # 🤖 AI 자동 학습: 거래 성과에 따라 신호 기준 조절
             self._auto_adjust_threshold_from_performance(exchange_name)
@@ -2954,6 +2960,8 @@ class UnifiedTrader:
                 ),
                 account_scope=account_scope_for(self, execution_mode),
                 reserve=not learning_only,
+                exposure_snapshot=collect_exposure(
+                    self, venue=exchange_name, mode=execution_mode, policy=opportunity_policy.get('portfolio_exposure')),
                 capital_guard_enabled=capital_policy_enabled,
                 available_capital=available_capital,
                 leverage=leverage,

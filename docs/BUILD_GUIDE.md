@@ -19,7 +19,14 @@ powershell -ExecutionPolicy Bypass -File .\scripts\build_windows.ps1
 powershell -ExecutionPolicy Bypass -File .\scripts\release_windows.ps1
 ```
 
-최종 소스 커밋/지문은 `reports/v3926-candidate-source.json`과 인계 기록을 확인한다. 검사를 생략하지 않고 미확정 주문·원장·기존 키/설정·전략을 보존한다. 로컬 검사 통과를 Windows 산출물 통과로 승계하지 않는다.
+`reports/v3926-candidate-source.json`은 Codex 로컬 인계 기록이며 Git 저장소의 필수 파일이 아니다. Windows 작업트리의 실제 소스 신원은 다음 명령으로 확인하고 인계 커밋/지문과 대조한다.
+
+```powershell
+git rev-parse HEAD
+.\.venv\Scripts\python.exe .\scripts\release_source_fingerprint.py --root .
+```
+
+검사를 생략하지 않고 미확정 주문·원장·기존 키/설정·전략을 보존한다. 로컬 검사 통과를 Windows 산출물 통과로 승계하지 않는다. 수동 검사가 끝나기 전 새 Windows 설치본/공개 게시를 완료로 표시하지 않는다.
 
 ### .6 깨끗한 Windows 환경의 재현 빌드
 
@@ -30,7 +37,7 @@ GitHub Windows runner와 새 PC는 이전 설치기가 없는 경우 `scripts/re
 현재 소스 기준: v3.9.2.5 · updater 3.9.205. 현재 공개 기반: v3.9.2.5 (2026-10-05 공개 게시·2026-10-06 GitHub latest 재확인).
 현재 소스 기준 버전: **v3.9.2.5**
 
-현행 Windows 실행 명령은 `powershell -ExecutionPolicy Bypass -File scripts/build_windows.ps1`와 검증 후 `scripts/release_windows.ps1`입니다. 아래 v3.9.1.45 등 버전별 설명은 과거 기록이며 현행 버전은 이 상단과 `config/app_version.py`를 따릅니다. 이번 승인된 배포는 대기 예약 없이 stable/latest로 진행하며 수동 OCX 로그인·실계좌·설치/롤백·외부 서비스 인수는 자동 빌드/게시와 별도로 미검증 상태를 유지합니다.
+현행 Windows 실행 명령은 `powershell -ExecutionPolicy Bypass -File scripts/build_windows.ps1`와 검증 후 `scripts/release_windows.ps1`입니다. 아래 v3.9.1.45 등 버전별 설명은 과거 기록이며 현행 버전은 이 상단과 `config/app_version.py`를 따릅니다. Windows에서 사용자 담당자가 검증 후 게시할 때 stable/latest를 갱신하며 수동 OCX 로그인·실계좌·설치/롤백·외부 서비스 인수는 자동 빌드/게시와 별도로 미검증 상태를 유지합니다.
 
 공개 v3.9.2.4 이후 수정입니다. 상황별 진입, 목적 필터, 관심 보험 근거 설명, 비상금·보장·대환·사용 날짜 비교, 암호화 계획과 공통 조건, 자료 피드 갱신/복구, 상담 회신 견적, 기록 수정·가져오기를 구현합니다. [반영 범위·검증·운영 연결 인수](V3925_LIFE_FINANCE_COMPLETION.md). **3.9.2.5 Windows 설치기·blockmap·latest.yml·release-manifest.json은 2026-10-05 공개 게시되었습니다.** 아래 날짜별 후보/미게시 문장은 당시 이력입니다.
 

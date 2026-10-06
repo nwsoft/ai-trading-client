@@ -1873,6 +1873,8 @@ def test_gateway_stock_candles_are_broker_scoped_and_daily_only(tmp_path, monkey
 def test_stock_runtime_controller_is_ui_neutral_paper_first_and_blocks_account_wide_close():
     settings = {
         "paper_trading": True,
+        "multi_venue_execution": {"mode":"parallel","portfolio_exposure":{"enabled":True,"venues":["kis","upbit"],"max_gross_krw":1000000}},
+        "advanced_trading_layers": {"portfolio_orchestration":{"enabled":True,"observed_correlation":{"enabled":True}}},
         "enabled_stock_brokers": ["kis"],
         "stock_broker_configs": {"koreaInvestment": {"api_type": "mock", "api_version": "mock"}},
         "stock_auto_trading": {"symbols": ["005930"], "interval_sec": 5},
@@ -1899,6 +1901,11 @@ def test_stock_runtime_controller_is_ui_neutral_paper_first_and_blocks_account_w
     assert result["execution_mode"] == "paper"
     assert calls[0]["allow_live_order"] is True
     assert calls[0]["symbols"] == ["005930"]
+    runtime_policy = calls[0]["auto_risk_policy"]
+    assert runtime_policy["multi_venue_execution"]["portfolio_exposure"] == settings["multi_venue_execution"]["portfolio_exposure"]
+    assert runtime_policy["multi_venue_execution"]["authorized_targets"] == ["kis"]
+    assert runtime_policy["portfolio_orchestration"]["observed_correlation"]["enabled"] is True
+    assert "authorized_targets" not in settings["multi_venue_execution"]
     with pytest.raises(RuntimeError, match="position_ownership_required"):
         controller.stop("kis", close_all=True)
 

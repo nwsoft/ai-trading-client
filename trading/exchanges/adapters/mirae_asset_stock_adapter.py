@@ -733,6 +733,8 @@ class MiraeAssetStockAdapter(StockExchange):
             )
             if strict and (not isinstance(data, dict) or not any(isinstance(data.get(k), list) for k in ('output1','holdings'))):
                 raise ValueError('position_list_missing')
+            from ..position_snapshot import partner_holdings_complete
+            self._last_positions_complete = partner_holdings_complete(data)
             items = data.get('output1') or data.get('holdings') or []
             if strict:
                 from ..position_snapshot import validate_quantities

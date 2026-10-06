@@ -13,11 +13,11 @@
 
 최종 소스 후속: Windows의 90초 복구 분할을 동일 작업 ID로 재개해 600건·순손익을 대조하는 시험을 보강했다(운영 제한시간 변경 없음). 새 개선 평가의 다중 시간봉 구조형 지표가 예외를 일으키는 경로를 수정하고, 지원 수치 조건만 탐색하며 기존 규칙을 보존하는 회귀를 추가했다. 원인·영향: `reports/v3926-followup-root-causes.json`. Windows 재검사는 별도다.
 
-- 최종 전체 Python: **5,311 passed / 10 skipped / 3 subtests**, 실패 0, 97.18초. `reports/v3926-python-regression-final.txt`. Node/Electron **79 passed**, 실패 0. `reports/v3926-node-electron.txt`.
+- 최종 전체 Python: **5,364 passed / 10 skipped / 3 subtests**, 실패 0, 97.77초. `reports/v3926-python-regression-final.txt`. Node/Electron **79 passed**, 실패 0. `reports/v3926-node-electron.txt`.
 - TypeScript/Vite 완료, 실제 renderer 지문 current=true. 인앱 매뉴얼 11섹션 재생성과 저장 snapshot 일치. 문서/버전 검사 PASS. JS 큰 chunk 경고는 남으며 기능 검사 실패가 아니다.
-- 실제 빌드 React의 거래 화면 **33개** 검사와 전략 분리 평가 근거 **5개** 검사 PASS/JS 오류 0. 모두 응답을 가로챈 합성 자료이며 실계좌 주문·전략/설정/AI 변경 없음. 거래 화면에서 사용자 명시 정책 취소 2건·읽기 계좌 snapshot 2건만 발생. `reports/v3926-trading-views-20261006/`, `reports/v3926-strategy-evidence-20261006/`. 데스크톱 최소 폭 1080을 유지하며 390 viewport를 모바일 완료 증거로 사용하지 않는다.
-- 10/30 전략 × 11기관 **22개** 합성 시나리오: 0.986초, 측정한 최장 주기 19.42ms, 프로세스 peak RSS 25.50MiB(macOS). 대기 5개 추가 조회 없음, 같은 봉 숫자 상태 불변·재시작 상태 보존·버전 분리 PASS. 실제 API/AI 지연·동시 기관 워커·24~72시간 측정이 아니다. `reports/v3926-strategy-pool-benchmark.json`.
-- Markdown **325개 / 내부 MD 파일 연결 748건 / 깨진 연결 0**. 파일 경로 검사이며 전체 역사 의미·외부 URL/anchor의 인증은 아니다.
+- 실제 빌드 React의 거래 화면 **35개** 검사와 전략 분리 평가 근거 **5개** 검사 PASS/JS 오류 0. 모두 응답을 가로챈 합성 자료이며 실계좌 주문·전략/설정/AI 변경 없음. 거래 화면에서 사용자 명시 정책 취소 2건·읽기 계좌 snapshot 2건만 발생. `reports/v3926-trading-views-20261006/`, `reports/v3926-strategy-evidence-20261006/`. 데스크톱 최소 폭 1080을 유지하며 390 viewport를 모바일 완료 증거로 사용하지 않는다.
+- 10/30 전략 × 11기관 **22개** 합성 시나리오: 1.027초, 측정한 최장 주기 40.55ms, 프로세스 peak RSS 25.38MiB(macOS). 대기 5개 추가 조회 없음, 같은 봉 숫자 상태 불변·재시작 상태 보존·버전 분리 PASS. 실제 API/AI 지연·동시 기관 워커·24~72시간 측정이 아니다. `reports/v3926-strategy-pool-benchmark.json`.
+- Markdown **325개 / 내부 MD 파일 연결 749건 / 깨진 연결 0**. 파일 경로 검사이며 전체 역사 의미·외부 URL/anchor의 인증은 아니다.
 - 공개 .5 태그·게시 시각·4개 자산 digest와 보관된 보고서가 일치. `reports/v3926-preserved-v3925-public-assets.json`. .5 설치본을 같은 이름으로 교체하지 않았다.
 
 ### 실제 반영한 기능과 보호 계약
@@ -28,9 +28,15 @@ PAPER 초기자금/보유 증거금/청산 순손익 가용액과 동시 예약�
 
 전략 평가에서 수익률·gross/net/비용을 보존하고 비용 미확인 기록의 승격 준비를 차단했다. 선언된 RSI/ADX/거래량 비율/ATR 비율 조건 하나의 제한 학습·시간 순서 분리 검증·고정 기준선/비용 2배·입력 지문·수치 제안을 기록한다. 기존 거래 구간 안정성은 재학습 OOS가 아니다. 제안은 기존 버전/승인/성과를 수정하거나 LIVE를 허가하지 않고 새 버전 검토·승인·PAPER로 진행한다. 정상 실행 정책은 품질이 관측된 주문 시도 근거이며 수익 인증이 아니다.
 
+### 통합 노출·관측 일봉 상관의 소스 검증
+
+`tests/test_v3926_portfolio_exposure.py`와 `test_v3926_observed_correlation.py`는 기관/다른 신호의 총 노출·SQLite 경쟁·재시작·계정/모드 분리·체결/부분 취소 후 조회 시각·보호 SELL 제외·실제 USDT/KRW 근거·현물 외부 보유·선물 승수·KIS/키움 연속 페이지·제휴 전체 자료의 상충 표시·형성 중 일봉/서로 다른 날짜·분산/표본/값 누락·캐시/요청 상한·기관 별칭과 같은 통화의 코인/주식 자료 공유를 시험한다. 부족 자료는 0/무상관으로 만들지 않는다. WebUI 증권 시작 controller의 실제 정책 전달도 fixture service 호출로 확인한다. 관련 집중 회귀 **262 passed**이며 전체 결과와 집중 기록은 `reports/v3926-global-capital-correlation-check.txt`에 있다. 초기 OFF이며 실기관 호출/주문을 하지 않았다.
+
+실제 React에서 블록체인 환산 출처/금액과 증권의 누락 기관·상관 표본 미확인을 표시한다. `reports/v3926-trading-views-20261006/*-global-exposure.png`, `*-observed-correlation.png`를 육안 확인했다. 화면 갱신은 기관/AI를 새로 조회하지 않는다. 합성 화면의 금액은 고객 자산 증거가 아니다. KIS 연속 조회 계약은 [공식 잔고 조회 구현](https://github.com/koreainvestment/open-trading-api/blob/main/examples_llm/domestic_stock/inquire_balance/inquire_balance.py)을 확인했다.
+
 ### 아직 완료하지 않은 범위
 
-전 기관/자산의 보유 노출·상관/환율 기반 전역 최적화, 증권 계좌별 주문 가능금액의 실제 인증은 잔여다. PAPER 보유 증거금·청산 순손익의 가용액 대조는 구현했고 원자 예약과 연결했다. reported cash와 PAPER 초기자금을 확인된 가용잔고로 설명하지 않는다. 모델 자체 재학습/모든 전략 완전 자동 최적화는 제공하지 않는다. 정확한 첫 유입 패치/커밋은 현재 폴더의 Git 이력만으로 확정하지 않았으며 발견된 함수 계약과 회귀 근거만 기록했다.
+지정 기관의 통합 총 노출/통화별 상한·실시세 선택 환산과 같은 통화의 기관/자산 관측 상관 배분은 실제 실행 경로에 구현했다. 실기관의 전체 목록·가격·계약 승수/OCX·계좌별 주문 가능금액 인수는 잔여다. 모든 통화 공분산·수학적 최적해·미래 수익을 인증하지 않는다. PAPER 보유 증거금·청산 순손익의 가용액 대조는 구현했고 원자 예약과 연결했다. reported cash와 PAPER 초기자금을 확인된 가용잔고로 설명하지 않는다. 모델 자체 재학습/모든 전략 완전 자동 최적화는 제공하지 않는다. 정확한 첫 유입 패치/커밋은 현재 폴더의 Git 이력만으로 확정하지 않았으며 발견된 함수 계약과 회귀 근거만 기록했다.
 
 Windows 후보 빌드·PE/NSIS/x86 호스트·bootstrap/IPC·설치/업데이트/롤백, 실기관 주문·보호·OCX·장시간/UAT와 .5 외부 운영 게이트는 별도다. 로컬 검사는 새 Windows 설치본/공개 게시의 증거가 아니다. 기존 .5 소스 커밋에서 격리 .6 후보를 준비하고 GitHub Windows 빌드 결과를 별도로 기록한다. [진행·잔여 원장](UPDATE_PLAN.md#v3926-autonomous-studio-release).
 

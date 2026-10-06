@@ -618,6 +618,8 @@ class StockRuntimeController:
             settings.get("position_sizing_policy", {}) or {}
         )
         policy["max_positions"] = int(settings.get("max_positions", 3) or 3)
+        policy["multi_venue_execution"] = deepcopy(settings.get("multi_venue_execution", {}) or {})
+        policy["multi_venue_execution"]["authorized_targets"] = list(settings.get("enabled_stock_brokers", []) or [broker])
         service = self._services.get(broker)
         if service is None or getattr(service, "adapter", adapter) is not adapter:
             service = self.service_factory(
