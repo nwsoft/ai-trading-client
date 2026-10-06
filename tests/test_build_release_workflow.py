@@ -252,14 +252,11 @@ def test_builder_uses_atomic_deploy_replacement():
     assert "verify_windows_executable_version" in source
 
 
-def test_automatic_windows_candidate_has_no_publication_permission_or_step():
+def test_optional_windows_candidate_is_manual_and_cannot_publish():
     import yaml
     workflow=yaml.safe_load((ROOT/'.github/workflows/windows-candidate.yml').read_text())
     triggers=workflow.get('on',workflow.get(True))
-    assert set(triggers)=={'push','workflow_dispatch'}
-    branches=triggers['push']['branches']
-    assert len(branches)==1 and branches[0].startswith(f'release/v{RELEASE_VERSION}-')
-    assert not any(char in branches[0] for char in '*?[')
+    assert set(triggers)=={'workflow_dispatch'}
     assert workflow['permissions']=={'contents':'read'}
     steps=workflow['jobs']['build-candidate']['steps']
     assert any('build_web_ui_windows.ps1' in str(step.get('run','')) for step in steps)
