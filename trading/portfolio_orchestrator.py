@@ -17,6 +17,9 @@ def available_quote_balance(snapshot: Any, quote: str, *, allow_cash: bool = Fal
     """Do not mistake total equity, a missing currency, or NaN for free funds."""
     if not isinstance(snapshot, dict) or str(snapshot.get('status') or '').lower() in {'error', 'failed', 'unavailable'}:
         return 0.0, 'available_balance_unverified'
+    declared_quote = str(snapshot.get('quote_currency') or snapshot.get('currency') or '').upper()
+    if declared_quote and declared_quote != str(quote).upper():
+        return 0.0, 'available_balance_unverified'
     value = None
     basis = 'available_balance_unverified'
     for key in ('available_balance', 'availableBalance', 'available_cash', 'orderable_cash'):

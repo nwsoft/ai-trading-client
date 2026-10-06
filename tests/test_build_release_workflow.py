@@ -271,3 +271,13 @@ def test_windows_build_reads_utf8_json_and_markdown_on_clean_english_windows():
     source = (ROOT / "scripts/build_web_ui_windows.ps1").read_text(encoding="utf-8")
     assert '$env:PYTHONUTF8 = "1"' in source
     assert '$env:PYTHONIOENCODING = "utf-8"' in source
+
+
+def test_current_patch_checklist_cannot_inherit_previous_windows_build():
+    body = (ROOT / 'docs/DEPLOY_CHECKLIST.md').read_text(encoding='utf-8')
+    marker = f'<!-- patch-test-plan-version: {RELEASE_VERSION} -->'
+    current = body.split(marker, 1)[1].split('<!-- patch-test-plan-end -->', 1)[0]
+    assert f'### {RELEASE_VERSION} Windows' in current
+    assert 'WIN-BUILD' in current and 'ROLLBACK' in current
+    assert '2026-10-05 새 Windows 설치기' not in current
+    assert '<!-- patch-test-plan-version: 3.9.2.5 -->' in body

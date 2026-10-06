@@ -2929,6 +2929,15 @@ class UnifiedTrader:
                 available_capital = funds['available_capital']
                 from trading.paper_capital import remember_capital
                 remember_capital(self, venue=exchange_name, mode=execution_mode, funds=funds)
+            elif capital_policy_enabled and execution_mode == ExecutionMode.LIVE:
+                from trading.portfolio_orchestrator import available_quote_balance
+                from trading.paper_capital import remember_capital
+                quote = 'KRW' if exchange_name in {'upbit', 'bithumb', 'coinone'} else 'USDT'
+                try:
+                    available_capital, basis = available_quote_balance(self.get_exchange_client(exchange_name).get_balance(), quote)
+                except Exception:
+                    available_capital, basis = 0.0, 'available_balance_unverified'
+                remember_capital(self, venue=exchange_name, mode=execution_mode, funds={'available_capital':available_capital, 'capital_basis':basis, 'quote_currency':quote})
             minimum_validated_size = float(position_size or 0.0)
             opportunity_auth = get_opportunity_coordinator(self).authorize(
                 policy=opportunity_policy,

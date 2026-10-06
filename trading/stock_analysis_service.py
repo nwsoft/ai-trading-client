@@ -4108,6 +4108,14 @@ class StockAnalysisService:
                 available_capital = funds['available_capital']
                 from trading.paper_capital import remember_capital
                 remember_capital(self, venue=self.broker_name, mode=execution_mode, funds=funds)
+            elif bool(portfolio_policy.get('enabled')) and signal == 'BUY' and execution_mode == ExecutionMode.LIVE.value:
+                from trading.portfolio_orchestrator import available_quote_balance
+                from trading.paper_capital import remember_capital
+                try:
+                    available_capital, basis = available_quote_balance(self.adapter.get_balance(), 'KRW')
+                except Exception:
+                    available_capital, basis = 0.0, 'available_balance_unverified'
+                remember_capital(self, venue=self.broker_name, mode=execution_mode, funds={'available_capital':available_capital, 'capital_basis':basis, 'quote_currency':'KRW'})
             opportunity_auth = opportunity_coordinator.authorize(
                 policy=multi_venue_policy,
                 asset_class='stock',

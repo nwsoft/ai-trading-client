@@ -140,6 +140,9 @@ def test_cross_process_instances_share_atomic_duplicate_protection(tmp_path):
     ({'free':{'USDT':float('nan')}},'USDT',0),
     ({'available_balance':0},'USDT',0),
     ({'status':'error','available_balance':100},'USDT',0),
+    ({'currency':'KRW','available_balance':999999},'USDT',0),
+    ({'orderable_cash':0,'cash':1000000},'KRW',0),
+    ({'orderable_cash':700000,'cash':1000000},'KRW',700000),
 ])
 def test_only_verified_currency_funds_can_be_allocated(snapshot,quote,amount):
     from trading.portfolio_orchestrator import available_quote_balance
