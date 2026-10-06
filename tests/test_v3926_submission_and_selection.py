@@ -148,13 +148,14 @@ def test_only_verified_currency_funds_can_be_allocated(snapshot,quote,amount):
 
 @pytest.mark.parametrize('venue', ['binance','bybit','okx','bitget','upbit','bithumb','coinone'])
 @pytest.mark.parametrize('mode', ['paper','learning'])
-def test_non_live_allocation_never_reads_real_balance(venue, mode):
+def test_non_live_allocation_never_reads_real_balance(venue, mode, tmp_path):
     from trading.execution_mode import ExecutionMode
     from trading.trader import Trader
     from trading.unified_trader import UnifiedTrader
     def real_call(*a,**k): pytest.fail('non-LIVE account read')
     if venue == 'binance':
         engine = Trader.__new__(Trader)
+        engine.recorder = SimpleNamespace(db_path=str(tmp_path/'qa.db'))
         engine.settings = {}
         engine._execution_mode = lambda:ExecutionMode(mode)
         engine.binance_client = SimpleNamespace(get_account_info=real_call, get_futures_balance=real_call)
@@ -162,13 +163,14 @@ def test_non_live_allocation_never_reads_real_balance(venue, mode):
                     {'portfolio_orchestration':{'enabled':True}})
     else:
         engine = UnifiedTrader.__new__(UnifiedTrader)
+        engine.recorder = SimpleNamespace(db_path=str(tmp_path/'qa.db'))
         engine.settings = {}
         engine._execution_mode = lambda source:ExecutionMode(mode)
         engine.get_exchange_client = real_call
         engine.exchange_manager = SimpleNamespace(get_exchange_balance=real_call)
         result=engine._build_portfolio_allocation_unified(venue,[{'symbol':'QA'}],
                 {'QA':{'confidence':.8}}, {'portfolio_orchestration':{'enabled':True}})
-    assert result['capital_basis'] == 'paper_virtual_equity'
+    assert result['capital_basis'] == ('paper_reconciled_funds' if mode == 'paper' else 'paper_virtual_equity')
     assert result['available_capital'] == (1000000 if venue in {'upbit','bithumb','coinone'} else 1000)
 
 

@@ -1894,10 +1894,15 @@ class Trader:
             return {'allocations': {}, 'portfolio_risk': 0.0, 'risk_scale': 1.0}
 
         from trading.portfolio_orchestrator import available_quote_balance
+        funds = {}
         if self._execution_mode() != ExecutionMode.LIVE:
             from trading.position_sizing_policy import normalize_position_sizing_policy
             capital = normalize_position_sizing_policy(self.settings, quote_currency='USDT')['paper_equity']
             basis = 'paper_virtual_equity'
+            if self._execution_mode() == ExecutionMode.PAPER:
+                from trading.paper_capital import paper_funds_for
+                funds = paper_funds_for(self, capital, getattr(self, 'paper_active_positions', {}), venue='binance', quote='USDT')
+                capital, basis = funds['available_capital'], funds['capital_basis']
         else:
             try:
                 capital, basis = available_quote_balance(self.binance_client.get_account_info(), 'USDT')
@@ -1913,6 +1918,8 @@ class Trader:
         }
         result = PortfolioOrchestrator().allocate(candidates=[candidate], total_capital=capital, policy=policy)
         result.update({'capital_basis': basis, 'quote_currency': 'USDT', 'available_capital': capital})
+        from trading.paper_capital import remember_capital
+        remember_capital(self, venue='binance', mode=self._execution_mode(), funds={**funds, **result})
         return result
 
     def _place_entry_order_with_quality_control_binance(self, symbol: str, side: str, quantity: float, layer_settings: Dict[str, Any], trade_params: Dict[str, Any]) -> Dict[str, Any]:
@@ -2885,6 +2892,9 @@ class Trader:
                                             candidate.strategy_version_id or "noah_base"
                                         ),
                                         account_scope=account_scope_for(self, ExecutionMode.PAPER),
+                                        capital_guard_enabled=bool((layer_settings.get('portfolio_orchestration') or {}).get('enabled')),
+                                        available_capital=(self.portfolio_allocation_cache.get(symbol) or {}).get('available_capital'),
+                                        leverage=float(optimized_params.get('leverage') or 1),
                                     )
                                     if not paper_auth.allowed:
                                         self.log_event(
@@ -7166,6 +7176,9 @@ class Trader:
                     )
                     return False
                 quantity = float(computed_qty)
+                # A second sizing pass must never enlarge the reserved quantity.
+                if trade_params.get('_opportunity'):
+                    quantity = min(quantity, float(trade_params['_opportunity'].get('authorized_quantity') or 0.0))
                 trade_params['_position_sizing'] = dict(
                     sizing_constraints.get('position_sizing') or {}
                 )

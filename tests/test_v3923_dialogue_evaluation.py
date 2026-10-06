@@ -3,7 +3,7 @@ import json
 from pathlib import Path
 import pytest
 from trading.finance_profile_parser import interpret
-DATA=json.loads((Path(__file__).parent/'fixtures/v3923_finance_dialogue_eval.json').read_text())
+DATA=json.loads((Path(__file__).parent/'fixtures/v3923_finance_dialogue_eval.json').read_text(encoding='utf-8'))
 
 @pytest.mark.parametrize('case',DATA['single'],ids=lambda c:c['id'])
 def test_single_reference(case):

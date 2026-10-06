@@ -5,6 +5,10 @@
 
 3.9.2.5는 빌드·릴리스·배포 완료한 공개 버전으로 보존합니다. 이후 로그·배분 정정, 코인/주식 종목 선택, 시작 버튼 기반 자율주행과 전략 스튜디오의 남은 고도화를 3.9.2.6으로 진행합니다. [실행 원장·완료 조건](UPDATE_PLAN.md#v3926-autonomous-studio-release). 새 Windows 설치본·공개 게시·실환경 인수는 아직 완료하지 않았습니다. 아래 날짜별 소스/후보/배포 표기는 당시 이력입니다.
 
+### .6 깨끗한 Windows 환경의 재현 빌드
+
+GitHub Windows runner와 새 PC는 이전 설치기가 없는 경우 `scripts/restore_previous_release_asset.py`로 공개 .5 설치기를 확보합니다. `config/published_release_baselines.json`의 버전·파일명·크기·SHA-256과 대조한 뒤 원자적으로 보관하며 기존 파일이 다르면 덮어쓰지 않습니다. 이미 게시된 .5 자산이나 manifest를 수정하지 않습니다. Python 자료·시험·생성 JSON의 UTF-8 인코딩을 명시해 한국어/영어 Windows 기본 인코딩 차이를 제거합니다. 시험·엔진·x86 호스트·PE·bootstrap/IPC 검사를 생략하지 않습니다.
+
 ## 2026-10-05 — v3.9.2.5 생활금융 비교·후속 관리 (공개 Windows 릴리스)
 
 현재 소스 기준: v3.9.2.5 · updater 3.9.205. 현재 공개 기반: v3.9.2.5 (2026-10-05 공개 게시·2026-10-06 GitHub latest 재확인).

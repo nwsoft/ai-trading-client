@@ -1343,11 +1343,16 @@ class UnifiedTrader:
             return {'allocations': {}, 'portfolio_risk': 0.0, 'risk_scale': 1.0}
 
         from trading.portfolio_orchestrator import available_quote_balance
+        funds = {}
         quote = 'KRW' if exchange_name in {'upbit', 'bithumb', 'coinone'} else 'USDT'
         if self._execution_mode(exchange_name) != ExecutionMode.LIVE:
             from trading.position_sizing_policy import normalize_position_sizing_policy
             total_capital = normalize_position_sizing_policy(self.settings, quote_currency=quote)['paper_equity']
             basis = 'paper_virtual_equity'
+            if self._execution_mode(exchange_name) == ExecutionMode.PAPER:
+                from trading.paper_capital import paper_funds_for
+                funds = paper_funds_for(self, total_capital, (getattr(self, 'paper_positions', {}) or {}).get(exchange_name, {}), venue=exchange_name, quote=quote)
+                total_capital, basis = funds['available_capital'], funds['capital_basis']
         else:
             try:
                 client = self.get_exchange_client(exchange_name)
@@ -1372,6 +1377,8 @@ class UnifiedTrader:
             })
         result = PortfolioOrchestrator().allocate(candidates=candidates, total_capital=total_capital, policy=policy)
         result.update({'capital_basis': basis, 'quote_currency': quote, 'available_capital': total_capital})
+        from trading.paper_capital import remember_capital
+        remember_capital(self, venue=exchange_name, mode=self._execution_mode(exchange_name), funds={**funds, **result})
         return result
 
     def _initialize_exchanges(self, exchanges: Optional[List[str]] = None):
@@ -2912,6 +2919,16 @@ class UnifiedTrader:
                 self.settings,
                 authorized_targets=authorized_targets,
             )
+            capital_policy_enabled = bool((self._get_advanced_layers_settings(exchange_name).get('portfolio_orchestration') or {}).get('enabled'))
+            available_capital = (self.portfolio_allocation_cache.get(exchange_name) or {}).get('available_capital')
+            if capital_policy_enabled and execution_mode == ExecutionMode.PAPER:
+                from trading.paper_capital import paper_funds_for
+                from trading.position_sizing_policy import normalize_position_sizing_policy
+                quote = 'KRW' if exchange_name in {'upbit', 'bithumb', 'coinone'} else 'USDT'
+                funds = paper_funds_for(self, normalize_position_sizing_policy(self.settings, quote_currency=quote)['paper_equity'], self._position_store(exchange_name), venue=exchange_name, quote=quote)
+                available_capital = funds['available_capital']
+                from trading.paper_capital import remember_capital
+                remember_capital(self, venue=exchange_name, mode=execution_mode, funds=funds)
             minimum_validated_size = float(position_size or 0.0)
             opportunity_auth = get_opportunity_coordinator(self).authorize(
                 policy=opportunity_policy,
@@ -2928,8 +2945,8 @@ class UnifiedTrader:
                 ),
                 account_scope=account_scope_for(self, execution_mode),
                 reserve=not learning_only,
-                capital_guard_enabled=bool((self._get_advanced_layers_settings(exchange_name).get('portfolio_orchestration') or {}).get('enabled')),
-                available_capital=(self.portfolio_allocation_cache.get(exchange_name) or {}).get('available_capital'),
+                capital_guard_enabled=capital_policy_enabled,
+                available_capital=available_capital,
                 leverage=leverage,
                 contract_size=self._ccxt_contract_size(exchange_name, symbol) if exchange_name in {'bybit', 'okx', 'bitget'} else 1.0,
             )

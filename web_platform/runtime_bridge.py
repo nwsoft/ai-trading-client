@@ -510,6 +510,9 @@ scoped_pool(list(getattr(app, "active_custom_strategy_pool", []) or []), asset_c
             mode = mode_for(owner, source)
         result = snapshot(owner, source, mode)
         recovery = (getattr(owner, '_last_policy_recovery_results', {}) or {}).get((source, mode))
+        capital = (getattr(owner, '_last_capital_evidence', {}) or {}).get((source, mode))
+        if isinstance(capital, dict):
+            result['capital'] = _runtime_safe(capital)
         if isinstance(recovery, dict):
             result['recovery'] = _runtime_safe(recovery)
         if owner is not None:

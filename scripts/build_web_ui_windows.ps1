@@ -6,6 +6,10 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+# JSON/Markdown fixtures and generated metadata use UTF-8 on every OS.
+# A clean English Windows runner otherwise defaults Python 3.11 to cp1252.
+$env:PYTHONUTF8 = "1"
+$env:PYTHONIOENCODING = "utf-8"
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
 $originalLocation = Get-Location
 

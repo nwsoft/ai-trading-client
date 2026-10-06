@@ -25,7 +25,7 @@ const inventory=JSON.parse(fs.readFileSync(path.join(root,'config/web_ui_feature
   const service=ep.includes('/stock/')||url.searchParams.get('service')==='stock'?'stock':'blockchain';
   const venues=service==='stock'?stock:crypto,source=url.searchParams.get('source')||venues[0];
   const now=Date.now()/1000;
-  const evidence=s=>({source:s,mode:'paper',status:'observed',regime:{observed:'bull',confirmed:'range',observed_at:now},candidate:{symbol:service==='stock'?'005930':'BTCUSDT',signal:'HOLD',allowed:false,reason:'custom_entry_failed',observed_at:now},selection:{source:s,observed_at:now,selected:[{symbol:service==='stock'?'005930':'BTCUSDT',score:77,reason:'QA verified liquidity',execution_eligible:true}],eligible_count:1,excluded:['QA-HALTED'],issues:['QA partial catalogue']},orders:{pending_orders:1,requires_reconciliation:true},recovery:{status:cancelled.has(s)?'cancelled_by_user':'restored',fields:['max_retries'],observed_at:now},paper_pool:{scope_eligible:2,selected:2,waiting:0,limit:10,applied_slots:0}});
+  const evidence=s=>({source:s,mode:'paper',status:'observed',regime:{observed:'bull',confirmed:'range',observed_at:now},candidate:{symbol:service==='stock'?'005930':'BTCUSDT',signal:'HOLD',allowed:false,reason:'custom_entry_failed',observed_at:now},selection:{source:s,observed_at:now,selected:[{symbol:service==='stock'?'005930':'BTCUSDT',score:77,reason:'QA verified liquidity',execution_eligible:true}],eligible_count:1,excluded:['QA-HALTED'],issues:['QA partial catalogue']},capital:{capital_basis:service==='stock'?'paper_funds_unverified':'paper_reconciled_funds',available_capital:service==='stock'?0:848,quote_currency:service==='stock'?'KRW':'USDT',observed_at:now},orders:{pending_orders:1,requires_reconciliation:true},recovery:{status:cancelled.has(s)?'cancelled_by_user':'restored',fields:['max_retries'],observed_at:now},paper_pool:{scope_eligible:2,selected:2,waiting:0,limit:10,applied_slots:0}});
   let payload={};
   if(ep.endsWith('/runtime/commands')){const body=route.request().postDataJSON();commands.push(body);assert.equal(body.command,'trading.recovery.cancel');cancelled.add(body.source);payload={status:'completed',result:{status:'cancelled_by_user',orders_submitted:false}};}
   else if(ep.endsWith('/platform'))payload={release_version:'3.9.2.6',release_label:'v3.9.2.6 ISOLATED QA'};
@@ -97,6 +97,8 @@ const inventory=JSON.parse(fs.readFileSync(path.join(root,'config/web_ui_feature
    await page.locator('.operation-summary').waitFor();
    const before=logReads();await page.waitForTimeout(1200);assert.equal(logReads(),before);mark(service+' source summary pauses logs');
    await page.getByRole('heading',{name:'자동 종목 선정 근거',exact:true}).waitFor();
+   await page.getByRole('heading',{name:'자금 배분 근거',exact:true}).waitFor();
+   await page.getByText(service==='stock'?'가상 자금 대조 필요 · 신규 진입 보류':'가상 초기자금 + 기록된 청산 순손익 − 보유 증거금·비용 여유',{exact:true}).waitFor();mark(service+' scoped capital evidence');
    await page.getByRole('heading',{name:'주문 접수·체결 대조 필요',exact:true}).waitFor();
    await page.getByText('정상 정책으로 제한 복원 · 다음 주기에 재검증',{exact:true}).waitFor();
    await page.getByText('자료 확인 필요: QA partial catalogue',{exact:true}).waitFor();

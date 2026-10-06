@@ -3499,17 +3499,22 @@ class StockAnalysisService:
         capital_basis = 'available_balance_unverified'
         if bool(portfolio_policy.get('enabled', False)):
             total_capital = 0.0
+            funds = {}
             if execution_mode in {ExecutionMode.PAPER.value, ExecutionMode.LEARNING.value, 'mock'}:
                 # PAPER/LEARNING이 실계좌 잔고를 읽으면 검증 수량과 LIVE
                 # 자금이 결합된다. 독립 가상 기준자금만 사용한다.
                 total_capital = float(normalized_sizing_policy.get('paper_equity') or 0.0)
                 capital_basis = 'paper_virtual_equity'
+                if execution_mode in {ExecutionMode.PAPER.value, 'mock'}:
+                    from trading.paper_capital import paper_funds_for
+                    funds = paper_funds_for(self, total_capital, self._paper_positions(), venue=self.broker_name, quote='KRW')
+                    total_capital, capital_basis = funds['available_capital'], funds['capital_basis']
             else:
                 try:
                     balance = self.adapter.get_balance() if hasattr(self.adapter, 'get_balance') else {}
                     if isinstance(balance, dict):
                         from trading.portfolio_orchestrator import available_quote_balance
-                        total_capital, capital_basis = available_quote_balance(balance, 'KRW', allow_cash=True)
+                        total_capital, capital_basis = available_quote_balance(balance, 'KRW')
                 except Exception:
                     total_capital = 0.0
 
@@ -3531,6 +3536,8 @@ class StockAnalysisService:
                 policy=portfolio_policy,
             )
             allocation_result.update({'available_capital': total_capital, 'capital_basis': capital_basis, 'quote_currency': 'KRW'})
+            from trading.paper_capital import remember_capital
+            remember_capital(self, venue=self.broker_name, mode=execution_mode, funds={**funds, **allocation_result})
 
         execution_attempts = 0
         execution_failures = 0
@@ -4094,6 +4101,13 @@ class StockAnalysisService:
                 dict((auto_risk_policy or {}).get('multi_venue_execution', {}) or {})
             )
             opportunity_coordinator = get_opportunity_coordinator(self)
+            available_capital = allocation_result.get('available_capital')
+            if bool(portfolio_policy.get('enabled')) and signal == 'BUY' and execution_mode == ExecutionMode.PAPER.value:
+                from trading.paper_capital import paper_funds_for
+                funds = paper_funds_for(self, normalized_sizing_policy['paper_equity'], self._paper_positions(), venue=self.broker_name, quote='KRW')
+                available_capital = funds['available_capital']
+                from trading.paper_capital import remember_capital
+                remember_capital(self, venue=self.broker_name, mode=execution_mode, funds=funds)
             opportunity_auth = opportunity_coordinator.authorize(
                 policy=multi_venue_policy,
                 asset_class='stock',
@@ -4110,7 +4124,7 @@ class StockAnalysisService:
                 account_scope=account_scope_for(self, execution_mode),
                 reserve=execution_mode != ExecutionMode.LEARNING.value,
                 capital_guard_enabled=bool(portfolio_policy.get('enabled')) and signal == 'BUY',
-                available_capital=allocation_result.get('available_capital'),
+                available_capital=available_capital,
             )
             opportunity_snapshot = opportunity_auth.to_dict()
             if not opportunity_auth.allowed:

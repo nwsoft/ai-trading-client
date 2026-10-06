@@ -265,3 +265,9 @@ def test_automatic_windows_candidate_has_no_publication_permission_or_step():
     assert any('build_web_ui_windows.ps1' in str(step.get('run','')) for step in steps)
     assert any(step.get('uses')=='actions/upload-artifact@v4' for step in steps)
     assert not any('publish_web_ui_windows_release' in str(step) or 'action-gh-release' in str(step) for step in steps)
+
+
+def test_windows_build_reads_utf8_json_and_markdown_on_clean_english_windows():
+    source = (ROOT / "scripts/build_web_ui_windows.ps1").read_text(encoding="utf-8")
+    assert '$env:PYTHONUTF8 = "1"' in source
+    assert '$env:PYTHONIOENCODING = "utf-8"' in source

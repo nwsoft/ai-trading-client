@@ -400,6 +400,7 @@ class KiwoomStockAdapter(StockExchange):
             'api_type': self.api_type,
             'api_version': self.api_version,
             'cash': cash,
+            'orderable_cash': optional_market_number(self._get_field(record, '주문가능현금', 'orderable_cash', default=None)),
             'stock_eval': stock_eval,
             'total_assets': total_assets if total_assets else cash + stock_eval,
             'profit_loss': profit_loss,
