@@ -157,11 +157,35 @@ def test_timeout_retries_pending_page_and_does_not_call_it_empty_history(tmp_pat
     assert job.start('binance',background=False)['recovered']==1
 
 
-def test_saturated_time_window_splits_and_proves_full_coverage(tmp_path):
+@pytest.mark.parametrize('force_time_slices', [False, True])
+def test_saturated_time_window_splits_and_proves_full_coverage(tmp_path, monkeypatch, force_time_slices):
     r,tid,c,job=setup(tmp_path,600)
+    if force_time_slices:
+        # Exercise the real bounded worker independently of filesystem speed.
+        # Windows may need several slices to checkpoint 600 repaired rows.
+        import itertools
+        import time
+        import trading.record_recovery as recovery_module
+        ticks = itertools.count()
+        monkeypatch.setattr(recovery_module, 'time', SimpleNamespace(
+            monotonic=lambda: next(ticks), sleep=time.sleep))
     status=job.start('binance',background=False)
+    job_id = status['job_id']
+    slices = 1
+    for _ in range(20):
+        if status['state'] != 'paused':
+            break
+        previous = status['processed']
+        status = job.start('binance',background=False)
+        slices += 1
+        assert status['job_id'] == job_id
+        assert status['processed'] > previous
+    assert status['state'] == 'checked'
     assert status['recovered']==600
     assert sum(call[0]=='fills' for call in c.calls)>1
+    assert r.execute_query('SELECT COUNT(*), SUM(net_pnl) FROM trade_log')[0] == (600, pytest.approx(-6180))
+    if force_time_slices:
+        assert slices > 1
 
 
 def test_snapshot_changes_during_collection_never_writes_pnl(tmp_path):
