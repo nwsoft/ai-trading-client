@@ -36,7 +36,7 @@ export function OperationSummary({ data, source, mode, running, failed, onOpenFe
     <RegimeHistory rows={scoped?.regime_history}/>
     {scoped?.capital && <article role="status"><h4>자금 배분 근거</h4>
       <p>{({paper_reconciled_funds:'가상 초기자금 + 기록된 청산 순손익 − 보유 증거금·비용 여유',paper_virtual_equity:'LEARNING 가상 기준자금 · 주문 없음',paper_funds_unverified:'가상 자금 대조 필요 · 신규 진입 보류',available_balance_unverified:'기관 주문 가능금액 확인 필요 · 신규 진입 보류',orderable_cash:'기관 응답의 주문 가능현금',available_cash:'기관 응답의 가용현금',available_balance:'기관 응답의 가용잔고',availableBalance:'기관 응답의 가용잔고',currency_free_balance:'해당 통화의 사용 가능잔고'} as Record<string,string>)[String(scoped.capital.capital_basis)] ?? '자금 확인 근거 검토 필요'}</p>
-      <p>예약 전 가용액 {scoped.capital.available_capital != null && Number.isFinite(Number(scoped.capital.available_capital)) ? Number(scoped.capital.available_capital).toLocaleString() : '미확인'} {String(scoped.capital.quote_currency || '')}</p>
+      <p>예약 전 가용액 {['paper_reconciled_funds','paper_virtual_equity','orderable_cash','available_cash','available_balance','availableBalance','currency_free_balance'].includes(String(scoped.capital.capital_basis)) && scoped.capital.available_capital != null && Number.isFinite(Number(scoped.capital.available_capital)) ? Number(scoped.capital.available_capital).toLocaleString() : '미확인'} {String(scoped.capital.quote_currency || '')}</p>
       <small>{timeLabel(scoped.capital.observed_at)}{old(scoped.capital) ? ' · 오래된 자금 관찰' : ''}</small>
       <p>미체결 주문 예약은 추가로 차감하며, 통화·기관 간 자금을 합치거나 미실현 이익을 지출 가능한 자금으로 계산하지 않습니다.</p>
       {['paper_funds_unverified','available_balance_unverified'].includes(String(scoped.capital.capital_basis)) && <p>거래 기록 점검에서 해당 모드의 청산 기록·보유 수량을 대조하고, LIVE는 기관 연결과 주문 가능금액 응답을 확인하세요. 기록 삭제나 위험 한도 완화로 해제하지 않습니다.</p>}

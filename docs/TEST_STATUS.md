@@ -9,10 +9,10 @@
 
 ### .6 로컬 구현·검증 증거
 
-- 최종 전체 Python: **5,270 passed / 10 skipped / 3 subtests**, 실패 0, 91.83초. `reports/v3926-python-regression-final.txt`. Node/Electron **79 passed**, 실패 0. `reports/v3926-node-electron.txt`.
+- 최종 전체 Python: **5,286 passed / 10 skipped / 3 subtests**, 실패 0, 90.95초. `reports/v3926-python-regression-final.txt`. Node/Electron **79 passed**, 실패 0. `reports/v3926-node-electron.txt`.
 - TypeScript/Vite 완료, 실제 renderer 지문 current=true. 인앱 매뉴얼 11섹션 재생성과 저장 snapshot 일치. 문서/버전 검사 PASS. JS 큰 chunk 경고는 남으며 기능 검사 실패가 아니다.
 - 실제 빌드 React의 거래 화면 **33개** 검사와 전략 분리 평가 근거 **5개** 검사 PASS/JS 오류 0. 모두 응답을 가로챈 합성 자료이며 실계좌 주문·전략/설정/AI 변경 없음. 거래 화면에서 사용자 명시 정책 취소 2건·읽기 계좌 snapshot 2건만 발생. `reports/v3926-trading-views-20261006/`, `reports/v3926-strategy-evidence-20261006/`. 데스크톱 최소 폭 1080을 유지하며 390 viewport를 모바일 완료 증거로 사용하지 않는다.
-- 10/30 전략 × 11기관 **22개** 합성 시나리오: 0.903초, 측정한 최장 주기 18.07ms, 프로세스 peak RSS 25.45MiB(macOS). 대기 5개 추가 조회 없음, 같은 봉 숫자 상태 불변·재시작 상태 보존·버전 분리 PASS. 실제 API/AI 지연·동시 기관 워커·24~72시간 측정이 아니다. `reports/v3926-strategy-pool-benchmark.json`.
+- 10/30 전략 × 11기관 **22개** 합성 시나리오: 1.007초, 측정한 최장 주기 22.99ms, 프로세스 peak RSS 25.44MiB(macOS). 대기 5개 추가 조회 없음, 같은 봉 숫자 상태 불변·재시작 상태 보존·버전 분리 PASS. 실제 API/AI 지연·동시 기관 워커·24~72시간 측정이 아니다. `reports/v3926-strategy-pool-benchmark.json`.
 - Markdown **325개 / 내부 MD 파일 연결 748건 / 깨진 연결 0**. 파일 경로 검사이며 전체 역사 의미·외부 URL/anchor의 인증은 아니다.
 - 공개 .5 태그·게시 시각·4개 자산 digest와 보관된 보고서가 일치. `reports/v3926-preserved-v3925-public-assets.json`. .5 설치본을 같은 이름으로 교체하지 않았다.
 

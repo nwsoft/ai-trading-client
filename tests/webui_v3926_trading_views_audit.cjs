@@ -98,7 +98,9 @@ const inventory=JSON.parse(fs.readFileSync(path.join(root,'config/web_ui_feature
    const before=logReads();await page.waitForTimeout(1200);assert.equal(logReads(),before);mark(service+' source summary pauses logs');
    await page.getByRole('heading',{name:'자동 종목 선정 근거',exact:true}).waitFor();
    await page.getByRole('heading',{name:'자금 배분 근거',exact:true}).waitFor();
-   await page.getByText(service==='stock'?'가상 자금 대조 필요 · 신규 진입 보류':'가상 초기자금 + 기록된 청산 순손익 − 보유 증거금·비용 여유',{exact:true}).waitFor();mark(service+' scoped capital evidence');
+   await page.getByText(service==='stock'?'가상 자금 대조 필요 · 신규 진입 보류':'가상 초기자금 + 기록된 청산 순손익 − 보유 증거금·비용 여유',{exact:true}).waitFor();
+   await page.getByText(service==='stock'?'예약 전 가용액 미확인 KRW':'예약 전 가용액 848 USDT',{exact:true}).waitFor();
+   await page.getByRole('heading',{name:'자금 배분 근거',exact:true}).locator('..').screenshot({path:path.join(reportDir,service+'-capital-evidence.png')});mark(service+' scoped capital evidence');
    await page.getByRole('heading',{name:'주문 접수·체결 대조 필요',exact:true}).waitFor();
    await page.getByText('정상 정책으로 제한 복원 · 다음 주기에 재검증',{exact:true}).waitFor();
    await page.getByText('자료 확인 필요: QA partial catalogue',{exact:true}).waitFor();
