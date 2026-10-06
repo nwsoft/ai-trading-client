@@ -334,9 +334,16 @@ function StrategyValidationEvidence({ version, research = false }: { version: St
         <div><span>MDD</span><b>{metricNumber(performance?.max_drawdown_percent)}%</b></div>
         <div><span>{t("승률")}</span><b>{metricNumber(Number(performance?.win_rate ?? 0) * 100)}%</b></div>
         <div><span>Profit factor</span><b>{metricNumber(performance?.profit_factor)}</b></div>
-        <div><span>{t("OOS 순손익")}</span><b>{metricNumber(lab.out_of_sample_net_pnl)}</b></div>
-        <div><span>{t("워크포워드 통과")}</span><b>{metricNumber(Number(lab.walkforward?.pass_rate ?? 0) * 100)}%</b></div>
+        <div><span>{t("후반 구간 순손익")}</span><b>{metricNumber(lab.out_of_sample_net_pnl)}</b></div>
+        <div><span>{t("구간 안정성")}</span><b>{metricNumber(Number(lab.walkforward?.pass_rate ?? 0) * 100)}%</b></div>
       </div>
+      <p className="strategy-evidence-source">{t("구간 안정성은 같은 규칙의 완료 거래를 나눈 통계이며 재학습 검증이 아닙니다. 수익률 표본의 구간 손익은 기준자금당 계산입니다. 비용 구성 자료가 없으면 추가 비용 비교를 계산하지 않습니다.")}</p>
+      {lab.retrained_evaluation && <details className="strategy-evidence-source"><summary>{t("시간 순서 학습 후보 검증 · 자동 적용 없음")}</summary>
+        <p>{({candidate_ready_for_paper_review:'기준선보다 나은 후보 · 새 버전 검토 후 PAPER 검증 필요',candidate_not_better_than_baseline:'기준선 대비 개선 확인 안 됨 · 현재 규칙 유지',declared_adjustable_entry_parameter_required:'학습할 진입 수치 조건 필요',bounded_history_required:'400~3,000개 완성 캔들 필요',training_quality_or_sample_insufficient:'학습 구간의 품질·표본 부족',training_or_test_history_insufficient:'시간 순서 학습·검증 구간 부족',evaluation_resource_budget_exceeded:'평가 자원 한도 도달 · 개선 후보로 사용 불가',estimated_cost_profile_required:'비용 가정 확인 필요',replay_or_evidence_not_supported:'지원 규칙·자료 범위 재확인 필요'} as Record<string,string>)[String(lab.retrained_evaluation.status)] ?? '평가 근거 확인 필요'}</p>
+        <p>{t("선언된 진입 조건의 수치를 과거 구간에서 맞춘 뒤 이후 구간에서 고정 기준선과 비교합니다. LLM 모델 자체를 재학습한 결과가 아닙니다. 손절·위험 한도와 승인된 규칙을 변경하지 않습니다.")}</p>
+        {(lab.retrained_evaluation.folds ?? []).map((fold:Record<string,any>,index:number)=><p key={index}>구간 {index+1}: 학습 종료 {new Date(fold.training_end_ms).toLocaleString()} · 검증 시작 {new Date(fold.test_start_ms).toLocaleString()} · 기준선 {metricNumber(fold.baseline_test_net_percent)}% / 후보 {metricNumber(fold.candidate_test_net_percent)}% / 비용 2배 {metricNumber(fold.cost_2x_test_net_percent)}% · {fold.passed?'해당 구간 통과':'미통과'}</p>)}
+        {lab.retrained_evaluation.proposal && <p>검토 수치: {String(lab.retrained_evaluation.proposal.field)} {String(lab.retrained_evaluation.proposal.original_value)} → {String(lab.retrained_evaluation.proposal.candidate_value)}. 채택하려면 새 전략 버전에서 조건을 직접 검토·승인하고 PAPER로 확인하세요.</p>}
+      </details>}
       <p className={gate?.passed === true && overfit?.flagged !== true ? "strategy-evidence-pass" : "strategy-evidence-warning"}>{t("최소 품질 필터 ")}{gate?.passed === true ? "통과" : "미통과"}{t(" · 과최적화 위험 ")}{overfit?.flagged === true ? "감지" : "미감지"}
         {Array.isArray(gate?.reasons) && gate.reasons.length ? ` · 사유: ${gate.reasons.join(", ")}` : ""}
         {Array.isArray(overfit?.reasons) && overfit.reasons.length ? ` · 위험: ${overfit.reasons.join(", ")}` : ""}

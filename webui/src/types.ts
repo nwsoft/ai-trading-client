@@ -282,6 +282,9 @@ export interface LifeFinanceSnapshot {
 export interface WorkspaceSnapshot {
   operation_overview?: Record<string, NonNullable<WorkspaceSnapshot['operation_summary']>>;
   operation_summary?: {
+    selection?: Record<string, any>;
+    orders?: Record<string, any>;
+    recovery?: Record<string, any>;
     source?: string; mode?: string; status: string; session?: string;
     regime?: Record<string, any>; candidate?: Record<string, any>; runtime?: Record<string, any>; risk?: Record<string, any>;
     regime_history?: Array<{observed: string; confirmed: string; symbol: string; timeframe: string; observed_at: number}>;

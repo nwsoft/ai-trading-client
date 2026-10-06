@@ -237,6 +237,7 @@ export function LegacyTradingLogWorkspace({
     {batchMessage&&<div role="status" className="dashboard-batch-result"><span>{batchMessage}</span><button onClick={()=>setBatchMessage('')}>{L('안내 닫기','Dismiss')}</button></div>}
     {view==='overview'?<OperationsOverview runtime={runtime} workspace={activeWorkspace} service={service} failed={workspaceFailed||accountsFailed} onSource={onOpenSource} onFeature={onOpenFeature} onSettings={onOpenSettings} onAssets={onOpenAssets} onAsk={onAskAssistant} summary={stats} controls={controls}/>:<div className="legacy-log-workspace dashboard-log-view">
     <article className="legacy-log-card">
+      {error && <div role="status" className="inline-notice error-text">{L('로그 갱신 실패 · 마지막 수신 기록은 현재 상태를 보장하지 않습니다. 새로고침으로 다시 조회하세요.','Log refresh failed. Previously received records may be outdated. Refresh to retry.')} {error}</div>}
       <div className="legacy-log-filters">
         <label><input type="checkbox" checked={simpleOnly} onChange={(event) => { setSimpleOnly(event.target.checked); if (event.target.checked) setAnalysisOnly(false); }} />{t("거래 시그널만")}</label>
         <label><input type="checkbox" checked={analysisOnly} onChange={(event) => { setAnalysisOnly(event.target.checked); if (event.target.checked) setSimpleOnly(false); }} />{t("분석 과정만")}</label>

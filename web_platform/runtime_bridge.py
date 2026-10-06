@@ -509,6 +509,27 @@ scoped_pool(list(getattr(app, "active_custom_strategy_pool", []) or []), asset_c
             from trading.operation_evidence import mode_for
             mode = mode_for(owner, source)
         result = snapshot(owner, source, mode)
+        recovery = (getattr(owner, '_last_policy_recovery_results', {}) or {}).get((source, mode))
+        if isinstance(recovery, dict):
+            result['recovery'] = _runtime_safe(recovery)
+        if owner is not None:
+            from trading.opportunity_coordinator import account_scope_for, OpportunityCoordinator
+            try:
+                coordinator = getattr(owner, '_opportunity_coordinator', None)
+                if isinstance(coordinator, OpportunityCoordinator):
+                    result['orders'] = coordinator.runtime_snapshot(
+                        account_scope=account_scope_for(owner, mode), target=source)
+            except Exception:
+                result['orders'] = {'status': 'reservation_read_failed', 'requires_reconciliation': True}
+        # Read already-computed selection evidence only; no provider query or
+        # runtime construction when a summary refreshes.
+        if source in CRYPTO_SOURCES:
+            evaluator = getattr(owner, 'evaluator', None) or getattr(self._app, 'evaluator', None)
+            selection = (getattr(evaluator, 'last_selection_evidence_by_exchange', {}) or {}).get(source)
+        else:
+            selection = getattr(getattr(owner, 'adapter', None), 'last_selection_evidence', None)
+        if isinstance(selection, dict) and _public_source(selection.get('source')) == source:
+            result['selection'] = _runtime_safe(selection)
         risk_manager = getattr(self._app, 'risk_manager', None)
         decision = (getattr(risk_manager, '_last_daily_loss_decision', {}) or {}).get(source)
         if decision is not None and getattr(decision, 'execution_mode', None) == mode:
@@ -885,6 +906,13 @@ scoped_pool(list(getattr(self._app, "active_custom_strategy_pool", []) or []), a
         elif command in {"stocks.analyze", "trades.import"} and not has_credentials:
             raise RuntimeError(f"credential_required:{source}")
         app = self._ensure_app()
+        if command == 'trading.recovery.cancel':
+            from trading.runtime_policy_recovery import cancel_runtime_policy
+            from trading.operation_evidence import mode_for
+            owner = self._evidence_owner(source)
+            if owner is None:
+                return {'source': source, 'status': 'engine_not_attached', 'orders_submitted': False}
+            return {'source': source, **cancel_runtime_policy(owner, source, mode_for(owner, source))}
         if command in {'trading.start', 'trading.stop'}:
             from trading.operation_evidence import reset
             reset(self._evidence_owner(source), source)

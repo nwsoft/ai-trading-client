@@ -29,7 +29,18 @@ class OpsAutomationEngine:
     def detect_anomalies(self, execution_metrics: Dict[str, Any], policy: Dict[str, Any] | None = None) -> List[str]:
         effective = dict(self.DEFAULT_POLICY)
         effective.update(policy or {})
+        # Honor the names saved by Settings without overriding explicit older
+        # engine names. Read-only normalization never rewrites user settings.
+        for setting, engine_key in (
+            ("reject_rate_threshold", "max_reject_rate"),
+            ("slippage_bps_threshold", "max_avg_slippage_bps"),
+            ("quality_score_threshold", "min_quality_score"),
+        ):
+            if setting in (policy or {}) and engine_key not in (policy or {}):
+                effective[engine_key] = policy[setting]
         if not bool(effective.get("enabled", False)):
+            return []
+        if 'attempted_orders' in execution_metrics and self._to_float(execution_metrics['attempted_orders']) <= 0:
             return []
 
         reject_rate = self._to_float(execution_metrics.get("reject_rate", 0.0), 0.0)

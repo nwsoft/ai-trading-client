@@ -349,6 +349,16 @@ class Evaluator:
         owner = exchange_client or (getattr(self, 'binance_client', None) if exchange_key == 'binance' else None)
         selected = [coin for coin in (selected or [])
                     if eligibility(owner, exchange_key, coin.get('symbol') if isinstance(coin, dict) else coin)['allowed']]
+        from trading.selection_evidence import selection_evidence
+        if not hasattr(self, 'last_selection_evidence_by_exchange'):
+            self.last_selection_evidence_by_exchange = {}
+        age_getter = getattr(self._selection_singleflight, 'completed_age', None)
+        age = age_getter(exchange_key) if callable(age_getter) else None
+        failure = (getattr(self, 'candidate_failure_by_exchange', {}) or {}).get(exchange_key)
+        self.last_selection_evidence_by_exchange[exchange_key] = selection_evidence(
+            exchange_key, selected, observed_at=time.time() - (age or 0.0),
+            issues=[failure.get('reason', 'candidate_data_unavailable')] if isinstance(failure, dict) else [],
+        )
         # A visible-only fallback is a failure state, not a reusable completed
         # selection.  Keeping it in the short single-flight cache made the
         # Binance worker re-read the same non-executable ten symbols on every

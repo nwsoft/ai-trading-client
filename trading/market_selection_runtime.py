@@ -29,6 +29,7 @@ class SelectionSingleFlight:
         *,
         cache_ttl: float = 30.0,
         wait_timeout: float = 20.0,
+        stale_ttl: float = 300.0,
     ) -> Any:
         now = time.monotonic()
         with self._lock:
@@ -46,13 +47,13 @@ class SelectionSingleFlight:
             if event.wait(max(0.1, float(wait_timeout))):
                 with self._lock:
                     completed = self._results.get(key)
-                    return deepcopy(completed[1]) if completed else []
+                    return deepcopy(completed[1]) if completed and time.monotonic() - completed[0] <= max(0.0, stale_ttl) else []
             # Never launch a second expensive discovery because one caller was
             # slow.  The previous valid universe is safer than overlapping API
             # bursts; an empty result means no valid universe has completed yet.
             with self._lock:
                 previous = self._results.get(key)
-                return deepcopy(previous[1]) if previous else []
+                return deepcopy(previous[1]) if previous and time.monotonic() - previous[0] <= max(0.0, stale_ttl) else []
 
         try:
             value = producer()
@@ -72,24 +73,34 @@ class SelectionSingleFlight:
             else:
                 self._results.pop(key, None)
 
+    def completed_age(self, key: Hashable) -> float | None:
+        with self._lock:
+            cached = self._results.get(key)
+            return max(0.0, time.monotonic() - cached[0]) if cached else None
+
 
 class TTLValueCache:
     """Small thread-safe TTL cache for public market snapshots."""
 
-    def __init__(self) -> None:
+    def __init__(self, max_entries: int = 256) -> None:
         self._lock = threading.RLock()
         self._values: Dict[Hashable, tuple[float, Any]] = {}
+        self.max_entries = max(1, int(max_entries))
 
     def get(self, key: Hashable, ttl_seconds: float) -> Any:
         with self._lock:
             row = self._values.get(key)
             if row is None or time.monotonic() - row[0] > max(0.0, float(ttl_seconds)):
+                self._values.pop(key, None)
                 return None
             return deepcopy(row[1])
 
     def set(self, key: Hashable, value: Any) -> Any:
         with self._lock:
+            self._values.pop(key, None)
             self._values[key] = (time.monotonic(), deepcopy(value))
+            while len(self._values) > self.max_entries:
+                self._values.pop(next(iter(self._values)))
         return value
 
 

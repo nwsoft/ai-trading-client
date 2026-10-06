@@ -224,7 +224,7 @@ def test_pipeline_records_diff_validation_and_user_promotion(tmp_path):
     first = pipeline.submit(name="첫 버전", rules=_rules())
     pipeline.approve(first["strategy_key"], first["version_id"], approved_by="user")
     report = run_validation_lab(
-        [{"pnl": 1.0} for _ in range(20)], paper_trades=[{"pnl": 1.0} for _ in range(3)]
+        [{"pnl": 1.0, "fee": 0.01, "slippage": 0.01} for _ in range(20)], paper_trades=[{"pnl": 1.0} for _ in range(3)]
     )
     saved = pipeline.record_validation_lab(first["strategy_key"], first["version_id"], report)
     assert saved["validation_lab"]["promotion_ready"] is True

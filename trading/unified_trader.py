@@ -40,6 +40,8 @@ from .exchange_manager import ExchangeManager
 from .unified_trading_manager import UnifiedTradingManager
 from .ops_automation import OpsAutomationEngine
 from .portfolio_orchestrator import PortfolioOrchestrator
+from trading.opportunity_coordinator import account_scope_for, capture_account_scope
+from trading.runtime_policy_recovery import observe_execution_policy
 from .opportunity_coordinator import (
     get_opportunity_coordinator,
     policy_from_settings,
@@ -495,6 +497,7 @@ class UnifiedTrader:
         ai_manager: Optional[AIManager] = None, risk_manager: Optional[RiskManager] = None,
         websocket_manager=None, dashboard=None, logger=None, main_app: Optional[Any] = None):
         self.settings = settings
+        capture_account_scope(self)
         self.exchange_manager = exchange_manager  # 바이낸스용
         self.unified_manager = unified_manager    # CCXT 거래소용
         self.current_exchange = settings.get('selected_exchange', 'bybit')
@@ -1038,7 +1041,8 @@ class UnifiedTrader:
             root = self.settings.get('advanced_trading_layers', {}) if isinstance(self.settings, dict) else {}
             exchange_overrides = (root.get('exchange_overrides', {}) or {}).get(exchange_name, {})
             from trading.advanced_layer_config import deep_merge_policy
-            return deep_merge_policy(root, exchange_overrides)
+            from trading.runtime_policy_recovery import apply_runtime_policy
+            return apply_runtime_policy(self, exchange_name, self._execution_mode(exchange_name), deep_merge_policy(root, exchange_overrides))
         except Exception:
             return {}
 
@@ -1338,18 +1342,18 @@ class UnifiedTrader:
         if not bool(policy.get('enabled', False)):
             return {'allocations': {}, 'portfolio_risk': 0.0, 'risk_scale': 1.0}
 
-        total_capital = 0.0
-        try:
-            balance_result = self.exchange_manager.get_exchange_balance(exchange_name, force_refresh=False) if hasattr(self.exchange_manager, 'get_exchange_balance') else {}
-            if isinstance(balance_result, dict) and balance_result.get('status') == 'success':
-                balance = balance_result.get('balance', {})
-                if isinstance(balance, dict):
-                    if 'USDT' in balance and isinstance(balance.get('USDT'), dict):
-                        total_capital = float(balance.get('USDT', {}).get('free', 0) or 0)
-                    else:
-                        total_capital = float(balance.get('total', balance.get('cash', 0)) or 0)
-        except Exception:
-            total_capital = 0.0
+        from trading.portfolio_orchestrator import available_quote_balance
+        quote = 'KRW' if exchange_name in {'upbit', 'bithumb', 'coinone'} else 'USDT'
+        if self._execution_mode(exchange_name) != ExecutionMode.LIVE:
+            from trading.position_sizing_policy import normalize_position_sizing_policy
+            total_capital = normalize_position_sizing_policy(self.settings, quote_currency=quote)['paper_equity']
+            basis = 'paper_virtual_equity'
+        else:
+            try:
+                client = self.get_exchange_client(exchange_name)
+                total_capital, basis = available_quote_balance(client.get_balance(), quote)
+            except Exception:
+                total_capital, basis = 0.0, 'available_balance_unverified'
 
         # UnifiedTrader는 암호화폐 거래소만 대상으로 동작하므로 asset_class를 crypto로 고정한다.
         asset_class = 'crypto' if exchange_name in ['bybit', 'okx', 'bitget', 'upbit', 'bithumb', 'coinone'] else 'stock'
@@ -1366,7 +1370,9 @@ class UnifiedTrader:
                 'volatility': max(0.005, abs(float(analysis.get('market_volatility', 0.5) or 0.5)) / 100.0),
                 'avg_correlation': float(((policy.get('correlation_overrides', {}) or {}).get(symbol, 0.25)) or 0.25),
             })
-        return PortfolioOrchestrator().allocate(candidates=candidates, total_capital=total_capital, policy=policy)
+        result = PortfolioOrchestrator().allocate(candidates=candidates, total_capital=total_capital, policy=policy)
+        result.update({'capital_basis': basis, 'quote_currency': quote, 'available_capital': total_capital})
+        return result
 
     def _initialize_exchanges(self, exchanges: Optional[List[str]] = None):
         """거래소별 시스템 초기화 (CCXT 거래소만)
@@ -2357,7 +2363,7 @@ class UnifiedTrader:
             quality_score = max(0.0, min(100.0, round((success_rate * 100.0) - min(30.0, avg_latency / 40.0) - min(25.0, abs(avg_slippage) / 0.8), 2)))
             ops_engine = OpsAutomationEngine()
             anomalies = ops_engine.detect_anomalies(
-                {'reject_rate': reject_rate, 'avg_slippage_bps': avg_slippage, 'quality_score': quality_score},
+                {'attempted_orders': attempts, 'reject_rate': reject_rate, 'avg_slippage_bps': avg_slippage, 'quality_score': quality_score},
                 dict(layer_settings.get('ops_automation', {}) or {}),
             )
             self.cycle_execution_metrics[exchange_name] = {
@@ -2367,7 +2373,8 @@ class UnifiedTrader:
                 'avg_slippage_bps': round(avg_slippage, 2),
                 'quality_score': quality_score,
                 'anomalies': anomalies,
-                'rollback_action': ops_engine.build_rollback_action(anomalies, dict(layer_settings.get('ops_automation', {}) or {})),
+                'rollback_action': observe_execution_policy(
+                    self, exchange_name, self._execution_mode(exchange_name), layer_settings, {'attempted_orders': attempts}, anomalies),
                 'daily_briefing': ops_engine.build_daily_briefing(
                     {
                         'orders_executed': trades_executed,
@@ -2906,7 +2913,7 @@ class UnifiedTrader:
                 authorized_targets=authorized_targets,
             )
             minimum_validated_size = float(position_size or 0.0)
-            opportunity_auth = get_opportunity_coordinator().authorize(
+            opportunity_auth = get_opportunity_coordinator(self).authorize(
                 policy=opportunity_policy,
                 asset_class="crypto",
                 target=exchange_name,
@@ -2919,12 +2926,12 @@ class UnifiedTrader:
                     analysis.get("_selected_custom_strategy_version_id")
                     or "noah_base"
                 ),
-                account_scope=str(
-                    self.settings.get("account_id")
-                    or self.settings.get("user_id")
-                    or f"{exchange_name}:{id(self)}"
-                ),
+                account_scope=account_scope_for(self, execution_mode),
                 reserve=not learning_only,
+                capital_guard_enabled=bool((self._get_advanced_layers_settings(exchange_name).get('portfolio_orchestration') or {}).get('enabled')),
+                available_capital=(self.portfolio_allocation_cache.get(exchange_name) or {}).get('available_capital'),
+                leverage=leverage,
+                contract_size=self._ccxt_contract_size(exchange_name, symbol) if exchange_name in {'bybit', 'okx', 'bitget'} else 1.0,
             )
             optimized_params["_opportunity"] = opportunity_auth.to_dict()
             if not opportunity_auth.allowed:
@@ -2941,7 +2948,7 @@ class UnifiedTrader:
                     position_size,
                 )
                 if post_auth_size > position_size * (1.0 + 1e-9):
-                    get_opportunity_coordinator().release(opportunity_auth)
+                    get_opportunity_coordinator(self).release(opportunity_auth)
                     return {
                         "status": "skipped",
                         "reason": f"위험 분할 후 거래소 최소 주문 규격 미달: {post_auth_note}",
@@ -3019,7 +3026,7 @@ class UnifiedTrader:
             if not paper and not demo:
                 crypto_command_id = str(opportunity_auth.idempotency_key or "")
                 if not crypto_command_id or not self.recorder:
-                    get_opportunity_coordinator().release(opportunity_auth)
+                    get_opportunity_coordinator(self).release(opportunity_auth)
                     return {
                         "status": "skipped",
                         "reason": "영속 주문 명령 원장을 사용할 수 없어 LIVE 주문을 차단했습니다",
@@ -3033,7 +3040,7 @@ class UnifiedTrader:
                     quantity=position_size,
                 )
                 if not bool(claimed.get("claimed")):
-                    get_opportunity_coordinator().release(opportunity_auth)
+                    get_opportunity_coordinator(self).release(opportunity_auth)
                     return {
                         "status": "skipped",
                         "reason": (
@@ -3113,17 +3120,19 @@ class UnifiedTrader:
                 if not entry_allowed:
                     if crypto_command_id and self.recorder:
                         self.recorder.update_crypto_order_command(crypto_command_id, status='rejected')
-                    get_opportunity_coordinator().release(opportunity_auth)
+                    get_opportunity_coordinator(self).release(opportunity_auth)
                     return {'status': 'skipped', 'reason': remote_entry_gate().last_block_reason.get(exchange_name,'remote_entries_paused')}
                 from trading.instrument_eligibility import entry_check
                 instrument = entry_check(exchange_client, exchange_name, order_symbol)
                 if not instrument['allowed']:
                     if crypto_command_id and self.recorder:
                         self.recorder.update_crypto_order_command(crypto_command_id, status='rejected')
-                    get_opportunity_coordinator().release(opportunity_auth)
+                    get_opportunity_coordinator(self).release(opportunity_auth)
                     return {'status': 'skipped', 'reason': instrument['reason'], 'instrument': instrument}
                 try:
                     # 데모 모드: 고성능 시뮬레이션
+                    if not paper:
+                        get_opportunity_coordinator(self).mark_submitting(opportunity_auth)
                     if demo and hasattr(self, 'demo_trader'):
                         # 실제 가격 조회 (실제 데이터 사용)
                         current_price = self.exchange_manager.get_current_price(symbol, exchange_name) if hasattr(self, 'exchange_manager') else 50000.0
@@ -3245,6 +3254,10 @@ class UnifiedTrader:
                 paper
                 or (isinstance(order_result, dict) and order_result.get('_execution_confirmed'))
             )
+            if not paper:
+                from trading.opportunity_coordinator import finish_submission
+                finish_submission(self, opportunity_auth, order_result,
+                                  success=self._is_order_success(order_result), confirmed=execution_confirmed)
             if self._is_order_success(order_result) and execution_confirmed:
                 if crypto_command_id and self.recorder:
                     self.recorder.update_crypto_order_command(
@@ -3254,7 +3267,7 @@ class UnifiedTrader:
                             order_result.get("order_id") or order_result.get("id") or ""
                         ),
                     )
-                get_opportunity_coordinator().record_result(
+                get_opportunity_coordinator(self).record_result(
                     opportunity_auth,
                     status="paper_filled" if paper else "submitted",
                     order_id=str(
@@ -3601,8 +3614,8 @@ class UnifiedTrader:
                     'slippage_bps': float(order_result.get('slippage_bps', 0.0) or 0.0),
                 }
             else:
-                get_opportunity_coordinator().release(opportunity_auth)
-                get_opportunity_coordinator().record_result(
+                get_opportunity_coordinator(self).release(opportunity_auth)
+                get_opportunity_coordinator(self).record_result(
                     opportunity_auth,
                     status="failed",
                     detail=str(order_result.get("error") or order_result),
@@ -3659,8 +3672,8 @@ class UnifiedTrader:
 
         except Exception as e:
             if opportunity_auth is not None:
-                get_opportunity_coordinator().release(opportunity_auth)
-                get_opportunity_coordinator().record_result(
+                get_opportunity_coordinator(self).release(opportunity_auth)
+                get_opportunity_coordinator(self).record_result(
                     opportunity_auth,
                     status="failed",
                     detail=str(e),
@@ -7950,11 +7963,21 @@ Response in JSON format:
                     if callable(execution_saver):
                         execution_saver(exchange_name, [payload], source='order_id_reconcile')
                     result['confirmed'] += 1
+                    if str(payload.get('status') or '').lower() in {'closed', 'filled'}:
+                        get_opportunity_coordinator(self).reconcile_order_id(
+                            account_scope=account_scope_for(self, ExecutionMode.LIVE), target=exchange_name,
+                            order_id=str(reference.get('order_id') or ''), status='filled')
                 else:
                     from .order_state_machine import reduce_order_state
                     state = reduce_order_state(reference.get('status'), payload)
                     if state['terminal']:
                         result['failed'] += 1
+                        terminal_status = str(payload.get('status') or '').lower()
+                        if terminal_status in {'rejected', 'canceled', 'cancelled'}:
+                            get_opportunity_coordinator(self).reconcile_order_id(
+                                account_scope=account_scope_for(self, ExecutionMode.LIVE), target=exchange_name,
+                                order_id=str(reference.get('order_id') or ''),
+                                status='rejected' if terminal_status == 'rejected' else 'cancelled')
                     else:
                         result['pending'] += 1
             except Exception as exc:

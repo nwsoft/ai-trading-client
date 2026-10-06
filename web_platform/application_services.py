@@ -5335,6 +5335,15 @@ class ApplicationServices:
             "quality_passed": passed,
             "future_performance_guaranteed": False,
         })
+        trades = [
+            dict(item)
+            for item in list(metrics.get("trades") or []) if isinstance(item, dict)
+        ]
+        from trading.retrained_strategy_evaluation import run_retrained_evaluation
+        lab = run_validation_lab(trades)
+        lab['retrained_evaluation'] = run_retrained_evaluation(
+            rules, rows, timeframe_rows=timeframe_rows, base_timeframe=validation_interval,
+            cost_profile=cost_profile, horizon=holding_bars, entry_start_ms=range_start_ms)
         with self._lock:
             pipeline = self._strategy_pipeline(self._strategy_filename(scope))
             pipeline.record_execution_validation(
@@ -5345,12 +5354,7 @@ class ApplicationServices:
                 metrics=metrics,
                 mode="historical_replay",
             )
-            trades = [
-                {"return_percent": float(item.get("net_pnl_percent", 0.0) or 0.0), "fee": 0.0, "slippage": 0.0,
-                 "entry_time": item.get("entry_time"), "exit_time": item.get("exit_time")}
-                for item in list(metrics.get("trades") or []) if isinstance(item, dict)
-            ]
-            result = pipeline.record_validation_lab(strategy_key, version_id, run_validation_lab(trades))
+            result = pipeline.record_validation_lab(strategy_key, version_id, lab)
             self._audit("strategy.historical_validation", {
                 "scope": scope, "strategy_key": strategy_key, "version_id": version_id,
                 "asset_class": normalized_asset_class, "source": normalized_source,
@@ -5654,11 +5658,16 @@ class ApplicationServices:
                 # A crypto-tagged or crypto-only global row must never appear
                 # on the securities surface.  Untagged neutral lifecycle rows
                 # are also excluded because their ownership cannot be proved.
-                if crypto_tagged or (crypto_message and not stock_tagged):
+                if crypto_tagged or (crypto_message and not stock_tagged and normalized == "all"):
                     continue
-                if not (stock_tagged or stock_message):
+                if normalized == "all" and not (stock_tagged or stock_message):
                     continue
-            if service_key == "blockchain" and (stock_tagged or stock_message):
+            # Explicit venue tags and source-owned files are stronger evidence
+            # than vocabulary: crypto selection also says "종목". Shared,
+            # untagged rows still require the conservative service heuristic.
+            if service_key == "blockchain" and (
+                stock_tagged or (normalized == "all" and not crypto_tagged and stock_message)
+            ):
                 continue
             if normalized != "all":
                 aliases = {normalized}
@@ -5801,7 +5810,7 @@ class ApplicationServices:
         normalized_id = str(command_id or "").strip()
         if not re.fullmatch(r"[A-Za-z0-9_-]{16,80}", normalized_id):
             raise ValueError("유효한 command_id가 필요합니다.")
-        allowed_commands = {"trading.start", "trading.stop", "coins.select", "coins.analyze", "stocks.analyze", "trades.import"}
+        allowed_commands = {"trading.start", "trading.stop", "trading.recovery.cancel", "coins.select", "coins.analyze", "stocks.analyze", "trades.import"}
         if command not in allowed_commands:
             raise ValueError("지원하지 않는 런타임 명령입니다.")
         if not self._accepting_runtime_commands:
@@ -5823,7 +5832,7 @@ class ApplicationServices:
         membership = self.refresh_membership_status(force=True)
         # Membership gates new analysis/start/import work.  A stop command is a
         # safety escape hatch and must remain available after expiry/revocation.
-        if command != "trading.stop" and (membership.get("status") == "terminal_denied" or membership.get("active") is False):
+        if command not in {"trading.stop", "trading.recovery.cancel"} and (membership.get("status") == "terminal_denied" or membership.get("active") is False):
             try:
                 from api.kpi_client import emit_kpi_event
                 emit_kpi_event(event_type="feature_gate_denied", category="platform", asset_class="stock" if source in {"kiwoom", "shinhan", "mirae", "kis"} else "crypto", status="blocked", metadata={"source": source, "reason": "membership_session_inactive"})

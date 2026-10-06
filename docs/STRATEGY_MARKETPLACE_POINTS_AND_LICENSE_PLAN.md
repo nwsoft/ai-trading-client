@@ -1,3 +1,5 @@
+> 2026-10-06 현행 정본 연결: 공개 Windows 기준은 **v3.9.2.5 / updater 3.9.205**입니다. 날짜별 후보·미게시·이전 공개 버전은 당시 이력입니다. 이번 거래현황·배분 정책 후속은 로컬 소스이며 기존 공개 설치본과 구분합니다. [현재 검증·구현 수준](TEST_STATUS.md#v3925-trading-document-audit-20261006) · [고도화 계획](UPDATE_PLAN.md#v3925-post-release-audit-20261006).
+
 # NoahAI Strategy Marketplace 수익화·포인트·결제·정산 정본
 
 기준 일자: 2026-09-12  

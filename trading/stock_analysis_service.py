@@ -57,6 +57,7 @@ from trading.exit_policy import (
     format_exit_policy,
     record_insurance_submission,
 )
+from trading.opportunity_coordinator import account_scope_for, capture_account_scope
 from trading.opportunity_coordinator import (
     get_opportunity_coordinator,
     normalize_multi_venue_policy,
@@ -743,8 +744,14 @@ def select_stock_universe(
     if rejected:
         import logging
         logging.getLogger(__name__).warning('증권 신규 후보 제외: %s · 현재 종목 목록/거래 상태 확인 필요. 기존 보유·원장 보존', ', '.join(rejected[:20]))
-    return [str(item.get('symbol') or '').strip().upper() for item in resolved
-            if str(item.get('symbol') or '').strip().upper() in eligible]
+    selected = [dict(item) for item in resolved
+                if str(item.get('symbol') or '').strip().upper() in eligible]
+    from trading.selection_evidence import selection_evidence
+    adapter.last_selection_evidence = selection_evidence(
+        broker, selected, rejected=rejected + list(blocked), issues=universe_issues,
+        basis='broker_catalogue_liquidity_preferences_not_return_prediction',
+    )
+    return [str(item.get('symbol') or '').strip().upper() for item in selected]
 
 
 def filter_positions_by_asset_mode(positions: List[Dict[str, Any]], asset_mode: str = 'all') -> List[Dict[str, Any]]:
@@ -835,6 +842,7 @@ class StockAnalysisService:
         self.broker_name = broker_name or getattr(adapter, 'broker_name', '') or getattr(adapter, 'exchange_name', 'unknown')
         self.recorder = recorder
         self._paper_settings = dict(paper_settings or {})
+        capture_account_scope(self)
         self._paper_persistence_enabled = paper_settings is not None
         self._active_execution_mode = ExecutionMode.LEARNING.value
         self._instrument_type_cache: Dict[str, str] = {}
@@ -3389,6 +3397,8 @@ class StockAnalysisService:
                 strategy_performance_context['consecutive_losses'] = consecutive_losses
 
         profitability_policy = {}
+        from trading.runtime_policy_recovery import apply_runtime_policy, observe_execution_policy
+        auto_risk_policy = apply_runtime_policy(self, self.broker_name, execution_mode, auto_risk_policy or {})
         strategy_policy = {}
         portfolio_policy = {}
         execution_policy = {}
@@ -3486,17 +3496,20 @@ class StockAnalysisService:
 
         orchestrator = PortfolioOrchestrator()
         allocation_result: Dict[str, Any] = {'allocations': {}, 'portfolio_risk': 0.0, 'risk_scale': 1.0}
+        capital_basis = 'available_balance_unverified'
         if bool(portfolio_policy.get('enabled', False)):
             total_capital = 0.0
             if execution_mode in {ExecutionMode.PAPER.value, ExecutionMode.LEARNING.value, 'mock'}:
                 # PAPER/LEARNING이 실계좌 잔고를 읽으면 검증 수량과 LIVE
                 # 자금이 결합된다. 독립 가상 기준자금만 사용한다.
                 total_capital = float(normalized_sizing_policy.get('paper_equity') or 0.0)
+                capital_basis = 'paper_virtual_equity'
             else:
                 try:
                     balance = self.adapter.get_balance() if hasattr(self.adapter, 'get_balance') else {}
                     if isinstance(balance, dict):
-                        total_capital = self._to_float(balance.get('total_assets', balance.get('cash', 0.0)), default=0.0)
+                        from trading.portfolio_orchestrator import available_quote_balance
+                        total_capital, capital_basis = available_quote_balance(balance, 'KRW', allow_cash=True)
                 except Exception:
                     total_capital = 0.0
 
@@ -3517,6 +3530,7 @@ class StockAnalysisService:
                 total_capital=total_capital,
                 policy=portfolio_policy,
             )
+            allocation_result.update({'available_capital': total_capital, 'capital_basis': capital_basis, 'quote_currency': 'KRW'})
 
         execution_attempts = 0
         execution_failures = 0
@@ -4079,7 +4093,7 @@ class StockAnalysisService:
             multi_venue_policy = normalize_multi_venue_policy(
                 dict((auto_risk_policy or {}).get('multi_venue_execution', {}) or {})
             )
-            opportunity_coordinator = get_opportunity_coordinator()
+            opportunity_coordinator = get_opportunity_coordinator(self)
             opportunity_auth = opportunity_coordinator.authorize(
                 policy=multi_venue_policy,
                 asset_class='stock',
@@ -4093,8 +4107,10 @@ class StockAnalysisService:
                     or 0.0
                 ),
                 strategy_version=candidate.strategy_version_id,
-                account_scope=self.broker_name,
+                account_scope=account_scope_for(self, execution_mode),
                 reserve=execution_mode != ExecutionMode.LEARNING.value,
+                capital_guard_enabled=bool(portfolio_policy.get('enabled')) and signal == 'BUY',
+                available_capital=allocation_result.get('available_capital'),
             )
             opportunity_snapshot = opportunity_auth.to_dict()
             if not opportunity_auth.allowed:
@@ -4265,6 +4281,8 @@ class StockAnalysisService:
                 continue
 
             execution_attempts += 1
+            if execution_mode in {ExecutionMode.LIVE.value, 'live_api'}:
+                opportunity_coordinator.mark_submitting(opportunity_auth)
             paper_position_before = dict(self._paper_positions().get(symbol, {})) if execution_mode == ExecutionMode.PAPER.value else {}
             if execution_mode == ExecutionMode.PAPER.value:
                 started = pytime.perf_counter()
@@ -4314,6 +4332,10 @@ class StockAnalysisService:
                 if request_price is not None and request_price > 0 and filled_price > 0:
                     slippage_bps = ((filled_price - request_price) / request_price) * 10000.0
             latency_samples.append(latency_ms)
+            if execution_mode in {ExecutionMode.LIVE.value, 'live_api'}:
+                from trading.opportunity_coordinator import finish_submission
+                finish_submission(self, opportunity_auth, order_result, success=success,
+                                  confirmed=bool((order_result or {}).get('_execution_confirmed')))
             if not success:
                 execution_failures += 1
             if request_price is not None and request_price > 0:
@@ -4542,13 +4564,15 @@ class StockAnalysisService:
         ops_engine = OpsAutomationEngine()
         ops_anomalies = ops_engine.detect_anomalies(
             execution_metrics={
+                'attempted_orders': execution_attempts,
                 'reject_rate': reject_rate,
                 'avg_slippage_bps': avg_slippage_bps,
                 'quality_score': quality_score,
             },
             policy=ops_policy,
         )
-        rollback_action = ops_engine.build_rollback_action(ops_anomalies, policy=ops_policy)
+        rollback_action = observe_execution_policy(self, self.broker_name, execution_mode, auto_risk_policy,
+                                                  {'attempted_orders': execution_attempts}, ops_anomalies)
 
         summary = {
             'broker': self.broker_name,

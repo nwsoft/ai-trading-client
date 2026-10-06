@@ -1,4 +1,5 @@
 import type { WorkspaceSnapshot } from '../types';
+import {useState, useEffect, useRef} from 'react';
 import {RegimeHistory,regimeText,evidenceOld} from './OperationVisuals';
 
 function timeLabel(value: unknown) {
@@ -6,10 +7,15 @@ function timeLabel(value: unknown) {
   return Number.isFinite(n) && n > 0 ? new Date(n < 1e11 ? n * 1000 : n).toLocaleString() : '기록 없음';
 }
 
-export function OperationSummary({ data, source, mode, running, failed, onOpenFeature, onAskAssistant }: {
+export function OperationSummary({ data, source, mode, running, failed, onOpenFeature, onAskAssistant, onCancelRecovery }: {
   data: WorkspaceSnapshot['operation_summary']; source: string; mode: string; running: boolean; failed: boolean;
   onOpenFeature?:(suffix:string)=>void; onAskAssistant?:(question:string)=>void;
+  onCancelRecovery?:()=>Promise<void>;
 }) {
+  const [recoveryBusy,setRecoveryBusy]=useState(false), [recoveryError,setRecoveryError]=useState('');
+  const recoveryGeneration=useRef(0);
+  useEffect(()=>{recoveryGeneration.current++;setRecoveryError('');setRecoveryBusy(false);return()=>{recoveryGeneration.current++;};},[source,mode]);
+  async function cancelRecovery(){const token=recoveryGeneration.current;setRecoveryBusy(true);setRecoveryError('');try{await onCancelRecovery?.();if(token===recoveryGeneration.current)setRecoveryError('복원을 취소했습니다. 사용자 저장 정책은 유지되며 주문·거래 재개를 실행하지 않았습니다.');}catch{if(token===recoveryGeneration.current)setRecoveryError('복원 취소에 실패했습니다. 실행 상태를 다시 확인하세요.');}finally{if(token===recoveryGeneration.current)setRecoveryBusy(false);}}
   const scoped = data?.source === source && data?.mode === mode ? data : undefined;
   const regime = scoped?.regime, candidate = scoped?.candidate;
   const old = (row?: Record<string, any>) => row && evidenceOld(row.observed_at);
@@ -28,6 +34,15 @@ export function OperationSummary({ data, source, mode, running, failed, onOpenFe
       {checks.length?<><div className="evidence-check-meter" role="img" aria-label={`표시된 검사 ${checks.length}개 중 충족 ${passed}개`}><span style={{width:`${passed/checks.length*100}%`}}/></div><p>표시된 검사 {checks.length}개 중 충족 {passed}개</p><small>중첩된 검사 일부(최대 20개)이며 점수·승률·독립 조건 충족률이 아닙니다. 상세 근거는 아래에서 확인하세요.</small></>:<p>실제 검사 근거 미수신 · 추세·거래량·시장 심리를 임의로 판정하지 않습니다.</p>}
     </article><article><h4>최근 검토 전략 · 자동 추천 아님</h4><p>{candidate?String(candidate.strategy_name||'기본 NoahAI'):'전략 판단 근거 없음'}</p>{candidate&&<p>버전 {String(candidate.version_id||'전략 버전 미지정')}</p>}{onOpenFeature&&<button onClick={()=>onOpenFeature('ai_custom')}>전략 스튜디오 · 적용/검증 확인</button>}<small>최근 후보에 사용된 전략이며 전체 적용 목록이나 최적 전략 순위가 아닙니다.</small></article></div>
     <RegimeHistory rows={scoped?.regime_history}/>
+    {scoped?.recovery && <article><h4>실행 정책 회복</h4><p>{({restored:'정상 정책으로 제한 복원 · 다음 주기에 재검증',stable_snapshot_recorded:'정상 실행 정책 저장',stable_sample_accumulating:'정상 실행 표본 축적 중',no_execution_sample:'주문 시도 표본 없음',compatible_stable_snapshot_required:'같은 버전의 정상 정책 근거 필요',no_safe_policy_change_available:'안전하게 복원할 설정 차이 없음',already_restored_recheck_required:'이미 복원됨 · 실행 상태 재확인 필요',cancelled_by_user:'사용자 취소',not_requested:'자동 복원 미사용',snapshot_integrity_failed:'정책 근거 무결성 확인 실패',recovery_storage_or_validation_failed:'정책 저장·검증 실패'} as Record<string,string>)[String(scoped.recovery.status)] ?? '회복 상태 확인 필요'}</p><small>{timeLabel(scoped.recovery.observed_at)}</small><p>사용자 저장 설정·위험 한도·LIVE 권한을 변경하지 않습니다. 복원은 거래 재개나 수익 회복을 보장하지 않습니다.</p>{scoped.recovery.status==='restored' && onCancelRecovery && <button disabled={recoveryBusy} onClick={()=>void cancelRecovery()}>{recoveryBusy?'취소 중…':'이번 실행 정책 복원 취소'}</button>}{recoveryError&&<p role="status">{recoveryError}</p>}</article>}
+    {scoped?.orders?.requires_reconciliation && <article role="status"><h4>주문 접수·체결 대조 필요</h4><p>미확정 주문 {scoped.orders.pending_orders ?? '확인 중'}건. 이전 주문의 접수·체결 여부가 확인되기 전에는 같은 기관·종목의 추가 진입을 보류합니다.</p><p>거래 기록 점검·복구와 기관 주문 내역을 대조하세요. 앱 재시작이나 거래 기록 삭제로 해제하지 않습니다.</p>{onOpenFeature && <button onClick={()=>onOpenFeature('maintenance')}>유지관리 · 거래 기록 점검</button>}</article>}
+    <article><h4>자동 종목 선정 근거</h4>{scoped?.selection ? <>
+      <p>분석 후보 {scoped.selection.selected?.length ?? 0}개 · 선정 당시 자격 통과 {scoped.selection.eligible_count ?? 0}개</p>
+      <small>{timeLabel(scoped.selection.observed_at)}{old(scoped.selection) ? ' · 오래된 선정 기록' : ''}</small>
+      <p>후보 선정은 수익 추천이나 주문 승인이 아닙니다. 현재 시세·위험·주문 검사를 다시 통과해야 합니다. 고정 종목도 같은 검사를 받습니다.</p>
+      {Array.isArray(scoped.selection.issues) && scoped.selection.issues.length > 0 && <p role="status">자료 확인 필요: {scoped.selection.issues.join(' · ')}</p>}
+      <details><summary>후보·선정 이유·제외 목록</summary><ul>{(scoped.selection.selected ?? []).map((row:Record<string,any>) => <li key={String(row.symbol)}>{String(row.symbol)} · {row.score == null ? '점수 미산출' : `선정 점수 ${row.score}`} · {String(row.reason)} · {row.execution_eligible ? '선정 자격 통과' : '실행 보류'}</li>)}</ul><p>제외: {(scoped.selection.excluded ?? []).join(', ') || '제외 근거 미기록'}</p></details>
+    </> : <p>선정 기록이 아직 없습니다. 기관 연결·종목 선택을 확인하고 다시 선정하세요. 빈 후보를 정상 운용으로 해석하지 않습니다.</p>}</article>
     {pool&&pool.scope_eligible>0&&<figure><figcaption>PAPER 평가 대상과 대기 · 학습 진행률 아님</figcaption><div className="paper-capacity-chart" role="img" aria-label={`평가 대상 ${pool.selected}개, 대기 ${pool.waiting}개`}><span style={{flex:Math.max(0,pool.selected)}}>평가 {pool.selected}</span>{pool.waiting>0&&<span className="waiting" style={{flex:pool.waiting}}>대기 {pool.waiting}</span>}</div></figure>}
     <article><h4>최근 후보 판단 — 주문 결과 아님</h4>
       {candidate ? <><p>{String(candidate.symbol)} · {String(candidate.signal)} · {candidate.allowed ? '후보 단계 통과' : '후보 단계 보류'}</p><p>{reasonLabel(candidate.reason)}</p><p>{String(candidate.strategy_name || '기본 NoahAI')} · 버전 {String(candidate.version_id || '전략 버전 미지정')}</p><small>판단 {timeLabel(candidate.observed_at)} · 봉 {timeLabel(candidate.bar_timestamp)} · {String(candidate.timeframe || '시간봉 미기록')}{old(candidate) ? ' · 오래된 근거' : ''}</small></> : <p>아직 평가된 후보가 없습니다. 상세 로그에서 실행·시세 상태를 확인하세요.</p>}

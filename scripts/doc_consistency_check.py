@@ -89,6 +89,7 @@ def check_release_version_markers(text_map: Dict[str, str]) -> List[str]:
         errors.append("[APP_VERSION] 대시보드 사용자용 최신 업데이트 요약이 현행 변경과 다릅니다.")
 
     expected_release_lines = (
+        f"현재 소스 기준 버전: **v{RELEASE_VERSION}**",
         f"현재 설치 기준 버전: **v{RELEASE_VERSION}**",
         f"현재 공개 버전: **v{RELEASE_VERSION}**",
         f"현재 소스 후보 버전: **v{RELEASE_VERSION}**",
@@ -205,6 +206,37 @@ def check_for_higher_version_mentions(text_map: Dict[str, str]) -> List[str]:
 
 def check_release_surface_alignment(text_map: Dict[str, str]) -> List[str]:
     """동일 버전의 핵심 변경이 사용자 노출·기술·검증 문서에 함께 있는지 확인한다."""
+    if RELEASE_VERSION == '3.9.2.6':
+        required = {
+            'manual_widget': ('v3.9.2.6 최신 업데이트', '미확정 주문', 'PAPER'),
+            'user_guide': ('현재 소스 후보 버전: **v3.9.2.6**', f'현재 공개 버전: **v{PUBLIC_RELEASE_VERSION}**'),
+            'readme': ('현재 소스 후보: v3.9.2.6', f'현재 공개 기반: v{PUBLIC_RELEASE_VERSION}'),
+            'release_notes': ('v3.9.2.6', '3.9.206', '미배포'),
+            'deploy_release_notes': ('v3.9.2.6', '3.9.206'),
+            'architecture': ('v3.9.2.6', '자율주행'),
+            'update_plan': ('v3926-autonomous-studio-release', 'CAPITAL26-01', 'LEARN26-01'),
+            'test_status': ('v3.9.2.6', 'Windows'),
+            'deploy_checklist': ('v3.9.2.6', '미배포'),
+        }
+        return [f"[RELEASE_SURFACE] {surface}: '{marker}' 누락"
+                for surface, markers in required.items() for marker in markers
+                if marker not in text_map.get(surface, '')]
+    if RELEASE_VERSION == '3.9.2.5':
+        required = {
+            'manual_widget': (f'v{RELEASE_VERSION} 최신 업데이트', '설정 → AI 엔진/API', '상담 회신'),
+            'user_guide': (f'현재 소스 기준 버전: **v{RELEASE_VERSION}**', f'현재 공개 버전: **v{PUBLIC_RELEASE_VERSION}**'),
+            'readme': (f'현재 소스 기준: v{RELEASE_VERSION}', f'현재 공개 기반: v{PUBLIC_RELEASE_VERSION}'),
+            'release_notes': (f'v{RELEASE_VERSION}', '3.9.205', '상담 회신'),
+            'deploy_release_notes': (f'{RELEASE_VERSION}', '상담'),
+            'architecture': (f'v{RELEASE_VERSION}', '암호화'),
+            'trading_flow': ('거래', 'PAPER', 'LIVE'),
+            'update_plan': (f'v{RELEASE_VERSION}', '자료 피드'),
+            'test_status': (f'v{RELEASE_VERSION}', 'Windows'),
+            'deploy_checklist': (f'v{RELEASE_VERSION}', '실계좌'),
+        }
+        return [f"[RELEASE_SURFACE] {surface}: '{marker}' 누락"
+                for surface, markers in required.items() for marker in markers
+                if marker not in text_map.get(surface, '')]
     if RELEASE_VERSION == '3.9.1.49':
         required = {
             'manual_widget': ('v3.9.1.49 최신 업데이트', '프리미엄 최대 30', '운용 요약'),
@@ -1059,6 +1091,28 @@ def extract_latest_changelog_heading(changelog_text: str) -> str | None:
     return None
 
 
+def check_publication_boundary(text_map: Dict[str, str], publication: dict) -> List[str]:
+    """A verified publication report must agree with current identity, not history.
+
+    This is an offline drift guard. The audit must separately verify GitHub latest.
+    A build manifest with publish_ready alone is not evidence of publication.
+    """
+    if publication.get('status') != 'published_verified' or publication.get('version') != RELEASE_VERSION:
+        return []
+    errors = []
+    if PUBLIC_RELEASE_VERSION != RELEASE_VERSION:
+        errors.append('[PUBLICATION] 게시 확인된 버전과 PUBLIC_RELEASE_VERSION이 다릅니다.')
+    for surface in ('readme', 'docs_readme', 'changelog', 'user_guide', 'release_notes',
+                    'update_plan', 'test_status', 'master_documentation', 'build_guide', 'deploy_checklist'):
+        text = text_map.get(surface, '')
+        # Only the current first section; old dated release records stay intact.
+        sections = list(re.finditer(r'^## ', text, flags=re.MULTILINE))
+        current = text[:sections[1].start()] if len(sections) > 1 else text
+        if re.search(r'설치본을 게시한 상태는 아닙니다|설치본은 아직 게시|로컬 소스 후보', current):
+            errors.append(f'[PUBLICATION] {surface}: 최신 절이 게시 확인 상태와 모순됩니다.')
+    return errors
+
+
 def check_strategy_policy_alignment(text_map: Dict[str, str]) -> List[str]:
     """Targeted semantic drift guards, not a general proof of document accuracy.
 
@@ -1131,6 +1185,9 @@ def main() -> int:
     errors.extend(check_current_release_and_marketplace(text_map))
     errors.extend(check_strategy_policy_alignment(text_map))
     errors.extend(check_whitepaper_release_identity(text_map))
+    reports = sorted((ROOT / 'reports').glob(f"v{RELEASE_VERSION.replace('.', '')}-windows-publication-*.json"))
+    for report in reports:
+        errors.extend(check_publication_boundary(text_map, json.loads(read_text(report))))
 
     print("문서/버전 정합성 점검 결과")
     print(f"- 기준 배포 버전: v{RELEASE_VERSION}")

@@ -4,23 +4,34 @@ from __future__ import annotations
 
 import random
 import statistics
+import math
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Mapping, Sequence
 
 
 def _number(value: Any) -> float:
     try:
-        return float(value or 0.0)
+        parsed = float(value or 0.0)
+        return parsed if math.isfinite(parsed) else 0.0
     except (TypeError, ValueError):
         return 0.0
 
 
-def _net_returns(trades: Sequence[Mapping[str, Any]], *, cost_multiplier: float = 1.0) -> List[float]:
-    return [
-        _number(row.get("pnl", row.get("realized_pnl")))
-        - cost_multiplier * (_number(row.get("fee")) + _number(row.get("slippage")))
-        for row in trades
-    ]
+def _net_returns(trades: Sequence[Mapping[str, Any]], *, cost_multiplier: float = 1.0,
+                 initial_capital: float = 10_000.0) -> List[float]:
+    returns = []
+    for row in trades:
+        if row.get('gross_pnl_percent') is not None and row.get('cost_percent') is not None:
+            returns.append(initial_capital * (_number(row['gross_pnl_percent'])
+                           - cost_multiplier * _number(row['cost_percent'])) / 100)
+        elif row.get('return_percent', row.get('net_pnl_percent')) is not None:
+            # Net percentages already include base costs. Additional costs
+            # cannot be reconstructed when their components are absent.
+            returns.append(initial_capital * _number(row.get('return_percent', row.get('net_pnl_percent'))) / 100)
+        else:
+            returns.append(_number(row.get('pnl', row.get('realized_pnl')))
+                           - cost_multiplier * (_number(row.get('fee')) + _number(row.get('slippage'))))
+    return returns
 
 
 def _timestamp(row: Mapping[str, Any]) -> datetime | None:
@@ -123,7 +134,7 @@ def run_validation_lab(
 ) -> Dict[str, Any]:
     rows = [dict(row) for row in trades]
     initial_capital = max(1.0, _number(initial_capital))
-    returns = _net_returns(rows)
+    returns = _net_returns(rows, initial_capital=initial_capital)
     performance = _performance_summary(rows, initial_capital)
     split = max(1, int(len(returns) * 0.6)) if returns else 0
     train = returns[:split]
@@ -143,8 +154,12 @@ def run_validation_lab(
         sum(1 for item in walkforward_windows if item["passed"]) / len(walkforward_windows)
         if walkforward_windows else 0.0
     )
+    cost_known = all((row.get('cost_percent') is not None and row.get('gross_pnl_percent') is not None)
+                     or (row.get('return_percent', row.get('net_pnl_percent')) is None
+                         and row.get('fee') is not None and row.get('slippage') is not None) for row in rows)
     cost_sensitivity = {
-        label: round(sum(_net_returns(rows, cost_multiplier=multiple)), 6)
+        label: round(sum(_net_returns(rows, cost_multiplier=multiple, initial_capital=initial_capital)), 6)
+        if multiple == 1.0 or cost_known else None
         for label, multiple in (("base", 1.0), ("cost_1_5x", 1.5), ("cost_2x", 2.0))
     }
     variants = [dict(item) for item in (parameter_variants or [])]
@@ -164,7 +179,7 @@ def run_validation_lab(
             peak = max(peak, running)
             max_drawdown = max(max_drawdown, peak - running)
         monte_carlo.append(max_drawdown)
-    paper_returns = _net_returns([dict(item) for item in (paper_trades or [])])
+    paper_returns = _net_returns([dict(item) for item in (paper_trades or [])], initial_capital=initial_capital)
     paper_passed = len(paper_returns) >= 3 and sum(paper_returns) > 0
     train_mean = statistics.mean(train) if train else 0.0
     test_mean = statistics.mean(out_of_sample) if out_of_sample else 0.0
@@ -173,7 +188,7 @@ def run_validation_lab(
         overfit_flags.append("out_of_sample_degradation")
     if sensitivity_spread > max(1.0, abs(sum(returns)) * 2.0):
         overfit_flags.append("parameter_sensitivity_high")
-    if cost_sensitivity["base"] > 0 >= cost_sensitivity["cost_2x"]:
+    if cost_sensitivity['cost_2x'] is not None and cost_sensitivity["base"] > 0 >= cost_sensitivity["cost_2x"]:
         overfit_flags.append("cost_fragile")
     minimum_gate_reasons = []
     if len(rows) < max(1, int(minimum_trades)):
@@ -189,7 +204,10 @@ def run_validation_lab(
         "performance": performance,
         "train_net_pnl": round(sum(train), 6),
         "out_of_sample_net_pnl": round(sum(out_of_sample), 6),
-        "walkforward": {"windows": walkforward_windows, "pass_rate": round(wf_rate, 4)},
+        "walkforward": {"windows": walkforward_windows, "pass_rate": round(wf_rate, 4),
+                        "method": "closed_trade_window_stability_not_retrained_oos"},
+        "return_basis": "fixed_reference_capital_per_trade" if any(row.get('net_pnl_percent', row.get('return_percent')) is not None for row in rows) else "reported_amounts",
+        "cost_sensitivity_status": "estimated_costs_available" if cost_known and rows else "cost_components_unavailable",
         "cost_sensitivity": cost_sensitivity,
         "parameter_sensitivity": {"variants": len(variants), "score_spread": round(sensitivity_spread, 6)},
         "monte_carlo": {
@@ -209,7 +227,7 @@ def run_validation_lab(
             },
         },
         "promotion_ready": bool(
-            len(out_of_sample) >= 3 and wf_rate >= 0.5 and not overfit_flags
+            cost_known and len(out_of_sample) >= 3 and wf_rate >= 0.5 and not overfit_flags
             and not minimum_gate_reasons and paper_passed
         ),
         "paper_required": True,

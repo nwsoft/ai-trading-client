@@ -993,6 +993,7 @@ class CustomStrategyPipeline:
             minimum_gate = dict(lab.get("minimum_quality_gate") or {})
             lab["promotion_ready"] = bool(
                 passed
+                and lab.get("cost_sensitivity_status") == "estimated_costs_available"
                 and int(sample.get("out_of_sample", 0) or 0) >= 3
                 and float(walkforward.get("pass_rate", 0.0) or 0.0) >= 0.5
                 and not bool(overfit.get("flagged", False))

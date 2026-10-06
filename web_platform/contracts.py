@@ -271,7 +271,7 @@ class AssistantQueryContract(StrictContract):
 
 class RuntimeCommandContract(StrictContract):
     command_id: str = Field(min_length=16, max_length=80)
-    command: Literal["trading.start", "trading.stop", "coins.select", "coins.analyze", "stocks.analyze", "trades.import"]
+    command: Literal["trading.start", "trading.stop", "trading.recovery.cancel", "coins.select", "coins.analyze", "stocks.analyze", "trades.import"]
     source: str = Field(min_length=2, max_length=32)
     close_all: bool = False
     symbol: str = Field(default="", max_length=32)

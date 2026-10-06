@@ -30,7 +30,8 @@ def test_user_surfaces_share_provider_scope_and_menu_path():
 
 def test_release_metadata_and_installed_manual_are_scoped_separately():
     readme = _read("README.md")
-    assert f"현재 소스 후보: v{RELEASE_VERSION}" in readme
+    assert any(marker in readme[:2000] for marker in (
+        f"현재 소스 후보: v{RELEASE_VERSION}", f"현재 소스 기준: v{RELEASE_VERSION}"))
     assert RELEASE_PATCH in readme
     assert "Windows 검증 후보" in readme
     assert "모든 필수 행이 `[x] VERIFIED`" in readme

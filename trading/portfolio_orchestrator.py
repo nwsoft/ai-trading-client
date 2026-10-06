@@ -10,6 +10,30 @@
 from __future__ import annotations
 
 from typing import Any, Dict, List
+import math
+
+
+def available_quote_balance(snapshot: Any, quote: str, *, allow_cash: bool = False) -> tuple[float, str]:
+    """Do not mistake total equity, a missing currency, or NaN for free funds."""
+    if not isinstance(snapshot, dict) or str(snapshot.get('status') or '').lower() in {'error', 'failed', 'unavailable'}:
+        return 0.0, 'available_balance_unverified'
+    value = None
+    basis = 'available_balance_unverified'
+    for key in ('available_balance', 'availableBalance', 'available_cash', 'orderable_cash'):
+        if snapshot.get(key) is not None:
+            value, basis = snapshot[key], key
+            break
+    if value is None and isinstance(snapshot.get(quote), dict):
+        value, basis = snapshot[quote].get('free'), 'currency_free_balance'
+    if value is None and isinstance(snapshot.get('free'), dict):
+        value, basis = snapshot['free'].get(quote), 'currency_free_balance'
+    if value is None and allow_cash and quote == 'KRW':
+        value, basis = snapshot.get('cash'), 'reported_cash_not_orderable_certification'
+    try:
+        parsed = float(value) if value is not None and not isinstance(value, bool) else float('nan')
+        return (parsed, basis) if math.isfinite(parsed) and parsed >= 0 else (0.0, 'available_balance_unverified')
+    except (TypeError, ValueError):
+        return 0.0, 'available_balance_unverified'
 
 
 class PortfolioOrchestrator:
@@ -24,7 +48,8 @@ class PortfolioOrchestrator:
         try:
             if value is None:
                 return default
-            return float(value)
+            parsed = float(value)
+            return parsed if math.isfinite(parsed) else default
         except Exception:
             return default
 
@@ -38,11 +63,15 @@ class PortfolioOrchestrator:
     def allocate(self, candidates: List[Dict[str, Any]], total_capital: float, policy: Dict[str, Any] | None = None) -> Dict[str, Any]:
         effective = dict(policy or {})
         budgets = dict(self.DEFAULT_RISK_BUDGETS)
+        # Shipped settings use singular risk_budget; preserve explicit legacy
+        # engine keys as overrides when both representations exist.
+        budgets.update(effective.get("risk_budget", {}) or {})
         budgets.update(effective.get("risk_budgets", {}) or {})
 
         corr_penalty = self._to_float(effective.get("correlation_penalty", 0.35), 0.35)
         max_portfolio_risk = self._to_float(effective.get("max_portfolio_risk", 1.0), 1.0)
-        max_symbol_weight = self._to_float(effective.get("max_symbol_weight", 0.25), 0.25)
+        max_symbol_weight = max(0.0, min(1.0, self._to_float(
+            effective.get("max_symbol_weight", effective.get("max_single_asset_weight", 0.25)), 0.25)))
 
         raw_weights: Dict[str, float] = {}
         explanations: Dict[str, Dict[str, float]] = {}
@@ -69,7 +98,9 @@ class PortfolioOrchestrator:
 
         norm = self._normalize_weights(raw_weights)
         clipped = {k: min(v, max_symbol_weight) for k, v in norm.items()}
-        norm = self._normalize_weights(clipped)
+        # Renormalizing after clipping resurrects the concentration violation:
+        # one candidate capped at 35% becomes 100%. Leave unused capital idle.
+        norm = clipped
 
         portfolio_risk = sum(norm.values())
         risk_scale = min(1.0, max(0.0, max_portfolio_risk / max(portfolio_risk, 1e-6)))
@@ -91,14 +122,20 @@ class PortfolioOrchestrator:
         }
 
     def quantity_from_allocation(self, symbol: str, price: float, fallback_qty: float, allocation_result: Dict[str, Any]) -> float:
-        safe_price = max(self._to_float(price, 0.0), 0.0)
-        if safe_price <= 0:
-            return max(0.0, self._to_float(fallback_qty, 0.0))
-
-        alloc = (allocation_result.get("allocations", {}) or {}).get(str(symbol).upper(), {})
+        allocations = allocation_result.get("allocations", {}) or {}
+        key = str(symbol).upper()
+        alloc = allocations.get(key, {})
         capital = self._to_float(alloc.get("capital", 0.0), 0.0)
         if capital <= 0:
+            if key in allocations:
+                return 0.0
             return max(0.0, self._to_float(fallback_qty, 0.0))
+
+        safe_price = max(self._to_float(price, 0.0), 0.0)
+        if safe_price <= 0:
+            # A known allocation cannot be converted without a valid price;
+            # borrowing the old quantity would bypass the allocation cap.
+            return 0.0
 
         qty = capital / safe_price
         return max(0.0, min(qty, max(0.0, self._to_float(fallback_qty, fallback_qty))))

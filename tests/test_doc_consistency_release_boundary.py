@@ -36,3 +36,26 @@ def test_other_future_versions_and_next_section_remain_blocked():
         "v3.9.2.3\n"
     )
     assert len(checker.check_for_higher_version_mentions({"changelog": text})) == 2
+
+
+def test_published_identity_cannot_remain_candidate_but_history_is_preserved(monkeypatch):
+    monkeypatch.setattr(checker, 'RELEASE_VERSION', '3.9.2.5')
+    monkeypatch.setattr(checker, 'PUBLIC_RELEASE_VERSION', '3.9.2.4')
+    report = {'status': 'published_verified', 'version': '3.9.2.5'}
+    errors = checker.check_publication_boundary({'changelog': '## v3.9.2.5 (로컬 소스 후보)\n설치본을 게시한 상태는 아닙니다.'}, report)
+    assert any('PUBLIC_RELEASE_VERSION' in e for e in errors)
+    assert any('changelog' in e for e in errors)
+    monkeypatch.setattr(checker, 'PUBLIC_RELEASE_VERSION', '3.9.2.5')
+    text = '## v3.9.2.5 공개\n\n## 이전 릴리스\n설치본을 게시한 상태는 아닙니다.'
+    assert checker.check_publication_boundary({'changelog': text}, report) == []
+
+
+def test_build_ready_without_verified_publication_does_not_promote_release():
+    assert checker.check_publication_boundary({}, {'status': 'windows_verified_release_candidate', 'version': '3.9.2.2'}) == []
+
+
+def test_anchor_before_heading_does_not_hide_stale_publication_status(monkeypatch):
+    monkeypatch.setattr(checker, 'RELEASE_VERSION', '3.9.2.5')
+    monkeypatch.setattr(checker, 'PUBLIC_RELEASE_VERSION', '3.9.2.5')
+    text = '<a id="latest"></a>\n\n## v3.9.2.5\n설치본을 게시한 상태는 아닙니다.\n\n## 과거 이력\n'
+    assert checker.check_publication_boundary({'test_status': text}, {'status': 'published_verified', 'version': '3.9.2.5'})

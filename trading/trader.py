@@ -23,6 +23,8 @@ from trading.market_observation import track_market_observation, observation_pro
 from .execution_optimizer import ExecutionOptimizer
 from .ops_automation import OpsAutomationEngine
 from .portfolio_orchestrator import PortfolioOrchestrator
+from trading.opportunity_coordinator import account_scope_for, capture_account_scope
+from trading.runtime_policy_recovery import observe_execution_policy
 from .opportunity_coordinator import (
     get_opportunity_coordinator,
     policy_from_settings,
@@ -205,6 +207,7 @@ class Trader:
                  risk_manager: Optional[Any] = None, websocket_manager: Any = None, dashboard: Any = None, logger: Any = None, settings: Optional[Dict] = None, main_app: Any = None):
         # 🔥 바이낸스는 자체 API 사용 (CCXT 사용 안함)
         self.binance_client = binance_client
+        capture_account_scope(self)
         self.analyzer = analyzer
         self.optimizer = optimizer
         self.recorder = recorder
@@ -1797,7 +1800,8 @@ class Trader:
             root = self.settings.get('advanced_trading_layers', {}) if isinstance(self.settings, dict) else {}
             overrides = (root.get('exchange_overrides', {}) or {}).get('binance', {})
             from trading.advanced_layer_config import deep_merge_policy
-            return deep_merge_policy(root, overrides)
+            from trading.runtime_policy_recovery import apply_runtime_policy
+            return apply_runtime_policy(self, 'binance', self._execution_mode(), deep_merge_policy(root, overrides))
         except Exception:
             return {}
 
@@ -1889,14 +1893,16 @@ class Trader:
         if not bool(policy.get('enabled', False)):
             return {'allocations': {}, 'portfolio_risk': 0.0, 'risk_scale': 1.0}
 
-        capital = 0.0
-        try:
-            if hasattr(self, 'binance_client') and self.binance_client and hasattr(self.binance_client, 'get_futures_balance'):
-                capital = float(self.binance_client.get_futures_balance() or 0.0)
-        except Exception:
-            capital = 0.0
-        if capital <= 0:
-            capital = 1000.0
+        from trading.portfolio_orchestrator import available_quote_balance
+        if self._execution_mode() != ExecutionMode.LIVE:
+            from trading.position_sizing_policy import normalize_position_sizing_policy
+            capital = normalize_position_sizing_policy(self.settings, quote_currency='USDT')['paper_equity']
+            basis = 'paper_virtual_equity'
+        else:
+            try:
+                capital, basis = available_quote_balance(self.binance_client.get_account_info(), 'USDT')
+            except Exception:
+                capital, basis = 0.0, 'available_balance_unverified'
 
         candidate = {
             'symbol': str(symbol).upper(),
@@ -1905,7 +1911,9 @@ class Trader:
             'volatility': max(0.005, abs(float(signal_data.get('volatility', 0.5) or 0.5)) / 100.0),
             'avg_correlation': float(((policy.get('correlation_overrides', {}) or {}).get(str(symbol).upper(), 0.25)) or 0.25),
         }
-        return PortfolioOrchestrator().allocate(candidates=[candidate], total_capital=capital, policy=policy)
+        result = PortfolioOrchestrator().allocate(candidates=[candidate], total_capital=capital, policy=policy)
+        result.update({'capital_basis': basis, 'quote_currency': 'USDT', 'available_capital': capital})
+        return result
 
     def _place_entry_order_with_quality_control_binance(self, symbol: str, side: str, quantity: float, layer_settings: Dict[str, Any], trade_params: Dict[str, Any]) -> Dict[str, Any]:
         if not self._is_live_entry_enabled('binance'):
@@ -1917,8 +1925,17 @@ class Trader:
             )
             return {'status': 'BLOCKED', 'error': 'learning_only', 'errors': ['learning_only']}
         policy = dict(layer_settings.get('execution_optimizer', {}) or {})
+        from trading.opportunity_coordinator import finish_submission
+        authorization = trade_params.get('_opportunity')
+        client_order_id = get_opportunity_coordinator(self).client_order_id(authorization) if authorization else None
+        if authorization:
+            get_opportunity_coordinator(self).mark_submitting(authorization)
         if not bool(policy.get('enabled', False)):
-            result = self.binance_client.place_futures_order(symbol=symbol, side=side, order_type='MARKET', quantity=quantity)
+            try:
+                result = self.binance_client.place_futures_order(symbol=symbol, side=side, order_type='MARKET', quantity=quantity, **({'client_order_id':client_order_id} if client_order_id else {}))
+            except Exception as exc:
+                result = {'status':'UNKNOWN','reconciliation_required':True,'error':type(exc).__name__}
+            finish_submission(self, authorization, result, confirmed=str((result or {}).get('status', '')).upper() == 'FILLED')
             if isinstance(result, dict):
                 result.setdefault('latency_ms', 0.0)
                 result.setdefault('slippage_bps', 0.0)
@@ -1946,7 +1963,7 @@ class Trader:
             request_price = None
 
         success, result, errors, latency_ms, slippage_bps = optimizer.execute_with_quality_control(
-            place_order_fn=lambda dyn_order_type, dyn_price: self._place_binance_order_once(symbol, side, quantity, dyn_order_type, dyn_price),
+            place_order_fn=lambda dyn_order_type, dyn_price: self._place_binance_order_once(symbol, side, quantity, dyn_order_type, dyn_price, client_order_id=client_order_id),
             order_type=chosen_order_type,
             request_price=request_price,
             fallback_market=bool(policy.get('fallback_market', True)),
@@ -1955,14 +1972,16 @@ class Trader:
             max_slippage_bps=max(0.1, float(policy.get('max_slippage_bps', 35.0) or 35.0)),
         )
         payload = dict(result or {})
-        payload['status'] = 'FILLED' if success and str(payload.get('status', '')).upper() in ('', 'NEW', 'PENDING', 'FILLED') else payload.get('status', 'FAILED')
+        payload['status'] = payload.get('status') or ('UNKNOWN' if payload.get('reconciliation_required') else 'FAILED')
         payload['latency_ms'] = latency_ms
         payload['slippage_bps'] = slippage_bps
         payload['errors'] = errors
         payload['order_type'] = payload.get('order_type') or chosen_order_type
+        finish_submission(self, authorization, payload, success=success,
+                          confirmed=str(payload.get('status', '')).upper() == 'FILLED')
         return payload
 
-    def _place_binance_order_once(self, symbol: str, side: str, quantity: float, order_type: str, request_price: Optional[float] = None) -> tuple[bool, Dict[str, Any], List[str]]:
+    def _place_binance_order_once(self, symbol: str, side: str, quantity: float, order_type: str, request_price: Optional[float] = None, client_order_id: Optional[str] = None) -> tuple[bool, Dict[str, Any], List[str]]:
         if not self._is_live_entry_enabled('binance'):
             return False, {'status': 'BLOCKED', 'error': 'learning_only'}, ['learning_only']
         normalized_order_type = str(order_type).upper()
@@ -1973,6 +1992,7 @@ class Trader:
             order_type=normalized_order_type,
             quantity=quantity,
             price=order_price,
+            **({'client_order_id':client_order_id} if client_order_id else {}),
         )
         status = str((result or {}).get('status', '')).upper()
         success = status in ('NEW', 'PENDING', 'FILLED')
@@ -1984,6 +2004,9 @@ class Trader:
         try:
             execution_mode = self._execution_mode()
             live_orders_enabled = execution_mode == ExecutionMode.LIVE
+            if live_orders_enabled:
+                from trading.entry_fill_evidence import reconcile_owned_pending_entries
+                reconcile_owned_pending_entries(self)
             paper_mode = execution_mode == ExecutionMode.PAPER
             decision_execution_enabled = live_orders_enabled or paper_mode
             cycle_position_snapshot: Optional[Dict[str, Any]] = None
@@ -2836,7 +2859,7 @@ class Trader:
                                     )
                                     continue
                                 if paper_mode:
-                                    paper_auth = get_opportunity_coordinator().authorize(
+                                    paper_auth = get_opportunity_coordinator(self).authorize(
                                         policy=policy_from_settings(
                                             self.settings,
                                             authorized_targets=list(
@@ -2861,7 +2884,7 @@ class Trader:
                                         strategy_version=str(
                                             candidate.strategy_version_id or "noah_base"
                                         ),
-                                        account_scope="binance-paper",
+                                        account_scope=account_scope_for(self, ExecutionMode.PAPER),
                                     )
                                     if not paper_auth.allowed:
                                         self.log_event(
@@ -2881,12 +2904,12 @@ class Trader:
                                             paper_params,
                                         )
                                         if trade_result:
-                                            get_opportunity_coordinator().record_result(
+                                            get_opportunity_coordinator(self).record_result(
                                                 paper_auth,
                                                 status="paper_filled",
                                             )
                                         else:
-                                            get_opportunity_coordinator().release(paper_auth)
+                                            get_opportunity_coordinator(self).release(paper_auth)
                                 else:
                                     trade_result = self.execute_trades(candidates, optimized_params_wrapped)
                                 self.log_event('trade', f"🔍 {symbol} 거래 실행 결과: {trade_result}")
@@ -2940,7 +2963,7 @@ class Trader:
             quality_score = max(0.0, min(100.0, round((success_rate * 100.0) - min(30.0, avg_latency / 40.0) - min(25.0, abs(avg_slippage) / 0.8), 2)))
             ops_engine = OpsAutomationEngine()
             anomalies = ops_engine.detect_anomalies(
-                {'reject_rate': reject_rate, 'avg_slippage_bps': avg_slippage, 'quality_score': quality_score},
+                {'attempted_orders': attempts, 'reject_rate': reject_rate, 'avg_slippage_bps': avg_slippage, 'quality_score': quality_score},
                 dict(layer_settings.get('ops_automation', {}) or {}),
             )
             self.cycle_execution_metrics['binance'] = {
@@ -2950,7 +2973,8 @@ class Trader:
                 'avg_slippage_bps': round(avg_slippage, 2),
                 'quality_score': quality_score,
                 'anomalies': anomalies,
-                'rollback_action': ops_engine.build_rollback_action(anomalies, dict(layer_settings.get('ops_automation', {}) or {})),
+                'rollback_action': observe_execution_policy(
+                    self, 'binance', execution_mode, layer_settings, {'attempted_orders': attempts}, anomalies),
                 'daily_briefing': ops_engine.build_daily_briefing(
                     {
                         'orders_executed': attempts - failed,
@@ -3166,7 +3190,7 @@ class Trader:
                         )
                         if not authorized_targets:
                             authorized_targets = ["binance"]
-                        opportunity_auth = get_opportunity_coordinator().authorize(
+                        opportunity_auth = get_opportunity_coordinator(self).authorize(
                             policy=policy_from_settings(
                                 self.settings,
                                 authorized_targets=authorized_targets,
@@ -3182,12 +3206,11 @@ class Trader:
                                 trade_params.get("_selected_custom_strategy_version_id")
                                 or "noah_base"
                             ),
-                            account_scope=str(
-                                self.settings.get("account_id")
-                                or self.settings.get("user_id")
-                                or f"binance:{id(self)}"
-                            ),
+                            account_scope=account_scope_for(self, self._execution_mode()),
                             reserve=not dry_run,
+                            capital_guard_enabled=bool((self._get_advanced_layers_settings_binance().get('portfolio_orchestration') or {}).get('enabled')),
+                            available_capital=((getattr(self, 'portfolio_allocation_cache', {}) or {}).get(symbol) or {}).get('available_capital'),
+                            leverage=float(trade_params.get('leverage') or 1),
                         )
                         trade_params["_opportunity"] = opportunity_auth.to_dict()
                         trade_params["_opportunity_quantity_factor"] = float(
@@ -3228,15 +3251,15 @@ class Trader:
                         try:
                             trade_result = self.execute_single_trade(trade_params)
                         except Exception as trade_exc:
-                            get_opportunity_coordinator().release(opportunity_auth)
-                            get_opportunity_coordinator().record_result(
+                            get_opportunity_coordinator(self).release(opportunity_auth)
+                            get_opportunity_coordinator(self).record_result(
                                 opportunity_auth,
                                 status="failed",
                                 detail=str(trade_exc),
                             )
                             raise
                         if trade_result:
-                            get_opportunity_coordinator().record_result(
+                            get_opportunity_coordinator(self).record_result(
                                 opportunity_auth,
                                 status="submitted",
                                 order_id=str(
@@ -3248,8 +3271,8 @@ class Trader:
                             self.log_event('trade', f"[{symbol}] ✅ 거래 실행 성공 - results에 추가")
                             results.append(trade_result)
                         else:
-                            get_opportunity_coordinator().release(opportunity_auth)
-                            get_opportunity_coordinator().record_result(
+                            get_opportunity_coordinator(self).release(opportunity_auth)
+                            get_opportunity_coordinator(self).record_result(
                                 opportunity_auth,
                                 status="failed",
                                 detail="execute_single_trade returned no result",
@@ -3922,6 +3945,9 @@ class Trader:
                             symbol=symbol,
                             orderId=order_result.get('order_id')
                         )
+                        order_result['order'] = dict(order_status_check)
+                        order_result['avg_price'] = float(order_status_check.get('avgPrice', 0) or 0)
+                        order_result['executed_qty'] = float(order_status_check.get('executedQty', 0) or 0)
 
                         if order_status_check.get('status') == 'FILLED':
                             self.log_event('trade', f"[{symbol}] ✅ 주문 체결 완료!")
@@ -3930,7 +3956,7 @@ class Trader:
                             order_result['executed_qty'] = float(order_status_check.get('executedQty', 0))
                             order_status = 'FILLED'
                             break
-                        elif order_status_check.get('status') in ['CANCELED', 'REJECTED', 'EXPIRED']:
+                        elif order_status_check.get('status') in ['CANCELED', 'REJECTED', 'EXPIRED', 'EXPIRED_IN_MATCH']:
                             self.log_event('trade', f"[{symbol}] ❌ 주문 취소/거부됨: {order_status_check.get('status')}", level='ERROR')
                             order_result['status'] = order_status_check.get('status')
                             order_status = order_status_check.get('status')
@@ -3939,95 +3965,32 @@ class Trader:
                         self.log_event('trade', f"[{symbol}] ⚠️ 주문 상태 확인 실패: {e}")
 
                 if order_status in ['NEW', 'PENDING']:
-                    self.log_event('trade', f"[{symbol}] ⚠️ 주문 체결 타임아웃 - 포지션 확인으로 진행 (status: {order_status})", level='WARNING')
-                    # 타임아웃이어도 포지션이 생성되었을 수 있으므로 계속 진행
+                    self.log_event('trade', f"[{symbol}] ⚠️ 주문 체결 대기 종료 - 기관이 보고한 해당 주문의 체결 수량을 대조합니다 (status: {order_status})", level='WARNING')
 
-            # 🔥 주문 실패 시 검증만 수행 (보정 비활성화)
-            # PENDING, NEW, FILLED 모두 성공으로 처리 (PENDING은 체결 대기 후 FILLED로 전환됨)
-            if order_status not in ['NEW', 'FILLED', 'PENDING']:
-                # 에러 메시지가 비어있을 때 order_result 전체를 로깅
-                error_msg = str(order_result.get('error', '')) if order_result else ''
-                if not error_msg and order_result:
-                    error_msg = f"주문 결과: {order_result}"
-                self.log_event('trade', f"[{symbol}] ❌ 주문 실패 - 에러: {error_msg}", level='ERROR')
-
-                # MIN_NOTIONAL 에러 (-4164) 검증만 수행 (자동 재시도 비활성화)
-                if 'no smaller than' in error_msg:
-                    # 에러 메시지에서 필요한 최소 명목가 추출
-                    match = re.search(r'no smaller than\s*([0-9.]+)', error_msg)
-                    if match:
-                        required_min_notional = float(match.group(1))  # 예: 20.0
-
-                        # 현재 거래 파라미터에서 필터 정보 가져오기
-                        filters = trade_params.get('filters', {})
-                        current_qty = trade_params.get('qty', 0)
-
-                        # 참조가격으로 현재 거래금액 계산
-                        if 'ref_price' in locals():
-                            ref_price = locals()['ref_price']
-                        elif 'current_price' in locals():
-                            ref_price = locals()['current_price']
-                        else:
-                            # 현재가를 다시 조회
-                            try:
-                                ref_price = self.binance_client.get_current_price(symbol)
-                                self.log_event('trade', f"[{symbol}] 🔍 MIN_NOTIONAL 검증용 현재가 조회: {ref_price}")
-                            except Exception as e:
-                                self.log_event('trade', f"[{symbol}] ❌ 현재가 조회 실패: {e}", level='ERROR')
-                                return False
-
-                        # 🔥 검증만 수행: 현재 거래금액이 최소 노셔널 미달인지 확인
-                        current_notional = current_qty * ref_price
-                        if current_notional < required_min_notional:
-                            self.log_event('trade', f"[{symbol}] ⚠️ MIN_NOTIONAL 미달 검증: 현재={current_notional:.2f} < 필요={required_min_notional:.2f} USDT", level='WARNING')
-                            self.log_event('trade', f"[{symbol}] 💡 해결방법: Optimizer에서 수량을 {required_min_notional/ref_price:.6f} 이상으로 설정 필요", level='INFO')
-
-                            # 🔥 Optimizer에서 이미 보정했는데도 에러가 발생한다면 다른 원인 분석
-                            self.log_event('trade', f"[{symbol}] 🔍 원인 분석: Optimizer 보정 후에도 MIN_NOTIONAL 에러 발생", level='WARNING')
-                            self.log_event('trade', f"[{symbol}] 🔍 가능한 원인: 1) 가격 변동 2) 거래소 정책 변경 3) Optimizer 보정 로직 문제", level='INFO')
-
-                            # 🔥 자동 재시도 비활성화 - 검증 실패 시 거래 중단
-                            self.log_event('trade', f"[{symbol}] ❌ MIN_NOTIONAL 검증 실패 - 거래 중단 (자동 재시도 비활성화)", level='ERROR')
-                            return False
-                        else:
-                            # 🔥 현재 거래금액이 충분한데도 에러가 발생한 경우
-                            self.log_event('trade', f"[{symbol}] 🔍 이상 상황: 거래금액 충분({current_notional:.2f} >= {required_min_notional:.2f})인데 MIN_NOTIONAL 에러 발생", level='WARNING')
-                            self.log_event('trade', f"[{symbol}] 🔍 가능한 원인: 1) 거래소 일시적 오류 2) 다른 파라미터 문제 3) API 버전 차이", level='INFO')
-                            self.log_event('trade', f"[{symbol}] ❌ 예상치 못한 MIN_NOTIONAL 에러 - 거래 중단", level='ERROR')
-                            return False
-                    else:
-                        self.log_event('trade', f"[{symbol}] ❌ MIN_NOTIONAL 에러 메시지 파싱 실패: {error_msg}", level='ERROR')
-                        return False
-                else:
-                    # 다른 에러의 경우 - 하지만 실제 포지션이 생성되었을 수 있으므로 확인
-                    self.log_event('trade', f"[{symbol}] ❌ 주문 실패: {error_msg} - 실제 포지션 확인 중...", level='ERROR')
-                    # 🔥 주문 실패로 처리되었지만 실제 포지션이 생성되었을 수 있음
-                    try:
-                        position_info = self._get_position_info_with_retry(symbol)
-                        if position_info and abs(float(position_info.get('positionAmt', 0))) > 0:
-                            self.log_event('trade', f"[{symbol}] ⚠️ 주문 실패 처리되었지만 실제 포지션 확인됨 - 포지션 복구 진행", level='WARNING')
-                            # 포지션이 있으면 성공으로 처리하고 계속 진행
-                            order_status = 'FILLED'  # 포지션이 있으면 성공으로 간주
-                            order_result['status'] = 'FILLED'
-                            actual_entry_price = float(position_info.get('entryPrice', 0))
-                            if actual_entry_price > 0:
-                                order_result['avg_price'] = actual_entry_price
-                                order_result['executed_qty'] = abs(float(position_info.get('positionAmt', 0)))
-                        else:
-                            # 실제 포지션도 없으면 진짜 실패
-                            return False
-                    except Exception as e:
-                        self.log_event('trade', f"[{symbol}] ⚠️ 포지션 확인 중 오류: {e} - 거래 실패로 처리", level='WARNING')
-                        return False
-            # 🔥 autotrade.py와 동일한 검증 로직 추가
-            # PENDING 상태도 성공으로 처리 (체결 대기 후 FILLED로 전환됨)
-            if order_status in ['NEW', 'FILLED', 'PENDING']:
+            from trading.entry_fill_evidence import owned_entry_fill
+            from trading.opportunity_coordinator import finish_submission
+            raw_receipt = order_result.get('order') or order_result
+            provider_terminal = str(raw_receipt.get('status') or '').upper() in {
+                'FILLED', 'CANCELED', 'CANCELLED', 'REJECTED', 'EXPIRED', 'EXPIRED_IN_MATCH'
+            }
+            finish_submission(self, trade_params.get('_opportunity'), order_result,
+                              confirmed=provider_terminal)
+            own_fill = owned_entry_fill(order_result)
+            if not own_fill:
+                self.log_event('trade', f"[{symbol}] 해당 주문의 체결 근거 없음 - 포지션·거래 기록 생성 보류. 미확정 주문은 내역 대조 필요", level='WARNING')
+                return False
+            # A terminal cancellation may contain a real partial fill. Protect
+            # only that owned quantity; never promote requested size to a fill.
+            if own_fill:
                 self.log_event('order', f"[{symbol}] 🔍 주문 제출 성공 (status: {order_status}) - 포지션 확인 시작")
                 # 주문이 제출되었으므로 포지션 확인
                 position_info = self._get_position_info_with_retry(symbol)
                 self.log_event('order', f"[{symbol}] 🔍 포지션 정보: {position_info}")
 
                 if position_info and abs(float(position_info.get('positionAmt', 0))) > 0:
+                    if abs(abs(float(position_info.get('positionAmt', 0))) - own_fill['quantity']) > max(1e-9, own_fill['quantity'] * 1e-6):
+                        self.log_event('trade', f"[{symbol}] 주문 체결량과 계좌 포지션 수량 불일치 - 외부 거래를 자동 귀속하지 않습니다. 주문·보유 내역 대조 필요", level='WARNING')
+                        return False
                     self.log_event('order', f"[{symbol}] ✅ 진입 성공 - 포지션 확인됨 (수량: {position_info.get('positionAmt', 0)})")
 
                     # 실제 진입 가격 확인 (positionAmt로 검증된 포지션에서)
@@ -6595,7 +6558,7 @@ class Trader:
                             order_result['avg_price'] = float(order_status_check.get('avgPrice', 0))
                             order_result['executed_qty'] = float(order_status_check.get('executedQty', 0))
                             break
-                        elif order_status_check.get('status') in ['CANCELED', 'REJECTED', 'EXPIRED']:
+                        elif order_status_check.get('status') in ['CANCELED', 'REJECTED', 'EXPIRED', 'EXPIRED_IN_MATCH']:
                             self.log_event('trade', f"[{symbol}] ❌ 청산 주문 취소/거부됨: {order_status_check.get('status')}", level='ERROR')
                             order_result['status'] = order_status_check.get('status')
                             break
