@@ -6,6 +6,15 @@
 
 Windows 빌드·릴리즈·게시 담당은 사용자입니다. Codex는 수정·로컬 검증·배포 준비만 수행합니다. 허브 파서 패치는 별도 서버 반영이 필요합니다. [수정 원인·기존 사용자 재개·검증 경계](V3927_FEEDBACK_PATCH.md). 아래 버전별 후보·미배포 표기는 당시 이력입니다.
 
+### .7 최종 로컬 검증
+
+- 공개 .6 태그에서 분리한 .7 준비 소스: Python **5,436 passed / 11 skipped / 3 subtests**, 실패 0. `reports/v3927-prepared-full-regression-final.txt`.
+- Node 22.23.1에서 Node/Electron **79 passed**, 실패 0. TypeScript/Vite 빌드 통과. `reports/v3927-prepared-node-regression.txt`, `reports/v3927-webui-build.txt`.
+- 활성 소스·문서 정합성·사용자 노출 동기화·전체 화면 기능 계약 검사 통과. 외부 과거 보관 폴더가 없는 새 작업트리와 보관 폴더의 파일 누락/변조 거절을 함께 검증했다.
+- 별도 깨끗한 허브 소스 **46 passed / 17 subtests**. 첨부 원본 3개의 실제 로컬 HTTP 분석 200·제출 201, 원본 파일/전략 해시 보존. 운영 서버/DB를 변경하지 않았다.
+- 최종 React의 41개 화면 검사는 응답을 가로챈 합성 자료이다. 공유 데이터 검증은 원본을 보존한 임시 복사본이며 저장된 가격만 사용했다. 실제 기관 API·계정 주문·외부 AI 호출을 수행하지 않았다. `reports/v3927-ui/result.json`, `reports/v3927-copied-data-verification.json`.
+- 소스 bundle·허브 패치·검증 자료는 `reports/v3927-handoff/`에 인계한다. Windows 설치/업그레이드/롤백, 실제 허브 서버 반영, 실기관·장시간 인수 및 릴리즈 게이트는 사용자가 수행할 항목으로 남긴다. 과거 누락 손익의 자동 복구나 전략 성과 개선을 완료로 표시하지 않는다.
+
 ## 2026-10-06 — v3.9.2.6 전략 스튜디오·자율주행 후속 (개발 진행·미배포)
 
 현재 소스 후보: v3.9.2.6 · updater 3.9.206. 현재 공개 기반: v3.9.2.5.
