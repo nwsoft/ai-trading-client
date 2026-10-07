@@ -124,6 +124,15 @@ def _validate_quarantine() -> Dict[str, Any]:
     manifest_path = ROOT / "config" / "source_quarantine_manifest.json"
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     quarantine_root = (ROOT / manifest["quarantine_root"]).resolve()
+    if not quarantine_root.exists():
+        # This is a historical archive outside Git, not a Windows build input.
+        # The active-source scan still rejects conflict and retired files.
+        return {
+            "root": str(quarantine_root),
+            "artifact_count": len(manifest.get("artifacts", [])),
+            "archive_status": "not_present_on_build_machine",
+            "failures": [],
+        }
     failures = []
     for artifact in manifest.get("artifacts", []):
         path = quarantine_root / artifact["path"]
@@ -136,6 +145,7 @@ def _validate_quarantine() -> Dict[str, Any]:
     return {
         "root": str(quarantine_root),
         "artifact_count": len(manifest.get("artifacts", [])),
+        "archive_status": "verified" if not failures else "verification_failed",
         "failures": failures,
     }
 
