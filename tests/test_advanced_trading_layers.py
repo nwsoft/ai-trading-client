@@ -465,7 +465,7 @@ def _quality_control_trader_fixture():
     trader.get_exchange_client = MagicMock(return_value=SimpleNamespace(
         set_leverage=lambda symbol, leverage: True,
         set_margin_type=lambda symbol, margin_type: True,
-        exchange=object(),
+        exchange=SimpleNamespace(market=lambda symbol: {"contractSize": 1.0}),
     ))
     trader._calculate_position_size_unified = MagicMock(return_value=0.05)
     trader._ensure_min_notional = MagicMock(return_value=(0.05, ""))
