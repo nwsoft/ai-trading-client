@@ -120,6 +120,7 @@ class Position:
     # 현물 자동매매가 시작되기 전부터 있던 잔고. 청산 시 이 수량은 절대
     # 매도하지 않고 앱이 체결한 증가분만 관리한다.
     spot_baseline_quantity: float = 0.0
+    pnl_calculation_status: str = ''
 
 
 @dataclass
@@ -1924,7 +1925,8 @@ class Trader:
             fetcher=lambda symbol, limit: self.binance_client.get_klines(symbol, '1d', limit))
         candidate = measured[0]
         result = PortfolioOrchestrator().allocate(candidates=[candidate], total_capital=capital, policy=policy)
-        result.update({'capital_basis': basis, 'quote_currency': 'USDT', 'available_capital': capital})
+        result.update({'capital_basis': basis, 'quote_currency': 'USDT', 'available_capital': capital,
+                       'capital_reason': funds.get('reason')})
         from trading.paper_capital import remember_capital
         remember_capital(self, venue='binance', mode=self._execution_mode(), funds={**funds, **result})
         return result
@@ -2905,6 +2907,7 @@ class Trader:
                                             self, venue='binance', mode=ExecutionMode.PAPER, policy=self.settings.get('multi_venue_execution', {}).get('portfolio_exposure')),
                                         capital_guard_enabled=bool((layer_settings.get('portfolio_orchestration') or {}).get('enabled')),
                                         available_capital=(self.portfolio_allocation_cache.get(symbol) or {}).get('available_capital'),
+                                        capital_basis=(self.portfolio_allocation_cache.get(symbol) or {}).get('capital_basis', ''),
                                         leverage=float(optimized_params.get('leverage') or 1),
                                     )
                                     if not paper_auth.allowed:
@@ -3233,6 +3236,7 @@ class Trader:
                                 self, venue='binance', mode=self._execution_mode(), policy=self.settings.get('multi_venue_execution', {}).get('portfolio_exposure')) if not dry_run else None,
                             capital_guard_enabled=bool((self._get_advanced_layers_settings_binance().get('portfolio_orchestration') or {}).get('enabled')),
                             available_capital=((getattr(self, 'portfolio_allocation_cache', {}) or {}).get(symbol) or {}).get('available_capital'),
+                            capital_basis=((getattr(self, 'portfolio_allocation_cache', {}) or {}).get(symbol) or {}).get('capital_basis', ''),
                             leverage=float(trade_params.get('leverage') or 1),
                         )
                         trade_params["_opportunity"] = opportunity_auth.to_dict()

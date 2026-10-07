@@ -15,6 +15,30 @@ from config.app_version import RELEASE_VERSION, PUBLIC_RELEASE_VERSION
 def restore(root: Path):
     baseline=json.loads((root/'config/published_release_baselines.json').read_text(encoding='utf-8'))['releases'][PUBLIC_RELEASE_VERSION]
     manifest_path=root/'deploy/release-manifest.json'
+    if not manifest_path.exists() and baseline.get('manifest_source_path'):
+        # Fresh Git worktrees do not contain ignored deploy artifacts. Seed
+        # only the hash-pinned, previously published manifest, never a fake
+        # current-candidate build or inherited Windows gate completion.
+        source=(root/baseline['manifest_source_path']).resolve()
+        try:
+            source.relative_to((root/'config').resolve())
+        except ValueError as exc:
+            raise RuntimeError('Published manifest source path invalid') from exc
+        content=source.read_bytes()
+        if hashlib.sha256(content).hexdigest()!=baseline.get('manifest_source_sha256'):
+            raise RuntimeError('Published manifest source hash mismatch')
+        preserved=json.loads(content.decode('utf-8-sig'))
+        asset=(preserved.get('assets') or {}).get('installer') or {}
+        if (preserved.get('version')!=PUBLIC_RELEASE_VERSION
+                or any(asset.get(key)!=baseline.get(key) for key in ('name','size','sha256'))):
+            raise RuntimeError('Published manifest baseline identity mismatch')
+        manifest_path.parent.mkdir(parents=True,exist_ok=True)
+        temporary=manifest_path.with_suffix('.json.tmp')
+        try:
+            temporary.write_bytes(content)
+            temporary.replace(manifest_path)
+        finally:
+            temporary.unlink(missing_ok=True)
     manifest=json.loads(manifest_path.read_text(encoding='utf-8-sig')) if manifest_path.is_file() else {'version':PUBLIC_RELEASE_VERSION,'assets':{'installer':baseline}}
     if manifest.get('version')==RELEASE_VERSION:
         asset=dict(manifest.get('previous_published_asset') or {})

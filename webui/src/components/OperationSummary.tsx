@@ -7,14 +7,17 @@ function timeLabel(value: unknown) {
   return Number.isFinite(n) && n > 0 ? new Date(n < 1e11 ? n * 1000 : n).toLocaleString() : '기록 없음';
 }
 
-export function OperationSummary({ data, source, mode, running, failed, onOpenFeature, onAskAssistant, onCancelRecovery }: {
+export function OperationSummary({ data, source, mode, running, failed, onOpenFeature, onAskAssistant, onCancelRecovery, onNewPaperSession }: {
   data: WorkspaceSnapshot['operation_summary']; source: string; mode: string; running: boolean; failed: boolean;
   onOpenFeature?:(suffix:string)=>void; onAskAssistant?:(question:string)=>void;
   onCancelRecovery?:()=>Promise<void>;
+  onNewPaperSession?:()=>Promise<Record<string,any>>;
 }) {
+  const [sessionAcknowledged,setSessionAcknowledged]=useState(false), [sessionBusy,setSessionBusy]=useState(false), [sessionMessage,setSessionMessage]=useState('');
   const [recoveryBusy,setRecoveryBusy]=useState(false), [recoveryError,setRecoveryError]=useState('');
   const recoveryGeneration=useRef(0);
-  useEffect(()=>{recoveryGeneration.current++;setRecoveryError('');setRecoveryBusy(false);return()=>{recoveryGeneration.current++;};},[source,mode]);
+  useEffect(()=>{recoveryGeneration.current++;setRecoveryError('');setRecoveryBusy(false);setSessionAcknowledged(false);setSessionBusy(false);setSessionMessage('');return()=>{recoveryGeneration.current++;};},[source,mode]);
+  async function newPaperSession(){if(!sessionAcknowledged||!onNewPaperSession)return;const token=recoveryGeneration.current;setSessionBusy(true);setSessionMessage('');try{const result=await onNewPaperSession();if(token===recoveryGeneration.current){setSessionAcknowledged(false);setSessionMessage(result.created?'새 PAPER 평가 기준을 저장했습니다. 과거 손익은 복구되지 않았으며 거래는 시작하지 않았습니다. 시작 버튼으로 다시 검증하세요.':'이미 새 PAPER 평가 기준이 있습니다. 다시 초기화하지 않았습니다.');}}catch(error){if(token===recoveryGeneration.current)setSessionMessage(error instanceof Error?error.message:'새 PAPER 평가를 준비하지 못했습니다.');}finally{if(token===recoveryGeneration.current)setSessionBusy(false);}}
   async function cancelRecovery(){const token=recoveryGeneration.current;setRecoveryBusy(true);setRecoveryError('');try{await onCancelRecovery?.();if(token===recoveryGeneration.current)setRecoveryError('복원을 취소했습니다. 사용자 저장 정책은 유지되며 주문·거래 재개를 실행하지 않았습니다.');}catch{if(token===recoveryGeneration.current)setRecoveryError('복원 취소에 실패했습니다. 실행 상태를 다시 확인하세요.');}finally{if(token===recoveryGeneration.current)setRecoveryBusy(false);}}
   const scoped = data?.source === source && data?.mode === mode ? data : undefined;
   const regime = scoped?.regime, candidate = scoped?.candidate;
@@ -37,9 +40,18 @@ export function OperationSummary({ data, source, mode, running, failed, onOpenFe
     {scoped?.capital && <article role="status"><h4>자금 배분 근거</h4>
       <p>{({paper_reconciled_funds:'가상 초기자금 + 기록된 청산 순손익 − 보유 증거금·비용 여유',paper_virtual_equity:'LEARNING 가상 기준자금 · 주문 없음',paper_funds_unverified:'가상 자금 대조 필요 · 신규 진입 보류',available_balance_unverified:'기관 주문 가능금액 확인 필요 · 신규 진입 보류',orderable_cash:'기관 응답의 주문 가능현금',available_cash:'기관 응답의 가용현금',available_balance:'기관 응답의 가용잔고',availableBalance:'기관 응답의 가용잔고',currency_free_balance:'해당 통화의 사용 가능잔고'} as Record<string,string>)[String(scoped.capital.capital_basis)] ?? '자금 확인 근거 검토 필요'}</p>
       <p>예약 전 가용액 {['paper_reconciled_funds','paper_virtual_equity','orderable_cash','available_cash','available_balance','availableBalance','currency_free_balance'].includes(String(scoped.capital.capital_basis)) && scoped.capital.available_capital != null && Number.isFinite(Number(scoped.capital.available_capital)) ? Number(scoped.capital.available_capital).toLocaleString() : '미확인'} {String(scoped.capital.quote_currency || '')}</p>
+      {scoped.capital.reason && <p>{({paper_ledger_currency_unverified:'과거 PAPER 청산 기록의 결제 통화가 누락되어 자금을 대조할 수 없습니다.',paper_ledger_pnl_unverified:'과거 PAPER 청산 기록의 손익·비용 근거가 부족하여 자금을 대조할 수 없습니다.',paper_ledger_reconciliation_budget:'PAPER 기록이 자동 대조 범위를 넘었습니다. 거래 기록 점검에서 원장을 확인하세요.',paper_position_mode_unverified:'보유 포지션의 PAPER 모드를 확인할 수 없습니다.',paper_position_notional_unverified:'보유 포지션의 수량·진입가를 확인할 수 없습니다.',paper_position_margin_unverified:'보유 포지션의 증거금 계산 근거를 확인할 수 없습니다.',paper_ledger_event_conflict:'같은 PAPER 청산 기록에 서로 다른 손익이 있어 대조가 필요합니다.'} as Record<string,string>)[String(scoped.capital.reason)] ?? 'PAPER 청산 원장·보유 포지션 대조가 필요합니다.'}</p>}
       <small>{timeLabel(scoped.capital.observed_at)}{old(scoped.capital) ? ' · 오래된 자금 관찰' : ''}</small>
       <p>미체결 주문 예약은 추가로 차감하며, 통화·기관 간 자금을 합치거나 미실현 이익을 지출 가능한 자금으로 계산하지 않습니다.</p>
-      {['paper_funds_unverified','available_balance_unverified'].includes(String(scoped.capital.capital_basis)) && <p>거래 기록 점검에서 해당 모드의 청산 기록·보유 수량을 대조하고, LIVE는 기관 연결과 주문 가능금액 응답을 확인하세요. 기록 삭제나 위험 한도 완화로 해제하지 않습니다.</p>}
+      {scoped.capital.paper_session_id && <p>새 PAPER 평가 시작: {String(scoped.capital.paper_session_started_at)}. 이 가용액은 새 평가 구간의 기준자금·청산·보유만 반영합니다. 과거 기록과 전체 기간 통계는 보존되며 과거 손익 복구 완료를 뜻하지 않습니다.</p>}
+      {mode==='paper' && !scoped.capital.paper_session_id && ['paper_ledger_currency_unverified','paper_ledger_pnl_unverified'].includes(String(scoped.capital.reason)) && onNewPaperSession && <div>
+        <p>과거 기록의 필수 값이 없어 기존 가상 자금을 복원할 수 없는 경우, 과거 기록을 보존하고 설정의 PAPER 기준자금으로 새 평가를 시작할 수 있습니다. 해당 기관을 정지하고 보유 PAPER 포지션 청산과 주문 예약 해소를 먼저 확인하세요. 이 작업은 한 번만 가능하며 손실 후 반복 초기화는 지원하지 않습니다.</p>
+        <label><input type="checkbox" checked={sessionAcknowledged} disabled={sessionBusy} onChange={event=>setSessionAcknowledged(event.target.checked)}/>과거 손익 복구가 아니라 별도의 새 PAPER 평가라는 점을 확인했습니다.</label>
+        <button disabled={!sessionAcknowledged||sessionBusy||running} onClick={()=>void newPaperSession()}>{sessionBusy?'기준 저장 중…':'과거 기록 보존하고 새 PAPER 평가 준비'}</button>
+      </div>}
+      {sessionMessage&&<p role="status">{sessionMessage}</p>}
+      {scoped.capital.capital_basis==='available_balance_unverified' && <p>LIVE는 거래 기록 점검과 기관 연결·주문 가능금액 응답을 확인하세요. PAPER 새 평가로 실거래 기록이나 위험 한도를 해제하지 않습니다.</p>}
+      {scoped.capital.capital_basis==='paper_funds_unverified' && !['paper_ledger_currency_unverified','paper_ledger_pnl_unverified'].includes(String(scoped.capital.reason)) && <p>PAPER 원장·보유 자료의 오류를 먼저 확인해야 합니다. 기록 삭제나 기준자금 변경으로 해제하지 않습니다.</p>}
     </article>}
     {scoped?.orders?.portfolio_exposure && <article role="status"><h4>기관 통합 보유 노출</h4>
       <p>{scoped.orders.portfolio_exposure.status === 'allowed' ? '당시 통합 노출 한도 이내 · 주문 승인과 별개' : '통합 노출 확인 필요 · 신규 진입 보류'}</p>

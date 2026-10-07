@@ -16,6 +16,7 @@ import type {
 } from "./types";
 
 export interface GatewayClient {
+  newPaperSession?: (source: string) => Promise<Record<string, any>>;
   profitabilityDiagnostic?: (source: string) => Promise<Record<string, any>>;
   recordRecovery: (source: string, start?: boolean) => Promise<Record<string, any>>;
   recoveryStatement?: (payload: Record<string, unknown>) => Promise<Record<string, any>>;
@@ -105,6 +106,19 @@ function bootstrap(): NoahAIBootstrap {
 }
 
 const GATEWAY_ERROR_MESSAGES: Record<string, string> = {
+  paper_session_save_failed: '새 PAPER 평가 기준을 저장하지 못했습니다. 기존 기록은 유지됩니다. 저장소 쓰기 권한·잠금·여유 공간을 확인하세요.',
+  paper_session_stop_required: '해당 기관의 PAPER 운용을 정지한 뒤 새 평가를 준비하세요.',
+  paper_session_flat_required: '보유 PAPER 포지션이 남아 있습니다. 기존 포지션 청산 후 해당 기관을 정지하세요.',
+  paper_session_pending_orders: '주문 예약 또는 처리 중인 작업이 남아 있습니다. 실행 상태를 확인하세요.',
+  paper_session_mode_required: '해당 기관을 PAPER 모드로 설정해야 합니다. LIVE 기록은 변경하지 않습니다.',
+  paper_session_legacy_block_required: '복구 근거가 부족한 과거 PAPER 기록 때문에 보류된 경우에만 새 평가를 준비할 수 있습니다.',
+  paper_session_positions_unverified: '보유 PAPER 포지션 저장 자료를 확인하지 못했습니다. 저장소와 실행 상태를 확인하세요.',
+  paper_session_store_unverified: '새 PAPER 평가 기준 파일을 읽지 못했습니다. 파일을 삭제하지 말고 저장소를 확인하세요.',
+  paper_session_boundary_unverified: '보존한 과거 PAPER 원장이 변경되거나 잘렸습니다. 원본 자료를 확인해야 합니다.',
+  paper_account_scope_changed: '계정이 변경되어 작업을 중단했습니다. 현재 계정에서 다시 확인하세요.',
+  paper_session_acknowledgement_required: '과거 손익 복구가 아닌 별도의 새 PAPER 평가임을 먼저 확인하세요.',
+  unsupported_paper_session_source: '이 새 PAPER 평가 준비 기능은 암호화폐 기관에 제공됩니다.',
+
   gateway_authentication_required: "로그인 세션을 다시 확인하세요.",
   login_service_unavailable: "로그인 서비스를 사용할 수 없습니다. 잠시 후 다시 시도하세요.",
   invalid_login_response: "로그인 응답을 확인하지 못했습니다. 잠시 후 다시 시도하세요.",
@@ -440,6 +454,7 @@ export function createGatewayClient(): GatewayClient {
       "POST", "/api/v1/financial-intelligence/action", { service, action, payload },
     ),
     profitabilityDiagnostic: source => get<Record<string, any>>(`/api/v1/maintenance/profitability?source=${encodeURIComponent(source)}`),
+    newPaperSession: source => mutate<Record<string, any>>('POST', '/api/v1/maintenance/paper-session', {source, new_baseline_acknowledged:true}),
     recordRecovery: (source, start = false) => start
       ? mutate<Record<string, any>>("POST", "/api/v1/maintenance/trade-records", { source })
       : get<Record<string, any>>(`/api/v1/maintenance/trade-records?source=${encodeURIComponent(source)}`),

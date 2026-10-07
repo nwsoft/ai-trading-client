@@ -251,6 +251,7 @@ def test_unified_paper_monitor_updates_live_unrealized_pnl_before_close(exchange
         current_price=1.0, quantity=100.0, leverage=1,
         unrealized_pnl=0.0, unrealized_pnl_percent=0.0,
         entry_time=datetime.now(timezone.utc), execution_mode="paper",
+        entry_evidence={"position_sizing":{"contract_size":1.}},
     )
     trader = UnifiedTrader.__new__(UnifiedTrader)
     trader.settings = {}

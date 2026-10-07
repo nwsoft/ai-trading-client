@@ -89,7 +89,8 @@ def test_trailing_break_even_and_reentry_never_create_an_order():
     assert reentry["auto_ordered"] is False
 
 
-def test_unified_paper_partial_close_updates_position_only_after_confirmation():
+def test_unified_paper_partial_close_updates_position_only_after_confirmation(tmp_path, monkeypatch):
+    monkeypatch.setattr('trading.paper_strategy_ledger.ledger_path',lambda:tmp_path/'paper.jsonl')
     trader = object.__new__(UnifiedTrader)
     trader.settings = {"exchange_execution_modes": {"bybit": "paper"}}
     trader.active_positions = {"bybit": {}}
@@ -100,6 +101,7 @@ def test_unified_paper_partial_close_updates_position_only_after_confirmation():
         current_price=101.2, quantity=10.0, leverage=1,
         unrealized_pnl=0.0, unrealized_pnl_percent=1.2,
         entry_time=datetime.now(timezone.utc), execution_mode="paper",
+        entry_evidence={"position_sizing":{"contract_size":1.}},
         custom_strategy_rules={"advanced_order_plan": {
             "partial_take_profits": [{"target_percent": 1.0, "close_fraction": 0.5}],
         }},

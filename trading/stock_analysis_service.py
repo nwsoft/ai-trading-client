@@ -4108,10 +4108,12 @@ class StockAnalysisService:
             )
             opportunity_coordinator = get_opportunity_coordinator(self)
             available_capital = allocation_result.get('available_capital')
+            capital_basis = allocation_result.get('capital_basis', '')
             if bool(portfolio_policy.get('enabled')) and signal == 'BUY' and execution_mode == ExecutionMode.PAPER.value:
                 from trading.paper_capital import paper_funds_for
                 funds = paper_funds_for(self, normalized_sizing_policy['paper_equity'], self._paper_positions(), venue=self.broker_name, quote='KRW')
                 available_capital = funds['available_capital']
+                capital_basis = funds['capital_basis']
                 from trading.paper_capital import remember_capital
                 remember_capital(self, venue=self.broker_name, mode=execution_mode, funds=funds)
             elif bool(portfolio_policy.get('enabled')) and signal == 'BUY' and execution_mode == ExecutionMode.LIVE.value:
@@ -4121,6 +4123,7 @@ class StockAnalysisService:
                     available_capital, basis = live_stock_available_funds(self.adapter, symbol, current_price, selected_order_type)
                 except Exception:
                     available_capital, basis = 0.0, 'available_balance_unverified'
+                capital_basis = basis
                 remember_capital(self, venue=self.broker_name, mode=execution_mode, funds={'available_capital':available_capital, 'capital_basis':basis, 'quote_currency':'KRW'})
             opportunity_auth = opportunity_coordinator.authorize(
                 policy=multi_venue_policy,
@@ -4141,6 +4144,7 @@ class StockAnalysisService:
                     self, venue=self.broker_name, mode=execution_mode, policy=multi_venue_policy.get('portfolio_exposure')) if signal == 'BUY' else None,
                 capital_guard_enabled=bool(portfolio_policy.get('enabled')) and signal == 'BUY',
                 available_capital=available_capital,
+                capital_basis=capital_basis,
             )
             opportunity_snapshot = opportunity_auth.to_dict()
             if not opportunity_auth.allowed:

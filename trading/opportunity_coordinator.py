@@ -287,6 +287,7 @@ class OpportunityCoordinator:
         reserve: bool = True,
         capital_guard_enabled: bool = False,
         available_capital: float | None = None,
+        capital_basis: str = "",
         leverage: float = 1.0,
         contract_size: float = 1.0,
         exposure_snapshot: Mapping[str, Any] | None = None,
@@ -404,8 +405,12 @@ class OpportunityCoordinator:
                     if item.get('target') == current_target and item.get('quote_currency') == quote
                     and item.get('status') in {'reserved', 'submitting', 'pending', 'unknown'}
                 )
-                if free < 0 or price_value <= 0 or required_capital <= 0:
+                if capital_basis == 'paper_funds_unverified':
+                    allowed, reason = False, 'paper_funds_reconciliation_required'
+                elif capital_basis == 'available_balance_unverified' or free < 0 or price_value <= 0 or required_capital <= 0:
                     allowed, reason = False, 'available_capital_or_notional_unverified'
+                elif required_capital > free:
+                    allowed, reason = False, 'available_capital_insufficient'
                 elif reserved_capital + required_capital > free:
                     allowed, reason = False, 'available_capital_reserved_by_other_orders'
                 if not allowed:

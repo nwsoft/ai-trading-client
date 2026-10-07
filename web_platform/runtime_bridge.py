@@ -35,7 +35,7 @@ STOCK_CONFIG_KEYS = {"kiwoom": "kiwoom", "shinhan": "shinhan", "mirae": "miraeAs
 RUNTIME_PUBLIC_FIELDS = (
     "symbol", "side", "quantity", "size", "contracts", "entry_price",
     "entryPrice", "mark_price", "markPrice", "current_price", "price",
-    "unrealized_pnl", "unrealizedPnl", "leverage", "status", "currency",
+    "unrealized_pnl", "unrealizedPnl", "pnl_calculation_status", "leverage", "status", "currency",
     "asset", "available", "free", "used", "total", "order_id", "id",
     "type", "amount", "filled", "remaining", "average", "timestamp",
     "signal", "confidence", "trend", "volatility", "reasoning",
@@ -127,6 +127,77 @@ class HeadlessRuntimeBridge:
         self._app: Any = None
         self._lock = threading.RLock()
         self._record_recovery = None
+
+    def start_paper_session(self, source: str) -> dict[str, Any]:
+        """Create a separate virtual baseline only on explicit local user intent."""
+        from pathlib import Path
+        import json
+        from filelock import Timeout
+        from trading.paper_funds_session import start_session
+        from trading.paper_capital import paper_funds_for, remember_capital
+        from trading.paper_strategy_ledger import paper_quote_currency
+        from trading.position_sizing_policy import normalize_position_sizing_policy
+        from trading.opportunity_coordinator import get_opportunity_coordinator, account_scope_for
+        source = _public_source(source)
+        if self.account == 'local':
+            raise RuntimeError('recovery_login_required')
+        if source not in CRYPTO_SOURCES:
+            raise ValueError('unsupported_paper_session_source')
+        with self._lock:
+            owner = self._evidence_owner(source)
+            if owner is None:
+                raise RuntimeError('recovery_engine_not_ready')
+            captured = str(getattr(owner, '_opportunity_account', '') or '')
+            if captured and captured != self.account:
+                raise RuntimeError('paper_account_scope_changed')
+            settings = getattr(owner, 'settings', {}) or {}
+            if resolve_crypto_execution_mode(settings, source) != ExecutionMode.PAPER:
+                raise RuntimeError('paper_session_mode_required')
+            running_getter = getattr(self._app, 'running_crypto_exchanges', None) or getattr(self._app, '_running_crypto_exchanges', None)
+            if not callable(running_getter):
+                raise RuntimeError('recovery_engine_not_ready')
+            db_path = getattr(getattr(owner, 'recorder', None), 'db_path', None)
+            if not isinstance(db_path, (str, Path)) or not str(db_path):
+                raise RuntimeError('recovery_ledger_unavailable')
+            ledger = Path(db_path).resolve().parent / 'strategy_paper_outcomes.jsonl'
+            stores = getattr(owner, 'paper_active_positions' if source == 'binance' else 'paper_positions', None)
+            if not isinstance(stores, dict):
+                raise RuntimeError('paper_session_positions_unverified')
+            positions = stores if source == 'binance' else stores.get(source, {})
+            engine = 'binance' if source == 'binance' else 'unified'
+            saved_path = Path(settings.get(f'paper_position_store_path_{engine}') or ledger.with_name(f'paper_open_positions_{engine}.json'))
+            if saved_path.exists():
+                try:
+                    if saved_path.stat().st_size > 4*1024*1024:
+                        raise ValueError()
+                    saved = json.loads(saved_path.read_text(encoding='utf-8'))
+                    if saved['execution_mode'] != 'paper' or not isinstance(saved['venues'], dict):
+                        raise ValueError()
+                    if saved['venues'].get(source):
+                        raise RuntimeError('paper_session_flat_required')
+                except (ValueError, KeyError, TypeError, OSError) as exc:
+                    raise RuntimeError('paper_session_positions_unverified') from exc
+            quote = paper_quote_currency(source, '')
+            initial = normalize_position_sizing_policy(settings, quote_currency=quote)['paper_equity']
+            coordinator = get_opportunity_coordinator(owner)
+            with coordinator._transaction():
+                snapshot = coordinator.runtime_snapshot(account_scope=account_scope_for(owner, 'paper'), target=source)
+                pending = snapshot.get('pending_orders')
+                if pending is not None:
+                    pending += snapshot.get('reserved_orders', 0)
+                try:
+                    session = start_session(ledger, venue=source, quote=quote, initial_equity=initial,
+                        positions=positions, stopped=source not in self._running(self._app), pending_orders=pending)
+                except ValueError as exc:
+                    raise RuntimeError(str(exc)) from exc
+                except (OSError, Timeout) as exc:
+                    raise RuntimeError('paper_session_save_failed') from exc
+            funds = paper_funds_for(owner, initial, positions, venue=source, quote=quote)
+            remember_capital(owner, venue=source, mode='paper', funds=funds)
+            return {'source': source, 'session_id': session['session_id'], 'created': session['created'],
+                    'started_at': session['started_at'], 'initial_capital': session['initial_capital'],
+                    'quote_currency': quote, 'historical_pnl_restored': False,
+                    'orders_submitted': False, 'trading_started': False}
 
     def profitability_diagnostic(self, source: str) -> dict[str, Any]:
         """Recompute local evidence only; never starts an engine or changes policy/orders."""

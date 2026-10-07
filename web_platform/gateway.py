@@ -182,6 +182,20 @@ def create_gateway_app(
         except RuntimeError as exc:
             raise HTTPException(409, str(exc)) from exc
 
+    @app.post('/api/v1/maintenance/paper-session', dependencies=[Depends(require_token), Depends(require_confirmed_intent)])
+    def new_paper_session(payload: dict[str, Any]):
+        if set(payload) != {'source', 'new_baseline_acknowledged'} or payload.get('new_baseline_acknowledged') is not True:
+            raise HTTPException(400, 'paper_session_acknowledgement_required')
+        method = getattr(services.runtime_bridge, 'start_paper_session', None)
+        if not callable(method):
+            raise HTTPException(409, 'recovery_runtime_unavailable')
+        try:
+            return method(str(payload.get('source') or ''))
+        except ValueError as exc:
+            raise HTTPException(400, str(exc)) from exc
+        except RuntimeError as exc:
+            raise HTTPException(409, str(exc)) from exc
+
     @app.get('/api/v1/maintenance/trade-records', dependencies=[Depends(require_token)])
     def record_recovery_status(source: str = Query(max_length=32)):
         return record_recovery_call(source, False)

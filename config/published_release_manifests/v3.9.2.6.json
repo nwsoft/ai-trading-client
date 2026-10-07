@@ -1,0 +1,120 @@
+{
+    "version":  "3.9.2.6",
+    "release_label":  "v3.9.2.6 Autonomous Trading and Strategy Evidence",
+    "channel":  "stable",
+    "generated_at":  "2026-10-06T05:01:33.9078037Z",
+    "source_fingerprint":  "f10ce9790482c7b9a8dcc99d6b2819f5212e0efe1b1089626d72041df55f9a78",
+    "source_revision":  "c6568d677ffe4396a2999b2fc830f8f3a6f022b4",
+    "source_worktree_dirty":  true,
+    "source_archive_authoritative":  false,
+    "build_status":  "windows_verified_release_candidate",
+    "automated_checks_passed":  true,
+    "publish_ready":  true,
+    "notes_file":  "release_notes.md",
+    "verification":  {
+                         "sha256_required":  true,
+                         "authenticode_required":  false,
+                         "source":  "github_release_manifest",
+                         "branding":  {
+                                          "assets":  {
+                                                         "icon.ico":  "d9cd39ecfc52d0f1b37f9760130fb1edf96259c26fc7b429b49194caa67c2519",
+                                                         "icon.png":  "bc47272288999dfd627b62acb39bf79dec213448f1afa0db9bf28d1764a4030c",
+                                                         "webui/public/icon.png":  "bc47272288999dfd627b62acb39bf79dec213448f1afa0db9bf28d1764a4030c"
+                                                     },
+                                          "executables":  [
+                                                              {
+                                                                  "name":  "NoahAI.exe",
+                                                                  "sha256":  "b84b14e1bd72133d2107652d3eb2b324d1069969b35686adcfada1796ac4bd72",
+                                                                  "matching_groups":  [
+                                                                                          [
+                                                                                              1,
+                                                                                              1033
+                                                                                          ]
+                                                                                      ],
+                                                                  "image_count":  7,
+                                                                  "verified":  true
+                                                              },
+                                                              {
+                                                                  "name":  "NoahAI-3.9.2.6-Setup.exe",
+                                                                  "sha256":  "2a38a6b8dd2f7e4ff58dd4c30553fcc1e6951a16fe69db8e54a3ed008033fe38",
+                                                                  "matching_groups":  [
+                                                                                          [
+                                                                                              103,
+                                                                                              1033
+                                                                                          ]
+                                                                                      ],
+                                                                  "image_count":  7,
+                                                                  "verified":  true
+                                                              }
+                                                          ]
+                                      }
+                     },
+    "assets":  {
+                   "installer":  {
+                                     "name":  "NoahAI-3.9.2.6-Setup.exe",
+                                     "size":  448317613,
+                                     "sha256":  "2a38a6b8dd2f7e4ff58dd4c30553fcc1e6951a16fe69db8e54a3ed008033fe38",
+                                     "download_url":  "https://github.com/nwsoft/ai-trading-client/releases/download/v3.9.2.6/NoahAI-3.9.2.6-Setup.exe"
+                                 },
+                   "latest_yml":  {
+                                      "name":  "latest.yml",
+                                      "size":  347,
+                                      "sha256":  "806c2c84e9ba2b936057106e20c11d9d8dc47db57e907086716e26b8030bd3dc",
+                                      "download_url":  "https://github.com/nwsoft/ai-trading-client/releases/download/v3.9.2.6/latest.yml"
+                                  },
+                   "blockmap":  {
+                                    "name":  "NoahAI-3.9.2.6-Setup.exe.blockmap",
+                                    "size":  467689,
+                                    "sha256":  "ce5ccf66c5e533baa175a07685df868c191e11c4838e12e81aebd563aff50522",
+                                    "download_url":  "https://github.com/nwsoft/ai-trading-client/releases/download/v3.9.2.6/NoahAI-3.9.2.6-Setup.exe.blockmap"
+                                },
+                   "engine_sidecar":  {
+                                          "name":  "NoahAIEngine.exe",
+                                          "size":  299591056,
+                                          "sha256":  "fd395ea037efe75832289601dbd82bf74f0dc29bae62eed6ac7177cd5e74c71b",
+                                          "distribution":  "embedded_in_installer"
+                                      },
+                   "kiwoom_host":  {
+                                       "name":  "NoahAIKiwoomHost.exe",
+                                       "size":  46682036,
+                                       "sha256":  "e1671e48b27bf67fa5a536847dbb0bc784ef91f7e5282bd5494c697154ab928c",
+                                       "pe_machine":  "0x14c",
+                                       "supported":  true,
+                                       "distribution":  "embedded_in_installer"
+                                   }
+               },
+    "update_contract":  {
+                            "provider":  "electron_updater_github",
+                            "metadata":  "latest.yml",
+                            "product_version":  "3.9.2.6",
+                            "updater_semver":  "3.9.206",
+                            "version_mapping":  "A.B.C.D -\u003e A.B.(C*100+D); D=0..99",
+                            "check_policy":  "automatic_on_app_start",
+                            "download_policy":  "user_approved",
+                            "install_policy":  "user_approved_safe_shutdown_restart",
+                            "user_actions":  [
+                                                 "download",
+                                                 "install_and_restart"
+                                             ],
+                            "legacy_single_exe_updater":  "retired_after_v3.9.0.10"
+                        },
+    "previous_published_asset":  {
+                                     "version":  "3.9.2.5",
+                                     "release_label":  "v3.9.2.5",
+                                     "path":  "deploy/web-release/NoahAI-3.9.2.5-Setup.exe",
+                                     "size":  448191270,
+                                     "sha256":  "b7147e02be39576305e4d66adb43d8b18128af4f5b5e7a9783eb9c0cf654938a",
+                                     "purpose":  "previous_published_windows_build"
+                                 },
+    "external_validation":  [
+                                "auto_update_from_previous_release",
+                                "windows_install_upgrade_rollback",
+                                "settings_general_save_close_restart",
+                                "settings_credentials_preserved",
+                                "broker_and_exchange_e2e",
+                                "paper_24_72h"
+                            ],
+    "external_validation_status":  "pending",
+    "external_validation_plan":  "DEPLOY_CHECKLIST.md",
+    "external_validation_pending_count":  13
+}

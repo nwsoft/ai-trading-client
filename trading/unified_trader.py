@@ -1380,7 +1380,8 @@ class UnifiedTrader:
         candidates = apply_observed_correlations(self, venue=exchange_name, candidates=candidates, policy=policy, mode=self._execution_mode(exchange_name),
             fetcher=lambda symbol, limit: self.exchange_manager.get_klines(symbol, interval='1d', limit=limit, exchange_name=exchange_name))
         result = PortfolioOrchestrator().allocate(candidates=candidates, total_capital=total_capital, policy=policy)
-        result.update({'capital_basis': basis, 'quote_currency': quote, 'available_capital': total_capital})
+        result.update({'capital_basis': basis, 'quote_currency': quote, 'available_capital': total_capital,
+                       'capital_reason': funds.get('reason')})
         from trading.paper_capital import remember_capital
         remember_capital(self, venue=exchange_name, mode=self._execution_mode(exchange_name), funds={**funds, **result})
         return result
@@ -2927,12 +2928,14 @@ class UnifiedTrader:
             )
             capital_policy_enabled = bool((self._get_advanced_layers_settings(exchange_name).get('portfolio_orchestration') or {}).get('enabled'))
             available_capital = (self.portfolio_allocation_cache.get(exchange_name) or {}).get('available_capital')
+            capital_basis = (self.portfolio_allocation_cache.get(exchange_name) or {}).get('capital_basis', '')
             if capital_policy_enabled and execution_mode == ExecutionMode.PAPER:
                 from trading.paper_capital import paper_funds_for
                 from trading.position_sizing_policy import normalize_position_sizing_policy
                 quote = 'KRW' if exchange_name in {'upbit', 'bithumb', 'coinone'} else 'USDT'
                 funds = paper_funds_for(self, normalize_position_sizing_policy(self.settings, quote_currency=quote)['paper_equity'], self._position_store(exchange_name), venue=exchange_name, quote=quote)
                 available_capital = funds['available_capital']
+                capital_basis = funds['capital_basis']
                 from trading.paper_capital import remember_capital
                 remember_capital(self, venue=exchange_name, mode=execution_mode, funds=funds)
             elif capital_policy_enabled and execution_mode == ExecutionMode.LIVE:
@@ -2943,8 +2946,20 @@ class UnifiedTrader:
                     available_capital, basis = live_crypto_available_funds(self.get_exchange_client(exchange_name), quote)
                 except Exception:
                     available_capital, basis = 0.0, 'available_balance_unverified'
+                capital_basis = basis
                 remember_capital(self, venue=exchange_name, mode=execution_mode, funds={'available_capital':available_capital, 'capital_basis':basis, 'quote_currency':quote})
             minimum_validated_size = float(position_size or 0.0)
+            entry_contract_size = (
+                float(sizing_plan['contract_size']) if 'contract_size' in sizing_plan
+                else self._ccxt_contract_size(exchange_name, symbol) if exchange_name in {'bybit', 'okx', 'bitget'}
+                else 1.0
+            )
+            if not sizing_plan:
+                sizing_plan = {'allowed': True, 'reason': 'legacy_venue_units_snapshot',
+                               'contract_size': entry_contract_size}
+            if not math.isfinite(entry_contract_size) or entry_contract_size <= 0:
+                raise ValueError('market_contract_size_unverified')
+            sizing_plan['contract_size'] = entry_contract_size
             opportunity_auth = get_opportunity_coordinator(self).authorize(
                 policy=opportunity_policy,
                 asset_class="crypto",
@@ -2964,14 +2979,20 @@ class UnifiedTrader:
                     self, venue=exchange_name, mode=execution_mode, policy=opportunity_policy.get('portfolio_exposure')),
                 capital_guard_enabled=capital_policy_enabled,
                 available_capital=available_capital,
+                capital_basis=capital_basis,
                 leverage=leverage,
-                contract_size=self._ccxt_contract_size(exchange_name, symbol) if exchange_name in {'bybit', 'okx', 'bitget'} else 1.0,
+                contract_size=entry_contract_size,
             )
             optimized_params["_opportunity"] = opportunity_auth.to_dict()
             if not opportunity_auth.allowed:
+                capital_note = (
+                    'PAPER 청산 기록·통화·보유 증거금 대조 필요 · 신규 진입 보류'
+                    if opportunity_auth.reason == 'paper_funds_reconciliation_required'
+                    else opportunity_auth.reason
+                )
                 return {
                     "status": "skipped",
-                    "reason": f"다중 거래소 기회 정책 차단: {opportunity_auth.reason}",
+                    "reason": f"다중 거래소 기회 정책 차단: {capital_note}",
                     "opportunity": opportunity_auth.to_dict(),
                 }
             position_size = float(opportunity_auth.authorized_quantity or 0.0)
@@ -4027,7 +4048,8 @@ class UnifiedTrader:
                     position.current_price = current_price
 
                     # PnL 계산 (바이낸스와 동일한 로직)
-                    pnl_data = self._calculate_pnl_unified(position, current_price)
+                    pnl_data = self._calculate_pnl_unified(position, current_price, exchange_name=exchange_name)
+                    position.pnl_calculation_status = pnl_data.get('calculation_status', 'invalid')
                     # 청산 원장에만 손익을 넘기고 활성 Position을
                     # 갱신하지 않아 Web UI에서는 청산 전까지 0으로
                     # 보이던 것이 원인이었다.
@@ -4069,6 +4091,8 @@ class UnifiedTrader:
     def _advanced_order_plan_decision_unified(
         position: Position, pnl_data: Dict[str, Any],
     ) -> Dict[str, Any]:
+        if pnl_data.get('calculation_status') == 'invalid':
+            return {'action': 'hold', 'reason': 'position_pnl_unverified'}
         rules = dict(getattr(position, 'custom_strategy_rules', {}) or {})
         plan = dict(rules.get('advanced_order_plan') or {})
         if not plan:
@@ -4097,6 +4121,8 @@ class UnifiedTrader:
             float(decision.get('quantity', 0.0) or 0.0),
         )
         if quantity <= 0:
+            return False
+        if decision.get('partial_index') in (position.custom_order_plan_state or {}).get('completed_partial_indices', []):
             return False
         paper = self._execution_mode(exchange_name) == ExecutionMode.PAPER
         order_result: Dict[str, Any]
@@ -4151,6 +4177,18 @@ class UnifiedTrader:
                 f"{exchange_name} {symbol} 부분청산 체결 미확정, 다음 복구 주기에서 재확인"
             )
             return False
+        if paper:
+            try:
+                from copy import copy
+                closed = copy(position)
+                closed.quantity = quantity
+                pnl = self._calculate_pnl_unified(closed, current_price, exchange_name=exchange_name)
+                self._record_paper_close_unified(exchange_name, symbol, closed, current_price, pnl,
+                    reason=str(decision.get('reason') or 'partial_close'),
+                    close_identity=f"{position.position_id or position.entry_time}:partial:{decision.get('partial_index')}")
+            except Exception as exc:
+                self.logger.error(f"{exchange_name} {symbol} PAPER 부분청산 원장 저장 실패: {type(exc).__name__}")
+                return False
         remaining = max(0.0, float(position.quantity) - quantity)
         position.quantity = remaining
         position.custom_order_plan_state = confirm_order_plan_action(
@@ -4277,21 +4315,49 @@ class UnifiedTrader:
         except Exception:
             return None, None
 
-    def _calculate_pnl_unified(self, position: Position, current_price: float) -> Dict[str, Any]:
+    def _record_paper_close_unified(self, exchange_name, symbol, position, exit_price, pnl_data,
+                                    *, reason='', close_identity='', closed_at=None):
+        """Persist the closed slice before releasing its simulated open margin."""
+        return record_paper_strategy_outcome(
+            scope='unified', exchange=exchange_name, symbol=symbol,
+            strategy_key=str(position.custom_strategy_key or ''),
+            version_id=str(position.custom_strategy_version_id or ''),
+            strategy_scope=str(position.custom_strategy_scope or ''),
+            opened_at=position.entry_time, closed_at=closed_at or utc_now(),
+            net_pnl=float(pnl_data.get('net_pnl_ccy', 0.) or 0.),
+            fees=float(pnl_data.get('estimated_fees', 0.) or 0.),
+            gross_pnl=float(pnl_data.get('gross_pnl_ccy', 0.) or 0.),
+            net_pnl_percent=float(pnl_data.get('net_pnl_percent', 0.) or 0.),
+            entry_price=float(position.entry_price or 0.), exit_price=float(exit_price or 0.),
+            quantity=float(position.quantity or 0.),
+            side=str(getattr(position.side, 'value', position.side) or ''),
+            quote_currency=paper_quote_currency(exchange_name, symbol),
+            estimated_slippage=float(pnl_data.get('estimated_slippage', 0.) or 0.),
+            fee_rate=float(pnl_data.get('fee_rate', 0.) or 0.),
+            slippage_rate=float(pnl_data.get('slippage_rate', 0.) or 0.),
+            calculation_status='valid' if pnl_data.get('calculation_status') == 'valid' else 'invalid',
+            position_id=str(close_identity or position.position_id or ''),
+            **paper_position_execution_evidence(position, exit_reason=reason),
+        )
+
+    def _calculate_pnl_unified(self, position: Position, current_price: float, *, exchange_name: str = '') -> Dict[str, Any]:
         """PnL 계산 (CCXT 거래소용)"""
         try:
             # 안전성 검사
             if not position.entry_price or position.entry_price <= 0:
                 self.logger.warning(f"{position.symbol} 진입가가 유효하지 않음: {position.entry_price}")
-                return {'current_pnl_percent': 0.0, 'net_pnl_percent': 0.0, 'unrealized_pnl': 0.0}
+                return {'current_pnl_percent': 0.0, 'net_pnl_percent': 0.0, 'unrealized_pnl': 0.0, 'calculation_status': 'invalid'}
 
             if not current_price or current_price <= 0:
                 self.logger.warning(f"{position.symbol} 현재가가 유효하지 않음: {current_price}")
-                return {'current_pnl_percent': 0.0, 'net_pnl_percent': 0.0, 'unrealized_pnl': 0.0}
+                return {'current_pnl_percent': 0.0, 'net_pnl_percent': 0.0, 'unrealized_pnl': 0.0, 'calculation_status': 'invalid'}
 
             if not position.quantity or position.quantity <= 0:
                 self.logger.warning(f"{position.symbol} 수량이 유효하지 않음: {position.quantity}")
-                return {'current_pnl_percent': 0.0, 'net_pnl_percent': 0.0, 'unrealized_pnl': 0.0}
+                return {'current_pnl_percent': 0.0, 'net_pnl_percent': 0.0, 'unrealized_pnl': 0.0, 'calculation_status': 'invalid'}
+
+            if not all(not isinstance(n, bool) and math.isfinite(float(n)) for n in (position.entry_price, current_price, position.quantity)):
+                raise ValueError('position_price_or_quantity_unverified')
 
             # 기본 PnL 계산
             if position.side == PositionSide.LONG:
@@ -4301,8 +4367,17 @@ class UnifiedTrader:
 
             # recorder의 청산 로그 계산식과 동일하게 화폐단위로 추정 후 퍼센트 환산
             side_sign = 1 if position.side == PositionSide.LONG else -1
-            gross_pnl_ccy = (current_price - position.entry_price) * position.quantity * side_sign
-            notional = position.entry_price * position.quantity
+            sizing = (getattr(position, 'entry_evidence', {}) or {}).get('position_sizing') or {}
+            if exchange_name in {'okx', 'bybit', 'bitget'} and 'contract_size' not in sizing:
+                raise ValueError('position_contract_size_unverified')
+            contract_size = float(sizing.get('contract_size', 1.0))
+            if not math.isfinite(contract_size) or contract_size <= 0:
+                raise ValueError('position_contract_size_unverified')
+            # CCXT futures quantity is contracts, not base-asset units. Use
+            # the entry-time contract snapshot; market metadata can change.
+            base_quantity = position.quantity * contract_size
+            gross_pnl_ccy = (current_price - position.entry_price) * base_quantity * side_sign
+            notional = position.entry_price * base_quantity
 
             try:
                 fee_rate = float((self.settings or {}).get('estimated_round_trip_fee_rate', 0.0004))
@@ -4313,6 +4388,8 @@ class UnifiedTrader:
             except Exception:
                 slippage_rate = 0.0002
 
+            if not all(math.isfinite(n) for n in (fee_rate, slippage_rate)):
+                raise ValueError('position_cost_unverified')
             fee_rate = max(0.0, fee_rate)
             slippage_rate = max(0.0, slippage_rate)
 
@@ -4322,9 +4399,12 @@ class UnifiedTrader:
             net_pnl_percent = (net_pnl_ccy / notional) * 100 if notional > 0 else 0.0
 
             # 미실현 손익은 비용 차감 전 변동 손익(화폐단위)
-            position_value = position.quantity * current_price
-            entry_value = position.quantity * position.entry_price
+            position_value = base_quantity * current_price
+            entry_value = base_quantity * position.entry_price
             unrealized_pnl = gross_pnl_ccy
+            if not all(math.isfinite(n) for n in (gross_pnl_ccy, notional, estimated_fees,
+                    estimated_slippage, net_pnl_ccy, net_pnl_percent, position_value)):
+                raise ValueError('position_pnl_nonfinite')
 
             return {
                 'current_pnl_percent': current_pnl_percent,
@@ -4332,17 +4412,21 @@ class UnifiedTrader:
                 'unrealized_pnl': unrealized_pnl,
                 'position_value': position_value,
                 'entry_value': entry_value,
+                'exit_price': float(current_price),
                 'gross_pnl_ccy': gross_pnl_ccy,
                 'net_pnl_ccy': net_pnl_ccy,
                 'estimated_fees': estimated_fees,
                 'estimated_slippage': estimated_slippage,
                 'fee_rate': fee_rate,
                 'slippage_rate': slippage_rate,
+                'contract_size': contract_size,
+                'calculation_status': 'valid',
             }
 
         except Exception as e:
             self.logger.error(f"❌ {position.symbol} PnL 계산 실패: {e}")
-            return {'current_pnl_percent': 0.0, 'net_pnl_percent': 0.0, 'unrealized_pnl': 0.0}
+            return {'current_pnl_percent': 0.0, 'net_pnl_percent': 0.0, 'unrealized_pnl': 0.0,
+                    'calculation_status': 'invalid'}
 
     def _custom_strategy_exit_triggered_unified(
         self,
@@ -4748,7 +4832,7 @@ class UnifiedTrader:
                 position.quantity = effective_close_quantity
                 current_price = execution_price
                 # PnL 계산
-                pnl_data = self._calculate_pnl_unified(position, current_price)
+                pnl_data = self._calculate_pnl_unified(position, current_price, exchange_name=exchange_name)
                 pnl_percent = pnl_data.get('net_pnl_percent', 0.0)
                 closed_at = utc_now()
                 last_decision = dict((position.exit_policy or {}).get('last_exit_decision') or {})
@@ -4888,6 +4972,11 @@ class UnifiedTrader:
                 except Exception:
                     pass
 
+                if paper:
+                    self._record_paper_close_unified(exchange_name, symbol, position, current_price, pnl_data,
+                        reason=close_reason, closed_at=closed_at,
+                        close_identity=close_command_id if partial_fill else '')
+
                 # 실행 모드별 저장소에서만 제거한다. 부분체결이면 청산된
                 # 수량만 차감하고 같은 전략·가드레일 문맥을 유지한다.
                 remaining_quantity = max(
@@ -4899,39 +4988,11 @@ class UnifiedTrader:
                     self._position_store(exchange_name).pop(symbol, None)
 
                 if paper:
-                    record_paper_strategy_outcome(
-                        scope="unified", exchange=exchange_name, symbol=symbol,
-                        strategy_key=str(position.custom_strategy_key or ""),
-                        version_id=str(position.custom_strategy_version_id or ""),
-                        strategy_scope=str(position.custom_strategy_scope or ""),
-                        opened_at=position.entry_time, closed_at=closed_at,
-                        net_pnl=float(pnl_data.get('net_pnl_ccy', 0.0) or 0.0),
-                        fees=float(pnl_data.get('estimated_fees', 0.0) or 0.0),
-                        gross_pnl=float(pnl_data.get('gross_pnl_ccy', 0.0) or 0.0),
-                        net_pnl_percent=float(pnl_data.get('net_pnl_percent', 0.0) or 0.0),
-                        entry_price=float(position.entry_price or 0.0),
-                        exit_price=float(current_price or 0.0),
-                        quantity=float(position.quantity or 0.0),
-                        side=str(getattr(position.side, 'value', position.side) or ''),
-                        quote_currency=paper_quote_currency(exchange_name, symbol),
-                        estimated_slippage=float(pnl_data.get('estimated_slippage', 0.0) or 0.0),
-                        fee_rate=float(pnl_data.get('fee_rate', 0.0) or 0.0),
-                        slippage_rate=float(pnl_data.get('slippage_rate', 0.0) or 0.0),
-                        calculation_status=(
-                            'valid'
-                            if position.entry_price and current_price and position.quantity
-                            else 'invalid'
-                        ),
-                        position_id=str(position.position_id or ""),
-                        **paper_position_execution_evidence(
-                            position,
-                            exit_reason=close_reason,
-                        ),
-                    )
                     self._persist_paper_positions()
 
                 # 거래 통계 업데이트
-                self._update_trade_stats_unified(exchange_name, pnl_percent)
+                if pnl_data.get('calculation_status') == 'valid':
+                    self._update_trade_stats_unified(exchange_name, pnl_percent)
 
                 if not paper:
                     emit_kpi_event(
@@ -5270,7 +5331,7 @@ class UnifiedTrader:
                 'exchange': exchange_name,
                 'side': position.side.value,
                 'entry_price': position.entry_price,
-                'exit_price': pnl_data.get('position_value', 0) / position.quantity,
+                'exit_price': pnl_data.get('exit_price', position.current_price),
                 'quantity': position.quantity,
                 'pnl_percent': pnl_data.get('net_pnl_percent', 0.0),
                 'holding_time_minutes': (datetime.now(timezone.utc) - position.entry_time).total_seconds() / 60,
@@ -5312,7 +5373,7 @@ class UnifiedTrader:
                 'exchange': exchange_name,
                 'side': position.side.value,
                 'entry_price': position.entry_price,
-                'exit_price': pnl_data.get('position_value', 0) / position.quantity,
+                'exit_price': pnl_data.get('exit_price', position.current_price),
                 'quantity': position.quantity,
                 'pnl_percent': pnl_data.get('net_pnl_percent', 0.0),
                 'holding_time_minutes': (datetime.now(timezone.utc) - position.entry_time).total_seconds() / 60,
@@ -7392,12 +7453,16 @@ Response in JSON format:
             adapter = self.get_exchange_client(exchange_name)
             exchange = getattr(adapter, 'exchange', None)
             if exchange is None:
-                return 1.0
+                raise ValueError('market_contract_size_unverified')
             normalized = self._normalize_symbol_for_adapter(adapter, symbol)
             market = exchange.market(normalized) or {}
-            return max(1e-12, float(market.get('contractSize') or 1.0))
-        except Exception:
-            return 1.0
+            raw = market.get('contractSize')
+            contract = float(raw)
+            if isinstance(raw, bool) or not math.isfinite(contract) or contract <= 0:
+                raise ValueError('market_contract_size_unverified')
+            return contract
+        except Exception as exc:
+            raise ValueError('market_contract_size_unverified') from exc
 
     def _calculate_position_size_unified(
         self,
@@ -7602,7 +7667,11 @@ Response in JSON format:
 
         except Exception as e:
             self.logger.error(f"❌ {exchange_name} {symbol} 포지션 크기 계산 실패: {e}")
-            return 0.001  # 기본값 반환
+            optimized_params['_position_sizing'] = {
+                'allowed': False,
+                'reason': 'market_contract_size_unverified' if str(e) == 'market_contract_size_unverified' else 'position_sizing_calculation_failed',
+            }
+            return 0.0
 
     def _get_exchange_position_factor(self, exchange_name: str) -> float:
         """거래소별 포지션 크기 팩터"""

@@ -56,6 +56,7 @@ def serialize_position(position: Any) -> Dict[str, Any]:
         "custom_strategy_rules", "custom_strategy_key", "custom_strategy_version_id",
         "custom_strategy_scope", "exit_policy", "entry_evidence", "custom_order_plan_state",
         "spot_baseline_quantity",
+        "pnl_calculation_status",
     )
     return {name: _json_safe(getattr(position, name, None)) for name in fields}
 
@@ -104,6 +105,7 @@ def deserialize_position(row: Dict[str, Any], position_cls: Any, side_cls: Any) 
         entry_evidence=dict(row.get("entry_evidence") or {}),
         custom_order_plan_state=dict(row.get("custom_order_plan_state") or {}),
         spot_baseline_quantity=float(row.get("spot_baseline_quantity") or 0.0),
+        pnl_calculation_status=str(row.get('pnl_calculation_status') or ''),
     )
 
 

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 import json
 import hashlib
 import threading
@@ -51,6 +52,7 @@ def paper_position_execution_evidence(
             contract_hash = hashlib.sha256(canonical.encode("utf-8")).hexdigest()
     return {
         "leverage": get("leverage"),
+        "contract_size": sizing.get("contract_size", 1.0),
         "entry_reason": str(
             entry_reason
             or entry_evidence.get("reason")
@@ -86,6 +88,7 @@ def record_paper_strategy_outcome(
     position_id: str = "", gross_pnl: float | None = None,
     net_pnl_percent: float | None = None, entry_price: float | None = None,
     exit_price: float | None = None, quantity: float | None = None,
+    contract_size: float = 1.0,
     side: str = "", quote_currency: str = "",
     estimated_slippage: float | None = None,
     estimated_taxes: float | None = None,
@@ -147,6 +150,7 @@ def record_paper_strategy_outcome(
         "entry_price": None if entry_price is None else float(entry_price),
         "exit_price": None if exit_price is None else float(exit_price),
         "quantity": None if quantity is None else float(quantity),
+        "contract_size": float(contract_size),
         "leverage": None if leverage is None else max(1, int(leverage)),
         "side": str(side or "").upper(),
         "quote_currency": str(quote_currency or "").upper(),
@@ -209,6 +213,37 @@ def paper_outcome_calculation_status(row: dict[str, Any] | None) -> str:
     """Return whether a PAPER row can safely participate in PnL statistics."""
     value = dict(row or {})
     explicit = str(value.get("calculation_status") or "").strip().lower()
+    if explicit == 'valid':
+        if 'net_pnl' in value and value['net_pnl'] is None:
+            return 'invalid'
+        for key in ('net_pnl', 'gross_pnl', 'fees', 'estimated_slippage', 'estimated_taxes',
+                    'net_pnl_percent', 'entry_price', 'exit_price', 'quantity'):
+            if key in value and value[key] is not None:
+                try:
+                    if isinstance(value[key], bool) or not math.isfinite(float(value[key])):
+                        return 'invalid'
+                    if key in {'entry_price', 'exit_price', 'quantity'} and float(value[key]) <= 0:
+                        return 'invalid'
+                except (ValueError, TypeError, OverflowError):
+                    return 'invalid'
+    if 'contract_size' in value:
+        try:
+            contract = float(value['contract_size'])
+            if not math.isfinite(contract) or contract <= 0:
+                return 'invalid'
+        except (ValueError, TypeError):
+            return 'invalid'
+    # Older Unified PAPER used contracts as base quantity in monetary PnL.
+    # Preserve the source, but exclude an entry-notional contradiction from
+    # verified statistics until its entry-time contract is reconciled.
+    if explicit == 'valid' and 'contract_size' not in value and value.get('cost_calculation_status') == 'recorded_contract' and str(value.get('exchange') or '').lower() in {'okx', 'bybit', 'bitget'}:
+        try:
+            recorded_notional = float(value.get('sizing_final_notional'))
+            unit_notional = float(value.get('entry_price')) * float(value.get('quantity')) * float(value.get('contract_size', 1.0))
+            if recorded_notional > 0 and math.isfinite(recorded_notional) and math.isfinite(unit_notional) and abs(unit_notional-recorded_notional) > max(1e-6, recorded_notional*.02):
+                return 'legacy_unverified'
+        except (ValueError, TypeError):
+            pass
     if explicit in {"valid", "invalid", "legacy_unverified"}:
         return explicit
     # Unified rows before schema v2 silently wrote missing field names as zero.

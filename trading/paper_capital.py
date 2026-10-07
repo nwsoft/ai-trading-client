@@ -33,12 +33,20 @@ def paper_available_funds(initial_equity, positions, *, venue: str, quote: str,
         initial = _number(initial_equity)
         if initial <= 0:
             raise ValueError('initial_equity_unverified')
+        from .paper_funds_session import read_session
+        session = read_session(ledger_file, venue=venue, quote=quote)
+        offset = 0
+        if session is not None:
+            initial, offset = float(session['initial_capital']), session['ledger_offset']
+            result.update(paper_session_id=session['session_id'], paper_session_started_at=session['started_at'],
+                          paper_session_basis=session['basis'], historical_pnl_restored=False)
         realized, margin = 0.0, 0.0
         seen = {}
         if ledger_file.exists():
-            if ledger_file.stat().st_size > 64 * 1024 * 1024:
+            if ledger_file.stat().st_size - offset > 64 * 1024 * 1024:
                 raise ValueError('paper_ledger_reconciliation_budget')
-            with ledger_file.open(encoding='utf-8') as handle:
+            with ledger_file.open('rb') as handle:
+                handle.seek(offset)
                 for index, line in enumerate(handle):
                     if index >= 100_000:
                         raise ValueError('paper_ledger_reconciliation_budget')
@@ -50,6 +58,10 @@ def paper_available_funds(initial_equity, positions, *, venue: str, quote: str,
                     if canonical_venue(str(raw.get('exchange') or '')) != canonical_venue(venue):
                         continue
                     if raw.get('execution_mode') != 'paper':
+                        continue
+                    # Order-free strategy observation has its own positions;
+                    # its closes cannot fund the execution PAPER wallet.
+                    if raw.get('cost_calculation_status') == 'parallel_paper_recorded_contract':
                         continue
                     row = normalize_paper_outcome_costs(raw)
                     if str(row.get('quote_currency') or '').upper() != quote:
@@ -73,6 +85,8 @@ def paper_available_funds(initial_equity, positions, *, venue: str, quote: str,
             spot = quote == 'KRW' or canonical_venue(venue) in {'kis', 'kiwoom', 'mirae', 'shinhan'}
             leverage = 1.0 if spot else _number(get('leverage', 1))
             sizing = (get('entry_evidence', {}) or {}).get('position_sizing') or {}
+            if canonical_venue(venue) in {'okx', 'bybit', 'bitget'} and 'contract_size' not in sizing:
+                raise ValueError('paper_position_margin_unverified')
             contract = _number(sizing.get('contract_size', 1))
             if leverage < 1 or contract <= 0:
                 raise ValueError('paper_position_margin_unverified')
@@ -91,6 +105,7 @@ def paper_available_funds(initial_equity, positions, *, venue: str, quote: str,
                    'paper_ledger_event_conflict',
                    'paper_position_notional_unverified', 'paper_position_margin_unverified',
                    'paper_funds_nonfinite'}
+        allowed.update({'paper_session_store_unverified', 'paper_session_boundary_unverified'})
         result['reason'] = str(error) if str(error) in allowed else 'paper_funds_reconciliation_required'
     return result
 
@@ -120,7 +135,8 @@ def remember_capital(owner, *, venue, mode, funds):
         state = owner._last_capital_evidence = {}
     key = (canonical_venue(venue), str(getattr(mode, 'value', mode)).lower())
     state[key] = {field: funds.get(field) for field in ('available_capital', 'capital_basis',
-        'quote_currency', 'initial_capital', 'realized_net_pnl', 'open_margin', 'reason')}
+        'quote_currency', 'initial_capital', 'realized_net_pnl', 'open_margin', 'reason',
+        'paper_session_id', 'paper_session_started_at', 'paper_session_basis', 'historical_pnl_restored')}
     state[key]['observed_at'] = time.time()
     while len(state) > 33:
         state.pop(next(iter(state)))

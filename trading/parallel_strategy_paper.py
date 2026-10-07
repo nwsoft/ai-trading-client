@@ -229,6 +229,7 @@ class ParallelStrategyPaperEngine:
                             net_pnl_percent=(net / entry_notional * 100.0) if entry_notional else 0.0,
                             fees=fees, estimated_slippage=slippage, estimated_taxes=taxes,
                             entry_price=entry, exit_price=price, quantity=quantity,
+                            contract_size=contract,
                             side=side, quote_currency=str(existing.get("quote_currency") or ""),
                             cost_calculation_status="parallel_paper_recorded_contract",
                             calculation_status="valid",
