@@ -410,7 +410,7 @@ def test_unified_trader_cycle_records_allocation_and_ops_metrics():
         ],
         set_leverage=lambda symbol, leverage: True,
         set_margin_type=lambda symbol, margin_type: True,
-        exchange=object(),
+        exchange=SimpleNamespace(market=lambda symbol: {"contractSize": 1.0}),
     ))
     trader._monitor_exchange_positions = MagicMock()
 

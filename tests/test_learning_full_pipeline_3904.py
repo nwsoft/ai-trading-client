@@ -81,6 +81,7 @@ def test_unified_learning_builds_complete_plan_before_mutating_exchange_state():
         set_leverage=MagicMock(),
         set_margin_type=MagicMock(),
         place_order=MagicMock(),
+        exchange=SimpleNamespace(market=lambda symbol: {"contractSize": 1.0}),
     )
     trader.get_exchange_client = MagicMock(return_value=exchange_client)
     trader._calculate_position_size_unified = MagicMock(return_value=0.02)

@@ -10,7 +10,7 @@ from trading.profitability_validation import ProfitabilityValidator
 from trading.strategy_source_ingestor import ExtractedStrategySource, StrategySourceIngestor
 from trading.custom_strategy_pipeline import CustomStrategyPipeline
 from trading.declarative_strategy_engine import DeclarativeStrategyEngine
-from config.app_version import RELEASE_VERSION
+from config.app_version import RELEASE_VERSION, PUBLIC_RELEASE_VERSION
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -395,13 +395,21 @@ def test_windows_executable_metadata_is_aligned_to_current_release():
     assert manifest["assets"]["engine_sidecar"]["distribution"] == "embedded_in_installer"
     previous_asset = manifest["previous_published_asset"]
     exe_path = ROOT / previous_asset["path"]
-    assert exe_path.exists()
-    assert previous_asset["size"] == exe_path.stat().st_size
-    digest = hashlib.sha256()
-    with exe_path.open("rb") as exe_file:
-        for chunk in iter(lambda: exe_file.read(1024 * 1024), b""):
-            digest.update(chunk)
-    assert previous_asset["sha256"] == digest.hexdigest()
+    assert previous_asset["size"] > 0
+    assert len(previous_asset["sha256"]) == 64
+    if manifest["version"] == RELEASE_VERSION:
+        # The new Windows build requires its actual public rollback installer.
+        assert previous_asset["version"] == PUBLIC_RELEASE_VERSION
+        assert exe_path.exists()
+    # An archived public manifest can reference an even older installer that
+    # is not an input to the new build. Verify it whenever it is cached.
+    if exe_path.exists():
+        assert previous_asset["size"] == exe_path.stat().st_size
+        digest = hashlib.sha256()
+        with exe_path.open("rb") as exe_file:
+            for chunk in iter(lambda: exe_file.read(1024 * 1024), b""):
+                digest.update(chunk)
+        assert previous_asset["sha256"] == digest.hexdigest()
     assert previous_asset["version"] != RELEASE_VERSION
     assert (
         previous_asset["release_label"] == f"v{previous_asset['version']}"
