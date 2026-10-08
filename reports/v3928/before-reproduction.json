@@ -1,0 +1,31 @@
+{
+  "source": "/private/tmp/noahai-v3928-public7-repro-20261008",
+  "synthetic_only": true,
+  "live_orders": false,
+  "snapshot_failure": {
+    "returned_success": true,
+    "memory_quantity": 6.0,
+    "disk_quantity": 10.0,
+    "restored_quantity": 10.0,
+    "completed": [],
+    "retry_other_price_success": true,
+    "event_conflict_logged": false,
+    "ledger_rows": 1,
+    "raw_ledger_rows": 2,
+    "unique_event_ids": 1,
+    "post_retry_capital_reason": "paper_ledger_event_conflict",
+    "recorded_exit_prices": [
+      110.0,
+      120.0
+    ],
+    "closed_quantity": 4.0,
+    "original_exit_price": 120.0
+  },
+  "missing_contract": {
+    "status": "valid",
+    "capital_basis": "paper_reconciled_funds",
+    "available_capital": 1020.0,
+    "reason": null,
+    "original_preserved": true
+  }
+}

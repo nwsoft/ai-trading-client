@@ -1,0 +1,14 @@
+{
+  "status": "PASS",
+  "summary": {
+    "services": 5,
+    "top_level_features": 35,
+    "institution_sources": 11,
+    "life_finance_inner_routes": 7,
+    "settings_sections": 9,
+    "manual_sections": 11,
+    "ai_analyst_cards": 6
+  },
+  "errors": []
+}
+SOURCE CONTRACT PASS — 시각 1:1 및 Windows E2E 완료를 의미하지 않습니다.

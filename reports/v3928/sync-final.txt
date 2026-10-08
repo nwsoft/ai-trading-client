@@ -1,0 +1,24 @@
+SYNC_GUARD: INFO
+- 변경 파일 수집 경로: git(v3.9.2.7)
+- 변경 파일 수: 103
+- 사용자 노출 변경 파일:
+  - config/app_version.py
+  - config/published_release_baselines.json
+  - config/published_release_manifests/v3.9.2.7.json
+  - config/web_ui_feature_inventory.json
+  - config/windows_kiwoom_host_version_info.txt
+  - config/windows_version_info.txt
+  - trading/paper_capital.py
+  - trading/paper_position_store.py
+  - trading/paper_strategy_ledger.py
+  - trading/trader.py
+  - trading/unified_trader.py
+  - ui/widgets/user_manual_widget.py
+  - webui/src/App.tsx
+  - webui/src/api.ts
+  - webui/src/components/OperationSummary.tsx
+  - webui/src/components/SettingsCenter.tsx
+  - webui/src/components/UpdateCenter.tsx
+  - webui/src/uiBuild.ts
+SYNC_GUARD: PASS
+- 사용자 노출 변경 + 문서/인앱 동기화 파일 반영 완료

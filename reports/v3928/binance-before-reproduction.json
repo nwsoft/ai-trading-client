@@ -1,0 +1,21 @@
+{
+  "source": "/private/tmp/noahai-v3928-public7-repro-20261008",
+  "synthetic_only": true,
+  "live_orders": false,
+  "faults": {
+    "ledger": {
+      "open_memory": 0,
+      "disk_quantity": 10.0,
+      "success_statistics_count": 1,
+      "recovery_block": "",
+      "ledger_rows": 0
+    },
+    "snapshot": {
+      "open_memory": 0,
+      "disk_quantity": 10.0,
+      "success_statistics_count": 1,
+      "recovery_block": "",
+      "ledger_rows": 1
+    }
+  }
+}

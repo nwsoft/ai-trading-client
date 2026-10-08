@@ -1,0 +1,32 @@
+{
+  "source": "/Users/playone/.codex/worktrees/noahai-v3928-paper-recovery",
+  "synthetic_only": true,
+  "live_orders": false,
+  "snapshot_failure": {
+    "returned_success": false,
+    "memory_quantity": 10.0,
+    "disk_quantity": 10.0,
+    "restored_quantity": 6.0,
+    "completed": [
+      0
+    ],
+    "retry_other_price_success": false,
+    "event_conflict_logged": false,
+    "ledger_rows": 1,
+    "raw_ledger_rows": 1,
+    "unique_event_ids": 1,
+    "post_retry_capital_reason": null,
+    "recorded_exit_prices": [
+      110.0
+    ],
+    "closed_quantity": 4.0,
+    "original_exit_price": 110.0
+  },
+  "missing_contract": {
+    "status": "legacy_unverified",
+    "capital_basis": "paper_funds_unverified",
+    "available_capital": 0.0,
+    "reason": "paper_ledger_pnl_unverified",
+    "original_preserved": true
+  }
+}

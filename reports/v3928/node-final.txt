@@ -1,0 +1,484 @@
+TAP version 13
+# Subtest: missing, malformed, unsafe and fractional principal values are not zero
+ok 1 - missing, malformed, unsafe and fractional principal values are not zero
+  ---
+  duration_ms: 0.508125
+  type: 'test'
+  ...
+# Subtest: zero-interest equal installments and principal are valid, not divided by zero
+ok 2 - zero-interest equal installments and principal are valid, not divided by zero
+  ---
+  duration_ms: 0.14225
+  type: 'test'
+  ...
+# Subtest: annuity amortizes principal and maintains payments
+ok 3 - annuity amortizes principal and maintains payments
+  ---
+  duration_ms: 0.083708
+  type: 'test'
+  ...
+# Subtest: equal principal decreases monthly burden and bullet preserves maturity principal
+ok 4 - equal principal decreases monthly burden and bullet preserves maturity principal
+  ---
+  duration_ms: 0.057042
+  type: 'test'
+  ...
+# Subtest: unknown fees retain interest but prevent total and cost assertions
+ok 5 - unknown fees retain interest but prevent total and cost assertions
+  ---
+  duration_ms: 0.100792
+  type: 'test'
+  ...
+# Subtest: extreme supported duration and near-zero rates remain finite
+ok 6 - extreme supported duration and near-zero rates remain finite
+  ---
+  duration_ms: 0.53725
+  type: 'test'
+  ...
+# Subtest: deposit and monthly installment do not pay full-year interest on future deposits
+ok 7 - deposit and monthly installment do not pay full-year interest on future deposits
+  ---
+  duration_ms: 0.1145
+  type: 'test'
+  ...
+# Subtest: tax unknown, explicit zero and illustrative 15.4 percent stay distinct
+ok 8 - tax unknown, explicit zero and illustrative 15.4 percent stay distinct
+  ---
+  duration_ms: 0.063
+  type: 'test'
+  ...
+# Subtest: saving duration, methods and aggregate amount are bounded
+ok 9 - saving duration, methods and aggregate amount are bounded
+  ---
+  duration_ms: 0.198708
+  type: 'test'
+  ...
+# Subtest: Korean default, English selection, unsupported fallback and account isolation
+ok 10 - Korean default, English selection, unsupported fallback and account isolation
+  ---
+  duration_ms: 37.308667
+  type: 'test'
+  ...
+# Subtest: Initial OS hint, browser fallback and unsupported languages do not infer country
+ok 11 - Initial OS hint, browser fallback and unsupported languages do not infer country
+  ---
+  duration_ms: 35.909875
+  type: 'test'
+  ...
+# Subtest: Explicit account and guest choices override system hint across reloads
+ok 12 - Explicit account and guest choices override system hint across reloads
+  ---
+  duration_ms: 12.216708
+  type: 'test'
+  ...
+# Subtest: Language control belongs to login footer and General settings, not dashboard header
+ok 13 - Language control belongs to login footer and General settings, not dashboard header
+  ---
+  duration_ms: 0.557208
+  type: 'test'
+  ...
+# Subtest: Unknown original evidence and financial precision remain unchanged
+ok 14 - Unknown original evidence and financial precision remain unchanged
+  ---
+  duration_ms: 4.034959
+  type: 'test'
+  ...
+# Subtest: Catalogs are bounded, nonempty and contain no markup or unresolved placeholders
+ok 15 - Catalogs are bounded, nonempty and contain no markup or unresolved placeholders
+  ---
+  duration_ms: 0.523875
+  type: 'test'
+  ...
+# Subtest: Translated select options retain explicit canonical values
+ok 16 - Translated select options retain explicit canonical values
+  ---
+  duration_ms: 93.88325
+  type: 'test'
+  ...
+# Subtest: one in-flight request, hidden pause, visibility resumes once, cleanup
+ok 17 - one in-flight request, hidden pause, visibility resumes once, cleanup
+  ---
+  duration_ms: 25.529958
+  type: 'test'
+  ...
+# Subtest: failure backoff 5/10/20/30s then resets, without unhandled rejections
+ok 18 - failure backoff 5/10/20/30s then resets, without unhandled rejections
+  ---
+  duration_ms: 5.470959
+  type: 'test'
+  ...
+# Subtest: unmount during delayed response cannot restart polling
+ok 19 - unmount during delayed response cannot restart polling
+  ---
+  duration_ms: 4.0385
+  type: 'test'
+  ...
+# Subtest: supported Node versions match compiler minimum
+ok 20 - supported Node versions match compiler minimum
+  ---
+  duration_ms: 0.877459
+  type: 'test'
+  ...
+# Subtest: current renderer starts without compilation
+ok 21 - current renderer starts without compilation
+  ---
+  duration_ms: 0.115417
+  type: 'test'
+  ...
+# Subtest: stale renderer is rebuilt once even with concurrent starts
+ok 22 - stale renderer is rebuilt once even with concurrent starts
+  ---
+  duration_ms: 252.022875
+  type: 'test'
+  ...
+# Subtest: failed build cleans lock and never launches old renderer
+ok 23 - failed build cleans lock and never launches old renderer
+  ---
+  duration_ms: 1.227583
+  type: 'test'
+  ...
+# Subtest: live build lock is never stolen
+ok 24 - live build lock is never stolen
+  ---
+  duration_ms: 0.582125
+  type: 'test'
+  ...
+# Subtest: English replay labels retain short-entry SELL and short-exit BUY semantics
+ok 25 - English replay labels retain short-entry SELL and short-exit BUY semantics
+  ---
+  duration_ms: 0.538667
+  type: 'test'
+  ...
+# Subtest: actual Python replay is accepted without recomputing returns
+ok 26 - actual Python replay is accepted without recomputing returns
+  ---
+  duration_ms: 0.830125
+  type: 'test'
+  ...
+# Subtest: reject legacy without fabricated chart
+ok 27 - reject legacy without fabricated chart
+  ---
+  duration_ms: 0.530416
+  type: 'test'
+  ...
+# Subtest: reject wrong_version without fabricated chart
+ok 28 - reject wrong_version without fabricated chart
+  ---
+  duration_ms: 0.436166
+  type: 'test'
+  ...
+# Subtest: reject wrong_summary without fabricated chart
+ok 29 - reject wrong_summary without fabricated chart
+  ---
+  duration_ms: 0.630125
+  type: 'test'
+  ...
+# Subtest: reject wrong_curve without fabricated chart
+ok 30 - reject wrong_curve without fabricated chart
+  ---
+  duration_ms: 0.551291
+  type: 'test'
+  ...
+# Subtest: reject bad_index without fabricated chart
+ok 31 - reject bad_index without fabricated chart
+  ---
+  duration_ms: 0.526792
+  type: 'test'
+  ...
+# Subtest: reject duplicate_time without fabricated chart
+ok 32 - reject duplicate_time without fabricated chart
+  ---
+  duration_ms: 0.779
+  type: 'test'
+  ...
+# Subtest: reject bad_price without fabricated chart
+ok 33 - reject bad_price without fabricated chart
+  ---
+  duration_ms: 0.638292
+  type: 'test'
+  ...
+# Subtest: reject missing_cost without fabricated chart
+ok 34 - reject missing_cost without fabricated chart
+  ---
+  duration_ms: 0.684
+  type: 'test'
+  ...
+# Subtest: reject missing_curve without fabricated chart
+ok 35 - reject missing_curve without fabricated chart
+  ---
+  duration_ms: 0.530417
+  type: 'test'
+  ...
+# Subtest: SHORT opening SELL and closing BUY are not mislabeled as LONG
+ok 36 - SHORT opening SELL and closing BUY are not mislabeled as LONG
+  ---
+  duration_ms: 0.045333
+  type: 'test'
+  ...
+# Subtest: percentage points are formatted exactly: -0.251572
+ok 37 - percentage points are formatted exactly: -0.251572
+  ---
+  duration_ms: 0.040709
+  type: 'test'
+  ...
+# Subtest: percentage points are formatted exactly: 2.289688
+ok 38 - percentage points are formatted exactly: 2.289688
+  ---
+  duration_ms: 0.018667
+  type: 'test'
+  ...
+# Subtest: percentage points are formatted exactly: 0
+ok 39 - percentage points are formatted exactly: 0
+  ---
+  duration_ms: 0.017208
+  type: 'test'
+  ...
+# Subtest: percentage points are formatted exactly: -1e-8
+ok 40 - percentage points are formatted exactly: -1e-8
+  ---
+  duration_ms: 0.018958
+  type: 'test'
+  ...
+# Subtest: percentage points are formatted exactly: -0.0001
+ok 41 - percentage points are formatted exactly: -0.0001
+  ---
+  duration_ms: 0.015917
+  type: 'test'
+  ...
+# Subtest: percentage points are formatted exactly: 100.123456
+ok 42 - percentage points are formatted exactly: 100.123456
+  ---
+  duration_ms: 0.0185
+  type: 'test'
+  ...
+# Subtest: percentage points are formatted exactly: -100
+ok 43 - percentage points are formatted exactly: -100
+  ---
+  duration_ms: 0.016833
+  type: 'test'
+  ...
+# Subtest: percentage points are formatted exactly: NaN
+ok 44 - percentage points are formatted exactly: NaN
+  ---
+  duration_ms: 0.01525
+  type: 'test'
+  ...
+# Subtest: readable price without zeroing tiny coins: 72536.7140731224
+ok 45 - readable price without zeroing tiny coins: 72536.7140731224
+  ---
+  duration_ms: 7.569208
+  type: 'test'
+  ...
+# Subtest: readable price without zeroing tiny coins: 70000
+ok 46 - readable price without zeroing tiny coins: 70000
+  ---
+  duration_ms: 0.062583
+  type: 'test'
+  ...
+# Subtest: readable price without zeroing tiny coins: 99999999.12345
+ok 47 - readable price without zeroing tiny coins: 99999999.12345
+  ---
+  duration_ms: 0.042458
+  type: 'test'
+  ...
+# Subtest: readable price without zeroing tiny coins: 0.123456789
+ok 48 - readable price without zeroing tiny coins: 0.123456789
+  ---
+  duration_ms: 0.036084
+  type: 'test'
+  ...
+# Subtest: readable price without zeroing tiny coins: 1.23456789e-7
+ok 49 - readable price without zeroing tiny coins: 1.23456789e-7
+  ---
+  duration_ms: 0.032625
+  type: 'test'
+  ...
+# Subtest: readable price without zeroing tiny coins: 1e-14
+ok 50 - readable price without zeroing tiny coins: 1e-14
+  ---
+  duration_ms: 0.018417
+  type: 'test'
+  ...
+# Subtest: readable price without zeroing tiny coins: NaN
+ok 51 - readable price without zeroing tiny coins: NaN
+  ---
+  duration_ms: 0.016166
+  type: 'test'
+  ...
+# Subtest: formatting never mutates replay evidence
+ok 52 - formatting never mutates replay evidence
+  ---
+  duration_ms: 5.080875
+  type: 'test'
+  ...
+# Subtest: all arrows remain while names are restricted to the selected trade, even for 9 clustered trades
+ok 53 - all arrows remain while names are restricted to the selected trade, even for 9 clustered trades
+  ---
+  duration_ms: 0.0985
+  type: 'test'
+  ...
+# Subtest: six venues retain request-correlated safe stage without exposing raw detail
+ok 54 - six venues retain request-correlated safe stage without exposing raw detail
+  ---
+  duration_ms: 0.727917
+  type: 'test'
+  ...
+# Subtest: PAPER failures never prescribe or read LIVE journal recovery
+ok 55 - PAPER failures never prescribe or read LIVE journal recovery
+  ---
+  duration_ms: 0.170458
+  type: 'test'
+  ...
+# Subtest: report UI uses original evidence and only conditional recovery
+ok 56 - report UI uses original evidence and only conditional recovery
+  ---
+  duration_ms: 0.169042
+  type: 'test'
+  ...
+# Subtest: selection identity separates scope, strategy and version
+ok 57 - selection identity separates scope, strategy and version
+  ---
+  duration_ms: 0.330709
+  type: 'test'
+  ...
+# Subtest: bulk PAPER never auto approves, activates or restarts evidence
+ok 58 - bulk PAPER never auto approves, activates or restarts evidence
+  ---
+  duration_ms: 0.163334
+  type: 'test'
+  ...
+# Subtest: delete forbids execution grants and pause uses only existing stop/deactivate
+ok 59 - delete forbids execution grants and pause uses only existing stop/deactivate
+  ---
+  duration_ms: 0.062333
+  type: 'test'
+  ...
+# Subtest: ZIP has valid CRC, UTF8, safe unique paths and preserves package bytes
+ok 60 - ZIP has valid CRC, UTF8, safe unique paths and preserves package bytes
+  ---
+  duration_ms: 27.588292
+  type: 'test'
+  ...
+# Subtest: ZIP export stays bounded
+ok 61 - ZIP export stays bounded
+  ---
+  duration_ms: 3.823666
+  type: 'test'
+  ...
+# Subtest: actual current rules, source scope and missing question reach the assistant without whole source or path
+ok 62 - actual current rules, source scope and missing question reach the assistant without whole source or path
+  ---
+  duration_ms: 0.743875
+  type: 'test'
+  ...
+# Subtest: same path distinguishes stock/ETF and crypto without inventing a return
+ok 63 - same path distinguishes stock/ETF and crypto without inventing a return
+  ---
+  duration_ms: 0.309042
+  type: 'test'
+  ...
+# Subtest: supplemental answers and unavailable YouTube evidence are not treated as original performance
+ok 64 - supplemental answers and unavailable YouTube evidence are not treated as original performance
+  ---
+  duration_ms: 0.398042
+  type: 'test'
+  ...
+# Subtest: large escaped source remains valid JSON within Gateway question budget
+ok 65 - large escaped source remains valid JSON within Gateway question budget
+  ---
+  duration_ms: 0.416958
+  type: 'test'
+  ...
+# Subtest: TypeScript snapshot round-trips to real Python local explanation without Provider calls
+ok 66 - TypeScript snapshot round-trips to real Python local explanation without Provider calls
+  ---
+  duration_ms: 29.278916
+  type: 'test'
+  ...
+# Subtest: missing and stale renderer cannot masquerade as current engine version
+ok 67 - missing and stale renderer cannot masquerade as current engine version
+  ---
+  duration_ms: 4.084125
+  type: 'test'
+  ...
+# Subtest: missing index or referenced JS is not a usable renderer
+ok 68 - missing index or referenced JS is not a usable renderer
+  ---
+  duration_ms: 2.323375
+  type: 'test'
+  ...
+# Subtest: a source change during compilation cannot certify mixed output
+ok 69 - a source change during compilation cannot certify mixed output
+  ---
+  duration_ms: 1.183958
+  type: 'test'
+  ...
+# Subtest: reproduces legacy Atom selection under old prerelease policy
+ok 70 - reproduces legacy Atom selection under old prerelease policy
+  ---
+  duration_ms: 1.971666
+  type: 'test'
+  ...
+# Subtest: installed updater selects stable latest despite stale Atom feed
+ok 71 - installed updater selects stable latest despite stale Atom feed
+  ---
+  duration_ms: 1.847542
+  type: 'test'
+  ...
+# Subtest: missing stable metadata fails closed without falling back to legacy release
+ok 72 - missing stable metadata fails closed without falling back to legacy release
+  ---
+  duration_ms: 0.272042
+  type: 'test'
+  ...
+# Subtest: 404 explanation does not expose stack/headers or ask for a user token
+ok 73 - 404 explanation does not expose stack/headers or ask for a user token
+  ---
+  duration_ms: 0.131666
+  type: 'test'
+  ...
+# Subtest: checks at startup and saved interval without opening Settings
+ok 74 - checks at startup and saved interval without opening Settings
+  ---
+  duration_ms: 2.682958
+  type: 'test'
+  ...
+# Subtest: disabled still permits manual check, errors retry only on interval
+ok 75 - disabled still permits manual check, errors retry only on interval
+  ---
+  duration_ms: 0.805125
+  type: 'test'
+  ...
+# Subtest: concurrent requests coalesce and stopping during a request leaves no timer
+ok 76 - concurrent requests coalesce and stopping during a request leaves no timer
+  ---
+  duration_ms: 0.178084
+  type: 'test'
+  ...
+# Subtest: settings changes and sleep resume do not create catch-up storms
+ok 77 - settings changes and sleep resume do not create catch-up storms
+  ---
+  duration_ms: 0.632417
+  type: 'test'
+  ...
+# Subtest: normalizes download and quit-install preferences independently
+ok 78 - normalizes download and quit-install preferences independently
+  ---
+  duration_ms: 0.49125
+  type: 'test'
+  ...
+# Subtest: installs on quit only when a downloaded update is ready and the user enabled it
+ok 79 - installs on quit only when a downloaded update is ready and the user enabled it
+  ---
+  duration_ms: 0.085916
+  type: 'test'
+  ...
+1..79
+# tests 79
+# suites 0
+# pass 79
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 370.235791

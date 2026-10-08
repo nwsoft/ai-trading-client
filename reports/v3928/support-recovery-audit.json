@@ -1,0 +1,33 @@
+{
+  "support_copy_only": true,
+  "providers_or_live_orders": false,
+  "normalizes_history": false,
+  "raw_outcome_rows": 33347,
+  "before_status_counts": {
+    "legacy_unverified": 3091,
+    "valid": 30251,
+    "invalid": 5
+  },
+  "after_status_counts": {
+    "legacy_unverified": 14485,
+    "valid": 18857,
+    "invalid": 5
+  },
+  "valid_to_unverified": 11394,
+  "strict_ledger_rows": 33347,
+  "ledger_block_reason": "",
+  "unified_restore_block_reason": "",
+  "restored_position_counts": {
+    "bybit": 1,
+    "bitget": 1,
+    "okx": 1,
+    "upbit": 0,
+    "bithumb": 0,
+    "coinone": 5
+  },
+  "ledger_prefix_unchanged": true,
+  "positions_original_preserved_on_block": true,
+  "binance_restore_block_reason": "",
+  "binance_restored_position_count": 2,
+  "binance_positions_original_preserved_on_block": true
+}

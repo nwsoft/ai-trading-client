@@ -1,0 +1,36 @@
+FF                                                                       [100%]
+=================================== FAILURES ===================================
+____________ test_snapshot_failure_recovers_committed_partial_once _____________
+
+tmp_path = PosixPath('/private/var/folders/sr/tdlflpnj0qj1qd26s268mdlc0000gn/T/pytest-of-playone/pytest-289/test_snapshot_failure_recovers0')
+
+    def test_snapshot_failure_recovers_committed_partial_once(tmp_path):
+        t,p,d=fixture(tmp_path);ledger=tmp_path/'ledger.jsonl';save_positions(t._paper_position_path(),t.paper_positions)
+        with patch('trading.paper_strategy_ledger.ledger_path',return_value=ledger):
+            with patch('trading.unified_trader.save_positions',side_effect=OSError('snapshot full')):
+>               assert not t._execute_advanced_partial_close_unified('okx',p.symbol,p,110.,d)
+E               AssertionError: assert not True
+E                +  where True = _execute_advanced_partial_close_unified('okx', 'QA/USDT:USDT', Position(symbol='QA/USDT:USDT', side=<PositionSide.LONG: 'LONG'>, entry_price=100.0, current_price=110.0, quantity=6.0...se', 'last_confirmed_reason': 'advanced_partial_take_profit_1'}, spot_baseline_quantity=0.0, pnl_calculation_status=''), 110.0, {'action': 'partial_close', 'next_state': {'bars_since_exit': None, 'break_even_armed': False, 'completed_partial_indices': [], 'original_quantity': 10.0, ...}, 'partial_index': 0, 'quantity': 4.0, ...})
+E                +    where _execute_advanced_partial_close_unified = <trading.unified_trader.UnifiedTrader object at 0x10e696cf0>._execute_advanced_partial_close_unified
+E                +    and   'QA/USDT:USDT' = Position(symbol='QA/USDT:USDT', side=<PositionSide.LONG: 'LONG'>, entry_price=100.0, current_price=110.0, quantity=6.0...se', 'last_confirmed_reason': 'advanced_partial_take_profit_1'}, spot_baseline_quantity=0.0, pnl_calculation_status='').symbol
+
+tests/test_v3928_close_recovery.py:34: AssertionError
+_____________ test_missing_contract_does_not_become_verified_funds _____________
+
+tmp_path = PosixPath('/private/var/folders/sr/tdlflpnj0qj1qd26s268mdlc0000gn/T/pytest-of-playone/pytest-289/test_missing_contract_does_not0')
+
+    def test_missing_contract_does_not_become_verified_funds(tmp_path):
+        row=dict(event_id='legacy',exchange='okx',scope='unified',execution_mode='paper',quote_currency='USDT',
+            calculation_status='valid',cost_calculation_status='recorded_contract',entry_price=100,quantity=2,net_pnl=20)
+        ledger=tmp_path/'ledger.jsonl';ledger.write_text(json.dumps(row)+'\n');original=ledger.read_bytes()
+>       assert paper_outcome_calculation_status(row)=='legacy_unverified'
+E       AssertionError: assert 'valid' == 'legacy_unverified'
+E
+E         - legacy_unverified
+E         + valid
+
+tests/test_v3928_close_recovery.py:49: AssertionError
+=========================== short test summary info ============================
+FAILED tests/test_v3928_close_recovery.py::test_snapshot_failure_recovers_committed_partial_once
+FAILED tests/test_v3928_close_recovery.py::test_missing_contract_does_not_become_verified_funds
+2 failed in 1.75s

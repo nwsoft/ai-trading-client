@@ -1,0 +1,653 @@
+{
+  "support_copy_only": true,
+  "actual_windows_account_verified": false,
+  "source_files": 10125,
+  "backup_files": 10123,
+  "source_bytes": 29146484324,
+  "source_unchanged": true,
+  "backup_matches_manifest_after_handles_closed": true,
+  "private_backup": "/Users/playone/.codex/private-backups/noahai-v3928-20261008/customer-support-snapshot",
+  "manifest_sha256": "4fe4a5698494708bee1cd6ca23317423850e76bd42244e719a4cfdb7415e8873",
+  "databases": {
+    "backups/record_recovery/binance-before.sqlite3": {
+      "integrity_check": "ok",
+      "tables": {
+        "ai_decisions": {
+          "count": 3744414,
+          "rows_sha256": "71ca14a919e3099bc426aecffb44af692b087c872c5be53b7100cb6fb0954259"
+        },
+        "ai_optimization": {
+          "count": 1580,
+          "rows_sha256": "ca42283a74de9e9b37e42ee2ac374d1890df83678c4ea4978451251c519b360a"
+        },
+        "ai_trade_analysis": {
+          "count": 6920,
+          "rows_sha256": "3eb853544ede531ee691dae77a7946b253d20ac41b4d9275f53ee007636eda9d"
+        },
+        "analysis_log": {
+          "count": 222680,
+          "rows_sha256": "4ac2515d2c995aecee9da5933cccfaa88385d70bdd7a909050f2802ebdb53efe"
+        },
+        "binance_close_evidence": {
+          "count": 178,
+          "rows_sha256": "8e75dd6dbc1c7ff4d4dee798469bccf6d9174bdbf01f2c7e05b85bd8b1de6b40"
+        },
+        "coin_evaluation": {
+          "count": 49843,
+          "rows_sha256": "f0acd8f6209ce4a14e825d57dad3551ca44a879d57d56356161d01dca17398b6"
+        },
+        "coin_selection_sessions": {
+          "count": 12937,
+          "rows_sha256": "32a351a6602076b0c32b1d1059e73a3243ee1cc2df1756205ae62555a72d7187"
+        },
+        "crypto_order_commands": {
+          "count": 237,
+          "rows_sha256": "b31f02b3cd716cade2dc7e05d1aa9b5b86e8f19903848d680eb307c1cd0ee1b8"
+        },
+        "daily_risk_basis": {
+          "count": 3,
+          "rows_sha256": "e380cd5177aa22e82f17f6bdda08cf17aa6d2cb6147953c34cc424743657deb0"
+        },
+        "exchange_execution_capability": {
+          "count": 5,
+          "rows_sha256": "59ef82c0baa4514e12235898eeb3993d3b92660a36828f23463bd0583a4de433"
+        },
+        "exchange_execution_log": {
+          "count": 1329,
+          "rows_sha256": "b61b2c89f751452cedbd7a0915903335d5cbaa2b1b674402606fab669201a4e0"
+        },
+        "exchange_order_receipt": {
+          "count": 3157,
+          "rows_sha256": "c7744c9c66e33d5b9cb2ff3aa62d8516f75f9e9ccb42fb0693e9c7ca7f80448f"
+        },
+        "exchange_trade_stats": {
+          "count": 2,
+          "rows_sha256": "988d2b8bb3f4df91b0e4bb9ca5452372b66e5516f62175666d66334d9177f85d"
+        },
+        "fi_analysis_runs": {
+          "count": 0,
+          "rows_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "fi_feature_status": {
+          "count": 13,
+          "rows_sha256": "a4c88408867716aa3272c0f73f68e9589a960acd027abd73a7a71a71f4cb5db0"
+        },
+        "fi_records": {
+          "count": 0,
+          "rows_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "performance_stats": {
+          "count": 0,
+          "rows_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "risk_log": {
+          "count": 0,
+          "rows_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "selected_coins": {
+          "count": 149396,
+          "rows_sha256": "64bd9fcd96ebe5fe928448cbbe7f7597076e49b75b633b1986197488d952d1e9"
+        },
+        "sqlite_sequence": {
+          "count": 13,
+          "rows_sha256": "f05bc843cae767c5192eb55a3728eefb90da69a5c44715a168578c3b6664c4d3"
+        },
+        "stock_execution_metrics": {
+          "count": 0,
+          "rows_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "stock_order_idempotency": {
+          "count": 0,
+          "rows_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "stock_trade_stats": {
+          "count": 156,
+          "rows_sha256": "426c57ce1c17bdc5fbd27ddbdb9bcd8c5167fb8cb58dac0edff7dc28b498172c"
+        },
+        "storage_migrations": {
+          "count": 0,
+          "rows_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "trade_log": {
+          "count": 57997,
+          "rows_sha256": "3f2c7f57a0a243e38722921e515d79c372220e06a9b72ddf61d3f73ed0baa598"
+        }
+      },
+      "existing_rows_compared": true
+    },
+    "backups/record_recovery/bithumb-before.sqlite3": {
+      "integrity_check": "ok",
+      "tables": {
+        "ai_decisions": {
+          "count": 3867254,
+          "rows_sha256": "f1fb6ceaadb0b8d80d8b0db55a33406526f8f7801950d1a70e68ddd6d18c45a7"
+        },
+        "ai_optimization": {
+          "count": 1680,
+          "rows_sha256": "f7fdb8ea76ac4bb42f59ebba29bd60243f29dbd133e640a81df0c32f05159920"
+        },
+        "ai_trade_analysis": {
+          "count": 6920,
+          "rows_sha256": "3eb853544ede531ee691dae77a7946b253d20ac41b4d9275f53ee007636eda9d"
+        },
+        "analysis_log": {
+          "count": 230209,
+          "rows_sha256": "492eda56be7db5b2c1a9c72251c750e46fb6068db4e63444a3d543f6b400dba6"
+        },
+        "binance_close_evidence": {
+          "count": 380,
+          "rows_sha256": "b2316de93e9c8ff678930ef0115dbc6405d4bf9cd3db5188319ee4031cb65544"
+        },
+        "coin_evaluation": {
+          "count": 51588,
+          "rows_sha256": "b006778cdb0ba9fa8686bf78dd4b7af79309d7e73f01e3611c703b529a3f92b4"
+        },
+        "coin_selection_sessions": {
+          "count": 12984,
+          "rows_sha256": "7785ff233ff6bdd4866cde9beed88cc74ade8ba6dbbe73e78f67f9d3a074889a"
+        },
+        "crypto_order_commands": {
+          "count": 238,
+          "rows_sha256": "5533f941294164c3918ef4e45ac24ead927030284055f935dfd4ed30aa0892cd"
+        },
+        "daily_risk_basis": {
+          "count": 6,
+          "rows_sha256": "4fd7d8268e664128d245010b47896740c8375ce5593216a92ee23985a66bc7dd"
+        },
+        "exchange_execution_capability": {
+          "count": 6,
+          "rows_sha256": "6a8eab3720d94b46e38a538aebf36adc91efea9c13b1af06ba3deeed0c2f68ea"
+        },
+        "exchange_execution_log": {
+          "count": 2502,
+          "rows_sha256": "bb87ac9183b17809f8198a80286dbd65be51fed57f15c1760c757ff4747b81c6"
+        },
+        "exchange_order_receipt": {
+          "count": 3276,
+          "rows_sha256": "6c5b50b46bfbd2cf3b3f0bb8aa0fd89cb2185376e381f5b4cbe12fc95441fd3e"
+        },
+        "exchange_trade_stats": {
+          "count": 2,
+          "rows_sha256": "9038795c3ed8dcd40903a1cf4e54a79359f8bd363127e404df92ffb55cc83b71"
+        },
+        "fi_analysis_runs": {
+          "count": 0,
+          "rows_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "fi_feature_status": {
+          "count": 13,
+          "rows_sha256": "a4c88408867716aa3272c0f73f68e9589a960acd027abd73a7a71a71f4cb5db0"
+        },
+        "fi_records": {
+          "count": 0,
+          "rows_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "performance_stats": {
+          "count": 0,
+          "rows_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "record_write_receipts": {
+          "count": 9,
+          "rows_sha256": "48c4d8d1612beb626dce107501d69674301e5025387e08f9a797c5a4f9bbb1b6"
+        },
+        "recovery_cycle_claims": {
+          "count": 200,
+          "rows_sha256": "3942788972ceb239161ebeb5c0720f013d46c11a3c5bc297e8595f6f52641ace"
+        },
+        "recovery_cycle_repairs": {
+          "count": 63,
+          "rows_sha256": "27f93955038e2b33cf874419269505d7c4a4a41b6352da9f5286bc011f23c5c9"
+        },
+        "recovery_history_job_sessions": {
+          "count": 30,
+          "rows_sha256": "fd0cbb852662235098df1efd99b766ab8b69bcbb72c1bbb3523a55c6a4cd6b7a"
+        },
+        "recovery_history_pages": {
+          "count": 384,
+          "rows_sha256": "5e29532e98abe9285fd2837b2737c2ac45391b9775d27ffdc8fa0f570f8c8989"
+        },
+        "recovery_history_runs": {
+          "count": 1,
+          "rows_sha256": "85d6eef545deaf5960a68c60b3a2bdc2c78a623c927e78f3cd0a433d3463a0b2"
+        },
+        "recovery_history_session_pages": {
+          "count": 440,
+          "rows_sha256": "05221515d368385c0f79884d1bbdadc5de4296219482dbd21ed495503bc65a89"
+        },
+        "recovery_history_sessions": {
+          "count": 30,
+          "rows_sha256": "1a57b866214c1f043ebb77a5a908ddc444a607c95a4f1b002878ff82e3e019de"
+        },
+        "risk_log": {
+          "count": 0,
+          "rows_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "selected_coins": {
+          "count": 150301,
+          "rows_sha256": "bc11a948ac681f81c0b5d68e59410bd544059bb49d22c344b87828fa8805937c"
+        },
+        "sqlite_sequence": {
+          "count": 13,
+          "rows_sha256": "091b873e9af814b7757ee3a7b4a44b4e40ac0220968707d459b8865cf1cec578"
+        },
+        "stock_execution_metrics": {
+          "count": 0,
+          "rows_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "stock_order_idempotency": {
+          "count": 0,
+          "rows_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "stock_trade_stats": {
+          "count": 156,
+          "rows_sha256": "426c57ce1c17bdc5fbd27ddbdb9bcd8c5167fb8cb58dac0edff7dc28b498172c"
+        },
+        "storage_migrations": {
+          "count": 2,
+          "rows_sha256": "b3717259676ef3a2736a3c5fa882a57ede77e2dfe6a2f596c64d25d109568611"
+        },
+        "trade_log": {
+          "count": 58102,
+          "rows_sha256": "ea8fef7dfc4ca969567afb2bf989ba1d7cbf8fc67c77c74b651341a4a6a3c60a"
+        }
+      },
+      "existing_rows_compared": true
+    },
+    "backups/record_recovery/upbit-before.sqlite3": {
+      "integrity_check": "ok",
+      "tables": {
+        "ai_decisions": {
+          "count": 3867452,
+          "rows_sha256": "23d5b02be389de6c3c6df4b8bd2c36886b42ddefde845e98e7ab3d36b0b6d8af"
+        },
+        "ai_optimization": {
+          "count": 1680,
+          "rows_sha256": "f7fdb8ea76ac4bb42f59ebba29bd60243f29dbd133e640a81df0c32f05159920"
+        },
+        "ai_trade_analysis": {
+          "count": 6920,
+          "rows_sha256": "3eb853544ede531ee691dae77a7946b253d20ac41b4d9275f53ee007636eda9d"
+        },
+        "analysis_log": {
+          "count": 230209,
+          "rows_sha256": "492eda56be7db5b2c1a9c72251c750e46fb6068db4e63444a3d543f6b400dba6"
+        },
+        "binance_close_evidence": {
+          "count": 380,
+          "rows_sha256": "b2316de93e9c8ff678930ef0115dbc6405d4bf9cd3db5188319ee4031cb65544"
+        },
+        "coin_evaluation": {
+          "count": 51588,
+          "rows_sha256": "b006778cdb0ba9fa8686bf78dd4b7af79309d7e73f01e3611c703b529a3f92b4"
+        },
+        "coin_selection_sessions": {
+          "count": 12984,
+          "rows_sha256": "7785ff233ff6bdd4866cde9beed88cc74ade8ba6dbbe73e78f67f9d3a074889a"
+        },
+        "crypto_order_commands": {
+          "count": 238,
+          "rows_sha256": "5533f941294164c3918ef4e45ac24ead927030284055f935dfd4ed30aa0892cd"
+        },
+        "daily_risk_basis": {
+          "count": 6,
+          "rows_sha256": "4fd7d8268e664128d245010b47896740c8375ce5593216a92ee23985a66bc7dd"
+        },
+        "exchange_execution_capability": {
+          "count": 6,
+          "rows_sha256": "3d19543b5461eb41dbf06ac94fb88f1031fb16279133b7b7917ce29351d966e6"
+        },
+        "exchange_execution_log": {
+          "count": 2502,
+          "rows_sha256": "bb87ac9183b17809f8198a80286dbd65be51fed57f15c1760c757ff4747b81c6"
+        },
+        "exchange_order_receipt": {
+          "count": 3276,
+          "rows_sha256": "6c5b50b46bfbd2cf3b3f0bb8aa0fd89cb2185376e381f5b4cbe12fc95441fd3e"
+        },
+        "exchange_trade_stats": {
+          "count": 2,
+          "rows_sha256": "9038795c3ed8dcd40903a1cf4e54a79359f8bd363127e404df92ffb55cc83b71"
+        },
+        "fi_analysis_runs": {
+          "count": 0,
+          "rows_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "fi_feature_status": {
+          "count": 13,
+          "rows_sha256": "a4c88408867716aa3272c0f73f68e9589a960acd027abd73a7a71a71f4cb5db0"
+        },
+        "fi_records": {
+          "count": 0,
+          "rows_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "performance_stats": {
+          "count": 0,
+          "rows_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "record_write_receipts": {
+          "count": 9,
+          "rows_sha256": "48c4d8d1612beb626dce107501d69674301e5025387e08f9a797c5a4f9bbb1b6"
+        },
+        "recovery_cycle_claims": {
+          "count": 200,
+          "rows_sha256": "3942788972ceb239161ebeb5c0720f013d46c11a3c5bc297e8595f6f52641ace"
+        },
+        "recovery_cycle_repairs": {
+          "count": 63,
+          "rows_sha256": "27f93955038e2b33cf874419269505d7c4a4a41b6352da9f5286bc011f23c5c9"
+        },
+        "recovery_history_job_sessions": {
+          "count": 30,
+          "rows_sha256": "fd0cbb852662235098df1efd99b766ab8b69bcbb72c1bbb3523a55c6a4cd6b7a"
+        },
+        "recovery_history_pages": {
+          "count": 384,
+          "rows_sha256": "5e29532e98abe9285fd2837b2737c2ac45391b9775d27ffdc8fa0f570f8c8989"
+        },
+        "recovery_history_runs": {
+          "count": 1,
+          "rows_sha256": "85d6eef545deaf5960a68c60b3a2bdc2c78a623c927e78f3cd0a433d3463a0b2"
+        },
+        "recovery_history_session_pages": {
+          "count": 440,
+          "rows_sha256": "05221515d368385c0f79884d1bbdadc5de4296219482dbd21ed495503bc65a89"
+        },
+        "recovery_history_sessions": {
+          "count": 30,
+          "rows_sha256": "1a57b866214c1f043ebb77a5a908ddc444a607c95a4f1b002878ff82e3e019de"
+        },
+        "risk_log": {
+          "count": 0,
+          "rows_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "selected_coins": {
+          "count": 150301,
+          "rows_sha256": "bc11a948ac681f81c0b5d68e59410bd544059bb49d22c344b87828fa8805937c"
+        },
+        "sqlite_sequence": {
+          "count": 13,
+          "rows_sha256": "0c2bbe4cb8630fc8563499dc11f0b53a1764d3df6b801c2811ce91c4a07e8d9d"
+        },
+        "stock_execution_metrics": {
+          "count": 0,
+          "rows_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "stock_order_idempotency": {
+          "count": 0,
+          "rows_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "stock_trade_stats": {
+          "count": 156,
+          "rows_sha256": "426c57ce1c17bdc5fbd27ddbdb9bcd8c5167fb8cb58dac0edff7dc28b498172c"
+        },
+        "storage_migrations": {
+          "count": 2,
+          "rows_sha256": "b3717259676ef3a2736a3c5fa882a57ede77e2dfe6a2f596c64d25d109568611"
+        },
+        "trade_log": {
+          "count": 58102,
+          "rows_sha256": "ea8fef7dfc4ca969567afb2bf989ba1d7cbf8fc67c77c74b651341a4a6a3c60a"
+        }
+      },
+      "existing_rows_compared": true
+    },
+    "event_audit.sqlite3": {
+      "integrity_check": "ok",
+      "tables": {
+        "events": {
+          "count": 477606,
+          "rows_sha256": "9b232fa6ba202f57e184590eb2c2b8bd62be680b853934a82eba27055528aad7"
+        }
+      },
+      "existing_rows_compared": true
+    },
+    "financial_intelligence/web_ui.sqlite3": {
+      "integrity_check": "ok",
+      "tables": {
+        "fi_analysis_runs": {
+          "count": 8,
+          "rows_sha256": "ae00cba5bfcfee42f8c678e1156116853dfd7d7464d8f521e1a265c8ea7eba69"
+        },
+        "fi_feature_status": {
+          "count": 13,
+          "rows_sha256": "93041aefb3e02c688180ba669a3571ffe1974a2bc7f071e88d89985e87c729ef"
+        },
+        "fi_records": {
+          "count": 13,
+          "rows_sha256": "632da21d300ce94a387c61f50eb6c40fc1394f87a0571c788f7feca8cc67b8ff"
+        }
+      },
+      "existing_rows_compared": true
+    },
+    "learning.sqlite3": {
+      "integrity_check": "ok",
+      "tables": {
+        "events": {
+          "count": 70081,
+          "rows_sha256": "f1824649f6c229ee8cc9b579410939e446967dfbb5ed2716fb20d0e4cabecdde"
+        },
+        "evidence": {
+          "count": 2964261,
+          "rows_sha256": "30a1875d942070a11132c7c33f7bbde586437f57a4215acc9a1c80cebd617539"
+        },
+        "identities": {
+          "count": 2562808,
+          "rows_sha256": "7b5bbfa286346305f55fa7bb93a0a444ccc283a1770b69832e1d22ef66d8f9c3"
+        },
+        "imports": {
+          "count": 14,
+          "rows_sha256": "7de80a92b142464e81452b35123dd734ed8dda0746fe2a096f7d0f163ad115ea"
+        },
+        "segments": {
+          "count": 7575,
+          "rows_sha256": "08ac3014d0b141dd7342273ad5157a327d0979d2cdb498d04a205ff331fbc0f2"
+        },
+        "state": {
+          "count": 2,
+          "rows_sha256": "1a7078c7eba25ea19f5431d95ad07bf0614d8e5f0b0b391a572c390966f5059c"
+        }
+      },
+      "existing_rows_compared": true
+    },
+    "opportunity_runtime.db": {
+      "integrity_check": "ok",
+      "tables": {
+        "opportunity_runtime": {
+          "count": 1,
+          "rows_sha256": "7c12feea714df2951f450777762d91c53a6dd824d7fa4d34a939fc76afc4cb66"
+        }
+      },
+      "existing_rows_compared": true
+    },
+    "record_recovery.sqlite3": {
+      "integrity_check": "ok",
+      "tables": {
+        "items": {
+          "count": 820,
+          "rows_sha256": "e2de31243cfb08c991fdab7f9e737f07a4ad33f5c54214764652c4936496a895"
+        },
+        "jobs": {
+          "count": 4,
+          "rows_sha256": "5fc42bf52123503797af5ddd3b923037a5afb352eebefd26674cd5f574f5a443"
+        }
+      },
+      "existing_rows_compared": true
+    },
+    "runtime_execution_recovery.db": {
+      "integrity_check": "ok",
+      "tables": {
+        "execution_recovery": {
+          "count": 1,
+          "rows_sha256": "54575044b9389780f84ae59ab2da364c78604adf8e3c7985a88f103d01c9021c"
+        }
+      },
+      "existing_rows_compared": true
+    },
+    "trading.db": {
+      "integrity_check": "ok",
+      "tables": {
+        "ai_decisions": {
+          "count": 6131694,
+          "rows_sha256": "71deef10664844310e79408d46459030d682bb15ac033247a8b4fbc975986db2"
+        },
+        "ai_optimization": {
+          "count": 1735,
+          "rows_sha256": "6d13585ad839caabb50207ffcba257cafefccabaada763fcd71bb9f2c5ec0f52"
+        },
+        "ai_trade_analysis": {
+          "count": 6920,
+          "rows_sha256": "3eb853544ede531ee691dae77a7946b253d20ac41b4d9275f53ee007636eda9d"
+        },
+        "analysis_log": {
+          "count": 341576,
+          "rows_sha256": "4c3adca6b4975243dee8102fd3c936a5f4ebaaec3c50efa915d9d64491c235ee"
+        },
+        "binance_close_evidence": {
+          "count": 428,
+          "rows_sha256": "0d6b17c3aa923c5a81ae3474f94937380c1a9f4cb9cd252ad2acdc6a1cc05dd9"
+        },
+        "coin_evaluation": {
+          "count": 63422,
+          "rows_sha256": "4504c9ade611f6aad792757081a9c5a8870f7a6a5f7a8dc897174ae32e142034"
+        },
+        "coin_selection_sessions": {
+          "count": 13383,
+          "rows_sha256": "bf91bff9ba4fc293b4a8eaea6f3f560cf6b23979f7e298291f9a276193d376ad"
+        },
+        "crypto_order_commands": {
+          "count": 241,
+          "rows_sha256": "2326ffc3cd8aa5d5151aa7d9898bb019a19894e8f21d1034f95f95941bc7f02b"
+        },
+        "daily_risk_basis": {
+          "count": 6,
+          "rows_sha256": "4fd7d8268e664128d245010b47896740c8375ce5593216a92ee23985a66bc7dd"
+        },
+        "exchange_execution_capability": {
+          "count": 6,
+          "rows_sha256": "67bed3cffdb777d6ceb48ac7a376641b22f8fdc74be7f236e0d3b0b01bdebbe1"
+        },
+        "exchange_execution_log": {
+          "count": 3852,
+          "rows_sha256": "7897b34ca366a36fbac771c2664f0c55555133d55431889d192cb5a2f334bb0f"
+        },
+        "exchange_order_receipt": {
+          "count": 3303,
+          "rows_sha256": "8e0e02b6c21123026190ac23153b71f4554eb35c6a62f6bce993cf550d43063f"
+        },
+        "exchange_trade_stats": {
+          "count": 2,
+          "rows_sha256": "9038795c3ed8dcd40903a1cf4e54a79359f8bd363127e404df92ffb55cc83b71"
+        },
+        "fi_analysis_runs": {
+          "count": 0,
+          "rows_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "fi_feature_status": {
+          "count": 13,
+          "rows_sha256": "a4c88408867716aa3272c0f73f68e9589a960acd027abd73a7a71a71f4cb5db0"
+        },
+        "fi_records": {
+          "count": 0,
+          "rows_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "performance_stats": {
+          "count": 0,
+          "rows_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "record_write_receipts": {
+          "count": 641,
+          "rows_sha256": "4fa5aa746f4be0bdef28c8747a6be458f65f3217a0993ea895d02dc201e672f0"
+        },
+        "recovery_cycle_claims": {
+          "count": 698,
+          "rows_sha256": "a2a172a271314693fe4e3174dcfdc3cdafb2054981293d9a481d235119d88983"
+        },
+        "recovery_cycle_repairs": {
+          "count": 267,
+          "rows_sha256": "562d8e11413e9b88b349121dcd131c7809f9c5c9d354498da99ccc3ec5c91796"
+        },
+        "recovery_history_job_sessions": {
+          "count": 95,
+          "rows_sha256": "a265fcf60b84f6d0b8f7de019aed564f979e8919254c11510fb2a3b3cb007eac"
+        },
+        "recovery_history_pages": {
+          "count": 1564,
+          "rows_sha256": "c1a6e9f8bfb39fbf18a43a1c2a1a6f2f7e13cb5269ab341a57207d300beee1bb"
+        },
+        "recovery_history_runs": {
+          "count": 1,
+          "rows_sha256": "41f83fa99e26408b301edbc0888e87cd7ca063476e962c9663241b74b3abc0c6"
+        },
+        "recovery_history_session_pages": {
+          "count": 2500,
+          "rows_sha256": "2e8ea9593f8a715d6047aa8ba2886a65d1e90b88fb59081faf29f493abc33b9a"
+        },
+        "recovery_history_sessions": {
+          "count": 90,
+          "rows_sha256": "2e2322dd271a860994517213c6b6bb6a1e410b74739bb3f569ab57d394e9aca8"
+        },
+        "risk_log": {
+          "count": 0,
+          "rows_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "selected_coins": {
+          "count": 157481,
+          "rows_sha256": "08a0fbcc48f6a9e9d4447afebeb079c72b0bc4bfdd638453614cdef61a7c1c2c"
+        },
+        "sqlite_sequence": {
+          "count": 13,
+          "rows_sha256": "633814d339b58116d0ce09c064c253b9218170caac034fa1cd66f2ea9e458efa"
+        },
+        "stock_execution_metrics": {
+          "count": 0,
+          "rows_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "stock_order_idempotency": {
+          "count": 0,
+          "rows_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "stock_trade_stats": {
+          "count": 156,
+          "rows_sha256": "426c57ce1c17bdc5fbd27ddbdb9bcd8c5167fb8cb58dac0edff7dc28b498172c"
+        },
+        "storage_migrations": {
+          "count": 2,
+          "rows_sha256": "b3717259676ef3a2736a3c5fa882a57ede77e2dfe6a2f596c64d25d109568611"
+        },
+        "trade_log": {
+          "count": 58126,
+          "rows_sha256": "f5e6581a09eca9d03d9fa2b0529b37288bafabf3737c4f4b0c2f023a36c3d166"
+        }
+      },
+      "existing_rows_compared": true
+    },
+    "trading.pending_writes.sqlite3": {
+      "integrity_check": "ok",
+      "tables": {
+        "pending": {
+          "count": 0,
+          "rows_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        }
+      },
+      "existing_rows_compared": true
+    }
+  },
+  "preserved_ledger": {
+    "strategy_paper_outcomes.jsonl": {
+      "size": 52843191,
+      "sha256": "9e5b8b45d394bf5ccc5e6d28a01e1c1d3a648cff4395b35d4f1c7fbfe040f9a0"
+    },
+    "paper_open_positions_unified.json": {
+      "size": 403612,
+      "sha256": "61e6d850f7fe54bda72f94934d737ce1c1d08691fd949f243057a6b997867c04"
+    },
+    "paper_open_positions_binance.json": {
+      "size": 77489,
+      "sha256": "351d55c129dc0977404c778c57e7522ccf95abe2f7de5271c6acceb3b901e311"
+    }
+  },
+  "all_other_files": {
+    "byte_hashes_preserved": true,
+    "credential_contents_reported": false
+  }
+}

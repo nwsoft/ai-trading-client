@@ -1,0 +1,8 @@
+{
+  "is_current": true,
+  "build": {
+    "version": "3.9.2.8",
+    "source_sha256": "9c5a9ff14f17baf83d25f67496142d534b8724ca77b40367788547b79d6c5ca7",
+    "built_at": "2026-10-08T02:11:41.528Z"
+  }
+}
