@@ -87,3 +87,7 @@ def test_structured_multitimeframe_fields_are_not_plain_refit_parameters():
     result = run_retrained_evaluation(complex_rule, candles(), runner=runner, cost_profile={'rates': {'fee': .001}})
     assert result['proposal']['parameter_path'] == ['executable_entry', 'all', 1, 'value']
     assert all(c['executable_entry']['all'][0] == before['executable_entry']['all'][0] for c in calls)
+    for candidate in calls:
+        restored = deepcopy(candidate)
+        restored['executable_entry']['all'][1]['value'] = 50
+        assert restored == complex_rule

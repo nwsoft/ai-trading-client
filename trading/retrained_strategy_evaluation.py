@@ -39,6 +39,17 @@ def run_retrained_evaluation(rules, rows, *, timeframe_rows=None, base_timeframe
               'auto_applied': False, 'live_permission_granted': False, 'review_required': True,
               'model_training': 'local_declared_parameter_grid_not_llm_weights', 'folds': [],
               'maximum_replay_calls': 12, 'future_performance_guaranteed': False}
+    # Hash the complete declared evidence before selecting a leaf or replaying.
+    # An unused condition/future timeframe row is still evidence: do not silently
+    # drop it or replace NaN/infinity with a made-up number to produce a hash.
+    try:
+        input_sha256 = hashlib.sha256(json.dumps(
+            {'rules': rules, 'rows': rows, 'timeframes': timeframe_rows},
+            sort_keys=True, allow_nan=False).encode()).hexdigest()
+    except (ValueError, TypeError, OverflowError, RecursionError):
+        return {**result, 'status': 'input_evidence_not_supported',
+                'input_validation_error': 'strict_json_evidence_required',
+                'input_sha256': None, 'replay_calls': 0}
     parameter = _parameter(rules)
     if not parameter:
         return {**result, 'status': 'declared_adjustable_entry_parameter_required'}
@@ -121,6 +132,5 @@ def run_retrained_evaluation(rules, rows, *, timeframe_rows=None, base_timeframe
         result['status'] = 'evaluation_resource_budget_exceeded'
         if result.get('proposal'): result['proposal']['accepted_for_review'] = False
     result.update({'replay_calls':calls, 'elapsed_ms':round((time.perf_counter()-started)*1000,2),
-                   'input_sha256':hashlib.sha256(json.dumps({'rules':rules,'rows':rows,'timeframes':timeframe_rows},
-                                                           sort_keys=True,allow_nan=False).encode()).hexdigest()})
+                   'input_sha256':input_sha256})
     return result

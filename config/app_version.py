@@ -10,7 +10,7 @@
 RELEASE_VERSION = "3.9.2.8"
 PUBLIC_RELEASE_VERSION = "3.9.2.7"
 RELEASE_DATE = "2026-10-08"
-RELEASE_HIGHLIGHT = "PAPER 청산 저장·재시작 복구와 계약 근거 보호"
+RELEASE_HIGHLIGHT = "PAPER 청산 복구·계약 근거 및 전략 평가 입력 보호"
 RELEASE_PATCH = "PAPER Close Recovery and Unit Evidence"
 RELEASE_BUILD_LABEL = f"v{RELEASE_VERSION} {RELEASE_PATCH}"
 # 릴리스 자산·manifest에는 위 내부 식별자를 유지하되 일반 사용자가 보는
