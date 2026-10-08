@@ -520,6 +520,7 @@ class UnifiedTrader:
         self.active_positions = {}  # 실제 포지션 {exchange: {symbol: Position}}
         self.paper_positions = {}  # 가상 포지션 {exchange: {symbol: Position}}
         self._paper_position_persistence_enabled = True
+        self._paper_position_store_file = position_store_path(self.settings, "unified")
         self.external_position_symbols: Dict[str, set[str]] = {}
         self.last_trade_decisions: Dict[str, Dict[str, Dict[str, Any]]] = {}
         self.last_effective_trade_params: Dict[str, Dict[str, Dict[str, Any]]] = {}
@@ -585,33 +586,112 @@ class UnifiedTrader:
         pass
 
     def _paper_position_path(self):
-        return position_store_path(self.settings, "unified")
+        return getattr(self, "_paper_position_store_file", None) or position_store_path(self.settings, "unified")
+
+    def _paper_ledger_path(self):
+        from pathlib import Path
+        from trading.paper_strategy_ledger import ledger_path
+        path = getattr(getattr(self, 'recorder', None), 'db_path', None)
+        return Path(path).resolve().parent / 'strategy_paper_outcomes.jsonl' if isinstance(path, (str, Path)) and str(path) else ledger_path()
 
     def _persist_paper_positions(self) -> None:
         if not getattr(self, '_paper_position_persistence_enabled', False):
             return
+        if getattr(self, '_paper_recovery_error', ''):
+            raise ValueError(self._paper_recovery_error)
         try:
-            stores = getattr(self, 'paper_positions', None)
-            if not isinstance(stores, dict):
-                stores = getattr(self, 'paper_active_positions', {})
-            save_positions(self._paper_position_path(), stores)
+            from trading.paper_position_store import position_lock
+            with position_lock(self._paper_position_path()):
+                if self._paper_position_path().exists():
+                    try:
+                        load_positions(self._paper_position_path(), Position, PositionSide, ledger_file=self._paper_ledger_path())
+                    except Exception:
+                        self._paper_restore_failed = True
+                        raise
+                save_positions(self._paper_position_path(), self.paper_positions, ledger_file=self._paper_ledger_path())
+        except Exception:
+            self._paper_recovery_error = 'paper_close_recovery_required'
+            raise
+
+    def _recover_paper_closes(self, *, restore=False) -> bool:
+        from trading.paper_position_store import reconcile_close_events, position_lock
+        from trading.paper_strategy_ledger import ledger_path
+        restore = restore or bool(getattr(self, "_paper_restore_failed", False))
+        try:
+            with position_lock(self._paper_position_path()):
+                from copy import deepcopy
+                stores = load_positions(self._paper_position_path(), Position, PositionSide, ledger_file=self._paper_ledger_path()) if restore else deepcopy(self.paper_positions)
+                changed = reconcile_close_events(stores, self._paper_ledger_path())
+                if changed or getattr(self, '_paper_recovery_error', ''):
+                    if getattr(self, '_paper_position_persistence_enabled', False):
+                        save_positions(self._paper_position_path(), stores, ledger_file=self._paper_ledger_path())
+                if not restore:
+                    for venue, positions in stores.items():
+                        for symbol, restored in list(positions.items()):
+                            existing = (self.paper_positions.get(venue) or {}).get(symbol)
+                            if existing is not None and existing.position_id == restored.position_id:
+                                existing.__dict__.update(restored.__dict__)
+                                positions[symbol] = existing
+                self.paper_positions = stores
+                self._paper_recovery_error = ''
+                self._paper_restore_failed = False
+            return True
         except Exception as exc:
-            logger = getattr(self, 'logger', None)
-            if logger and hasattr(logger, 'error'):
-                logger.error(f"통합 PAPER 포지션 저장 실패: {exc}")
-            elif logger and hasattr(logger, 'warning'):
-                logger.warning(f"통합 PAPER 포지션 저장 실패: {exc}")
+            if restore:
+                self._paper_restore_failed = True
+            self._paper_recovery_error = str(exc) if str(exc).startswith('paper_') else 'paper_close_recovery_required'
+            self.logger.error(f'PAPER 청산 복구 보류: {self._paper_recovery_error}')
+            return False
 
     def _restore_paper_positions(self) -> None:
-        try:
-            restored = load_positions(self._paper_position_path(), Position, PositionSide)
-            for exchange_name, positions in restored.items():
-                if self._execution_mode(exchange_name) == ExecutionMode.PAPER:
-                    self.paper_positions[exchange_name] = positions
-            count = sum(len(items) for items in self.paper_positions.values())
-            self.logger.info(f"🧪 통합 PAPER 가상 포지션 {count}개 복구")
-        except Exception as exc:
-            self.logger.warning(f"통합 PAPER 포지션 복구 실패: {exc}")
+        if self._recover_paper_closes(restore=True):
+            self.logger.info(f"통합 PAPER 포지션 {sum(len(p) for p in self.paper_positions.values())}개 복구")
+
+    def _commit_paper_close(self, exchange_name, symbol, position, quantity, price, pnl,
+                            *, plan, identity='', reason='', closed_at=None):
+        from trading.paper_position_store import close_recovery_evidence, position_lock, close_state
+        from copy import copy
+        with position_lock(self._paper_position_path()):
+            if not self._recover_paper_closes():
+                return False
+            current = self._position_store(exchange_name).get(symbol)
+            if identity and ':partial:' in identity:
+                index = identity.rsplit(':partial:', 1)[1]
+                if index.isdigit() and int(index) in (position.custom_order_plan_state or {}).get('completed_partial_indices', []):
+                    return False
+            if current is not position:
+                return False  # stale request must never close a later position
+            if getattr(self, '_paper_position_persistence_enabled', False) and self._paper_position_path().exists():
+                try:
+                    disk = load_positions(self._paper_position_path(), Position, PositionSide, ledger_file=self._paper_ledger_path())
+                except Exception:
+                    self._paper_restore_failed = True
+                    self._paper_recovery_error = 'paper_position_store_invalid'
+                    raise
+                memory_state = {v:{s:close_state(p) for s,p in ps.items()} for v,ps in self.paper_positions.items() if ps}
+                disk_state = {v:{s:close_state(p) for s,p in ps.items()} for v,ps in disk.items() if ps}
+                if disk_state != memory_state:
+                    self._paper_restore_failed = True
+                    self._paper_recovery_error = 'paper_close_recovery_snapshot_conflict'
+                    return False
+            proof = close_recovery_evidence(position, quantity=quantity, plan=plan)
+            closed = copy(position)
+            closed.quantity = quantity
+            try:
+                self._record_paper_close_unified(exchange_name, symbol, closed, price, pnl,
+                    reason=reason, close_identity=identity, closed_at=closed_at, close_recovery=proof)
+                # The durable outcome is the commit point. A crash here is replayed.
+                self._paper_close_commit_hook()
+                if not self._recover_paper_closes():
+                    return False
+                return True
+            except Exception:
+                self._paper_recovery_error = 'paper_close_recovery_required'
+                raise
+
+    def _paper_close_commit_hook(self):
+        """Fault-injection seam between durable close and snapshot, no side effects."""
+        return None
 
     def configure_strategy_runtime(self, strategy_customizer: Any = None, ai_trading_chatbot: Any = None):
         """미연결 전략 모듈을 통합 거래 루프에 연결한다."""
@@ -2422,6 +2502,9 @@ class UnifiedTrader:
         """거래소별 신호 거래 실행 (AI 기반 고급 거래 실행)"""
         opportunity_auth = None
         crypto_command_id = ""
+        if self._execution_mode(exchange_name) == ExecutionMode.PAPER and getattr(self, '_paper_recovery_error', ''):
+            if not self._recover_paper_closes():
+                return {'status':'skipped', 'reason':self._paper_recovery_error}
         try:
             signal = analysis.get('signal', 'HOLD')
             confidence = analysis.get('confidence', 0.0)
@@ -4183,11 +4266,14 @@ class UnifiedTrader:
                 closed = copy(position)
                 closed.quantity = quantity
                 pnl = self._calculate_pnl_unified(closed, current_price, exchange_name=exchange_name)
-                self._record_paper_close_unified(exchange_name, symbol, closed, current_price, pnl,
-                    reason=str(decision.get('reason') or 'partial_close'),
-                    close_identity=f"{position.position_id or position.entry_time}:partial:{decision.get('partial_index')}")
+                if pnl.get('calculation_status') != 'valid':
+                    return False
+                plan = confirm_order_plan_action(decision, remaining_quantity=max(0., position.quantity-quantity))
+                return self._commit_paper_close(exchange_name, symbol, position, quantity, current_price, pnl,
+                    plan=plan, reason=str(decision.get('reason') or 'partial_close'),
+                    identity=f"{position.position_id or position.entry_time}:partial:{decision.get('partial_index')}")
             except Exception as exc:
-                self.logger.error(f"{exchange_name} {symbol} PAPER 부분청산 원장 저장 실패: {type(exc).__name__}")
+                self.logger.error(f"PAPER 부분청산 확정 보류: {type(exc).__name__}")
                 return False
         remaining = max(0.0, float(position.quantity) - quantity)
         position.quantity = remaining
@@ -4316,10 +4402,10 @@ class UnifiedTrader:
             return None, None
 
     def _record_paper_close_unified(self, exchange_name, symbol, position, exit_price, pnl_data,
-                                    *, reason='', close_identity='', closed_at=None):
+                                    *, reason='', close_identity='', closed_at=None, close_recovery=None):
         """Persist the closed slice before releasing its simulated open margin."""
         return record_paper_strategy_outcome(
-            scope='unified', exchange=exchange_name, symbol=symbol,
+            scope='unified', exchange=exchange_name, symbol=symbol, close_recovery=close_recovery, ledger_file=self._paper_ledger_path(),
             strategy_key=str(position.custom_strategy_key or ''),
             version_id=str(position.custom_strategy_version_id or ''),
             strategy_scope=str(position.custom_strategy_scope or ''),
@@ -4973,22 +5059,24 @@ class UnifiedTrader:
                     pass
 
                 if paper:
-                    self._record_paper_close_unified(exchange_name, symbol, position, current_price, pnl_data,
-                        reason=close_reason, closed_at=closed_at,
-                        close_identity=close_command_id if partial_fill else '')
+                    if pnl_data.get('calculation_status') != 'valid':
+                        return False
+                    if not self._commit_paper_close(exchange_name, symbol, position, effective_close_quantity,
+                            current_price, pnl_data, plan=dict(position.custom_order_plan_state or {}),
+                            reason=close_reason, closed_at=closed_at,
+                            identity=close_command_id if partial_fill else ''):
+                        return False
 
                 # 실행 모드별 저장소에서만 제거한다. 부분체결이면 청산된
                 # 수량만 차감하고 같은 전략·가드레일 문맥을 유지한다.
                 remaining_quantity = max(
                     0.0, original_position_quantity - effective_close_quantity
                 )
-                if partial_fill:
-                    position.quantity = remaining_quantity
-                else:
-                    self._position_store(exchange_name).pop(symbol, None)
-
-                if paper:
-                    self._persist_paper_positions()
+                if not paper:
+                    if partial_fill:
+                        position.quantity = remaining_quantity
+                    else:
+                        self._position_store(exchange_name).pop(symbol, None)
 
                 # 거래 통계 업데이트
                 if pnl_data.get('calculation_status') == 'valid':

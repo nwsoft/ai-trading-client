@@ -25,7 +25,7 @@ def paper_service(tmp_path):
             closed = now - timedelta(days=days, seconds=1)
             rows.append({"event_id": f"{source}-{days}", "exchange": source, "scope": "unified",
                          "symbol": "005930" if source in STOCK_VENUES else f"BTC/{currency}",
-                         "execution_mode": "paper", "calculation_status": "valid", "net_pnl": pnl,
+                         "execution_mode": "paper", "calculation_status": "valid", "contract_size":1., "net_pnl": pnl,
                          "fees": 0.1, "quote_currency": currency, "quantity": 1, "entry_price": 100,
                          "opened_at": (closed-timedelta(minutes=1)).isoformat(), "closed_at": closed.isoformat()})
     (tmp_path / "strategy_paper_outcomes.jsonl").write_text("\n".join(map(json.dumps, rows)))

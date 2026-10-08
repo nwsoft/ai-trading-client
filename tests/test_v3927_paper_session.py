@@ -59,7 +59,7 @@ def test_new_session_cannot_bypass_positions_reservations_or_unknown_capital(tmp
 
 
 def test_verified_loss_wallet_and_conflicting_history_cannot_be_reset(tmp_path):
-    row={**legacy(), 'calculation_status':'valid','quote_currency':'USDT','net_pnl':-2000}
+    row={**legacy(), 'calculation_status':'valid','contract_size':1.,'quote_currency':'USDT','net_pnl':-2000}
     ledger=make_ledger(tmp_path,row)
     with pytest.raises(ValueError,match='paper_session_legacy_block_required'):start(ledger)
     with ledger.open('a') as f:f.write(json.dumps({**row,'net_pnl':10})+'\n')

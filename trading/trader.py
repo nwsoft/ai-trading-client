@@ -250,6 +250,7 @@ class Trader:
         self.active_positions = {}
         self.paper_active_positions = {}
         self._paper_position_persistence_enabled = True
+        self._paper_position_store_file = position_store_path(self.settings, "binance")
 
         # 🔥 autotrade.py와 동일: 거래 진입 여부 추적
         self.trade_entered = {}
@@ -375,30 +376,95 @@ class Trader:
             self.tp_sl_watchdog_backup_path = None
 
     def _paper_position_path(self):
-        return position_store_path(self.settings, "binance")
+        return getattr(self, '_paper_position_store_file', None) or position_store_path(self.settings, "binance")
+
+    def _paper_ledger_path(self):
+        from pathlib import Path
+        from trading.paper_strategy_ledger import ledger_path
+        path = getattr(getattr(self, 'recorder', None), 'db_path', None)
+        return Path(path).resolve().parent / 'strategy_paper_outcomes.jsonl' if isinstance(path, (str, Path)) and str(path) else ledger_path()
 
     def _persist_paper_positions(self) -> None:
-        if (
-            not getattr(self, '_paper_position_persistence_enabled', False)
-            or self._execution_mode() != ExecutionMode.PAPER
-        ):
+        if not getattr(self, '_paper_position_persistence_enabled', False) or self._execution_mode() != ExecutionMode.PAPER:
             return
+        if getattr(self, '_paper_recovery_error', ''):
+            raise ValueError(self._paper_recovery_error)
         try:
-            save_positions(self._paper_position_path(), {"binance": self.paper_active_positions})
+            from trading.paper_position_store import position_lock
+            with position_lock(self._paper_position_path()):
+                if self._paper_position_path().exists():
+                    try:
+                        load_positions(self._paper_position_path(), Position, PositionSide, ledger_file=self._paper_ledger_path())
+                    except Exception:
+                        self._paper_restore_failed = True
+                        raise
+                save_positions(self._paper_position_path(), {"binance": self.paper_active_positions}, ledger_file=self._paper_ledger_path())
+        except Exception:
+            self._paper_recovery_error = 'paper_close_recovery_required'
+            raise
+
+    def _recover_paper_closes(self, *, restore=False) -> bool:
+        from copy import deepcopy
+        from trading.paper_position_store import reconcile_close_events, position_lock
+        restore = restore or bool(getattr(self, "_paper_restore_failed", False))
+        try:
+            with position_lock(self._paper_position_path()):
+                stores = load_positions(self._paper_position_path(), Position, PositionSide, ledger_file=self._paper_ledger_path()) if restore else {'binance': deepcopy(self.paper_active_positions)}
+                if any(venue != 'binance' for venue in stores):
+                    raise ValueError('paper_position_store_scope_invalid')
+                changed = reconcile_close_events(stores, self._paper_ledger_path(), execution_scope='binance')
+                if (changed or getattr(self, '_paper_recovery_error', '')) and getattr(self, '_paper_position_persistence_enabled', False):
+                    save_positions(self._paper_position_path(), stores, ledger_file=self._paper_ledger_path())
+                positions = dict(stores.get('binance') or {})
+                if not restore:
+                    for symbol, restored in list(positions.items()):
+                        existing = self.paper_active_positions.get(symbol)
+                        if existing is not None and existing.position_id == restored.position_id:
+                            existing.__dict__.update(restored.__dict__)
+                            positions[symbol] = existing
+                self.paper_active_positions = positions
+                self._paper_recovery_error = ''
+                self._paper_restore_failed = False
+            return True
         except Exception as exc:
-            self.log_event('system', f"BINANCE PAPER 포지션 저장 실패: {exc}", level='ERROR')
+            if restore:
+                self._paper_restore_failed = True
+            self._paper_recovery_error = str(exc) if str(exc).startswith('paper_') else 'paper_close_recovery_required'
+            self.log_event('system', f'BINANCE PAPER 청산 복구 보류: {self._paper_recovery_error}', level='ERROR')
+            return False
 
     def _restore_paper_positions(self) -> None:
-        try:
-            restored = load_positions(self._paper_position_path(), Position, PositionSide)
-            self.paper_active_positions = dict(restored.get("binance") or {})
-            self.log_event(
-                'system',
-                f"🧪 BINANCE PAPER 초기화 - 가상 포지션 {len(self.paper_active_positions)}개 복구",
-            )
-        except Exception as exc:
-            self.paper_active_positions = {}
-            self.log_event('system', f"BINANCE PAPER 포지션 복구 실패: {exc}", level='WARNING')
+        if self._recover_paper_closes(restore=True):
+            self.log_event('system', f'BINANCE PAPER 가상 포지션 {len(self.paper_active_positions)}개 복구')
+
+    def _commit_paper_close(self, position, **outcome):
+        from trading.paper_position_store import close_recovery_evidence, close_state, position_lock
+        from trading.paper_strategy_ledger import record_paper_strategy_outcome
+        with position_lock(self._paper_position_path()):
+            if not self._recover_paper_closes() or self.paper_active_positions.get(position.symbol) is not position:
+                return False
+            if getattr(self, '_paper_position_persistence_enabled', False) and self._paper_position_path().exists():
+                try:
+                    disk = load_positions(self._paper_position_path(), Position, PositionSide, ledger_file=self._paper_ledger_path()).get('binance') or {}
+                except Exception:
+                    self._paper_restore_failed = True
+                    self._paper_recovery_error = 'paper_position_store_invalid'
+                    raise
+                if {s:close_state(p) for s,p in disk.items()} != {s:close_state(p) for s,p in self.paper_active_positions.items()}:
+                    self._paper_restore_failed = True
+                    self._paper_recovery_error = 'paper_close_recovery_snapshot_conflict'
+                    return False
+            proof = close_recovery_evidence(position, quantity=position.quantity, plan=dict(position.custom_order_plan_state or {}))
+            try:
+                record_paper_strategy_outcome(**outcome, close_recovery=proof, ledger_file=self._paper_ledger_path())
+                self._paper_close_commit_hook()
+                return self._recover_paper_closes()
+            except Exception:
+                self._paper_recovery_error = 'paper_close_recovery_required'
+                raise
+
+    def _paper_close_commit_hook(self):
+        return None
 
     def _schedule_delayed_balance_update(self, delay_seconds: float = 2.0) -> None:
         """거래 직후 거래소 반영을 기다린 뒤 대시보드 잔고를 한 번 더 갱신한다.
@@ -7143,6 +7209,8 @@ class Trader:
         try:
             if self._execution_mode() != ExecutionMode.PAPER:
                 return False
+            if getattr(self, '_paper_recovery_error', '') and not self._recover_paper_closes():
+                return False
             if symbol in self.paper_active_positions:
                 return False
             paper_position_limit = effective_position_limit(
@@ -7275,6 +7343,8 @@ class Trader:
 
     def _monitor_paper_positions(self) -> None:
         """가상 포지션을 현재가로 평가하고 TP/SL 도달 시 가상 청산한다."""
+        if self._execution_mode() != ExecutionMode.PAPER or not self._recover_paper_closes():
+            return
         for symbol, position in list(self.paper_active_positions.items()):
             try:
                 current_price = float(self.binance_client.get_current_price(symbol) or 0.0)
@@ -7298,7 +7368,33 @@ class Trader:
                 if not (tp_hit or sl_hit):
                     continue
 
-                self.paper_active_positions.pop(symbol, None)
+                from trading.paper_strategy_ledger import (
+                    paper_position_execution_evidence,
+                )
+                committed = self._commit_paper_close(position,
+                    scope="binance", exchange="binance", symbol=symbol,
+                    strategy_key=str(position.custom_strategy_key or ""),
+                    version_id=str(position.custom_strategy_version_id or ""),
+                    strategy_scope=str(position.custom_strategy_scope or ""),
+                    opened_at=position.entry_time, closed_at=utc_now(),
+                    net_pnl=net_pnl_usdt, fees=estimated_fees, gross_pnl=gross_pnl_usdt,
+                    net_pnl_percent=float(position.unrealized_pnl_percent or 0.0),
+                    entry_price=float(position.entry_price or 0.0),
+                    exit_price=float(current_price or 0.0),
+                    quantity=float(position.quantity or 0.0),
+                    side=str(getattr(position.side, 'value', position.side) or ''),
+                    quote_currency='USDT', estimated_slippage=estimated_slippage,
+                    fee_rate=(fee_per_side_pct * 2.0 / 100.0) if include_fees else 0.0,
+                    slippage_rate=slippage_pct / 100.0,
+                    calculation_status='valid',
+                    position_id=str(position.position_id or ""),
+                    **paper_position_execution_evidence(
+                        position,
+                        exit_reason='paper_tp' if tp_hit else 'paper_sl',
+                    ),
+                )
+                if not committed:
+                    continue
                 self.paper_trade_stats['total_trades'] += 1
                 self.paper_trade_stats['total_pnl'] += net_pnl_usdt
                 result_key = 'winning_trades' if net_pnl_usdt > 0 else 'losing_trades'
@@ -7325,33 +7421,6 @@ class Trader:
                         'estimated_slippage': estimated_slippage,
                     },
                 )
-                from trading.paper_strategy_ledger import (
-                    paper_position_execution_evidence,
-                    record_paper_strategy_outcome,
-                )
-                record_paper_strategy_outcome(
-                    scope="binance", exchange="binance", symbol=symbol,
-                    strategy_key=str(position.custom_strategy_key or ""),
-                    version_id=str(position.custom_strategy_version_id or ""),
-                    strategy_scope=str(position.custom_strategy_scope or ""),
-                    opened_at=position.entry_time, closed_at=utc_now(),
-                    net_pnl=net_pnl_usdt, fees=estimated_fees, gross_pnl=gross_pnl_usdt,
-                    net_pnl_percent=float(position.unrealized_pnl_percent or 0.0),
-                    entry_price=float(position.entry_price or 0.0),
-                    exit_price=float(current_price or 0.0),
-                    quantity=float(position.quantity or 0.0),
-                    side=str(getattr(position.side, 'value', position.side) or ''),
-                    quote_currency='USDT', estimated_slippage=estimated_slippage,
-                    fee_rate=(fee_per_side_pct * 2.0 / 100.0) if include_fees else 0.0,
-                    slippage_rate=slippage_pct / 100.0,
-                    calculation_status='valid',
-                    position_id=str(position.position_id or ""),
-                    **paper_position_execution_evidence(
-                        position,
-                        exit_reason='paper_tp' if tp_hit else 'paper_sl',
-                    ),
-                )
-                self._persist_paper_positions()
                 self.log_event(
                     'trade',
                     f"🧪 [PAPER] {symbol} 가상 청산 ({'TP' if tp_hit else 'SL'}): "

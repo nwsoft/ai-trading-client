@@ -143,7 +143,7 @@ def test_legacy_unified_zero_rows_are_unknown_not_losses_and_currency_is_separat
         {"scope": "unified", "exchange": "bithumb", "net_pnl": 1000, "fees": 50,
          "quote_currency": "KRW", "calculation_status": "valid"},
         {"scope": "unified", "exchange": "bybit", "net_pnl": 2, "fees": 0.1,
-         "quote_currency": "USDT", "calculation_status": "valid"},
+         "quote_currency": "USDT", "calculation_status": "valid", "contract_size": 1.},
     ]
     assert paper_outcome_calculation_status(rows[0]) == "legacy_unverified"
     summary = summarize_paper_outcomes(rows, default_currency="USDT")

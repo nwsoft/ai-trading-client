@@ -6,6 +6,8 @@ import math
 import json
 import hashlib
 import threading
+import os
+from filelock import FileLock
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -117,6 +119,8 @@ def record_paper_strategy_outcome(
     smart_exit_source: str = "",
     smart_exit_reason: str = "",
     strategy_contract_hash: str = "",
+    close_recovery: dict | None = None,
+    ledger_file: Path | None = None,
 ) -> dict[str, Any]:
     # Every simulated close belongs in the user-visible PAPER history. Empty
     # strategy identifiers mean the default NoahAI strategy; only rows carrying
@@ -201,12 +205,71 @@ def record_paper_strategy_outcome(
         "guardrail_violations": max(0, int(guardrail_violations or 0)),
         "execution_mode": "paper",
     }
-    path = ledger_path()
+    if close_recovery is not None:
+        from trading.paper_position_store import recovery_digest
+        proof = {key: value for key, value in close_recovery.items() if key != 'sha256'}
+        proof['outcome_sha256'] = close_outcome_digest(row)
+        row['close_recovery'] = {**proof, 'sha256': recovery_digest(proof)}
+    path = Path(ledger_file) if ledger_file is not None else ledger_path()
     with _LOCK:
         path.parent.mkdir(parents=True, exist_ok=True)
-        with path.open("a", encoding="utf-8") as handle:
-            handle.write(json.dumps(row, ensure_ascii=False, separators=(",", ":")) + "\n")
+        with FileLock(str(path) + '.lock', timeout=10):
+            existing = read_close_ledger(path)
+            for prior in existing:
+                if prior.get('event_id') == event_id:
+                    if outcome_identity(prior) != outcome_identity(row):
+                        raise ValueError('paper_ledger_event_conflict')
+                    return prior
+            with path.open('a', encoding='utf-8', newline='\n') as handle:
+                handle.write(json.dumps(row, ensure_ascii=False, separators=(',', ':'), allow_nan=False) + '\n')
+                handle.flush()
+                os.fsync(handle.fileno())
+            from trading.paper_position_store import fsync_parent
+            fsync_parent(path)
     return row
+
+
+def outcome_identity(row):
+    return {key: value for key, value in row.items() if key != 'closed_at'}
+
+
+def close_outcome_digest(row):
+    from trading.paper_position_store import recovery_digest
+    return recovery_digest({key: value for key, value in row.items() if key not in {'closed_at', 'close_recovery'}})
+
+
+def read_close_ledger(path):
+    """Strict bounded commit-log read. Never discard a torn/conflicting close."""
+    if not path.exists():
+        return []
+    if path.stat().st_size > 64 * 1024 * 1024:
+        raise ValueError('paper_close_recovery_budget')
+    rows, seen = [], {}
+    with path.open('rb') as handle:
+        for index, line in enumerate(handle):
+            if index >= 100_000:
+                raise ValueError('paper_close_recovery_budget')
+            if not line.endswith(b'\n'):
+                raise ValueError('paper_close_recovery_torn_ledger')
+            if not line.strip():
+                continue
+            try:
+                row = json.loads(line)
+            except (ValueError, UnicodeDecodeError) as exc:
+                raise ValueError('paper_close_recovery_torn_ledger') from exc
+            if not isinstance(row, dict):
+                raise ValueError('paper_close_recovery_invalid_ledger')
+            if row.get('execution_mode') != 'paper':
+                continue
+            event = str(row.get('event_id') or '')
+            if event and event in seen:
+                if outcome_identity(seen[event]) != outcome_identity(row):
+                    raise ValueError('paper_ledger_event_conflict')
+                continue
+            if event:
+                seen[event] = row
+            rows.append(row)
+    return rows
 
 
 def paper_outcome_calculation_status(row: dict[str, Any] | None) -> str:
@@ -228,22 +291,17 @@ def paper_outcome_calculation_status(row: dict[str, Any] | None) -> str:
                     return 'invalid'
     if 'contract_size' in value:
         try:
+            if isinstance(value['contract_size'], bool):
+                return 'invalid'
             contract = float(value['contract_size'])
             if not math.isfinite(contract) or contract <= 0:
                 return 'invalid'
         except (ValueError, TypeError):
             return 'invalid'
-    # Older Unified PAPER used contracts as base quantity in monetary PnL.
-    # Preserve the source, but exclude an entry-notional contradiction from
-    # verified statistics until its entry-time contract is reconciled.
-    if explicit == 'valid' and 'contract_size' not in value and value.get('cost_calculation_status') == 'recorded_contract' and str(value.get('exchange') or '').lower() in {'okx', 'bybit', 'bitget'}:
-        try:
-            recorded_notional = float(value.get('sizing_final_notional'))
-            unit_notional = float(value.get('entry_price')) * float(value.get('quantity')) * float(value.get('contract_size', 1.0))
-            if recorded_notional > 0 and math.isfinite(recorded_notional) and math.isfinite(unit_notional) and abs(unit_notional-recorded_notional) > max(1e-6, recorded_notional*.02):
-                return 'legacy_unverified'
-        except (ValueError, TypeError):
-            pass
+    # The stored "valid" label is not entry-time unit evidence. Never infer
+    # historical units from current markets or planned notional.
+    if str(value.get('exchange') or '').lower() in {'okx', 'bybit', 'bitget'} and 'contract_size' not in value:
+        return 'legacy_unverified'
     if explicit in {"valid", "invalid", "legacy_unverified"}:
         return explicit
     # Unified rows before schema v2 silently wrote missing field names as zero.

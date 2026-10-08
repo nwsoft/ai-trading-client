@@ -20,7 +20,7 @@ def outcome(venue, event, pnl=1.0):
                 symbol='005930' if venue in STOCK_VENUES else 'BTCKRW' if krw else 'BTCUSDT',
                 opened_at='2026-09-10T00:00:00+00:00', closed_at='2026-09-10T01:00:00+00:00',
                 net_pnl=pnl, gross_pnl=pnl + .1, fees=.1, entry_price=100, quantity=1,
-                quote_currency='KRW' if krw else 'USDT', calculation_status='valid',
+                quote_currency='KRW' if krw else 'USDT', calculation_status='valid', contract_size=1.,
                 cost_calculation_status='recorded_contract')
 
 

@@ -94,19 +94,21 @@ def test_unified_paper_partial_close_updates_position_only_after_confirmation(tm
     trader = object.__new__(UnifiedTrader)
     trader.settings = {"exchange_execution_modes": {"bybit": "paper"}}
     trader.active_positions = {"bybit": {}}
-    trader.paper_active_positions = {"bybit": {}}
-    trader.logger = type("Logger", (), {"info": lambda *args: None, "warning": lambda *args: None})()
+    trader.paper_positions = {"bybit": {}}
+    trader._paper_position_path=lambda:tmp_path/"positions.json"
+    trader._paper_position_persistence_enabled=True
+    trader.logger = type("Logger", (), {"info": lambda *args: None, "warning": lambda *args: None, "error": lambda *args: None})()
     position = Position(
         symbol="BTCUSDT", side=PositionSide.LONG, entry_price=100.0,
         current_price=101.2, quantity=10.0, leverage=1,
         unrealized_pnl=0.0, unrealized_pnl_percent=1.2,
-        entry_time=datetime.now(timezone.utc), execution_mode="paper",
+        entry_time=datetime.now(timezone.utc), execution_mode="paper", position_id="known-partial-position",
         entry_evidence={"position_sizing":{"contract_size":1.}},
         custom_strategy_rules={"advanced_order_plan": {
             "partial_take_profits": [{"target_percent": 1.0, "close_fraction": 0.5}],
         }},
     )
-    trader.paper_active_positions["bybit"]["BTCUSDT"] = position
+    trader.paper_positions["bybit"]["BTCUSDT"] = position
     decision = trader._advanced_order_plan_decision_unified(
         position, {"net_pnl_percent": 1.2},
     )

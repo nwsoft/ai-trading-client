@@ -147,6 +147,9 @@ class HeadlessRuntimeBridge:
             owner = self._evidence_owner(source)
             if owner is None:
                 raise RuntimeError('recovery_engine_not_ready')
+            recovery = getattr(owner, '_paper_recovery_error', '')
+            if isinstance(recovery, str) and recovery:
+                raise RuntimeError(recovery)
             captured = str(getattr(owner, '_opportunity_account', '') or '')
             if captured and captured != self.account:
                 raise RuntimeError('paper_account_scope_changed')
@@ -584,6 +587,9 @@ scoped_pool(list(getattr(app, "active_custom_strategy_pool", []) or []), asset_c
         capital = (getattr(owner, '_last_capital_evidence', {}) or {}).get((source, mode))
         if isinstance(capital, dict):
             result['capital'] = _runtime_safe(capital)
+        close_recovery = getattr(owner, '_paper_recovery_error', '')
+        if mode == 'paper' and isinstance(close_recovery, str) and close_recovery:
+            result['capital'] = {'capital_basis':'paper_funds_unverified', 'available_capital':None, 'reason':close_recovery}
         correlations = getattr(owner, '_last_correlation_evidence_by_scope', None)
         correlation = correlations.get((source,mode)) if isinstance(correlations, dict) else getattr(owner, '_last_correlation_evidence', None)
         if isinstance(correlation, dict) and _public_source(correlation.get('source')) == source:

@@ -2930,7 +2930,7 @@ def test_strategy_paper_sync_never_adds_krw_and_usdt(tmp_path, monkeypatch):
     }
     rows = [
         {**common, "event_id": "krw", "exchange": "upbit", "symbol": "BTC/KRW", "net_pnl": 1000.0, "quote_currency": "KRW"},
-        {**common, "event_id": "usdt", "exchange": "bybit", "symbol": "BTC/USDT:USDT", "net_pnl": 2.0, "quote_currency": "USDT"},
+        {**common, "event_id": "usdt", "contract_size":1., "exchange": "bybit", "symbol": "BTC/USDT:USDT", "net_pnl": 2.0, "quote_currency": "USDT"},
     ]
     (tmp_path / "strategy_paper_outcomes.jsonl").write_text(
         "\n".join(json.dumps(row) for row in rows) + "\n", encoding="utf-8",
@@ -2972,7 +2972,7 @@ def test_strategy_catalog_separates_unverified_paper_evidence_by_venue(tmp_path,
         "execution_mode": "paper", "quote_currency": "USDT",
     }
     rows = [
-        {**common, "event_id": "valid", "net_pnl": -1.5, "fees": 0.2, "calculation_status": "valid"},
+        {**common, "event_id": "valid", "contract_size":1., "net_pnl": -1.5, "fees": 0.2, "calculation_status": "valid"},
         {**common, "event_id": "legacy", "net_pnl": 0.0, "fees": 0.0, "calculation_status": "legacy_unverified"},
     ]
     (tmp_path / "strategy_paper_outcomes.jsonl").write_text(

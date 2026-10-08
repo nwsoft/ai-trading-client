@@ -111,6 +111,10 @@ def paper_available_funds(initial_equity, positions, *, venue: str, quote: str,
 
 
 def paper_funds_for(owner, initial_equity, positions, *, venue, quote):
+    recovery = getattr(owner, '_paper_recovery_error', '')
+    if isinstance(recovery, str) and recovery:
+        return {'available_capital': 0.0, 'capital_basis': 'paper_funds_unverified',
+                'quote_currency': quote, 'reason': recovery}
     from .paper_strategy_ledger import ledger_path
     path = getattr(getattr(owner, 'recorder', None), 'db_path', None)
     if isinstance(path, (str, Path)) and str(path):

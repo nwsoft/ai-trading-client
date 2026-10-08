@@ -139,7 +139,7 @@ def test_ai_custom_paper_candidate_cannot_bypass_multi_position_cap():
     assert set(trader.paper_active_positions) == {"BTCUSDT", "ETHUSDT", "SOLUSDT"}
 
 
-def test_binance_paper_open_and_close_preserve_active_strategy_version(monkeypatch):
+def test_binance_paper_open_and_close_preserve_active_strategy_version(monkeypatch, tmp_path):
     """The V1 label must be execution attribution, not UI-only decoration."""
     import trading.paper_strategy_ledger as ledger
     import trading.trader as trader_module
@@ -147,6 +147,7 @@ def test_binance_paper_open_and_close_preserve_active_strategy_version(monkeypat
     from trading.trader import Trader
 
     recorded = []
+    original_record = ledger.record_paper_strategy_outcome
     trader = object.__new__(Trader)
     trader.settings = {
         "position_mode": "multi",
@@ -155,6 +156,9 @@ def test_binance_paper_open_and_close_preserve_active_strategy_version(monkeypat
         "default_sl": 0.02,
     }
     trader.paper_active_positions = {}
+    trader._paper_position_path = lambda: tmp_path / "positions.json"
+    trader._paper_ledger_path = lambda: tmp_path / "ledger.jsonl"
+    trader._paper_position_persistence_enabled = True
     trader.paper_trade_stats = {
         "total_trades": 0,
         "total_pnl": 0.0,
@@ -167,7 +171,7 @@ def test_binance_paper_open_and_close_preserve_active_strategy_version(monkeypat
 
     monkeypatch.setattr(trader_module, "emit_position_opened", lambda **_kwargs: ("event-open", "paper-position-v1"))
     monkeypatch.setattr(trader_module, "emit_position_closed", lambda **_kwargs: "event-close")
-    monkeypatch.setattr(ledger, "record_paper_strategy_outcome", lambda **kwargs: recorded.append(kwargs) or kwargs)
+    monkeypatch.setattr(ledger, "record_paper_strategy_outcome", lambda **kwargs: recorded.append(kwargs) or original_record(**kwargs))
 
     from trading.custom_strategy_runtime import stamp_trade_exit_rates
     opened = trader._execute_paper_trade("BTCUSDT", stamp_trade_exit_rates({

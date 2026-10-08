@@ -225,7 +225,7 @@ def test_paper_statistics_are_scoped_by_mode_venue_asset_and_currency(tmp_path):
             "strategy_key": "", "version_id": "", "opened_at": (now - timedelta(minutes=20)).isoformat(),
             # The close timestamp must remain in the current local "today"
             # window even when this test runs just after midnight.
-            "closed_at": now.isoformat(), "net_pnl": float(index + 1),
+            "closed_at": now.isoformat(), "contract_size": 1., "net_pnl": float(index + 1),
             "fees": 0.1, "entry_price": 100.0, "quantity": 2.0,
             "net_pnl_percent": 0.5, "quote_currency": "KRW" if is_krw else "USDT",
             "execution_mode": "paper", "calculation_status": "valid",
