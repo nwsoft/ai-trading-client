@@ -290,8 +290,8 @@ const MANUAL_GUIDES: Record<string, ManualGuideDefinition> = {
     kicker: "현재 설치와 변경사항",
     title: "최신 변경과 아직 남은 검증을 분리해서 보세요.",
     description: "업데이트 탭은 현재 설치 식별, 사용자 영향, 검증된 범위와 남은 배포 게이트를 확인하는 곳입니다. 사용법은 각 기능 탭에서 확인합니다.",
-    visual: [["버전", "3.9.1.40"], ["변경", "TP/SL 청산 체결·손익 복구"], ["검증", "Windows 실계정 확인 별도"]],
-    highlights: [["이번 후보", "같은 국면의 반복 알림, 자동 버전 확인 주기, Coinone 후보 수집과 증권 실행 로그를 보강했습니다."], ["유지한 안전장치", "점수 없는 후보 진입 차단·주문 권한·TP/SL·가드레일은 유지합니다. 후보 수집 복구는 수익이나 즉시 진입을 보장하지 않습니다."], ["배포 전 확인", "Windows 설치본의 주기 확인·업데이트 재시작·Coinone PAPER와 증권사 실계정 동작은 별도로 점검합니다."]],
+    visual: [["버전", "버전 확인 필요"], ["변경", "아래 최신 업데이트 확인"], ["검증", "Windows 실계정 확인 별도"]],
+    highlights: [["이번 변경", "아래 최신 업데이트에서 변경된 동작과 입력 확인 안내를 읽어보세요."], ["유지한 안전장치", "기존 원장·전략 규칙·승인과 주문 권한을 보존합니다. 업데이트가 수익이나 자동 LIVE 시작을 보장하지 않습니다."], ["배포 전 확인", "Windows 설치·업데이트·롤백과 실제 기관 동작은 별도로 점검합니다. 소스 검사 통과를 설치본 인수로 표시하지 않습니다."]],
     flowTitle: "업데이트를 확인하는 순서",
     flow: [["식별", "설정과 하단의 버전·패치 확인"], ["변경", "내 사용 흐름에 영향 주는 항목 확인"], ["보존", "설정·원장·전략 버전 유지 확인"], ["검증", "PAPER와 연결 상태 재확인"], ["배포", "설치·재시작 뒤 실제 화면 확인"]],
     guideTitle: "완료 표현을 읽는 기준",
@@ -357,8 +357,18 @@ function ManualIntroContent({ content, query }: { content: string; query: string
 }
 
 function ManualGuideContent({ sectionId, content, query }: { sectionId: string; content: string; query: string }) {
-  const guide = MANUAL_GUIDES[sectionId];
-  if (!guide) return <pre className="manual-raw-content">{highlightedManualText(content, query)}</pre>;
+  const baseGuide = MANUAL_GUIDES[sectionId];
+  if (!baseGuide) return <pre className="manual-raw-content">{highlightedManualText(content, query)}</pre>;
+  // Updates must follow the canonical manual, not a version frozen in a card.
+  const manualVersion = content.match(/^현재 설치 버전 기준:\s*(v\d+\.\d+\.\d+\.\d+)/m)?.[1];
+  const latestUpdate = content.match(/^\[v\d+\.\d+\.\d+\.\d+ 최신 업데이트 — ([^\]]+)\]\s*\n•\s*([^\n]+)/m);
+  const guide = sectionId === "updates" ? {
+    ...baseGuide,
+    visual: baseGuide.visual.map(([title, body], index) => [title,
+      index === 0 ? manualVersion ?? body : index === 1 ? latestUpdate?.[1] ?? body : body] as [string, string]),
+    highlights: baseGuide.highlights.map(([title, body], index) =>
+      [title, index === 0 ? latestUpdate?.[2] ?? body : body] as [string, string]),
+  } : baseGuide;
   return <article className={`manual-guide-page manual-guide-${sectionId}`}>
     <section className="manual-guide-hero">
       <div>

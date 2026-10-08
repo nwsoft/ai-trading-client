@@ -1,3 +1,15 @@
+# v3.9.2.8 사용자 빌드 폴더 반영 및 업데이트 화면 보완 (2026-10-08)
+
+별도 Git 작업트리만 수정했던 인계 누락을 수정했다. 실제 사용자 `/Users/playone/SynologyDrive/Works/noahai_client`에 .8 코드·버전·문서·매뉴얼을 반영하고 교체 전 파일을 별도 백업했다. 고객 데이터·자격정보·기존 설치기는 동기화 대상에서 제외했다. 원래 폴더의 manual-only Windows workflow와 ignore 규칙을 보존해 Git 정본에도 연결했고, 외부 게시 승인/검사 조건은 유지했다. workflow·실제 Windows 빌드·릴리스는 실행하지 않았다.
+
+추가 결함: 업데이트 탭의 시각 안내 카드가 `3.9.1.40`과 당시 변경 내용에 고정돼 있었다. 카드 버전·변경 제목·요약을 실제 매뉴얼 정본에서 가져오도록 수정하고 .8 최신 업데이트에 PAPER 복구·전략 평가 입력 보호를 함께 안내했다. 11탭 JSON을 재생성했다. 제품/엔진/화면 **3.9.2.8**, updater **3.9.208**, renderer **3.9.2.8-ui.20261008.3**이다.
+
+실제 사용자 폴더 재검사: 집중 **284 통과**, 전체 Python **5,594 통과/9 skip/2 deselect/3 subtest 통과**, 실패 0. 고객 원본 fixture 두 개는 명시적으로 제외했고, skip 9개는 Windows PE 및 실제 API opt-in이다. Node **75 통과**, TypeScript/Vite PASS, 실제 빌드 React **17검사 PASS**(.8 footer/카드/본문·11탭·다음 버전 합성 매뉴얼 갱신 포함, 쓰기/페이지 오류 0). docs/source/build-input/sync 검사 PASS. 450개 릴리스 입력의 정본/사용자 폴더 바이트·지문 일치를 확인했다. [이번 폴더의 로그·해시 요약](../v3928-folder-sync/sync-summary.json), [업데이트 카드 화면](../v3928-folder-sync/ui/dashboard-updates.png), [최신 내역 본문](../v3928-folder-sync/ui/dashboard-update-details.png).
+
+Mac의 사용자 폴더에는 `.git`이 없다. 파일 반영이 Windows Git HEAD 또는 설치된 .7 EXE를 변경하지는 않는다. Windows에서는 [최신 브랜치 새 작업트리 빌드 절차](../../docs/BUILD_GUIDE.md)를 사용하고 검사를 생략하지 않는다. 실행 중인 구버전 앱은 안전하게 종료한 뒤 새 소스로 재실행한다. 설치본 인수·OCX/실계좌·업데이트/롤백·24/72시간은 미실시이며 공개 게시하지 않았다.
+
+---
+
 # v3.9.2.8 전략 평가 후속 수정·검증 (2026-10-08)
 
 현재 후속 작업 브랜치는 `release/v3.9.2.8-retrained-evaluation-20261008`이다. 기존 PAPER 준비 3개 커밋을 보존하고 수정·추가 회귀·문서를 준비했다. 이번 지시는 작업 브랜치 push까지 포함하며 PR·공개 릴리스·설치기 배포는 포함하지 않는다. 아래 이전 PAPER 완료 보고의 no-push·zip 지문·검사 숫자는 `95d35ca` 당시 이력이다.

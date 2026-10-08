@@ -26,3 +26,8 @@ Thumbs.db
 # Merge/conflict artifacts
 *_Conflict.*
 *.orig
+
+# Preserve the synchronized workspace ignore rules
+webui/dist/
+webui/.vite/
+*.log

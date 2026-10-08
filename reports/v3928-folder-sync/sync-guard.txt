@@ -1,0 +1,8 @@
+SYNC_GUARD: INFO
+- 변경 파일 수집 경로: --changed-files
+- 변경 파일 수: 5
+- 사용자 노출 변경 파일:
+  - ui/widgets/user_manual_widget.py
+  - webui/src/App.tsx
+SYNC_GUARD: PASS
+- 사용자 노출 변경 + 문서/인앱 동기화 파일 반영 완료

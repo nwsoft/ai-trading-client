@@ -1,0 +1,19 @@
+
+> noahai-web-ui@3.9.208 build
+> tsc --noEmit -p tsconfig.app.json && tsc --noEmit -p tsconfig.node.json && vite build
+
+vite v6.4.3 building for production...
+transforming...
+✓ 108 modules transformed.
+rendering chunks...
+computing gzip size...
+dist/ui-build.json                  0.14 kB │ gzip:   0.14 kB
+dist/index.html                     0.76 kB │ gzip:   0.43 kB
+dist/assets/index-MHRzgvKd.css    242.74 kB │ gzip:  44.06 kB
+dist/assets/index-B5H3h1RN.js   1,301.92 kB │ gzip: 402.32 kB
+
+(!) Some chunks are larger than 500 kB after minification. Consider:
+- Using dynamic import() to code-split the application
+- Use build.rollupOptions.output.manualChunks to improve chunking: https://rollupjs.org/configuration-options/#output-manualchunks
+- Adjust chunk size limit for this warning via build.chunkSizeWarningLimit.
+✓ built in 830ms

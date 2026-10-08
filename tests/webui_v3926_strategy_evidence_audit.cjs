@@ -11,6 +11,7 @@ const root=path.resolve(__dirname,'..'),dist=path.join(root,'webui/dist'),out=pr
    execution_validation:{mode:'historical_replay',metrics:{validation_source:'binance',validation_interval:'15m',candle_count:500,assessment_status:'evaluated'}},
    validation_lab:{sample:{total:10},performance:{total_net_pnl:5,total_return_percent:5,max_drawdown_percent:2,win_rate:.6,profit_factor:2},out_of_sample_net_pnl:3,walkforward:{pass_rate:.75},minimum_quality_gate:{passed:true},overfit_risk:{flagged:false},
     retrained_evaluation:{status:'candidate_ready_for_paper_review',auto_applied:false,folds:[{training_end_ms:1760000000000,test_start_ms:1760000900000,baseline_test_net_percent:1,candidate_test_net_percent:2,cost_2x_test_net_percent:1.5,passed:true}],proposal:{field:'rsi',original_value:30,candidate_value:33}}}};
+  const manualData=JSON.parse(fs.readFileSync(path.join(root,'docs/USER_MANUAL_SECTIONS.json')));
   page.on('pageerror',e=>errors.push(e.message));
   await page.addInitScript(()=>window.noahAI={bootstrap:()=>({gatewayUrl:location.origin,gatewayToken:'fixture',desktop:false})});
   await page.route('**/*',async route=>{
@@ -22,6 +23,7 @@ const root=path.resolve(__dirname,'..'),dist=path.join(root,'webui/dist'),out=pr
    if(ep.endsWith('/session'))data={authenticated:true,account:'strategy-fixture',user:{id:'fixture',user_grade:'premium'}};
    else if(ep.endsWith('/platform'))data={release_version:JSON.parse(fs.readFileSync(path.join(root,'webui/package.json'))).build.buildVersion};
    else if(ep.endsWith('/features'))data=JSON.parse(fs.readFileSync(path.join(root,'config/web_ui_feature_inventory.json')));
+   else if(ep.endsWith('/manual'))data=manualData;
    else if(ep.endsWith('/settings'))data={fields:[],revision:'fixture'};
    else if(ep.endsWith('/runtime/snapshot'))data={status:'attached',enabled_sources:['binance'],running_sources:[],paper_trading:true};
    else if(ep.endsWith('/strategies'))data={strategies:[{scope:'unified',strategy_key:'fixture',versions:[version]}]};
@@ -46,8 +48,30 @@ const root=path.resolve(__dirname,'..'),dist=path.join(root,'webui/dist'),out=pr
   await page.getByText('규칙·시세 자료에 잘못된 숫자 또는 저장할 수 없는 값이 있어 평가하지 못했습니다 · 입력 확인 후 다시 검증하세요',{exact:true}).waitFor();
   assert.doesNotMatch(await evidence.innerText(),/검토 수치:|rsi 30 → 33|기준선 1% \/ 후보 2%/);
   await evidence.scrollIntoViewIfNeeded();await page.screenshot({path:path.join(out,'invalid-evidence.png')});
+  await page.getByText('· UI 3.9.2.8',{exact:true}).waitFor();
+  await page.getByRole('button',{name:'메뉴얼',exact:true}).click();
+  const manual=page.getByRole('dialog');
+  await manual.locator('.manual-tabs button').last().waitFor();
+  assert.equal(await manual.locator('.manual-tabs button').count(),11);
+  await manual.locator('.manual-quick-links').getByRole('button',{name:'업데이트',exact:true}).click();
+  await manual.getByRole('heading',{name:'v3.9.2.8 최신 업데이트 — PAPER 청산 복구·전략 평가 입력 보호',exact:true}).waitFor();
+  assert.match(await manual.locator('.manual-content').innerText(),/잘못된 숫자\(NaN·무한대\).*개선 후보를 승인하지 않습니다/);
+  assert.equal(await manual.locator('.manual-guide-visual-node').first().locator('small').innerText(),'v3.9.2.8');
+  assert.equal(await manual.locator('.manual-guide-visual-node').nth(1).locator('small').innerText(),'PAPER 청산 복구·전략 평가 입력 보호');
+  assert.match(await manual.locator('.manual-intro-summary').innerText(),/잘못된 숫자\(NaN·무한대\)/);
+  await page.screenshot({path:path.join(out,'dashboard-updates.png')});
+  await manual.getByRole('heading',{name:'v3.9.2.8 최신 업데이트 — PAPER 청산 복구·전략 평가 입력 보호',exact:true}).scrollIntoViewIfNeeded();
+  await page.screenshot({path:path.join(out,'dashboard-update-details.png')});
+  // A later manual must update the cards without another hardcoded UI version.
+  manualData.release_version='3.9.2.9';
+  manualData.sections.find(section=>section.id==='updates').content=manualData.sections.find(section=>section.id==='updates').content.replaceAll('v3.9.2.8','v3.9.2.9');
+  await manual.locator('.manual-close-button').click();
+  await page.getByRole('button',{name:'메뉴얼',exact:true}).click();
+  await manual.locator('.manual-quick-links').getByRole('button',{name:'업데이트',exact:true}).click();
+  await manual.locator('.manual-guide-visual-node').first().getByText('v3.9.2.9',{exact:true}).waitFor();
+  await manual.getByRole('heading',{name:'v3.9.2.9 최신 업데이트 — PAPER 청산 복구·전략 평가 입력 보호',exact:true}).waitFor();
   assert.deepEqual(errors,[]);assert.deepEqual(writes,[]);
-  const result={result:'PASS',checks:8,errors,writes,fixtures:true,real_accounts:false};
+  const result={result:'PASS',checks:17,errors,writes,fixtures:true,real_accounts:false};
   fs.writeFileSync(path.join(out,'result.json'),JSON.stringify(result,null,2));console.log(JSON.stringify(result));
  }finally{await browser.close();}
 })().catch(e=>{console.error(e);process.exitCode=1;});

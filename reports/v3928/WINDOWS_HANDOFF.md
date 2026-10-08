@@ -1,3 +1,5 @@
+> 2026-10-08 최신 보완: 사용자 `noahai_client/` 소스와 업데이트 화면도 .8로 동기화했다. 실행 renderer는 `3.9.2.8-ui.20261008.3`이다. 아래 이전 bundle은 당시 준비본으로 보존하며 최신 커밋과 `../../docs/BUILD_GUIDE.md`의 Windows 새 작업트리 절차를 사용한다. 사용자 폴더 로그·화면 증거는 `../v3928-folder-sync/`에 있다. 파일 동기화는 Windows Git HEAD와 이미 설치한 .7 EXE를 바꾸지 않는다.
+
 > 최신 후속 소스: 이 문서의 bundle/zip은 `95d35ca`까지의 PAPER 준비본이다. 추가 전략 평가 입력 보호가 포함된 원격 `release/v3.9.2.8-retrained-evaluation-20261008`의 최종 커밋을 별도 checkout으로 받아 빌드한다. 실행 결과/새 지문은 `../v3928-retrained/summary.json`과 `../../docs/TEST_STATUS.md`를 따른다. 아래 데이터 경로·정지·최신 백업·설치/롤백 절차는 그대로 적용한다. Windows·공개 배포는 아직 수행하지 않았다.
 
 # v3.9.2.8 Windows 인계
