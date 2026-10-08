@@ -27,6 +27,8 @@ with tempfile.TemporaryDirectory(prefix='v3928-support-replay-') as folder:
     snapshot_before=t._paper_position_path().read_bytes();t._restore_paper_positions()
     result['unified_restore_block_reason']=t._paper_recovery_error
     result['restored_position_counts']={venue:len(positions) for venue,positions in t.paper_positions.items()}
+    result['saved_price_pnl_status_counts']={venue:dict(Counter(t._calculate_pnl_unified(position,position.current_price,exchange_name=venue).get('calculation_status','not_recorded') for position in positions.values())) for venue,positions in t.paper_positions.items()}
+    result['saved_price_check_is_not_current_market_evidence']=True
     result['ledger_prefix_unchanged']=before==hashlib.sha256(ledger.read_bytes()).hexdigest()
     result['positions_original_preserved_on_block']=not t._paper_recovery_error or snapshot_before==t._paper_position_path().read_bytes()
     from test_v3928_binance_recovery import fixture as binance_fixture

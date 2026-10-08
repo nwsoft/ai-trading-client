@@ -44,7 +44,7 @@
 
 지원 자료 `data/261006_Teayu` 전체 **10,125파일 / 29,146,484,324바이트**를 원본 DB를 열지 않고 별도 비공개 backup으로 보존했다. 원본 전후 파일 SHA-256 동일, DB 11개의 `integrity_check=ok`, 모든 기존 행 hash/count 동등, 핸들 종료 후 backup manifest 재대조도 통과했다. 자격정보·고객 행 원문과 대용량 상세 manifest는 Git/bundle에 넣지 않았다. [집계 보존 증거](support-preservation.json).
 
-복제 원장 **33,347행** 중 계약 단위 없는 기존 valid **11,394행**을 미확정으로 분리했다. valid 30,251 → 18,857; 미확정 3,091 → 14,485; invalid 5 유지. 원장 prefix·포지션 파일 보존, Unified 8포지션/Binance 2포지션 복원 성공. [복제 복원 및 판정 집계](support-recovery-audit.json). 복원이 성공해도 과거 미확정 손익을 검증 자금으로 되살리는 것은 아니므로 기존 해외 선물 자금은 대조/보류될 수 있다.
+복제 원장 **33,347행** 중 계약 단위 없는 기존 valid **11,394행**을 미확정으로 분리했다. valid 30,251 → 18,857; 미확정 3,091 → 14,485; invalid 5 유지. 원장 prefix·포지션 파일 보존, Unified 8포지션/Binance 2포지션 복원 성공. Unified의 보관 가격을 사용한 계약 단위 계산 판정은 8/8 valid였으며 현재 시장 시세나 새 자금 진입 승인으로 해석하지 않는다. [복제 복원 및 판정 집계](support-recovery-audit.json). 복원이 성공해도 과거 미확정 손익을 검증 자금으로 되살리는 것은 아니므로 기존 해외 선물 자금은 대조/보류될 수 있다.
 
 합성 PAPER 형식 시험에서는 최신 .8 backup에 추가 DB 행·원장·보유량·실제 session store·설정·전략·자격정보·예약을 보존한 뒤, 공개 .7의 실제 loader/serializer → .8 복귀를 검증했다. 수량 **10 → 6 → 6**, 부분청산 이벤트 **1회**, DB **1 → 2행 유지**, session ID 유지, 확인 손실 **-75 유지**, 가용자금 **924.1736 → 924.1736 USDT**. 업그레이드 전 backup만 복원하지 않았다. [롤백 증거](rollback-evidence.json). 사용한 .7 포지션 source fixture의 SHA-256은 `03add635fcc2ab6ac89363ea77516ecb38b4a1812e1bc7cc9e3fb6813705cab4`이며 기준 Git blob과 byte 동일하다.
 
