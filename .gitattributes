@@ -1,4 +1,3 @@
-# Release fingerprints compare committed bytes across Windows and macOS.
 * text=auto eol=lf
 
 *.ico binary
