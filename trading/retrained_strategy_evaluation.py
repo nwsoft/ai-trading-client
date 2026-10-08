@@ -39,7 +39,16 @@ def run_retrained_evaluation(rules, rows, *, timeframe_rows=None, base_timeframe
               'auto_applied': False, 'live_permission_granted': False, 'review_required': True,
               'model_training': 'local_declared_parameter_grid_not_llm_weights', 'folds': [],
               'maximum_replay_calls': 12, 'future_performance_guaranteed': False}
-    # Hash the complete declared evidence before selecting a leaf or replaying.
+    parameter = _parameter(rules)
+    if not parameter:
+        return {**result, 'status': 'declared_adjustable_entry_parameter_required'}
+    if len(rows) < 400 or len(rows) > 3000:
+        return {**result, 'status': 'bounded_history_required', 'required_candles': '400..3000'}
+    if any(len(row) < 7 for row in rows) or any(a[0] >= b[0] or a[6] >= b[0] for a,b in zip(rows, rows[1:])):
+        return {**result, 'status': 'ordered_closed_candle_evidence_required'}
+    if not cost_profile or not isinstance(cost_profile.get('rates'), dict):
+        return {**result, 'status': 'estimated_cost_profile_required'}
+    # Hash the complete declared evidence before replaying, after the bounded-history guards.
     # An unused condition/future timeframe row is still evidence: do not silently
     # drop it or replace NaN/infinity with a made-up number to produce a hash.
     try:
@@ -50,15 +59,6 @@ def run_retrained_evaluation(rules, rows, *, timeframe_rows=None, base_timeframe
         return {**result, 'status': 'input_evidence_not_supported',
                 'input_validation_error': 'strict_json_evidence_required',
                 'input_sha256': None, 'replay_calls': 0}
-    parameter = _parameter(rules)
-    if not parameter:
-        return {**result, 'status': 'declared_adjustable_entry_parameter_required'}
-    if len(rows) < 400 or len(rows) > 3000:
-        return {**result, 'status': 'bounded_history_required', 'required_candles': '400..3000'}
-    if any(len(row) < 7 for row in rows) or any(a[0] >= b[0] or a[6] >= b[0] for a,b in zip(rows, rows[1:])):
-        return {**result, 'status': 'ordered_closed_candle_evidence_required'}
-    if not cost_profile or not isinstance(cost_profile.get('rates'), dict):
-        return {**result, 'status': 'estimated_cost_profile_required'}
     if runner is None:
         from .custom_strategy_validator import run_historical_replay
         runner = run_historical_replay

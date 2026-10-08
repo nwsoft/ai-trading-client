@@ -58,8 +58,13 @@ def test_actual_replay_runs_without_mutating_approved_rules():
 
 
 @pytest.mark.parametrize('n', [0,100,399,3001])
-def test_history_budget_is_explicit(n):
+def test_history_budget_is_explicit(n, monkeypatch):
+    from unittest.mock import Mock
+    # Reject oversized evidence before allocating a serialized copy of it.
+    serialized = Mock(side_effect=AssertionError('history bound must precede input hashing'))
+    monkeypatch.setattr('trading.retrained_strategy_evaluation.json.dumps', serialized)
     assert run_retrained_evaluation(rules(),candles(n))['status']=='bounded_history_required'
+    serialized.assert_not_called()
 
 
 def test_resource_budget_cannot_promote_partial_evaluation():
