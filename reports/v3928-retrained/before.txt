@@ -1,0 +1,931 @@
+FFFFFFFFF.                                                               [100%]
+=================================== FAILURES ===================================
+_______ test_nonfinite_evidence_cannot_replay_hash_or_approve[rules-nan] _______
+
+value = nan, location = 'rules'
+
+    @pytest.mark.parametrize('value', [float('nan'), float('inf'), float('-inf')],
+                             ids=['nan', 'positive-infinity', 'negative-infinity'])
+    @pytest.mark.parametrize('location', ['rules', 'rows', 'timeframe_rows'])
+    def test_nonfinite_evidence_cannot_replay_hash_or_approve(value, location):
+        original = rules()
+        original['executable_entry'] = {'all': [
+            {'field': 'rsi', 'operator': 'lt', 'value': value if location == 'rules' else 50},
+            {'field': 'adx', 'operator': 'gt', 'value': 25},
+        ]}
+        rows, timeframes = candles(), {'1h': candles(800)}
+        if location == 'rows':
+            rows[20][4] = value
+        elif location == 'timeframe_rows':
+            # Even evidence outside the replay cut is part of the declared input hash.
+            timeframes['1h'][-1][4] = value
+        evidence = {'rules': original, 'rows': rows, 'timeframes': timeframes}
+        before = json.dumps(evidence, sort_keys=True)
+        runner = Mock(return_value={'decisions': 5, 'net_pnl_percent': 1., 'max_drawdown_percent': 1.})
+>       result = run_retrained_evaluation(original, rows, timeframe_rows=timeframes,
+                                         cost_profile={'rates': {'fee': .001}}, runner=runner)
+
+tests/test_v3928_retrained_evidence.py:30: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+trading/retrained_strategy_evaluation.py:124: in run_retrained_evaluation
+    'input_sha256':hashlib.sha256(json.dumps({'rules':rules,'rows':rows,'timeframes':timeframe_rows},
+/opt/homebrew/Cellar/python@3.13/3.13.3/Frameworks/Python.framework/Versions/3.13/lib/python3.13/json/__init__.py:238: in dumps
+    **kw).encode(obj)
+          ^^^^^^^^^^^
+/opt/homebrew/Cellar/python@3.13/3.13.3/Frameworks/Python.framework/Versions/3.13/lib/python3.13/json/encoder.py:200: in encode
+    chunks = self.iterencode(o, _one_shot=True)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <json.encoder.JSONEncoder object at 0x10727f4d0>
+o = {'rows': [[0, 100, 101, 99, 100, 10, ...], [300000, 100, 101, 99, 100, 10, ...], [600000, 100, 101, 99, 100, 10, ...],...0000, 100, 101, 99, 100, 10, ...], [1200000, 100, 101, 99, 100, 10, ...], [1500000, 100, 101, 99, 100, 10, ...], ...]}}
+_one_shot = True
+
+    def iterencode(self, o, _one_shot=False):
+        """Encode the given object and yield each string
+        representation as available.
+    
+        For example::
+    
+            for chunk in JSONEncoder().iterencode(bigobject):
+                mysocket.write(chunk)
+    
+        """
+        if self.check_circular:
+            markers = {}
+        else:
+            markers = None
+        if self.ensure_ascii:
+            _encoder = encode_basestring_ascii
+        else:
+            _encoder = encode_basestring
+    
+        def floatstr(o, allow_nan=self.allow_nan,
+                _repr=float.__repr__, _inf=INFINITY, _neginf=-INFINITY):
+            # Check for specials.  Note that this type of test is processor
+            # and/or platform-specific, so do tests which don't depend on the
+            # internals.
+    
+            if o != o:
+                text = 'NaN'
+            elif o == _inf:
+                text = 'Infinity'
+            elif o == _neginf:
+                text = '-Infinity'
+            else:
+                return _repr(o)
+    
+            if not allow_nan:
+                raise ValueError(
+                    "Out of range float values are not JSON compliant: " +
+                    repr(o))
+    
+            return text
+    
+    
+        if self.indent is None or isinstance(self.indent, str):
+            indent = self.indent
+        else:
+            indent = ' ' * self.indent
+        if _one_shot and c_make_encoder is not None:
+            _iterencode = c_make_encoder(
+                markers, self.default, _encoder, indent,
+                self.key_separator, self.item_separator, self.sort_keys,
+                self.skipkeys, self.allow_nan)
+        else:
+            _iterencode = _make_iterencode(
+                markers, self.default, _encoder, indent, floatstr,
+                self.key_separator, self.item_separator, self.sort_keys,
+                self.skipkeys, _one_shot)
+>       return _iterencode(o, 0)
+               ^^^^^^^^^^^^^^^^^
+E       ValueError: Out of range float values are not JSON compliant: nan
+
+/opt/homebrew/Cellar/python@3.13/3.13.3/Frameworks/Python.framework/Versions/3.13/lib/python3.13/json/encoder.py:261: ValueError
+_ test_nonfinite_evidence_cannot_replay_hash_or_approve[rules-positive-infinity] _
+
+value = inf, location = 'rules'
+
+    @pytest.mark.parametrize('value', [float('nan'), float('inf'), float('-inf')],
+                             ids=['nan', 'positive-infinity', 'negative-infinity'])
+    @pytest.mark.parametrize('location', ['rules', 'rows', 'timeframe_rows'])
+    def test_nonfinite_evidence_cannot_replay_hash_or_approve(value, location):
+        original = rules()
+        original['executable_entry'] = {'all': [
+            {'field': 'rsi', 'operator': 'lt', 'value': value if location == 'rules' else 50},
+            {'field': 'adx', 'operator': 'gt', 'value': 25},
+        ]}
+        rows, timeframes = candles(), {'1h': candles(800)}
+        if location == 'rows':
+            rows[20][4] = value
+        elif location == 'timeframe_rows':
+            # Even evidence outside the replay cut is part of the declared input hash.
+            timeframes['1h'][-1][4] = value
+        evidence = {'rules': original, 'rows': rows, 'timeframes': timeframes}
+        before = json.dumps(evidence, sort_keys=True)
+        runner = Mock(return_value={'decisions': 5, 'net_pnl_percent': 1., 'max_drawdown_percent': 1.})
+>       result = run_retrained_evaluation(original, rows, timeframe_rows=timeframes,
+                                         cost_profile={'rates': {'fee': .001}}, runner=runner)
+
+tests/test_v3928_retrained_evidence.py:30: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+trading/retrained_strategy_evaluation.py:124: in run_retrained_evaluation
+    'input_sha256':hashlib.sha256(json.dumps({'rules':rules,'rows':rows,'timeframes':timeframe_rows},
+/opt/homebrew/Cellar/python@3.13/3.13.3/Frameworks/Python.framework/Versions/3.13/lib/python3.13/json/__init__.py:238: in dumps
+    **kw).encode(obj)
+          ^^^^^^^^^^^
+/opt/homebrew/Cellar/python@3.13/3.13.3/Frameworks/Python.framework/Versions/3.13/lib/python3.13/json/encoder.py:200: in encode
+    chunks = self.iterencode(o, _one_shot=True)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <json.encoder.JSONEncoder object at 0x10737a060>
+o = {'rows': [[0, 100, 101, 99, 100, 10, ...], [300000, 100, 101, 99, 100, 10, ...], [600000, 100, 101, 99, 100, 10, ...],...0000, 100, 101, 99, 100, 10, ...], [1200000, 100, 101, 99, 100, 10, ...], [1500000, 100, 101, 99, 100, 10, ...], ...]}}
+_one_shot = True
+
+    def iterencode(self, o, _one_shot=False):
+        """Encode the given object and yield each string
+        representation as available.
+    
+        For example::
+    
+            for chunk in JSONEncoder().iterencode(bigobject):
+                mysocket.write(chunk)
+    
+        """
+        if self.check_circular:
+            markers = {}
+        else:
+            markers = None
+        if self.ensure_ascii:
+            _encoder = encode_basestring_ascii
+        else:
+            _encoder = encode_basestring
+    
+        def floatstr(o, allow_nan=self.allow_nan,
+                _repr=float.__repr__, _inf=INFINITY, _neginf=-INFINITY):
+            # Check for specials.  Note that this type of test is processor
+            # and/or platform-specific, so do tests which don't depend on the
+            # internals.
+    
+            if o != o:
+                text = 'NaN'
+            elif o == _inf:
+                text = 'Infinity'
+            elif o == _neginf:
+                text = '-Infinity'
+            else:
+                return _repr(o)
+    
+            if not allow_nan:
+                raise ValueError(
+                    "Out of range float values are not JSON compliant: " +
+                    repr(o))
+    
+            return text
+    
+    
+        if self.indent is None or isinstance(self.indent, str):
+            indent = self.indent
+        else:
+            indent = ' ' * self.indent
+        if _one_shot and c_make_encoder is not None:
+            _iterencode = c_make_encoder(
+                markers, self.default, _encoder, indent,
+                self.key_separator, self.item_separator, self.sort_keys,
+                self.skipkeys, self.allow_nan)
+        else:
+            _iterencode = _make_iterencode(
+                markers, self.default, _encoder, indent, floatstr,
+                self.key_separator, self.item_separator, self.sort_keys,
+                self.skipkeys, _one_shot)
+>       return _iterencode(o, 0)
+               ^^^^^^^^^^^^^^^^^
+E       ValueError: Out of range float values are not JSON compliant: inf
+
+/opt/homebrew/Cellar/python@3.13/3.13.3/Frameworks/Python.framework/Versions/3.13/lib/python3.13/json/encoder.py:261: ValueError
+_ test_nonfinite_evidence_cannot_replay_hash_or_approve[rules-negative-infinity] _
+
+value = -inf, location = 'rules'
+
+    @pytest.mark.parametrize('value', [float('nan'), float('inf'), float('-inf')],
+                             ids=['nan', 'positive-infinity', 'negative-infinity'])
+    @pytest.mark.parametrize('location', ['rules', 'rows', 'timeframe_rows'])
+    def test_nonfinite_evidence_cannot_replay_hash_or_approve(value, location):
+        original = rules()
+        original['executable_entry'] = {'all': [
+            {'field': 'rsi', 'operator': 'lt', 'value': value if location == 'rules' else 50},
+            {'field': 'adx', 'operator': 'gt', 'value': 25},
+        ]}
+        rows, timeframes = candles(), {'1h': candles(800)}
+        if location == 'rows':
+            rows[20][4] = value
+        elif location == 'timeframe_rows':
+            # Even evidence outside the replay cut is part of the declared input hash.
+            timeframes['1h'][-1][4] = value
+        evidence = {'rules': original, 'rows': rows, 'timeframes': timeframes}
+        before = json.dumps(evidence, sort_keys=True)
+        runner = Mock(return_value={'decisions': 5, 'net_pnl_percent': 1., 'max_drawdown_percent': 1.})
+>       result = run_retrained_evaluation(original, rows, timeframe_rows=timeframes,
+                                         cost_profile={'rates': {'fee': .001}}, runner=runner)
+
+tests/test_v3928_retrained_evidence.py:30: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+trading/retrained_strategy_evaluation.py:124: in run_retrained_evaluation
+    'input_sha256':hashlib.sha256(json.dumps({'rules':rules,'rows':rows,'timeframes':timeframe_rows},
+/opt/homebrew/Cellar/python@3.13/3.13.3/Frameworks/Python.framework/Versions/3.13/lib/python3.13/json/__init__.py:238: in dumps
+    **kw).encode(obj)
+          ^^^^^^^^^^^
+/opt/homebrew/Cellar/python@3.13/3.13.3/Frameworks/Python.framework/Versions/3.13/lib/python3.13/json/encoder.py:200: in encode
+    chunks = self.iterencode(o, _one_shot=True)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <json.encoder.JSONEncoder object at 0x107287bd0>
+o = {'rows': [[0, 100, 101, 99, 100, 10, ...], [300000, 100, 101, 99, 100, 10, ...], [600000, 100, 101, 99, 100, 10, ...],...0000, 100, 101, 99, 100, 10, ...], [1200000, 100, 101, 99, 100, 10, ...], [1500000, 100, 101, 99, 100, 10, ...], ...]}}
+_one_shot = True
+
+    def iterencode(self, o, _one_shot=False):
+        """Encode the given object and yield each string
+        representation as available.
+    
+        For example::
+    
+            for chunk in JSONEncoder().iterencode(bigobject):
+                mysocket.write(chunk)
+    
+        """
+        if self.check_circular:
+            markers = {}
+        else:
+            markers = None
+        if self.ensure_ascii:
+            _encoder = encode_basestring_ascii
+        else:
+            _encoder = encode_basestring
+    
+        def floatstr(o, allow_nan=self.allow_nan,
+                _repr=float.__repr__, _inf=INFINITY, _neginf=-INFINITY):
+            # Check for specials.  Note that this type of test is processor
+            # and/or platform-specific, so do tests which don't depend on the
+            # internals.
+    
+            if o != o:
+                text = 'NaN'
+            elif o == _inf:
+                text = 'Infinity'
+            elif o == _neginf:
+                text = '-Infinity'
+            else:
+                return _repr(o)
+    
+            if not allow_nan:
+                raise ValueError(
+                    "Out of range float values are not JSON compliant: " +
+                    repr(o))
+    
+            return text
+    
+    
+        if self.indent is None or isinstance(self.indent, str):
+            indent = self.indent
+        else:
+            indent = ' ' * self.indent
+        if _one_shot and c_make_encoder is not None:
+            _iterencode = c_make_encoder(
+                markers, self.default, _encoder, indent,
+                self.key_separator, self.item_separator, self.sort_keys,
+                self.skipkeys, self.allow_nan)
+        else:
+            _iterencode = _make_iterencode(
+                markers, self.default, _encoder, indent, floatstr,
+                self.key_separator, self.item_separator, self.sort_keys,
+                self.skipkeys, _one_shot)
+>       return _iterencode(o, 0)
+               ^^^^^^^^^^^^^^^^^
+E       ValueError: Out of range float values are not JSON compliant: -inf
+
+/opt/homebrew/Cellar/python@3.13/3.13.3/Frameworks/Python.framework/Versions/3.13/lib/python3.13/json/encoder.py:261: ValueError
+_______ test_nonfinite_evidence_cannot_replay_hash_or_approve[rows-nan] ________
+
+value = nan, location = 'rows'
+
+    @pytest.mark.parametrize('value', [float('nan'), float('inf'), float('-inf')],
+                             ids=['nan', 'positive-infinity', 'negative-infinity'])
+    @pytest.mark.parametrize('location', ['rules', 'rows', 'timeframe_rows'])
+    def test_nonfinite_evidence_cannot_replay_hash_or_approve(value, location):
+        original = rules()
+        original['executable_entry'] = {'all': [
+            {'field': 'rsi', 'operator': 'lt', 'value': value if location == 'rules' else 50},
+            {'field': 'adx', 'operator': 'gt', 'value': 25},
+        ]}
+        rows, timeframes = candles(), {'1h': candles(800)}
+        if location == 'rows':
+            rows[20][4] = value
+        elif location == 'timeframe_rows':
+            # Even evidence outside the replay cut is part of the declared input hash.
+            timeframes['1h'][-1][4] = value
+        evidence = {'rules': original, 'rows': rows, 'timeframes': timeframes}
+        before = json.dumps(evidence, sort_keys=True)
+        runner = Mock(return_value={'decisions': 5, 'net_pnl_percent': 1., 'max_drawdown_percent': 1.})
+>       result = run_retrained_evaluation(original, rows, timeframe_rows=timeframes,
+                                         cost_profile={'rates': {'fee': .001}}, runner=runner)
+
+tests/test_v3928_retrained_evidence.py:30: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+trading/retrained_strategy_evaluation.py:124: in run_retrained_evaluation
+    'input_sha256':hashlib.sha256(json.dumps({'rules':rules,'rows':rows,'timeframes':timeframe_rows},
+/opt/homebrew/Cellar/python@3.13/3.13.3/Frameworks/Python.framework/Versions/3.13/lib/python3.13/json/__init__.py:238: in dumps
+    **kw).encode(obj)
+          ^^^^^^^^^^^
+/opt/homebrew/Cellar/python@3.13/3.13.3/Frameworks/Python.framework/Versions/3.13/lib/python3.13/json/encoder.py:200: in encode
+    chunks = self.iterencode(o, _one_shot=True)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <json.encoder.JSONEncoder object at 0x107960a50>
+o = {'rows': [[0, 100, 101, 99, 100, 10, ...], [300000, 100, 101, 99, 100, 10, ...], [600000, 100, 101, 99, 100, 10, ...],...0000, 100, 101, 99, 100, 10, ...], [1200000, 100, 101, 99, 100, 10, ...], [1500000, 100, 101, 99, 100, 10, ...], ...]}}
+_one_shot = True
+
+    def iterencode(self, o, _one_shot=False):
+        """Encode the given object and yield each string
+        representation as available.
+    
+        For example::
+    
+            for chunk in JSONEncoder().iterencode(bigobject):
+                mysocket.write(chunk)
+    
+        """
+        if self.check_circular:
+            markers = {}
+        else:
+            markers = None
+        if self.ensure_ascii:
+            _encoder = encode_basestring_ascii
+        else:
+            _encoder = encode_basestring
+    
+        def floatstr(o, allow_nan=self.allow_nan,
+                _repr=float.__repr__, _inf=INFINITY, _neginf=-INFINITY):
+            # Check for specials.  Note that this type of test is processor
+            # and/or platform-specific, so do tests which don't depend on the
+            # internals.
+    
+            if o != o:
+                text = 'NaN'
+            elif o == _inf:
+                text = 'Infinity'
+            elif o == _neginf:
+                text = '-Infinity'
+            else:
+                return _repr(o)
+    
+            if not allow_nan:
+                raise ValueError(
+                    "Out of range float values are not JSON compliant: " +
+                    repr(o))
+    
+            return text
+    
+    
+        if self.indent is None or isinstance(self.indent, str):
+            indent = self.indent
+        else:
+            indent = ' ' * self.indent
+        if _one_shot and c_make_encoder is not None:
+            _iterencode = c_make_encoder(
+                markers, self.default, _encoder, indent,
+                self.key_separator, self.item_separator, self.sort_keys,
+                self.skipkeys, self.allow_nan)
+        else:
+            _iterencode = _make_iterencode(
+                markers, self.default, _encoder, indent, floatstr,
+                self.key_separator, self.item_separator, self.sort_keys,
+                self.skipkeys, _one_shot)
+>       return _iterencode(o, 0)
+               ^^^^^^^^^^^^^^^^^
+E       ValueError: Out of range float values are not JSON compliant: nan
+
+/opt/homebrew/Cellar/python@3.13/3.13.3/Frameworks/Python.framework/Versions/3.13/lib/python3.13/json/encoder.py:261: ValueError
+_ test_nonfinite_evidence_cannot_replay_hash_or_approve[rows-positive-infinity] _
+
+value = inf, location = 'rows'
+
+    @pytest.mark.parametrize('value', [float('nan'), float('inf'), float('-inf')],
+                             ids=['nan', 'positive-infinity', 'negative-infinity'])
+    @pytest.mark.parametrize('location', ['rules', 'rows', 'timeframe_rows'])
+    def test_nonfinite_evidence_cannot_replay_hash_or_approve(value, location):
+        original = rules()
+        original['executable_entry'] = {'all': [
+            {'field': 'rsi', 'operator': 'lt', 'value': value if location == 'rules' else 50},
+            {'field': 'adx', 'operator': 'gt', 'value': 25},
+        ]}
+        rows, timeframes = candles(), {'1h': candles(800)}
+        if location == 'rows':
+            rows[20][4] = value
+        elif location == 'timeframe_rows':
+            # Even evidence outside the replay cut is part of the declared input hash.
+            timeframes['1h'][-1][4] = value
+        evidence = {'rules': original, 'rows': rows, 'timeframes': timeframes}
+        before = json.dumps(evidence, sort_keys=True)
+        runner = Mock(return_value={'decisions': 5, 'net_pnl_percent': 1., 'max_drawdown_percent': 1.})
+>       result = run_retrained_evaluation(original, rows, timeframe_rows=timeframes,
+                                         cost_profile={'rates': {'fee': .001}}, runner=runner)
+
+tests/test_v3928_retrained_evidence.py:30: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+trading/retrained_strategy_evaluation.py:124: in run_retrained_evaluation
+    'input_sha256':hashlib.sha256(json.dumps({'rules':rules,'rows':rows,'timeframes':timeframe_rows},
+/opt/homebrew/Cellar/python@3.13/3.13.3/Frameworks/Python.framework/Versions/3.13/lib/python3.13/json/__init__.py:238: in dumps
+    **kw).encode(obj)
+          ^^^^^^^^^^^
+/opt/homebrew/Cellar/python@3.13/3.13.3/Frameworks/Python.framework/Versions/3.13/lib/python3.13/json/encoder.py:200: in encode
+    chunks = self.iterencode(o, _one_shot=True)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <json.encoder.JSONEncoder object at 0x1072a3f20>
+o = {'rows': [[0, 100, 101, 99, 100, 10, ...], [300000, 100, 101, 99, 100, 10, ...], [600000, 100, 101, 99, 100, 10, ...],...0000, 100, 101, 99, 100, 10, ...], [1200000, 100, 101, 99, 100, 10, ...], [1500000, 100, 101, 99, 100, 10, ...], ...]}}
+_one_shot = True
+
+    def iterencode(self, o, _one_shot=False):
+        """Encode the given object and yield each string
+        representation as available.
+    
+        For example::
+    
+            for chunk in JSONEncoder().iterencode(bigobject):
+                mysocket.write(chunk)
+    
+        """
+        if self.check_circular:
+            markers = {}
+        else:
+            markers = None
+        if self.ensure_ascii:
+            _encoder = encode_basestring_ascii
+        else:
+            _encoder = encode_basestring
+    
+        def floatstr(o, allow_nan=self.allow_nan,
+                _repr=float.__repr__, _inf=INFINITY, _neginf=-INFINITY):
+            # Check for specials.  Note that this type of test is processor
+            # and/or platform-specific, so do tests which don't depend on the
+            # internals.
+    
+            if o != o:
+                text = 'NaN'
+            elif o == _inf:
+                text = 'Infinity'
+            elif o == _neginf:
+                text = '-Infinity'
+            else:
+                return _repr(o)
+    
+            if not allow_nan:
+                raise ValueError(
+                    "Out of range float values are not JSON compliant: " +
+                    repr(o))
+    
+            return text
+    
+    
+        if self.indent is None or isinstance(self.indent, str):
+            indent = self.indent
+        else:
+            indent = ' ' * self.indent
+        if _one_shot and c_make_encoder is not None:
+            _iterencode = c_make_encoder(
+                markers, self.default, _encoder, indent,
+                self.key_separator, self.item_separator, self.sort_keys,
+                self.skipkeys, self.allow_nan)
+        else:
+            _iterencode = _make_iterencode(
+                markers, self.default, _encoder, indent, floatstr,
+                self.key_separator, self.item_separator, self.sort_keys,
+                self.skipkeys, _one_shot)
+>       return _iterencode(o, 0)
+               ^^^^^^^^^^^^^^^^^
+E       ValueError: Out of range float values are not JSON compliant: inf
+
+/opt/homebrew/Cellar/python@3.13/3.13.3/Frameworks/Python.framework/Versions/3.13/lib/python3.13/json/encoder.py:261: ValueError
+_ test_nonfinite_evidence_cannot_replay_hash_or_approve[rows-negative-infinity] _
+
+value = -inf, location = 'rows'
+
+    @pytest.mark.parametrize('value', [float('nan'), float('inf'), float('-inf')],
+                             ids=['nan', 'positive-infinity', 'negative-infinity'])
+    @pytest.mark.parametrize('location', ['rules', 'rows', 'timeframe_rows'])
+    def test_nonfinite_evidence_cannot_replay_hash_or_approve(value, location):
+        original = rules()
+        original['executable_entry'] = {'all': [
+            {'field': 'rsi', 'operator': 'lt', 'value': value if location == 'rules' else 50},
+            {'field': 'adx', 'operator': 'gt', 'value': 25},
+        ]}
+        rows, timeframes = candles(), {'1h': candles(800)}
+        if location == 'rows':
+            rows[20][4] = value
+        elif location == 'timeframe_rows':
+            # Even evidence outside the replay cut is part of the declared input hash.
+            timeframes['1h'][-1][4] = value
+        evidence = {'rules': original, 'rows': rows, 'timeframes': timeframes}
+        before = json.dumps(evidence, sort_keys=True)
+        runner = Mock(return_value={'decisions': 5, 'net_pnl_percent': 1., 'max_drawdown_percent': 1.})
+>       result = run_retrained_evaluation(original, rows, timeframe_rows=timeframes,
+                                         cost_profile={'rates': {'fee': .001}}, runner=runner)
+
+tests/test_v3928_retrained_evidence.py:30: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+trading/retrained_strategy_evaluation.py:124: in run_retrained_evaluation
+    'input_sha256':hashlib.sha256(json.dumps({'rules':rules,'rows':rows,'timeframes':timeframe_rows},
+/opt/homebrew/Cellar/python@3.13/3.13.3/Frameworks/Python.framework/Versions/3.13/lib/python3.13/json/__init__.py:238: in dumps
+    **kw).encode(obj)
+          ^^^^^^^^^^^
+/opt/homebrew/Cellar/python@3.13/3.13.3/Frameworks/Python.framework/Versions/3.13/lib/python3.13/json/encoder.py:200: in encode
+    chunks = self.iterencode(o, _one_shot=True)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <json.encoder.JSONEncoder object at 0x10793a5f0>
+o = {'rows': [[0, 100, 101, 99, 100, 10, ...], [300000, 100, 101, 99, 100, 10, ...], [600000, 100, 101, 99, 100, 10, ...],...0000, 100, 101, 99, 100, 10, ...], [1200000, 100, 101, 99, 100, 10, ...], [1500000, 100, 101, 99, 100, 10, ...], ...]}}
+_one_shot = True
+
+    def iterencode(self, o, _one_shot=False):
+        """Encode the given object and yield each string
+        representation as available.
+    
+        For example::
+    
+            for chunk in JSONEncoder().iterencode(bigobject):
+                mysocket.write(chunk)
+    
+        """
+        if self.check_circular:
+            markers = {}
+        else:
+            markers = None
+        if self.ensure_ascii:
+            _encoder = encode_basestring_ascii
+        else:
+            _encoder = encode_basestring
+    
+        def floatstr(o, allow_nan=self.allow_nan,
+                _repr=float.__repr__, _inf=INFINITY, _neginf=-INFINITY):
+            # Check for specials.  Note that this type of test is processor
+            # and/or platform-specific, so do tests which don't depend on the
+            # internals.
+    
+            if o != o:
+                text = 'NaN'
+            elif o == _inf:
+                text = 'Infinity'
+            elif o == _neginf:
+                text = '-Infinity'
+            else:
+                return _repr(o)
+    
+            if not allow_nan:
+                raise ValueError(
+                    "Out of range float values are not JSON compliant: " +
+                    repr(o))
+    
+            return text
+    
+    
+        if self.indent is None or isinstance(self.indent, str):
+            indent = self.indent
+        else:
+            indent = ' ' * self.indent
+        if _one_shot and c_make_encoder is not None:
+            _iterencode = c_make_encoder(
+                markers, self.default, _encoder, indent,
+                self.key_separator, self.item_separator, self.sort_keys,
+                self.skipkeys, self.allow_nan)
+        else:
+            _iterencode = _make_iterencode(
+                markers, self.default, _encoder, indent, floatstr,
+                self.key_separator, self.item_separator, self.sort_keys,
+                self.skipkeys, _one_shot)
+>       return _iterencode(o, 0)
+               ^^^^^^^^^^^^^^^^^
+E       ValueError: Out of range float values are not JSON compliant: -inf
+
+/opt/homebrew/Cellar/python@3.13/3.13.3/Frameworks/Python.framework/Versions/3.13/lib/python3.13/json/encoder.py:261: ValueError
+__ test_nonfinite_evidence_cannot_replay_hash_or_approve[timeframe_rows-nan] ___
+
+value = nan, location = 'timeframe_rows'
+
+    @pytest.mark.parametrize('value', [float('nan'), float('inf'), float('-inf')],
+                             ids=['nan', 'positive-infinity', 'negative-infinity'])
+    @pytest.mark.parametrize('location', ['rules', 'rows', 'timeframe_rows'])
+    def test_nonfinite_evidence_cannot_replay_hash_or_approve(value, location):
+        original = rules()
+        original['executable_entry'] = {'all': [
+            {'field': 'rsi', 'operator': 'lt', 'value': value if location == 'rules' else 50},
+            {'field': 'adx', 'operator': 'gt', 'value': 25},
+        ]}
+        rows, timeframes = candles(), {'1h': candles(800)}
+        if location == 'rows':
+            rows[20][4] = value
+        elif location == 'timeframe_rows':
+            # Even evidence outside the replay cut is part of the declared input hash.
+            timeframes['1h'][-1][4] = value
+        evidence = {'rules': original, 'rows': rows, 'timeframes': timeframes}
+        before = json.dumps(evidence, sort_keys=True)
+        runner = Mock(return_value={'decisions': 5, 'net_pnl_percent': 1., 'max_drawdown_percent': 1.})
+>       result = run_retrained_evaluation(original, rows, timeframe_rows=timeframes,
+                                         cost_profile={'rates': {'fee': .001}}, runner=runner)
+
+tests/test_v3928_retrained_evidence.py:30: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+trading/retrained_strategy_evaluation.py:124: in run_retrained_evaluation
+    'input_sha256':hashlib.sha256(json.dumps({'rules':rules,'rows':rows,'timeframes':timeframe_rows},
+/opt/homebrew/Cellar/python@3.13/3.13.3/Frameworks/Python.framework/Versions/3.13/lib/python3.13/json/__init__.py:238: in dumps
+    **kw).encode(obj)
+          ^^^^^^^^^^^
+/opt/homebrew/Cellar/python@3.13/3.13.3/Frameworks/Python.framework/Versions/3.13/lib/python3.13/json/encoder.py:200: in encode
+    chunks = self.iterencode(o, _one_shot=True)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <json.encoder.JSONEncoder object at 0x107373a00>
+o = {'rows': [[0, 100, 101, 99, 100, 10, ...], [300000, 100, 101, 99, 100, 10, ...], [600000, 100, 101, 99, 100, 10, ...],...0000, 100, 101, 99, 100, 10, ...], [1200000, 100, 101, 99, 100, 10, ...], [1500000, 100, 101, 99, 100, 10, ...], ...]}}
+_one_shot = True
+
+    def iterencode(self, o, _one_shot=False):
+        """Encode the given object and yield each string
+        representation as available.
+    
+        For example::
+    
+            for chunk in JSONEncoder().iterencode(bigobject):
+                mysocket.write(chunk)
+    
+        """
+        if self.check_circular:
+            markers = {}
+        else:
+            markers = None
+        if self.ensure_ascii:
+            _encoder = encode_basestring_ascii
+        else:
+            _encoder = encode_basestring
+    
+        def floatstr(o, allow_nan=self.allow_nan,
+                _repr=float.__repr__, _inf=INFINITY, _neginf=-INFINITY):
+            # Check for specials.  Note that this type of test is processor
+            # and/or platform-specific, so do tests which don't depend on the
+            # internals.
+    
+            if o != o:
+                text = 'NaN'
+            elif o == _inf:
+                text = 'Infinity'
+            elif o == _neginf:
+                text = '-Infinity'
+            else:
+                return _repr(o)
+    
+            if not allow_nan:
+                raise ValueError(
+                    "Out of range float values are not JSON compliant: " +
+                    repr(o))
+    
+            return text
+    
+    
+        if self.indent is None or isinstance(self.indent, str):
+            indent = self.indent
+        else:
+            indent = ' ' * self.indent
+        if _one_shot and c_make_encoder is not None:
+            _iterencode = c_make_encoder(
+                markers, self.default, _encoder, indent,
+                self.key_separator, self.item_separator, self.sort_keys,
+                self.skipkeys, self.allow_nan)
+        else:
+            _iterencode = _make_iterencode(
+                markers, self.default, _encoder, indent, floatstr,
+                self.key_separator, self.item_separator, self.sort_keys,
+                self.skipkeys, _one_shot)
+>       return _iterencode(o, 0)
+               ^^^^^^^^^^^^^^^^^
+E       ValueError: Out of range float values are not JSON compliant: nan
+
+/opt/homebrew/Cellar/python@3.13/3.13.3/Frameworks/Python.framework/Versions/3.13/lib/python3.13/json/encoder.py:261: ValueError
+_ test_nonfinite_evidence_cannot_replay_hash_or_approve[timeframe_rows-positive-infinity] _
+
+value = inf, location = 'timeframe_rows'
+
+    @pytest.mark.parametrize('value', [float('nan'), float('inf'), float('-inf')],
+                             ids=['nan', 'positive-infinity', 'negative-infinity'])
+    @pytest.mark.parametrize('location', ['rules', 'rows', 'timeframe_rows'])
+    def test_nonfinite_evidence_cannot_replay_hash_or_approve(value, location):
+        original = rules()
+        original['executable_entry'] = {'all': [
+            {'field': 'rsi', 'operator': 'lt', 'value': value if location == 'rules' else 50},
+            {'field': 'adx', 'operator': 'gt', 'value': 25},
+        ]}
+        rows, timeframes = candles(), {'1h': candles(800)}
+        if location == 'rows':
+            rows[20][4] = value
+        elif location == 'timeframe_rows':
+            # Even evidence outside the replay cut is part of the declared input hash.
+            timeframes['1h'][-1][4] = value
+        evidence = {'rules': original, 'rows': rows, 'timeframes': timeframes}
+        before = json.dumps(evidence, sort_keys=True)
+        runner = Mock(return_value={'decisions': 5, 'net_pnl_percent': 1., 'max_drawdown_percent': 1.})
+>       result = run_retrained_evaluation(original, rows, timeframe_rows=timeframes,
+                                         cost_profile={'rates': {'fee': .001}}, runner=runner)
+
+tests/test_v3928_retrained_evidence.py:30: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+trading/retrained_strategy_evaluation.py:124: in run_retrained_evaluation
+    'input_sha256':hashlib.sha256(json.dumps({'rules':rules,'rows':rows,'timeframes':timeframe_rows},
+/opt/homebrew/Cellar/python@3.13/3.13.3/Frameworks/Python.framework/Versions/3.13/lib/python3.13/json/__init__.py:238: in dumps
+    **kw).encode(obj)
+          ^^^^^^^^^^^
+/opt/homebrew/Cellar/python@3.13/3.13.3/Frameworks/Python.framework/Versions/3.13/lib/python3.13/json/encoder.py:200: in encode
+    chunks = self.iterencode(o, _one_shot=True)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <json.encoder.JSONEncoder object at 0x107a94350>
+o = {'rows': [[0, 100, 101, 99, 100, 10, ...], [300000, 100, 101, 99, 100, 10, ...], [600000, 100, 101, 99, 100, 10, ...],...0000, 100, 101, 99, 100, 10, ...], [1200000, 100, 101, 99, 100, 10, ...], [1500000, 100, 101, 99, 100, 10, ...], ...]}}
+_one_shot = True
+
+    def iterencode(self, o, _one_shot=False):
+        """Encode the given object and yield each string
+        representation as available.
+    
+        For example::
+    
+            for chunk in JSONEncoder().iterencode(bigobject):
+                mysocket.write(chunk)
+    
+        """
+        if self.check_circular:
+            markers = {}
+        else:
+            markers = None
+        if self.ensure_ascii:
+            _encoder = encode_basestring_ascii
+        else:
+            _encoder = encode_basestring
+    
+        def floatstr(o, allow_nan=self.allow_nan,
+                _repr=float.__repr__, _inf=INFINITY, _neginf=-INFINITY):
+            # Check for specials.  Note that this type of test is processor
+            # and/or platform-specific, so do tests which don't depend on the
+            # internals.
+    
+            if o != o:
+                text = 'NaN'
+            elif o == _inf:
+                text = 'Infinity'
+            elif o == _neginf:
+                text = '-Infinity'
+            else:
+                return _repr(o)
+    
+            if not allow_nan:
+                raise ValueError(
+                    "Out of range float values are not JSON compliant: " +
+                    repr(o))
+    
+            return text
+    
+    
+        if self.indent is None or isinstance(self.indent, str):
+            indent = self.indent
+        else:
+            indent = ' ' * self.indent
+        if _one_shot and c_make_encoder is not None:
+            _iterencode = c_make_encoder(
+                markers, self.default, _encoder, indent,
+                self.key_separator, self.item_separator, self.sort_keys,
+                self.skipkeys, self.allow_nan)
+        else:
+            _iterencode = _make_iterencode(
+                markers, self.default, _encoder, indent, floatstr,
+                self.key_separator, self.item_separator, self.sort_keys,
+                self.skipkeys, _one_shot)
+>       return _iterencode(o, 0)
+               ^^^^^^^^^^^^^^^^^
+E       ValueError: Out of range float values are not JSON compliant: inf
+
+/opt/homebrew/Cellar/python@3.13/3.13.3/Frameworks/Python.framework/Versions/3.13/lib/python3.13/json/encoder.py:261: ValueError
+_ test_nonfinite_evidence_cannot_replay_hash_or_approve[timeframe_rows-negative-infinity] _
+
+value = -inf, location = 'timeframe_rows'
+
+    @pytest.mark.parametrize('value', [float('nan'), float('inf'), float('-inf')],
+                             ids=['nan', 'positive-infinity', 'negative-infinity'])
+    @pytest.mark.parametrize('location', ['rules', 'rows', 'timeframe_rows'])
+    def test_nonfinite_evidence_cannot_replay_hash_or_approve(value, location):
+        original = rules()
+        original['executable_entry'] = {'all': [
+            {'field': 'rsi', 'operator': 'lt', 'value': value if location == 'rules' else 50},
+            {'field': 'adx', 'operator': 'gt', 'value': 25},
+        ]}
+        rows, timeframes = candles(), {'1h': candles(800)}
+        if location == 'rows':
+            rows[20][4] = value
+        elif location == 'timeframe_rows':
+            # Even evidence outside the replay cut is part of the declared input hash.
+            timeframes['1h'][-1][4] = value
+        evidence = {'rules': original, 'rows': rows, 'timeframes': timeframes}
+        before = json.dumps(evidence, sort_keys=True)
+        runner = Mock(return_value={'decisions': 5, 'net_pnl_percent': 1., 'max_drawdown_percent': 1.})
+>       result = run_retrained_evaluation(original, rows, timeframe_rows=timeframes,
+                                         cost_profile={'rates': {'fee': .001}}, runner=runner)
+
+tests/test_v3928_retrained_evidence.py:30: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+trading/retrained_strategy_evaluation.py:124: in run_retrained_evaluation
+    'input_sha256':hashlib.sha256(json.dumps({'rules':rules,'rows':rows,'timeframes':timeframe_rows},
+/opt/homebrew/Cellar/python@3.13/3.13.3/Frameworks/Python.framework/Versions/3.13/lib/python3.13/json/__init__.py:238: in dumps
+    **kw).encode(obj)
+          ^^^^^^^^^^^
+/opt/homebrew/Cellar/python@3.13/3.13.3/Frameworks/Python.framework/Versions/3.13/lib/python3.13/json/encoder.py:200: in encode
+    chunks = self.iterencode(o, _one_shot=True)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <json.encoder.JSONEncoder object at 0x107a18cb0>
+o = {'rows': [[0, 100, 101, 99, 100, 10, ...], [300000, 100, 101, 99, 100, 10, ...], [600000, 100, 101, 99, 100, 10, ...],...0000, 100, 101, 99, 100, 10, ...], [1200000, 100, 101, 99, 100, 10, ...], [1500000, 100, 101, 99, 100, 10, ...], ...]}}
+_one_shot = True
+
+    def iterencode(self, o, _one_shot=False):
+        """Encode the given object and yield each string
+        representation as available.
+    
+        For example::
+    
+            for chunk in JSONEncoder().iterencode(bigobject):
+                mysocket.write(chunk)
+    
+        """
+        if self.check_circular:
+            markers = {}
+        else:
+            markers = None
+        if self.ensure_ascii:
+            _encoder = encode_basestring_ascii
+        else:
+            _encoder = encode_basestring
+    
+        def floatstr(o, allow_nan=self.allow_nan,
+                _repr=float.__repr__, _inf=INFINITY, _neginf=-INFINITY):
+            # Check for specials.  Note that this type of test is processor
+            # and/or platform-specific, so do tests which don't depend on the
+            # internals.
+    
+            if o != o:
+                text = 'NaN'
+            elif o == _inf:
+                text = 'Infinity'
+            elif o == _neginf:
+                text = '-Infinity'
+            else:
+                return _repr(o)
+    
+            if not allow_nan:
+                raise ValueError(
+                    "Out of range float values are not JSON compliant: " +
+                    repr(o))
+    
+            return text
+    
+    
+        if self.indent is None or isinstance(self.indent, str):
+            indent = self.indent
+        else:
+            indent = ' ' * self.indent
+        if _one_shot and c_make_encoder is not None:
+            _iterencode = c_make_encoder(
+                markers, self.default, _encoder, indent,
+                self.key_separator, self.item_separator, self.sort_keys,
+                self.skipkeys, self.allow_nan)
+        else:
+            _iterencode = _make_iterencode(
+                markers, self.default, _encoder, indent, floatstr,
+                self.key_separator, self.item_separator, self.sort_keys,
+                self.skipkeys, _one_shot)
+>       return _iterencode(o, 0)
+               ^^^^^^^^^^^^^^^^^
+E       ValueError: Out of range float values are not JSON compliant: -inf
+
+/opt/homebrew/Cellar/python@3.13/3.13.3/Frameworks/Python.framework/Versions/3.13/lib/python3.13/json/encoder.py:261: ValueError
+=========================== short test summary info ============================
+FAILED tests/test_v3928_retrained_evidence.py::test_nonfinite_evidence_cannot_replay_hash_or_approve[rules-nan]
+FAILED tests/test_v3928_retrained_evidence.py::test_nonfinite_evidence_cannot_replay_hash_or_approve[rules-positive-infinity]
+FAILED tests/test_v3928_retrained_evidence.py::test_nonfinite_evidence_cannot_replay_hash_or_approve[rules-negative-infinity]
+FAILED tests/test_v3928_retrained_evidence.py::test_nonfinite_evidence_cannot_replay_hash_or_approve[rows-nan]
+FAILED tests/test_v3928_retrained_evidence.py::test_nonfinite_evidence_cannot_replay_hash_or_approve[rows-positive-infinity]
+FAILED tests/test_v3928_retrained_evidence.py::test_nonfinite_evidence_cannot_replay_hash_or_approve[rows-negative-infinity]
+FAILED tests/test_v3928_retrained_evidence.py::test_nonfinite_evidence_cannot_replay_hash_or_approve[timeframe_rows-nan]
+FAILED tests/test_v3928_retrained_evidence.py::test_nonfinite_evidence_cannot_replay_hash_or_approve[timeframe_rows-positive-infinity]
+FAILED tests/test_v3928_retrained_evidence.py::test_nonfinite_evidence_cannot_replay_hash_or_approve[timeframe_rows-negative-infinity]
+9 failed, 1 passed in 0.11s

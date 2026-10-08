@@ -1,0 +1,90 @@
+{
+  "platform": "macOS-27.0.1-arm64-arm-64bit-Mach-O",
+  "python": "3.13.3 (main, Apr  8 2025, 13:54:08) [Clang 16.0.0 (clang-1600.0.26.6)]",
+  "python_executable": "/Users/playone/SynologyDrive/Works/noahai_client/.venv/bin/python",
+  "node": "22.23.1",
+  "working_tree": "/Users/playone/.codex/worktrees/noahai-v3928-paper-recovery",
+  "branch": "release/v3.9.2.8-retrained-evaluation-20261008",
+  "public_base": "1c23b1e4947514906c1eb11050873a5c74ce39b0",
+  "work_base": "95d35ca1c51919c3ca009d484e6b43b3954bcad7",
+  "fix_commits": [
+    "27d5fcf6d7991b39211038c60b6f3aea5828252f",
+    "530f19b1d0f7469f52d58c849c9dc013f835db00"
+  ],
+  "preserved_paper_commits": [
+    "7aeb12ea74c9d69a36681d044723de3c00d395b8",
+    "534d9deb2c7a68280a3329bed37759a69a55ca40",
+    "95d35ca1c51919c3ca009d484e6b43b3954bcad7"
+  ],
+  "already_fixed": [
+    "f209608bba14125612059811c27b189e4bfd4a88",
+    "aec94213b941cd870118c350086ef0ce6e7be49d"
+  ],
+  "actual_windows_installer": false,
+  "actual_ocx": false,
+  "live_orders": false,
+  "customer_original_modified": false,
+  "public_release_or_installer_distribution": false,
+  "status": "source_regression_passed_windows_acceptance_pending",
+  "product_version": "3.9.2.8",
+  "updater_version": "3.9.208",
+  "public_version": "3.9.2.7",
+  "ui_build_tag": "3.9.2.8-ui.20261008.2",
+  "source_fingerprint": "8815f338e9f87401359245b1bb1f7cbeb6dfbd7f6707f97f2c47dd295f549f85",
+  "renderer": {
+    "version": "3.9.2.8",
+    "source_sha256": "a8e785a3289cae1705219bfabc2738593084954be87f0ac82151f424a633f093",
+    "built_at": "2026-10-08T03:21:43.413Z",
+    "current": true,
+    "ui_build_tag": "3.9.2.8-ui.20261008.2"
+  },
+  "tests": {
+    "repro_before_failed": 9,
+    "repro_before_passed": 1,
+    "evaluation_passed": 81,
+    "new_test_cases": 72,
+    "focused_passed": 252,
+    "full_passed": 5594,
+    "full_skipped": 11,
+    "full_subtests": 3,
+    "full_warnings": 2,
+    "node_passed": 75,
+    "renderer_fixture_checks": 8
+  },
+  "unperformed": [
+    "Windows build/PE/OCX",
+    "real-account stock buying power/order acceptance",
+    "manual/automatic installer update",
+    "installer rollback and latest-data return",
+    "24h/72h PAPER soak"
+  ],
+  "scope": {
+    "work_branch_push": "authorized",
+    "pull_request": false,
+    "public_release": false,
+    "tag_push": false,
+    "installer_distribution": false
+  },
+  "compare_url": "https://github.com/nwsoft/ai-trading-client/compare/v3.9.2.7...release/v3.9.2.8-retrained-evaluation-20261008",
+  "evidence_sha256": {
+    "before.txt": "83993baa8b076551d7911ae6935c19f9237518d3fd41ffa65973252b86d87d66",
+    "evaluation-final.txt": "3e550c094ab69b33eff5bc9313a3042d3ac34bcceebdfa7b9985ab64e3929a0c",
+    "focused-final.txt": "3f10d89332458fc755152e87fbfb28d2c011ac320121499a2238a69c68adf4b5",
+    "full.txt": "e5b9a129c3b32a6776049d205c7a0392d42470e68e8630d007752dd07e02d53a",
+    "full-before-history-order.txt": "7bd99361298694d7e8eea10024868dec366dc3b9c2125c5cfbdb5b054e1c6a2f",
+    "full-final.txt": "1ce8f32e3263a886052f74862de4f7f3940f8917facfaf4dc68fb7ad5e01d8fa",
+    "node.txt": "73e3c9e0c4ac57489816375a5287cc1d34c129dda026ab9c8f463ac5ec47896b",
+    "node-final.txt": "2593e79641cf74a2b40bd9cc2d58ce16f924ac9e006d29957def6e6150e89a0c",
+    "ui-build.txt": "8974754e76da36d2e90e7bf110373e3a6ba24e20143b922820dbd782315cbc20",
+    "ui.txt": "99603b325dd417ef7b4f9696d99e87d312e0c26b378515e1cbeb6046b2949539",
+    "docs.txt": "5bd528e90e6801615ca8bc4b10d3e240bf053c96049f24eb0d7113f755d84eea",
+    "document-contract.txt": "c39efe51cd313bd35a816020dcd8c7ac1446c3b68b8b6f37038ffea4140f72bf",
+    "source-audit.txt": "f50ad35827e21924ef62b9586469770d4ed0c24269fd756e058920269be160d0",
+    "build-inputs.txt": "30c4c9d0f6b29bb8f6927eef9d7a48c02a7047fd142299c505b1acd426f0d0a4",
+    "parity.txt": "9e242522c6aedaab58a0485199daf503024531b53f9b6ca2536fbb55889989f5",
+    "renderer-identity.json": "200d65424cf9886e73418246116ad91737ffb1182b451ed89075ecaca90513f8",
+    "ui/result.json": "377ea70e10078132eb27b47dde18be11af885eeee30adf7b1d0220cff23463d0",
+    "ui/evidence.png": "05cf4650849669c439b7c1706503454b3e70babb2a3f28c62348c20cfa44a8ed",
+    "ui/invalid-evidence.png": "ed53166394635ac886d67ff0cf7a71a508b103249d203007478e873b73507e7d"
+  }
+}

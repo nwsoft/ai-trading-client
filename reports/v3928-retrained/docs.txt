@@ -1,0 +1,7 @@
+문서/버전 정합성 점검 결과
+- 기준 배포 버전: v3.9.2.8
+
+결과: PASS
+- 핵심 표기 일치: dashboard/manual/user_guide/policy
+- v3.9.2.8 변경 표면 일치: README/manual/release/guide/architecture/flow/plan/deploy/test
+- 지정 현행 절의 Level/PAPER/잔여 분류 검사 통과 (전체 문서 의미 검증은 아님)

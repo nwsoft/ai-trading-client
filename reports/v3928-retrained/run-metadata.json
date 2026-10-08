@@ -1,0 +1,28 @@
+{
+  "platform": "macOS-27.0.1-arm64-arm-64bit-Mach-O",
+  "python": "3.13.3 (main, Apr  8 2025, 13:54:08) [Clang 16.0.0 (clang-1600.0.26.6)]",
+  "python_executable": "/Users/playone/SynologyDrive/Works/noahai_client/.venv/bin/python",
+  "node": "22.23.1",
+  "working_tree": "/Users/playone/.codex/worktrees/noahai-v3928-paper-recovery",
+  "branch": "release/v3.9.2.8-retrained-evaluation-20261008",
+  "public_base": "1c23b1e4947514906c1eb11050873a5c74ce39b0",
+  "work_base": "95d35ca1c51919c3ca009d484e6b43b3954bcad7",
+  "fix_commits": [
+    "27d5fcf6d7991b39211038c60b6f3aea5828252f",
+    "530f19b1d0f7469f52d58c849c9dc013f835db00"
+  ],
+  "preserved_paper_commits": [
+    "7aeb12ea74c9d69a36681d044723de3c00d395b8",
+    "534d9deb2c7a68280a3329bed37759a69a55ca40",
+    "95d35ca1c51919c3ca009d484e6b43b3954bcad7"
+  ],
+  "already_fixed": [
+    "f209608bba14125612059811c27b189e4bfd4a88",
+    "aec94213b941cd870118c350086ef0ce6e7be49d"
+  ],
+  "actual_windows_installer": false,
+  "actual_ocx": false,
+  "live_orders": false,
+  "customer_original_modified": false,
+  "public_release_or_installer_distribution": false
+}

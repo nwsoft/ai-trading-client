@@ -1,0 +1,341 @@
+TAP version 13
+# Subtest: missing, malformed, unsafe and fractional principal values are not zero
+ok 1 - missing, malformed, unsafe and fractional principal values are not zero
+  ---
+  duration_ms: 0.5155
+  type: 'test'
+  ...
+# Subtest: zero-interest equal installments and principal are valid, not divided by zero
+ok 2 - zero-interest equal installments and principal are valid, not divided by zero
+  ---
+  duration_ms: 0.142666
+  type: 'test'
+  ...
+# Subtest: annuity amortizes principal and maintains payments
+ok 3 - annuity amortizes principal and maintains payments
+  ---
+  duration_ms: 0.083875
+  type: 'test'
+  ...
+# Subtest: equal principal decreases monthly burden and bullet preserves maturity principal
+ok 4 - equal principal decreases monthly burden and bullet preserves maturity principal
+  ---
+  duration_ms: 0.056958
+  type: 'test'
+  ...
+# Subtest: unknown fees retain interest but prevent total and cost assertions
+ok 5 - unknown fees retain interest but prevent total and cost assertions
+  ---
+  duration_ms: 0.100084
+  type: 'test'
+  ...
+# Subtest: extreme supported duration and near-zero rates remain finite
+ok 6 - extreme supported duration and near-zero rates remain finite
+  ---
+  duration_ms: 0.608375
+  type: 'test'
+  ...
+# Subtest: deposit and monthly installment do not pay full-year interest on future deposits
+ok 7 - deposit and monthly installment do not pay full-year interest on future deposits
+  ---
+  duration_ms: 0.113667
+  type: 'test'
+  ...
+# Subtest: tax unknown, explicit zero and illustrative 15.4 percent stay distinct
+ok 8 - tax unknown, explicit zero and illustrative 15.4 percent stay distinct
+  ---
+  duration_ms: 0.055
+  type: 'test'
+  ...
+# Subtest: saving duration, methods and aggregate amount are bounded
+ok 9 - saving duration, methods and aggregate amount are bounded
+  ---
+  duration_ms: 0.196167
+  type: 'test'
+  ...
+# Subtest: Korean default, English selection, unsupported fallback and account isolation
+ok 10 - Korean default, English selection, unsupported fallback and account isolation
+  ---
+  duration_ms: 36.217042
+  type: 'test'
+  ...
+# Subtest: Initial OS hint, browser fallback and unsupported languages do not infer country
+ok 11 - Initial OS hint, browser fallback and unsupported languages do not infer country
+  ---
+  duration_ms: 38.837042
+  type: 'test'
+  ...
+# Subtest: Explicit account and guest choices override system hint across reloads
+ok 12 - Explicit account and guest choices override system hint across reloads
+  ---
+  duration_ms: 14.295
+  type: 'test'
+  ...
+# Subtest: Language control belongs to login footer and General settings, not dashboard header
+ok 13 - Language control belongs to login footer and General settings, not dashboard header
+  ---
+  duration_ms: 0.602708
+  type: 'test'
+  ...
+# Subtest: Unknown original evidence and financial precision remain unchanged
+ok 14 - Unknown original evidence and financial precision remain unchanged
+  ---
+  duration_ms: 4.59175
+  type: 'test'
+  ...
+# Subtest: Catalogs are bounded, nonempty and contain no markup or unresolved placeholders
+ok 15 - Catalogs are bounded, nonempty and contain no markup or unresolved placeholders
+  ---
+  duration_ms: 0.584583
+  type: 'test'
+  ...
+# Subtest: Translated select options retain explicit canonical values
+ok 16 - Translated select options retain explicit canonical values
+  ---
+  duration_ms: 107.928
+  type: 'test'
+  ...
+# Subtest: one in-flight request, hidden pause, visibility resumes once, cleanup
+ok 17 - one in-flight request, hidden pause, visibility resumes once, cleanup
+  ---
+  duration_ms: 26.051
+  type: 'test'
+  ...
+# Subtest: failure backoff 5/10/20/30s then resets, without unhandled rejections
+ok 18 - failure backoff 5/10/20/30s then resets, without unhandled rejections
+  ---
+  duration_ms: 5.481458
+  type: 'test'
+  ...
+# Subtest: unmount during delayed response cannot restart polling
+ok 19 - unmount during delayed response cannot restart polling
+  ---
+  duration_ms: 4.173334
+  type: 'test'
+  ...
+# Subtest: supported Node versions match compiler minimum
+ok 20 - supported Node versions match compiler minimum
+  ---
+  duration_ms: 0.815333
+  type: 'test'
+  ...
+# Subtest: current renderer starts without compilation
+ok 21 - current renderer starts without compilation
+  ---
+  duration_ms: 0.103042
+  type: 'test'
+  ...
+# Subtest: stale renderer is rebuilt once even with concurrent starts
+ok 22 - stale renderer is rebuilt once even with concurrent starts
+  ---
+  duration_ms: 253.027833
+  type: 'test'
+  ...
+# Subtest: failed build cleans lock and never launches old renderer
+ok 23 - failed build cleans lock and never launches old renderer
+  ---
+  duration_ms: 1.213666
+  type: 'test'
+  ...
+# Subtest: live build lock is never stolen
+ok 24 - live build lock is never stolen
+  ---
+  duration_ms: 0.667625
+  type: 'test'
+  ...
+# Traceback (most recent call last):
+#   File "/Users/playone/.codex/worktrees/noahai-v3928-paper-recovery/tests/test_v39137_replay_visualization.py", line 7, in <module>
+#     import pytest
+# ModuleNotFoundError: No module named 'pytest'
+# node:internal/test_runner/harness:99
+#       throw err;
+#       ^
+# Error: Command failed: python3 tests/test_v39137_replay_visualization.py
+# Traceback (most recent call last):
+#   File "/Users/playone/.codex/worktrees/noahai-v3928-paper-recovery/tests/test_v39137_replay_visualization.py", line 7, in <module>
+#     import pytest
+# ModuleNotFoundError: No module named 'pytest'
+#     at genericNodeError (node:internal/errors:983:15)
+#     at wrappedFn (node:internal/errors:537:14)
+#     at checkExecSyncError (node:child_process:916:11)
+#     at execFileSync (node:child_process:952:15)
+#     at Object.<anonymous> (/Users/playone/.codex/worktrees/noahai-v3928-paper-recovery/tests/replay-evidence.test.cjs:25:28)
+#     at Module._compile (node:internal/modules/cjs/loader:1781:14)
+#     at Object..js (node:internal/modules/cjs/loader:1913:10)
+#     at Module.load (node:internal/modules/cjs/loader:1505:32)
+#     at Function._load (node:internal/modules/cjs/loader:1309:12)
+#     at wrapModuleLoad (node:internal/modules/cjs/loader:254:19) {
+#   status: 1,
+#   signal: null,
+#   output: [
+#     null,
+#     '',
+#     'Traceback (most recent call last):\\n' +
+#       '  File "/Users/playone/.codex/worktrees/noahai-v3928-paper-recovery/tests/test_v39137_replay_visualization.py", line 7, in <module>\\n' +
+#       '    import pytest\\n' +
+#       "ModuleNotFoundError: No module named 'pytest'\\n"
+#   ],
+#   pid: 46210,
+#   stdout: '',
+#   stderr: 'Traceback (most recent call last):\\n' +
+#     '  File "/Users/playone/.codex/worktrees/noahai-v3928-paper-recovery/tests/test_v39137_replay_visualization.py", line 7, in <module>\\n' +
+#     '    import pytest\\n' +
+#     "ModuleNotFoundError: No module named 'pytest'\\n"
+# }
+# Node.js v22.23.1
+# Subtest: tests/replay-evidence.test.cjs
+not ok 5 - tests/replay-evidence.test.cjs
+  ---
+  duration_ms: 301.045041
+  type: 'test'
+  location: '/Users/playone/.codex/worktrees/noahai-v3928-paper-recovery/tests/replay-evidence.test.cjs:1:1'
+  failureType: 'testCodeFailure'
+  exitCode: 7
+  signal: ~
+  error: 'test failed'
+  code: 'ERR_TEST_FAILURE'
+  ...
+# Subtest: six venues retain request-correlated safe stage without exposing raw detail
+ok 26 - six venues retain request-correlated safe stage without exposing raw detail
+  ---
+  duration_ms: 0.76375
+  type: 'test'
+  ...
+# Subtest: PAPER failures never prescribe or read LIVE journal recovery
+ok 27 - PAPER failures never prescribe or read LIVE journal recovery
+  ---
+  duration_ms: 0.172292
+  type: 'test'
+  ...
+# Subtest: report UI uses original evidence and only conditional recovery
+ok 28 - report UI uses original evidence and only conditional recovery
+  ---
+  duration_ms: 0.204583
+  type: 'test'
+  ...
+# Subtest: selection identity separates scope, strategy and version
+ok 29 - selection identity separates scope, strategy and version
+  ---
+  duration_ms: 0.34425
+  type: 'test'
+  ...
+# Subtest: bulk PAPER never auto approves, activates or restarts evidence
+ok 30 - bulk PAPER never auto approves, activates or restarts evidence
+  ---
+  duration_ms: 0.175458
+  type: 'test'
+  ...
+# Subtest: delete forbids execution grants and pause uses only existing stop/deactivate
+ok 31 - delete forbids execution grants and pause uses only existing stop/deactivate
+  ---
+  duration_ms: 0.0695
+  type: 'test'
+  ...
+# Subtest: ZIP has valid CRC, UTF8, safe unique paths and preserves package bytes
+ok 32 - ZIP has valid CRC, UTF8, safe unique paths and preserves package bytes
+  ---
+  duration_ms: 149.129708
+  type: 'test'
+  ...
+# Subtest: ZIP export stays bounded
+ok 33 - ZIP export stays bounded
+  ---
+  duration_ms: 3.765875
+  type: 'test'
+  ...
+# Subtest: actual current rules, source scope and missing question reach the assistant without whole source or path
+ok 34 - actual current rules, source scope and missing question reach the assistant without whole source or path
+  ---
+  duration_ms: 0.732875
+  type: 'test'
+  ...
+# Subtest: same path distinguishes stock/ETF and crypto without inventing a return
+ok 35 - same path distinguishes stock/ETF and crypto without inventing a return
+  ---
+  duration_ms: 0.305375
+  type: 'test'
+  ...
+# Subtest: supplemental answers and unavailable YouTube evidence are not treated as original performance
+ok 36 - supplemental answers and unavailable YouTube evidence are not treated as original performance
+  ---
+  duration_ms: 0.452417
+  type: 'test'
+  ...
+# Subtest: large escaped source remains valid JSON within Gateway question budget
+ok 37 - large escaped source remains valid JSON within Gateway question budget
+  ---
+  duration_ms: 0.437875
+  type: 'test'
+  ...
+# Subtest: TypeScript snapshot round-trips to real Python local explanation without Provider calls
+not ok 38 - TypeScript snapshot round-trips to real Python local explanation without Provider calls
+  ---
+  duration_ms: 0.901
+  type: 'test'
+  location: '/Users/playone/.codex/worktrees/noahai-v3928-paper-recovery/tests/strategy-explanation.test.cjs:60:1'
+  failureType: 'testCodeFailure'
+  error: 'spawnSync /Users/playone/.codex/worktrees/noahai-v3928-paper-recovery/.venv/bin/python ENOENT'
+  code: 'ENOENT'
+  stack: |-
+    Object.spawnSync (node:internal/child_process:1120:20)
+    spawnSync (node:child_process:902:24)
+    execFileSync (node:child_process:945:15)
+    TestContext.<anonymous> (/Users/playone/.codex/worktrees/noahai-v3928-paper-recovery/tests/strategy-explanation.test.cjs:63:18)
+    Test.runInAsyncScope (node:async_hooks:214:14)
+    Test.run (node:internal/test_runner/test:1047:25)
+    Test.processPendingSubtests (node:internal/test_runner/test:744:18)
+    Test.postRun (node:internal/test_runner/test:1173:19)
+    Test.run (node:internal/test_runner/test:1101:12)
+    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
+  ...
+# Subtest: missing and stale renderer cannot masquerade as current engine version
+ok 39 - missing and stale renderer cannot masquerade as current engine version
+  ---
+  duration_ms: 5.1365
+  type: 'test'
+  ...
+# Subtest: missing index or referenced JS is not a usable renderer
+ok 40 - missing index or referenced JS is not a usable renderer
+  ---
+  duration_ms: 1.65975
+  type: 'test'
+  ...
+# Subtest: a source change during compilation cannot certify mixed output
+ok 41 - a source change during compilation cannot certify mixed output
+  ---
+  duration_ms: 1.091167
+  type: 'test'
+  ...
+# Subtest: reproduces legacy Atom selection under old prerelease policy
+ok 42 - reproduces legacy Atom selection under old prerelease policy
+  ---
+  duration_ms: 2.074292
+  type: 'test'
+  ...
+# Subtest: installed updater selects stable latest despite stale Atom feed
+ok 43 - installed updater selects stable latest despite stale Atom feed
+  ---
+  duration_ms: 1.778125
+  type: 'test'
+  ...
+# Subtest: missing stable metadata fails closed without falling back to legacy release
+ok 44 - missing stable metadata fails closed without falling back to legacy release
+  ---
+  duration_ms: 0.273166
+  type: 'test'
+  ...
+# Subtest: 404 explanation does not expose stack/headers or ask for a user token
+ok 45 - 404 explanation does not expose stack/headers or ask for a user token
+  ---
+  duration_ms: 0.126792
+  type: 'test'
+  ...
+1..45
+# tests 45
+# suites 0
+# pass 43
+# fail 2
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 339.59525

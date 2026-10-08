@@ -1,0 +1,19 @@
+{
+  "status": "PASS",
+  "active_python_files": 666,
+  "syntax_failures": [],
+  "forbidden_active_sources": [],
+  "dashboard_definition_only_methods": [],
+  "silent_except_baseline": {
+    "ui/dashboard_modern.py": 250,
+    "trading/unified_trader.py": 48
+  },
+  "quarantine": {
+    "root": "/Users/playone/.codex/worktrees/noahai_client_source_quarantine_20260801",
+    "artifact_count": 16,
+    "archive_status": "not_present_on_build_machine",
+    "failures": []
+  },
+  "broker_contract_ok": true,
+  "missing_required_docs": []
+}

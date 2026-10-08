@@ -1,4 +1,32 @@
-## 2026-10-08 — v3.9.2.8 PAPER 청산 복구·계약 근거 보호 (소스 후보·미배포)
+## 2026-10-08 — v3.9.2.8 전략 개선 평가 입력 보호 (후속 소스·공개 미배포)
+
+현재 소스 후보: **v3.9.2.8** · updater **3.9.208** · 현재 공개 기반: **v3.9.2.7**. 화면 빌드 식별자: `3.9.2.8-ui.20261008.2`. 제품·엔진·Windows PE·updater 버전은 기존 .8 정본을 유지한다.
+
+공개 .7 태그/브랜치 `1c23b1e4947514906c1eb11050873a5c74ce39b0`와 원격을 새로 fetch했다. main `bd2fe406`은 공개 소스와 다르다. 기존 .8 `7aeb12e`·`534d9de`·`95d35ca`를 보존해 `release/v3.9.2.8-retrained-evaluation-20261008`에서 후속 수정한다. 객체형 EMA 건너뛰기 `f209608`과 기관의 주식 매수가능금액 조회 `aec9421`은 이미 포함돼 있어 중복 수정하지 않았다.
+
+규칙·기본 봉·추가 시간봉 전체의 엄격 JSON 입력 해시를 재생 전에 검증한다. NaN/±∞ 또는 직렬화 불가 입력은 `input_evidence_not_supported`와 해시 없음·재생 0회로 보고하며 후보 승인·자동 적용·LIVE 승격을 허용하지 않는다. 값을 임의 치환하거나 해시에서 제거하지 않는다. 기존의 깊이 우선 첫 수치 조건 탐색·시간 분리·비용 2배·12회/15초 보호를 유지한다.
+
+이번 후속 지시는 **커밋·작업 브랜치 push까지 승인**한다. PR 생성·공개 릴리스·태그 게시·설치기 배포·Windows workflow 실행은 포함하지 않는다. 아래 PAPER 준비 단계의 push 제외와 .7 게시 승인은 당시 이력이다. Windows/OCX·실계좌·설치 업데이트/롤백·24/72시간 인수는 새 증거가 없어 미실시를 유지한다.
+
+### 이번 실행의 근거와 결과
+
+- 작업 기준 커밋: `95d35ca1c51919c3ca009d484e6b43b3954bcad7`; 수정 커밋 `27d5fcf6d7991b39211038c60b6f3aea5828252f`, 이력 예산 보호 보강 `530f19b1d0f7469f52d58c849c9dc013f835db00`; macOS arm64 / Python 3.13.3 / Node 22.23.1 / Chrome headless. 고객 원본·자격정보 없이 합성 입력과 임시 PAPER 저장소만 사용.
+- 수정 전 엄격 입력 테스트: **9 failed / 1 passed**. 규칙·rows·timeframe_rows × NaN/+∞/−∞에서 `ValueError`가 외부로 나갔다. 로그: `reports/v3928-retrained/before.txt`.
+- 수정 후 평가 회귀: 기존 9개 + 새 72개 = **81 passed**. 집중 회귀(평가·IR/연구소·주식 자금·계약 단위·PAPER 세션·청산 복구·보존) **252 passed**. `focused-final.txt`.
+- 전체 Python: **5,594 passed / 11 skipped / 3 subtests passed**, 실패 0, warning 2. 이번 소스에서 실제 실행했으며 이전 5,288/5,522 수치를 승계하지 않음. `full-final.txt` (최종 소스·문서 재실행); 초기 소스 검사 `full.txt`도 보존.
+- 문서 통합 중 전체 재실행 1건 실패: CHANGELOG 첫 제목의 구분자가 기존 ASCII `-` 계약과 달랐음. 기존 assertion을 그대로 유지하고 문서 제목 형식을 교정했다. `full-before-history-order.txt`에 실패 근거를 보존하고 형식 회귀 7개와 최종 전체 재실행 모두 통과했다.
+- Node/Electron + 원장 연구 도구: **75 passed**, 실패 0. 첫 실행의 시스템 Python pytest 없음 및 작업트리 .venv 부재는 환경 문제였다. 기존 개발 가상환경을 연결하고 PATH를 맞춘 재실행 통과. `node.txt`(실패) / `node-final.txt`(통과).
+- TypeScript/Vite 빌드 PASS(500kB bundle 경고 있음). 실제 빌드 React 성공·실패 보고서 **8 checks PASS**, 화면 예외/쓰기 요청 0. API fixture이며 실제 계정/설치 엔진 인수 아님. `ui-build.txt`, `ui/result.json`, `ui/evidence.png`, `ui/invalid-evidence.png`.
+- 11 skip: Windows PE 1, 증권 LIVE opt-in 6, Binance 통합 opt-in 2, 비배포 고객 fixture 2. 실계좌/OCX 주문이나 실제 고객 데이터 시험으로 대체하지 않음. 상세 이유는 `full-final.txt` 끝에 보존.
+- 원장·보유·DB 보존 회귀는 재실행했으나 실제 .7→.8 설치·자동 업데이트·최신 기록 보존 설치 롤백·24/72시간 운용은 **미실시**. `aec9421` 실기관 매수가능금액/KIS·키움 OCX 인수 역시 새 실환경 근거가 없어 미완료.
+
+### 기존 assertion 대조와 추가 범위
+
+`tests/test_v3926_retrained_evaluation.py`의 미래 시간봉 차단·학습/후속 분리·비용 스트레스·실제 replay·봉/시간 예산·EMA 뒤 RSI 선택 assertion은 보존했다. 봉 예산 시험에는 범위 밖 입력을 해시 직렬화 전에 거부한다는 assertion을 추가했다. EMA 뒤 RSI 시험에는 선택 값 복원 후 전체 규칙 비교만 보강했다. 기존 연구소 시험은 결측 비용/승격 보호와 수동 새 버전 생성이 있었지만 성공한 재학습 보고서 저장 후 원본 버전 전체 불변은 없었다.
+
+새 회귀는 비문자 field 7종·RSI/EMA 순서·지원 expression and/or leaf·복수/동일 지표 첫 조건·executable 우선/독립 LONG·SHORT·bool 임계값 제외·4지표×4비교 연산/경계값·후보별 선택 leaf 복원 후 전체 규칙 비교·성공/실패 보고서 저장/재읽기·최종 replay 뒤 예산 초과 승인 철회를 확인한다. raw `all:[{any:[...]}]`는 실제 IR/재생 거부를 그대로 확인하며 지원을 확장하지 않는다. 일부 비문자/연산자 입력은 선택기+mock runner 계약 시험이고 IR 실행 지원 증거가 아니다.
+
+## 2026-10-08 — v3.9.2.8 PAPER 청산 복구·계약 근거 보호 (이전 준비 단계 기록)
 
 현재 소스 후보: v3.9.2.8 · updater 3.9.208. 현재 공개 기반: v3.9.2.7.
 현재 소스 후보 버전: **v3.9.2.8** · 현재 공개 버전: **v3.9.2.7**.
