@@ -2,3 +2,6 @@
 
 *.ico binary
 *.png binary
+
+# Preserve the hash-pinned GitHub manifest exactly, including its CRLF bytes.
+config/published_release_manifests/v3.9.2.8.json -text

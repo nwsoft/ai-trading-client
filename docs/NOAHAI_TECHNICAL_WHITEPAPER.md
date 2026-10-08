@@ -1,7 +1,7 @@
 # NoahAI 기술 백서 — 현행 소스와 공개 기반
 
-> - 현재 소스 후보: NoahAI Client v3.9.2.8 (PAPER 청산 복구; 소스 후보·미배포)
-> - 현재 공개 기반: NoahAI Client v3.9.2.7
+> - 현재 소스 후보: NoahAI Client v3.9.2.9 (PAPER 청산 복구; 소스 후보·미배포)
+> - 현재 공개 기반: NoahAI Client v3.9.2.8
 
 ## 2026-10-08 — v3.9.2.8 PAPER 청산 복구·계약 근거 보호 (소스 후보·미배포)
 
