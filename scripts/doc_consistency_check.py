@@ -216,7 +216,7 @@ def check_release_surface_alignment(text_map: Dict[str, str]) -> List[str]:
             'architecture': ('v3.9.2.9', 'V3929_STRATEGY_HUB'),
             'update_plan': ('v3.9.2.9', 'V3929_STRATEGY_HUB'),
             'test_status': ('v3.9.2.9', 'Windows', '미실시'),
-            'deploy_checklist': ('v3.9.2.9', '사용자 소유', '매매 엔진'),
+            'deploy_checklist': ('v3.9.2.9', '사용자 최신 요청', '매매 엔진'),
         }
         return [f"[RELEASE_SURFACE] {surface}: '{marker}' 누락"
                 for surface, markers in required.items() for marker in markers
