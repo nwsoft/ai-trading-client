@@ -19,7 +19,7 @@ RELEASE_DISPLAY_LABEL = f"v{RELEASE_VERSION}"
 # 기존 매뉴얼 추출기와 롤백 도구가 가져오는 호환 이름이다. 더 이상 UI
 # 구현명을 뜻하지 않으며 사용자에게 보여 줄 제품 버전만 제공한다.
 RELEASE_DISPLAY_PATCH = RELEASE_DISPLAY_LABEL
-RELEASE_NOTICE_ID = "v3.9.2.9-strategy-hub-guidance"
+RELEASE_NOTICE_ID = "v3.9.2.9-strategy-hub-guidance-patch"
 
 DASHBOARD_TITLE = f"Noah AI Client - 대시보드 Beta {RELEASE_DISPLAY_LABEL}"
 USER_MANUAL_TITLE = f"NoahAI 사용메뉴얼 {RELEASE_DISPLAY_LABEL}"

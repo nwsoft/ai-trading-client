@@ -834,7 +834,7 @@ def test_ai_custom_strategy_hub_flow_is_manual_and_documented_in_dashboard() -> 
         "STRATEGY_HUB_LIBRARY_URL",
         "전략 둘러보기",
         "내 전략 라이선스",
-        "거래소·증권사와 시장국면은 직접 입력이 아니라 체크박스로 선택합니다",
+        "1단계에서 서버가 원본 패키지를 분석",
         "브라우저에 로그인되어 있지 않으면 로그인한 뒤 자동으로 라이선스 화면으로 돌아옵니다",
         "내 전략 제출은 자동 업로드가 아닙니다",
         "패키지 내보내기",
