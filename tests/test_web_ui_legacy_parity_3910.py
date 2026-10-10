@@ -742,9 +742,9 @@ def test_ai_custom_restores_legacy_source_xai_version_flow_and_contract_values()
         "저장 대상",
         "파일 선택",
         "AI 분석 및 전략 초안 만들기",
-        "2. XAI 분석 결과와 적용값",
+        "분석 결과 확인",
             "최종 재검증 후 전략 버전 저장",
-        "3. 내 프라이빗 전략 버전",
+        "공개할 전략 버전 선택",
         "전략 가져오기",
         "실행 풀",
     ]:

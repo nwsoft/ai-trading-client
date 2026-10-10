@@ -6,3 +6,5 @@
 
 # Preserve the hash-pinned GitHub manifest exactly, including its CRLF bytes.
 config/published_release_manifests/v3.9.2.8.json -text
+
+config/published_release_manifests/v3.9.2.9.json -text

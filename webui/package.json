@@ -1,7 +1,7 @@
 {
   "name": "noahai-web-ui",
   "private": true,
-  "version": "3.9.209",
+  "version": "3.9.210",
   "main": "electron/main.cjs",
   "type": "module",
   "engines": {
@@ -38,7 +38,7 @@
   "build": {
     "appId": "ai.noah.client",
     "productName": "NoahAI",
-    "buildVersion": "3.9.2.9",
+    "buildVersion": "3.9.2.10",
     "asar": true,
     "beforePack": "electron/branding-preflight.cjs",
     "directories": {
@@ -62,7 +62,7 @@
       "target": [
         "nsis"
       ],
-      "artifactName": "NoahAI-3.9.2.9-Setup.${ext}",
+      "artifactName": "NoahAI-3.9.2.10-Setup.${ext}",
       "executableName": "NoahAI",
       "icon": "../icon.ico"
     },
