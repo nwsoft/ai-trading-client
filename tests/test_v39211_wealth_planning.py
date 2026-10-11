@@ -2,6 +2,7 @@ from copy import deepcopy
 from datetime import date
 import json
 import time
+import os
 from types import SimpleNamespace
 import pytest
 from fastapi.testclient import TestClient
@@ -110,7 +111,8 @@ def test_encrypted_lifecycle_revision_actual_history_and_lock(vault):
     with pytest.raises(InsuranceError):vault.dispatch('wealth_plan',{'operation':'save','input':sample(),'confirmed':False})
     p=vault.dispatch('wealth_plan',{'operation':'save','input':sample(),'confirmed':True})['plans'][0]
     assert b'synthetic private plan' not in vault.path.read_bytes()
-    assert vault.path.stat().st_mode & 0o077==0
+    if os.name != 'nt':
+        assert vault.path.stat().st_mode & 0o077==0
     assert vault.dispatch('wealth_plan',{'operation':'list'})['remaining_seconds']<=900
     with pytest.raises(InsuranceError):vault.dispatch('wealth_plan',{'operation':'save','input':sample(),'id':p['id'],'revision':True,'confirmed':True})
     r=vault.dispatch('wealth_plan',{'operation':'actual','id':p['id'],'revision':1,'confirmed':True,'month':'2026-10','actual':{'income':'4000000','expenses':'1900000','debt_payment':'300000','saving':'1000000','goal_balances':{'home':'11000000'}}})['plans'][0]

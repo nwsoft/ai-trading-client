@@ -20,10 +20,12 @@ def bitget_raw():
 
 def test_bitget_only_required_public_product_and_precision_matches_installed_sdk():
     raw=bitget_raw()
-    baseline=ccxt.bitget({'options':{'fetchMarkets':{'types':['swap']}}})
+    baseline=ccxt.bitget()
+    baseline.options['fetchMarkets'] = ({'types':['swap']} if hasattr(baseline, 'fetch_default_markets') else ['swap'])
     baseline.publicMixGetV2MixMarketContracts=Mock(side_effect=lambda params:{
         'code':'00000','data':[raw] if params['productType']=='USDT-FUTURES' else []})
-    expected=baseline.set_markets(baseline.fetch_default_markets({}))['BTC/USDT:USDT']
+    fetch = getattr(baseline, 'fetch_default_markets', baseline.fetch_markets)
+    expected=baseline.set_markets(fetch({}))['BTC/USDT:USDT']
     actual=ccxt.bitget({'apiKey':'fixture','secret':'fixture','password':'fixture'})
     actual.fetch_currencies=Mock(side_effect=ccxt.ExchangeNotAvailable('unrelated currencies'))
     actual.publicMixGetV2MixMarketContracts=Mock(side_effect=lambda params:{'code':'00000','data':[raw]}

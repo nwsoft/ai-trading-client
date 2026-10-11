@@ -86,7 +86,7 @@ class OkxFuturesAdapter(FuturesExchange):
                 'timeout': 12000,
             }
             self.exchange = ccxt.okx(config)  # type: ignore
-            self.exchange.load_markets()
+            self.load_instrument_catalogue()
             self.is_connected = True
             self.last_error = ""
             self.last_auth_guidance = ""

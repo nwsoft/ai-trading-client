@@ -51,7 +51,7 @@ def test_okx_connect_loads_public_swap_metadata_without_funding_api(monkeypatch)
     adapter = OkxFuturesAdapter('fixture','fixture','fixture'); adapter.log_event = Mock()
     assert adapter.connect()
     raw.fetch_currencies.assert_not_called()
-    raw.fetch_markets_by_type.assert_called_once_with('swap', {})
+    raw.fetch_markets_by_type.assert_called_once_with('swap')
 
 
 def test_transient_refresh_retries_current_data_and_never_reuses_old_markets(monkeypatch):
