@@ -1,0 +1,257 @@
+{
+  "queries": {
+    "ISA와 IRP 중 내게 뭐가 유리해?": {
+      "schema_version": "companion-1",
+      "read_only": true,
+      "provider_called": false,
+      "saved": false,
+      "orders_submitted": false,
+      "question": "ISA와 IRP 중 내게 뭐가 유리해?",
+      "cards": [],
+      "actions": [
+        {
+          "id": "tax",
+          "label": "절세 조건·세금 계산 확인",
+          "service": "personal_finance",
+          "feature": "personal_finance.tax",
+          "question": "ISA와 IRP 중 내게 뭐가 유리해?"
+        },
+        {
+          "id": "life",
+          "label": "생활금융",
+          "service": "personal_finance",
+          "feature": "personal_finance.service",
+          "question": "ISA와 IRP 중 내게 뭐가 유리해?"
+        }
+      ],
+      "status": "clarification",
+      "answer": "오래 예탁한다는 이유만으로 일반 예금이 비과세가 되지는 않습니다. ISA의 비과세·분리과세와 연금저축·IRP의 납입 세액공제·수령 시 과세를 구분해야 합니다. 귀속연도·소득과 가입 자격·기존 납입액·실제 공제 가능한 세액·돈을 쓸 시점·중도인출 조건을 확인한 뒤 생활금융의 세금 계산에서 가정을 비교하세요. 현재 자료만으로 가장 유리한 계좌나 환급액을 확정하지 않습니다."
+    },
+    "연말정산 계산해줘": {
+      "schema_version": "companion-1",
+      "read_only": true,
+      "provider_called": false,
+      "saved": false,
+      "orders_submitted": false,
+      "question": "연말정산 계산해줘",
+      "cards": [],
+      "actions": [
+        {
+          "id": "tax",
+          "label": "절세 조건·세금 계산 확인",
+          "service": "personal_finance",
+          "feature": "personal_finance.tax",
+          "question": "연말정산 계산해줘"
+        },
+        {
+          "id": "life",
+          "label": "생활금융",
+          "service": "personal_finance",
+          "feature": "personal_finance.service",
+          "question": "연말정산 계산해줘"
+        }
+      ],
+      "status": "clarification",
+      "answer": "오래 예탁한다는 이유만으로 일반 예금이 비과세가 되지는 않습니다. ISA의 비과세·분리과세와 연금저축·IRP의 납입 세액공제·수령 시 과세를 구분해야 합니다. 귀속연도·소득과 가입 자격·기존 납입액·실제 공제 가능한 세액·돈을 쓸 시점·중도인출 조건을 확인한 뒤 생활금융의 세금 계산에서 가정을 비교하세요. 현재 자료만으로 가장 유리한 계좌나 환급액을 확정하지 않습니다."
+    },
+    "금융소득 종합과세 확인": {
+      "schema_version": "companion-1",
+      "read_only": true,
+      "provider_called": false,
+      "saved": false,
+      "orders_submitted": false,
+      "question": "금융소득 종합과세 확인",
+      "cards": [],
+      "actions": [
+        {
+          "id": "tax",
+          "label": "절세 조건·세금 계산 확인",
+          "service": "personal_finance",
+          "feature": "personal_finance.tax",
+          "question": "금융소득 종합과세 확인"
+        },
+        {
+          "id": "life",
+          "label": "생활금융",
+          "service": "personal_finance",
+          "feature": "personal_finance.service",
+          "question": "금융소득 종합과세 확인"
+        }
+      ],
+      "status": "clarification",
+      "answer": "오래 예탁한다는 이유만으로 일반 예금이 비과세가 되지는 않습니다. ISA의 비과세·분리과세와 연금저축·IRP의 납입 세액공제·수령 시 과세를 구분해야 합니다. 귀속연도·소득과 가입 자격·기존 납입액·실제 공제 가능한 세액·돈을 쓸 시점·중도인출 조건을 확인한 뒤 생활금융의 세금 계산에서 가정을 비교하세요. 현재 자료만으로 가장 유리한 계좌나 환급액을 확정하지 않습니다."
+    },
+    "이자 1500만원 배당 800만원 종합과세 확인": {
+      "schema_version": "companion-1",
+      "read_only": true,
+      "provider_called": false,
+      "saved": false,
+      "orders_submitted": false,
+      "question": "이자 1500만원 배당 800만원 종합과세 확인",
+      "cards": [],
+      "actions": [
+        {
+          "id": "tax",
+          "label": "절세 조건·세금 계산 확인",
+          "service": "personal_finance",
+          "feature": "personal_finance.tax",
+          "question": "이자 1500만원 배당 800만원 종합과세 확인"
+        },
+        {
+          "id": "life",
+          "label": "생활금융",
+          "service": "personal_finance",
+          "feature": "personal_finance.service",
+          "question": "이자 1500만원 배당 800만원 종합과세 확인"
+        }
+      ],
+      "status": "clarification",
+      "answer": "오래 예탁한다는 이유만으로 일반 예금이 비과세가 되지는 않습니다. ISA의 비과세·분리과세와 연금저축·IRP의 납입 세액공제·수령 시 과세를 구분해야 합니다. 귀속연도·소득과 가입 자격·기존 납입액·실제 공제 가능한 세액·돈을 쓸 시점·중도인출 조건을 확인한 뒤 생활금융의 세금 계산에서 가정을 비교하세요. 현재 자료만으로 가장 유리한 계좌나 환급액을 확정하지 않습니다."
+    },
+    "매달 나가는 돈을 줄이고 절세해서 목돈을 모으고 싶어": {
+      "schema_version": "companion-1",
+      "read_only": true,
+      "provider_called": false,
+      "saved": false,
+      "orders_submitted": false,
+      "question": "매달 나가는 돈을 줄이고 절세해서 목돈을 모으고 싶어",
+      "cards": [],
+      "actions": [
+        {
+          "id": "life",
+          "label": "생활금융",
+          "service": "personal_finance",
+          "feature": "personal_finance.service",
+          "question": "매달 나가는 돈을 줄이고 절세해서 목돈을 모으고 싶어"
+        },
+        {
+          "id": "tax",
+          "label": "절세 조건·세금 계산 확인",
+          "service": "personal_finance",
+          "feature": "personal_finance.tax",
+          "question": "매달 나가는 돈을 줄이고 절세해서 목돈을 모으고 싶어"
+        },
+        {
+          "id": "portfolio",
+          "label": "자산 통합",
+          "service": "portfolio",
+          "feature": "portfolio.insights",
+          "question": "매달 나가는 돈을 줄이고 절세해서 목돈을 모으고 싶어"
+        }
+      ],
+      "status": "clarification",
+      "answer": "지출 절약과 절세를 함께 검토할 질문입니다. 먼저 월 수입·필수/선택 지출·부채 상환·비상금·돈을 쓸 시점과 기존 절세 계좌를 확인하세요. 생활금융의 등록 기록과 세금 계산을 각각 확인할 수 있습니다. 현재는 이를 합친 개인별 장기 자산계획·절약액을 자동 확정하지 않습니다."
+    },
+    "5년 예금하면 비과세야?": {
+      "schema_version": "companion-1",
+      "read_only": true,
+      "provider_called": false,
+      "saved": false,
+      "orders_submitted": false,
+      "question": "5년 예금하면 비과세야?",
+      "cards": [],
+      "actions": [
+        {
+          "id": "tax",
+          "label": "절세 조건·세금 계산 확인",
+          "service": "personal_finance",
+          "feature": "personal_finance.tax",
+          "question": "5년 예금하면 비과세야?"
+        },
+        {
+          "id": "life",
+          "label": "생활금융",
+          "service": "personal_finance",
+          "feature": "personal_finance.service",
+          "question": "5년 예금하면 비과세야?"
+        }
+      ],
+      "status": "clarification",
+      "answer": "오래 예탁한다는 이유만으로 일반 예금이 비과세가 되지는 않습니다. ISA의 비과세·분리과세와 연금저축·IRP의 납입 세액공제·수령 시 과세를 구분해야 합니다. 귀속연도·소득과 가입 자격·기존 납입액·실제 공제 가능한 세액·돈을 쓸 시점·중도인출 조건을 확인한 뒤 생활금융의 세금 계산에서 가정을 비교하세요. 현재 자료만으로 가장 유리한 계좌나 환급액을 확정하지 않습니다."
+    },
+    "구독료와 보험료 줄여서 월30만원 더 모으고 싶어": {
+      "schema_version": "companion-1",
+      "read_only": true,
+      "provider_called": false,
+      "saved": false,
+      "orders_submitted": false,
+      "question": "구독료와 보험료 줄여서 월30만원 더 모으고 싶어",
+      "cards": [],
+      "actions": [
+        {
+          "id": "life",
+          "label": "생활금융",
+          "service": "personal_finance",
+          "feature": "personal_finance.service",
+          "question": "구독료와 보험료 줄여서 월30만원 더 모으고 싶어"
+        },
+        {
+          "id": "finance",
+          "label": "조건 확인 후 비교·저장 이어가기",
+          "kind": "insurance",
+          "profile": {},
+          "question": "구독료와 보험료 줄여서 월30만원 더 모으고 싶어"
+        }
+      ],
+      "status": "clarification",
+      "answer": "생활금융에서 등록한 지출과 월간 계획을 먼저 확인하세요. 구독·보험료·통신비 등 반복 결제의 실제 금액과 해지 비용·보장 손실을 확인한 뒤 줄일 항목을 정해야 합니다. 기록만으로 해지나 절약액을 확정하지 않으며, 모든 은행·카드 결제가 자동 수집되는 것은 아닙니다."
+    }
+  },
+  "tax_response": {
+    "result": {
+      "scenarios": {
+        "ISA": {
+          "description": "ISA (general형)",
+          "annual_investment": 10000000.0,
+          "estimated_total_interest": 3100000.0,
+          "tax_on_interest": 108900.0,
+          "tax_saving_vs_normal": 368500.0,
+          "annual_tax_credit": 0,
+          "total_benefit": 368500.0,
+          "note": "가입 가능·유형 요건 충족 가정. 비과세 한도 2,000,000원, 초과분 9.9%, 3년 미만은 혜택 미계산. 총 납입 1억원 한도. 연말 납입·동일 가정 수익의 일반 과세와 단순 비교."
+        },
+        "연금저축": {
+          "description": "연금저축펀드/보험",
+          "annual_investment": 6000000,
+          "estimated_total_interest": null,
+          "tax_on_interest": null,
+          "tax_saving_vs_normal": null,
+          "annual_tax_credit": 990000.0,
+          "total_benefit": 2970000.0,
+          "note": "급여 기준 공제율 16.5%의 상한 가정. 실제 공제는 세액·기존 납입·소득 요건에 따라 감소. 수령·중도인출 세금 및 수수료 미계산."
+        },
+        "IRP": {
+          "description": "IRP (연금저축 합산)",
+          "annual_investment": 9000000,
+          "estimated_total_interest": null,
+          "tax_on_interest": null,
+          "tax_saving_vs_normal": null,
+          "annual_tax_credit": 1485000.0,
+          "total_benefit": 4455000.0,
+          "note": "급여 기준 공제율 16.5%의 상한 가정. 연금저축과 합산 한도 적용. 두 시나리오 혜택을 더하지 마세요. 실제 공제·인출 가능성·수령세금·수수료 미확인."
+        }
+      },
+      "best_scenario": null,
+      "best_total_benefit": null,
+      "salary_tax_credit_rate": 0.165,
+      "message": "ISA의 가정 세금 차이와 연금계좌의 세액공제 상한은 서로 다른 지표입니다. 개인에게 가장 유리한 계좌·세후 자산을 확정하지 않습니다.",
+      "unknowns": [
+        "가입 자격·기존 계좌 납입액",
+        "실제 공제 가능한 세액",
+        "자금 사용일·중도인출 조건",
+        "연금 수령세금·상품 비용·실제 수익"
+      ],
+      "rule_basis": {
+        "isa_source_url": "https://law.go.kr/LSW/lsLinkCommonInfo.do?lsJoLnkSeq=1033166111",
+        "verified_at": "2026-10-11",
+        "isa_income_tax_rate": 0.09,
+        "isa_rate_including_local_tax": 0.099,
+        "full_tax_year_validated": false
+      },
+      "disclaimer": "입력 가정의 참고 비교입니다. ISA 가입·유형 요건 충족을 가정하며 만기·손익통산·실제 상품별 과세를 확정하지 않습니다. 연금계좌 총 혜택은 납입 세액공제 상한이며 수령세금 차감 후 순이익·환급액이 아닙니다."
+    },
+    "year_context": {
+      "requested_year": 2026
+    }
+  }
+}

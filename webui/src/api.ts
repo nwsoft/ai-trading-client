@@ -31,6 +31,11 @@ export interface GatewayClient {
   login: (username: string, password: string) => Promise<SessionSnapshot>;
   features: () => Promise<FeatureInventory>;
   manual: () => Promise<ManualSnapshot>;
+  companionBriefing?: () => Promise<Record<string, any>>;
+  companionQuery?: (question: string, service: string) => Promise<Record<string, any>>;
+  companionAllocation?: (payload: Record<string, unknown>) => Promise<Record<string, any>>;
+  companionExperiments?: () => Promise<Record<string, any>>;
+  companionExperimentCompare?: (baseline: Record<string, unknown>, candidate: Record<string, unknown>) => Promise<Record<string, any>>;
   runtime: () => Promise<RuntimeSnapshot>;
   refreshAccounts: (sources: string[], forceRefresh?: boolean) => Promise<Record<string, any>>;
   workspace: (service: string, feature: string, source?: string, paging?: { offset?: number; limit?: number; reportPeriod?: "today" | "week" | "month" | "realtime"; reportOffset?: number; reportLimit?: number; statisticsPeriod?: "today" | "7d" | "30d" | "all" | "custom"; statisticsStart?: string; statisticsEnd?: string; statisticsMode?: "live" | "paper"; statisticsCurrency?: string }) => Promise<WorkspaceSnapshot>;
@@ -197,6 +202,17 @@ export function userFacingGatewayError(detail: unknown, status: number): string 
   if (chartMessages[code]) return chartMessages[code];
   const sourceLabel = source ? source.toUpperCase() : "선택한 연결";
   const runtimeMessages: Record<string, string> = {
+    companion_login_required: '금융비서를 사용하려면 먼저 로그인하세요.',
+    companion_account_changed: '조회 중 계정이 변경됐습니다. 새 계정에서 근거를 다시 읽으세요.',
+    companion_request_invalid: '질문 길이·분야 또는 입력 형식을 확인하세요. 배분은 한 통화의 1~20개 종목과 유한한 비중·비용을 입력하세요.',
+    companion_question_required: '2~2,000자로 확인할 질문을 입력하세요.',
+    companion_service_invalid: '질문할 서비스 화면을 확인하세요.',
+    allocation_inputs_invalid: '같은 통화의 종목코드와 0~100%의 현재·목표 비중을 입력하세요.',
+    allocation_weights_must_sum_100: '중복 종목을 제거하고 현재 비중과 목표 비중의 합계를 각각 100%로 맞추세요.',
+    allocation_cost_assumption_invalid: '총 가치는 양수, 수수료는 0~10,000bps의 유한한 값으로 입력하세요. 모르면 비워 두세요.',
+    strategy_experiment_not_found: '선택한 전략 검증을 찾지 못했습니다. 저장 버전 목록을 다시 읽으세요.',
+    strategy_experiment_distinct_versions_required: '서로 다른 원본·후보 버전을 선택하세요.',
+    strategy_record_limit: '전략 저장 자료가 조회 범위를 초과했습니다. 전략 화면과 지원 진단에서 기록 상태를 확인하세요.',
     runtime_source_stopping: `${sourceLabel} 이전 거래 워커가 아직 종료 중입니다. 종료 확인 전 중복 시작하지 않습니다. 현재 실행 상태를 확인하세요.`,
     trading_candidate_catalogue_unavailable: `${sourceLabel} 현재 종목 목록을 조회하지 못해 시작을 보류했습니다.`,
     trading_candidate_markets_unavailable: `${sourceLabel} 거래 가능한 지원 상품이 확인되지 않아 시작을 보류했습니다.`,
@@ -347,6 +363,11 @@ export function createGatewayClient(): GatewayClient {
     login: (username, password) => mutate<SessionSnapshot>("POST", "/api/v1/session/login", { username, password }),
     features: () => get<FeatureInventory>("/api/v1/features"),
     manual: () => get<ManualSnapshot>("/api/v1/manual"),
+    companionBriefing: () => get('/api/v1/companion/briefing'),
+    companionQuery: (question, service) => mutate('POST', '/api/v1/companion/query', {question, service}),
+    companionAllocation: (payload) => mutate('POST', '/api/v1/companion/allocation', payload),
+    companionExperiments: () => get('/api/v1/companion/experiments'),
+    companionExperimentCompare: (baseline, candidate) => mutate('POST', '/api/v1/companion/experiment-compare', {baseline, candidate}),
     runtime: () => get<RuntimeSnapshot>("/api/v1/runtime/snapshot"),
     refreshAccounts: (sources, forceRefresh = false) => mutate<Record<string, any>>(
       "POST", "/api/v1/runtime/account-snapshot", { sources, force_refresh: forceRefresh }, 15_000,

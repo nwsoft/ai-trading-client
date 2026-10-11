@@ -1,3 +1,7 @@
+## v3.9.2.11 금융비서 전략 실험 연결
+
+금융비서의 전략 질문을 별도 검토 초안으로 기존 스튜디오에 전달한다. 실제 `run_strategy_historical_validation` 입력 시세·다중 시간봉·기관·종목·기간 시작·보유 봉·비용 프로필의 SHA-256을 저장 결과 `comparison_basis`에 기록한다. 같은 입력 지문을 가진 서로 다른 `historical_replay` 결과만 비교한다. 구버전 지문 누락·PAPER 결과·상이한 입력은 수치를 비교하지 않는다. 비교는 승인·활성화·원장 쓰기·주문을 호출하지 않는다. [정본](V39211_FINANCIAL_COMPANION_PLAN.md).
+
 > 2026-10-06 현행 정본 연결: 공개 Windows 기준은 **v3.9.2.5 / updater 3.9.205**입니다. 날짜별 후보·미게시·이전 공개 버전은 당시 이력입니다. 이번 거래현황·배분 정책 후속은 로컬 소스이며 기존 공개 설치본과 구분합니다. [현재 검증·구현 수준](TEST_STATUS.md#v3925-trading-document-audit-20261006) · [고도화 계획](UPDATE_PLAN.md#v3925-post-release-audit-20261006).
 
 ## 2026-09-24 - v3.9.1.47 Strategy Repair and Reconciliation Diagnostics Patch (미배포 소스 후보)

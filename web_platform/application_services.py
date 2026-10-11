@@ -1761,6 +1761,74 @@ class ApplicationServices:
                     snapshot['operation_summary'] = {'status': 'unavailable', 'read_only': True}
         return snapshot
 
+    def _companion_context(self):
+        """Bounded reads only: no feed refresh, account API, provider or order commands."""
+        from web_platform.companion import read_catalog, local_finance, market_records, build_briefing
+        with self._lock:
+            if self.account == 'local':
+                raise ValueError('companion_login_required')
+            account = self.account
+            directory = self.data_dir
+            now = datetime.now(timezone.utc)
+            failed = []
+            def read(name, function, fallback):
+                try:
+                    return function()
+                except Exception:
+                    # Do not project raw exceptions, paths, keys or health documents.
+                    failed.append(name)
+                    return fallback
+            operations = {}
+            getter = getattr(self.runtime_bridge, 'operation_overview_snapshot', None)
+            if callable(getter):
+                for service in ('blockchain', 'stock'):
+                    result = read('trading:'+service, lambda: getter(service=service), {})
+                    if isinstance(result, dict):
+                        operations.update(result)
+            else:
+                failed.append('trading')
+            catalog = read('catalog', lambda: read_catalog(directory, now), {'products':[], 'reference_products':[]})
+            finance = read('finance', lambda: local_finance(directory, now), None)
+            market = read('market', lambda: market_records(directory), {})
+            vault = getattr(self, '_insurance_workspace', None)
+            plans = read('plans', lambda: vault.peek_finance_reviews(catalog, at=now), {'state':'unavailable', 'reviews':[]}) if vault else {'state':'locked', 'reviews':[]}
+            result = build_briefing(operations=operations, account=deepcopy(self._latest_account_snapshot or {}),
+                finance=finance, catalog=catalog, market=market, plans=plans, now=now, failures=failed)
+            if self.account != account or self.data_dir != directory:
+                raise ValueError('companion_account_changed')
+            return result, catalog
+
+    def companion_briefing(self):
+        return self._companion_context()[0]
+
+    def companion_query(self, *, question, service='blockchain'):
+        from web_platform.companion import query
+        if not isinstance(question, str) or not 2 <= len(question.strip()) <= 2000:
+            raise ValueError('companion_question_required')
+        if service not in {'blockchain','stock','portfolio','personal_finance','ai_analyst'}:
+            raise ValueError('companion_service_invalid')
+        with self._lock:
+            briefing, catalog = self._companion_context()
+            return query(question.strip(), briefing, catalog, service=service)
+
+    def companion_allocation(self, payload):
+        from web_platform.companion import allocation_preview
+        with self._lock:
+            if self.account == 'local':
+                raise ValueError('companion_login_required')
+            return allocation_preview(payload)
+
+    def companion_experiments(self, baseline=None, candidate=None):
+        from web_platform.companion import experiment_versions, compare_experiments
+        with self._lock:
+            if self.account == 'local':
+                raise ValueError('companion_login_required')
+            versions = experiment_versions(self.data_dir)
+            if baseline is not None and candidate is not None:
+                return compare_experiments(versions, baseline, candidate)
+            return {'versions':[{k:v.get(k) for k in ('scope','strategy_key','version_id','name','recorded_at','mode')}
+                                for v in versions], 'read_only':True}
+
     def financial_intelligence_snapshot(self, *, service: str) -> dict[str, Any]:
         return self.advanced.financial_intelligence_snapshot(service=service)
 
@@ -2617,6 +2685,32 @@ class ApplicationServices:
         remains a separate analyst command so a help question cannot accidentally
         trigger a costly or trade-adjacent model call.
         """
+        diagnostic_question = re.sub(r'\s+', '', str(question or '')).lower()
+        if (mode == 'guide' and output_locale == 'ko' and conversation_kind == 'general'
+            and data_scope == 'private'
+            and service in {'blockchain', 'stock', 'portfolio', 'ai_analyst', 'personal_finance'}
+            and 2 <= len(str(question).strip()) <= 2000
+            and any(word in diagnostic_question for word in
+                ('절세', '비과세', '세금', 'isa', 'irp', '연금저축', '연말정산', '종합과세',
+                 '구독', '고정지출', '매달나가', '월지출', '생활비', '지출줄', '절약',
+                 '내돈계획', '자산관리계획', '비상금', '목돈모', '돈을모', '저축계획'))
+            and getattr(self, 'account', 'local') != 'local'):
+            observed = self.companion_query(question=question, service=service)
+            return {'schema_version': '1.0.0', 'service': service, 'explanation_level': explanation_level,
+                    'answer': observed['answer'], 'provider_called': False, 'data_scope': 'private',
+                    'source': 'local_companion_evidence', 'cards': observed['cards'],
+                    'actions': observed['actions'], 'captured_at': _utc_now()}
+        if (mode == 'guide' and output_locale == 'ko' and conversation_kind == 'general'
+            and service in {'blockchain','stock','portfolio','ai_analyst'}
+            and 2 <= len(str(question).strip()) <= 2000
+            and any(word in diagnostic_question for word in
+                    ('거래가없','거래안','거래가안','무거래','진입보류','왜거래','거래현황'))
+            and getattr(self, 'account', 'local') != 'local'):
+            observed = self.companion_query(question=question, service=service)
+            return {'schema_version':'1.0.0', 'service':service, 'explanation_level':explanation_level,
+                    'answer':observed['answer'], 'provider_called':False, 'data_scope':'private',
+                    'source':'local_companion_evidence', 'cards':observed['cards'],
+                    'actions':observed['actions'], 'captured_at':_utc_now()}
         insurance_topic = support_topic(question)
         if service == "personal_finance" and not insurance_topic and recent_messages:
             from trading.finance_product_intelligence import product_question_answer
@@ -5304,6 +5398,10 @@ class ApplicationServices:
             horizon=holding_bars,
             entry_start_ms=range_start_ms,
         )
+        from web_platform.companion import replay_comparison_basis
+        metrics['comparison_basis'] = replay_comparison_basis(rows, timeframe_rows,
+            source=normalized_source, symbol=snapshot.symbol, interval=validation_interval,
+            horizon=holding_bars, entry_start_ms=range_start_ms, costs=cost_profile)
         minimum = int(getattr(pipeline, "min_paper_trades", 3) or 3)
         assessment = historical_quality_assessment(metrics, minimum)
         metrics.update(assessment)

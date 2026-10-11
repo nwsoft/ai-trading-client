@@ -18,6 +18,7 @@ from enum import Enum
 import re, math, json, os
 
 from trading.tp_sl_manager import TpSlManager
+from trading.entry_diagnostics import monitored_cycle
 from trading.remote_entry_pause import entry_submission
 from trading.market_observation import track_market_observation, observation_problem
 from .execution_optimizer import ExecutionOptimizer
@@ -2081,6 +2082,7 @@ class Trader:
         errors = [] if success else [str((result or {}).get('error') or 'order_failed')]
         return success, (result if isinstance(result, dict) else {}), errors
 
+    @monitored_cycle('binance')
     def execute_trading_cycle(self):
         """거래 사이클 실행 (리스크 관리 통합)"""
         try:
@@ -2100,6 +2102,9 @@ class Trader:
                     exchange='binance',
                 )
                 self._monitor_paper_positions()
+                from trading.paper_capital import observe_paper_capital
+                observe_paper_capital(self, venue='binance',
+                    positions=getattr(self, 'paper_active_positions', {}))
             elif not live_orders_enabled:
                 self.log_event(
                     'system',
@@ -2679,6 +2684,9 @@ class Trader:
                             trade_plan: Optional[Dict[str, Any]] = None,
                         ) -> None:
                             """LEARNING 결과를 최종 게이트 상태와 함께 한 번 기록한다."""
+                            from trading.entry_diagnostics import record_entry
+                            record_entry(self, 'binance', decision, reason_text,
+                                mode=execution_mode, symbol=symbol, expected_generation=projection_generation)
                             from trading.event_contract import runtime_decision
                             recorder = getattr(self,'recorder',None)
                             if callable(getattr(recorder,'save_ai_decision',None)):
@@ -2977,6 +2985,7 @@ class Trader:
                                         leverage=float(optimized_params.get('leverage') or 1),
                                     )
                                     if not paper_auth.allowed:
+                                        record_learning_decision('skipped', f'다중 거래소 기회 정책 차단: {paper_auth.reason}')
                                         self.log_event(
                                             "trade",
                                             f"🧪 {symbol} PAPER 기회 정책 차단: {paper_auth.reason}",
@@ -3012,10 +3021,14 @@ class Trader:
                                 if slippage_bps != 0.0:
                                     cycle_metrics['slippages'].append(slippage_bps)
                                 if not trade_result:
+                                    if not paper_mode or paper_auth.allowed:
+                                        record_learning_decision('skipped', '최종 주문 규격 또는 안전 게이트 미통과')
                                     cycle_metrics['failed'] += 1
                                 else:
+                                    record_learning_decision('success', '주문 처리 기록 있음')
                                     strategy_runtime_state[f'last_trade_at::{symbol.upper()}'] = datetime.now()
                             except Exception as e:
+                                record_learning_decision('error', '주문 처리 실패 또는 상태 미확인')
                                 self.log_event('trade', f"❌ {symbol} 거래 실행 오류: {e}", level='ERROR')
                                 import traceback
                                 self.log_event('trade', f"❌ {symbol} 거래 실행 상세 오류: {traceback.format_exc()}", level='ERROR')
@@ -5572,14 +5585,18 @@ class Trader:
                     else:
                         # 실제 사용된 임계값으로 비교 (완화된 임계값 반영)
                         reason = f"AI 신뢰도 부족 ({ai_validation['confidence']:.2f} < {actual_threshold_used:.2f})"
-                elif pattern_analysis['loss_rate'] >= 50.0:
-                    reason = f"높은 손실률 ({pattern_analysis['loss_rate']:.1f}%)"
-                elif pattern_analysis['recent_trades'] < 1:
+                elif (not pattern_analysis.get('data_insufficient', False)
+                      and pattern_analysis['loss_rate'] >= dynamic_thresholds['max_loss_rate']
+                      and all_trades_count > 10):
+                    reason = f"높은 손실률 ({pattern_analysis['loss_rate']:.1f}% >= {dynamic_thresholds['max_loss_rate']:.1f}%)"
+                elif (not pattern_analysis.get('data_insufficient', False)
+                      and pattern_analysis['recent_trades'] < dynamic_thresholds['min_trades_history']
+                      and all_trades_count > 10):
                     reason = f"거래 이력 부족 ({pattern_analysis['recent_trades']}회)"
                 elif not market_conditions['volatility_suitable']:
                     reason = "변동성 부적절"
                 else:
-                    reason = f"AI 신뢰도 부족 ({ai_validation['confidence']:.1f})"
+                    reason = f"AI 신뢰도 부족 ({ai_validation['confidence']:.2f} < {actual_threshold_used:.2f})"
 
             self.log_event(
                 'analysis',
@@ -5590,6 +5607,10 @@ class Trader:
                 )
             )
 
+            from trading.entry_diagnostics import record_pre_entry
+            record_pre_entry(self, 'binance', symbol=symbol, proceed=proceed,
+                confidence=ai_validation['confidence'], threshold=actual_threshold_used,
+                pattern=pattern_analysis, limits=dynamic_thresholds)
             return {
                 'proceed': proceed,
                 'reason': reason,
@@ -5927,6 +5948,8 @@ class Trader:
                 if hasattr(self, 'recorder') and self.recorder and len(all_trades) < 10:
                     try:
                         db_trades = self.recorder.get_recent_trades(coin=coin, exchange='binance', days=30)
+                        from trading.pnl_evidence import verified_live_samples
+                        db_trades = verified_live_samples(db_trades, 'binance')
                         memory_timestamps = {t.get('timestamp') for t in all_trades if t.get('timestamp')}
                         for trade in db_trades:
                             if trade.get('exit_time') not in memory_timestamps:

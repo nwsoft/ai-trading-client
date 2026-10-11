@@ -22,10 +22,11 @@
 from __future__ import annotations
 
 from typing import Any, Dict, List, Optional
+import math
 
 
 # ─────────────────────────────────────────────────────────────
-# 2026년 기준 세율표 / 공제 한도
+# 참고 세율표 / 공제 한도 (귀속연도별 전체 예외 검증과 별도)
 # ─────────────────────────────────────────────────────────────
 
 # 근로소득세 기본세율 (과세표준 → (세율, 누진공제액))
@@ -72,6 +73,8 @@ ISA_TERM_MIN_MONTHS        = 36         # ISA 최소 유지기간 (개월)
 
 FINANCIAL_INCOME_TAX_THRESHOLD = 20_000_000  # 금융소득종합과세 기준 금액
 FINANCIAL_INCOME_WITHHOLDING   = 0.154       # 금융소득 원천징수세율 (소득세+지방세)
+ISA_SEPARATE_TAX_RATE = 0.099  # 소득세 9% + 지방소득세. 일반 원천징수율과 구분.
+ISA_RULE_SOURCE = 'https://law.go.kr/LSW/lsLinkCommonInfo.do?lsJoLnkSeq=1033166111'
 
 def _to_float(v: Any, default: float = 0.0) -> float:
     try:
@@ -126,9 +129,10 @@ def calc_card_income_deduction(
         return {'deduction_amount': 0.0, 'threshold': threshold, 'excess': 0.0}
 
     excess = total_used - threshold
-    # 초과분을 신용카드 → 체크카드 순으로 배분
-    credit_excess = max(0.0, min(credit, excess))
-    debit_excess = max(0.0, excess - credit_excess)
+    # 최저사용액을 신용카드 사용액부터 차감한다. 초과분부터
+    # 신용카드로 채우면 체크카드/현금영수증 공제를 과소 계산한다.
+    credit_excess = max(0.0, credit - threshold)
+    debit_excess = max(0.0, debit - max(0.0, threshold - credit))
 
     deduction = credit_excess * CARD_DEDUCTION_RATE_CREDIT + debit_excess * CARD_DEDUCTION_RATE_DEBIT
     max_limit = CARD_DEDUCTION_MAX if salary <= 70_000_000 else 2_500_000
@@ -354,7 +358,7 @@ def check_financial_income_comprehensive_tax(
     else:
         msg = (
             f'금융소득 합계 {total_fi:,.0f}원으로 종합과세 기준(2,000만원) 미만입니다. '
-            '원천징수로 납세 완료.'
+            '입력한 이자·배당만으로는 기준을 초과하지 않습니다. 소득 구분·예외·누락 자료와 신고 의무를 별도로 확인하세요.'
         )
 
     return {
@@ -410,29 +414,34 @@ def compare_tax_saving_accounts(
     expected_return_rate: 연간 기대수익률 (소수, 예: 0.05 = 5%)
     isa_type: 'general'(일반형) | 'preferential'(서민형/농어민)
     """
-    salary = max(0.0, _to_float(annual_salary))
-    invest = max(0.0, _to_float(annual_investment))
-    years = max(1, int(investment_years))
-    rate = max(0.0, _to_float(expected_return_rate))
+    salary, invest, rate = float(annual_salary), float(annual_investment), float(expected_return_rate)
+    if not all(math.isfinite(v) and v >= 0 for v in (salary, invest, rate)):
+        raise ValueError('tax_comparison_requires_finite_nonnegative_inputs')
+    if isinstance(investment_years, bool) or not 1 <= float(investment_years) <= 100 or int(investment_years) != float(investment_years):
+        raise ValueError('tax_comparison_years_invalid')
+    if isa_type not in ('general', 'preferential'):
+        raise ValueError('tax_comparison_isa_type_invalid')
+    years = int(investment_years)
 
     tax_credit_rate = 0.165 if salary <= 55_000_000 else 0.132
 
     # ── ISA ──────────────────────────────────────────────────
     isa_annual_limit = 20_000_000
     isa_invest = min(invest, isa_annual_limit)
-    # 단리 근사 (복리는 별도 계산)
-    isa_total_interest = 0.0
+    # 연말 정액 납입 가정. 개인의 실적·미래 수익이 아니다.
     balance = 0.0
+    contributed = 0.0
     for _ in range(years):
-        balance = balance * (1 + rate) + isa_invest
-        isa_total_interest += balance * rate  # 근사
-    isa_total_interest = balance - isa_invest * years
+        payment = min(isa_invest, max(0.0, 100_000_000 - contributed))
+        balance = balance * (1 + rate) + payment
+        contributed += payment
+    isa_total_interest = balance - contributed
     isa_exempt = ISA_EXEMPT_PREFERENTIAL if isa_type == 'preferential' else ISA_EXEMPT_GENERAL
     isa_taxable = max(0.0, isa_total_interest - isa_exempt)
-    isa_tax = round(isa_taxable * FINANCIAL_INCOME_WITHHOLDING, 0)
+    isa_tax = round(isa_taxable * ISA_SEPARATE_TAX_RATE, 0) if years >= 3 else None
     # ISA 없을 경우 세금 (전액 원천징수)
     normal_tax = round(isa_total_interest * FINANCIAL_INCOME_WITHHOLDING, 0)
-    isa_tax_saving = round(normal_tax - isa_tax, 0)
+    isa_tax_saving = round(normal_tax - isa_tax, 0) if isa_tax is not None else None
 
     # ── 연금저축 ──────────────────────────────────────────────
     pension_annual_limit = min(invest, PENSION_SAVINGS_MAX)
@@ -454,41 +463,39 @@ def compare_tax_saving_accounts(
             'tax_saving_vs_normal': isa_tax_saving,
             'annual_tax_credit': 0,
             'total_benefit': isa_tax_saving,
-            'note': f'비과세 한도 {isa_exempt:,}원 / 최소 3년 유지 필요',
+            'note': f'가입 가능·유형 요건 충족 가정. 비과세 한도 {isa_exempt:,}원, 초과분 9.9%, 3년 미만은 혜택 미계산. 총 납입 1억원 한도. 연말 납입·동일 가정 수익의 일반 과세와 단순 비교.',
         },
         '연금저축': {
             'description': '연금저축펀드/보험',
             'annual_investment': pension_annual_limit,
-            'estimated_total_interest': 0,
-            'tax_on_interest': 0,
-            'tax_saving_vs_normal': 0,
+            'estimated_total_interest': None,
+            'tax_on_interest': None,
+            'tax_saving_vs_normal': None,
             'annual_tax_credit': pension_annual_credit,
             'total_benefit': pension_total_credit,
-            'note': f'세액공제율 {tax_credit_rate*100:.1f}% / 55세 이후 수령 시 연금소득세',
+            'note': f'급여 기준 공제율 {tax_credit_rate*100:.1f}%의 상한 가정. 실제 공제는 세액·기존 납입·소득 요건에 따라 감소. 수령·중도인출 세금 및 수수료 미계산.',
         },
         'IRP': {
             'description': 'IRP (연금저축 합산)',
             'annual_investment': irp_combined,
-            'estimated_total_interest': 0,
-            'tax_on_interest': 0,
-            'tax_saving_vs_normal': 0,
+            'estimated_total_interest': None,
+            'tax_on_interest': None,
+            'tax_saving_vs_normal': None,
             'annual_tax_credit': irp_annual_credit,
             'total_benefit': irp_total_credit,
-            'note': f'세액공제율 {tax_credit_rate*100:.1f}% / 연금저축+IRP 합산 최대 900만원 공제 가능',
+            'note': f'급여 기준 공제율 {tax_credit_rate*100:.1f}%의 상한 가정. 연금저축과 합산 한도 적용. 두 시나리오 혜택을 더하지 마세요. 실제 공제·인출 가능성·수령세금·수수료 미확인.',
         },
     }
 
-    best_scenario = max(scenarios.items(), key=lambda x: x[1]['total_benefit'])
-
     return {
         'scenarios': scenarios,
-        'best_scenario': best_scenario[0],
-        'best_total_benefit': best_scenario[1]['total_benefit'],
+        'best_scenario': None,
+        'best_total_benefit': None,
         'salary_tax_credit_rate': tax_credit_rate,
-        'summary': (
-            f'연간 {invest:,.0f}원 납입 기준, '
-            f'{best_scenario[0]}이 {best_scenario[1]["total_benefit"]:,.0f}원으로 가장 유리합니다.'
-        ),
+        'message': 'ISA의 가정 세금 차이와 연금계좌의 세액공제 상한은 서로 다른 지표입니다. 개인에게 가장 유리한 계좌·세후 자산을 확정하지 않습니다.',
+        'unknowns': ['가입 자격·기존 계좌 납입액', '실제 공제 가능한 세액', '자금 사용일·중도인출 조건', '연금 수령세금·상품 비용·실제 수익'],
+        'rule_basis': {'isa_source_url': ISA_RULE_SOURCE, 'verified_at': '2026-10-11', 'isa_income_tax_rate': 0.09, 'isa_rate_including_local_tax': ISA_SEPARATE_TAX_RATE, 'full_tax_year_validated': False},
+        'disclaimer': '입력 가정의 참고 비교입니다. ISA 가입·유형 요건 충족을 가정하며 만기·손익통산·실제 상품별 과세를 확정하지 않습니다. 연금계좌 총 혜택은 납입 세액공제 상한이며 수령세금 차감 후 순이익·환급액이 아닙니다.',
     }
 
 
@@ -568,15 +575,15 @@ def generate_tax_optimization_summary(
 
     if _to_float(debit_cash) < salary * 0.25:
         suggestions.append({
-            'action': '체크카드/현금영수증 사용 확대 (총급여 25% 초과 시 소득공제)',
+            'action': '이미 필요한 지출의 결제수단·공제 요건 확인 (공제를 위해 소비를 늘리지 마세요)',
             'estimated_saving': 0,
             'category': 'card',
         })
 
     if fi_alert:
         suggestions.append({
-            'action': 'ISA 계좌 활용으로 금융소득 분리 과세 구간 관리',
-            'estimated_saving': fi_check['estimated_additional_tax'],
+            'action': '금융소득 구분·신고 의무와 기존 ISA·신규 가입 제한을 확인하세요. ISA 가입 가능 여부와 절세액을 확정하지 않습니다.',
+            'estimated_saving': None,
             'category': 'isa',
         })
 

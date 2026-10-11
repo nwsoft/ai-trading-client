@@ -1,0 +1,21 @@
+.wealth-workspace{max-width:1280px;margin:auto;padding:24px;color:var(--text-primary,#edf3fc)}
+.wealth-workspace header p,.wealth-workspace small,.wealth-step>p,.wealth-vault>p{line-height:1.65;max-width:90ch}
+.wealth-workspace nav,.wealth-actions{display:flex;gap:10px;flex-wrap:wrap;align-items:end;margin:20px 0}
+.wealth-workspace nav button.active{background:#2363c8;color:white;border-color:#78aaff}
+.wealth-fields{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:16px;margin:18px 0}
+.wealth-fields label,.wealth-actions label{display:flex;flex-direction:column;gap:8px;font-weight:600;line-height:1.5;min-width:0}
+.wealth-workspace input,.wealth-workspace select{width:100%;box-sizing:border-box;min-height:40px;background:#0d1928;color:#f4f7fc;border:1px solid #6f869f;border-radius:6px;padding:8px;font:inherit}
+.wealth-workspace input[type=checkbox]{width:22px;min-height:22px;height:22px}
+.wealth-workspace fieldset,.wealth-vault,.wealth-goal,.wealth-saved{border:1px solid #54708e;border-radius:10px;padding:18px;margin:18px 0;min-width:0}
+.wealth-workspace fieldset legend{padding:0 10px}.wealth-warning{padding:12px;background:#49351a;color:#fff0cc;border-left:4px solid #edc069}
+.wealth-metrics{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:12px}.wealth-metrics>div{padding:16px;background:#12273a;border:1px solid #456a84;border-radius:8px}.wealth-metrics dt{font-size:14px;line-height:1.5}.wealth-metrics dd{margin:8px 0 0;font-size:22px;font-weight:bold}
+.wealth-table{overflow-x:auto}.wealth-table table{width:100%;border-collapse:collapse}.wealth-table th,.wealth-table td{text-align:left;padding:12px;border-bottom:1px solid #52677f;white-space:nowrap}.wealth-workspace a{color:#92c7ff}.wealth-workspace button{min-height:38px}.wealth-step{min-height:280px}.wealth-workspace :focus-visible{outline:3px solid #82baff;outline-offset:3px}
+@media(max-width:650px){.wealth-workspace{padding:14px}.wealth-fields,.wealth-metrics{grid-template-columns:1fr}.wealth-workspace fieldset,.wealth-vault{padding:12px}.wealth-workspace nav button{flex:1 1 40%}}
+
+.wealth-workspace{box-sizing:border-box;width:100%;min-width:0;font-size:14px}
+.wealth-workspace button{background:#294c70;color:#f3f7ff;border:1px solid #6f91b3;border-radius:7px;padding:8px 13px;font:inherit;cursor:pointer}
+.wealth-workspace button:hover:not(:disabled){background:#376591}.wealth-workspace button:disabled{opacity:.5;cursor:not-allowed}
+.wealth-step{border:0;padding:0;margin:0;min-width:0}.wealth-context{margin:18px 0;padding:16px;border-left:3px solid #6ba9e9;background:#13293e;overflow-wrap:anywhere}
+@media(max-width:760px){body.wealth-plan-surface{min-width:0}body.wealth-plan-surface .legacy-topbar{flex-wrap:wrap;height:auto;padding:10px;gap:10px}body.wealth-plan-surface .service-nav,body.wealth-plan-surface .top-actions{flex-wrap:wrap;max-width:100%;min-width:0;margin:0;padding:0}body.wealth-plan-surface .feature-nav{display:block;min-width:0;max-width:100%;padding:8px}body.wealth-plan-surface .feature-tab-strip{justify-content:flex-start;max-width:100%;overflow-x:auto}body.wealth-plan-surface .legacy-statusbar{display:flex;flex-wrap:wrap;height:auto;gap:8px}body.wealth-plan-surface .legacy-statusbar>*{max-width:100%;min-width:0}body.wealth-plan-surface .legacy-release-update{flex-wrap:wrap}body.wealth-plan-surface .legacy-content-frame{min-width:0}.wealth-workspace button{overflow-wrap:anywhere}.wealth-workspace .wealth-actions>*{max-width:100%;box-sizing:border-box}}
+@media(max-width:760px){body.wealth-plan-surface .legacy-topbar{display:flex;grid-template-columns:none}body.wealth-plan-surface .legacy-identity{width:100%;flex-wrap:wrap}body.wealth-plan-surface .service-nav,body.wealth-plan-surface .top-actions{width:100%;justify-content:flex-start}body.wealth-plan-surface .service-nav button{min-width:0;flex:1 1 95px}body.wealth-plan-surface .top-actions button{min-width:0;flex:1 1 100px}}
+@media(max-width:760px){body.wealth-plan-surface .legacy-dashboard-shell{grid-template-columns:minmax(0,1fr)}body.wealth-plan-surface .legacy-topbar,body.wealth-plan-surface .legacy-statusbar{min-width:0}}

@@ -31,7 +31,7 @@ def generation(owner, source):
 
 def publish(owner, source, kind, *, mode=None, expected_generation=None, **evidence):
     try:
-        if kind not in {'regime', 'candidate', 'runtime'}:
+        if kind not in {'regime', 'candidate', 'runtime', 'entry', 'pre_entry', 'cycle'}:
             return
         source = canonical_venue(source)
         mode = str(getattr(mode, 'value', mode) or mode_for(owner, source))
@@ -40,7 +40,9 @@ def publish(owner, source, kind, *, mode=None, expected_generation=None, **evide
             return
         allowed = {'observed', 'confirmed', 'changed', 'symbol', 'signal', 'reason',
                    'strategy_key', 'version_id', 'strategy_name', 'timeframe',
-                   'bar_timestamp', 'allowed', 'code', 'basis', 'base_signal'}
+                   'bar_timestamp', 'allowed', 'code', 'basis', 'base_signal',
+                   'confidence', 'required_confidence', 'loss_rate', 'max_loss_rate',
+                   'recent_trades', 'min_trades_history', 'history_observed', 'phase'}
         row = {k: (v[:300] if isinstance(v, str) else v)
                for k,v in evidence.items() if k in allowed and
                (v is None or isinstance(v, (str, bool, int, float))) and
@@ -70,6 +72,28 @@ def publish(owner, source, kind, *, mode=None, expected_generation=None, **evide
                 if not history or any(history[-1].get(name) != point[name] for name in point):
                     history.append({**point, 'observed_at': row['observed_at']})
                     del history[:-24]
+            if kind == 'entry':
+                previous = store[key].get('entry', {})
+                same = previous.get('code') == row.get('code')
+                row['since'] = previous.get('since', row['observed_at']) if same else row['observed_at']
+                row['consecutive_count'] = min(1000000, int(previous.get('consecutive_count', 0)) + 1) if same else 1
+                row['last_entry_at'] = row['observed_at'] if row.get('code') == 'entry_recorded' else previous.get('last_entry_at')
+                activity = store[key].setdefault('activity', {'observed_since':row['observed_at']})
+                activity['last_decision_at'] = row['observed_at']
+                if row.get('code') == 'entry_recorded':
+                    activity['last_entry_at'] = row['observed_at']
+                    activity['recent_reasons'] = []
+                else:
+                    reasons = activity.setdefault('recent_reasons', [])
+                    reasons.append(row.get('code', 'unavailable'))
+                    del reasons[:-128]
+            if kind == 'cycle':
+                activity = store[key].setdefault('activity', {'observed_since':row['observed_at']})
+                if row.get('phase') == 'started':
+                    activity['last_cycle_started_at'] = row['observed_at']
+                else:
+                    activity['last_cycle_returned_at'] = row['observed_at']
+                    activity['returned_cycles'] = min(1000000, activity.get('returned_cycles', 0) + 1)
             store[key][kind] = row
     except Exception:
         # Presentation failure must never interrupt execution/protection.

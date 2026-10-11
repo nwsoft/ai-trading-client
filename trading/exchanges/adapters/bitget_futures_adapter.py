@@ -115,13 +115,15 @@ class BitgetFuturesAdapter(FuturesExchange):
                 'timeout': 12000,
                 'options': {
                     'defaultType': 'swap',  # 선물 스왑 기본
+                    'fetchMarkets': {'types': ['swap']},
                 },
+                'has': {'fetchCurrencies': False},
             }
             # 모든 값이 str이어야 하는 경우를 위해 dict 내에서 str 변환을 명확히 적용
             for k in ['apiKey', 'secret', 'password']:
                 config[k] = str(config[k])
             self.exchange = ccxt.bitget(config)  # type: ignore
-            self.exchange.load_markets()
+            self.load_instrument_catalogue()
             self.is_connected = True
             self.last_error = ""
             self.last_auth_guidance = ""
@@ -132,6 +134,10 @@ class BitgetFuturesAdapter(FuturesExchange):
             self._handle_auth_error(e, where='connect')
             self.log_event('system', f"비트겟 선물 연결 실패: {e}", level='ERROR')
             return False
+
+    def load_instrument_catalogue(self):
+        from trading.public_futures_catalogue import bitget_usdt_catalogue
+        return bitget_usdt_catalogue(self.exchange)
 
     def _normalize_symbol(self, symbol: Optional[str]) -> Optional[str]:
         if not symbol:

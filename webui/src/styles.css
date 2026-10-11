@@ -1109,6 +1109,11 @@ td { color: #c8d4e5; }
 .legacy-tax-result { margin: 20px; border: 1px solid #334155; border-radius: 12px; background: #0b1423; overflow: hidden; }
 .tax-metric-grid { padding: 0 20px 20px; }
 .legacy-tax-result .card-grid, .legacy-tax-result .recommendation-list { margin: 0 20px 20px; }
+.legacy-tax-result .insight-card dl { display: flex; flex-direction: column; gap: 14px; }
+.legacy-tax-result .insight-card dl > div { display: grid; grid-template-columns: minmax(0, 1fr); gap: 4px; }
+.legacy-tax-result .insight-card dt { font-size: 13px; line-height: 1.5; }
+.legacy-tax-result .insight-card dd { font-size: 15px; line-height: 1.5; overflow-wrap: anywhere; }
+.legacy-tax-result .insight-card dl > div:last-child dd { font-size: 13px; font-weight: 400; line-height: 1.65; }
 .workspace-copy { margin: 0; padding: 16px 20px 0; color: #91a4bd; font-size: 12px; line-height: 1.7; }
 .card-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 12px; padding: 18px; }
 .insight-card { min-width: 0; padding: 16px; border: 1px solid #263a54; border-radius: 12px; background: #0a1423; }
@@ -1788,6 +1793,15 @@ button, input, select, textarea {
   border: 0;
   color: #ffffff;
 }
+
+.companion-trigger {
+  background: #0369a1;
+  color: #ffffff;
+  border: 1px solid #7dd3fc;
+  cursor: pointer;
+}
+.companion-trigger:hover { background: #075985; }
+.companion-trigger:focus-visible { outline: 2px solid #7dd3fc; outline-offset: 3px; }
 
 .legacy-content-frame {
   min-height: 0;

@@ -39,7 +39,8 @@ export function VisualTradingOverview({runtime,workspace,sources,failed,onSource
         {checks.length>3&&<details><summary>나머지 검사 {checks.length-3}개</summary><ul>{checks.slice(3).map((c,i)=><li key={i}>{c.passed===true?'충족':c.passed===false?'미충족':'미확인'} · {String(c.reason||'사유 미기록')}</li>)}</ul></details>}</>:<div className="visual-empty-chart"><span>판단 근거 대기</span><p>조건별 검사 기록을 수신하면 여기에 표시합니다. 빈값은 통과가 아닙니다.</p></div>}
         <small>{status(candidate)}</small>
       </article>
-      <article><h4>최근 검토 전략</h4><div className="visual-strategy"><span className="visual-decision">{candidate?.allowed===true?'후보 통과':candidate?.allowed===false?'후보 대기':'판단 기록 없음'}</span>
+      <article><h4>최근 검토 전략</h4><div className="visual-strategy"><span className="visual-decision">{data?.entry_health?.blocked?'신규 진입 보류':candidate?.allowed===true?'후보 통과':candidate?.allowed===false?'후보 대기':'판단 기록 없음'}</span>
+        {data?.entry_health&&data.entry_health.code!=='unavailable'&&<><p className={data.entry_health.blocked?'warning':''}>{data.entry_health.label}</p><small>{status(data.entry_health)}</small><p>{data.entry_health.action}</p></>}
         <strong>{String(candidate?.strategy_name|| (candidate?'기본 NoahAI':'전략 근거 대기'))}</strong>
         {candidate&&<><p>{String(candidate.symbol||'종목 미기록')} · {String(candidate.timeframe||'시간봉 미기록')}</p><small>버전 {String(candidate.version_id||'미기록')}</small><p>{reason}</p><small>평가 {status(candidate)}<br/>기준 봉 {evidenceTime(candidate.bar_timestamp)}</small></>}
         {!candidate&&<p>실제 평가된 전략·종목·진입 또는 대기 이유를 보여줍니다. 적용 전략 전체나 추천 순위와는 다릅니다.</p>}

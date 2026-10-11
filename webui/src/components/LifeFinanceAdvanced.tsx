@@ -59,7 +59,15 @@ const TAX_LABELS: Record<string, string> = {
   total_tax: "예상 세액 합계",
   effective_rate: "실효세율",
   salary_tax_credit_rate: "급여 기준 세액공제율",
-  best_scenario: "가장 유리한 절세 계좌",
+  best_scenario: "개인 적합성 판단",
+  annual_investment: "연간 납입 가정",
+  estimated_total_interest: "가정 수익 (실제 수익 아님)",
+  tax_on_interest: "가정 수익의 세금",
+  tax_saving_vs_normal: "일반 과세 대비 가정 세금 차이",
+  annual_tax_credit: "연간 납입 세액공제 상한 가정",
+  total_benefit: "기간 합계 혜택 가정 (순이익 아님)",
+  description: "비교 대상",
+  note: "조건·미확인 항목",
   current_tax_credit_total: "현재 세액공제 합계",
   unused_pension_savings_room: "연금저축 추가 활용 가능액",
   unused_irp_room: "IRP 추가 활용 가능액",
@@ -80,6 +88,7 @@ const PRODUCT_FIELD_LABELS: Record<string, string> = {
 };
 
 function displayValue(key: string, value: unknown) {
+  if (value == null) return "미확인";
   if (typeof value === "boolean") return value ? "예" : "아니오";
   if (typeof value === "number") {
     if (key.includes("rate")) return `${(value <= 1 ? value * 100 : value).toLocaleString(undefined, { maximumFractionDigits: 2 })}%`;
@@ -102,10 +111,7 @@ export function LifeFinanceAdvanced({ client, featureId, onOpenAISettings, setti
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [tax, setTax] = useState<TaxDraft>({
-    calculation: "year_end", tax_year:String(new Date().getFullYear()), annual_salary: "50000000", credit_card: "0", debit_cash: "0", medical_expense: "0",
-    education_expense: "0", donation: "0", pension_savings: "0", irp_contribution: "0", personal_deduction_count: "1",
-    interest_income: "0", dividend_income: "0", domestic_stock_profit: "0", overseas_stock_profit: "0", etf_profit: "0",
-    other_profit: "0", annual_investment: "6000000", investment_years: "5", expected_return_rate: "0.05", isa_type: "general",
+    calculation: "year_end", tax_year:String(new Date().getFullYear()), isa_type: "general",
   });
 
   const load = () => {
@@ -119,7 +125,11 @@ export function LifeFinanceAdvanced({ client, featureId, onOpenAISettings, setti
   async function calculateTax() {
     setBusy(true); setError("");
     try {
-      const next = await client.calculateLifeTax(Object.fromEntries(Object.entries(tax).map(([key, value]) => [key, key === "calculation" || key === "isa_type" ? value : Number(value)])));
+      const fields = tax.calculation === 'investment' ? [] : TAX_INPUTS[tax.calculation] ?? [];
+      const missing = fields.find(([key]) => !tax[key]?.trim());
+      if (missing || !tax.tax_year?.trim()) throw new Error(`${missing?.[1] ?? '귀속연도'} 항목을 입력하세요. 미입력은 0원으로 계산하지 않습니다. 없는 항목은 확인 후 0을 입력하세요.`);
+      const values = Object.fromEntries(fields.map(([key]) => [key, Number(tax[key])]));
+      const next = await client.calculateLifeTax({ ...values, calculation: tax.calculation, tax_year: Number(tax.tax_year), ...(tax.calculation === 'saving_accounts' ? { isa_type: tax.isa_type } : {}) });
       setTaxResult(next);
     } catch (reason) { setError(reason instanceof Error ? reason.message : "세금 계산 실패"); }
     finally { setBusy(false); }
@@ -134,7 +144,7 @@ export function LifeFinanceAdvanced({ client, featureId, onOpenAISettings, setti
   }
 
   if (featureId.endsWith("tax")) {
-    return <section className="data-workspace"><article className="panel"><div className="panel-heading"><div><span className="eyebrow">TAX REFERENCE</span><h2>{t("세금 계산 & 절세 시뮬레이터")}</h2></div></div><p className="workspace-copy">{t("간이 계산이며 귀속연도별 전체 세법·예외 사례 검증을 마친 신고 계산기가 아닙니다. 기납부세액·모든 공제를 반영한 환급액이 아닙니다. 금투세는 폐지되어 계산하지 않습니다.")}</p>{error && <div className="inline-notice error-text">{error}</div>}<div className="form-grid advanced-form"><label>검토할 귀속연도<input type="number" min="2000" max="2100" value={tax.tax_year} onChange={e=>{setTax({...tax,tax_year:e.target.value});setTaxResult(null);}}/></label><label>{t("계산 유형")}<select value={tax.calculation} onChange={(event) => { setTax({ ...tax, calculation: event.target.value }); setTaxResult(null); }}><option value="year_end">{t("연말정산")}</option><option value="financial_income">{t("금융소득 종합과세")}</option><option value="investment">금투세 폐지 · 투자소득 과세 안내</option><option value="saving_accounts">{t("절세 계좌 비교")}</option><option value="optimization">{t("절세 최적화")}</option></select></label>{(tax.calculation === "investment" ? [] : TAX_INPUTS[tax.calculation] ?? []).map(([key, label, step]) => <label key={key}>{label}<input type="number" min={key.includes("profit") ? undefined : "0"} step={step ?? "1"} value={tax[key] ?? "0"} onChange={(event) => setTax({ ...tax, [key]: event.target.value })} /></label>)}{tax.calculation === "saving_accounts" && <label>{t("ISA 유형")}<select value={tax.isa_type} onChange={(event) => setTax({ ...tax, isa_type: event.target.value })}><option value="general">{t("일반형")}</option><option value="preferential">{t("서민형·농어민형")}</option></select></label>}</div><div className="command-row"><button className="primary-button" type="button" disabled={busy} onClick={calculateTax}>{busy ? "처리 중…" : tax.calculation === "investment" ? "제도 안내 확인" : "세금 계산하기"}</button></div>{taxResult && <TaxResult response={taxResult} />}</article></section>;
+    return <section className="data-workspace"><article className="panel"><div className="panel-heading"><div><span className="eyebrow">TAX REFERENCE</span><h2>{t("세금 계산 & 절세 시뮬레이터")}</h2></div></div><p className="workspace-copy">{t("간이 계산이며 귀속연도별 전체 세법·예외 사례 검증을 마친 신고 계산기가 아닙니다. 기납부세액·모든 공제를 반영한 환급액이 아닙니다. 금투세는 폐지되어 계산하지 않습니다. 확인한 값을 입력하고, 없는 항목도 확인 후 0을 입력하세요. 예상 수익률은 비교 가정이며 실제 수익이 아닙니다.")}</p>{error && <div className="inline-notice error-text">{error}</div>}<div className="form-grid advanced-form"><label>검토할 귀속연도<input type="number" min="2000" max="2100" value={tax.tax_year} onChange={e=>{setTax({...tax,tax_year:e.target.value});setTaxResult(null);}}/></label><label>{t("계산 유형")}<select aria-label="계산 유형" value={tax.calculation} onChange={(event) => { setTax({ ...tax, calculation: event.target.value }); setTaxResult(null); }}><option value="year_end">{t("연말정산")}</option><option value="financial_income">{t("금융소득 종합과세")}</option><option value="investment">금투세 폐지 · 투자소득 과세 안내</option><option value="saving_accounts">{t("절세 계좌 비교")}</option><option value="optimization">{t("절세 최적화")}</option></select></label>{(tax.calculation === "investment" ? [] : TAX_INPUTS[tax.calculation] ?? []).map(([key, label, step]) => <label key={key}>{label}<input type="number" min={key.includes("profit") ? undefined : "0"} step={step ?? "1"} value={tax[key] ?? ""} onChange={(event) => { setTax({ ...tax, [key]: event.target.value }); setTaxResult(null); }} /></label>)}{tax.calculation === "saving_accounts" && <label>{t("ISA 유형")}<select aria-label="ISA 유형" value={tax.isa_type} onChange={(event) => { setTax({ ...tax, isa_type: event.target.value }); setTaxResult(null); }}><option value="general">{t("일반형")}</option><option value="preferential">{t("서민형·농어민형")}</option></select></label>}</div><div className="command-row"><button className="primary-button" type="button" disabled={busy} onClick={calculateTax}>{busy ? "처리 중…" : tax.calculation === "investment" ? "제도 안내 확인" : "세금 계산하기"}</button></div>{taxResult && <TaxResult response={taxResult} />}</article></section>;
   }
 
   return <><InsuranceBudgetSummary client={client} /><FinanceAnalysis data={data} error={error} chartOnly={featureId.endsWith("chart")} onRetry={()=>void load()} /></>;

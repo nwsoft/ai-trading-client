@@ -53,6 +53,7 @@ TARGETS: Dict[str, Path] = {
     "strategy_plan": DOCS / "AI_CUSTOME_UPDATE_PLAN.md",
     "release_gate": DOCS / "V39147_RUNTIME_BOUNDARY_TEST_PLAN.md",
     "technical_whitepaper": DOCS / "NOAHAI_TECHNICAL_WHITEPAPER.md",
+    "companion_plan": DOCS / "V39211_FINANCIAL_COMPANION_PLAN.md",
 }
 
 
@@ -206,6 +207,22 @@ def check_for_higher_version_mentions(text_map: Dict[str, str]) -> List[str]:
 
 def check_release_surface_alignment(text_map: Dict[str, str]) -> List[str]:
     """동일 버전의 핵심 변경이 사용자 노출·기술·검증 문서에 함께 있는지 확인한다."""
+    if RELEASE_VERSION == '3.9.2.11':
+        required = {
+            'manual_widget': ('v3.9.2.11 최신 업데이트', '장시간 무거래', '새 PAPER 평가'),
+            'user_guide': ('현재 소스 후보 버전: **v3.9.2.11**', f'현재 공개 버전: **v{PUBLIC_RELEASE_VERSION}**', '운용 요약'),
+            'readme': ('현재 소스 후보: v3.9.2.11', f'현재 공개 기반: v{PUBLIC_RELEASE_VERSION}'),
+            'release_notes': ('v3.9.2.11', '3.9.211', 'PAPER'),
+            'deploy_release_notes': ('v3.9.2.11', '3.9.211', 'PAPER'),
+            'architecture': ('v3.9.2.11', 'entry_activity', '읽기 전용', 'comparison_basis', 'no-store'),
+            'update_plan': ('v3.9.2.11', 'V39211_TRADING_ENTRY_UPDATE', 'V39211_FINANCIAL_COMPANION_PLAN', 'FC-01'),
+            'companion_plan': ('FC-01', 'FC-10', 'comparison_basis', 'Windows', '미실시'),
+            'test_status': ('v3.9.2.11', 'Windows', '미실시'),
+            'deploy_checklist': ('patch-test-plan-version: 3.9.2.11', 'WIN-BUILD', 'ROLLBACK'),
+        }
+        return [f"[RELEASE_SURFACE] {surface}: '{marker}' 누락"
+                for surface, markers in required.items() for marker in markers
+                if marker not in text_map.get(surface, '')]
     if RELEASE_VERSION == '3.9.2.10':
         required = {
             'manual_widget': ('v3.9.2.10 최신 업데이트', '학습·고급 안내', '작성 초안'),

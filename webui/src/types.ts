@@ -282,6 +282,11 @@ export interface LifeFinanceSnapshot {
 export interface WorkspaceSnapshot {
   operation_overview?: Record<string, NonNullable<WorkspaceSnapshot['operation_summary']>>;
   operation_summary?: {
+    entry_health?: {code:string;label:string;action:string;blocked:boolean;observed_at?:number;since?:number;consecutive_count?:number;last_entry_at?:number};
+    entry_activity?: {status:string;label:string;action:string;attention:boolean;observed_since?:number;no_entry_seconds?:number;last_entry_at?:number;last_cycle_at?:number;returned_cycles:number;recent_reasons:{code:string;label:string;count:number}[];scope:string;reason_window:number};
+    entry?: Record<string, any>;
+    pre_entry?: Record<string, any>;
+    selection_failure?: Record<string, any>;
     capital?: Record<string, any>;
     correlation?: Record<string, any>;
     selection?: Record<string, any>;

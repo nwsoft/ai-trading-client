@@ -13,6 +13,9 @@ from typing import Any
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.exceptions import RequestValidationError
+from fastapi.exception_handlers import request_validation_exception_handler
+from fastapi.responses import JSONResponse
 
 from config.app_version import RELEASE_BUILD_LABEL, RELEASE_VERSION
 
@@ -42,6 +45,9 @@ from .contracts import (
     StrategySubmitContract,
     SessionLoginContract,
     AssistantQueryContract,
+    CompanionQueryContract,
+    CompanionAllocationContract,
+    CompanionExperimentCompareContract,
     AccountSnapshotRequestContract,
     StatisticsViewBaselineContract,
     StrategySourceAnalyzeContract,
@@ -114,7 +120,17 @@ def create_gateway_app(
         origin = request.headers.get("origin")
         if origin and origin not in ALLOWED_ORIGINS:
             return _forbidden_response()
-        return await call_next(request)
+        response = await call_next(request)
+        if request.url.path.startswith('/api/v1/companion/'):
+            response.headers['Cache-Control'] = 'no-store'
+        return response
+
+    @app.exception_handler(RequestValidationError)
+    async def companion_validation_error(request: Request, exc: RequestValidationError):
+        if request.url.path.startswith('/api/v1/companion/'):
+            return JSONResponse(status_code=422, content={'detail':'companion_request_invalid'},
+                                headers={'Cache-Control':'no-store'})
+        return await request_validation_exception_handler(request, exc)
 
     def require_token(authorization: str | None = Header(default=None)) -> None:
         supplied = _extract_bearer(authorization)
@@ -292,6 +308,41 @@ def create_gateway_app(
         except RuntimeError as exc:
             status = 429 if str(exc) == "interactive_ai_budget_exceeded" else 503
             raise HTTPException(status_code=status, detail=str(exc)) from exc
+
+    @app.get('/api/v1/companion/briefing', dependencies=[Depends(require_token)])
+    def companion_briefing():
+        try:
+            return services.companion_briefing()
+        except ValueError as exc:
+            raise HTTPException(400, str(exc)) from exc
+
+    @app.post('/api/v1/companion/query', dependencies=[Depends(require_token), Depends(require_confirmed_intent)])
+    def companion_query(body: CompanionQueryContract):
+        try:
+            return services.companion_query(**body.model_dump())
+        except ValueError as exc:
+            raise HTTPException(400, str(exc)) from exc
+
+    @app.post('/api/v1/companion/allocation', dependencies=[Depends(require_token), Depends(require_confirmed_intent)])
+    def companion_allocation(body: CompanionAllocationContract):
+        try:
+            return services.companion_allocation(body.model_dump())
+        except ValueError as exc:
+            raise HTTPException(400, str(exc)) from exc
+
+    @app.get('/api/v1/companion/experiments', dependencies=[Depends(require_token)])
+    def companion_experiments():
+        try:
+            return services.companion_experiments()
+        except ValueError as exc:
+            raise HTTPException(400, str(exc)) from exc
+
+    @app.post('/api/v1/companion/experiment-compare', dependencies=[Depends(require_token), Depends(require_confirmed_intent)])
+    def companion_experiment_compare(body: CompanionExperimentCompareContract):
+        try:
+            return services.companion_experiments(**body.model_dump())
+        except ValueError as exc:
+            raise HTTPException(400, str(exc)) from exc
 
     @app.get("/api/v1/assistant/status", dependencies=[Depends(require_token)])
     def assistant_status() -> dict[str, Any]:

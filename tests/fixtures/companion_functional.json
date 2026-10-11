@@ -1,0 +1,588 @@
+{
+  "brief": {
+    "schema_version": "companion-1",
+    "captured_at": "2026-10-10T14:10:47.720983+00:00",
+    "read_only": true,
+    "provider_called": false,
+    "orders_submitted": false,
+    "cards": [
+      {
+        "id": "entry:okx",
+        "section": "trading",
+        "title": "OKX · PAPER",
+        "detail": "현재 종목 목록 조회 실패 · 신뢰도 0.65 / 필요 0.7",
+        "next": "운용 요약에서 공개 시세·진입 기준 확인",
+        "evidence": {
+          "source": "okx",
+          "observed_at": "2026-10-10T14:10:47.720983+00:00",
+          "valid_until": null,
+          "freshness": "recent",
+          "data_class": "runtime_session",
+          "calculation_version": "companion-1",
+          "assumptions": [],
+          "unknowns": []
+        },
+        "action": "trading"
+      },
+      {
+        "id": "entry:binance",
+        "section": "trading",
+        "title": "BINANCE · PAPER",
+        "detail": "진입 신뢰도 기준 미충족 · 신뢰도 0.65 / 필요 0.7",
+        "next": "운용 요약에서 공개 시세·진입 기준 확인",
+        "evidence": {
+          "source": "binance",
+          "observed_at": "2026-10-10T14:10:47.720983+00:00",
+          "valid_until": null,
+          "freshness": "recent",
+          "data_class": "runtime_session",
+          "calculation_version": "companion-1",
+          "assumptions": [],
+          "unknowns": []
+        },
+        "action": "trading"
+      },
+      {
+        "id": "finance",
+        "section": "finance",
+        "title": "등록 기록으로 본 월간 돈 점검",
+        "detail": "등록한 생활금융 기록 기준으로 설명합니다. 외부 AI 호출이나 거래 실행은 없습니다.\n기간: 2026-10-01 ~ 2026-10-10 · KRW\n등록 수입 기록 없음 / 등록 지출 기록 없음\n기록상 수입−지출: 기록 없음\n내 계좌 이체 0건은 수입·소비에서 제외했습니다.\n진행 목표 0개. 목표 적립은 계좌 잔액에 더하지 않습니다.\n• 이번 달 수입·지출 기록을 입력하세요. 기록 없음은 실제 수입·지출 0원이 아닙니다.\n등록된 원화 가계부만 점검합니다. 은행 자동 수집·가족 전체 자산·월말 예측·투자 가능액이 아닙니다. 내부 이체와 목표 적립은 수입·지출에 더하지 않습니다.\n월간 계획 비교는 생활금융 → 대시보드에서 직접 가정을 입력해 확인할 수 있습니다.",
+        "next": "등록 기록·계획을 확인하세요.",
+        "action": "life",
+        "evidence": {
+          "source": "local_life_finance_records",
+          "observed_at": null,
+          "valid_until": null,
+          "freshness": "unknown_time",
+          "data_class": "registered_records",
+          "calculation_version": "companion-1",
+          "assumptions": [
+            "은행 잔액·PAPER 성과와 합산하지 않음"
+          ],
+          "unknowns": [
+            "실제 은행 잔액",
+            "미등록 수입·지출"
+          ]
+        }
+      }
+    ],
+    "assets": {
+      "positions": [],
+      "sources": []
+    },
+    "holding_news": [],
+    "catalog_coverage": {
+      "reference_count": null,
+      "providers": null,
+      "current_products": null,
+      "basis": "저장 상품 자료·내장 편집 자료, 전체 시장·개인 견적이 아님"
+    },
+    "vault_state": "locked",
+    "unavailable_sections": [
+      "catalog"
+    ],
+    "notice": "저장 근거를 연결한 브리핑입니다. 조회 시각과 원본 기준시각은 다릅니다. 앱을 열 때 또는 새로고침할 때 재점검하며 외부 알림·자동 주문은 없습니다."
+  },
+  "queries": {
+    "okx 왜 거래가 없지?": {
+      "schema_version": "companion-1",
+      "read_only": true,
+      "provider_called": false,
+      "saved": false,
+      "orders_submitted": false,
+      "question": "okx 왜 거래가 없지?",
+      "cards": [
+        {
+          "id": "entry:okx",
+          "section": "trading",
+          "title": "OKX · PAPER",
+          "detail": "현재 종목 목록 조회 실패 · 신뢰도 0.65 / 필요 0.7",
+          "next": "운용 요약에서 공개 시세·진입 기준 확인",
+          "evidence": {
+            "source": "okx",
+            "observed_at": "2026-10-10T14:10:47.720983+00:00",
+            "valid_until": null,
+            "freshness": "recent",
+            "data_class": "runtime_session",
+            "calculation_version": "companion-1",
+            "assumptions": [],
+            "unknowns": []
+          },
+          "action": "trading"
+        }
+      ],
+      "actions": [
+        {
+          "id": "trading",
+          "label": "거래 현황·기관 운용 요약",
+          "service": "blockchain",
+          "feature": "blockchain.logs",
+          "question": ""
+        }
+      ],
+      "status": "observed",
+      "answer": "OKX · PAPER: 현재 종목 목록 조회 실패 · 신뢰도 0.65 / 필요 0.7\n운용 요약에서 공개 시세·진입 기준 확인"
+    },
+    "대출 120만원 기간 12개월": {
+      "schema_version": "companion-1",
+      "read_only": true,
+      "provider_called": false,
+      "saved": false,
+      "orders_submitted": false,
+      "question": "대출 120만원 기간 12개월",
+      "cards": [],
+      "actions": [
+        {
+          "id": "finance",
+          "label": "조건 확인 후 비교·저장 이어가기",
+          "kind": "loan",
+          "profile": {
+            "amount": "1200000.0",
+            "months": "12",
+            "discovery_goal": "unknown",
+            "insurance_state": "unknown"
+          },
+          "question": "대출 120만원 기간 12개월"
+        }
+      ],
+      "status": "review",
+      "answer": "상품 이름을 몰라도 돈이 필요한 목적과 사용할 시점부터 정할 수 있습니다. 아래 설명을 읽고 지금 가장 걱정되는 상황 하나를 골라주세요.",
+      "evidence": {
+        "source": "local_finance_discovery",
+        "observed_at": null,
+        "valid_until": null,
+        "freshness": "unknown_time",
+        "data_class": "user_question",
+        "calculation_version": "companion-1",
+        "assumptions": [
+          "질문에서 명시한 조건의 검토 초안",
+          "계산·저장은 기존 비교 화면에서 확인"
+        ],
+        "unknowns": [
+          "개인 확정 견적·가입 가능 여부"
+        ]
+      }
+    },
+    "월 부담을 줄여줘": {
+      "schema_version": "companion-1",
+      "read_only": true,
+      "provider_called": false,
+      "saved": false,
+      "orders_submitted": false,
+      "question": "월 부담을 줄여줘",
+      "cards": [],
+      "actions": [
+        {
+          "id": "finance",
+          "label": "조건 확인 후 비교·저장 이어가기",
+          "kind": "loan",
+          "profile": {},
+          "question": "월 부담을 줄여줘"
+        },
+        {
+          "id": "finance",
+          "label": "조건 확인 후 비교·저장 이어가기",
+          "kind": "insurance",
+          "profile": {},
+          "question": "월 부담을 줄여줘"
+        },
+        {
+          "id": "finance",
+          "label": "조건 확인 후 비교·저장 이어가기",
+          "kind": "savings",
+          "profile": {},
+          "question": "월 부담을 줄여줘"
+        }
+      ],
+      "status": "clarification",
+      "answer": "어떤 부담을 줄일까요? 대출의 월 상환액, 보험료, 저축액 중 대상을 정하고 현재 금액·기간과 유지할 조건을 확인해야 변경 전후를 비교할 수 있습니다."
+    },
+    "손절 2%로 전략 비교해줘": {
+      "schema_version": "companion-1",
+      "read_only": true,
+      "provider_called": false,
+      "saved": false,
+      "orders_submitted": false,
+      "question": "손절 2%로 전략 비교해줘",
+      "cards": [],
+      "actions": [
+        {
+          "id": "strategy",
+          "label": "전략 초안 검토",
+          "service": "blockchain",
+          "feature": "blockchain.ai_custom",
+          "question": "손절 2%로 전략 비교해줘"
+        },
+        {
+          "id": "strategy_consultation",
+          "label": "선택적 AI 전략 상담",
+          "service": "blockchain",
+          "feature": "blockchain.ai_custom",
+          "question": "[NOAH_STRATEGY_CONSULTATION] 손절 2%로 전략 비교해줘\n원본·승인을 바꾸지 않고 별도 검토 초안을 만들어 주세요. 비교할 원본/후보, 같은 기간·시간봉·비용·자금 가정을 확인하고 저장·재생·PAPER는 각각 직접 검토합니다."
+        }
+      ],
+      "status": "review",
+      "answer": "스튜디오에서 별도 후보 초안을 검토합니다. 원본/후보를 동일 기간·시간봉·비용·자금으로 재생한 뒤 전략 실험 비교에서 저장 결과를 대조하세요. 질문만으로 원본 변경·전략 실행을 하지 않습니다. 선택적 AI 상담은 기존 Provider 설정·동의·예산을 사용합니다."
+    },
+    "내 종목 관련 뉴스만 보여줘": {
+      "schema_version": "companion-1",
+      "read_only": true,
+      "provider_called": false,
+      "saved": false,
+      "orders_submitted": false,
+      "question": "내 종목 관련 뉴스만 보여줘",
+      "cards": [],
+      "actions": [
+        {
+          "id": "portfolio",
+          "label": "자산 통합",
+          "service": "portfolio",
+          "feature": "portfolio.insights",
+          "question": ""
+        },
+        {
+          "id": "market",
+          "label": "시장·뉴스·일정 근거",
+          "service": "ai_analyst",
+          "feature": "ai_analyst.intelligence",
+          "question": ""
+        }
+      ],
+      "status": "insufficient_data",
+      "answer": "조회 캐시의 명시 종목과 연결된 저장 뉴스·일정만 표시합니다. 통화·모드를 구분하고 캐시 기준시각을 확인하세요. ETF 구성종목 자료가 없으면 중복 비중을 계산하지 않습니다."
+    },
+    "보험이 없는데 무엇부터 볼까?": {
+      "schema_version": "companion-1",
+      "read_only": true,
+      "provider_called": false,
+      "saved": false,
+      "orders_submitted": false,
+      "question": "보험이 없는데 무엇부터 볼까?",
+      "cards": [],
+      "actions": [
+        {
+          "id": "finance",
+          "label": "조건 확인 후 비교·저장 이어가기",
+          "kind": "insurance",
+          "profile": {
+            "insurance_state": "none",
+            "discovery_goal": "unknown"
+          },
+          "question": "보험이 없는데 무엇부터 볼까?"
+        }
+      ],
+      "status": "review",
+      "answer": "보험이 없어도 상품명이나 증권 없이 시작할 수 있습니다. 아래 설명을 읽고 지금 가장 걱정되는 상황 하나를 골라주세요.",
+      "evidence": {
+        "source": "local_finance_discovery",
+        "observed_at": null,
+        "valid_until": null,
+        "freshness": "unknown_time",
+        "data_class": "user_question",
+        "calculation_version": "companion-1",
+        "assumptions": [
+          "질문에서 명시한 조건의 검토 초안",
+          "계산·저장은 기존 비교 화면에서 확인"
+        ],
+        "unknowns": [
+          "개인 확정 견적·가입 가능 여부"
+        ]
+      }
+    },
+    "코인과 주식에 시장국면 인식이 좀 다를까요? 주식의 경우 시장국면이 빠르게 바뀌는거 같은데 코인은 보통 일반 국면이더라고요. 국면 확정에 로직적 다른점이 있는지 궁금합니다": {
+      "schema_version": "companion-1",
+      "read_only": true,
+      "provider_called": false,
+      "saved": false,
+      "orders_submitted": false,
+      "question": "코인과 주식에 시장국면 인식이 좀 다를까요? 주식의 경우 시장국면이 빠르게 바뀌는거 같은데 코인은 보통 일반 국면이더라고요. 국면 확정에 로직적 다른점이 있는지 궁금합니다",
+      "cards": [],
+      "actions": [
+        {
+          "id": "trading",
+          "label": "거래 현황·기관 운용 요약",
+          "service": "blockchain",
+          "feature": "blockchain.logs",
+          "question": ""
+        },
+        {
+          "id": "stock",
+          "label": "증권 거래 현황",
+          "service": "stock",
+          "feature": "stock.logs",
+          "question": ""
+        }
+      ],
+      "status": "guide",
+      "answer": "NoahAI 안내 · 소스 v3.9.2.11 · 안내 기준 3.9.2.11-support.20261011.1\n\n네. 현재 코인과 주식은 관찰 자료·분류 기준·국면 확정 방식이 다릅니다. 아래는 기본 설정 기준이며 개별 사용자의 현재 상태를 진단한 결과는 아닙니다.\n코인: 기본 300초 관찰, 변화는 같은 국면 2회 연속 확인과 기존 확정 국면 최소 600초 유지 후 확정합니다. 최초 유효 관찰은 바로 채택합니다. Binance는 BTC 70%·ETH 30%, 15분봉 요청 10개, RSI(5)를 사용합니다. 기본 상승/하락은 RSI >65/<35, 최근 5개 종가 변화 >1%/<-1%, 거래량비 >1.2를 함께 요구합니다. OKX·Bybit·Bitget·Upbit·Bithumb·Coinone 공통 빠른 경로는 대표 BTC 15분봉 요청 20개, RSI(10), 최근 10개 종가 변화 >3%/<-3%, 거래량비 >1.2를 함께 요구합니다. 국내 현물은 BTC/KRW입니다. 추세 조건이 안 맞아도 30분 절대 변화가 약 2%를 넘으면 고변동이며, 나머지가 일반(normal)입니다. 그래서 가격이 조금 올랐다는 이유만으로 상승으로 바뀌지는 않습니다. Binance 수치와 관찰/확정 설정은 사용자 설정에 따라 달라질 수 있습니다.\n주식: 300초 캐시 뒤 새 분류를 바로 반영하며 코인과 같은 연속 2회·최소 600초 안정화는 적용하지 않습니다. 지원되면 KOSPI 최근 6개 종가의 5거래일 수익률, 다음으로 지수 당일값을 사용합니다. 현재 4개 증권사 어댑터는 이 지수 조회 메서드를 제공하지 않아 대표 종목 삼성전자(005930)·POSCO홀딩스(005490)의 사용 가능한 당일 등락률 평균을 사용합니다. 이 대용 경로는 평균 >=+1.5% 상승, <=-1.5% 하락, 그 외 절대값 >=1% 고변동, 나머지 횡보입니다. 임계값 주변이면 주식 표기가 더 자주 바뀔 수 있고, 이는 전체 지수나 모든 보유 종목의 국면을 직접 측정한 값이 아닙니다.\n일반 국면은 강한 추세·변동 조건 미충족이라는 분류이며 거래 금지와 같지 않습니다. 시세 실패는 unknown/미확인이고 일반으로 간주하지 않습니다. 메인 시장·판단·전략 한눈에 또는 기관 상세 → 운용 요약에서 최근 관찰/확정, 기준시각, 판단 근거와 보류 사유를 함께 확인하세요. 정지·빈 후보·시세 오류이면 새 관찰이 없을 수 있습니다. LOW/NORMAL/HIGH 동적 임계값 보정과 기관 bull/bear/normal/volatile/range는 별도 분류입니다. 전략별 기관/종목 국면 범위도 다르며 PAPER/LIVE만 바꿔서 분류 기준이 바뀌지는 않습니다. 사용자 당시 원인 확정에는 같은 시각의 실제 지표·설정·실행 기록이 필요합니다. 이 안내를 위해 거래·설정·위험 기준을 변경하지 않습니다.\n\n해결되지 않으면 Q&A/관리자에게 설치 버전·UI 빌드, 기관, PAPER/LIVE 모드, UTC 시각, 지원 코드, 실패 단계, 요청 ID, 비식별 재현 순서를 전달하세요. API 키·계좌번호·원본 로그 전체를 보내지 마세요. 이 답변은 사용법 안내이며 실제 상태 진단이나 복구 실행 완료가 아닙니다.",
+      "guide_revision": "3.9.2.11-support.20261011.1",
+      "guide_topic": "market_regime_comparison",
+      "guide_source": "docs/V39211_MARKET_REGIME_GUIDE.md",
+      "evidence": {
+        "source": "국면 판단 기준 안내",
+        "observed_at": null,
+        "valid_until": null,
+        "freshness": "unknown_time",
+        "data_class": "product_guide",
+        "calculation_version": "companion-1",
+        "assumptions": [
+          "현재 소스 기본값에 대한 안내",
+          "안내 기준 3.9.2.11-support.20261011.1"
+        ],
+        "unknowns": [
+          "사용자 당시 실제 지표·설정·실행 상태"
+        ]
+      }
+    }
+  },
+  "allocation": {
+    "schema_version": "companion-1",
+    "currency": "KRW",
+    "rows": [
+      {
+        "symbol": "A",
+        "before": 80.0,
+        "after": 50.0,
+        "delta_percent": -30.0,
+        "delta_value": null
+      },
+      {
+        "symbol": "B",
+        "before": 20.0,
+        "after": 50.0,
+        "delta_percent": 30.0,
+        "delta_value": null
+      }
+    ],
+    "before_hhi": 0.6800000000000002,
+    "after_hhi": 0.5,
+    "turnover_percent": 60.0,
+    "estimated_cost": null,
+    "fee_bps": null,
+    "total_value": null,
+    "orders_submitted": false,
+    "saved": false,
+    "evidence": {
+      "source": "explicit_user_assumptions",
+      "observed_at": "2026-10-10T14:10:47.724132+00:00",
+      "valid_until": null,
+      "freshness": "recent",
+      "data_class": "scenario",
+      "calculation_version": "companion-1",
+      "assumptions": [
+        "같은 통화의 현물 가치 가정",
+        "매수+매도 합산 회전율에 입력 수수료 적용",
+        "집중도 HHI는 손실 위험 예측이 아님"
+      ],
+      "unknowns": [
+        "실제 체결 가격·슬리피지·세금",
+        "수수료"
+      ]
+    }
+  },
+  "versions": {
+    "versions": [
+      {
+        "scope": "unified",
+        "strategy_key": "s",
+        "version_id": "1",
+        "name": "원본",
+        "mode": "historical_replay"
+      },
+      {
+        "scope": "unified",
+        "strategy_key": "s",
+        "version_id": "2",
+        "name": "후보",
+        "mode": "historical_replay"
+      }
+    ]
+  },
+  "experiment": {
+    "schema_version": "companion-1",
+    "comparable": true,
+    "metrics": [
+      {
+        "key": "net_pnl_percent",
+        "label": "재생 순손익 %",
+        "before": 1.0,
+        "after": 2.0,
+        "delta": 1.0
+      },
+      {
+        "key": "max_drawdown_percent",
+        "label": "최대 낙폭 %",
+        "before": null,
+        "after": null,
+        "delta": null
+      },
+      {
+        "key": "decisions",
+        "label": "재생 판단 수",
+        "before": 4.0,
+        "after": 5.0,
+        "delta": 1.0
+      }
+    ],
+    "status": "comparable",
+    "reason": "같은 원본 시세·기간·시간봉·보유 봉·비용 가정의 저장 재생 결과입니다.",
+    "baseline": {
+      "scope": "unified",
+      "strategy_key": "s",
+      "version_id": "1",
+      "recorded_at": "2026-10-10T12:00:00+00:00"
+    },
+    "candidate": {
+      "scope": "unified",
+      "strategy_key": "s",
+      "version_id": "2",
+      "recorded_at": "2026-10-10T12:00:00+00:00"
+    },
+    "orders_submitted": false,
+    "saved": false,
+    "auto_approved": false,
+    "evidence": {
+      "source": "saved_historical_replay",
+      "observed_at": "2026-10-10T12:00:00+00:00",
+      "valid_until": null,
+      "freshness": "stale",
+      "data_class": "historical_replay",
+      "calculation_version": "companion-1",
+      "assumptions": [
+        "정규화 초기 가치 1.0",
+        "같은 입력 지문일 때만 수치 비교"
+      ],
+      "unknowns": [
+        "미래 수익·실제 체결",
+        "PAPER/LIVE 전진검증"
+      ]
+    }
+  },
+  "incompatible": {
+    "schema_version": "companion-1",
+    "comparable": false,
+    "metrics": [],
+    "status": "same_inputs_not_verified",
+    "reason": "같은 입력 근거를 확인하지 못했습니다. 원본/후보를 같은 조건으로 새로 재생하세요. 과거 결과의 누락 해시를 만들어 넣지 않습니다.",
+    "baseline": {
+      "scope": "unified",
+      "strategy_key": "s",
+      "version_id": "1",
+      "recorded_at": "2026-10-10T12:00:00+00:00"
+    },
+    "candidate": {
+      "scope": "unified",
+      "strategy_key": "s",
+      "version_id": "2",
+      "recorded_at": "2026-10-10T12:00:00+00:00"
+    },
+    "orders_submitted": false,
+    "saved": false,
+    "auto_approved": false,
+    "evidence": {
+      "source": "saved_historical_replay",
+      "observed_at": "2026-10-10T12:00:00+00:00",
+      "valid_until": null,
+      "freshness": "stale",
+      "data_class": "historical_replay",
+      "calculation_version": "companion-1",
+      "assumptions": [
+        "정규화 초기 가치 1.0",
+        "같은 입력 지문일 때만 수치 비교"
+      ],
+      "unknowns": [
+        "미래 수익·실제 체결",
+        "PAPER/LIVE 전진검증"
+      ]
+    }
+  },
+  "dialogue": {
+    "scenario": {
+      "kind": "loan",
+      "profile": {
+        "amount": "1200000.0",
+        "months": "24",
+        "discovery_goal": "unknown",
+        "insurance_state": "unknown"
+      },
+      "offers": []
+    },
+    "result": {
+      "kind": "loan",
+      "rule_version": "finance-products-3925-1",
+      "status": "no_matching_candidates",
+      "candidates": [],
+      "excluded": [],
+      "questions": [
+        "개인 적용 금리·가입 자격은 기관 확인이 필요합니다. 미확인 비용·세율·우대 조건이 있으면 순위에서 제외합니다.",
+        "유효한 자료가 없거나 조건에 맞지 않습니다. 필터를 풀지 않고 받은 견적을 직접 비교할 수 있습니다."
+      ],
+      "best": null,
+      "application_submitted": false,
+      "external_delivery": false,
+      "ranking_basis": "입력·확인된 조건의 총비용 오름차순",
+      "monthly_remaining": null,
+      "budget_note": "생활비·기존 상환·보험·저축을 뺀 금액. 새 대출 상환은 후보별로 추가 차감하세요. 대출 한도 심사 결과가 아닙니다.",
+      "handoff": {
+        "state": "draft_only",
+        "questions": [
+          "본인 적용 견적을 발급할 수 있나요?",
+          "미확인 비용·세금·자격·우대 조건을 확인해 주세요.",
+          "원문과 실제 적용 조건의 유효기간은 언제까지인가요?"
+        ],
+        "recipient": null,
+        "consent": false,
+        "sent": false
+      }
+    },
+    "changes": [
+      {
+        "field": "months",
+        "before": "12",
+        "after": "24"
+      }
+    ],
+    "deltas": [],
+    "answer": "변경한 조건: 기간(개월) 12 → 24\n순위를 확정할 근거가 부족합니다. 비용·세율·우대 조건·유효한 상품 자료를 확인하세요.\n개인 적용 금리·가입 자격은 기관 확인이 필요합니다. 미확인 비용·세율·우대 조건이 있으면 순위에서 제외합니다.\n유효한 자료가 없거나 조건에 맞지 않습니다. 필터를 풀지 않고 받은 견적을 직접 비교할 수 있습니다.",
+    "clauses": [],
+    "unresolved": [],
+    "evidence": [],
+    "provider_called": false,
+    "source": "local_scenario_recalculation",
+    "saved": false
+  },
+  "catalog": {
+    "products": [],
+    "reference_products": [],
+    "feeds": [],
+    "reference_feeds": []
+  },
+  "comparison": {
+    "kind": "loan",
+    "rule_version": "finance-products-3925-1",
+    "status": "no_matching_candidates",
+    "candidates": [],
+    "excluded": [],
+    "questions": [
+      "개인 적용 금리·가입 자격은 기관 확인이 필요합니다. 미확인 비용·세율·우대 조건이 있으면 순위에서 제외합니다.",
+      "유효한 자료가 없거나 조건에 맞지 않습니다. 필터를 풀지 않고 받은 견적을 직접 비교할 수 있습니다."
+    ],
+    "best": null,
+    "application_submitted": false,
+    "external_delivery": false,
+    "ranking_basis": "입력·확인된 조건의 총비용 오름차순",
+    "monthly_remaining": null,
+    "budget_note": "생활비·기존 상환·보험·저축을 뺀 금액. 새 대출 상환은 후보별로 추가 차감하세요. 대출 한도 심사 결과가 아닙니다.",
+    "handoff": {
+      "state": "draft_only",
+      "questions": [
+        "본인 적용 견적을 발급할 수 있나요?",
+        "미확인 비용·세금·자격·우대 조건을 확인해 주세요.",
+        "원문과 실제 적용 조건의 유효기간은 언제까지인가요?"
+      ],
+      "recipient": null,
+      "consent": false,
+      "sent": false
+    }
+  }
+}

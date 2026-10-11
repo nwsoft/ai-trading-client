@@ -26,11 +26,13 @@ export function OperationsOverview({runtime,workspace,service,failed,onSource,on
     const mode=runtime?.execution_modes?.[source]||'unknown';
     const raw=workspace?.operation_overview?.[source];
     const evidence=raw?.source===source&&raw.mode===mode?raw:undefined;
-    const blocked=evidence?.risk?.blocked===true;
-    const old=evidence?.risk?evidenceOld(evidence.risk.observed_at):false;
+    const blocked=evidence?.entry_health?.blocked===true||evidence?.risk?.blocked===true;
+    const observed=evidence?.entry_health?.observed_at??evidence?.risk?.observed_at;
+    const old=observed?evidenceOld(observed):false;
     return {source,mode,evidence,blocked,old,running:running.includes(source)};
   });
   const blocked=rows.filter(r=>r.blocked);
+  const inactive=rows.filter(r=>r.running&&r.evidence?.entry_activity?.attention);
   return <div className="operations-overview dashboard-overview">
     <header className="dashboard-heading">
       <div><h2>{service==='stock'?L('주식·증권','Stocks'):L('블록체인','Crypto')} {L('거래 현황','trading overview')}</h2>
@@ -38,7 +40,8 @@ export function OperationsOverview({runtime,workspace,service,failed,onSource,on
       </div><div className="dashboard-control-slot">{controls}</div>
     </header>
     {(failed||runtimeUncertain)&&<div className="operations-attention dashboard-alert" role="status">{L('갱신 확인 필요 · 마지막 수신 자료가 남아 있을 수 있습니다.','Refresh needs checking. Data may be from a previous update.')} <button onClick={onSettings}>{L('연결 설정','Connection settings')}</button></div>}
-    {blocked.length>0&&<div className="operations-attention dashboard-alert" role="status"><strong>{L('신규 진입 보류','Entry on hold')} {blocked.length}</strong>{blocked.map(r=><button key={r.source} onClick={()=>onSource(r.source)}>{r.source.toUpperCase()} · {r.old?L('이전 위험 평가','Earlier risk check'):L('위험 평가 확인','Review risk check')} →</button>)}</div>}
+    {blocked.length>0&&<div className="operations-attention dashboard-alert" role="status"><strong>{L('신규 진입 보류','Entry on hold')} {blocked.length}</strong>{blocked.map(r=><button key={r.source} onClick={()=>onSource(r.source)}>{r.source.toUpperCase()} · {r.old?L('이전 평가 · ','Earlier check · '):''}{r.evidence?.entry_health?.label||L('위험 평가 확인','Review risk check')} →</button>)}</div>}
+    {inactive.length>0&&<div className="operations-attention dashboard-alert entry-inactivity-alert" role="status"><strong>{L('거래 활동 확인 필요','Review trading activity')}</strong>{inactive.map(r=><button key={r.source} onClick={()=>onSource(r.source)}>{r.source.toUpperCase()} · {r.evidence?.entry_activity?.label} →</button>)}</div>}
     <VisualTradingOverview runtime={runtime} workspace={workspace} sources={sources} failed={failed||runtimeUncertain} onSource={onSource} onFeature={onFeature}/>
     {summary}
     {!sources.length?<section className="dashboard-empty"><h3>{L('아직 선택한 기관이 없습니다.','No venues selected yet.')}</h3><p>{L('사용할 거래소·증권사를 설정하세요. 화면을 여는 것만으로 거래가 시작되지는 않습니다.','Choose venues in settings. Opening this screen does not start trading.')}</p><button onClick={onSettings}>{L('연결 설정 열기','Open connection settings')}</button></section>:
@@ -53,7 +56,7 @@ export function OperationsOverview({runtime,workspace,service,failed,onSource,on
           <td><span className={`dashboard-mode mode-${r.mode}`}>{executionLabel(r.mode)}</span></td>
           <td><span className={`dashboard-state ${!runtimeUncertain&&r.running?'is-running':''}`}>{runtimeUncertain?L('확인 필요','Check state'):r.running?L('실행 중','Running'):L('정지','Stopped')}</span></td>
           <td title={regime?`${evidenceTime(regime.observed_at)} · ${r.running?'최근 관찰':'정지 전 기록'}`:undefined}>{regime?<><span>{regimeText(regime.observed)} / {regimeText(regime.confirmed)}</span>{(evidenceOld(regime.observed_at)||!r.running)&&<small>{L('이전 기록','Earlier record')}</small>}</>:<span className="dashboard-muted">{L('분석 기록 없음','No analysis yet')}</span>}</td>
-          <td className="dashboard-decision">{r.blocked?<span className="warning">{r.old?L('이전 평가 · 보류','Earlier hold'):L('신규 진입 보류','Entry held')}</span>:candidate?<span title={`${candidate.strategy_name||'기본 NoahAI'} · ${candidate.symbol||''} · ${evidenceTime(candidate.observed_at)}`}>{candidate.symbol||candidate.strategy_name||'NoahAI'} · {decision}{evidenceOld(candidate.observed_at)?L(' · 이전 기록',' · old'):''}</span>:<span className="dashboard-muted">{runtime?.credential_status?.[r.source]?L('키 저장됨 · 연결은 별도 확인','Keys saved · verify connection'):L('API 연결 설정 필요','API setup needed')}</span>}</td>
+          <td className="dashboard-decision">{r.evidence?.entry_health&&r.evidence.entry_health.code!=='unavailable'?<span className={r.blocked?'warning':''}>{r.evidence.entry_health.label}{r.old||!r.running?L(' · 이전 기록',' · old'):''}<small>{r.evidence.entry_health.action}</small></span>:r.blocked?<span className="warning">{L('신규 진입 보류','Entry held')}</span>:candidate?<span title={`${candidate.strategy_name||'기본 NoahAI'} · ${candidate.symbol||''} · ${evidenceTime(candidate.observed_at)}`}>{candidate.symbol||candidate.strategy_name||'NoahAI'} · {decision}{evidenceOld(candidate.observed_at)?L(' · 이전 기록',' · old'):''}</span>:<span className="dashboard-muted">{runtime?.credential_status?.[r.source]?L('키 저장됨 · 연결은 별도 확인','Keys saved · verify connection'):L('API 연결 설정 필요','API setup needed')}</span>}</td>
           <td><button aria-label={`${r.source.toUpperCase()} ${L('상세 보기','details')}`} onClick={()=>onSource(r.source)}>{L('상세','Details')} →</button></td>
         </tr>;
       })}</tbody></table>

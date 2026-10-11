@@ -74,7 +74,11 @@ class OkxFuturesAdapter(FuturesExchange):
                 'password': str(self.passphrase) if self.passphrase is not None else '',
                 'options': {
                     'defaultType': 'swap',
+                    'fetchMarkets': {'types': ['swap']},
                 },
+                # Instrument discovery must not depend on the authenticated
+                # funding/currencies API. CCXT otherwise calls it on every reload.
+                'has': {'fetchCurrencies': False},
                 'enableRateLimit': True,
                 # CCXT의 동기 HTTP 호출이 OS 소켓 기본값에 맡겨지면 네트워크
                 # 단절 중 안전 종료가 worker_shutdown_timeout으로 끝날 수 있다.
@@ -136,6 +140,26 @@ class OkxFuturesAdapter(FuturesExchange):
             else:
                 self.logger.error(f"OKX 선물 연결 실패: {e}")
             return False
+
+    def load_instrument_catalogue(self):
+        """Refresh current SWAP metadata using only OKX's public instruments API.
+
+        defaultType='swap' alone does not restrict CCXT load_markets: it also
+        loads spot, dated futures, options and (with keys) private currencies.
+        A failure in any of those unrelated calls used to hide all swap markets.
+        No cached or guessed instruments are returned on a failed refresh.
+        """
+        exchange = self.exchange
+        fetch = getattr(exchange, 'fetch_markets_by_type', None)
+        if not callable(fetch):
+            # Older compatible providers expose only the unified load contract.
+            return exchange.load_markets(reload=True)
+        rows = fetch('swap')
+        if not isinstance(rows, list) or not rows:
+            raise ValueError('empty_instrument_catalogue')
+        if any(not isinstance(row, dict) or not row.get('symbol') for row in rows):
+            raise ValueError('invalid_market_catalogue')
+        return exchange.set_markets(rows)
 
     def _detect_position_mode(self) -> str:
         """OKX 포지션 모드 감지: 'net' 또는 'hedge' 반환 (실패 시 'net').

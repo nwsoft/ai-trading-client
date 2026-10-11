@@ -2,14 +2,17 @@ import { useEffect, useMemo, useState } from "react";
 
 import { createGatewayClient } from "./api";
 import { UI_BUILD_TAG } from './uiBuild';
+import { userTime } from './userTime';
 import { useLocale, getLocale, setLocaleAccount, setLocale, t, localized } from './i18n';
 import { LegacyTradingLogWorkspace, LifeFinance } from "./components/Operations";
 import { SettingsCenter } from "./components/SettingsCenter";
 import { StrategyStudio, type StrategyAssistantDraft } from "./components/StrategyStudio";
 import { LoginHelpScreen, LoginScreen } from "./components/LoginScreen";
 import { AssistantWorkspace, ManualCenter } from "./components/AssistantWorkspace";
+import { FinancialCompanion } from "./components/FinancialCompanion";
 import { UpdateCenter } from "./components/UpdateCenter";
 import { FinancialIntelligenceWorkspace } from "./components/FinancialIntelligenceWorkspace";
+import {WealthWorkspace} from "./components/WealthWorkspace";
 import { PortfolioWorkspace } from "./components/PortfolioWorkspace";
 import { AlphaArenaWorkspace } from "./components/AlphaArenaWorkspace";
 import { LifeFinanceAdvanced } from "./components/LifeFinanceAdvanced";
@@ -73,6 +76,13 @@ function userLabel(session: SessionSnapshot | null): string {
 }
 
 function sourceScopeLabel(runtime: RuntimeSnapshot | null, activeService: string, selectedSource = ""): string {
+  const serviceScope: Record<string, [string, string]> = {
+    portfolio: ["자산 통합 · 통합 자산 기준", "Portfolio · consolidated asset scope"],
+    personal_finance: ["생활금융 · 등록 기록 기준", "Life Finance · recorded data scope"],
+    ai_analyst: ["AI애널리스트 · 분석 자료 기준", "AI Analyst · analysis data scope"],
+  };
+  const scopeLabel = serviceScope[activeService];
+  if (scopeLabel) return localized(...scopeLabel);
   runtime = runtimeForService(runtime, activeService);
   const scope = runtime?.enabled_sources ?? [];
   const selectedKey = String(selectedSource || runtime?.selected_source || "").toLowerCase();
@@ -141,10 +151,15 @@ function DesktopApp() {
   });
   const [activeService, setActiveService] = useState("blockchain");
   const [activeFeature, setActiveFeature] = useState("blockchain.logs");
+  const [wealthContext,setWealthContext]=useState({account:"",text:""});
+  useEffect(()=>{document.body.classList.toggle("wealth-plan-surface",activeFeature==="portfolio.plan");return()=>document.body.classList.remove("wealth-plan-surface");},[activeFeature]);
+  const [wealthVisited,setWealthVisited]=useState(false);
+  useEffect(()=>{if(activeFeature==="portfolio.plan")setWealthVisited(true);},[activeFeature]);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [settingsInitialField, setSettingsInitialField] = useState<string>();
   const [settingsRevision, setSettingsRevision] = useState(0);
   const [manualOpen, setManualOpen] = useState(false);
+  const [companionOpen, setCompanionOpen] = useState(false);
   const [manualInitialTab, setManualInitialTab] = useState("intro");
   const [assistantQuestion, setAssistantQuestion] = useState("");
   const [assistantService, setAssistantService] = useState("blockchain");
@@ -262,8 +277,10 @@ function DesktopApp() {
         return aiEventPrefixes.some((prefix) => event.startsWith(prefix));
       });
       if (!latest) { setAiRecord("AI 실행 기록 없음"); return; }
-      const at = String(latest.at ?? "").replace("T", " ").replace(/\.\d+Z$/, "Z");
-      setAiRecord(`${at ? `${at} · ` : ""}${String(latest.event ?? "AI 실행")}`);
+      const at = userTime(latest.at, {locale: getLocale()});
+      const event = String(latest.event ?? "AI 실행");
+      const label = event.startsWith('strategy.') ? '전략 검토' : event.startsWith('assistant.') ? 'AI 상담' : event.startsWith('financial_intelligence.') ? '시장 분석' : 'AI 실행';
+      setAiRecord(`최근 ${label} · ${at.text}`);
     } catch (_) {
       setAiRecord("AI 실행 기록 조회 실패");
     }
@@ -291,7 +308,7 @@ function DesktopApp() {
 
   useEffect(() => {
     const mode = session?.authenticated ? "dashboard" : "login";
-    const displayVersion = platform?.release_version || "3.9.2.10";
+    const displayVersion = platform?.release_version || "3.9.2.11";
     document.title = session?.authenticated ? `Noah AI Client - 대시보드 Beta v${displayVersion}` : "NoahAI Finance Decision OS - 로그인";
     document.body.classList.toggle("dashboard-surface", Boolean(session?.authenticated));
     window.noahAI?.window?.setMode(mode).catch(() => undefined);
@@ -393,6 +410,17 @@ function DesktopApp() {
     setManualOpen(true);
   }
 
+  function openCompanionTarget(service: string, featureId: string, source?: string, question?:string) {
+    if (source) {
+      const enabled = runtimeForService(runtime, service)?.enabled_sources ?? [];
+      if (!enabled.includes(source)) return false;
+      setSelectedSources(current => ({...current, [service]: source}));
+    }
+    if(featureId==="portfolio.plan")setWealthContext({account:session?.account??"",text:question||""});
+    openManualTarget(service, featureId);
+    return true;
+  }
+
   async function exportAudit() {
     try {
       const payload = await client.auditExport();
@@ -430,6 +458,7 @@ function DesktopApp() {
         ))}
       </nav>
       <div className="top-actions">
+        <button className="legacy-action-button companion-trigger" type="button" aria-haspopup="dialog" aria-expanded={companionOpen} aria-controls="financial-companion-dialog" title="거래·자산·생활금융·시장 분석을 질문하고 관련 화면으로 이어갑니다." onClick={() => setCompanionOpen(true)}><AppIcon name="companion" />내 금융비서</button>
         <button className="primary-button legacy-action-button" type="button" onClick={() => openManual()}><AppIcon name="manual" />{t("메뉴얼")}</button>
         <button className="primary-button legacy-action-button" type="button" onClick={() => setSettingsOpen(true)}><AppIcon name="settings" />{t("설정")}</button>
         <button className="danger-button legacy-exit-button" type="button" onClick={() => {
@@ -463,11 +492,12 @@ function DesktopApp() {
       {activeSurface === "ai_learning" && <LegacyAILearningWorkspace client={client} service={activeService as "blockchain" | "stock"} source={chartSource} sources={activeSourceTabs} />}
       {activeSurface === "ai_report" && <LegacyAIReportWorkspace client={client} service={activeService as "blockchain" | "stock"} source={chartSource} sources={activeSourceTabs} onAskAssistant={(question) => openAssistant(question, activeService)} />}
       {Object.entries(visitedAssistants).map(([contextKey, context]) => <div className="assistant-view" key={`${session?.account}:${contextKey}`} hidden={activeSurface !== "assistant" || contextKey !== assistantContextKey}>
-        <AssistantWorkspace client={client} service={context.service} initialQuestion={contextKey === assistantContextKey ? assistantQuestion : ""} settingsSection={context.service === "settings" ? context.section : ""} onOpenSettings={() => setSettingsOpen(true)} onChartAnalysis={() => setActiveFeature(activeService === "stock" ? "stock.info" : activeService === "ai_analyst" ? "ai_analyst.workspace" : "blockchain.coin_info")} onReturn={assistantReturnTarget ? returnFromStrategyAssistant : undefined} returnLabel={assistantReturnTarget ? "전략 스튜디오로 돌아가기 · 입력 유지" : undefined} strategyService={activeService === "stock" ? "stock" : "blockchain"} onSendToStrategy={assistantReturnTarget || activeService === "blockchain" || activeService === "stock" ? sendAssistantAnswerToStrategy : undefined} />
+        <AssistantWorkspace onOpenWealth={(q)=>{setWealthContext({account:session?.account??"",text:q||""});openManualTarget("portfolio","portfolio.plan");}} client={client} service={context.service} initialQuestion={contextKey === assistantContextKey ? assistantQuestion : ""} settingsSection={context.service === "settings" ? context.section : ""} onOpenSettings={() => setSettingsOpen(true)} onChartAnalysis={() => setActiveFeature(activeService === "stock" ? "stock.info" : activeService === "ai_analyst" ? "ai_analyst.workspace" : "blockchain.coin_info")} onReturn={assistantReturnTarget ? returnFromStrategyAssistant : undefined} returnLabel={assistantReturnTarget ? "전략 스튜디오로 돌아가기 · 입력 유지" : undefined} strategyService={activeService === "stock" ? "stock" : "blockchain"} onSendToStrategy={assistantReturnTarget || activeService === "blockchain" || activeService === "stock" ? sendAssistantAnswerToStrategy : undefined} />
       </div>)}
       {activeSurface === "ai_analyst" && <AIAnalystWorkspace client={client} onOpenAssistant={(question = "") => openAssistant(question, "ai_analyst")} onOpenSummary={() => setActiveFeature("ai_analyst.summary")} onOpenScenario={() => setActiveFeature("ai_analyst.scenario")} />}
       {activeSurface === "ai_analyst_scenario" && <AIAnalystScenarioWorkspace client={client} />}
       {activeSurface === "financial_intelligence" && <FinancialIntelligenceWorkspace client={client} service={activeService === "stock" ? "stock" : activeService === "ai_analyst" ? "ai_analyst" : "blockchain"} summaryOnly={feature?.id === "ai_analyst.summary"} onAskAssistant={(question) => openAssistant(question, activeService)} />}
+      {(activeSurface === "wealth" || wealthVisited) && <div hidden={activeSurface !== "wealth"}><WealthWorkspace initialQuestion={wealthContext.account===session?.account?wealthContext.text:""} key={session?.account ?? "guest"} client={client} onNavigate={openManualTarget} /></div>}
       {activeSurface === "portfolio" && <PortfolioWorkspace key={session?.account ?? "guest"} onAsk={(question) => openAssistant(question, "personal_finance")} onOpenFinance={() => selectService("personal_finance")} client={client} featureId={feature?.id ?? "portfolio.insights"} enabledSources={runtime?.enabled_sources ?? []} credentialStatus={runtime?.credential_status ?? {}} />}
       {activeSurface === "alpha_arena" && <AlphaArenaWorkspace client={client} />}
       {activeSurface === "life_basic" && <LifeFinance key={session?.account ?? "guest"} client={client} view={feature?.id ?? "personal_finance.service"} assistantRequest={lifeAssistantRequest} initialQuestion={assistantQuestion} onOpenSettings={() => setSettingsOpen(true)} />}
@@ -480,10 +510,11 @@ function DesktopApp() {
     </section>
     <footer className="statusbar legacy-statusbar">
       <span className="legacy-status-left">{legacyStatusLabel(runtime, chartSource, statusClock)}</span>
-      <div className="legacy-release-update"><span className="legacy-release" title={`실행 엔진: ${platform?.release_label ?? '미확인'} · 화면 빌드: ${UI_BUILD_TAG}`}>{platform?.release_label ?? "v3.9.2.10"}<small className="ui-build-id"> · UI {UI_BUILD_TAG.split("-ui.")[0]}</small></span><UpdateCenter client={client} accountScope={session?.account ?? ""} onOpenGuide={() => openManual("updates")} /></div>
+      <div className="legacy-release-update"><span className="legacy-release" title={`실행 엔진: ${platform?.release_label ?? '미확인'} · 화면 빌드: ${UI_BUILD_TAG}`}>{platform?.release_label ?? "v3.9.2.11"}<small className="ui-build-id"> · UI {UI_BUILD_TAG.split("-ui.")[0]}</small></span><UpdateCenter client={client} accountScope={session?.account ?? ""} onOpenGuide={() => openManual("updates")} /></div>
       <div className="legacy-ai-summary"><span className="legacy-ai-record" title={aiRecord}>{aiRecord}</span><button className="legacy-record-button" type="button" onClick={() => void refreshAiRecord()}><AppIcon name="record" />{t("기록")}</button></div>
     </footer>
     <SettingsCenter client={client} open={settingsOpen} initialField={settingsInitialField} onClose={() => { setSettingsOpen(false); setSettingsInitialField(undefined); }} onAskAssistant={(question, settingsSection) => openAssistant(question, "settings", settingsSection)} onOpenManual={() => { setSettingsOpen(false); openManual("settings"); }} onSettingsSaved={async () => { setSettingsRevision((value) => value + 1); await refreshRuntimeFromSettings(); }} />
+    {companionOpen && <FinancialCompanion key={session?.account ?? "guest"} client={client} service={activeService} onClose={() => setCompanionOpen(false)} onNavigate={openCompanionTarget} onAsk={(q,s)=>openStrategyAssistant(q,s==='stock'?'stock':'blockchain')} onStrategyDraft={(text, service) => { const target = service === 'stock' ? 'stock' : 'blockchain'; setStrategyAssistantDraft({id:Date.now(),service:target,text,origin:"question"}); setActiveService(target); setActiveFeature(`${target}.ai_custom`); setAssistantService(target); setAssistantReturnTarget(null); }} onSettings={() => {setCompanionOpen(false);setSettingsOpen(true);}} />}
     {manualOpen && <ManualCenter client={client} initialTab={manualInitialTab} onClose={() => setManualOpen(false)} onAskAssistant={(question) => openAssistant(question, activeService)} onOpenSettings={() => { setManualOpen(false); setSettingsOpen(true); }} onNavigate={openManualTarget} />}
   </div>;
 }

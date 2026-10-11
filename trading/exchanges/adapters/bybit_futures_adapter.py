@@ -92,15 +92,18 @@ class BybitFuturesAdapter(FuturesExchange):
                 'timeout': 12000,
                 'options': {
                     'defaultType': 'swap',  # 선물 스왑 기본
+                    'fetchMarkets': {'types': ['linear']},
+                    'usePrivateInstrumentsInfo': False,
                     # Bybit signed requests require timestamp < server+1000ms.
                     # CCXT measures the provider offset instead of hiding a
                     # bad Windows clock behind a very large recv window.
                     'adjustForTimeDifference': True,
                     'recvWindow': 5000,
                 },
+                'has': {'fetchCurrencies': False},
             }
             self.exchange = ccxt.bybit(config)  # type: ignore
-            self.exchange.load_markets()
+            self.load_instrument_catalogue()
             load_time_difference = getattr(self.exchange, 'load_time_difference', None)
             if callable(load_time_difference):
                 load_time_difference()
@@ -114,6 +117,13 @@ class BybitFuturesAdapter(FuturesExchange):
             self._handle_auth_error(e, where='connect')
             self.log_event('system', f"바이비트 선물 연결 실패: {e}", level='ERROR')
             return False
+
+    def load_instrument_catalogue(self):
+        from trading.public_futures_catalogue import install
+        fetch = getattr(self.exchange, 'fetch_future_markets', None)
+        if not callable(fetch):
+            return self.exchange.load_markets(reload=True)
+        return install(self.exchange, fetch({'category': 'linear'}))
 
     @staticmethod
     def _is_clock_error(error: Any) -> bool:

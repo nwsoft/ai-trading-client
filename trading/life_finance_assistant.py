@@ -1013,20 +1013,36 @@ class LifeFinanceAssistant:
     
     # ========== 세무 계산 핸들러 ==========
 
+    @staticmethod
+    def _tax_input_request(context: FinanceContext, response: str) -> Dict[str, Any]:
+        return {'response': response, 'intent': context.intent.value,
+                'action_taken': None, 'data': {'status': 'needs_input'},
+                'requires_confirmation': False}
+
+    @staticmethod
+    def _named_tax_amount(text: str, label: str) -> Optional[float]:
+        # 여러 금액 중 첫 숫자를 총급여·금융소득으로 대신 사용하지 않는다.
+        match = re.search(label + r'\s*(?:소득|금액)?\s*[:：]?\s*((?:\d[\d,]*(?:\.\d+)?\s*(?:억|만|천)?\s*원))', text)
+        if not match:
+            return None
+        return FinanceIntentParser._extract_amount(match.group(1))
+
     def _handle_tax_settlement(self, context: FinanceContext) -> Dict[str, Any]:
         """연말정산 계산 (기본값 안내 후 계산)"""
-        salary = context.extracted_amount or 50_000_000
+        salary = self._named_tax_amount(context.raw_input, r'(?:연봉|총급여)')
+        if salary is None:
+            return self._tax_input_request(context, '연말정산은 총급여·귀속연도·공제 항목과 기납부세액을 확인해야 합니다. 연봉을 임의로 가정하지 않습니다. 생활금융 → 세금 계산에서 확인된 값을 입력하세요. 계산된 결정세액은 추가 납부액·환급액과 다릅니다.')
         result = tax_svc.calc_year_end_tax_settlement(
             annual_salary=salary,
         )
         final = result.get('final_tax', 0)
-        refund_flag = "환급 예상" if final < 0 else "납부 예상"
         tips = result.get('optimization_tips', [])
         tip_text = "\n".join(f"  • {t}" for t in tips[:3]) if tips else "  • 공제 항목을 입력하면 더 정확한 계산이 됩니다."
         response = (
             f"🧾 연말정산 계산 결과\n"
             f"연봉: {salary:,.0f}원 기준\n"
-            f"최종 세액: {abs(final):,.0f}원 {refund_flag}\n\n"
+            f"간이 계산의 결정세액: {abs(final):,.0f}원\n"
+            f"기납부세액·누락 공제는 미확인입니다. 추가 납부·환급액이 아닙니다.\n\n"
             f"💡 절세 팁:\n{tip_text}\n\n"
             f"※ 의료비·카드·교육비·기부금 등 공제 항목을 알려주시면\n"
             f"  더 정확한 연말정산 계산을 해드립니다."
@@ -1041,23 +1057,26 @@ class LifeFinanceAssistant:
 
     def _handle_check_financial_income_tax(self, context: FinanceContext) -> Dict[str, Any]:
         """금융소득종합과세 판정"""
-        # 금액이 입력되면 이자 소득으로 간주
-        income = context.extracted_amount or 0
+        interest = self._named_tax_amount(context.raw_input, '이자')
+        dividend = self._named_tax_amount(context.raw_input, '배당')
+        if interest is None or dividend is None:
+            return self._tax_input_request(context, '확인한 과세대상 이자·배당을 각각 알려주세요. 없는 항목은 0원이라고 명시해 주세요. 미입력은 0원으로 판정하지 않습니다. 예: 이자 1500만원 배당 800만원 종합과세 확인. 소득 구분·예외·귀속연도는 생활금융 → 세금 계산에서 함께 확인하세요.')
+        income = interest + dividend
         result = tax_svc.check_financial_income_comprehensive_tax(
-            interest_income=income,
-            dividend_income=0,
+            interest_income=interest,
+            dividend_income=dividend,
             annual_salary=0,
         )
-        required = result.get('comprehensive_tax_required', False)
+        required = result['subject_to_comprehensive_tax']
         total = result.get('total_financial_income', income)
         threshold = result.get('threshold', 20_000_000)
-        status = "⚠️ 종합과세 대상입니다." if required else "✅ 종합과세 대상이 아닙니다."
+        status = '입력한 과세대상 소득 합계가 기준을 초과합니다. 신고 요건을 확인하세요.' if required else '입력한 과세대상 소득 합계는 기준을 초과하지 않습니다. 누락·예외·신고 의무는 별도로 확인하세요.'
         response = (
             f"💰 금융소득종합과세 판정\n"
             f"금융소득 합계: {total:,.0f}원\n"
             f"기준: {threshold:,.0f}원 초과 시 종합과세\n"
             f"{status}\n\n"
-            f"이자·배당 금액을 알려주시면 정확한 판정이 됩니다.\n"
+            f"입력한 금액의 참고 판정이며 납세 완료를 뜻하지 않습니다.\n"
             f"예: '이자 1000만원 배당 500만원 종합과세 확인'"
         )
         return {
@@ -1089,33 +1108,11 @@ class LifeFinanceAssistant:
 
     def _handle_compare_tax_accounts(self, context: FinanceContext) -> Dict[str, Any]:
         """ISA / 연금저축 / IRP 절세 효과 비교"""
-        salary = context.extracted_amount or 50_000_000
-        result = tax_svc.compare_tax_saving_accounts(
-            annual_salary=salary,
-            annual_investment=3_000_000,
-        )
-        accounts = result.get('accounts', [])
-        lines = []
-        for acc in accounts[:3]:
-            name = acc.get('name', '')
-            tax_benefit = acc.get('annual_tax_benefit', 0)
-            lines.append(f"  • {name}: 연 절세 {tax_benefit:,.0f}원")
-        best = result.get('best_option', {})
-        best_name = best.get('name', '')
-        response = (
-            f"🏦 절세 계좌 비교 (연봉 {salary/10000:.0f}만원 기준)\n"
-            + "\n".join(lines) + "\n\n"
-            f"✅ 추천: {best_name}\n"
-            f"연봉을 알려주시면 더 정확한 절세 효과를 계산합니다.\n"
-            f"예: '연봉 6000만원 ISA IRP 절세 비교'"
-        )
-        return {
-            'response': response,
-            'intent': context.intent.value,
-            'action_taken': 'compare_tax_accounts',
-            'data': result,
-            'requires_confirmation': False,
-        }
+        return self._tax_input_request(context,
+            'ISA는 요건을 충족한 계좌 수익의 비과세·분리과세, 연금저축·IRP는 납입 세액공제와 수령 시 과세를 함께 검토합니다. '
+            '오래 예탁한다는 이유만으로 일반 예금이 비과세가 되지는 않습니다. '
+            '개인에게 유리한 선택은 총급여·소득 유형·귀속연도, 기존 납입액, 실제 공제 가능한 세액, 자금 사용일·중도인출 조건을 확인해야 합니다. '
+            '생활금융 → 세금 계산 → 절세 계좌 비교에서 금액·기간·수익률 가정을 직접 검토하세요. 임의 연봉·투자액으로 추천하지 않습니다.')
 
     # ========== 금융 이상 탐지 핸들러 ==========
 

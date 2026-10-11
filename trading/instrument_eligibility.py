@@ -132,7 +132,8 @@ def _fetch(owner, venue):
     exchange = getattr(owner, 'exchange', None)
     if exchange is None:
         raise ValueError('instrument_provider_unavailable')
-    markets = exchange.load_markets(reload=True)
+    refresh = getattr(owner, 'load_instrument_catalogue', None)
+    markets = refresh() if callable(refresh) else exchange.load_markets(reload=True)
     if not isinstance(markets, dict):
         raise ValueError('invalid_market_catalogue')
     rows = []
@@ -142,6 +143,22 @@ def _fetch(owner, venue):
             row['_listed_market'] = bool((row.get('info') or {}).get('market'))
         rows.append(row)
     return rows, 'ccxt_reloaded_markets'
+
+
+def _failure_kind(error):
+    """Finite, non-sensitive classification; never publish exception messages."""
+    names = {cls.__name__ for cls in type(error).__mro__}
+    if names & {'RateLimitExceeded', 'DDoSProtection'}:
+        return 'rate_limited'
+    if names & {'AuthenticationError', 'PermissionDenied', 'AccountSuspended'}:
+        return 'authentication'
+    if names & {'Timeout', 'TimeoutError', 'RequestTimeout', 'ConnectTimeout', 'ReadTimeout'}:
+        return 'network_timeout'
+    if names & {'NetworkError', 'ConnectionError', 'ExchangeNotAvailable', 'OSError'}:
+        return 'network_unavailable'
+    if isinstance(error, (ValueError, TypeError, KeyError)):
+        return 'invalid_response'
+    return 'provider_error'
 
 
 def catalogue(owner, venue):
@@ -161,7 +178,15 @@ def catalogue(owner, venue):
             return cached
         checked_at = time.time()
         try:
-            rows, source = _fetch(owner, venue)
+            attempts = 0
+            for attempt in range(2):
+                attempts = attempt + 1
+                try:
+                    rows, source = _fetch(owner, venue)
+                    break
+                except Exception as exc:
+                    if attempt or _failure_kind(exc) not in {'network_timeout', 'network_unavailable', 'rate_limited'}:
+                        raise
             if not rows:
                 raise ValueError('empty_instrument_catalogue')
             checked_at = time.time()
@@ -175,7 +200,8 @@ def catalogue(owner, venue):
                     normalized[key] = dict(row, _status_conflict=True)
                 else:
                     normalized[key] = deepcopy(row)
-            result = dict(rows=normalized, reason='', source=source, checked_at=checked_at)
+            result = dict(rows=normalized, reason='', source=source, checked_at=checked_at,
+                          attempts=attempts, error_kind='')
             ttl = 300 if venue in STOCKS else 60
             # Do not renew a broker's underlying master-cache evidence for a
             # second full TTL merely by wrapping it in this cache.
@@ -190,7 +216,8 @@ def catalogue(owner, venue):
                 ttl = max(0.001, ttl - 0.001)
                 result['checked_at'] = checked_at
         except Exception as exc:
-            result = dict(rows={}, reason='instrument_catalogue_unavailable', source=type(exc).__name__, checked_at=checked_at)
+            result = dict(rows={}, reason='instrument_catalogue_unavailable', source='current_catalogue_failed',
+                          error_kind=_failure_kind(exc), attempts=attempts, checked_at=checked_at)
             ttl = 15
         result.update(expires=time.monotonic() + ttl, identity=identity, contract=CONTRACT)
         owner._instrument_guard_cache[venue] = result

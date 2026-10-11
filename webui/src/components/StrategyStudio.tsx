@@ -146,7 +146,7 @@ type GuidedStartMethod = "" | "noah" | "example" | "import";
 
 type StrategyAuthoringMode = "source_faithful" | "guided_clarification" | "noah_delegate";
 
-export type StrategyAssistantDraft = { id: number; service: "blockchain" | "stock"; text: string };
+export type StrategyAssistantDraft = { id: number; service: "blockchain" | "stock"; text: string; origin?: "question" | "assistant" };
 
 const AUTHORING_MODES: Array<{ value: StrategyAuthoringMode; label: string; description: string }> = [
   {
@@ -527,6 +527,7 @@ export function StrategyStudio({ client, service, source = "", onAskAssistant, o
   const [confirmedSupplement, setConfirmedSupplement] = useState("");
   const [clarificationAnswers, setClarificationAnswers] = useState<Record<string, string>>({});
   const [assistantDraftText, setAssistantDraftText] = useState("");
+  const [assistantDraftOrigin, setAssistantDraftOrigin] = useState<"question" | "assistant">("assistant");
   const assistantDraftIdRef = useRef(0);
   const assistantDraftPanelRef = useRef<HTMLElement>(null);
   const [accountRiskPolicy, setAccountRiskPolicy] = useState({
@@ -563,6 +564,7 @@ export function StrategyStudio({ client, service, source = "", onAskAssistant, o
     assistantDraftIdRef.current = assistantDraft.id;
     setStudioTask("create");
     setAssistantDraftText(assistantDraft.text);
+    setAssistantDraftOrigin(assistantDraft.origin || "assistant");
     setAuthoringMode("guided_clarification");
     setMessage("AI 답변을 검토 영역으로 가져왔습니다. 실행값이 아니므로 내용을 확인·수정한 뒤 보완 근거로 확정하세요.");
     window.requestAnimationFrame(() => assistantDraftPanelRef.current?.scrollIntoView({ behavior: "smooth", block: "center" }));
@@ -1513,7 +1515,7 @@ export function StrategyStudio({ client, service, source = "", onAskAssistant, o
         <div className="legacy-source-path-row"><input value={sourceReferenceInput} onChange={(event) => { setSourceReferenceInput(event.target.value); setSourceFile(null); setSourceReference(""); setSourceSummary(""); setSourceAnalysis(null); setConfirmedSupplement(""); setClarificationAnswers({}); }} placeholder={t("YouTube/TradingView URL 또는 Markdown·PDF·이미지·영상·Pine 파일 경로")} /><label className="legacy-file-picker">{t("파일 선택")}<input type="file" multiple accept=".md,.pdf,.pine,.txt,.csv,.tsv,.xlsx,.docx,image/*,video/*" onChange={(event) => chooseSourceFiles(event.currentTarget)} /></label><label className="legacy-file-picker">{t("폴더 선택")}<input type="file" multiple {...({webkitdirectory:""} as any)} aria-label={t("자료 폴더 선택")} onChange={(event) => chooseSourceFiles(event.currentTarget)} /></label></div>
         <div className="legacy-source-input-label"><b>{t("전략 설명 / Pine Script 직접 입력")}</b><small>{t("예: RSI<30 + EMA200 상단에서 진입, 손절 1%, 익절 2%, 자산 5%")}</small></div>
         <textarea className="source-editor" value={sourceValue} onChange={(event) => { setSourceValue(event.target.value); setSourceFile(null); setSourceReferenceInput(""); setSourceReference(""); setSourceSummary(""); setSourceAnalysis(null); setConfirmedSupplement(""); setClarificationAnswers({}); }} placeholder={t("전략 설명 또는 Pine Script를 붙여 넣으세요. 링크/파일을 선택한 경우 비워도 됩니다.")} />
-        {assistantDraftText && <section className="strategy-assistant-draft" ref={assistantDraftPanelRef} aria-live="polite"><header><div><b>{t("AI 답변 검토 · 아직 전략에 적용되지 않음")}</b><span>{t("복사·붙여넣기 없이 가져왔습니다. 틀린 내용이나 AI가 추측한 조건을 지우고, 자신의 전략 기준만 남기세요.")}</span></div></header><textarea value={assistantDraftText} onChange={(event) => setAssistantDraftText(event.target.value)} /><footer><button type="button" onClick={() => { setAssistantDraftText(""); onAssistantDraftConsumed?.(); setMessage("AI 답변 초안을 버렸습니다. 기존 전략 입력과 분석은 유지했습니다."); }}>{t("사용하지 않기")}</button><button className="primary-button" type="button" disabled={busy || !assistantDraftText.trim()} onClick={() => void applyAssistantDraft()}>{t("사용자 보완 근거로 확정·재분석")}</button></footer><small>{t("확정해도 저장·승인·PAPER·LIVE는 자동 실행되지 않습니다. 진입·청산·TP/SL 등은 결정형 컴파일러가 원문 근거를 다시 검사합니다.")}</small></section>}
+        {assistantDraftText && <section className="strategy-assistant-draft" ref={assistantDraftPanelRef} aria-live="polite"><header><div><b>{t(assistantDraftOrigin === "question" ? "질문 검토 · 아직 전략에 적용되지 않음" : "AI 답변 검토 · 아직 전략에 적용되지 않음")}</b><span>{t(assistantDraftOrigin === "question" ? "금융비서의 질문을 가져왔습니다. 진입·청산·위험 조건을 구체적으로 보완한 뒤 검토하세요." : "복사·붙여넣기 없이 가져왔습니다. 틀린 내용이나 AI가 추측한 조건을 지우고, 자신의 전략 기준만 남기세요.")}</span></div></header><textarea value={assistantDraftText} onChange={(event) => setAssistantDraftText(event.target.value)} /><footer><button type="button" onClick={() => { setAssistantDraftText(""); onAssistantDraftConsumed?.(); setMessage("AI 답변 초안을 버렸습니다. 기존 전략 입력과 분석은 유지했습니다."); }}>{t("사용하지 않기")}</button><button className="primary-button" type="button" disabled={busy || !assistantDraftText.trim()} onClick={() => void applyAssistantDraft()}>{t("사용자 보완 근거로 확정·재분석")}</button></footer><small>{t("확정해도 저장·승인·PAPER·LIVE는 자동 실행되지 않습니다. 진입·청산·TP/SL 등은 결정형 컴파일러가 원문 근거를 다시 검사합니다.")}</small></section>}
         {confirmedSupplement && <details className="strategy-confirmed-supplement" open><summary>{t("사용자가 확인한 보완 답변 · 원본과 별도 보관")}</summary><textarea value={confirmedSupplement} onChange={(event) => { setConfirmedSupplement(event.target.value); setSourceAnalysis(null); setDraftValidationIssues([]); }} /><div><span>{t("AI가 만든 실행값이 아닙니다. 파일·Pine·PDF 원본은 덮어쓰지 않으며, 변경 후 다시 분석해야 합니다.")}</span><button type="button" onClick={() => { setConfirmedSupplement(""); setSourceAnalysis(null); setClarificationAnswers({}); setMessage("사용자 확인 보완 답변을 비웠습니다. 원본 전략은 변경하지 않았습니다."); }}>{t("보완 답변 비우기")}</button></div></details>}
         <small className="legacy-analysis-limit">{t("분석 범위: PDF 앞 100쪽·AI 입력 60,000자 / 자막 있는 YouTube는 공개 자막 우선·대표 장면 최대 9개 / 무자막 음성 전사는 기본 최대 45분이면서 24MB 이하(API 사용량 발생 가능) / 보호된 TradingView는 본인 Pine 필요")}</small>
         {featureViewLevel === 1 && <div className="inline-notice">{t("초보자 권장값을 사용합니다: NoahAI 국면 판단 · 기본 AI 후보 확인 · 스마트 청산 상속 · 표준 위험정책. 세부 범위와 숫자를 직접 바꾸려면 설정에서 일반(Level 2) 이상을 선택하세요.")}</div>}

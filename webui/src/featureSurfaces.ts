@@ -10,6 +10,7 @@ export type FeatureSurface =
   | "financial_intelligence"
   | "alpha_arena"
   | "source_workspace"
+  | "wealth"
   | "portfolio"
   | "life_basic"
   | "life_advanced"
@@ -41,6 +42,7 @@ export const FEATURE_SURFACES: Record<string, FeatureSurface> = {
   "stock.financial_intelligence": "financial_intelligence",
   "stock.source_workspaces": "source_workspace",
   "portfolio.insights": "portfolio",
+  "portfolio.plan": "wealth",
   "portfolio.allocation": "portfolio",
   "portfolio.risk": "portfolio",
   "portfolio.performance": "portfolio",

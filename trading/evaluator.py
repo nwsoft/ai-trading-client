@@ -1356,15 +1356,24 @@ class Evaluator:
 
     def _record_candidate_failure(self, exchange_name, reason, **counts):
         self.candidate_failure_by_exchange[exchange_name] = reason
+        diagnostics = getattr(self, 'candidate_diagnostics_by_exchange', None)
+        if not isinstance(diagnostics, dict):
+            diagnostics = self.candidate_diagnostics_by_exchange = {}
+        diagnostics[exchange_name] = {'reason': reason, 'observed_at': time.time(),
+            **{k: v for k, v in counts.items() if k in {'error_kind', 'attempts', 'retry_after_seconds'}}}
         # The standard evaluator logger was absent from customer venue/audit
         # exports. Persist only classifier + counts, never ticker/account data.
         safe_counts = {key: max(0, int(value)) for key, value in counts.items()
                        if key in {'market_count', 'candidate_count', 'valid_ticker_count', 'passed_count'}}
         try:
             from log_system.log_adapter import log_event
-            log_event('system', f'후보 선정 보류 · {reason} · {safe_counts}',
+            diagnostic_fields = {k: v for k, v in diagnostics[exchange_name].items()
+                                 if k in {'error_kind', 'attempts', 'retry_after_seconds'}}
+            log_event('system', f'후보 선정 보류 · {reason} · {safe_counts}' +
+                      (f' · {diagnostic_fields}' if diagnostic_fields else ''),
                       exchange=exchange_name, level='WARNING',
-                      details={'reason_code': reason, 'failure_stage': 'candidate_selection', **safe_counts})
+                      details={'reason_code': reason, 'failure_stage': 'candidate_selection', **safe_counts,
+                               **diagnostic_fields})
         except Exception:
             pass  # Diagnostic storage failure never authorizes entry.
 
@@ -1423,9 +1432,12 @@ class Evaluator:
                 self.logger.warning("CCXT 어댑터 markets 정보 없음")
                 return []
             from trading.instrument_eligibility import catalogue, eligibility
-            markets = {row['symbol']: row for row in catalogue(exchange_client, exchange_name)['rows'].values()}
+            current_catalogue = catalogue(exchange_client, exchange_name)
+            markets = {row['symbol']: row for row in current_catalogue['rows'].values()}
             if not markets:
-                self._record_candidate_failure(exchange_name, 'trading_candidate_catalogue_unavailable')
+                self._record_candidate_failure(exchange_name, 'trading_candidate_catalogue_unavailable',
+                    error_kind=current_catalogue.get('error_kind', 'provider_error'),
+                    attempts=current_catalogue.get('attempts', 0), retry_after_seconds=15)
                 self.logger.warning("마켓 정보를 가져올 수 없음")
                 return []
 
@@ -1536,6 +1548,7 @@ class Evaluator:
                     continue
 
             self.logger.info(f"✅ CCXT 선물 코인 분석 완료: {len(valid_coins)}개 → 상위 {target_count}개 반환")
+            getattr(self, 'candidate_diagnostics_by_exchange', {}).pop(exchange_name, None)
             self.logger.info(f"⏱️ CCXT 선물 분석 소요시간: {(time.perf_counter()-_t_total_start):.2f}s")
             return valid_coins
         except Exception as e:

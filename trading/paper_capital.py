@@ -138,9 +138,32 @@ def remember_capital(owner, *, venue, mode, funds):
     if not isinstance(state, dict):
         state = owner._last_capital_evidence = {}
     key = (canonical_venue(venue), str(getattr(mode, 'value', mode)).lower())
+    previous = state.get(key, {})
+    same = (previous.get('capital_basis'), previous.get('reason')) == (funds.get('capital_basis'), funds.get('reason'))
     state[key] = {field: funds.get(field) for field in ('available_capital', 'capital_basis',
         'quote_currency', 'initial_capital', 'realized_net_pnl', 'open_margin', 'reason',
         'paper_session_id', 'paper_session_started_at', 'paper_session_basis', 'historical_pnl_restored')}
     state[key]['observed_at'] = time.time()
+    state[key]['since'] = previous.get('since', state[key]['observed_at']) if same else state[key]['observed_at']
     while len(state) > 33:
         state.pop(next(iter(state)))
+
+
+def observe_paper_capital(owner, *, venue, positions, interval=30):
+    """Diagnose funds before a signal passes; polling the UI performs no I/O.
+
+    In particular a confidence/HOLD gate must not hide the legacy-wallet issue
+    and its explicit new-evaluation action indefinitely. Never starts a session.
+    """
+    import time
+    path = getattr(getattr(owner, 'recorder', None), 'db_path', None)
+    if not isinstance(path, (str, Path)) or not str(path):
+        return
+    previous = (getattr(owner, '_last_capital_evidence', {}) or {}).get((venue, 'paper'), {})
+    if time.time() - float(previous.get('observed_at') or 0) < interval:
+        return
+    from .position_sizing_policy import normalize_position_sizing_policy
+    quote = 'KRW' if venue in {'upbit', 'bithumb', 'coinone'} else 'USDT'
+    initial = normalize_position_sizing_policy(getattr(owner, 'settings', {}) or {}, quote_currency=quote)['paper_equity']
+    funds = paper_funds_for(owner, initial, positions, venue=venue, quote=quote)
+    remember_capital(owner, venue=venue, mode='paper', funds=funds)

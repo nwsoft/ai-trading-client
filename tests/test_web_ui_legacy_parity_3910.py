@@ -17,7 +17,7 @@ def _legacy_service_tab_order(service: str) -> list[str]:
 
 
 def test_web_service_information_architecture_exactly_matches_legacy_policy() -> None:
-    from config.product_ui_contract import WEB_FEATURE_LABEL_OVERRIDES
+    from config.product_ui_contract import WEB_FEATURE_LABEL_OVERRIDES, WEB_ADDITIONAL_FEATURES
     payload = json.loads((ROOT / "config" / "web_ui_feature_inventory.json").read_text(encoding="utf-8"))
     services = {service["id"]: service for service in payload["services"]}
 
@@ -38,7 +38,10 @@ def test_web_service_information_architecture_exactly_matches_legacy_policy() ->
             if not feature["id"].endswith("source_workspaces")
         ]
         aliases = WEB_FEATURE_LABEL_OVERRIDES.get(web_service, {})
-        assert labels == [aliases.get(label, label) for label in _legacy_service_tab_order(legacy_service)], (web_service, labels)
+        expected = [aliases.get(label, label) for label in _legacy_service_tab_order(legacy_service)]
+        for _id, label, position in WEB_ADDITIONAL_FEATURES.get(web_service, ()):
+            expected.insert(position, label)
+        assert labels == expected, (web_service, labels)
         if web_service in {'blockchain', 'stock'}:
             assert aliases == {'실시간 거래 로그': '거래 현황'}
             assert services[web_service]['features'][0]['id'] == f'{web_service}.logs'
@@ -436,7 +439,7 @@ def test_complete_parity_source_auditor_covers_all_five_services() -> None:
     assert errors == []
     assert summary == {
         "services": 5,
-        "top_level_features": 35,
+        "top_level_features": 36,
         "institution_sources": 11,
         "life_finance_inner_routes": 7,
         "settings_sections": 9,

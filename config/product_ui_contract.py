@@ -76,6 +76,8 @@ SERVICE_FEATURE_LABELS = {
 # Approved Web renderer evolution: the existing .logs route now contains an
 # overview and the unchanged detailed-log view. Legacy CTk tab identifiers are
 # still used by widget lookup and must not be renamed as a side effect.
+WEB_ADDITIONAL_FEATURES = {"portfolio": (("portfolio.plan", "내 돈 계획", 1),)}
+
 WEB_FEATURE_LABEL_OVERRIDES = {
     "blockchain": {"실시간 거래 로그": "거래 현황"},
     "stock": {"실시간 거래 로그": "거래 현황"},
@@ -84,7 +86,10 @@ WEB_FEATURE_LABEL_OVERRIDES = {
 
 def web_feature_labels(service: str) -> tuple[str, ...]:
     aliases = WEB_FEATURE_LABEL_OVERRIDES.get(service, {})
-    return tuple(aliases.get(label, label) for label in SERVICE_FEATURE_LABELS[service])
+    labels = tuple(aliases.get(label, label) for label in SERVICE_FEATURE_LABELS[service])
+    for _id, label, position in WEB_ADDITIONAL_FEATURES.get(service, ()):
+        labels = labels[:position] + (label,) + labels[position:]
+    return labels
 
 
 SETTINGS_SECTION_LABELS = (

@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Annotated, Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
 CONTRACT_SCHEMA_VERSION = "1.0.0"
@@ -269,6 +269,35 @@ class AssistantQueryContract(StrictContract):
     strategy_preferences: dict[str, Annotated[str, Field(max_length=500)]] = Field(default_factory=dict, max_length=6)
 
 
+class CompanionQueryContract(StrictContract):
+    question: str = Field(min_length=2, max_length=2000)
+    service: Literal['blockchain', 'stock', 'portfolio', 'personal_finance', 'ai_analyst'] = 'blockchain'
+
+
+class CompanionAllocationRowContract(StrictContract):
+    symbol: str = Field(min_length=1, max_length=40, pattern=r'^[A-Za-z0-9._:/-]+$')
+    before: float = Field(ge=0, le=100, allow_inf_nan=False, strict=True)
+    after: float = Field(ge=0, le=100, allow_inf_nan=False, strict=True)
+
+
+class CompanionAllocationContract(StrictContract):
+    currency: Literal['KRW', 'USD', 'USDT', 'EUR', 'JPY']
+    rows: list[CompanionAllocationRowContract] = Field(min_length=1, max_length=20)
+    total_value: float | None = Field(default=None, gt=0, le=1e15, allow_inf_nan=False, strict=True)
+    fee_bps: float | None = Field(default=None, ge=0, le=10000, allow_inf_nan=False, strict=True)
+
+
+class CompanionExperimentRefContract(StrictContract):
+    scope: Literal['binance', 'unified']
+    strategy_key: str = Field(min_length=1, max_length=160)
+    version_id: str = Field(min_length=1, max_length=200)
+
+
+class CompanionExperimentCompareContract(StrictContract):
+    baseline: CompanionExperimentRefContract
+    candidate: CompanionExperimentRefContract
+
+
 class RuntimeCommandContract(StrictContract):
     command_id: str = Field(min_length=16, max_length=80)
     command: Literal["trading.start", "trading.stop", "trading.recovery.cancel", "coins.select", "coins.analyze", "stocks.analyze", "trades.import"]
@@ -351,6 +380,19 @@ class TaxCalculationContract(StrictContract):
     investment_years: int = Field(default=5, ge=1, le=100)
     expected_return_rate: float = Field(default=0.05, ge=0, le=1)
     isa_type: Literal["general", "preferential"] = "general"
+
+    @model_validator(mode='after')
+    def require_explicit_tax_basis(self):
+        required = {
+            'year_end': {'annual_salary'},
+            'financial_income': {'interest_income', 'dividend_income'},
+            'saving_accounts': {'annual_salary', 'annual_investment', 'investment_years', 'expected_return_rate', 'isa_type'},
+            'optimization': {'annual_salary', 'pension_savings', 'irp_contribution'},
+            'investment': set(),
+        }[self.calculation]
+        if required - self.model_fields_set:
+            raise ValueError('tax_basis_missing: ' + ', '.join(sorted(required - self.model_fields_set)))
+        return self
 
 
 class AlphaArenaCommandContract(StrictContract):

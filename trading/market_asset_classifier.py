@@ -12,7 +12,7 @@ KNOWN_TOKENIZED_NON_CRYPTO_BASES = frozenset({
     "AAOI", "AAPL", "AMZN", "BABA", "BILL", "CL", "COIN", "CRCL", "EPIC",
     "EWY", "GOOG", "GOOGL", "IBM", "INTC", "LAB", "META", "MSFT", "MSTR",
     "MU", "MUU", "NVDA", "SAMSUNG", "SKHYNIX", "SNDK", "SKHY", "SPCX",
-    "TSLA", "TSEM",
+    "TSLA", "TSEM", "NATGAS", "XAG", "XAU",
 })
 
 _NON_CRYPTO_MARKET_TERMS = (
@@ -62,6 +62,12 @@ def is_crypto_derivative_candidate(
     excluded = {str(value or "").upper().strip() for value in configured_exclusions}
     if not base or base in KNOWN_TOKENIZED_NON_CRYPTO_BASES or base in excluded:
         return False
+
+    # Bitget's productType remains USDT-FUTURES for tokenized stocks and
+    # commodities; symbolType='perpetual' does not establish a crypto asset.
+    for metadata in (market, market.get('info')):
+        if isinstance(metadata, dict) and str(metadata.get('isRwa', '')).strip().lower() in {'yes', 'true', '1'}:
+            return False
 
     for text in _metadata_texts(market):
         normalized = text.replace("_", " ").replace("-", " ")

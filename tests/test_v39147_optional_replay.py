@@ -130,7 +130,11 @@ def test_real_service_zero_signal_replay_to_paper_all_venues(tmp_path, monkeypat
         cost_overrides={'buy_fee_rate':.000123,'sell_fee_rate':0} if dated else None,
         **({"range_start_ms":1700000000000+100*step, "range_end_ms":1700000000000+240*step, "holding_bars":20} if dated else {}))
     evidence = result["execution_validation"]
+    basis=evidence['metrics']['comparison_basis']
+    assert basis['source']==source and basis['symbol']==symbol and basis['interval']==interval
+    assert len(basis['input_sha256'])==64 and basis['equity_basis']=='normalized_1.0'
     profile=evidence['metrics']['cost_profile']
+    assert basis['costs']==profile
     assert profile['venue']==source
     assert profile['account_verified'] is False
     if dated:

@@ -594,6 +594,15 @@ class InsuranceWorkspace:
             self._arm_timeout()
             return self.snapshot()
 
+    def peek_finance_reviews(self, catalog, *, at=None):
+        """Read reminder metadata without unlocking, extending TTL or seeding a catalog."""
+        from trading.finance_followup import review_saved_plans
+        with self._mutex:
+            if self._cipher is None or self._data is None or time.monotonic() >= self._expires_at:
+                return {"state": "locked", "reviews": []}
+            plans = copy.deepcopy(list(self._data.get("finance_plans", {}).values()))[:50]
+            return {"state": "unlocked", "reviews": review_saved_plans(plans, catalog, at=at)}
+
     def finance_plan(self, operation="list", scenario=None, plan_id=None, reminder_date=None, reminder_kind="review"):
         """Personal scenarios use the existing account-bound encrypted vault."""
         from trading.finance_product_intelligence import ProductCatalog, compare_scenario
@@ -650,8 +659,12 @@ class InsuranceWorkspace:
         except (ValueError, KeyError, TypeError):
             raise InsuranceError("finance_handoff_invalid_or_unavailable") from None
 
+    def wealth_plan(self, operation="list", **kwargs):
+        from trading.wealth_planning import dispatch
+        return dispatch(self, operation, **kwargs)
+
     def dispatch(self, action, payload):
-        routes = {"finance_profile": self.finance_profile, "finance_handoff": self.finance_handoff, "finance_plan": self.finance_plan, "unlock": self.unlock, "lock": self.lock, "summary": self.summary, "save_policy": self.save_policy,
+        routes = {"wealth_plan": self.wealth_plan, "finance_profile": self.finance_profile, "finance_handoff": self.finance_handoff, "finance_plan": self.finance_plan, "unlock": self.unlock, "lock": self.lock, "summary": self.summary, "save_policy": self.save_policy,
                   "delete": self.delete, "import_document": self.import_document, "cancel": self.cancel,
                   "document": self.document, "suggest_fields": self.suggest_fields, "compare": self.compare, "report": self.report,
                   "backup": self.backup, "restore": self.restore}

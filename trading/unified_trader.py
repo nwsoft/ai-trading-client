@@ -29,6 +29,7 @@ from dataclasses import dataclass
 from enum import Enum
 
 from .trader import Position, PositionSide, TradeSignal
+from .entry_diagnostics import monitored_cycle
 from .market_observation import track_market_observation, observation_problem
 from .analyzer import Analyzer
 from .optimizer import Optimizer
@@ -1059,6 +1060,8 @@ class UnifiedTrader:
         execution_mode = self._execution_mode(venue).value if hasattr(self, 'settings') else 'unknown'
         from trading.event_contract import runtime_decision
         snapshot = runtime_decision(venue,str(symbol or ''),str(status or 'unknown'),str(reason or ''),execution_mode,**extra)
+        from trading.entry_diagnostics import record_entry
+        record_entry(self, venue, status, reason, mode=execution_mode, symbol=symbol)
         if not isinstance(getattr(self, 'last_trade_decisions', None), dict):
             self.last_trade_decisions = {}
         self.last_trade_decisions.setdefault(venue, {})[str(symbol or '')] = snapshot
@@ -1936,6 +1939,7 @@ class UnifiedTrader:
             self.logger.error(f"❌ {exchange_name} 코인 분석 실패: {e}")
             return {}
 
+    @monitored_cycle()
     def execute_trading_cycle_unified(self, exchange_name: str):
         """거래소별 거래 사이클 실행 (바이낸스와 동일한 로직)"""
         try:
@@ -1960,6 +1964,10 @@ class UnifiedTrader:
             # 신규 후보가 없거나 상장 상태 조회가 실패해도 기존 포지션의
             # 체결 대조·보호·청산 점검은 매 사이클 한 번 유지한다.
             self._monitor_exchange_positions(exchange_name)
+            if execution_mode == ExecutionMode.PAPER:
+                from trading.paper_capital import observe_paper_capital
+                observe_paper_capital(self, venue=exchange_name,
+                    positions=(getattr(self, 'paper_positions', {}) or {}).get(exchange_name, {}))
             refresh_exposure(self, venue=exchange_name, mode=execution_mode,
                 policy=(self.settings.get('multi_venue_execution') or {}).get('portfolio_exposure'))
 
@@ -2684,6 +2692,9 @@ class UnifiedTrader:
 
                 dynamic_threshold = self._calculate_dynamic_confidence_threshold_unified(exchange_name, symbol, analysis)
                 if confidence < dynamic_threshold:
+                    from trading.operation_evidence import publish
+                    publish(self, exchange_name, 'pre_entry', symbol=symbol, allowed=False,
+                            confidence=confidence, required_confidence=dynamic_threshold)
                     return {'status': 'skipped', 'reason': f'동적 신뢰도 부족: {confidence:.2f} < {dynamic_threshold:.2f}'}
 
             # 리스크 분석 로그 (verbose)
@@ -5895,6 +5906,10 @@ class UnifiedTrader:
             # Resolve mode before starting a worker: a mode error must not
             # leave a running worker behind a refused-start response.
             execution_mode = self._execution_mode(exchange_name)
+            if execution_mode == ExecutionMode.PAPER:
+                from trading.paper_capital import observe_paper_capital
+                observe_paper_capital(self, venue=exchange_name,
+                    positions=(getattr(self, 'paper_positions', {}) or {}).get(exchange_name, {}))
             mode_label = {
                 ExecutionMode.LIVE: "실거래",
                 ExecutionMode.PAPER: "페이퍼",
@@ -6497,8 +6512,10 @@ Response in JSON format:
             except Exception:
                 pass
 
+            history_observed = not pattern_analysis.get('used_defaults') and pattern_analysis.get('recent_trades', 0) > 0
+            loss_passed = not history_observed or pattern_analysis['loss_rate'] < dynamic_thresholds['max_loss_rate']
             proceed = (
-                pattern_analysis['loss_rate'] < dynamic_thresholds['max_loss_rate'] and
+                loss_passed and
                 pattern_analysis['recent_trades'] >= dynamic_thresholds['min_trades_history'] and
                 market_conditions['volatility_suitable'] and
                 ai_validation['confidence'] >= dynamic_thresholds['min_ai_confidence']
@@ -6509,12 +6526,12 @@ Response in JSON format:
                 # 거래 이력이 실제 요구 조건보다 부족할 때만 cold-start 차단으로 안내한다.
                 if pattern_analysis['recent_trades'] < dynamic_thresholds['min_trades_history']:
                     reason = f"거래 이력 부족 ({pattern_analysis['recent_trades']}회)"
-                elif pattern_analysis['loss_rate'] >= 50.0:
-                    reason = f"높은 손실률 ({pattern_analysis['loss_rate']:.1f}%)"
+                elif not loss_passed:
+                    reason = f"높은 손실률 ({pattern_analysis['loss_rate']:.1f}% >= {dynamic_thresholds['max_loss_rate']:.1f}%)"
                 elif not market_conditions['volatility_suitable']:
                     reason = "변동성 부적절"
                 else:
-                    reason = f"AI 신뢰도 부족 ({ai_validation['confidence']:.1f})"
+                    reason = f"AI 신뢰도 부족 ({ai_validation['confidence']:.2f} < {dynamic_thresholds['min_ai_confidence']:.2f})"
 
             self.logger.info(f"[{exchange_name}] [{symbol}] 진입 전 분석 결과:")
             self.logger.info(f"  - 최근 손실률: {pattern_analysis['loss_rate']:.1f}%")
@@ -6534,6 +6551,10 @@ Response in JSON format:
             except Exception:
                 pass
 
+            from trading.entry_diagnostics import record_pre_entry
+            record_pre_entry(self, exchange_name, symbol=symbol, proceed=proceed,
+                confidence=ai_validation['confidence'], threshold=dynamic_thresholds['min_ai_confidence'],
+                pattern=pattern_analysis, limits=dynamic_thresholds)
             return {
                 'proceed': proceed,
                 'reason': reason,

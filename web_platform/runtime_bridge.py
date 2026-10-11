@@ -577,7 +577,7 @@ scoped_pool(list(getattr(app, "active_custom_strategy_pool", []) or []), asset_c
         mode = (resolve_crypto_execution_mode(settings, source).value if source in CRYPTO_SOURCES
                 else ('paper' if settings.get('paper_trading', True) else 'live'))
         if self._app is None:
-            return snapshot(None, source, 'unknown')
+            return {**snapshot(None, source, 'unknown'), 'runtime_state': 'engine_inactive'}
         owner = self._evidence_owner(source)
         if source in STOCK_SOURCES and owner is not None:
             from trading.operation_evidence import mode_for
@@ -610,6 +610,10 @@ scoped_pool(list(getattr(app, "active_custom_strategy_pool", []) or []), asset_c
         if source in CRYPTO_SOURCES:
             evaluator = getattr(owner, 'evaluator', None) or getattr(self._app, 'evaluator', None)
             selection = (getattr(evaluator, 'last_selection_evidence_by_exchange', {}) or {}).get(source)
+            failure = (getattr(evaluator, 'candidate_diagnostics_by_exchange', {}) or {}).get(source)
+            if isinstance(failure, dict):
+                result['selection_failure'] = {key: failure.get(key) for key in
+                    ('reason', 'observed_at', 'error_kind', 'attempts', 'retry_after_seconds')}
         else:
             selection = getattr(getattr(owner, 'adapter', None), 'last_selection_evidence', None)
         if isinstance(selection, dict) and _public_source(selection.get('source')) == source:
@@ -629,6 +633,9 @@ scoped_pool(list(getattr(app, "active_custom_strategy_pool", []) or []), asset_c
             result['paper_pool'] = paper_pool_status(
                 getattr(self._app, 'active_custom_strategy_pool', []) or [],
                 asset_class='stock' if source in STOCK_SOURCES else 'crypto', target=source)
+        from trading.entry_diagnostics import entry_health, entry_activity
+        result['entry_health'] = entry_health(result)
+        result['entry_activity'] = entry_activity(result, running=source in self._running(self._app))
         return result
 
     def paper_position_snapshot(self, *, service: str, source: str) -> dict[str, Any]:

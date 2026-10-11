@@ -274,9 +274,11 @@ class TestTaxSavingAccountComparison:
         )
         assert set(result['scenarios'].keys()) == {'ISA', '연금저축', 'IRP'}
 
-    def test_best_scenario_in_result(self):
+    def test_incomparable_benefits_do_not_choose_personal_best(self):
         result = compare_tax_saving_accounts(50_000_000, 9_000_000, 5, 0.04)
-        assert result['best_scenario'] in {'ISA', '연금저축', 'IRP'}
+        assert result['best_scenario'] is None
+        assert result['best_total_benefit'] is None
+        assert result['unknowns']
 
     def test_high_earner_lower_credit_rate(self):
         result = compare_tax_saving_accounts(60_000_000, 6_000_000, 3, 0.04)

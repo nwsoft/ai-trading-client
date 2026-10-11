@@ -7,6 +7,10 @@ function timeLabel(value: unknown) {
   return Number.isFinite(n) && n > 0 ? new Date(n < 1e11 ? n * 1000 : n).toLocaleString() : '기록 없음';
 }
 
+function numberLabel(value: unknown, digits: number) {
+  return typeof value === 'number' && Number.isFinite(value) ? value.toFixed(digits) : '미기록';
+}
+
 export function OperationSummary({ data, source, mode, running, failed, onOpenFeature, onAskAssistant, onCancelRecovery, onNewPaperSession }: {
   data: WorkspaceSnapshot['operation_summary']; source: string; mode: string; running: boolean; failed: boolean;
   onOpenFeature?:(suffix:string)=>void; onAskAssistant?:(question:string)=>void;
@@ -29,6 +33,26 @@ export function OperationSummary({ data, source, mode, running, failed, onOpenFe
   return <section className="operation-summary" aria-label="운용 요약">
     <h3>{source.toUpperCase()} · {mode.toUpperCase()} 운용 요약</h3>
     <p role="status">{!running ? '현재 정지 · 아래는 마지막 관찰 기록입니다.' : failed ? '화면 갱신 실패 · 아래 기록은 최신 상태를 보장하지 않습니다.' : '실행 엔진이 기록한 최근 근거입니다. 새 AI 분석을 실행하지 않습니다.'}</p>
+    {scoped?.entry_activity && <article role="status" className="entry-activity"><h4>장시간 무거래 감시</h4>
+      <strong>{scoped.entry_activity.label}</strong><p>{scoped.entry_activity.action}</p>
+      <p>현재 실행 세션 관찰 시작 {timeLabel(scoped.entry_activity.observed_since)} · 최근 주기 {timeLabel(scoped.entry_activity.last_cycle_at)}</p>
+      <p>신규 주문 처리 기록 없이 관찰한 시간: {typeof scoped.entry_activity.no_entry_seconds==='number'?`${Math.floor(scoped.entry_activity.no_entry_seconds/60)}분`:'미확인'} · 종료한 실행 주기 {scoped.entry_activity.returned_cycles}회</p>
+      {!!scoped.entry_activity.recent_reasons.length&&<ul>{scoped.entry_activity.recent_reasons.map(row=><li key={row.code}>{row.label}: {row.count}회</li>)}</ul>}
+      <small>현재 실행 세션의 최근 판단 최대 {scoped.entry_activity.reason_window}건입니다. 주문 처리 기록은 체결 확인과 다르며 재시작 이전 거래 이력은 포함하지 않습니다.</small>
+    </article>}
+    {scoped?.entry_health && <article role="status" className="entry-health"><h4>거래가 실행되지 않는 이유</h4>
+      <strong>{scoped.entry_health.label}</strong><p>{scoped.entry_health.action}</p>
+      <small>관찰 {timeLabel(scoped.entry_health.observed_at)}{old(scoped.entry_health)?' · 이전 근거':''}</small>
+      {scoped.entry_health.since && <p>같은 상태 관찰 시작 {timeLabel(scoped.entry_health.since)}{scoped.entry_health.consecutive_count?` · 연속 판단 ${scoped.entry_health.consecutive_count}회`:''}</p>}
+      <p>이 실행 세션의 최근 주문 처리 기록: {timeLabel(scoped.entry_health.last_entry_at)}. 기록 없음은 전체 기간 거래 0건을 뜻하지 않습니다.</p>
+      {onOpenFeature&&<button onClick={()=>onOpenFeature('maintenance')}>유지관리 · 거래 기록 점검</button>}
+    </article>}
+    {scoped?.selection_failure && <article role="status"><h4>종목 선정 보류</h4><p>{String(scoped.selection_failure.reason)}</p>
+      <p>조회 원인: {({network_timeout:'공개 목록 응답 시간 초과',network_unavailable:'공개 목록 연결 실패',rate_limited:'조회 요청 제한',authentication:'조회 경로 인증 실패',invalid_response:'종목 목록 응답 형식 확인 필요',provider_error:'목록 제공 오류'} as Record<string,string>)[String(scoped.selection_failure.error_kind)]||'세부 근거 미기록'} · 시도 {scoped.selection_failure.attempts??'미기록'}회</p>
+      <p>연결을 확인하세요. 실행 중인 엔진은 다음 종목 선정 주기에 재조회하며, 시작 실패로 정지했다면 확인 후 시작을 다시 누르세요. 과거 목록으로 주문하지 않습니다.</p><small>{timeLabel(scoped.selection_failure.observed_at)}</small>
+    </article>}
+    {scoped?.pre_entry && <article><h4>실제 진입 기준 비교</h4><p>{String(scoped.pre_entry.symbol)} · 신뢰도 {numberLabel(scoped.pre_entry.confidence,2)} / 필요 {numberLabel(scoped.pre_entry.required_confidence,2)}</p>
+      <p>{scoped.pre_entry.history_observed?`완료 거래 손실률 ${numberLabel(scoped.pre_entry.loss_rate,1)}% / 상한 ${numberLabel(scoped.pre_entry.max_loss_rate,1)}%`:'완료 거래 성과 표본 미확인 · 기본 손실률을 실측값으로 표시하지 않습니다.'}</p><small>{timeLabel(scoped.pre_entry.observed_at)}</small></article>}
     <div className="operation-evidence-grid"><article><h4>시장국면 관찰</h4>
       <div className="operations-regime-pair"><span>관찰 <b>{regimeText(regime?.observed)}</b></span><span>확정 <b>{regimeText(regime?.confirmed)}</b></span></div>
       {regime ? <><small>{timeLabel(regime.observed_at)}{old(regime) ? ' · 오래된/불확실 근거 — 현재 국면으로 단정하지 마세요.' : ''}</small><p>{String(regime.basis ?? '엔진 국면 판정')} · 후보 판단과 관찰 시각이 다를 수 있습니다.</p></> : <p>해당 기관·모드의 국면 관찰 근거가 아직 없습니다.</p>}

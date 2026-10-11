@@ -176,7 +176,7 @@ class UpbitSpotAdapter(SpotExchange):
                 if wait_for > 0:
                     time.sleep(wait_for)
                 self._last_ticker_request_monotonic = time.monotonic()
-                ticker = self.exchange.fetch_ticker(sym)  # type: ignore
+                ticker = self._fetch_spot_ticker(sym)
                 if not ticker:
                     self.log_event('system', f"업비트 티커 데이터 없음: {sym}", level='WARNING')
                     return cached[1] if cached and now - cached[0] <= 15.0 else 0.0
@@ -207,6 +207,49 @@ class UpbitSpotAdapter(SpotExchange):
             self.log_event('system', f"현재가 조회 실패 ({symbol}): {e}", level='ERROR')
             cached = self._ticker_cache.get(sym)
             return cached[1] if cached and now - cached[0] <= 15.0 else 0.0
+
+    def get_24h_tickers(self, symbols=None) -> Dict[str, Any]:
+        """Parse public KRW quotes with explicit spot metadata, even with duplicate IDs."""
+        exchange = self.exchange
+        if not self.is_connected or exchange is None:
+            return {}
+        exchange.load_markets()
+        selected = list(symbols) if symbols is not None else [
+            row['symbol'] for row in exchange.markets.values()
+            if row.get('spot') is True and row.get('quote') == 'KRW']
+        markets = {}
+        for symbol in dict.fromkeys(selected):
+            row = exchange.market(self._normalize_upbit_symbol(symbol))
+            if row.get('type') != 'spot' or row.get('quote') != 'KRW' or not row.get('id'):
+                raise ValueError('upbit_spot_market_required')
+            markets[row['id']] = row
+        result = {}
+        ids = list(markets)
+        for offset in range(0, len(ids), 100):
+            batch = ids[offset:offset+100]
+            with self._ticker_lock:
+                wait = .12 - (time.monotonic() - self._last_ticker_request_monotonic)
+                if wait > 0:
+                    time.sleep(wait)
+                self._last_ticker_request_monotonic = time.monotonic()
+                rows = exchange.publicGetTicker({'markets': ','.join(batch)})
+            if not isinstance(rows, list):
+                raise ValueError('invalid_upbit_ticker_response')
+            for raw in rows:
+                if not isinstance(raw, dict) or raw.get('market') not in batch:
+                    raise ValueError('upbit_ticker_identity_mismatch')
+                market = markets[raw['market']]
+                result[market['symbol']] = exchange.parse_ticker(raw, market)
+        return result
+
+    def _fetch_spot_ticker(self, symbol):
+        import ccxt
+        try:
+            return self.exchange.fetch_ticker(symbol)
+        except ccxt.ArgumentsRequired:
+            # Upbit's CCXT bulk parser omits the market argument. Duplicate
+            # markets_by_id can then make a valid public quote unparseable.
+            return self.get_24h_tickers([symbol]).get(symbol)
 
     def get_exchange_info(self) -> Dict[str, Any]:
         if not self.is_connected:
@@ -388,7 +431,7 @@ class UpbitSpotAdapter(SpotExchange):
             return {}
         try:
             sym = self._normalize_upbit_symbol(symbol)
-            ticker = self.exchange.fetch_ticker(sym)  # type: ignore
+            ticker = self._fetch_spot_ticker(sym)
             return {
                 'last': ticker.get('last', 0),
                 'high': ticker.get('high', 0),

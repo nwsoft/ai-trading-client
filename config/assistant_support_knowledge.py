@@ -8,7 +8,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 import re
 
-GUIDE_REVISION = "3.9.2.5-support.20261005.1"
+GUIDE_REVISION = "3.9.2.11-support.20261011.1"
 
 
 @dataclass(frozen=True)
@@ -21,6 +21,31 @@ class SupportTopic:
 
 
 TOPICS = (
+    SupportTopic("market_regime_comparison", ("시장국면인식", "국면확정", "일반국면", "코인국면", "주식국면", "market regime detection", "crypto and stock market regime"),
+        "docs/V39211_MARKET_REGIME_GUIDE.md",
+        "네. 현재 코인과 주식은 관찰 자료·분류 기준·국면 확정 방식이 다릅니다. 아래는 기본 설정 기준이며 개별 사용자의 현재 상태를 진단한 결과는 아닙니다.\n"
+        "코인: 기본 300초 관찰, 변화는 같은 국면 2회 연속 확인과 기존 확정 국면 최소 600초 유지 후 확정합니다. 최초 유효 관찰은 바로 채택합니다. "
+        "Binance는 BTC 70%·ETH 30%, 15분봉 요청 10개, RSI(5)를 사용합니다. 기본 상승/하락은 RSI >65/<35, 최근 5개 종가 변화 >1%/<-1%, 거래량비 >1.2를 함께 요구합니다. "
+        "OKX·Bybit·Bitget·Upbit·Bithumb·Coinone 공통 빠른 경로는 대표 BTC 15분봉 요청 20개, RSI(10), 최근 10개 종가 변화 >3%/<-3%, 거래량비 >1.2를 함께 요구합니다. 국내 현물은 BTC/KRW입니다. "
+        "추세 조건이 안 맞아도 30분 절대 변화가 약 2%를 넘으면 고변동이며, 나머지가 일반(normal)입니다. 그래서 가격이 조금 올랐다는 이유만으로 상승으로 바뀌지는 않습니다. Binance 수치와 관찰/확정 설정은 사용자 설정에 따라 달라질 수 있습니다.\n"
+        "주식: 300초 캐시 뒤 새 분류를 바로 반영하며 코인과 같은 연속 2회·최소 600초 안정화는 적용하지 않습니다. "
+        "지원되면 KOSPI 최근 6개 종가의 5거래일 수익률, 다음으로 지수 당일값을 사용합니다. 현재 4개 증권사 어댑터는 이 지수 조회 메서드를 제공하지 않아 대표 종목 삼성전자(005930)·POSCO홀딩스(005490)의 사용 가능한 당일 등락률 평균을 사용합니다. "
+        "이 대용 경로는 평균 >=+1.5% 상승, <=-1.5% 하락, 그 외 절대값 >=1% 고변동, 나머지 횡보입니다. 임계값 주변이면 주식 표기가 더 자주 바뀔 수 있고, 이는 전체 지수나 모든 보유 종목의 국면을 직접 측정한 값이 아닙니다.\n"
+        "일반 국면은 강한 추세·변동 조건 미충족이라는 분류이며 거래 금지와 같지 않습니다. 시세 실패는 unknown/미확인이고 일반으로 간주하지 않습니다. "
+        "메인 시장·판단·전략 한눈에 또는 기관 상세 → 운용 요약에서 최근 관찰/확정, 기준시각, 판단 근거와 보류 사유를 함께 확인하세요. 정지·빈 후보·시세 오류이면 새 관찰이 없을 수 있습니다. "
+        "LOW/NORMAL/HIGH 동적 임계값 보정과 기관 bull/bear/normal/volatile/range는 별도 분류입니다. 전략별 기관/종목 국면 범위도 다르며 PAPER/LIVE만 바꿔서 분류 기준이 바뀌지는 않습니다. "
+        "사용자 당시 원인 확정에는 같은 시각의 실제 지표·설정·실행 기록이 필요합니다. 이 안내를 위해 거래·설정·위험 기준을 변경하지 않습니다.",
+        "Yes. Crypto and stocks use different observations, classifiers and confirmation rules. These are source defaults, not a diagnosis of your current account. "
+        "Crypto normally checks every 300 seconds; transitions require 2 consecutive matching observations and a minimum 600-second dwell. The first valid observation is accepted immediately. "
+        "Binance weights BTC 70% and ETH 30%, requests ten 15-minute candles and uses RSI(5). Default bull/bear requires RSI >65/<35, a last-five-close change >1%/<-1%, and volume ratio >1.2 together. "
+        "OKX, Bybit, Bitget, Upbit, Bithumb and Coinone request twenty representative BTC 15-minute candles, use RSI(10), a last-ten-close change >3%/<-3%, and volume ratio >1.2. Korean spot uses BTC/KRW. "
+        "When trend conditions fail, an absolute 30-minute move over about 2% gives volatile; otherwise normal. Binance thresholds and observation/confirmation settings can be customized. "
+        "Stocks cache for 300 seconds and immediately adopt a changed classification, without crypto's 2-confirmation/600-second stabilizer. The detector prefers six KOSPI closes for a five-session return, then the index quote. "
+        "The current four broker adapters do not expose those index methods, so the available daily percentage changes of Samsung Electronics (005930) and POSCO Holdings (005490) are averaged as a proxy. "
+        "The proxy gives bull at >=+1.5%, bear at <=-1.5%, otherwise volatile at absolute change >=1%, and range otherwise. Boundary crossings can therefore change stocks more often; this is not a direct measurement of the whole index or every holding. "
+        "Normal means strong trend/volatility conditions were not met, not that trading is prohibited. Failed data is unknown, not normal. Check the main market/decision overview or venue operation summary for observed versus confirmed regime, timestamps, basis and entry holds. "
+        "Stopped loops, empty candidates and quote errors may prevent a new observation. LOW/NORMAL/HIGH threshold adjustment and venue regimes are separate classifications; strategy market/symbol scope also differs. PAPER/LIVE alone does not change the classifier. "
+        "An individual incident needs same-time indicators, settings and runtime evidence. This guide changes no trading, settings or risk limits."),
     SupportTopic("finance_products", ("금융상품비교", "대출비교", "원리금균등", "원금균등", "중도상환", "우대조건", "우대금리", "최저광고금리", "예금", "적금", "loan comparison", "savings comparison"),
         "docs/LIFE_FINANCE_GUIDE.md",
         "생활금융 → 금융상품의 전체 안내 / 대출 비교 / 보험 비교 / 예금·적금 비교 탭을 이용하세요. 처음에는 가상 예시로 연습하고, 내 조건은 비우고 직접 입력합니다. "
