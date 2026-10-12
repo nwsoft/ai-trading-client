@@ -1,4 +1,12 @@
-## 2026-10-12 — v3.9.2.13 배포 인수 상태 정합성 (소스 후보)
+## 2026-10-12 — v3.9.2.13 Windows 빌드·stable/latest 게시
+
+최신 사용자 명시 요청으로 .13 전체 Windows 빌드와 `nwsoft/ai-trading-client` 정식 stable/latest 게시를 승인했다. 아래 소스 전용·push 제외 기록은 작성 당시 이력이다. 공개 .12 기반 인계 커밋 `385da2e`를 고유 작업트리에 복원하고 동기화 안정성을 60초 이상 확인한다. 공개 manifest 원본 보존 규칙을 유지한다.
+
+Node >=22.12, Python 3.11 x64 및 `NOAHAI_PYTHON_X86`의 Python311-32, 실제 CCXT 4.5.50/aiohttp 3.14.5 환경에서 `powershell -ExecutionPolicy Bypass -File scripts/build_windows.ps1`을 생략 옵션 없이 실행한다. 실제 설치기·PE·7개 아이콘·추출 payload·엔진·renderer·출처 검증 후 정확한 소스 브랜치를 push하고 `scripts/release_windows.ps1`로 게시한다. 공개 네 파일을 다시 다운로드해 SHA256 및 updater SHA512를 대조한다. 결과 정본: `reports/v39213-windows-publication-20261012.json`.
+
+체크리스트는 빌드 입력 시점의 ID·상태·개수 snapshot이며 실제 자동 빌드/게시 결과는 실행 보고서에 별도로 기록한다. 수동 설치/자동 업데이트/롤백·OCX/기관·실마이크·24/72h·외부 인수 완료를 주장하지 않는다. 실행 중인 사용자 앱 설치, 실주문, 서버 배포, 유료 서명은 실행 범위에 없다.
+
+## 2026-10-12 — v3.9.2.13 배포 인수 상태 정합성 (소스 후보 이력)
 
 현재 소스 후보 버전: **v3.9.2.13**
 현재 공개 버전: **v3.9.2.12**
