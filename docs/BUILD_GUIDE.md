@@ -1,3 +1,15 @@
+## 2026-10-12 — 3.9.2.12 Windows 정식 빌드·게시
+
+최신 사용자 요청은 전체 자동 검사 후 stable/latest 게시를 명시적으로 승인한다. 아래 소스 전용·미게시 문장은 작성 당시 이력이다. 문서의 `fix/v3.9.2.12-exchange-controls-20261012` 브랜치는 로컬·원격에 없어, 공개 `.11` 커밋 `baa3b1754c188f579169639ba52cbe908f938931`에서 고유 작업트리 `release/v3.9.2.12-windows-20261012-now`를 만들고 60초 이상 안정 확인한 최신 동기화 입력을 반영한다.
+
+Node >=22.12, x64 Python과 Python311-32를 준비하고 `ccxt==4.5.50`을 실제 설치한다. Windows aiohttp 핀은 CCXT 최소 요구 조건을 충족하는 3.14.5로 맞춘다. `scripts/build_windows.ps1`를 생략 옵션 없이 실행하고 실제 엔진 내부 CCXT·PE·아이콘·설치기 추출·renderer·해시를 검증한 뒤 정확한 소스 커밋을 push하고 `scripts/release_windows.ps1`로 게시한다. 실제 결과는 `reports/v39212-windows-publication-20261012.json`에 기록한다. 실행 중인 앱 설치·실계좌/주문·서버 배포는 제외하며 OCX·실제 설치/업데이트/롤백·마이크·24/72h·외부 인수는 미실시 대기다.
+
+현재 공개판은 **3.9.2.11**, 새 소스 후보는 **3.9.2.12 / updater 3.9.212 / renderer 3.9.2.12-ui.20261012.2**다. 거래소 변경·주문 제출 보호와 기존 PAPER/내 돈 계획 수정을 함께 포함한다. Git 작업 브랜치 `fix/v3.9.2.12-exchange-controls-20261012`의 최신 로컬 커밋을 사용한다. Mac 원본 폴더에는 동일 릴리스 입력을 동기화했으며 SOURCE_IDENTITY와 [실행 증거](../reports/exchange-audit-20261012/validation.json)를 대조한다. 이 후보의 원격 푸시·게시·운영 배포는 실행하지 않았다. 아래 .11 이하의 게시 승인·산출물은 당시 이력이다.
+
+Windows에서 `powershell -ExecutionPolicy Bypass -File scripts/build_windows.ps1`를 **생략 옵션 없이** 실행한다. 이는 빌드 경로이며 게시 스크립트를 자동 승인하는 문장이 아니다. ccxt==4.5.50 실제 설치·동결, 전체 검사/Windows PE, x64 엔진·x86 키움 호스트·NSIS, UI 지문·설치/업데이트/복원을 확인한다. 이전 공개 .11 manifest/설치기를 .12로 재명명하지 않는다. Mac의 TypeScript/Vite·모의 주문·공개 REST·headless 화면 통과는 Windows 산출물 인수를 대신하지 않는다.
+
+새 설치본 기본 확인 → 테스터 전달 → 24/72h PAPER 운용 검증 순서다. 배포 전에 테스터의 72h를 요구하지 않는다. 인증 데모/실기관 검증은 자격증명·권한을 갖춘 별도 환경에서 진행하며 이번 점검에서는 실계정 주문·취소·청산을 수행하지 않았다. [수정·미실시 경계](TRADING_FLOW.md#exchange-change-audit-20261012) · [배포 체크리스트](DEPLOY_CHECKLIST.md).
+
 ## 2026-10-11 — v3.9.2.11 Windows 즉시 빌드·정식 게시
 
 최신 명시 요청은 Codex의 Windows 전체 빌드와 `nwsoft/ai-trading-client` stable/latest 게시를 승인하며 아래 과거 소스 전용·사용자 게시 담당 기록을 이번 실행에 한해 대체한다. 공개 기반은 .10, 제품/PE .11, updater 3.9.211, renderer 정본은 `webui/src/uiBuild.ts`의 `3.9.2.11-ui.20261011.4`다.

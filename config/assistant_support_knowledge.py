@@ -8,7 +8,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 import re
 
-GUIDE_REVISION = "3.9.2.11-support.20261011.1"
+GUIDE_REVISION = "3.9.2.12-support.20261012.1"
 
 
 @dataclass(frozen=True)
@@ -201,6 +201,9 @@ def support_topic(question: str) -> SupportTopic | None:
     # route, not match a field name or an error number inside untrusted data.
     if "NOAH_STRATEGY_EXPLANATION_V1\n" in str(question) or "[MARKET_TREND_SNAPSHOT]" in str(question):
         return None
+    from config.paper_recovery_guide import matches, ANSWER_KO, ANSWER_EN
+    if matches(question):
+        return SupportTopic('paper_funds_recovery', (), 'trading/paper_funds_session.py', ANSWER_KO, ANSWER_EN)
     normalized = re.sub(r"\s+", "", str(question or "").casefold())
     def matches(token: str) -> bool:
         if token == "level":

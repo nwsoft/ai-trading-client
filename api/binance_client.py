@@ -11,6 +11,7 @@ import hashlib
 import json
 import logging
 import math
+from decimal import Decimal, ROUND_DOWN
 import threading
 import time
 import traceback
@@ -2253,7 +2254,7 @@ class BinanceClient:
         headers = {"X-MBX-APIKEY": self.config.api_key}
 
         if self._should_log_debug():
-            self.logger.debug(f"[FUTURES_SIGNED_POST] path={path} qs={qs} sig={sig[:16]}...")
+            self.logger.debug(f"[FUTURES_SIGNED_POST] path={path}")
 
         try:
             resp = requests.post(url, headers=headers, timeout=getattr(self.config, "timeout", 30))
@@ -2322,6 +2323,12 @@ class BinanceClient:
                 self.logger.error(f"[{symbol}] ❌ closePosition=True와 reduceOnly는 동시 사용 불가 (Binance API 규칙)")
                 return {'status': 'REJECTED', 'error': 'REDUCE_ONLY_AND_CLOSE_POSITION_CONFLICT', 'reconciliation_required': False}
 
+            # Binance disallows the reduceOnly field (even false) in Hedge
+            # Mode. Do not silently drop a requested close protection flag.
+            if reduce_only is not None and str(position_side or '').upper() in {'LONG', 'SHORT'}:
+                return {'status': 'REJECTED', 'error': 'REDUCE_ONLY_UNSUPPORTED_IN_HEDGE_MODE',
+                        'reconciliation_required': False, 'submission_attempted': False}
+
             # --- quantity 처리 (일반 주문만, 조건부 주문은 Algo Order API에서 별도 처리) ---
             if not is_conditional_order and not close_position:
                 if quantity is None:
@@ -2334,16 +2341,38 @@ class BinanceClient:
                 min_qty = float(filters.get('minQty') or 0)
                 qty = float(quantity)
 
-                if step_size > 0:
-                    qty = math.ceil(qty / step_size) * step_size
-                qty = max(qty, min_qty)
+                if reduce_only:
+                    # A residual/partial close must never grow to meet a lot
+                    # minimum. Decimal avoids rounding a valid step downward
+                    # through float division. Dust remains owned and visible.
+                    requested = Decimal(str(quantity))
+                    if not requested.is_finite() or requested <= 0:
+                        return {'status': 'REJECTED', 'error': 'INVALID_CLOSE_QUANTITY',
+                                'reconciliation_required': False, 'submission_attempted': False}
+                    if step_size > 0:
+                        step = Decimal(str(step_size))
+                        requested = (requested / step).to_integral_value(rounding=ROUND_DOWN) * step
+                    qty = float(requested)
+                    if qty <= 0 or qty < min_qty:
+                        return {'status': 'REJECTED', 'error': 'CLOSE_QUANTITY_BELOW_STEP_OR_MINIMUM',
+                                'reconciliation_required': False, 'submission_attempted': False}
+                else:
+                    if step_size > 0:
+                        qty = math.ceil(qty / step_size) * step_size
+                    qty = max(qty, min_qty)
 
                 # precision
                 info = self.client.futures_exchange_info()
                 sym_info = next((s for s in info.get('symbols', []) if s['symbol'] == symbol), None)
                 if sym_info and isinstance(sym_info.get('quantityPrecision'), int):
                     prec = sym_info['quantityPrecision']
-                    qty = float(format(qty, f'.{prec}f'))
+                    if reduce_only:
+                        qty = float(Decimal(str(qty)).quantize(Decimal(1).scaleb(-prec), rounding=ROUND_DOWN))
+                        if qty <= 0 or qty < min_qty:
+                            return {'status': 'REJECTED', 'error': 'CLOSE_QUANTITY_BELOW_PRECISION',
+                                    'reconciliation_required': False, 'submission_attempted': False}
+                    else:
+                        qty = float(format(qty, f'.{prec}f'))
 
                 params['quantity'] = str(qty)
 
@@ -2393,6 +2422,9 @@ class BinanceClient:
                     "triggerPrice": stop_price,
                 }
 
+                if client_order_id:
+                    algo_params["clientAlgoId"] = str(client_order_id)
+
                 if working_type:
                     algo_params["workingType"] = working_type
                 if position_side:
@@ -2413,8 +2445,11 @@ class BinanceClient:
                 result = self._post_futures_signed("/fapi/v1/algoOrder", algo_params)
 
                 if isinstance(result, dict) and ("code" in result) and int(result.get("code", 0)) != 0:
-                    self.logger.error(f"[{symbol}] ❌ AlgoOrder 실패: {result}")
-                    return {'status': 'ERROR', 'error': f"APIError(code={result.get('code')}): {result.get('msg')}"}
+                    from trading.entry_fill_evidence import binance_submission_error
+                    error = BinanceAPIException(None, 400, json.dumps(result))
+                    receipt = binance_submission_error(error, submission_attempted=True)
+                    self.logger.error(f"[{symbol}] AlgoOrder status={receipt['status']} code={receipt['provider_error_code']}")
+                    return receipt
 
                 self.logger.info(f"[{symbol}] ✅ AlgoOrder 생성 성공: {result}")
                 

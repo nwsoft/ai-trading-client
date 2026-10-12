@@ -269,6 +269,13 @@ def test_changed_anchor_and_complete_roundtrip_after_coverage_hold_recovery(tmp_
 def test_full_page_is_split_without_losing_same_order_partial_fills(tmp_path):
     from datetime import timedelta
     r,tid,rows,c,job=prepared(tmp_path)
+    # Keep all 100 fills in one completed UTC day. Around 00:16 UTC the old
+    # now-1000s fixture straddled midnight: two valid 50-row pages needed no
+    # split, so the strict split assertion depended on the test's wall clock.
+    entry=datetime.now(timezone.utc).replace(hour=12,minute=0,second=0,microsecond=0)-timedelta(days=1)
+    rows[0]['timestamp']=entry.isoformat();rows[1]['timestamp']=(entry+timedelta(seconds=10)).isoformat()
+    with sqlite3.connect(r.db_path) as db:
+        db.execute('UPDATE trade_log SET entry_time=? WHERE id=?',(entry.isoformat(),tid))
     expanded=[]
     for row in rows:
         for i in range(50):

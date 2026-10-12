@@ -269,6 +269,8 @@ def query(question, briefing, catalog, *, service='blockchain'):
               'orders_submitted': False, 'question': question, 'cards': [], 'actions': []}
     from config.assistant_support_knowledge import support_topic, build_support_answer, GUIDE_REVISION
     topic = support_topic(question)
+    if topic and topic.key=='paper_funds_recovery':
+        return {**output,'status':'guide','answer':build_support_answer(question),'guide_topic':topic.key,'actions':[action('trading',question=question)]}
     if (topic and topic.key == 'market_regime_comparison'
         and not any(w in compact for w in ('거래가없','거래안','거래가안','무거래','진입보류','왜거래','거래현황','진단'))):
         return {**output, 'status':'guide', 'answer':build_support_answer(question),

@@ -2545,7 +2545,7 @@ class UnifiedTrader:
                 paper = execution_mode == ExecutionMode.PAPER
                 demo = False
 
-            halt = (getattr(self, "_entry_halts", {}) or {}).get(str(exchange_name).lower())
+            halt = self._active_entry_halt(exchange_name)
             if halt and not paper and not learning_only:
                 return {
                     "status": "skipped",
@@ -3791,7 +3791,15 @@ class UnifiedTrader:
                         error_message=str(reason),
                     )
                 if error_policy.get("halt_entries"):
+                    retry_at = None
+                    if (error_policy.get('category') == 'rate_limit'
+                            and order_result.get('submission_state') == 'rejected'
+                            and order_result.get('reconciliation_required') is False):
+                        retry_at = datetime.now(timezone.utc).timestamp() + max(
+                            30, float(order_result.get('retry_after_seconds') or error_policy.get('delay') or 30))
                     self._entry_halts[str(exchange_name).lower()] = {
+                        'retry_at': retry_at,
+                        'reconciliation_required': order_result.get('reconciliation_required', True),
                         "category": error_policy.get("category"),
                         "reason": str(reason),
                         "command_id": crypto_command_id,
@@ -4702,6 +4710,21 @@ class UnifiedTrader:
             self.logger.error(f"❌ {exchange_name} {position.symbol} 청산 판단 실패: {e}")
             return False
 
+
+    def _active_entry_halt(self, exchange_name: str, now_epoch: Optional[float] = None):
+        """Expire only a proven rate-limit rejection, never an unknown order."""
+        key = str(exchange_name).lower()
+        halts = getattr(self, '_entry_halts', {}) or {}
+        halt = halts.get(key)
+        if halt and halt.get('category') == 'rate_limit':
+            now = datetime.now(timezone.utc).timestamp() if now_epoch is None else now_epoch
+            retry_at = halt.get('retry_at')
+            if (halt.get('reconciliation_required') is False
+                    and isinstance(retry_at, (int, float)) and math.isfinite(retry_at)
+                    and 0 < retry_at <= now):
+                halts.pop(key, None)
+                return None
+        return halt
 
     def _close_position_unified(self, exchange_name: str, symbol: str, position: Position, current_price: float) -> bool:
         """포지션 청산 (바이낸스와 동일한 로직)"""

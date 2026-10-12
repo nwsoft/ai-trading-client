@@ -65,6 +65,7 @@ EXPLICIT_FILES = (
     "scripts/publish_web_ui_windows_release.ps1",
     "scripts/release_windows.ps1",
     "scripts/release_source_fingerprint.py",
+    "scripts/audit_release_test_skips.py",
     "scripts/restore_previous_release_asset.py",
     "scripts/verify_release_provenance.py",
     "scripts/verify_branding.py",

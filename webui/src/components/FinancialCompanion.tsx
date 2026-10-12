@@ -1,3 +1,4 @@
+import {paperRecoveryGuide} from '../paperRecoveryGuide';
 import {useEffect, useRef, useState, type FormEvent} from 'react';
 import type {GatewayClient} from '../api';
 import {ProductIntelligenceWorkspace} from './ProductIntelligenceWorkspace';
@@ -86,6 +87,7 @@ export function FinancialCompanion({client, service, onClose, onNavigate, onAsk,
   async function ask(event:FormEvent){
     event.preventDefault();const prompt=question.trim();if(prompt.length<2||prompt.length>2000)return;
     const token=++epoch.current;setBusy(true);setError('');setResult(null);
+    const shippedGuide=paperRecoveryGuide(prompt);if(shippedGuide){setResult({answer:'내장 사용법 안내 · 현재 계정 상태는 연결 후 확인\n\n'+shippedGuide,actions:[{id:'trading',label:'거래소 화면에서 확인'}]});setView('brief');setBusy(false);return;}
     try{
       if(!client.companionQuery)throw new Error('금융비서 질문 기능이 없습니다. 앱 버전을 확인하세요.');
       const next=await client.companionQuery(prompt,['blockchain','stock','portfolio','personal_finance','ai_analyst'].includes(service)?service:'blockchain');
@@ -93,7 +95,7 @@ export function FinancialCompanion({client, service, onClose, onNavigate, onAsk,
       if(voice.enabled&&voice.auto_tts&&'speechSynthesis' in window){
         window.speechSynthesis.cancel();const speech=new SpeechSynthesisUtterance(String(next.answer||''));speech.lang=voice.lang;speech.rate=Math.max(.5,Math.min(2,voice.rate/180));window.speechSynthesis.speak(speech);
       }
-    }catch(e){if(token===epoch.current)setError(e instanceof Error?e.message:'질문을 확인하지 못했습니다.');}
+    }catch(e){if(token===epoch.current){const guide=paperRecoveryGuide(prompt);if(guide){setResult({answer:'앱 내부 연결 실패 · 내장 사용법 안내\n\n'+guide,actions:[{id:'trading',label:'거래소 화면에서 확인'}]});setView('brief');}setError((e instanceof Error?e.message:'질문을 확인하지 못했습니다.')+(guide?' 현재 실행 상태는 확인하지 못했습니다.':''));}}
     finally{if(token===epoch.current)setBusy(false);}
   }
   function follow(action:Record<string,any>){

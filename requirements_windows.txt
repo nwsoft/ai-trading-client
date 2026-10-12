@@ -22,7 +22,7 @@ uvicorn>=0.35.0,<1.0
 
 # 거래소 API
 python-binance==1.0.19
-ccxt>=4.0.0
+ccxt==4.5.50
 
 # 로깅 및 유틸리티
 loguru==0.7.2
@@ -49,7 +49,7 @@ PyInstaller==6.21.0
 # Windows 호환성을 위한 추가 패키지
 # pywin32는 PyInstaller가 자동으로 포함하므로 제외
 psutil==5.9.8
-aiohttp==3.9.5
+aiohttp==3.14.5
 ujson==5.10.0
 dateparser==1.2.0
 colorama==0.4.6

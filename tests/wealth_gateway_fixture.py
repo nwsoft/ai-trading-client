@@ -16,6 +16,20 @@ with tempfile.TemporaryDirectory(prefix='noah-wealth-ui-test-') as directory:
     def qa_lock():
         vault.lock()
         return {'locked':True}
+    import threading
+    release_busy=threading.Event()
+    @app.post('/qa/busy')
+    def qa_busy():
+        release_busy.clear();started=threading.Event()
+        def hold():
+            with vault._mutex:
+                started.set();release_busy.wait(5)
+        threading.Thread(target=hold,daemon=True).start();started.wait(1)
+        return {'busy':True}
+    @app.post('/qa/release-busy')
+    def qa_release_busy():
+        release_busy.set()
+        return {'released':True}
     sock=socket.socket();sock.bind(('127.0.0.1',0));sock.listen(128)
     print(sock.getsockname()[1],flush=True)
     try:uvicorn.Server(uvicorn.Config(app,log_level='error',access_log=False)).run(sockets=[sock])

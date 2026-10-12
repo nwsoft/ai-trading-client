@@ -3598,3 +3598,5 @@ html[lang="en"] button { white-space: normal; overflow-wrap: break-word; }
   .finance-review-panel .metric-grid, .finance-review-panel .form-grid { grid-template-columns: 1fr; }
   .finance-review-panel .panel-heading { flex-wrap: wrap; }
 }
+
+.assistant-open-paper-recovery { justify-self:start; align-self:start; width:fit-content; max-width:100%; min-height:38px; margin:8px 0; padding:9px 14px; border-radius:8px; background:#214d73; border:1px solid #5c8eb8; color:#f3f7ff; font-size:13px; cursor:pointer; }

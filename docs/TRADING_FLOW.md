@@ -1,3 +1,68 @@
+<a id="exchange-change-audit-20261012"></a>
+## 2026-10-12 — v3.9.2.12 거래소 변경·자동매매 운영 통제 감사
+
+소스 기준: GitHub 최신 공개 v3.9.2.11, `release/v3.9.2.11-windows-20261011-now`, `baa3b1754c188f579169639ba52cbe908f938931`. 원격 기본 main은 2025년 코드여서 사용하지 않았다. Mac 원본은 Git 없는 .12 후보였다. 별도 `fix/v3.9.2.12-exchange-controls-20261012` 브랜치에서 기존 .12 후보 59개 입력을 보존하고 점검했다. 원본·상위·하위 AGENTS.md는 발견되지 않았으며 DOCUMENTATION_POLICY·BUILD_GUIDE·DEPLOY_CHECKLIST·Windows workflow를 적용했다. 이번 .12는 아직 미게시이므로 동일 후보에 보완하고 제품 버전을 다시 올리지 않는다. 기존 PAPER 도움말·보관함 수정은 이번 거래소 감사의 신규 수정으로 계산하지 않는다.
+
+### 공식 원문·적용 범위
+
+- [OKX 변경 이력](https://www.okx.com/docs-v5/log_en/): 9월 30일 갱신한 안내의 8443 종료일은 2026-10-31. 운영/데모 public/private/business/public-sbe 모두 host/path 그대로 기본 443을 사용한다. REST는 제외. 같은 날짜 instruments push는 일부 상황에서 변경된 instId만 보내므로 전체 캐시 대체를 금지한다.
+- [Binance 변경 이력](https://developers.binance.com/docs/derivatives/change-log), [주문 수정/신규 주문 계약](https://developers.binance.com/docs/derivatives/usds-margined-futures/trade/rest-api/Modify-Order): 2026-09-15 적용된 선택 reduceOnly는 USDⓈ-M LIMIT 수정의 검증용이다. 원주문 RO=true일 때만 최소금액 검사를 생략하며 속성 변경이 아니다. 일반 주문에 true는 -5047. 부분체결 후 수정 수량이 이미 체결된 수량 이하면 주문이 취소될 수 있다. Hedge 신규 주문에는 reduceOnly를 보낼 수 없으며 closePosition과도 병용할 수 없다. 앱은 PUT 수정/WS order.modify를 사용하지 않는다.
+- [Bybit 변경 이력](https://bybit-exchange.github.io/docs/changelog/v5), [종목 응답](https://bybit-exchange.github.io/docs/v5/market/instrument): 2026-09-29 linear/inverse tags 배열 추가. [무기한 계약 관리 규칙](https://www.bybit.com/common-static/compliance/legal/BYBIT/d523ae8416d8b24d90ac66e1f1de5bd3.pdf)의 ST는 Special Treatment Warning으로 위험을 알리는 표시이며 자동 청산 지시와 같지 않다.
+- [금융위 2026-09-23 발표](https://www.fsc.go.kr/no010101/87783): API를 이용한 시세조종 등 혐의 사건의 고발·통보다. 일반 자동매매 금지나 신규 법률 제정으로 해석하지 않는다.
+
+### 실제 연결·의존성·환경
+
+| 제품 기관 | 실제 사용 상품·REST 경로 | WebSocket/환경 |
+|---|---|---|
+| Binance | api/binance_client.py, python-binance: fapi/v1/order 신규·취소·조회, 직접 서명 fapi/v1/algoOrder 보호 주문, exchangeInfo·userTrades·income | 공개 ticker/depth: WebSocketManager, fstream.binance.com 및 python-binance 소켓. 테스트넷은 기존 BinanceConfig.testnet. PUT 수정 없음 |
+| OKX | trading/exchanges/adapters/okx_futures_adapter.py, 동기 ccxt.okx; api/v5/public/instruments SWAP, market/account/trade REST | OKX WS 연결·로그인·구독 코드 및 URL 환경변수 없음. 로컬 PAPER는 거래소 데모와 다름. public/private/business 운영·데모 모두 미사용 |
+| Bybit | bybit_futures_adapter.py, 동기 ccxt.bybit; v5/market/instruments-info category=linear, v5/order/create, realtime/history·execution 조회 | ccxt.pro/watch_* 미사용, inverse는 SDK 호환 검사만 수행하며 제품 진입 대상 아님 |
+| Bitget | bitget_futures_adapter.py, 동기 ccxt.bitget; v2/mix/market/contracts productType=USDT-FUTURES, 주문·체결 REST | 인증 WS 연결 없음 |
+| Upbit/Bithumb/Coinone | *_spot_adapter.py; Upbit/Bithumb CCXT REST, Coinone 별도 REST/HMAC; KRW 현물 | 주문/체결은 REST 대조 경로. 이번 해외 파생상품 변경을 국내 현물에 적용하지 않음 |
+| KIS/Kiwoom/Mirae/Shinhan | venue_capabilities.py와 각 stock_adapter: REST 또는 Kiwoom x86 IPC/COM | 해외 파생 변경 대상 아님; 기존 기관·PAPER/LIVE 범위 유지 |
+
+Mac 설치본 의존성은 ccxt 4.5.50, python-binance 1.0.19, websockets 16.0, websocket-client 1.9.0. Windows requirements의 websockets 11.0.3/websocket-client 1.6.4는 이번에 올리지 않았다. requirements.txt/requirements_windows.txt의 ccxt>=4.0.0은 검사한 4.5.50으로 고정했다(업그레이드가 아닌 재현성 보완). 이전 .11 Windows EXE 내부 CCXT 런타임 버전은 이 Mac 검사로 확정하지 않는다. 현재 CCXT Pro의 **미사용** OKX 기본 URL은 운영/데모 모두 :8443이다. 향후 Pro를 연결할 때 기본값을 그대로 활성화하지 말고 443·로그인·heartbeat·재구독·체결 회복을 별도 승인/검증한다. 현재 연결을 바꾸거나 새 WS 기능을 만들지 않았다.
+
+설정 템플릿·Python 환경변수 참조·Electron 설정과 활성 API/SDK import/call을 대조했다. 실제 키/계정값·고객 원자료는 읽어 보고서에 수집하지 않았다. AuthenticatedExecutionStream은 큐 계약이며 callback_bound가 false인 상태를 실제 인증 WS 연결 완료로 해석하지 않는다. REST 증분 대조가 실행 증거를 보충한다.
+
+### 항목별 수정·검증 원장
+
+| 점검 항목 | 수정 전 상태 | 판단 근거와 코드 경로 | 수행한 변경 | 실행한 검증 | 남은 문제 |
+|---|---|---|---|---|---|
+| A OKX 8443 | 현재 사용 경로에는 영향 없음 | okx_futures_adapter 동기 REST, 활성 코드에 ccxt.pro/WS URL 없음. 설치 SDK Pro 기본값에는 8443 존재 | 미사용 연결 변경/라이브러리 업그레이드 없음 | 실제 공개 REST 목록 조회·코드/설정 참조 검색 | 운영/데모 WS 로그인·구독·heartbeat·재연결·체결 수신은 미사용/N/A, 미래 Pro 연결 시 검증 필요 |
+| B instruments 변경분 | 현재 사용 경로에는 영향 없음; REST 목록 분리 이미 대응됨 | load_instrument_catalogue → fetch_markets_by_type('swap') → set_markets; WS instruments 구독 없음 | 변경분 병합 기능 신규 생성 안 함 | 공개 REST 재조회·기존 목록/수량·가격/상태 회귀 | 현재 REST TTL 60초 내 노후 가능, 거래소 최종 주문 검증 유지. WS 최초/변경분/재접속 검사는 해당 없음 |
+| C Binance 수정 RO | 현재 사용 경로에는 영향 없음 | PUT /fapi/v1/order·order.modify·SDK modify 호출 없음 | 원주문 속성 추정·모든 주문에 true 삽입 없음. -5047을 확정 거절로 분류·재시도 차단 | -5047 거절·모의 응답/오류 분류 | 수정 주문의 실제 테스트넷 검증은 미실시; 신규 기능 추가 시 원주문 조회 필수 |
+| Binance 잔여/부분 청산 | 영향 있음: 신규 주문과 같은 올림·minQty 확대 사용 | api/binance_client.py::place_futures_order | RO 수량은 Decimal 내림, 최소 step/precision 미달은 제출 전 거절. 보유량·원장 삭제 없음. 명시 Hedge+RO 잘못된 조합은 제출 전 진단 | .0019→.001, .0005 dust 거절, 기존 신규 올림 유지, close-all quantity/RO 생략 | 단방향 실제 청산·Hedge 계정 인수 미실시. RO=true를 Hedge에서 조용히 제거하지 않음 |
+| Binance 조건부 추적 | 영향 있음: 일반 ID가 Algo 요청에서 누락, 오류 dict 원문 노출 | place_futures_order → _post_futures_signed | 제공받은 ID를 clientAlgoId로 전달. 오류 응답도 확정 거절/UNKNOWN 구분. 서명 POST debug query/signature 제거 | 응답 유실 1회 제출·동일 ID 보존, -1007/-1 UNKNOWN·-4164/-5047 거절, debug 비노출 | ID를 제공하지 않는 오래된 보호주문 호출과 Algo timeout 이후 자동 조회 연결은 후속. 이번 변경을 모든 보호주문의 정확히 1회 전달 보장으로 확대하지 않음 |
+| D Bybit tags | 이미 호환됨 | CCXT fetch_future_markets가 info 원본 보존, active는 status=Trading으로 판단 | 파서/거래 정책 변경 없음 | 실제 설치 SDK + 어댑터로 없음/빈 배열/ST/미지값, linear/inverse 8경우 | ST 신규 진입 제한·화면 경고는 정책 검토안, 자동 청산/일괄 차단 없음 |
+| 전략 간 제출 경합 | 영향 있음: 다른 버전의 reserved 단계가 검사에서 빠짐 | OpportunityCoordinator.authorize의 동일 account_scope/target/base_symbol 검사 | reserved를 이미 존재하는 미확정 제출 잠금 범위에 포함 | 공유 파일의 두 인스턴스·두 스레드 중 1개 승인, 해제 후 재진입, 계정/모드/종목 격리 | 별도 앱/수동 주문 전체를 공유하는 계정 간 장부 아님. 실제 헤지/리밸런싱을 반복 횟수만으로 차단하지 않음 |
+| 주문 거절 재시도 | 영향 있음: 제한/권한/규격 거절에도 즉시 반복·MARKET 전환 | ExecutionOptimizer.execute_with_quality_control | 알려진 제한/권한/자금/규격/포지션 거절은 같은 실행에서 1회 후 종료. 429는 retry_after_seconds=30 이상 전달. 확정 거절만 이 시각 이후 다음 진입 평가를 허용하고 UNKNOWN은 계속 대조 | 429/최소금액/auth/-5047 모두 1회, 30초 경계/UNKNOWN 유지, 기존 명시 limit_rejected fallback 및 UNKNOWN 1회 회귀 | 각 거래소의 계정 전체 주문·취소 토큰버킷과 Retry-After 헤더의 통합은 미구현; 이번 수정이 전역 호출 한도 보장은 아님 |
+| 자기매매/STP | 확인 불가(실계정 설정), 앱에 통합 STP 설정 없음 | Binance selfTradePreventionMode/Bybit smpType/OKX stpMode를 명시 전송하지 않음 | 계정 설정 임의 변경 없음 | 코드 경로 대조·기존 주문 보호 회귀 | 아래 정책 검토안. OKX 기본 의무 STP를 모든 거래소의 앱 STP 구현으로 주장하지 않음 |
+| 주문→체결→원장 연결 | 기존 구현 있음, 전 구간 완결은 아님 | Recorder crypto_order_commands, client ID 조회, entry_fill_evidence, execution_history, TradeLog strategy/model/order/exit IDs | 이번 Algo ID 전달과 reserved 경합 보완 | 기존 영속 claim·재시작·UNKNOWN 조회·부분체결 회귀 | 위험검증/프롬프트 지문까지 공통 감사 ID로 항상 연결되는 계약은 후속 |
+
+### 운영·AI 후속 정책 (이번에 자동 적용하지 않음)
+
+1. ST는 위험 경고다. 현행 Trading/상장 상태·상품 범위 게이트를 유지한다. 선택지는 경고만 표시 / 사용자가 ST 신규 진입 제외 선택 / 운영정책 승인 후 기본 신규 진입 제외다. **먼저 표시·설명+사용자 선택**을 권고하며 보유 포지션 관리·청산 권한은 별도로 유지한다. 미지 태그는 원본 보존하고 자동 해석하지 않는다.
+2. [OKX STP](https://www.okx.com/docs-v5/trick_en/)는 master/sub 계정 단위 의무 적용 및 기본 cancel_maker를 안내한다. [Bybit SMP](https://bybit-exchange.github.io/docs/v5/smp)는 계정/그룹·권한과 적용 방식이 있다. Binance 문서의 기본값·상품별 STP 범위도 다르다. 통합 기능은 상품/모드별 지원 행렬·읽기 확인·명시 선택·모의 체결 취소/원장 회귀 후 제공한다. 고객 계정 정보를 서버로 모아 서로 공유하거나 임의 계정 분산으로 호출 제한을 회피하지 않는다. 코드 검색에서 제한 회피 목적의 계정 순환 로직은 발견하지 못했다(정적 검사 범위).
+3. 기존 전략 cooldown·duplicate window·자본/노출 예약·주문 멱등 원장은 있으나 시세조종 탐지기/계정 전체 주문취소 속도 통제와 같지 않다. 거래/취소율·왕복시간·취소 사유·정상 hedge/rebalance/partial-close intent를 먼저 계측한다. 새 고객 차단 기준·교차 계정 정보 공유는 별도 정책/동의 검토 후 개발한다.
+4. custom_strategy_pipeline의 원본/IR/버전·승인·promotion_history/rollback, retrained_strategy_evaluation의 시간순 학습/후속 평가·동일 기준전략/비용 지문·닫힌 봉/시간봉 cutoff·review_required·자동 LIVE 승격 금지를 확인했다. strategy_validation_lab의 closed-trade 안정성 표는 재학습 OOS와 구분한다. AIAutoOptimizer는 제안만 만들고 설정 직접 변경을 하지 않는다. 기존 구현을 새 자가진화 기술로 홍보하지 않는다.
+5. replay_costs의 수수료·slippage·spread는 가정이며 funding=not_modelled이다. PAPER 추정 비용과 LIVE 체결 수수료/펀딩 확정은 다르다. 보류/누락 근거를 0으로 채우지 않는다. 신규 진입의 최소 주문·정밀도·계약단위 게이트와 재생 결과를 구분한다. 펀딩/유동성 재현·모든 샘플의 point-in-time 데이터 누수 보장·모든 프롬프트 버전과 변경 이유/평가/위험검증의 영속 연결은 완결되지 않았으며 후속 개발이다. 이번 범위를 넘는 자동 전략 수정은 추가하지 않았다.
+
+### 검증·빌드 경계
+
+검사 명령·실행 결과·수정 파일은 `reports/exchange-audit-20261012/validation.json`과 TEST_STATUS에 기록한다. 공개 REST 조회 성공은 인증·데모·실주문·장시간 운영 성공이 아니다. 실계정 주문/취소/청산·자금 이동·고객 설정 변경을 수행하지 않았다. Windows x64 엔진·x86 호스트·NSIS·실제 설치/업데이트/롤백은 사용자 Windows 빌드에서 확인한다. 현재 .11 공개 manifest/설치기는 유지한다. 새 .12 빌드·기본 설치 확인 → 테스터 전달 → 24/72h PAPER 운용 순서이며 배포 전 72h를 요구하지 않는다.
+
+
+## 2026-10-12 - v3.9.2.12 PAPER 복구 안내·내 돈 계획 저장 경합 수정
+
+현재 소스 후보 버전: **v3.9.2.12**
+현재 공개 버전: **v3.9.2.11**
+현재 소스 후보: v3.9.2.12 · 현재 공개 기반: v3.9.2.11 · updater 3.9.212 · renderer 3.9.2.12-ui.20261012.2. Windows 새 빌드·게시·설치 인수는 미실시.
+
+전략 PAPER 검증 OFF와 거래소 자동매매 정지의 차이를 설명하고, 전략 삭제 없이 과거 원장을 보존하는 새 평가 준비 순서를 안내한다. 이 사용법 질문은 서버·외부 AI 연결 없이 내장 도움말로 답한다. 실제 앱에서 발견한 보관함 busy/locked 오인으로 저장 입력이 지워지는 경합을 수정했다. 실주문 검사를 자동 켜지 않으며 제외된 11개 검사와 Windows 필수 PE 검사를 감사한다.
+
+[3.9.2.12 인수 정본](V39212_FEEDBACK_AND_RELEASE_PLAN.md). 아래 .11 이하의 수치·미배포 표기는 해당 당시 이력이다.
+
 ## 2026-10-06 — v3.9.2.6 전략 스튜디오·자율주행 후속 (개발 진행·미배포)
 
 현재 소스 후보: v3.9.2.6 · updater 3.9.206. 현재 공개 기반: v3.9.2.5.

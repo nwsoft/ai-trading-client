@@ -629,6 +629,15 @@ scoped_pool(list(getattr(app, "active_custom_strategy_pool", []) or []), asset_c
                 'reason_code': str(getattr(decision, 'reason_code', ''))[:100],
                 'observed_at': getattr(decision, 'checked_at', None),
             }
+        if mode == 'paper' and source in CRYPTO_SOURCES:
+            stores = getattr(owner,'paper_active_positions' if source=='binance' else 'paper_positions',None)
+            positions = stores if source=='binance' else stores.get(source,{}) if isinstance(stores,dict) else None
+            orders=result.get('orders') or {}
+            pending=orders.get('pending_orders'); reserved=orders.get('reserved_orders')
+            result['paper_session_readiness']={'running':source in self._running(self._app),
+                'open_positions':len(positions) if isinstance(positions,dict) else None,
+                'pending_and_reserved':pending+reserved if type(pending) is int and type(reserved) is int else None,
+                'saved_positions_check':'checked_on_explicit_submit','strategy_validation_off_is_not_trading_stop':True}
         if mode == 'paper' and include_paper_pool:
             result['paper_pool'] = paper_pool_status(
                 getattr(self._app, 'active_custom_strategy_pool', []) or [],

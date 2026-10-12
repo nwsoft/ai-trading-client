@@ -1,3 +1,38 @@
+### 2026-10-12 거래소 변경·운영 통제 후속 (동일 .12 후보)
+
+공식 OKX 8443/instruments 변경은 현재 REST 사용 경로에는 영향이 없으며 공개 선물 목록 분리는 .11에서 이미 반영됐다. Bybit tags는 설치 SDK·어댑터 호환을 확인했다. 이번 실제 수정은 동일 종목의 제출 전 예약 경합, Binance 잔여 RO 수량 확대·잘못된 Hedge/RO 조합·Algo client ID/오류 분류, 알려진 거절 후 즉시 재시도/시장가 전환이다. CCXT를 검사한 4.5.50으로 고정했다. 기존 PAPER/내 돈 계획 수정을 유지한다. [항목별 근거·정책·미실시 경계](TRADING_FLOW.md#exchange-change-audit-20261012). 제품/PE 3.9.2.12·updater 3.9.212 유지, renderer는 `3.9.2.12-ui.20261012.2`; Windows 빌드·게시는 미실시.
+
+
+<!-- patch-test-plan-version: 3.9.2.12 -->
+### 3.9.2.12 Windows 빌드·테스터 배포 인수
+- [x] REGRESSION: Python 5870/Node 77/React 153, skip 11 사유 감사 및 문서·버전 정합성
+- [x] SOURCE: 기존 .11 게시 증거·manifest·설치기를 보존하고 .12 후보를 분리
+- [x] LOCAL-UI: 실제 Electron 임시 계정에서 내 돈 계획·busy 저장 경합·PAPER 내장 안내 확인
+- [x] EXCHANGE: 공식 변경/실제 REST·WS 경로 대조, 35개 신규 회귀와 공개 REST 읽기 검증(실계정 주문 미실시)
+- [ ] SDK: Windows 패키징 로그에서 ccxt==4.5.50 실제 설치·동결 버전 확인
+- [ ] WIN-BUILD: skip 옵션 없이 Windows 빌드/branding/PE/skip 감사/provenance 확인
+- [ ] WIN-UPGRADE: .11→.12 업데이트·새 설치·재시작·저장/재열기 확인
+- [ ] UPLOAD: 전략 허브 업로드·승인/검증 연결을 실제 설치본에서 확인
+- [ ] REPLAY-COST: 저장 과거재생·비용 조건 및 PAPER/LIVE 분리 확인
+- [ ] CATALOG: 기관별 현재 공개 목록·연결 실패·재시도 안내 확인
+- [ ] ROLLBACK: .11 복원·업데이트 실패 후 원장/설정 보존 확인
+- [ ] SOAK: 테스터 배포 후 24/72시간 PAPER 관찰·지속 보류 사유·복구 결과 취합
+- [ ] PUBLISH: Windows 새 자산 digest·manifest·latest·게시 결과 확인
+<!-- patch-test-plan-end -->
+
+## 2026-10-12 - v3.9.2.12 PAPER 복구 안내·내 돈 계획 저장 경합 수정
+
+현재 소스 후보 버전: **v3.9.2.12**
+현재 공개 버전: **v3.9.2.11**
+현재 소스 후보: v3.9.2.12 · 현재 공개 기반: v3.9.2.11 · updater 3.9.212 · renderer 3.9.2.12-ui.20261012.2. Windows 새 빌드·게시·설치 인수는 미실시.
+
+전략 PAPER 검증 OFF와 거래소 자동매매 정지의 차이를 설명하고, 전략 삭제 없이 과거 원장을 보존하는 새 평가 준비 순서를 안내한다. 이 사용법 질문은 서버·외부 AI 연결 없이 내장 도움말로 답한다. 실제 앱에서 발견한 보관함 busy/locked 오인으로 저장 입력이 지워지는 경합을 수정했다. 실주문 검사를 자동 켜지 않으며 제외된 11개 검사와 Windows 필수 PE 검사를 감사한다.
+
+[3.9.2.12 인수 정본](V39212_FEEDBACK_AND_RELEASE_PLAN.md). 아래 .11 이하의 수치·미배포 표기는 해당 당시 이력이다.
+
+patch-test-plan-version: 3.9.2.12
+WIN-BUILD: skip 옵션 없이 새 빌드/PE/skip 감사. ROLLBACK: 설치·업데이트·롤백 확인 뒤 테스터 배포.
+
 2026-10-11 후속 구현: 자산 통합 → **내 돈 계획**에서 월 예산·수동 자산/원화 부채·비상금·반복 지출·목표별 세후/비용/물가/하락 가정·절세 조건을 연결하고, 검토한 계획을 암호화 저장해 월 실제 기록과 재점검한다. 현재 renderer `3.9.2.11-ui.20261011.4`, Web 추가 기능 `portfolio.plan` 포함 36개. [구현·사용법·한계](V39211_WEALTH_PLANNING.md)와 [현재 검증](../reports/v39211-wealth-planning-20261011/validation.json)을 따른다. 실제 금융기관 자동 수집·개인별 최적 절세·가입/주문·Windows 빌드·배포 완료는 별도다. 아래 수치는 해당 당시 소스의 이력이다.
 
 ## 2026-10-11 추가 재점검 — 생활·투자 통합 자산관리

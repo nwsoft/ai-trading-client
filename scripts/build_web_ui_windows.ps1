@@ -300,7 +300,8 @@ try {
     if (-not $SkipTests) {
         Invoke-Checked "Web and Electron Node regression" { & node --test (Get-ChildItem -LiteralPath "tests" -Filter "*.test.cjs" | ForEach-Object { $_.FullName }) }
         Invoke-Checked "Python focused Web UI regression" { & python -m pytest -q tests/test_web_platform_3910.py }
-        Invoke-Checked "Python full regression" { & python -m pytest -q }
+        Invoke-Checked "Python full regression" { & python -m pytest tests -q -rs --junitxml=reports/windows-full-tests.xml }
+        Invoke-Checked "Audit skipped release tests and Windows PE requirement" { & python scripts/audit_release_test_skips.py reports/windows-full-tests.xml reports/windows-skipped-tests.json }
         Invoke-Checked "Python source and release preflight" { & python scripts/active_source_audit.py }
         Invoke-Checked "Documentation and version consistency" { & python scripts/doc_consistency_check.py }
     }

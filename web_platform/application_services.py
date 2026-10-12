@@ -2685,6 +2685,14 @@ class ApplicationServices:
         remains a separate analyst command so a help question cannot accidentally
         trigger a costly or trade-adjacent model call.
         """
+        paper_topic = support_topic(question)
+        if (conversation_kind == 'general' and paper_topic and paper_topic.key == 'paper_funds_recovery'):
+            return {'schema_version':'1.0.0','service':service,'explanation_level':explanation_level,
+                    'answer':build_support_answer(question,locale=output_locale),'provider_called':False,
+                    'source':'versioned_local_product_knowledge','guide_revision':GUIDE_REVISION,
+                    'guide_topic':paper_topic.key,'guide_source':paper_topic.source,'data_scope':'private',
+                    'actions':[{'id':'stock' if service=='stock' else 'trading','label':'거래소 운용 요약에서 확인','feature':'stock.logs' if service=='stock' else 'blockchain.logs'}],
+                    'captured_at':_utc_now()}
         diagnostic_question = re.sub(r'\s+', '', str(question or '')).lower()
         if (mode == 'guide' and output_locale == 'ko' and conversation_kind == 'general'
             and data_scope == 'private'

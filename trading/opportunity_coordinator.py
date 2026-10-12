@@ -378,14 +378,15 @@ class OpportunityCoordinator:
                 estimated_notional = 0.0
                 estimated_loss = 0.0
 
-            # Uncertain orders survive signal buckets and restart. A new
+            # Reservations also cover the gap before submission. Uncertain orders
+            # survive signal buckets and restart. A new
             # strategy/version must not create another entry while one receipt
             # for this wallet/instrument is still unresolved.
             account_prefix = self._scope_key('', account_scope)
             if allowed and reserve and any(
                 key.startswith(account_prefix) and any(
                     item.get('target') == current_target and item.get('base_symbol') == base
-                    and item.get('status') in {'submitting', 'unknown', 'pending'}
+                    and item.get('status') in {'reserved', 'submitting', 'unknown', 'pending'}
                     for item in values.values())
                 for key, values in self._reservations.items()
             ):

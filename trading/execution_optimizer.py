@@ -31,6 +31,8 @@ class ExecutionOptimizer:
         if success or status in {'NEW', 'PENDING', 'OPEN', 'ACCEPTED', 'SUCCESS',
                                   'FILLED', 'PARTIALLY_FILLED', 'CLOSED'}:
             return 'accepted'
+        if result.get('reconciliation_required') is True:
+            return 'unknown'
         if not identity and result.get('submission_attempted') is False:
             return 'rejected'
         # A rejection with an order identity still needs provider reconciliation
@@ -112,6 +114,23 @@ class ExecutionOptimizer:
                 # The caller must persist/protect its actual position rather
                 # than resubmit or discard it as a nonexistent trade.
                 return submission == 'accepted', result, errors, latency_ms, slippage_bps
+
+            # A documented rejection is not permission to bypass the same
+            # risk/venue constraint with MARKET or a burst of identical calls.
+            # Defer rate-limit retry to the caller's controlled next cycle.
+            from .order_command_policy import classify_order_error
+            policy = classify_order_error(" ".join([
+                str(result.get('error') or ''), *(str(e) for e in (call_errors or []))]))
+            if policy['category'] in {'rate_limit', 'auth_permission',
+                                      'insufficient_funds', 'order_constraint',
+                                      'position_mismatch', 'transient_exchange',
+                                      'ambiguous_transport'}:
+                uncertain = policy['category'] in {'ambiguous_transport', 'transient_exchange'}
+                result['submission_state'] = 'unknown' if uncertain else 'rejected'
+                result['reconciliation_required'] = uncertain
+                result['retry_after_seconds'] = policy['delay']
+                result['error_category'] = policy['category']
+                return False, result, errors, latency_ms, slippage_bps
 
             if fallback_market and active_order_type == "LIMIT":
                 active_order_type = "MARKET"

@@ -1,3 +1,4 @@
+import {paperRecoveryGuide} from '../paperRecoveryGuide';
 import { t, useLocale } from '../i18n';
 import { Fragment, useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from "react";
 
@@ -414,7 +415,7 @@ function ManualGuideContent({ sectionId, content, query }: { sectionId: string; 
   </article>;
 }
 
-export function AssistantWorkspace({ client, service, initialQuestion = "", settingsSection = "", strategyService = "blockchain", onOpenWealth, onOpenSettings, onChartAnalysis, onReturn, returnLabel, onSendToStrategy }: { client: GatewayClient; service: string; initialQuestion?: string; settingsSection?: string; strategyService?: "blockchain" | "stock"; onOpenWealth?: (question?:string) => void; onOpenSettings?: () => void; onChartAnalysis?: () => void; onReturn?: () => void; returnLabel?: string; onSendToStrategy?: (answer: string) => void }) {
+export function AssistantWorkspace({ client, service, initialQuestion = "", settingsSection = "", strategyService = "blockchain", onOpenWealth, onOpenPaperRecovery, onOpenSettings, onChartAnalysis, onReturn, returnLabel, onSendToStrategy }: { client: GatewayClient; service: string; initialQuestion?: string; settingsSection?: string; strategyService?: "blockchain" | "stock"; onOpenWealth?: (question?:string) => void; onOpenPaperRecovery?:()=>void; onOpenSettings?: () => void; onChartAnalysis?: () => void; onReturn?: () => void; returnLabel?: string; onSendToStrategy?: (answer: string) => void }) {
   const [question, setQuestion] = useState("");
   const [strategyContext, setStrategyContext] = useState("");
   const [level, setLevel] = useState<"beginner" | "standard" | "advanced">(service === "ai_custom" ? "beginner" : "standard");
@@ -422,7 +423,7 @@ export function AssistantWorkspace({ client, service, initialQuestion = "", sett
   const [dataScope, setDataScope] = useState<"private" | "public_general">("private");
   const [consultation, setConsultation] = useState(false);
   const [strategyPreferences, setStrategyPreferences] = useState<Record<string, string>>({});
-  const [messages, setMessages] = useState<Array<{ role: "assistant" | "user"; text: string; consultation?: boolean; draftText?: string }>>([
+  const [messages, setMessages] = useState<Array<{ role: "assistant" | "user"; text: string; consultation?: boolean; draftText?: string; productGuide?:boolean }>>([
     { role: "assistant", text: "안녕하세요. NoahAI 공식 AI 어시스턴트입니다." },
     { role: "assistant", text: "사용법·현재 상태·설정의 현재값·영향·위치를 설명합니다. 실제 변경과 저장은 설정 화면에서 직접 확인해 주세요." },
   ]);
@@ -451,12 +452,17 @@ export function AssistantWorkspace({ client, service, initialQuestion = "", sett
     if (requestPrompt.length > 4000) { setMessage("분석 자료와 질문이 입력 한도를 넘습니다. 질문을 짧게 나누어 주세요."); return; }
     if (strategyContext && !strategyContext.includes(MARKET_TREND_SNAPSHOT_MARKER) && dataScope === "public_general") { setMessage("전략 자료는 기본 보호 경로에서만 질문하세요."); return; }
     setBusy(true); setMessage(""); setMessages((items) => [...items, { role: "user", text: prompt }]);
+    const shippedGuide=consultation?null:paperRecoveryGuide(prompt);
+    if(shippedGuide){
+      setMessages(items=>[...items,{role:'assistant',text:'내장 사용법 안내 · 현재 계정 상태는 연결 후 확인\n\n'+shippedGuide,productGuide:true}]);
+      setMeta({provider_called:false,source:'shipped_product_guide'});setQuestion('');setBusy(false);return;
+    }
     try {
       const recentMessages = dataScope === "public_general" ? [] : messages.slice(-12).map((item) => ({ role: item.role, content: item.text.slice(0, 4000) }));
       const result = await client.askAssistant(requestPrompt, service, level, mode, recentMessages, settingsSection, dataScope,
         consultation ? { conversation_kind: "strategy", strategy_service: strategyService, strategy_preferences: strategyPreferences } : undefined);
       const answer = String(result.answer ?? "").trim() || "AI 응답이 비어 있어 답변을 표시하지 못했습니다. 일반 안내로 다시 시도하거나 AI Provider 연결 상태를 확인하세요.";
-      setMessages((items) => [...items, { role: "assistant", text: answer, consultation,
+      setMessages((items) => [...items, { role: "assistant", text: answer, consultation, productGuide:result.guide_topic==='paper_funds_recovery',
         draftText: result.strategy_consultation?.status === "review_draft" ? result.strategy_consultation.draft_text : undefined }]);
       if (consultation && result.strategy_consultation?.understanding) setStrategyPreferences(result.strategy_consultation.understanding);
       if (voice.enabled && voice.auto_tts && "speechSynthesis" in window) {
@@ -469,7 +475,13 @@ export function AssistantWorkspace({ client, service, initialQuestion = "", sett
       setMeta(result); setStatus(result.budget ? { ...(status ?? {}), budget: result.budget } : status);
       setQuestion("");
     } catch (reason) {
-      setMessage(reason instanceof Error ? reason.message : "AI 가이드 요청에 실패했습니다.");
+      const offlineGuide=consultation?null:paperRecoveryGuide(prompt);
+      if(offlineGuide){
+        setMessages(items=>[...items,{role:'assistant',text:'앱 내부 연결 실패 · 내장 사용법 안내\n\n'+offlineGuide,productGuide:true}]);
+        setMeta({provider_called:false,source:'shipped_offline_product_guide'});
+        setQuestion('');
+      }
+      setMessage((reason instanceof Error ? reason.message : "AI 가이드 요청에 실패했습니다.")+(offlineGuide?' 현재 실행 상태는 확인하지 못했으며, 위 답변은 앱에 포함된 사용법입니다.':''));
     } finally { setBusy(false); }
   }
   useEffect(() => {
@@ -604,7 +616,8 @@ export function AssistantWorkspace({ client, service, initialQuestion = "", sett
     <div className="assistant-main-grid">
       <article className="legacy-chat-panel">
         {service === "settings" && settingsSection && <div className="assistant-settings-context" role="status"><strong>{t("설정 문맥 고정")}</strong><span>{SETTINGS_SECTION_LABELS[settingsSection] ?? settingsSection}{t(" 탭의 저장 상태와 안전 계약만 기준으로 답합니다.")}</span></div>}
-        <div className="legacy-chat-history" ref={historyRef}>{consultation && <><p className="workspace-copy">{t("전략 상담 · 조건을 먼저 확인하고 검토용 초안만 전달합니다. 전송 시 외부 AI 비용 발생. 최신 웹 검색·자동 저장·거래 실행 없음.")}</p><details className="workspace-copy"><summary>{t("전략 상담 질문 예시")}</summary>{["추세추종과 평균회귀는 어느 시장에서 유리하고 언제 실패하나요?", "버핏의 공개 투자 원칙을 ETF에 적용하려면 어떤 차이와 제약이 있나요?", "워뇨띠와 트레이딩 대회 우승자의 전략 중 공개 근거가 있는 부분만 설명해줘."].map((example) => <button type="button" key={example} disabled={busy} onClick={() => setQuestion(t(example))}>{t(example)}</button>)}<p>{t("최신 순위·비공개 매매법은 추정하지 않습니다. 원문 링크나 발췌를 주면 확인 가능한 범위부터 설명합니다.")}</p></details></>}{messages.map((item, index) => <div className={`legacy-chat-message ${item.role}`} key={`${item.role}-${index}`}><b>{item.role === "user" ? t("사용자") : "NoahAI"}</b><p>{item.text}</p>{item.role === "assistant" && (item.consultation ? Boolean(item.draftText) : index >= 2) && onSendToStrategy && <button className="assistant-send-to-strategy" type="button" onClick={() => onSendToStrategy(item.draftText || item.text)}>{t("이 답변을 전략 스튜디오 검토 영역으로 보내기")}</button>}</div>)}{busy && <div className="legacy-chat-message assistant"><b>NoahAI</b><p>{t("질문을 확인하고 있습니다…")}</p></div>}</div>
+        <div className="legacy-chat-history" ref={historyRef}>{consultation && <><p className="workspace-copy">{t("전략 상담 · 조건을 먼저 확인하고 검토용 초안만 전달합니다. 전송 시 외부 AI 비용 발생. 최신 웹 검색·자동 저장·거래 실행 없음.")}</p><details className="workspace-copy"><summary>{t("전략 상담 질문 예시")}</summary>{["추세추종과 평균회귀는 어느 시장에서 유리하고 언제 실패하나요?", "버핏의 공개 투자 원칙을 ETF에 적용하려면 어떤 차이와 제약이 있나요?", "워뇨띠와 트레이딩 대회 우승자의 전략 중 공개 근거가 있는 부분만 설명해줘."].map((example) => <button type="button" key={example} disabled={busy} onClick={() => setQuestion(t(example))}>{t(example)}</button>)}<p>{t("최신 순위·비공개 매매법은 추정하지 않습니다. 원문 링크나 발췌를 주면 확인 가능한 범위부터 설명합니다.")}</p></details></>}{messages.map((item, index) => <div className={`legacy-chat-message ${item.role}`} key={`${item.role}-${index}`}><b>{item.role === "user" ? t("사용자") : "NoahAI"}</b><p>{item.text}</p>{item.role === "assistant" && !item.productGuide && (item.consultation ? Boolean(item.draftText) : index >= 2) && onSendToStrategy && <button className="assistant-send-to-strategy" type="button" onClick={() => onSendToStrategy(item.draftText || item.text)}>{t("이 답변을 전략 스튜디오 검토 영역으로 보내기")}</button>}</div>)}{busy && <div className="legacy-chat-message assistant"><b>NoahAI</b><p>{t("질문을 확인하고 있습니다…")}</p></div>}</div>
+        {onOpenPaperRecovery && messages.at(-1)?.productGuide && <button className="secondary-button assistant-open-paper-recovery" type="button" onClick={onOpenPaperRecovery}>거래소 운용 화면 열기</button>}
         {onOpenWealth && meta?.actions?.some((a:Record<string,unknown>)=>a.id==="wealth") && <button type="button" onClick={()=>onOpenWealth(messages.filter(m=>m.role==="user").at(-1)?.text)}>내 돈 계획 열기</button>}
         {message && <div className="inline-notice error-text">{message}</div>}
         {meta?.provider_failed && <div className="analysis-meta"><b>{t("외부 분석 미완료 · 로컬 안내")}</b><span>{meta.provider_called ? `${String(meta.provider).toUpperCase()} · ${String(meta.model)} 호출 시도` : "Provider 응답 확인 전"}{meta.provider_status_code ? ` · HTTP ${meta.provider_status_code}` : ""} · {String(meta.provider_error ?? "연결 상태 확인 필요")}</span></div>}

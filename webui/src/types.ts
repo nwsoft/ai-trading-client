@@ -295,6 +295,7 @@ export interface WorkspaceSnapshot {
     source?: string; mode?: string; status: string; session?: string;
     regime?: Record<string, any>; candidate?: Record<string, any>; runtime?: Record<string, any>; risk?: Record<string, any>;
     regime_history?: Array<{observed: string; confirmed: string; symbol: string; timeframe: string; observed_at: number}>;
+    paper_session_readiness?: {running:boolean;open_positions:number|null;pending_and_reserved:number|null;saved_positions_check:string;strategy_validation_off_is_not_trading_stop:boolean};
     paper_pool?: { scope_eligible: number; selected: number; waiting: number; limit: number; applied_slots: number; waiting_versions: string[] };
   };
   schema_version: string;

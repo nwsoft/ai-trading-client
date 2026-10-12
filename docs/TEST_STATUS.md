@@ -1,3 +1,27 @@
+## 2026-10-12 거래소 변경·운영 통제 최종 검증 (.12 후보 후속)
+
+현재 renderer **3.9.2.12-ui.20261012.2**. Python 전체 **5,870 passed / 11 skipped / 2 warnings / 3 subtests passed**(101.42초), Node **77 passed**, React **153 passed**(기능 25 / 메뉴 77 / 사용성 18 / 세무 12 / 실제 격리 보관함 15 / PAPER 오프라인 도움말 6). 신규 거래소·주문 경계 테스트 35개는 전체 통과 수의 부분집합이며 별도 합산하지 않는다. TypeScript/Vite 빌드·문서 정합성·diff 공백 검사 통과. 추가 빌드 사전검사: npm audit 취약점 0, active_source_audit 686개 Python 파일 PASS, UI-neutral sidecar spec PASS, 원본 아이콘 branding PASS(Windows EXE 검사는 미실시). 빌드 크기와 기존 Starlette/httpx·utcnow 경고는 오류와 구분한다.
+
+실제 공개 REST 읽기: OKX 500, Bybit 904, Bitget 820개 목록을 검사한 SDK·어댑터에서 조회했다. 이는 인증·거래소 데모·주문/체결 검증이 아니다. 이번 React 검사는 실제 빌드와 합성 API/격리 FastAPI·보관함을 이용한 headless 실행이다. 이전 .1 Electron 네이티브 점검을 이번 .2에서 재실행한 것으로 합산하지 않는다.
+
+11개 제외: macOS의 Windows PE 1 / 명시적 실기관 opt-in 6 / Binance 실제 주문 opt-in 2 / 배포되지 않은 과거 고객 사본 2. 제외 사유 감사는 PASS이나 해당 검사는 미실행이다. Windows 빌드 시 PE 검사는 통과해야 한다. 실제 계정 주문·취소·청산, 자금 이동, 고객 설정 변경은 수행하지 않았다. 새 Windows 설치본·설치/업데이트·롤백·24/72h 운용은 미실시다.
+
+초기 재현은 **9 failed / 10 passed**로 실제 결함을 확인했다(`before-corrected.txt`). 첫 harness 인자 오류·문서의 이전 RELEASE_PATCH 불일치·Node 실행 환경 누락도 수정 후 재검사했다. 초기 실패 로그를 보존하고 최종 `full-final.xml` / `node-final.txt` / UI 결과만 인수 근거로 삼는다. [수정 원장](TRADING_FLOW.md#exchange-change-audit-20261012) · [명령·지문·실행 근거](../reports/exchange-audit-20261012/validation.json).
+
+아래 .12.1 이하 검증 수치·네이티브 화면 점검은 당시 입력의 이력이다.
+
+3.9.2.12 최종 로컬 검증: Python **5,835 passed / 11 skipped / 2 warnings / 3 subtests passed**, Node **77**, React **153**(기존 기능 25/메뉴 77/사용성 18/세무 12 + 실제 격리 보관함 15 + 내장 PAPER 도움말 6). 실제 Electron 임시 계정의 입력·계산·네이티브 확인·저장·월 실적·잠금/재열기·서버 없는 답변도 별도 확인했다. [최종 지문·증거](../reports/v39212-feedback-20261012/validation.json). 11개 제외는 명시적 감사 PASS이며 Windows PE/기관 인수까지 통과한 뜻이 아니다. Windows 새 빌드·설치·게시 미실시.
+
+## 2026-10-12 - v3.9.2.12 PAPER 복구 안내·내 돈 계획 저장 경합 수정
+
+현재 소스 후보 버전: **v3.9.2.12**
+현재 공개 버전: **v3.9.2.11**
+현재 소스 후보: v3.9.2.12 · 현재 공개 기반: v3.9.2.11 · updater 3.9.212 · renderer 3.9.2.12-ui.20261012.2. Windows 새 빌드·게시·설치 인수는 미실시.
+
+전략 PAPER 검증 OFF와 거래소 자동매매 정지의 차이를 설명하고, 전략 삭제 없이 과거 원장을 보존하는 새 평가 준비 순서를 안내한다. 이 사용법 질문은 서버·외부 AI 연결 없이 내장 도움말로 답한다. 실제 앱에서 발견한 보관함 busy/locked 오인으로 저장 입력이 지워지는 경합을 수정했다. 실주문 검사를 자동 켜지 않으며 제외된 11개 검사와 Windows 필수 PE 검사를 감사한다.
+
+[3.9.2.12 인수 정본](V39212_FEEDBACK_AND_RELEASE_PLAN.md). 아래 .11 이하의 수치·미배포 표기는 해당 당시 이력이다.
+
 이번 내 돈 계획 최종 검증은 Python 전체 5,809건, 집중 130건(전체의 부분집합), Node 77건, React 146건(기존 합성 응답 132 + 새 계획의 실제 격리 gateway/암호화 엔진 14), 일반 어시스턴트 5서비스 추가 질문, TypeScript/Vite·문서·소스 계약·기존 공개판/고객 자료 보존 검사를 기록한다. 정확한 결과·지문·잔여 경계는 [검증 정본](../reports/v39211-wealth-planning-20261011/validation.json)을 따른다. Windows 패키징·실제 기관·운용 인수와 구분한다.
 
 2026-10-11 후속 구현: 자산 통합 → **내 돈 계획**에서 월 예산·수동 자산/원화 부채·비상금·반복 지출·목표별 세후/비용/물가/하락 가정·절세 조건을 연결하고, 검토한 계획을 암호화 저장해 월 실제 기록과 재점검한다. 현재 renderer `3.9.2.11-ui.20261011.4`, Web 추가 기능 `portfolio.plan` 포함 36개. [구현·사용법·한계](V39211_WEALTH_PLANNING.md)와 [현재 검증](../reports/v39211-wealth-planning-20261011/validation.json)을 따른다. 실제 금융기관 자동 수집·개인별 최적 절세·가입/주문·Windows 빌드·배포 완료는 별도다. 아래 수치는 해당 당시 소스의 이력이다.
