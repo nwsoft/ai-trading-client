@@ -65,6 +65,15 @@ def disk_usage(root):
     }
 
 
+def _log_path_is_link(path):
+    # Python 3.11 is_symlink() does not recognize Windows directory junctions.
+    if path.is_symlink():
+        return True
+    if not path.exists():
+        return False
+    return bool(getattr(path.lstat(), 'st_file_attributes', 0) & 0x400)
+
+
 def compact_logs(root, *, force=False, max_files=8):
     """Bounded compression of closed diagnostics; originals removed only after
     byte-for-byte digest verification and a durable archive commit. No logging
@@ -77,10 +86,10 @@ def compact_logs(root, *, force=False, max_files=8):
         budget = int(read_policy(root).get('log_budget_bytes', DEFAULT_LOG_BUDGET))
         if not force and disk_usage(root)['log_bytes'] < budget * .8: return 0
         folder = root/'log_archives'
-        if folder.is_symlink() or (root/'logs').is_symlink(): raise ValueError('unsafe_log_directory')
+        if _log_path_is_link(folder) or _log_path_is_link(root/'logs'): raise ValueError('unsafe_log_directory')
         folder.mkdir(exist_ok=True)
         candidates = sorted((p for p in (root/'logs').glob('*.log')
-                             if _ROTATED.fullmatch(p.name) and not p.is_symlink()), key=lambda p:p.name)
+                             if _ROTATED.fullmatch(p.name) and not _log_path_is_link(p)), key=lambda p:p.name)
         for source in candidates[:max_files]:
             before = source.stat()
             fd, temporary = tempfile.mkstemp(prefix='.log-archive-', dir=folder)

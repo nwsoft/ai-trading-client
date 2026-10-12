@@ -128,14 +128,29 @@ def test_compaction_never_follows_symlink(tmp_path):
     outside=tmp_path/'external';outside.mkdir()
     target=outside/'evidence';target.write_bytes(b'keep')
     logs=tmp_path/'logs';logs.mkdir()
+    link=logs/'trading.2026-09-21_01-02-03_123456.log'
+    junction=False
     try:
-        (logs/'trading.2026-09-21_01-02-03_123456.log').symlink_to(target)
+        link.symlink_to(target)
     except OSError as exc:
         if getattr(exc, 'winerror', None) == 1314:
-            pytest.skip('Windows symbolic-link privilege is unavailable')
-        raise
-    assert p.compact_logs(tmp_path,force=True)==0
-    assert target.read_bytes()==b'keep'
+            # Exercise a real NTFS reparse point without requiring symlink privilege.
+            import os, subprocess
+            subprocess.run(['powershell','-NoProfile','-Command',
+                "$ErrorActionPreference='Stop'; New-Item -ItemType Junction -Path $env:NOAHAI_TEST_LINK -Target $env:NOAHAI_TEST_TARGET | Out-Null"],
+                env={**os.environ,'NOAHAI_TEST_LINK':str(link),'NOAHAI_TEST_TARGET':str(outside)},check=True)
+            junction=True
+        else:
+            raise
+    try:
+        assert p._log_path_is_link(link)
+        assert p.compact_logs(tmp_path,force=True)==0
+        assert target.read_bytes()==b'keep'
+        assert p.read_policy(tmp_path)['log_archive_error'] is None
+        assert not list((tmp_path/'log_archives').iterdir())
+    finally:
+        if junction:
+            link.rmdir()  # Remove only the junction entry, never recurse into its target.
 
 
 def test_rejection_status_visible_and_maintenance_not_relabel(tmp_path):
