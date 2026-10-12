@@ -236,6 +236,6 @@ if __name__ == "__main__":
     from config.paper_recovery_guide import TRIGGERS, ANSWER_KO, ANSWER_EN
     guide_path=ROOT/'webui/src/generated/paper-recovery-guide.json'
     guide_path.parent.mkdir(parents=True,exist_ok=True)
-    guide_path.write_text(json.dumps({'triggers':TRIGGERS,'ko':ANSWER_KO,'en':ANSWER_EN},ensure_ascii=False,indent=2)+'\n',encoding='utf-8')
+    guide_path.write_text(json.dumps({'triggers':TRIGGERS,'ko':ANSWER_KO,'en':ANSWER_EN},ensure_ascii=False,indent=2)+'\n',encoding='utf-8',newline='\n')
 
     raise SystemExit(main())
