@@ -1,3 +1,39 @@
+## 2026-10-12 — v3.9.2.13 배포 인수 상태 정합성 (소스 후보)
+
+현재 소스 후보 버전: **v3.9.2.13**
+현재 공개 버전: **v3.9.2.12**
+현재 소스 후보: v3.9.2.13 · 현재 공개 기반: v3.9.2.12 · updater 3.9.213 · renderer 3.9.2.13-ui.20261012.1.
+
+공개 .12는 2026-10-12 11:21:46 KST 게시된 5a645b455b9800696b5cad6f1b06946fb2d32623이다. .13은 별도 후속 후보이며 새 Windows 빌드·게시·설치는 미실시다. 기존 .12의 거래 보호·PAPER 안내·내 돈 계획과 Windows junction 보호를 유지한다. 수정 범위는 인수 체크리스트의 ID·상태·미완료 개수를 같은 원본에서 생성하는 빌드/게시 계약, .12 공개 원본 보존 및 .13 버전·안내 정합성이다.
+
+외부 인수 ‘9개’는 공개 .12 당시 미완료 체크리스트 줄 수이며 6개 일반 범주와 다른 목록이었다. 현재 재확인한 .12 SDK·빌드·게시 근거 3개와 실제 테스터 인수 6개를 구분한다. 완료하지 않은 설치/기관/장시간 검증을 통과로 승계하지 않는다. [정확한 9항목·실행/정상/실패 기준](DEPLOY_CHECKLIST.md#acceptance-v39213), [검증 근거](../reports/v39213-acceptance-20261012/validation.json).
+
+이번 실행 범위: 전체 Python 회귀·제외 11개 사유 감사, Node, TS/Vite, npm high 감사, source/parity/bundle-spec, 공개 7기관 REST, 실제 합성 화면 153개와 Mac Electron 수동 저장/재점검이다. 실주문·고객 설정·Windows 설치/자동 업데이트/롤백·OCX·24/72h는 미실시다. 처음 버전 상향에서 inventory/notice/문서 메타데이터 불일치를 발견해 수정한 뒤 재실행했다. 실패 로그를 보존하며 최초 실패를 숨기지 않는다.
+
+실행 명령(작업 브랜치 `fix/v3.9.2.13-acceptance-20261012`, 공개 기반 `5a645b4`, 별도 QA 기반 `6572b1e`):
+
+```sh
+.venv/bin/python -m pytest tests -q -rs --junitxml=reports/v39213-acceptance-20261012/full.xml
+.venv/bin/python scripts/audit_release_test_skips.py reports/v39213-acceptance-20261012/full.xml reports/v39213-acceptance-20261012/skips.json
+node --test tests/*.test.cjs
+npm --prefix webui run build
+npm --prefix webui audit --audit-level=high
+.venv/bin/python scripts/doc_consistency_check.py
+.venv/bin/python scripts/active_source_audit.py
+.venv/bin/python scripts/audit_web_ui_full_parity_contract.py
+.venv/bin/python scripts/verify_web_engine_bundle.py --spec-only
+.venv/bin/python reports/v39213-acceptance-20261012/public-catalogues.py
+.venv/bin/python scripts/release_acceptance.py --version 3.9.2.13
+```
+
+UI는 `NOAHAI_QA_PLAYWRIGHT=/tmp/noah-feedback-ui-qa/node_modules/playwright`, 각 별도 `NOAHAI_QA_OUTPUT`에서 `node tests/webui_financial_companion.cjs`, `webui_financial_companion_navigation.cjs`, `webui_financial_companion_usability.cjs`, `webui_wealth_tax.cjs`, `webui_wealth_planning.cjs`, `webui_v39212_feedback.cjs`를 실행했다. 합성 API 화면과 실제 임시 gateway/암호화 저장 검증을 구분한다. Electron의 네이티브 확인창은 자동 도구의 프로토콜 한계로 CUA에서 직접 저장 확인·월 실제 기록 확인·계획 재열기를 수행했다. 자동 확인창 오류를 제품 결함/자동 통과로 바꾸지 않았다. [수동 확인 근거](../reports/v39213-acceptance-20261012/native-manual.json).
+
+제외 11개: Windows PE 1개(Windows 빌드에서 필수), 실제 증권 계정 opt-in 6개, 실제 Binance 주문 opt-in 2개(이번 작업 금지), 배포되지 않은 고객 과거 fixture 2개. 이 11개는 인수 체크리스트 9개와 서로 다른 집계다. 개인 원자료를 추가 복사하여 제외를 없애지 않는다.
+
+최종 실행 결과: Python **5,889 passed / 11 skipped / 2 warnings / 3 subtests passed**, Node **77**, 실제 빌드 합성 화면 **153**, TS/Vite·npm 감사(취약점 0)·문서·source/parity/bundle-spec·PowerShell 순수 인수 함수 PASS. 공개 7기관 REST 및 .12 설치기 원본 해시/PE 아이콘 읽기 검사 PASS. Mac Electron 격리 앱의 입력·계산·명시 저장·월 실제 기록·재열기는 수동 확인했다. Windows .13 빌드·실기관/OCX·자동 업데이트·롤백·실마이크·24/72h는 미실시다. 실주문은 수행하지 않았다.
+
+아래 .12 이하의 후보·공개·미게시 상태와 검사 수치는 해당 작성 당시 이력이다.
+
 ## 2026-10-12 정식 v3.9.2.12 게시 후 재검증 (배포 버전 변경 없음)
 
 GitHub 공개 .12는 11:21:46 KST에 게시됐고 커밋은 `5a645b455b9800696b5cad6f1b06946fb2d32623`이다. 이 게시 소스를 분리해 새 회귀 3개를 추가한 실제 실행: **Python 5,873 passed / 11 skipped / 2 warnings / 3 subtests passed**(100.95초), Node **77 passed**, TypeScript/Vite **PASS**, 문서 정합성 **PASS**. 추가 회귀는 현재 보관 .11 manifest의 core.autocrlf true/false checkout 2개와 Windows 기본 줄바꿈을 모사한 PAPER 도움말 생성 1개다. 제품 런타임 수정은 공개 .12에 이미 포함돼 있어 중복 구현·버전 상향·같은 .12 재게시를 하지 않는다.

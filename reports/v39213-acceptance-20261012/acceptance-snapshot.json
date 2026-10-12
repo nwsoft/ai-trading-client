@@ -1,0 +1,71 @@
+{
+  "version": "3.9.2.13",
+  "plan": "DEPLOY_CHECKLIST.md",
+  "scope": "release_checklist_snapshot",
+  "plan_sha256": "633b8d53e6f9a067b0e5b56d94599ce8e1789a82241e186922bd17dc64f9a6da",
+  "status": "pending",
+  "pending_count": 9,
+  "pending_ids": [
+    "SDK",
+    "WIN-BUILD",
+    "WIN-UPGRADE",
+    "UPLOAD",
+    "REPLAY-COST",
+    "CATALOG",
+    "ROLLBACK",
+    "SOAK",
+    "PUBLISH"
+  ],
+  "items": [
+    {
+      "id": "SOURCE",
+      "status": "complete",
+      "description": "공개 .12 원본/지문/기존 수정 보존, 별도 .13 후보와 인수 정본 분리"
+    },
+    {
+      "id": "SDK",
+      "status": "pending",
+      "description": ".13 Windows 동결 패키지 ccxt==4.5.50 및 python-binance==1.0.19 확인"
+    },
+    {
+      "id": "WIN-BUILD",
+      "status": "pending",
+      "description": "검사 생략 없는 .13 x64/x86/NSIS·PE·아이콘·bootstrap·provenance"
+    },
+    {
+      "id": "WIN-UPGRADE",
+      "status": "pending",
+      "description": ".12→.13 신규 설치·수동/자동 업데이트·설정·키·내 돈 계획 저장/재점검"
+    },
+    {
+      "id": "UPLOAD",
+      "status": "pending",
+      "description": "설치본 허브 업로드·권리 확인·초안·승인/검증 연계"
+    },
+    {
+      "id": "REPLAY-COST",
+      "status": "pending",
+      "description": "설치본 재생 비용·근거 부족·원본/승인·PAPER/LIVE 격리"
+    },
+    {
+      "id": "CATALOG",
+      "status": "pending",
+      "description": "7개 거래소 목록·실패/복구·모드/계정 및 증권/OCX 조회 인수"
+    },
+    {
+      "id": "ROLLBACK",
+      "status": "pending",
+      "description": ".13 종료·새 기록 백업·.12 복원/재업그레이드·업데이트 실패 보존"
+    },
+    {
+      "id": "SOAK",
+      "status": "pending",
+      "description": "배포된 .13의 24시간 및 72시간 PAPER 관찰·지속 보류·재접속 복구"
+    },
+    {
+      "id": "PUBLISH",
+      "status": "pending",
+      "description": "별도 승인 후 .13 자산/manifest/latest/원격 digest·태그·stable 확인"
+    }
+  ]
+}

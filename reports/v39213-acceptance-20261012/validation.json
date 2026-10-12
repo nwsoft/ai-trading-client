@@ -1,0 +1,208 @@
+{
+  "status": "SOURCE_READY; WINDOWS_AND_EXTERNAL_ACCEPTANCE_NOT_RUN",
+  "verified_at": "2026-10-12T08:35:02.557051+00:00",
+  "source_version": "3.9.2.13",
+  "updater": "3.9.213",
+  "renderer": "3.9.2.13-ui.20261012.1",
+  "published_version": "3.9.2.12",
+  "published_commit": "5a645b455b9800696b5cad6f1b06946fb2d32623",
+  "qa_base": "6572b1efd712ad922a6bb5db1a344043adb4d0db",
+  "branch": "fix/v3.9.2.13-acceptance-20261012",
+  "source_fingerprint": "5b6dd772fd103f41460e0ff8d9c9ac7927ca5c7dfb4e741a03d51232893a0f6a",
+  "renderer_source_hash": "1a1e6073a86e3d74b0e6fd89ce25a2c3b6e5d0b2913f52f86458e7d87b6cb585",
+  "old_nine_ids": [
+    "SDK",
+    "WIN-BUILD",
+    "WIN-UPGRADE",
+    "UPLOAD",
+    "REPLAY-COST",
+    "CATALOG",
+    "ROLLBACK",
+    "SOAK",
+    "PUBLISH"
+  ],
+  "published_12_reconfirmed_complete": [
+    "SDK",
+    "WIN-BUILD",
+    "PUBLISH"
+  ],
+  "published_12_remaining": [
+    "WIN-UPGRADE",
+    "UPLOAD",
+    "REPLAY-COST",
+    "CATALOG",
+    "ROLLBACK",
+    "SOAK"
+  ],
+  "candidate_13_acceptance": {
+    "version": "3.9.2.13",
+    "plan": "DEPLOY_CHECKLIST.md",
+    "scope": "release_checklist_snapshot",
+    "plan_sha256": "633b8d53e6f9a067b0e5b56d94599ce8e1789a82241e186922bd17dc64f9a6da",
+    "status": "pending",
+    "pending_count": 9,
+    "pending_ids": [
+      "SDK",
+      "WIN-BUILD",
+      "WIN-UPGRADE",
+      "UPLOAD",
+      "REPLAY-COST",
+      "CATALOG",
+      "ROLLBACK",
+      "SOAK",
+      "PUBLISH"
+    ],
+    "items": [
+      {
+        "id": "SOURCE",
+        "status": "complete",
+        "description": "공개 .12 원본/지문/기존 수정 보존, 별도 .13 후보와 인수 정본 분리"
+      },
+      {
+        "id": "SDK",
+        "status": "pending",
+        "description": ".13 Windows 동결 패키지 ccxt==4.5.50 및 python-binance==1.0.19 확인"
+      },
+      {
+        "id": "WIN-BUILD",
+        "status": "pending",
+        "description": "검사 생략 없는 .13 x64/x86/NSIS·PE·아이콘·bootstrap·provenance"
+      },
+      {
+        "id": "WIN-UPGRADE",
+        "status": "pending",
+        "description": ".12→.13 신규 설치·수동/자동 업데이트·설정·키·내 돈 계획 저장/재점검"
+      },
+      {
+        "id": "UPLOAD",
+        "status": "pending",
+        "description": "설치본 허브 업로드·권리 확인·초안·승인/검증 연계"
+      },
+      {
+        "id": "REPLAY-COST",
+        "status": "pending",
+        "description": "설치본 재생 비용·근거 부족·원본/승인·PAPER/LIVE 격리"
+      },
+      {
+        "id": "CATALOG",
+        "status": "pending",
+        "description": "7개 거래소 목록·실패/복구·모드/계정 및 증권/OCX 조회 인수"
+      },
+      {
+        "id": "ROLLBACK",
+        "status": "pending",
+        "description": ".13 종료·새 기록 백업·.12 복원/재업그레이드·업데이트 실패 보존"
+      },
+      {
+        "id": "SOAK",
+        "status": "pending",
+        "description": "배포된 .13의 24시간 및 72시간 PAPER 관찰·지속 보류·재접속 복구"
+      },
+      {
+        "id": "PUBLISH",
+        "status": "pending",
+        "description": "별도 승인 후 .13 자산/manifest/latest/원격 digest·태그·stable 확인"
+      }
+    ]
+  },
+  "results": {
+    "python_passed": 5889,
+    "python_skipped": 11,
+    "warnings": 2,
+    "subtests_passed": 3,
+    "node_passed": 77,
+    "ui_checks": {
+      "feedback": 6,
+      "financial_companion": 25,
+      "financial_companion_navigation": 77,
+      "financial_companion_usability": 18,
+      "wealth": 15,
+      "wealth_tax": 12
+    },
+    "ui_total": 153,
+    "native_electron": "PASS_MANUAL: isolated Mac gateway and encrypted vault",
+    "typescript_vite": "PASS, size advisory",
+    "npm_audit": "PASS, 0 vulnerabilities",
+    "docs": "PASS",
+    "source_parity_bundle_spec": "PASS",
+    "public_read_only_catalogues": [
+      {
+        "venue": "okx",
+        "status": "PASS",
+        "count": 500,
+        "path": "actual_adapter.load_instrument_catalogue + CCXT 4.5.50",
+        "private_calls": false
+      },
+      {
+        "venue": "bybit",
+        "status": "PASS",
+        "count": 904,
+        "path": "actual_adapter.load_instrument_catalogue + CCXT 4.5.50",
+        "private_calls": false
+      },
+      {
+        "venue": "bitget",
+        "status": "PASS",
+        "count": 825,
+        "path": "actual_adapter.load_instrument_catalogue + CCXT 4.5.50",
+        "private_calls": false
+      },
+      {
+        "venue": "binance",
+        "status": "PASS",
+        "count": 928,
+        "path": "public GET only; not installed adapter acceptance"
+      },
+      {
+        "venue": "upbit",
+        "status": "PASS",
+        "count": 867,
+        "path": "public GET only; not installed adapter acceptance"
+      },
+      {
+        "venue": "bithumb",
+        "status": "PASS",
+        "count": 487,
+        "path": "public GET only; not installed adapter acceptance"
+      },
+      {
+        "venue": "coinone",
+        "status": "PASS",
+        "count": 361,
+        "path": "public GET only; not installed adapter acceptance"
+      }
+    ],
+    "published_12_installer_bytes_pe_icon": "PASS, not executed",
+    "baseline_restore": "PASS, cached hash-pinned .12",
+    "powershell_wrapper": "PASS, pure publisher functions on PowerShell 7.6.3/macOS"
+  },
+  "environment": {
+    "python": "3.13.3/macOS",
+    "node": "22.23.1",
+    "ccxt": "4.5.50",
+    "pefile": "2023.2.7, isolated /tmp dependency"
+  },
+  "initial_failures_and_resolution": [
+    ".13 version inventory/notice/checklist/changelog/README mismatches corrected, full suite rerun passed",
+    "Native JS dialog automation protocol unsupported; CUA manual confirmations and final saved state verified",
+    "Mac venv lacked pefile; isolated temp dependency used for read-only PE icon inspection"
+  ],
+  "not_run": [
+    ".13 Windows build, actual install/auto-update/rollback",
+    "authenticated broker/OCX/exchange E2E",
+    "actual microphone acceptance",
+    "24/72h elapsed PAPER soak",
+    "live order/cancel/close: forbidden in this task"
+  ],
+  "boundaries": {
+    "customer_data_or_settings_changed": false,
+    "trading_thresholds_or_policy_changed": false,
+    "public_12_assets_changed": false,
+    "push": false,
+    "release_publication": false,
+    "deployment": false
+  },
+  "followup": ".14+ only for newly reproduced institution defects or separately approved ST/STP/global budget/funding expansion",
+  "commands": "docs/TEST_STATUS.md and adjacent local output files",
+  "final_commit": "handoff.json"
+}

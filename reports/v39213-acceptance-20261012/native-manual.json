@@ -1,0 +1,19 @@
+{
+  "status": "PASS_MANUAL",
+  "at": "2026-10-12T08:30:19.021083+00:00",
+  "environment": "macOS actual Electron 43.7.6, noahai://app, isolated synthetic account and loopback backend",
+  "checks": [
+    ".13 title/renderer and temporary userData",
+    "companion question to owning wealth screen",
+    "budget/assets input and real calculator: surplus 1900000 KRW",
+    "native save confirmation and encrypted vault persist",
+    "native monthly-record confirmation: observed remainder 1100000 KRW",
+    "reopen saved input: income 4000000 KRW and stored actual record remain",
+    "stored timestamp formatted as Korea UTC+9"
+  ],
+  "automation_limit": "Playwright Electron native JS dialog protocol failed; confirmations and final state verified manually through CUA; no automated PASS claimed",
+  "windows_installer": false,
+  "real_institution": false,
+  "customer_data": false,
+  "live_orders": false
+}

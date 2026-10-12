@@ -1,6 +1,8 @@
-# v3.9.2.12 현재 기술 경계
+# v3.9.2.13 현재 기술 경계
 
-현재 소스 후보: NoahAI Client v3.9.2.12 · 현재 공개 기반: NoahAI Client v3.9.2.11.
+현재 소스 후보: NoahAI Client v3.9.2.13 · 현재 공개 기반: NoahAI Client v3.9.2.12.
+
+후속 .13은 release_acceptance의 항목/상태/개수 스냅샷을 일치시킨다. 공개 .12의 거래 보호와 PAPER 안내는 기존 구현이다. .13 Windows 빌드·게시·설치 인수는 미실시. [테스터 절차](DEPLOY_CHECKLIST.md#acceptance-v39213).
 
 내장 PAPER 복구 안내는 통신 없이 사용법을 설명한다. paper_session_readiness는 기존 메모리의 읽기 전용 투영이며 복구 실행은 기존 보호 검사를 유지한다. 실제 Electron 임시 계정에서 내 돈 계획의 입력·계산·네이티브 확인·저장·실제 기록·잠금·재열기를 검사하고 busy/locked 경합을 수정했다. [현재 인수 정본](V39212_FEEDBACK_AND_RELEASE_PLAN.md). 아래는 당시 이력이다.
 

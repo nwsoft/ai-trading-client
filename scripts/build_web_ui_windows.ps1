@@ -266,6 +266,9 @@ try {
 
     $version = (& python -c "from config.app_version import RELEASE_VERSION; print(RELEASE_VERSION)").Trim()
     $releaseLabel = (& python -c "from config.app_version import RELEASE_BUILD_LABEL; print(RELEASE_BUILD_LABEL)").Trim()
+    $acceptanceJson = (& python scripts/release_acceptance.py --root $repoRoot --version $version | Out-String)
+    if ($LASTEXITCODE -ne 0) { throw "Acceptance snapshot validation failed" }
+    $acceptance = $acceptanceJson | ConvertFrom-Json
     $versionMatch = [regex]::Match($version, '^(\d+)\.(\d+)\.(\d+)\.(\d+)$')
     if (-not $versionMatch.Success) { throw "RELEASE_VERSION must use A.B.C.D product format (actual=$version)" }
     if ([version]$version -lt [version]"3.9.1.0") { throw "Electron Web UI release requires RELEASE_VERSION >= 3.9.1.0 (actual=$version)" }
@@ -451,21 +454,13 @@ try {
             legacy_single_exe_updater = "retired_after_v3.9.0.10"
         }
         previous_published_asset = $previousPublishedAsset
-        external_validation_status = "pending"
-        external_validation = if ($existingManifest -and $existingManifest.version -eq $version -and $existingManifest.external_validation) {
-            @($existingManifest.external_validation)
-        } elseif ($existingManifest -and $existingManifest.version -eq $version -and $existingManifest.external_gates) {
-            @($existingManifest.external_gates)
-        } else {
-            @(
-                "auto_update_from_previous_release",
-                "windows_install_upgrade_rollback",
-                "settings_general_save_close_restart",
-                "settings_credentials_preserved",
-                "broker_and_exchange_e2e",
-                "paper_24_72h"
-            )
-        }
+        external_validation_status = $acceptance.status
+        external_validation_plan = $acceptance.plan
+        external_validation_plan_sha256 = $acceptance.plan_sha256
+        external_validation_scope = $acceptance.scope
+        external_validation_pending_count = $acceptance.pending_count
+        external_validation = @($acceptance.pending_ids)
+        external_validation_items = @($acceptance.items)
     }
     $manifestPath = Join-Path $repoRoot "deploy\release-manifest.json"
     Write-Utf8NoBom $manifestPath ($manifest | ConvertTo-Json -Depth 8)

@@ -1,0 +1,125 @@
+{
+  "tag": "v3.9.2.12",
+  "commit": "5a645b455b9800696b5cad6f1b06946fb2d32623",
+  "published_at": "2026-10-12T02:21:46Z",
+  "assets": [
+    {
+      "name": "latest.yml",
+      "size": 349,
+      "digest": "sha256:20237d4d06e4290dc425922c4938b6b7909365b65dc8a15266c5e2e14502df0c"
+    },
+    {
+      "name": "NoahAI-3.9.2.12-Setup.exe",
+      "size": 451605876,
+      "digest": "sha256:d80336afff69bc1deba2109e155af065683b3531a9d98983d823a91f0129908a"
+    },
+    {
+      "name": "NoahAI-3.9.2.12-Setup.exe.blockmap",
+      "size": 470057,
+      "digest": "sha256:7ae5b672a470613ff4e727caaeaae76afa77f3cf61d0672f1d9232691893eb96"
+    },
+    {
+      "name": "release-manifest.json",
+      "size": 8298,
+      "digest": "sha256:f4681cb671a4dd06cd071572668e5f949590fb6d5673fbb25d653e46cdde03a4"
+    }
+  ],
+  "existing_windows_evidence": {
+    "source_revision": "5a645b455b9800696b5cad6f1b06946fb2d32623",
+    "ccxt_version": "4.5.50",
+    "binary_validation": {
+      "executables": [
+        {
+          "path": "webui/release/win-unpacked/NoahAI.exe",
+          "machine": "0x8664",
+          "versions": {
+            "CompanyName": "GitHub, Inc.",
+            "FileDescription": "NoahAI",
+            "FileVersion": "3.9.2.12",
+            "InternalName": "NoahAI",
+            "LegalCopyright": "Copyright \u00a9 2026 NoahAI",
+            "OriginalFilename": "",
+            "ProductName": "NoahAI",
+            "ProductVersion": "3.9.212.0",
+            "SquirrelAwareVersion": "1"
+          },
+          "sha256": "0e8851a654c0bea39609765e587544aeb6f42f24082dd84a23fa2e08fae1aa56",
+          "signed": false
+        },
+        {
+          "path": "deploy/web-engine/NoahAIEngine.exe",
+          "machine": "0x8664",
+          "versions": {
+            "CompanyName": "Noah AI Labs",
+            "FileDescription": "Noah AI Client",
+            "FileVersion": "3.9.2.12",
+            "InternalName": "AITrading",
+            "LegalCopyright": "Noah AI Labs",
+            "OriginalFilename": "AITrading.exe",
+            "ProductName": "Noah AI Client",
+            "ProductVersion": "3.9.2.12"
+          },
+          "sha256": "58503c4960b320f80d955236362d8866da03a66f8e8e54ee341b93c0a7558905",
+          "signed": false
+        },
+        {
+          "path": "deploy/web-engine/NoahAIKiwoomHost.exe",
+          "machine": "0x14c",
+          "versions": {
+            "CompanyName": "Noah AI Labs",
+            "FileDescription": "NoahAI Kiwoom OpenAPI+ x86 Host",
+            "FileVersion": "3.9.2.12",
+            "InternalName": "NoahAIKiwoomHost",
+            "LegalCopyright": "Noah AI Labs",
+            "OriginalFilename": "NoahAIKiwoomHost.exe",
+            "ProductName": "Noah AI Client",
+            "ProductVersion": "3.9.2.12"
+          },
+          "sha256": "96c58ab9341ac386af3c549bc44f2a33b25e6c4d1b104beec626f331604ea1b9",
+          "signed": false
+        },
+        {
+          "path": "webui/release/NoahAI-3.9.2.12-Setup.exe",
+          "machine": "0x14c",
+          "versions": {
+            "FileDescription": "",
+            "FileVersion": "3.9.2.12",
+            "LegalCopyright": "Copyright \u00a9 2026 NoahAI",
+            "ProductName": "NoahAI",
+            "ProductVersion": "3.9.212"
+          },
+          "sha256": "d80336afff69bc1deba2109e155af065683b3531a9d98983d823a91f0129908a",
+          "signed": false
+        }
+      ],
+      "packaged_current_modules": [
+        "trading.opportunity_coordinator",
+        "trading.execution_optimizer",
+        "api.binance_client",
+        "config.paper_recovery_guide",
+        "trading.wealth_planning",
+        "web_platform.companion",
+        "ccxt"
+      ],
+      "ccxt_frozen_version": "4.5.50",
+      "extracted_engines_and_app_match": true,
+      "renderer_tag": "3.9.2.12-ui.20261012.2",
+      "updater_sha512": "nrHr11yYpwndSyDjdQZ4YTehYVAKmg5yajyRSkwDDhu6LYmruPBuH1e3mCQsRT0K6EJZRvuQpl6GXf37L/fS7Q=="
+    },
+    "checks": {
+      "python_full_passed": 5871,
+      "python_skipped": 10,
+      "python_subtests": 3,
+      "python_focused_passed": 125,
+      "node_passed": 77,
+      "npm_audit_vulnerabilities": 0,
+      "bootstrap_routes": 4,
+      "authenticated_x86_ipc": "passed",
+      "source_worktree_clean": true,
+      "committed_fingerprint_matches": true,
+      "built_ui_checks": 21,
+      "storage_reparse_regression_passed": 46
+    }
+  },
+  "executed_by_this_turn": false
+}

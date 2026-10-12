@@ -1,3 +1,17 @@
+## 2026-10-12 — v3.9.2.13 배포 인수 상태 정합성 (소스 후보)
+
+현재 소스 후보 버전: **v3.9.2.13**
+현재 공개 버전: **v3.9.2.12**
+현재 소스 후보: v3.9.2.13 · 현재 공개 기반: v3.9.2.12 · updater 3.9.213 · renderer 3.9.2.13-ui.20261012.1.
+
+공개 .12는 2026-10-12 11:21:46 KST 게시된 5a645b455b9800696b5cad6f1b06946fb2d32623이다. .13은 별도 후속 후보이며 새 Windows 빌드·게시·설치는 미실시다. 기존 .12의 거래 보호·PAPER 안내·내 돈 계획과 Windows junction 보호를 유지한다. 수정 범위는 인수 체크리스트의 ID·상태·미완료 개수를 같은 원본에서 생성하는 빌드/게시 계약, .12 공개 원본 보존 및 .13 버전·안내 정합성이다.
+
+외부 인수 ‘9개’는 공개 .12 당시 미완료 체크리스트 줄 수이며 6개 일반 범주와 다른 목록이었다. 현재 재확인한 .12 SDK·빌드·게시 근거 3개와 실제 테스터 인수 6개를 구분한다. 완료하지 않은 설치/기관/장시간 검증을 통과로 승계하지 않는다. [정확한 9항목·실행/정상/실패 기준](DEPLOY_CHECKLIST.md#acceptance-v39213), [검증 근거](../reports/v39213-acceptance-20261012/validation.json).
+
+`scripts/release_acceptance.py`는 버전 marker 사이의 고유 ID/체크 상태를 검증한다. 빌드와 게시가 동일 파서를 사용해 `external_validation`(pending ID), `external_validation_items`(전체 ID/상태/설명), `external_validation_pending_count`, `external_validation_scope=release_checklist_snapshot`를 함께 기록한다. 목록 중복·누락·잘못된 체크박스는 실패로 처리한다. 이 필드는 해당 문서 시점의 스냅샷이며 자동으로 테스터 결과를 수집하거나 고객 거래를 차단하지 않는다. 공개 .12 manifest를 소급 수정하지 않는다.
+
+아래 .12 이하의 후보·공개·미게시 상태와 검사 수치는 해당 작성 당시 이력이다.
+
 ### 2026-10-12 거래소 변경·운영 통제 후속 (동일 .12 후보)
 
 공식 OKX 8443/instruments 변경은 현재 REST 사용 경로에는 영향이 없으며 공개 선물 목록 분리는 .11에서 이미 반영됐다. Bybit tags는 설치 SDK·어댑터 호환을 확인했다. 이번 실제 수정은 동일 종목의 제출 전 예약 경합, Binance 잔여 RO 수량 확대·잘못된 Hedge/RO 조합·Algo client ID/오류 분류, 알려진 거절 후 즉시 재시도/시장가 전환이다. CCXT를 검사한 4.5.50으로 고정했다. 기존 PAPER/내 돈 계획 수정을 유지한다. [항목별 근거·정책·미실시 경계](TRADING_FLOW.md#exchange-change-audit-20261012). 제품/PE 3.9.2.12·updater 3.9.212 유지, renderer는 `3.9.2.12-ui.20261012.2`; Windows 빌드·게시는 미실시.

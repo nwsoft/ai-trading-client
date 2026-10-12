@@ -1,0 +1,53 @@
+{
+  "at": "2026-10-12T08:22:06.244764+00:00",
+  "read_only": true,
+  "credentials_used": false,
+  "installed_windows_or_private_e2e": false,
+  "results": [
+    {
+      "venue": "okx",
+      "status": "PASS",
+      "count": 500,
+      "path": "actual_adapter.load_instrument_catalogue + CCXT 4.5.50",
+      "private_calls": false
+    },
+    {
+      "venue": "bybit",
+      "status": "PASS",
+      "count": 904,
+      "path": "actual_adapter.load_instrument_catalogue + CCXT 4.5.50",
+      "private_calls": false
+    },
+    {
+      "venue": "bitget",
+      "status": "PASS",
+      "count": 825,
+      "path": "actual_adapter.load_instrument_catalogue + CCXT 4.5.50",
+      "private_calls": false
+    },
+    {
+      "venue": "binance",
+      "status": "PASS",
+      "count": 928,
+      "path": "public GET only; not installed adapter acceptance"
+    },
+    {
+      "venue": "upbit",
+      "status": "PASS",
+      "count": 867,
+      "path": "public GET only; not installed adapter acceptance"
+    },
+    {
+      "venue": "bithumb",
+      "status": "PASS",
+      "count": 487,
+      "path": "public GET only; not installed adapter acceptance"
+    },
+    {
+      "venue": "coinone",
+      "status": "PASS",
+      "count": 361,
+      "path": "public GET only; not installed adapter acceptance"
+    }
+  ]
+}

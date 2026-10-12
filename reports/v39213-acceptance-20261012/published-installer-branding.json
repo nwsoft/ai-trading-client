@@ -1,0 +1,21 @@
+{
+  "assets": {
+    "icon.ico": "d9cd39ecfc52d0f1b37f9760130fb1edf96259c26fc7b429b49194caa67c2519",
+    "icon.png": "bc47272288999dfd627b62acb39bf79dec213448f1afa0db9bf28d1764a4030c",
+    "webui/public/icon.png": "bc47272288999dfd627b62acb39bf79dec213448f1afa0db9bf28d1764a4030c"
+  },
+  "executables": [
+    {
+      "name": "NoahAI-3.9.2.12-Setup.exe",
+      "sha256": "d80336afff69bc1deba2109e155af065683b3531a9d98983d823a91f0129908a",
+      "matching_groups": [
+        [
+          103,
+          1033
+        ]
+      ],
+      "image_count": 7,
+      "verified": true
+    }
+  ]
+}

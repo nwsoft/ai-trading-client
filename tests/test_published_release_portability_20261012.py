@@ -24,14 +24,15 @@ def source_repo(tmp_path):
     return tmp_path, manifest
 
 @pytest.mark.parametrize("autocrlf", ["false", "true"])
-def test_hash_pinned_manifest_keeps_original_bytes_in_fresh_checkout(source_repo, tmp_path, autocrlf):
+@pytest.mark.parametrize("archive_version", ["3.9.2.11", "3.9.2.12", "3.9.2.99"])
+def test_hash_pinned_manifest_keeps_original_bytes_in_fresh_checkout(source_repo, tmp_path, autocrlf, archive_version):
     """Published archives must retain their digest across commit and OS checkout."""
     root, _ = source_repo
     (root / ".gitattributes").write_bytes((verifier.ROOT / ".gitattributes").read_bytes())
-    relative = "config/published_release_manifests/v3.9.2.11.json"
+    relative = f"config/published_release_manifests/v{archive_version}.json"
     archive = root / relative
     archive.parent.mkdir(parents=True)
-    raw = b'{"version":"3.9.2.11","fixture":true}\r\n'
+    raw = (json.dumps({"version": archive_version,"fixture": True}) + "\r\n").encode()
     archive.write_bytes(raw)
     def git(*args):
         return subprocess.check_output(["git", "-C", str(root), *args])

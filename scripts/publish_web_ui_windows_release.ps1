@@ -92,12 +92,9 @@ function Get-PatchPlanStatus([string]$Root, [string]$Version) {
     foreach ($gateId in @("WIN-BUILD", "ROLLBACK")) {
         if ($plan -notmatch [regex]::Escape($gateId)) { throw "v$Version required patch gate missing: $gateId" }
     }
-    $pendingRows = @([regex]::Matches($plan, '(?m)^- \[ \].+$') | ForEach-Object { $_.Value })
-    return [ordered]@{
-        plan = [IO.Path]::GetFileName($planPath)
-        pending_count = $pendingRows.Count
-        status = if ($pendingRows.Count -eq 0) { "complete" } else { "pending" }
-    }
+    $snapshot = (& python (Join-Path $Root "scripts/release_acceptance.py") --root $Root --version $Version | Out-String)
+    if ($LASTEXITCODE -ne 0) { throw "Acceptance snapshot validation failed" }
+    return ($snapshot | ConvertFrom-Json)
 }
 
 try {
@@ -171,6 +168,10 @@ try {
     $manifest | Add-Member -NotePropertyName external_validation_status -NotePropertyValue $planStatus.status -Force
     $manifest | Add-Member -NotePropertyName external_validation_plan -NotePropertyValue $planStatus.plan -Force
     $manifest | Add-Member -NotePropertyName external_validation_pending_count -NotePropertyValue $planStatus.pending_count -Force
+    $manifest | Add-Member -NotePropertyName external_validation -NotePropertyValue @($planStatus.pending_ids) -Force
+    $manifest | Add-Member -NotePropertyName external_validation_items -NotePropertyValue @($planStatus.items) -Force
+    $manifest | Add-Member -NotePropertyName external_validation_scope -NotePropertyValue $planStatus.scope -Force
+    $manifest | Add-Member -NotePropertyName external_validation_plan_sha256 -NotePropertyValue $planStatus.plan_sha256 -Force
     $manifest.PSObject.Properties.Remove("windows_gate_override")
     Write-Utf8NoBom $manifestPath ($manifest | ConvertTo-Json -Depth 8)
 
