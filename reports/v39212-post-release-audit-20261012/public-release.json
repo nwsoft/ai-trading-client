@@ -1,0 +1,31 @@
+{
+  "tag_name": "v3.9.2.12",
+  "target_commitish": "5a645b455b9800696b5cad6f1b06946fb2d32623",
+  "published_at": "2026-10-12T02:21:46Z",
+  "assets": [
+    {
+      "name": "latest.yml",
+      "size": 349,
+      "digest": "sha256:20237d4d06e4290dc425922c4938b6b7909365b65dc8a15266c5e2e14502df0c",
+      "browser_download_url": "https://github.com/nwsoft/ai-trading-client/releases/download/v3.9.2.12/latest.yml"
+    },
+    {
+      "name": "NoahAI-3.9.2.12-Setup.exe",
+      "size": 451605876,
+      "digest": "sha256:d80336afff69bc1deba2109e155af065683b3531a9d98983d823a91f0129908a",
+      "browser_download_url": "https://github.com/nwsoft/ai-trading-client/releases/download/v3.9.2.12/NoahAI-3.9.2.12-Setup.exe"
+    },
+    {
+      "name": "NoahAI-3.9.2.12-Setup.exe.blockmap",
+      "size": 470057,
+      "digest": "sha256:7ae5b672a470613ff4e727caaeaae76afa77f3cf61d0672f1d9232691893eb96",
+      "browser_download_url": "https://github.com/nwsoft/ai-trading-client/releases/download/v3.9.2.12/NoahAI-3.9.2.12-Setup.exe.blockmap"
+    },
+    {
+      "name": "release-manifest.json",
+      "size": 8298,
+      "digest": "sha256:f4681cb671a4dd06cd071572668e5f949590fb6d5673fbb25d653e46cdde03a4",
+      "browser_download_url": "https://github.com/nwsoft/ai-trading-client/releases/download/v3.9.2.12/release-manifest.json"
+    }
+  ]
+}

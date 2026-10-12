@@ -1,0 +1,14 @@
+{
+  "verified_at": "2026-10-12T03:38:00.220304+00:00",
+  "published_commit": "5a645b455b9800696b5cad6f1b06946fb2d32623",
+  "changed_files": [
+    ".gitattributes",
+    ".github/workflows/windows-release.yml"
+  ],
+  "safety_check": "Both original files were byte-identical to the preserved pre-audit candidate; no later user changes overwritten",
+  "source_fingerprint_before": "2f2d36772cb2ce3a0bde5f84ef924a857ad2f06991d7631e6ba7c06913bdd674",
+  "source_fingerprint_after": "bce466226f9949bd6a2819c819ab50da18edb143336421eeb1b20b290d16d62e",
+  "published_source_inputs_match": true,
+  "backup": "/Users/playone/SynologyDrive/Works/noahai_client/reports/v39212-post-release-audit-20261012/before-alignment",
+  "customer_data_or_settings_changed": false
+}

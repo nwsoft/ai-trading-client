@@ -1,0 +1,90 @@
+{
+  "schema_version": 1,
+  "verified_at": "2026-10-12T03:43:31.150535+00:00",
+  "status": "PUBLIC_SOURCE_AND_METADATA_VERIFIED; EXTERNAL_ACCEPTANCE_PENDING",
+  "published_release": {
+    "verified_at": "2026-10-12T03:41:12.510534+00:00",
+    "release": "v3.9.2.12",
+    "published_at_kst": "2026-10-12 11:21:46 KST",
+    "published_commit": "5a645b455b9800696b5cad6f1b06946fb2d32623",
+    "source_fingerprint": "bce466226f9949bd6a2819c819ab50da18edb143336421eeb1b20b290d16d62e",
+    "public_manifest_bytes_sha256": "f4681cb671a4dd06cd071572668e5f949590fb6d5673fbb25d653e46cdde03a4",
+    "downloaded_metadata_digests_verified": true,
+    "asset_digest_comparison": {
+      "NoahAI-3.9.2.12-Setup.exe": {
+        "declared_sha256_matches_github_digest": true,
+        "size": 451605876
+      },
+      "latest.yml": {
+        "declared_sha256_matches_github_digest": true,
+        "size": 349
+      },
+      "NoahAI-3.9.2.12-Setup.exe.blockmap": {
+        "declared_sha256_matches_github_digest": true,
+        "size": 470057
+      }
+    },
+    "updater_version": "3.9.212",
+    "published_source_worktree_matches": true,
+    "mac_client_release_inputs_match_after_alignment": true,
+    "implementation_comparison": "Published .12 already contains exchange/order fixes, original manifest preservation and LF PAPER export; Windows junction protection also retained",
+    "installer_executed_or_extracted": false,
+    "installer_digest_method": "Compared independent GitHub upload digest with public manifest; installer bytes were not downloaded by this audit",
+    "external_validation_status": "pending",
+    "external_validation_pending_count": 9,
+    "external_validation": [
+      "auto_update_from_previous_release",
+      "windows_install_upgrade_rollback",
+      "settings_general_save_close_restart",
+      "settings_credentials_preserved",
+      "broker_and_exchange_e2e",
+      "paper_24_72h"
+    ],
+    "original_windows_build_run_by_this_agent": false,
+    "git_push_or_release_by_this_turn": false,
+    "superseded_local_handoff": "Previous .12 candidate helper disabled; no replacement .12 installer or ZIP delivered"
+  },
+  "qa_branch": "test/v3.9.2.12-post-release-20261012",
+  "qa_scope": "Three added tests and existing documentation only; runtime release inputs unchanged from public 5a645b4",
+  "results": {
+    "python_passed": 5873,
+    "python_skipped": 11,
+    "warnings": 2,
+    "subtests_passed": 3,
+    "node_passed": 77,
+    "new_portability_tests": 3,
+    "typescript_vite": "PASS",
+    "docs": "PASS"
+  },
+  "source_alignment": "source-alignment.json",
+  "changed_test": "tests/test_published_release_portability_20261012.py",
+  "changed_docs": [
+    "docs/TEST_STATUS.md",
+    "docs/BUILD_GUIDE.md",
+    "docs/CHANGELOG.md",
+    "docs/UPDATE_PLAN.md",
+    "docs/DEPLOY_CHECKLIST.md"
+  ],
+  "commands": [
+    ".venv/bin/python -m pytest tests/test_published_release_portability_20261012.py -q",
+    ".venv/bin/python -m pytest tests -q -rs --junitxml=.../full-final.xml",
+    "node --test tests/*.test.cjs",
+    "npm --prefix webui run build",
+    ".venv/bin/python scripts/doc_consistency_check.py",
+    "gh api repos/nwsoft/ai-trading-client/releases/latest",
+    "downloaded public release-manifest.json and latest.yml; verified GitHub digests and source fingerprint"
+  ],
+  "resolved_environment_failures": "Fresh checkout omitted ignored deploy metadata and previous public rollback installer; restored actual public metadata and linked the existing public .11 installer read-only, then reran the full suite. Initial logs retained.",
+  "not_executed": [
+    "installer execution/extraction and installed Windows update/rollback",
+    "authenticated exchange/broker E2E and 24/72h PAPER",
+    "live order/cancel/close, fund transfers, customer setting changes"
+  ],
+  "actions_this_turn": {
+    "new_version": false,
+    "remote_push": false,
+    "release_publication": false,
+    "production_deployment": false
+  },
+  "old_candidate_handoff": "WITHDRAWN because actual public .12 became available; helper disabled; no ZIP delivered"
+}

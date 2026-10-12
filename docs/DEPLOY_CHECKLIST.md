@@ -1,3 +1,13 @@
+## 2026-10-12 정식 .12 게시 후 확인
+
+- [x] PUBLIC: GitHub v3.9.2.12·11:21:46 KST·커밋 5a645b455b9800696b5cad6f1b06946fb2d32623 확인(이번 Mac 작업이 게시한 것은 아님)
+- [x] IDENTITY: 공개 manifest/updater 3.9.212/커밋·지문·GitHub upload digest 3개 일치
+- [x] SOURCE: 이전 설정 2개 백업·동기화 후 Mac 원본/게시 커밋 릴리스 입력 일치
+- [x] QA: 추가 회귀 3개 포함 Python 5873/11 제외, Node 77, TS/Vite·문서 통과
+- [ ] ACCEPTANCE: 공개 manifest의 외부 인수 9항목은 pending. 이전판 자동 업데이트, 설치/업데이트/복원, 설정 저장/키 보존, 기관 E2E, 24/72h PAPER 확인
+
+[실행 근거와 한계](../reports/v39212-post-release-audit-20261012/validation.json). 설치기 payload 실행·추출이나 실계정 주문을 이번 작업에서 수행하지 않았다. 아래 후보 체크리스트/미게시 표시는 작성 당시 이력이다.
+
 ### 2026-10-12 거래소 변경·운영 통제 후속 (동일 .12 후보)
 
 공식 OKX 8443/instruments 변경은 현재 REST 사용 경로에는 영향이 없으며 공개 선물 목록 분리는 .11에서 이미 반영됐다. Bybit tags는 설치 SDK·어댑터 호환을 확인했다. 이번 실제 수정은 동일 종목의 제출 전 예약 경합, Binance 잔여 RO 수량 확대·잘못된 Hedge/RO 조합·Algo client ID/오류 분류, 알려진 거절 후 즉시 재시도/시장가 전환이다. CCXT를 검사한 4.5.50으로 고정했다. 기존 PAPER/내 돈 계획 수정을 유지한다. [항목별 근거·정책·미실시 경계](TRADING_FLOW.md#exchange-change-audit-20261012). 제품/PE 3.9.2.12·updater 3.9.212 유지, renderer는 `3.9.2.12-ui.20261012.2`; Windows 빌드·게시는 미실시.

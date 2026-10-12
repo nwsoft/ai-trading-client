@@ -1,3 +1,11 @@
+## 2026-10-12 정식 v3.9.2.12 게시 후 재검증 (배포 버전 변경 없음)
+
+GitHub 공개 .12는 11:21:46 KST에 게시됐고 커밋은 `5a645b455b9800696b5cad6f1b06946fb2d32623`이다. 이 게시 소스를 분리해 새 회귀 3개를 추가한 실제 실행: **Python 5,873 passed / 11 skipped / 2 warnings / 3 subtests passed**(100.95초), Node **77 passed**, TypeScript/Vite **PASS**, 문서 정합성 **PASS**. 추가 회귀는 현재 보관 .11 manifest의 core.autocrlf true/false checkout 2개와 Windows 기본 줄바꿈을 모사한 PAPER 도움말 생성 1개다. 제품 런타임 수정은 공개 .12에 이미 포함돼 있어 중복 구현·버전 상향·같은 .12 재게시를 하지 않는다.
+
+공개 manifest/최신 updater 3.9.212·커밋·소스 지문 및 GitHub 업로드 digest 3개를 대조했다. installer 실행/추출 검사는 수행하지 않았다. Mac 원본에 남아 있던 빌드 설정 2개는 보존된 이전 사본과 완전히 같음을 확인하고 백업 후 게시 커밋에 맞췄다. 게시 커밋·검증 작업트리·Mac 원본의 릴리스 입력 지문이 일치한다. 초기 새 checkout 검사의 실패 5개는 Git에서 제외되는 공개 metadata/이전 rollback 설치기 부재였고, 실제 공개 자료를 준비한 뒤 전체를 재실행했다.
+
+[최종 실행 근거](../reports/v39212-post-release-audit-20261012/validation.json). 공개 manifest의 외부 인수 9항목은 pending이다. 설치/업데이트/롤백·기관 인수·24/72h PAPER는 미실시이며 실계정 주문/취소/청산을 수행하지 않았다. 아래 후보·미게시·이전 수치는 작성 당시 이력이다.
+
 ## 2026-10-12 거래소 변경·운영 통제 최종 검증 (.12 후보 후속)
 
 현재 renderer **3.9.2.12-ui.20261012.2**. Python 전체 **5,870 passed / 11 skipped / 2 warnings / 3 subtests passed**(101.42초), Node **77 passed**, React **153 passed**(기능 25 / 메뉴 77 / 사용성 18 / 세무 12 / 실제 격리 보관함 15 / PAPER 오프라인 도움말 6). 신규 거래소·주문 경계 테스트 35개는 전체 통과 수의 부분집합이며 별도 합산하지 않는다. TypeScript/Vite 빌드·문서 정합성·diff 공백 검사 통과. 추가 빌드 사전검사: npm audit 취약점 0, active_source_audit 686개 Python 파일 PASS, UI-neutral sidecar spec PASS, 원본 아이콘 branding PASS(Windows EXE 검사는 미실시). 빌드 크기와 기존 Starlette/httpx·utcnow 경고는 오류와 구분한다.

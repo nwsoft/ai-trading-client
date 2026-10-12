@@ -1,0 +1,42 @@
+{
+  "verified_at": "2026-10-12T03:41:12.510534+00:00",
+  "release": "v3.9.2.12",
+  "published_at_kst": "2026-10-12 11:21:46 KST",
+  "published_commit": "5a645b455b9800696b5cad6f1b06946fb2d32623",
+  "source_fingerprint": "bce466226f9949bd6a2819c819ab50da18edb143336421eeb1b20b290d16d62e",
+  "public_manifest_bytes_sha256": "f4681cb671a4dd06cd071572668e5f949590fb6d5673fbb25d653e46cdde03a4",
+  "downloaded_metadata_digests_verified": true,
+  "asset_digest_comparison": {
+    "NoahAI-3.9.2.12-Setup.exe": {
+      "declared_sha256_matches_github_digest": true,
+      "size": 451605876
+    },
+    "latest.yml": {
+      "declared_sha256_matches_github_digest": true,
+      "size": 349
+    },
+    "NoahAI-3.9.2.12-Setup.exe.blockmap": {
+      "declared_sha256_matches_github_digest": true,
+      "size": 470057
+    }
+  },
+  "updater_version": "3.9.212",
+  "published_source_worktree_matches": true,
+  "mac_client_release_inputs_match_after_alignment": true,
+  "implementation_comparison": "Published .12 already contains exchange/order fixes, original manifest preservation and LF PAPER export; Windows junction protection also retained",
+  "installer_executed_or_extracted": false,
+  "installer_digest_method": "Compared independent GitHub upload digest with public manifest; installer bytes were not downloaded by this audit",
+  "external_validation_status": "pending",
+  "external_validation_pending_count": 9,
+  "external_validation": [
+    "auto_update_from_previous_release",
+    "windows_install_upgrade_rollback",
+    "settings_general_save_close_restart",
+    "settings_credentials_preserved",
+    "broker_and_exchange_e2e",
+    "paper_24_72h"
+  ],
+  "original_windows_build_run_by_this_agent": false,
+  "git_push_or_release_by_this_turn": false,
+  "superseded_local_handoff": "Previous .12 candidate helper disabled; no replacement .12 installer or ZIP delivered"
+}

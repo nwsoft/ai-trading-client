@@ -1,0 +1,54 @@
+.............................F.........................                  [100%]
+=================================== FAILURES ===================================
+________ test_windows_executable_metadata_is_aligned_to_current_release ________
+
+    def test_windows_executable_metadata_is_aligned_to_current_release():
+        version_info = (ROOT / "config" / "windows_version_info.txt").read_text(encoding="utf-8")
+        spec = (ROOT / "aiautotrade.spec").read_text(encoding="utf-8")
+        safe_builder = (ROOT / "build_safe.py").read_text(encoding="utf-8")
+        assert "filevers=(" in version_info
+        assert "prodvers=(" in version_info
+        assert f"ProductVersion', u'{RELEASE_VERSION}'" in version_info
+        assert "version='config/windows_version_info.txt'" in spec
+        assert "version='config/windows_version_info.txt'" in safe_builder
+        assert f'RELEASE_VERSION = "{RELEASE_VERSION}"' in (ROOT / "config" / "app_version.py").read_text(encoding="utf-8")
+        deployed_version = (ROOT / "deploy" / "version.txt").read_text(encoding="utf-8").strip()
+        assert tuple(map(int, deployed_version.split("."))) <= tuple(map(int, RELEASE_VERSION.split(".")))
+        manifest_path = ROOT / "deploy" / "release-manifest.json"
+        if not manifest_path.exists():
+            return
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        assert deployed_version == manifest["version"]
+        assert tuple(map(int, manifest["version"].split("."))) <= tuple(map(int, RELEASE_VERSION.split(".")))
+        installer_asset = manifest["assets"]["installer"]
+        # A preserved, older public artifact is not proof of current-candidate gates.
+        historical_automated = manifest.get("version") != RELEASE_VERSION and manifest.get("automated_checks_passed") is True
+        assert manifest.get("build_status") in ({"windows_automated_checks_passed"} if historical_automated else set()) | {"pending_windows_rebuild", "built_windows_unverified", "windows_external_gates_pending", "windows_stable_external_gates_pending", "windows_verified_release_candidate"}
+        if manifest.get("build_status") == "pending_windows_rebuild":
+            assert manifest.get("publish_ready") is False
+            assert manifest.get("source_fingerprint") is None
+            assert installer_asset["size"] == 0
+            assert installer_asset["sha256"] == ""
+        else:
+            assert len(manifest.get("source_fingerprint") or "") == 64
+            assert installer_asset["size"] > 0
+            assert len(installer_asset["sha256"]) == 64
+            assert len(manifest["assets"]["latest_yml"]["sha256"]) == 64
+            assert len(manifest["assets"]["blockmap"]["sha256"]) == 64
+        assert manifest["assets"]["engine_sidecar"]["distribution"] == "embedded_in_installer"
+        previous_asset = manifest["previous_published_asset"]
+        exe_path = ROOT / previous_asset["path"]
+        assert previous_asset["size"] > 0
+        assert len(previous_asset["sha256"]) == 64
+        if manifest["version"] == RELEASE_VERSION:
+            # The new Windows build requires its actual public rollback installer.
+            assert previous_asset["version"] == PUBLIC_RELEASE_VERSION
+>           assert exe_path.exists()
+E           AssertionError: assert False
+E            +  where False = exists()
+E            +    where exists = PosixPath('/Users/playone/SynologyDrive/Works/noahai-v39212-post-release-20261012/deploy/web-release/NoahAI-3.9.2.11-Setup.exe').exists
+
+tests/test_v38929_dashboard_custom_coldstart.py:403: AssertionError
+=========================== short test summary info ============================
+FAILED tests/test_v38929_dashboard_custom_coldstart.py::test_windows_executable_metadata_is_aligned_to_current_release
+1 failed, 54 passed in 1.74s
