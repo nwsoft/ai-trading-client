@@ -63,14 +63,14 @@ def prepared_pipeline(tmp_path):
     return p,v
 
 
-def test_seven_days_is_promotion_gate_not_paper_start_gate(tmp_path):
+def test_period_goal_is_neither_promotion_nor_paper_start_gate(tmp_path):
     p,v=prepared_pipeline(tmp_path);k,vid=v['strategy_key'],v['version_id']
     started=p.start_paper_observation(k,vid)
     assert started['status']=='paper_observing'
-    incomplete=p.record_paper_validation(k,vid,trades=3,metrics={'require_forward_days':True,'observation_days':6.99})
+    incomplete=p.record_paper_validation(k,vid,trades=2,metrics={'require_forward_days':True,'observation_days':7.0})
     assert not incomplete['paper_validation']['passed']
     with pytest.raises(ValueError):p.activate(k,vid,live_confirmation=True)
-    complete=p.record_paper_validation(k,vid,trades=3,metrics={'require_forward_days':True,'observation_days':7.0})
+    complete=p.record_paper_validation(k,vid,trades=3,metrics={'require_forward_days':True,'observation_days':0.01})
     assert complete['paper_validation']['passed']
     with pytest.raises(ValueError):p.activate(k,vid,live_confirmation=False)
 

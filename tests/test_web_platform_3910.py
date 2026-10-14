@@ -2498,11 +2498,17 @@ def test_web_strategy_full_state_machine_and_active_delete_guard(tmp_path, monke
         scope="binance", strategy_key=key, version_id=version_id, action="approve",
     )
     assert approved["status"] == "approved"
-    paper = services.record_strategy_paper_validation(
-        scope="binance", strategy_key=key, version_id=version_id,
-        trades=3, guardrail_violations=0, metrics={"net_pnl": 1.2},
-    )
-    assert paper["status"] == "paper_validated"
+    # New trials require actual ledger evidence, never manually supplied counts.
+    with pytest.raises(ValueError, match="수동 거래 건수"):
+        services.record_strategy_paper_validation(scope="binance", strategy_key=key, version_id=version_id, trades=3)
+    monkeypatch.setattr(service_module, "load_settings", lambda **kw: {"paper_trading": True})
+    services.strategy_action(scope="binance", strategy_key=key, version_id=version_id, action="start_paper", trial_days=1)
+    from tests.test_v39214_paper_trial import ledger_rows
+    rows = ledger_rows(created)
+    (tmp_path / "strategy_paper_outcomes.jsonl").write_text("".join(json.dumps(row) + "\n" for row in rows))
+    services.sync_strategy_paper_results(outcomes=rows)
+    paper = services._strategy_pipeline("binance_private.json").get_version(key, version_id)
+    assert paper["status"] == "paper_observing" and paper["paper_validation"]["passed"]
     active = services.strategy_action(
         scope="binance", strategy_key=key, version_id=version_id,
         action="activate", live_confirmation=True,
@@ -2516,7 +2522,7 @@ def test_web_strategy_full_state_machine_and_active_delete_guard(tmp_path, monke
     )
     assert deactivated["status"] == "paper_validated"
     assert services.delete_strategy(scope="binance", strategy_key=key)["deleted"] == "strategy"
-    assert bridge.refresh_calls == 4
+    assert bridge.refresh_calls == 6
 
 
 def test_strategy_text_source_and_noahstrategy_round_trip(tmp_path, monkeypatch):

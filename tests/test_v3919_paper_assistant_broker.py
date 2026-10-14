@@ -48,6 +48,12 @@ def test_historical_validation_can_enter_paper_only_runtime_pool(tmp_path):
     assert paper_pool[0]["strategy_key"] == key
     assert paper_pool[0]["version_id"] == version_id
     assert paper_pool[0]["operation_mode"] == "paper_validation"
+    assert paper_pool[0]["_paper_store_path"] == str(storage)
+    assert paper_pool[0]["_paper_attempt_id"] == observing["paper_observation_attempt_id"]
+    from trading.declarative_strategy_engine import DeclarativeStrategyEngine
+    from trading.paper_runtime_evidence import runtime_summary
+    DeclarativeStrategyEngine.evaluate_strategy_pool(paper_pool, {"signal": "HOLD", "rsi": 50}, asset_class="crypto", target="binance")
+    assert runtime_summary(storage, observing)["status"] == "observed"
 
 
 def test_approved_strategy_without_historical_window_can_gather_paper_evidence(tmp_path):
@@ -81,8 +87,9 @@ def test_forward_paper_progress_is_not_mislabeled_as_failure(tmp_path):
         key, version_id, trades=3,
         metrics={"require_forward_days": True, "observation_days": 7.0},
     )
-    assert complete["status"] == "paper_validated"
-    assert key not in pipeline.paper_versions
+    assert complete["status"] == "paper_observing"
+    assert complete["paper_validation"]["passed"]
+    assert pipeline.paper_versions[key] == version_id  # readiness does not auto-stop the trial
 
 
 def test_default_paper_close_is_visible_without_custom_strategy(tmp_path, monkeypatch):

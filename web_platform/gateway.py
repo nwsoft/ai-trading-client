@@ -793,7 +793,7 @@ def create_gateway_app(
                 scope=body.scope, strategy_key=body.strategy_key,
                 version_id=body.version_id, action=body.action,
                 live_confirmation=body.live_confirmation,
-                operation_mode=body.operation_mode,
+                operation_mode=body.operation_mode, trial_days=body.trial_days,
             )
         except ValueError as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from exc

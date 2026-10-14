@@ -1,0 +1,285 @@
+{
+  "status": "SOURCE_READY_WINDOWS_AND_EXTERNAL_ACCEPTANCE_NOT_RUN",
+  "source_version": "3.9.2.14",
+  "public_version": "3.9.2.13",
+  "base_commit": "c9ecced67dc39271be4b7bd82bc9981e9c0039f1",
+  "branch": "fix/v3.9.2.14-stock-studio-feedback-20261014",
+  "source_commit": "See handoff.json (generated after commit)",
+  "source_fingerprint": "ed010645d51332b3ad77c09f2e5cb5e7afc37204990d31f237d477b472b63e69",
+  "renderer_source_hash": "9bf9e7724ee7494127cc762414c36154fb0d245a377b027b0ed509520b10e16d",
+  "python": {
+    "git": {
+      "passed": 5967,
+      "skipped": 11,
+      "warnings": 2,
+      "subtests": 3
+    },
+    "original": {
+      "passed": 5967,
+      "skipped": 11,
+      "warnings": 2,
+      "subtests": 3
+    },
+    "new_boundary_tests": 33,
+    "git_command": ".venv/bin/python -m pytest tests -q -rs --junitxml=reports/v39214-paper-trial-20261014/git-release.xml",
+    "original_command": "same command in noahai_client, output original-release.xml"
+  },
+  "node": {
+    "passed": 77,
+    "original_passed": 77,
+    "command": "node --test tests/*.test.cjs"
+  },
+  "ui": {
+    "period_time_promotion": 30,
+    "existing_paper_recovery": 43,
+    "existing_feedback_help": 6,
+    "total": 79,
+    "scope": "Real React components with synthetic browser data; no Windows/institution acceptance"
+  },
+  "checks": {
+    "typescript_vite": "PASS Git and original",
+    "npm_audit": "PASS, 0 vulnerabilities",
+    "docs": "PASS",
+    "active_source": "PASS",
+    "web_parity_source": "PASS",
+    "engine_bundle_spec_only": "PASS",
+    "powershell_instructions_ast_only": "PASS",
+    "source_original_parity": "PASS",
+    "public13_cached_installer_sha256": "PASS"
+  },
+  "clock_semantics": {
+    "review_goal": "permission-window calendar duration, includes offline; excludes manual pause",
+    "measured_time": "union of completed candidate rule evaluation intervals; not engine uptime or holding time",
+    "missing_history": "not backfilled",
+    "partial_evidence": "marked partial, never claimed complete"
+  },
+  "application_policy": {
+    "goal_days": [
+      1,
+      3,
+      7
+    ],
+    "auto_stop": false,
+    "continue_until_user_pause": true,
+    "period_is_promotion_gate": false,
+    "minimum_valid_paper_closes": 3,
+    "risk_cost_ledger_recheck": true,
+    "manual_count_bypass_blocked": true,
+    "rollback_rechecks": true,
+    "explicit_user_confirmation": true
+  },
+  "exclusions": {
+    "status": "PASS",
+    "platform": "darwin",
+    "case_count": 5978,
+    "skipped_count": 11,
+    "skipped": [
+      {
+        "test": "tests.test_branding.test_real_non_noahai_executable_is_rejected",
+        "category": "windows_pe",
+        "reason": "Real Windows Python PE resource regression"
+      },
+      {
+        "test": "tests.test_stock_integration.TestLiveAPIIntegration.test_live_kiwoom_connect",
+        "category": "live_broker_opt_in",
+        "reason": "Live API 테스트: LIVE_STOCK_TEST=true 환경변수 필요"
+      },
+      {
+        "test": "tests.test_stock_integration.TestLiveAPIIntegration.test_live_kiwoom_get_balance",
+        "category": "live_broker_opt_in",
+        "reason": "Live API 테스트: LIVE_STOCK_TEST=true 환경변수 필요"
+      },
+      {
+        "test": "tests.test_stock_integration.TestLiveAPIIntegration.test_live_kiwoom_get_positions",
+        "category": "live_broker_opt_in",
+        "reason": "Live API 테스트: LIVE_STOCK_TEST=true 환경변수 필요"
+      },
+      {
+        "test": "tests.test_stock_integration.TestLiveAPIIntegration.test_live_kiwoom_get_stock_list",
+        "category": "live_broker_opt_in",
+        "reason": "Live API 테스트: LIVE_STOCK_TEST=true 환경변수 필요"
+      },
+      {
+        "test": "tests.test_stock_integration.TestLiveAPIIntegration.test_live_mirae_asset_connect",
+        "category": "live_broker_opt_in",
+        "reason": "Live API 테스트: LIVE_STOCK_TEST=true 환경변수 필요"
+      },
+      {
+        "test": "tests.test_stock_integration.TestLiveAPIIntegration.test_live_shinhan_connect",
+        "category": "live_broker_opt_in",
+        "reason": "Live API 테스트: LIVE_STOCK_TEST=true 환경변수 필요"
+      },
+      {
+        "test": "tests.test_tp_sl_validation.test_tp_sl_order_creation",
+        "category": "live_order_opt_in",
+        "reason": "requires explicit Binance integration-test opt-in"
+      },
+      {
+        "test": "tests.test_tp_sl_validation.test_place_futures_order_directly",
+        "category": "live_order_opt_in",
+        "reason": "requires explicit Binance integration-test opt-in"
+      },
+      {
+        "test": "tests.test_v39146_customer_write_recovery.test_customer_active_versions_and_missing_spot_holdings_readonly",
+        "category": "missing_historical_private_fixture",
+        "reason": "Private customer fixture is not distributed"
+      },
+      {
+        "test": "tests.test_v39147_customer_boundaries.test_customer_cached_cycle_proof_without_api_or_original_writes",
+        "category": "missing_historical_private_fixture",
+        "reason": "private read-only customer fixture absent"
+      }
+    ],
+    "errors": [],
+    "live_tests_enabled_by_auditor": false,
+    "scope": "Exclusion audit only; does not certify LIVE accounts, Windows installation or missing private fixtures"
+  },
+  "acceptance": {
+    "version": "3.9.2.14",
+    "plan": "DEPLOY_CHECKLIST.md",
+    "scope": "release_checklist_snapshot",
+    "plan_sha256": "f903e218c5cbb5240bfe522ecb5239534974c4935835002944b34842c25c3c88",
+    "status": "pending",
+    "pending_count": 11,
+    "pending_ids": [
+      "SDK",
+      "WIN-BUILD",
+      "WIN-UPGRADE",
+      "UPLOAD",
+      "REPLAY-COST",
+      "CATALOG",
+      "STOCK-PAPER",
+      "STUDIO",
+      "ROLLBACK",
+      "SOAK",
+      "PUBLISH"
+    ],
+    "items": [
+      {
+        "id": "SOURCE",
+        "status": "complete",
+        "description": "공개 .13 커밋·원본 manifest 보존, 일봉 연결/PAPER 청산 재현과 최소 수정"
+      },
+      {
+        "id": "SDK",
+        "status": "pending",
+        "description": "새 Windows 패키지의 기존 pin·기관 조회 라이브러리 버전 확인"
+      },
+      {
+        "id": "WIN-BUILD",
+        "status": "pending",
+        "description": "전체 검사·PE/아이콘·x64/x86·동일 .14 커밋/지문/renderer 확인"
+      },
+      {
+        "id": "WIN-UPGRADE",
+        "status": "pending",
+        "description": ".13→.14 업데이트·설정/키/전략/PAPER 원장 보존"
+      },
+      {
+        "id": "UPLOAD",
+        "status": "pending",
+        "description": "기존 허브 업로드/승인 연결 회귀(서버 배포와 별도)"
+      },
+      {
+        "id": "REPLAY-COST",
+        "status": "pending",
+        "description": "기존 재생 비용·원본 승인·PAPER/LIVE 격리 회귀"
+      },
+      {
+        "id": "CATALOG",
+        "status": "pending",
+        "description": "실제 4기관 장중 종목/시세/일봉·연결 실패/복구 확인"
+      },
+      {
+        "id": "STOCK-PAPER",
+        "status": "pending",
+        "description": "실제 설치본 4기관 PAPER·LEARNING·0건 보류·TP/SL·부분/전체청산 확인"
+      },
+      {
+        "id": "STUDIO",
+        "status": "pending",
+        "description": "승인 직후 PAPER·1/3/7일 관찰 목표·실측 시간/오프라인 구분·목표 도달 후 계속 검증·검증 일시정지/이어가기·적용 일시정지/재적용·원장/청산 보존"
+      },
+      {
+        "id": "ROLLBACK",
+        "status": "pending",
+        "description": "최신 .14 기록 별도 백업 후 .13 복원/재업그레이드 보존"
+      },
+      {
+        "id": "SOAK",
+        "status": "pending",
+        "description": "배포받은 테스터가 장 운영시간을 포함해 24/72h PAPER 운용/무거래 사유/복구 기록"
+      },
+      {
+        "id": "PUBLISH",
+        "status": "pending",
+        "description": "별도 승인 후 새 .14 자산/해시/manifest/latest 게시 확인"
+      }
+    ]
+  },
+  "warnings": [
+    "Existing Starlette/httpx and datetime.utcnow deprecations",
+    "Existing Vite large-chunk advisory"
+  ],
+  "original_sync": {
+    "status": "PASS",
+    "changed_files": [
+      "README.md",
+      "RELEASE_NOTES.md",
+      "USER_GUIDE_AI_EXECUTION.md",
+      "config/assistant_support_knowledge.py",
+      "deploy/release_notes.md",
+      "docs/AI_ASSISTANT_GUIDE.md",
+      "docs/ARCHITECTURE.md",
+      "docs/BUILD_GUIDE.md",
+      "docs/CHANGELOG.md",
+      "docs/DEPLOY_CHECKLIST.md",
+      "docs/DOCUMENTATION_POLICY.md",
+      "docs/NOAHAI_STRATEGY_STUDIO_MASTER_PLAN.md",
+      "docs/README.md",
+      "docs/STOCK_ETF_CURRENT_STATUS_20260118.md",
+      "docs/TEST_STATUS.md",
+      "docs/TRADING_FLOW.md",
+      "docs/UPDATE_PLAN.md",
+      "docs/USER_GUIDE.md",
+      "docs/USER_MANUAL_SECTIONS.json",
+      "strategy_customizer.py",
+      "tests/test_v39123_paper_pause_and_statistics.py",
+      "tests/test_v39125_strategy_studio_guidance.py",
+      "tests/test_v3919_paper_assistant_broker.py",
+      "tests/test_v39214_stock_studio.py",
+      "tests/test_web_platform_3910.py",
+      "tests/test_web_ui_legacy_parity_3910.py",
+      "trading/custom_strategy_pipeline.py",
+      "trading/declarative_strategy_engine.py",
+      "ui/widgets/user_manual_widget.py",
+      "web_platform/application_services.py",
+      "web_platform/contracts.py",
+      "web_platform/gateway.py",
+      "web_platform/runtime_bridge.py",
+      "webui/qa/strategy-feedback.tsx",
+      "webui/src/components/StrategyStudio.tsx",
+      "webui/src/styles.css",
+      "webui/src/types.ts",
+      "webui/src/uiBuild.ts",
+      "trading/paper_runtime_evidence.py",
+      "webui/src/components/StrategyPaperTrial.tsx",
+      "tests/test_v39214_paper_trial.py"
+    ],
+    "tracked_non_report_files_compared": 1275,
+    "baseline_files_guarded": 1272,
+    "backups": "reports/v39214-paper-trial-20261014/before",
+    "customer_data_modified": false,
+    "release_inputs_compared": 474,
+    "source_fingerprint": "ed010645d51332b3ad77c09f2e5cb5e7afc37204990d31f237d477b472b63e69",
+    "original_fingerprint": "ed010645d51332b3ad77c09f2e5cb5e7afc37204990d31f237d477b472b63e69"
+  },
+  "not_executed": [
+    "Windows installer build/install/update/rollback",
+    "Real institution/OCX authenticated PAPER sessions",
+    "24/72h PAPER soak",
+    "Real account orders/cancel/close/funds/settings",
+    "Remote push/release publication/deployment"
+  ],
+  "verified_at": "2026-10-14T12:25:33.996755+00:00"
+}

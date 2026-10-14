@@ -179,12 +179,19 @@ export interface StrategyVersion {
   guidance: Record<string, any>;
   deactivated?: { approved_by?: string; at?: string };
   paper_validation?: Record<string, any> | null;
+  paper_trial?: {schema_version?: number; target_days?: number; kind?: string; auto_stop?: boolean};
   paper_progress?: {
     trades: number;
     observation_days: number;
     required_trades: number;
     required_days: number;
     observing: boolean;
+    target_days?: number;
+    target_reached?: boolean;
+    period_is_gate?: boolean;
+    permission_elapsed_seconds?: number;
+    runtime?: {status: string; seconds: number | null; evaluations: number | null; last_evaluated_at: string | null; basis: string};
+    promotion?: {ready: boolean; sample_passed: boolean; risk_passed: boolean; guardrail_violations: number; unverified_trades: number; unknown_risk_records?: number};
   };
   paper_evidence_by_venue?: Array<{
     exchange: string;

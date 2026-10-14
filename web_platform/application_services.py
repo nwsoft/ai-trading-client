@@ -882,6 +882,17 @@ class DetachedRuntimeBridge:
         return {"safe_to_exit": True, "already_complete": True, "running_sources": []}
 
 
+def _paper_risk_counts(rows):
+    violations, unknown = 0, 0
+    for row in rows:
+        value = row.get("guardrail_violations")
+        if type(value) is not int or value < 0:
+            unknown += 1
+        else:
+            violations += value
+    return violations, unknown
+
+
 class ApplicationServices:
     """Thread-safe facade for account-local UI operations."""
 
@@ -4081,6 +4092,12 @@ class ApplicationServices:
                         pipeline.paper_observation_elapsed_seconds(version) / 86400.0
                         if observation_windows else float(stored_metrics.get("observation_days", 0.0) or 0.0)
                     )
+                    trial = dict(version.get("paper_trial") or {})
+                    target_days = int(trial.get("target_days", 7))
+                    measured = pipeline.paper_runtime_summary(version)
+                    violations, unknown_risk = _paper_risk_counts(version_all_rows)
+                    minimum = int(getattr(pipeline, "min_paper_trades", 3) or 3)
+                    risk_ok = bool(execution_readiness.get("ready")) and len(version_all_rows) == len(version_rows) and violations == 0 and unknown_risk == 0
                     safe_versions.append({
                         "strategy_key": strategy_key,
                         "version_id": version.get("version_id"),
@@ -4098,7 +4115,16 @@ class ApplicationServices:
                             "trades": len(version_rows),
                             "observation_days": round(elapsed_days, 4),
                             "required_trades": int(getattr(pipeline, "min_paper_trades", 3) or 3),
-                            "required_days": 7.0,
+                            "required_days": 0,
+                            "target_days": target_days,
+                            "period_is_gate": False,
+                            "permission_elapsed_seconds": max(0.0, elapsed_days * 86400),
+                            "target_reached": elapsed_days >= target_days,
+                            "runtime": measured,
+                            "promotion": {"ready": len(version_rows) >= minimum and risk_ok,
+                                          "sample_passed": len(version_rows) >= minimum,
+                                          "risk_passed": risk_ok, "guardrail_violations": violations,
+                                          "unverified_trades": len(version_all_rows) - len(version_rows), "unknown_risk_records": unknown_risk},
                             "observing": bool(observing),
                         },
                         "paper_evidence_by_venue": self._strategy_paper_evidence_by_venue(
@@ -4113,6 +4139,7 @@ class ApplicationServices:
                         "source_kind": version.get("source_kind"),
                         "source_reference": Path(str(version.get("source_reference") or "")).name,
                         "paper_observing": observing,
+                        "paper_trial": trial,
                         "paper_observation_started_at": version.get("paper_observation_started_at"),
                         "paper_observation_stopped_at": version.get("paper_observation_stopped_at"),
                         "paper_observation_windows": sanitize_settings(observation_windows),
@@ -4542,6 +4569,12 @@ class ApplicationServices:
                 rows = filtered_rows
             if not rows:
                 continue
+            related = [row for row in outcomes
+                       if self._resolve_outcome_strategy_scope(row, owner_index) == scope
+                       and row.get("strategy_key") == strategy_key and row.get("version_id") == version_id
+                       and pipeline.paper_observation_contains(version, row.get("opened_at") or row.get("closed_at"))]
+            recorded_violations, unknown_risk = _paper_risk_counts(related)
+            evidence_complete = unknown_risk == 0 and all(paper_outcome_calculation_status(row) == "valid" for row in related)
             current = dict(version.get("paper_validation") or {})
             current_metrics = dict(current.get("metrics") or {})
             evidence_contract = sorted(
@@ -4552,6 +4585,7 @@ class ApplicationServices:
                     float(row.get("estimated_taxes", 0.0) or 0.0),
                     float(row.get("estimated_slippage", 0.0) or 0.0),
                     str(row.get("cost_calculation_status") or ""),
+                    str(row.get("guardrail_violations", "unrecorded")),
                 )
                 for row in rows
             )
@@ -4566,7 +4600,9 @@ class ApplicationServices:
                 if valid_opened else 0.0
             )
             if (
-                current_metrics.get("evidence_hash") == evidence_hash
+                current_metrics.get("promotion_policy") == "valid_samples_and_risk_v2"
+                and current_metrics.get("risk_evidence_complete") == evidence_complete
+                and current_metrics.get("evidence_hash") == evidence_hash
                 and str(current.get("completion_status") or "") in {"in_progress", "passed", "failed"}
                 and abs(float(current_metrics.get("observation_days", 0.0) or 0.0) - observation_days) < (1.0 / 24.0)
             ):
@@ -4625,7 +4661,10 @@ class ApplicationServices:
                 "validation_subject": self._strategy_validation_subject(version),
                 "evidence_hash": evidence_hash,
                 "observation_days": round(observation_days, 4),
-                "require_forward_days": True,
+                "require_forward_days": False,
+                "period_is_gate": False,
+                "risk_evidence_complete": evidence_complete,
+                "unknown_risk_records": unknown_risk,
                 "seven_day": window_metrics(7),
                 "thirty_day": window_metrics(30),
                 "net_pnl": next(iter(pnl_by_currency.values())) if len(pnl_by_currency) == 1 else None,
@@ -4643,7 +4682,7 @@ class ApplicationServices:
             try:
                 pipeline.record_paper_validation(
                     strategy_key, version_id, trades=len(ordered),
-                    guardrail_violations=sum(int(row.get("guardrail_violations", 0) or 0) for row in ordered),
+                    guardrail_violations=recorded_violations,
                     metrics=metrics,
                     update_observation_status=(
                         pipeline.paper_versions.get(strategy_key) == version_id
@@ -5167,10 +5206,30 @@ class ApplicationServices:
             })
             return sanitize_settings(version)
 
+    def _checked_paper_application(self, pipeline, scope, strategy_key, version_id, operation_mode):
+        candidate = pipeline.get_version(strategy_key, version_id)
+        if operation_mode == "standard" and (candidate.get("paper_promotion_policy") == "valid_samples_and_risk_v2" or (candidate.get("paper_trial") or {}).get("schema_version") == 2
+                or ((candidate.get("paper_validation") or {}).get("metrics") or {}).get("promotion_policy") == "valid_samples_and_risk_v2"):
+            outcomes = read_paper_strategy_outcomes(path=self.data_dir / "strategy_paper_outcomes.jsonl")
+            owners = self._strategy_version_owner_index()
+            relevant = [normalize_paper_outcome_costs(row) for row in outcomes
+                        if self._resolve_outcome_strategy_scope(row, owners) == scope
+                        and row.get("strategy_key") == strategy_key and row.get("version_id") == version_id
+                        and pipeline.paper_observation_contains(candidate, row.get("opened_at") or row.get("closed_at"))]
+            if len(relevant) < pipeline.min_paper_trades:
+                raise ValueError("최종 적용에는 실제 원장의 유효 PAPER 청산 표본이 최소 3건 필요합니다. 시험 기간 도달만으로 통과하지 않습니다.")
+            if _paper_risk_counts(relevant) != (0, 0) or any(paper_outcome_calculation_status(row) != "valid" for row in relevant):
+                raise ValueError("PAPER 비용·손익 대조 또는 기록된 위험 위반을 확인한 뒤 최종 적용하세요.")
+            self.sync_strategy_paper_results(outcomes=outcomes)
+            pipeline = self._strategy_pipeline(self._strategy_filename(scope))
+        return pipeline
+
     def strategy_action(
         self, *, scope: str, strategy_key: str, version_id: str, action: str,
-        live_confirmation: bool = False, operation_mode: str = "standard",
+        live_confirmation: bool = False, operation_mode: str = "standard", trial_days: int | None = None,
     ) -> dict[str, Any]:
+        if trial_days is not None and action not in {"start_paper", "restart_paper"}:
+            raise ValueError("시험 기간은 PAPER 시작·재개 또는 새 검증 시작 때 저장합니다.")
         with self._lock:
             pipeline = self._strategy_pipeline(self._strategy_filename(scope))
             if action == "approve":
@@ -5188,7 +5247,7 @@ class ApplicationServices:
                         "PAPER 모드를 켜거나 설정 → 전략 스튜디오에서 "
                         "LIVE 중 전략 PAPER 병행검증을 켠 뒤 시작하세요."
                     )
-                version = pipeline.start_paper_observation(strategy_key, version_id)
+                version = pipeline.start_paper_observation(strategy_key, version_id, trial_days=trial_days)
             elif action == "stop_paper":
                 version = pipeline.stop_paper_observation(strategy_key, version_id)
             elif action == "restart_paper":
@@ -5203,8 +5262,9 @@ class ApplicationServices:
                     raise ValueError(
                         "PAPER 모드를 켜거나 LIVE 중 전략 PAPER 병행검증을 켠 뒤 시작하세요."
                     )
-                version = pipeline.restart_paper_observation(strategy_key, version_id)
+                version = pipeline.restart_paper_observation(strategy_key, version_id, trial_days=trial_days)
             elif action == "activate":
+                pipeline = self._checked_paper_application(pipeline, scope, strategy_key, version_id, operation_mode)
                 version = pipeline.activate(
                     strategy_key,
                     version_id,
@@ -5214,6 +5274,7 @@ class ApplicationServices:
             elif action == "deactivate":
                 version = pipeline.deactivate(strategy_key, version_id, approved_by=self.account)
             elif action == "rollback":
+                pipeline = self._checked_paper_application(pipeline, scope, strategy_key, version_id, "standard")
                 version = pipeline.rollback(strategy_key, version_id, approved_by=self.account)
             else:
                 raise ValueError("지원하지 않는 전략 작업입니다.")
@@ -5231,6 +5292,9 @@ class ApplicationServices:
     ) -> dict[str, Any]:
         with self._lock:
             pipeline = self._strategy_pipeline(self._strategy_filename(scope))
+            candidate = pipeline.get_version(strategy_key, version_id)
+            if candidate.get("paper_promotion_policy") == "valid_samples_and_risk_v2" or (candidate.get("paper_trial") or {}).get("schema_version") == 2:
+                raise ValueError("새 PAPER 시험은 실행 원장의 청산·비용·위험 근거로 자동 집계합니다. 수동 거래 건수로 통과시킬 수 없습니다.")
             version = pipeline.record_paper_validation(
                 strategy_key,
                 version_id,

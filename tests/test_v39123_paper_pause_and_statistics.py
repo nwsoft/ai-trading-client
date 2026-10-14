@@ -36,7 +36,7 @@ def test_paper_pause_and_resume_preserve_current_evidence_and_active_time(tmp_pa
         key, version_id, trades=70,
         metrics={"require_forward_days": True, "observation_days": 3.25},
     )
-    assert progress["paper_validation"]["completion_status"] == "in_progress"
+    assert progress["paper_validation"]["completion_status"] == "passed"  # period is no longer a promotion gate
     paused = pipeline.stop_paper_observation(key, version_id)
     assert paused["status"] == "paper_paused"
     assert paused["paper_validation"]["trades"] == 70
@@ -106,6 +106,9 @@ def test_legacy_stopped_attempt_migrates_to_resumable_pause(tmp_path):
     payload = json.loads(path.read_text(encoding="utf-8"))
     version = payload["strategies"][key][0]
     version["status"] = "execution_validated"
+    # Genuine pre-.14 data: 70 closes at 3.25 days was still in progress.
+    version["paper_validation"]["passed"] = False
+    version["paper_validation"]["completion_status"] = "in_progress"
     version.pop("paper_observation_windows", None)
     payload["paper_versions"] = {}
     path.write_text(json.dumps(payload), encoding="utf-8")
@@ -342,5 +345,5 @@ def test_exported_package_keeps_archived_paper_attempt_and_remains_valid(tmp_pat
     )["package"]
 
     assert exported["passport"]["paper_validation_attempt_history"][0]["paper_validation"]["trades"] == 70
-    assert exported["passport"]["paper_validation_history"][0]["completion_status"] == "in_progress"
+    assert exported["passport"]["paper_validation_history"][0]["completion_status"] == "passed"
     assert verify_strategy_package(exported)["valid"] is True

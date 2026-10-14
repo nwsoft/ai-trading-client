@@ -797,7 +797,7 @@ def test_strategy_studio_guided_start_is_level_independent_and_never_skips_safet
         "client.strategyMentor",
     ]:
         assert contract in studio
-    assert "setFeatureViewLevel" not in studio[studio.index("function openGuidedTour"):studio.index("useEffect(refresh")]
+    assert "setFeatureViewLevel" not in studio[studio.index("function openGuidedTour"):studio.index("useEffect(() => refresh()")]
     assert "strategy-guided-backdrop" in styles
     assert "strategy-guided-progress" in styles
 

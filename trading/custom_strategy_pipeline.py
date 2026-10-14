@@ -817,6 +817,7 @@ class CustomStrategyPipeline:
             "strategy_key": key,
             "version_id": f"{key}_v{self._version_number(key)}_{uuid4().hex[:6]}",
             "version": self._version_number(key),
+            "paper_promotion_policy": "valid_samples_and_risk_v2",
             "name": str(name or "이름 없는 전략").strip(),
             "source_kind": str(source_kind or "text").strip().lower(),
             "source_reference": str(source_reference or "").strip(),
@@ -944,11 +945,11 @@ class CustomStrategyPipeline:
         passed = (
             int(trades) >= self.min_paper_trades
             and int(guardrail_violations) == 0
-            and (not forward_days_required or observation_days >= 7.0)
+            and raw_metrics.get("risk_evidence_complete", True) is True
         )
         requirements_complete = (
             int(trades) >= self.min_paper_trades
-            and (not forward_days_required or observation_days >= 7.0)
+            and raw_metrics.get("risk_evidence_complete", True) is True
         )
         completion_status = (
             "passed" if passed else "failed" if requirements_complete else "in_progress"
@@ -959,7 +960,8 @@ class CustomStrategyPipeline:
             "completion_status": completion_status,
             "trades": int(trades),
             "guardrail_violations": int(guardrail_violations),
-            "metrics": deepcopy(raw_metrics),
+            "metrics": {**deepcopy(raw_metrics), "promotion_policy": "valid_samples_and_risk_v2"},
+            "requirements": {"required_trades": self.min_paper_trades, "sample_passed": int(trades) >= self.min_paper_trades, "risk_passed": int(guardrail_violations) == 0 and raw_metrics.get("risk_evidence_complete", True) is True, "period_is_gate": False},
             "recorded_at": recorded_at,
             "note": "백테스트는 보조 검증이며 모의거래 통과를 대체하지 않음",
         }
@@ -1009,22 +1011,16 @@ class CustomStrategyPipeline:
             "at": recorded_at,
             "auto_promoted": False,
         })
-        # 자동 원장 합산은 첫 체결부터 호출된다. 7일/최소 체결 수가 아직
+        # 자동 원장 합산은 첫 체결부터 호출된다. 최소 체결 수가 아직
         # 부족한 정상 진행 상태를 실패로 바꾸지 않는다.
         observation_is_active = (
             self.paper_versions.get(strategy_key) == version_id
             and str(version.get("status") or "") == "paper_observing"
         )
         if update_observation_status and observation_is_active:
-            version["status"] = (
-                "paper_validated" if passed
-                else "paper_rejected" if completion_status == "failed"
-                else "paper_observing"
-            )
-            if passed:
-                self.paper_versions.pop(strategy_key, None)
-            elif completion_status == "failed":
-                self.paper_versions.pop(strategy_key, None)
+            # Trial duration and promotion readiness are independent. A passed
+            # or failed readiness check does not silently end the user's trial.
+            version["status"] = "paper_observing"
         elif update_observation_status and not forward_days_required:
             version["status"] = "paper_validated" if passed else "paper_rejected"
         # Historical/late ledger synchronization updates evidence only.  It
@@ -1033,7 +1029,11 @@ class CustomStrategyPipeline:
         self._save()
         return deepcopy(version)
 
-    def start_paper_observation(self, strategy_key: str, version_id: str) -> Dict[str, Any]:
+    def paper_runtime_summary(self, version):
+        from .paper_runtime_evidence import runtime_summary
+        return runtime_summary(self.storage_path, version)
+
+    def start_paper_observation(self, strategy_key: str, version_id: str, *, trial_days: int | None = None) -> Dict[str, Any]:
         """Put one user-approved version in the PAPER-only pool.
 
         Historical replay is useful but must not become a circular prerequisite
@@ -1042,6 +1042,9 @@ class CustomStrategyPipeline:
         here while LIVE activation remains gated by completed validation.
         """
         version = self._find(strategy_key, version_id)
+        selected_days = trial_days if trial_days is not None else (version.get("paper_trial") or {}).get("target_days", 7)
+        if type(selected_days) is not int or selected_days not in (1, 3, 7):
+            raise ValueError("PAPER 시험 기간은 1일·3일·7일 중 선택하세요.")
         self._assert_ir_ready(version)
         self._assert_execution_ready(version, action="PAPER 전진검증을 시작")
         execution = dict(version.get("execution_validation") or {})
@@ -1074,6 +1077,9 @@ class CustomStrategyPipeline:
                 "해당 버전을 PAPER 일시정지한 뒤 이 버전을 시작하세요. "
                 "기존 거래·손익·활성 검증일수는 보존됩니다."
             )
+        version["paper_trial"] = {"schema_version": 2, "target_days": int(selected_days),
+                                  "kind": "review_goal", "auto_stop": False,
+                                  "clock_basis": "permission_windows", "selected_at": self._now()}
         if status == "paper_paused":
             now = self._now()
             windows = self.paper_observation_windows(version)
@@ -1134,18 +1140,22 @@ class CustomStrategyPipeline:
         self._save()
         return deepcopy(version)
 
-    def restart_paper_observation(self, strategy_key: str, version_id: str) -> Dict[str, Any]:
+    def restart_paper_observation(self, strategy_key: str, version_id: str, *, trial_days: int | None = None) -> Dict[str, Any]:
         """Start a new attempt while preserving the complete previous attempt."""
         version = self._find(strategy_key, version_id)
         if str(version.get("status") or "") != "paper_paused":
             raise ValueError("일시정지된 PAPER 검증만 새 시도로 시작할 수 있습니다.")
+        if trial_days is not None and (type(trial_days) is not int or trial_days not in (1, 3, 7)):
+            raise ValueError("PAPER 시험 기간은 1일·3일·7일 중 선택하세요.")
         archived_at = self._now()
         attempt_history = list(version.get("paper_validation_attempt_history") or [])[-49:]
         attempt_history.append({
             "attempt_id": str(version.get("paper_observation_attempt_id") or "legacy_attempt"),
             "started_at": version.get("paper_observation_started_at"),
             "stopped_at": version.get("paper_observation_stopped_at"),
-            "active_seconds": self.paper_observation_elapsed_seconds(version),
+            "permission_seconds": self.paper_observation_elapsed_seconds(version),
+            "paper_trial": deepcopy(version.get("paper_trial")),
+            "runtime_evidence": self.paper_runtime_summary(version),
             "windows": deepcopy(self.paper_observation_windows(version)),
             "paper_validation": deepcopy(version.get("paper_validation")),
             "archived_at": archived_at,
@@ -1165,7 +1175,7 @@ class CustomStrategyPipeline:
         version["status"] = previous_status if previous_status in {
             "approved", "execution_rejected", "execution_validated", "paper_rejected",
         } else "approved"
-        return self.start_paper_observation(strategy_key, version_id)
+        return self.start_paper_observation(strategy_key, version_id, trial_days=trial_days)
 
     def record_execution_validation(
         self,
@@ -1260,7 +1270,7 @@ class CustomStrategyPipeline:
             raise ValueError(f"지원하지 않는 전략 운용 방식입니다: {mode}")
         previous_status = str(version.get("status") or "")
         if mode == "standard":
-            if previous_status not in {"paper_validated", "execution_validated"}:
+            if previous_status not in {"paper_validated", "execution_validated", "paper_observing", "paper_paused"}:
                 raise ValueError("일반 운용은 실행 검증 통과 후에만 적용할 수 있습니다.")
             paper_passed = bool((version.get("paper_validation") or {}).get("passed", False))
             execution = dict(version.get("execution_validation") or {})
@@ -1296,8 +1306,12 @@ class CustomStrategyPipeline:
                 pass
         version["status"] = "active"
         version["operation_mode"] = mode
-        version["pre_activation_status"] = previous_status
+        version["pre_activation_status"] = "paper_validated" if previous_status in {"paper_observing", "paper_paused"} else previous_status
         version["activated_at"] = self._now()
+        windows = self.paper_observation_windows(version)
+        if windows and not windows[-1].get("stopped_at"):
+            windows[-1]["stopped_at"] = version["activated_at"]
+            version["paper_observation_windows"] = windows
         version.setdefault("promotion_history", []).append({
             "event": "user_activated",
             "operation_mode": mode,
@@ -1330,7 +1344,12 @@ class CustomStrategyPipeline:
                 current["updated_at"] = self._now()
             except ValueError:
                 pass
+        windows = self.paper_observation_windows(target)
+        if windows and not windows[-1].get("stopped_at"):
+            windows[-1]["stopped_at"] = self._now()
+            target["paper_observation_windows"] = windows
         target["status"] = "active"
+        target["pre_activation_status"] = "paper_validated"
         target["rollback"] = {"approved_by": str(approved_by or "").strip(), "at": self._now()}
         target["updated_at"] = self._now()
         self.active_versions[strategy_key] = target_version_id

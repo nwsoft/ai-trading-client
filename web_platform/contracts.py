@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Annotated, Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, model_validator, field_validator
 
 
 CONTRACT_SCHEMA_VERSION = "1.0.0"
@@ -154,6 +154,13 @@ class StrategySubmitContract(StrictContract):
 
 
 class StrategyActionContract(StrictContract):
+    trial_days: Literal[1, 3, 7] | None = None
+    @field_validator("trial_days", mode="before")
+    @classmethod
+    def strict_trial_days(cls, value):
+        if value is not None and (type(value) is not int or value not in (1, 3, 7)):
+            raise ValueError("PAPER 시험 기간은 정수 1·3·7 중 선택하세요.")
+        return value
     scope: Literal["binance", "unified"]
     strategy_key: str = Field(min_length=1, max_length=160)
     version_id: str = Field(min_length=1, max_length=200)

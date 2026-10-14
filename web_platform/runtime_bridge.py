@@ -97,6 +97,8 @@ def _runtime_safe(value: Any, *, depth: int = 0) -> Any:
         output: dict[str, Any] = {}
         for key, item in list(value.items())[:500]:
             lowered = str(key).lower()
+            if lowered in {"_paper_store_path", "_paper_attempt_id"}:
+                continue
             if any(token in lowered for token in ("api_key", "secret", "password", "passphrase", "token", "credential", "account_no")):
                 continue
             output[str(key)] = _runtime_safe(item, depth=depth + 1)

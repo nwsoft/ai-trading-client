@@ -8,6 +8,7 @@ import threading
 from typing import Any, Dict, List, Tuple
 
 from .user_indicator_language import UserIndicatorLanguage
+from .paper_runtime_evidence import measure_paper_pool
 
 
 class DeclarativeStrategyEngine:
@@ -618,6 +619,7 @@ class DeclarativeStrategyEngine:
         return scope_matches(scope, asset_class=asset_class, target=target)
 
     @classmethod
+    @measure_paper_pool
     def evaluate_strategy_pool(
         cls,
         strategies: List[Dict[str, Any]],

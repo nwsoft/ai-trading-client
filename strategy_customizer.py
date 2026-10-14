@@ -1331,7 +1331,13 @@ class StrategyCustomizer:
                     (strategy.get("rules", {}) or {}).get("risk_model", {}),
                 )
             )
+            paper_runtime = {}
+            if status == "paper_observing" and self.custom_pipeline.storage_path:
+                observed = self.custom_pipeline.get_version(strategy_key, version_id)
+                paper_runtime = {"_paper_store_path": str(self.custom_pipeline.storage_path),
+                                 "_paper_attempt_id": observed.get("paper_observation_attempt_id")}
             pool.append({
+                **paper_runtime,
                 "id": strategy_id,
                 "name": strategy.get("name", "사용자 전략"),
                 "rules": dict(strategy.get("rules", {}) or {}),

@@ -126,7 +126,7 @@ def test_missing_risk_uses_user_confirmed_insert_instead_of_ai_guessing():
 
 def test_guided_start_keeps_levels_and_safety_steps_unchanged():
     studio = (ROOT / "webui" / "src" / "components" / "StrategyStudio.tsx").read_text(encoding="utf-8")
-    guided = studio[studio.index("function openGuidedTour"):studio.index("useEffect(refresh")]
+    guided = studio[studio.index("function openGuidedTour"):studio.index("useEffect(() => refresh()")]
 
     assert "setFeatureViewLevel" not in guided
     assert "setPaperModeEnabled" not in guided
