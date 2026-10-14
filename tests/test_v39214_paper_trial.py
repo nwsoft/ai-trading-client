@@ -2,7 +2,7 @@
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 import json
 import sqlite3
 import pytest
@@ -181,7 +181,11 @@ def test_clock_jump_does_not_invent_execution_time(tmp_path):
     @measure_paper_pool
     def call(cls,strategies,context,**kw):return 'unchanged'
     epoch=datetime(2026,10,14,tzinfo=timezone.utc).timestamp()
-    with patch('trading.paper_runtime_evidence.time.time',side_effect=[epoch,epoch+3600]),patch('trading.paper_runtime_evidence.time.monotonic',side_effect=[1,1.5]):
+    # Replace only this module's clock; logging also uses the global time module.
+    import time
+    clock=SimpleNamespace(time=Mock(side_effect=[epoch,epoch+3600]),
+                          monotonic=Mock(side_effect=[1,1.5]),perf_counter=time.perf_counter)
+    with patch('trading.paper_runtime_evidence.time',clock):
         assert call(None,[item],{},asset_class='crypto',target='binance')=='unchanged'
     assert runtime_summary(p.storage_path,v)['seconds'] is None
     assert runtime_summary(p.storage_path,v)['status'] == 'partial'
