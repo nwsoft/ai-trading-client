@@ -87,7 +87,7 @@ const SAFE_USE_STEPS = [
   "사용자가 저장 버전을 직접 승인합니다.",
   "유효한 실행식과 사용자 승인이 있으면 PAPER를 선택할 수 있습니다. 과거 시세 백테스트는 비용·구간별 비교를 위한 선택 검사입니다.",
   "PAPER 전진검증을 시작해 실주문 없이 새 근거를 모읍니다.",
-  "최소 3건·7일의 PAPER 결과를 확인한 뒤 사용자가 검증 버전을 최종 적용합니다.",
+  "PAPER는 승인 직후 시작할 수 있습니다. 최소 3건·활성 검증 7일은 최종 적용의 기본 조건이며, 기다리는 동안 기본 자동매매 전체를 막지 않습니다.",
   "실계정 권한·가드레일·소액 E2E 확인 후에만 LIVE를 사용합니다.",
 ] as const;
 
@@ -184,14 +184,14 @@ const GUIDED_METHOD_COPY: Record<Exclude<GuidedStartMethod, "">, { title: string
 const levelView = (level: number) => level >= 5 ? "Level 5 연구실" : level >= 4 ? "Level 4 전문가 운용" : level >= 3 ? "Level 3 전체 근거" : level === 2 ? "Level 2 핵심값" : "Level 1 이해·시험";
 
 function actionLabel(version: StrategyVersion) {
-  if (version.active) return "적용 해제";
+  if (version.active) return "전략 적용 일시정지";
   if (version.paper_observing || version.status === "paper_observing") return "모의 운용 일시정지";
   if (version.status === "paper_paused") return "모의 운용 이어가기";
   if (version.status === "analyzed") return "내용 확인·승인";
   if (["approved", "execution_rejected", "paper_rejected"].includes(version.status)) return "모의 운용 시작";
   if (version.status === "execution_validated" && version.execution_validation?.mode === "historical_replay") return "모의 운용 시작";
-  if (version.status === "paper_validated") return "검증한 전략 적용";
-  if (version.status === "execution_validated" && ["live_observation", "limited_live"].includes(String(version.execution_validation?.mode ?? ""))) return "검증한 전략 적용";
+  if (version.status === "paper_validated") return version.deactivated ? "검증한 전략 다시 적용" : "검증한 전략 적용";
+  if (version.status === "execution_validated" && ["live_observation", "limited_live"].includes(String(version.execution_validation?.mode ?? ""))) return version.deactivated ? "검증한 전략 다시 적용" : "검증한 전략 적용";
   return "";
 }
 
@@ -1265,7 +1265,7 @@ export function StrategyStudio({ client, service, source = "", onAskAssistant, o
               : action === "stop_paper"
                 ? "PAPER 검증을 일시정지할까요?\n\n검증 기간·가상 체결·거래소별 근거는 보존됩니다."
                 : action === "deactivate"
-                  ? "이 전략 적용을 해제할까요?\n\n신규 진입 풀에서 제거되며 기존 거래 원장은 보존됩니다."
+                  ? "이 전략 적용을 일시정지할까요?\n\n다음 후보 조회부터 이 전략을 제외합니다. 이미 시작된 평가 주기·예약·제출 중인 주문을 즉시 취소하지는 않습니다. 보유 포지션·진입 당시 청산 계획·원장은 보존합니다. 기본 AI나 다른 전략은 계속 거래할 수 있습니다. 기관 전체 중지는 해당 기관의 거래 정지를 사용하세요."
                   : "이 작업을 실행할까요?";
     if (!window.confirm(confirmationMessage)) return;
     setBusy(true);
@@ -1308,7 +1308,7 @@ export function StrategyStudio({ client, service, source = "", onAskAssistant, o
         setMessage(action === "start_paper"
           ? version.status === "paper_paused"
             ? "PAPER 전진검증을 재개했습니다. 기존 근거와 누적 활성 검증시간을 이어갑니다."
-            : `PAPER 전진검증 등록 완료 · ${paperModeEnabled ? "현재 전체 PAPER 모드에서" : parallelPaperEnabled ? "현재 LIVE 옆의 독립 PAPER 엔진에서" : "병행검증이 꺼져 있어 다음 PAPER 모드 또는 병행검증 활성화 후"} 이 전략으로 새로 청산되는 가상 거래만 집계합니다. 최소 3건과 7일 관찰 조건을 화면에서 확인하세요.`
+            : `PAPER 전진검증 등록 완료 · ${paperModeEnabled ? "현재 전체 PAPER 모드에서" : parallelPaperEnabled ? "현재 LIVE 옆의 독립 PAPER 엔진에서" : "병행검증이 꺼져 있어 다음 PAPER 모드 또는 병행검증 활성화 후"} 이 전략으로 새로 청산되는 가상 거래만 집계합니다. 지금부터 가상 거래를 검증하며 최소 3건과 활성 검증 7일은 최종 적용 조건입니다. 7일을 기다려야 PAPER가 시작되는 것은 아닙니다.`
           : action === "restart_paper"
             ? "새 PAPER 검증 시도를 시작했습니다. 이전 근거는 시도 이력과 원장에 보존됩니다."
           : action === "stop_paper"

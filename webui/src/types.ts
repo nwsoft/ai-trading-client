@@ -177,6 +177,7 @@ export interface StrategyVersion {
   xai: { summary?: string; risks?: string[]; guardrails?: string[] };
   rules: Record<string, any>;
   guidance: Record<string, any>;
+  deactivated?: { approved_by?: string; at?: string };
   paper_validation?: Record<string, any> | null;
   paper_progress?: {
     trades: number;

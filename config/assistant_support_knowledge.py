@@ -8,7 +8,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 import re
 
-GUIDE_REVISION = "3.9.2.12-support.20261012.1"
+GUIDE_REVISION = "3.9.2.14-support.20261014.1"
 
 
 @dataclass(frozen=True)
@@ -21,6 +21,21 @@ class SupportTopic:
 
 
 TOPICS = (
+    SupportTopic("studio_wait_pause", ("전략7일", "전략스튜디오기간", "전략스튜디오7일", "7일기다", "7일검증", "전략일시적용", "전략일시정지", "검증된전략일시", "전략적용일시정지"),
+        "docs/NOAHAI_STRATEGY_STUDIO_MASTER_PLAN.md",
+        "7일은 기본 자동매매나 PAPER 시작을 막는 대기 기간이 아닙니다. 실행 규칙을 갖추고 승인하면 PAPER 전진검증을 바로 시작할 수 있습니다. "
+        "기본 최종 적용 조건은 최소 3건의 유효 PAPER 청산과 활성 검증 구간 합계 7일, 가드레일 위반 없음입니다. 일시정지 구간은 제외하며 7일만 지나거나 수익이 났다고 자동 적용하지 않습니다. "
+        "이는 짧은 성과만 보고 승격하지 않기 위한 제품 기본값이며 모든 전략에 통계적으로 충분하거나 최적인 기간이라는 근거는 아닙니다. "
+        "전략 사용하기 → 내 프라이빗 전략 버전에서 모의 운용 일시정지/이어가기와 검증한 전략 적용/전략 적용 일시정지를 구분하세요. .13의 적용 해제가 같은 신규 진입 제외 기능입니다. "
+        "적용 일시정지는 다음 후보 조회부터 이 전략을 제외하며 원장과 진입 당시 청산 계획은 유지합니다. 이미 시작된 평가 주기·예약·제출 중인 주문은 즉시 취소하지 않습니다. 기본 AI·다른 전략은 계속 동작할 수 있으므로 전체 중지는 기관 거래 정지를 사용하세요. 일시 적용이라는 이름으로 기존 승인·검증·제한 운용 가드레일을 우회하지 않습니다. 현재 사용자 상태·거래 완료를 확인한 답변은 아닙니다.",
+        "Seven active PAPER days and three valid closes are promotion gates, not a waiting period before PAPER or base trading. Existing paper pause/resume and validated strategy activation/deactivation preserve evidence. Deactivation removes this strategy from new entries, not all trading; use venue stop for that. There is no temporary LIVE validation bypass."),
+    SupportTopic("stock_no_trade", ("증권거래안", "증권사거래", "증권사에서는", "증권사에서거래", "주식거래안", "증권페이퍼", "주식페이퍼"),
+        "docs/STOCK_ETF_CURRENT_STATUS_20260118.md",
+        "증권 거래 0건만으로 데이터가 쌓일 때까지 기다리면 된다고 판단할 수 없습니다. 주식/증권에서 해당 기관의 모드·최근 분석 주기·상세 로그를 확인하세요. "
+        "PAPER는 가상 주문이며 기관 조회 연결은 필요합니다. LEARNING은 주문하지 않고 LIVE는 별도 권한이 필요합니다. 장 운영시간, 현재 국면 조회, 후보 종목, 일봉 수, 점수/매수 기준, 자금/수량 제한과 과거 PAPER 대조 보류를 구분하세요. "
+        "개인 거래 이력 0건 자체는 첫 PAPER 주문의 필수 대기 조건이 아닙니다. .13 기본 분석의 일봉 연결 누락은 .14 후속 소스에서 수정됐으며 .14 설치·공개 여부를 별도로 확인해야 합니다. "
+        "현재 사용자의 실제 원인은 증권사·모드·진단 근거가 없으면 확정할 수 없습니다. 임계값을 내려 거래를 강제하거나 전략·원장을 삭제하지 마세요.",
+        "Zero securities trades can reflect learning mode, market hours/data, signals or risk/capital gates. Check broker, mode and latest diagnostics; zero personal trade history is not itself a PAPER waiting requirement. The .13 daily-bar wiring issue is corrected in .14 source, subject to separate release and installation validation."),
     SupportTopic("market_regime_comparison", ("시장국면인식", "국면확정", "일반국면", "코인국면", "주식국면", "market regime detection", "crypto and stock market regime"),
         "docs/V39211_MARKET_REGIME_GUIDE.md",
         "네. 현재 코인과 주식은 관찰 자료·분류 기준·국면 확정 방식이 다릅니다. 아래는 기본 설정 기준이며 개별 사용자의 현재 상태를 진단한 결과는 아닙니다.\n"

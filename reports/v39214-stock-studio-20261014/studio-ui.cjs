@@ -1,0 +1,13 @@
+// Synthetic React fixture only; actual state/persistence is tested by Python.
+const {chromium}=require(process.env.NOAHAI_QA_PLAYWRIGHT || '/tmp/noah-feedback-ui-qa/node_modules/playwright');
+const fs=require('node:fs'),path=require('node:path'),assert=require('node:assert/strict');
+(async()=>{const browser=await chromium.launch({channel:'chrome',headless:true});const checks=[];
+try{for(const service of ['stock','crypto'])for(const profile of ['beginner','standard','advanced']){const page=await browser.newPage({viewport:{width:1440,height:1000}});page.setDefaultTimeout(10000);const confirmations=[];page.on('dialog',d=>{confirmations.push(d.message());d.accept();});
+await page.goto(`http://127.0.0.1:5193/qa/strategy-feedback.html?service=${service}&profile=${profile}&control_state=active`);
+await page.getByRole('button',{name:'전략 적용 일시정지',exact:true}).click();await page.getByRole('button',{name:'검증한 전략 다시 적용',exact:true}).waitFor();assert.match(confirmations.at(-1),/기본 AI나 다른 전략/);assert.equal(await page.evaluate(()=>window.__qaStrategyActions.at(-1).action),'deactivate');checks.push(service+'/'+profile+': active strategy pause maps to existing deactivate and explains scope');
+await page.getByRole('button',{name:'검증한 전략 다시 적용',exact:true}).click();await page.getByRole('button',{name:'전략 적용 일시정지',exact:true}).waitFor();assert.equal(await page.evaluate(()=>window.__qaStrategyActions.at(-1).action),'activate');checks.push(service+'/'+profile+': validated version can explicitly reactivate');
+await page.goto(`http://127.0.0.1:5193/qa/strategy-feedback.html?service=${service}&profile=${profile}&control_state=approved`);
+await page.getByRole('button',{name:'모의 운용 시작',exact:true}).click();await page.getByRole('button',{name:'모의 운용 일시정지',exact:true}).waitFor();assert.match(await page.locator('body').innerText(),/7일을 기다려야 PAPER가 시작되는 것은 아닙니다/);checks.push(service+'/'+profile+': approved PAPER starts immediately with promotion-gate explanation');
+await page.getByRole('button',{name:'모의 운용 일시정지',exact:true}).click();await page.getByRole('button',{name:'모의 운용 이어가기',exact:true}).waitFor();assert.equal(await page.evaluate(()=>window.__qaStrategyActions.at(-1).action),'stop_paper');checks.push(service+'/'+profile+': validation pause is separate from applied strategy pause');
+await page.screenshot({path:path.join(__dirname,`studio-${service}-${profile}.png`),fullPage:true});await page.close();}
+fs.writeFileSync(path.join(__dirname,'studio-ui.json'),JSON.stringify({status:'PASS',checks,scope:'React dev fixture; no actual exchange or Windows installation'},null,2)+'\n');console.log(JSON.stringify({passed:checks.length}));}finally{await browser.close();}})().catch(e=>{console.error(e.message);process.exitCode=1;});

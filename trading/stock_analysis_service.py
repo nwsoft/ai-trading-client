@@ -19,6 +19,7 @@ from __future__ import annotations
 from trading.remote_entry_pause import entry_submission
 
 import logging
+from copy import deepcopy
 import math
 import hashlib
 import threading
@@ -2131,6 +2132,71 @@ class StockAnalysisService:
     # 종목 상세 분석 (단일 종목)
     # ------------------------------------------------------------------
 
+    def _load_analysis_history(self, symbol: str, *, now=None):
+        """Use the brokers' actual daily-bar contract; never synthesize history."""
+        now = now or datetime.now(timezone(timedelta(hours=9)))
+        key = str(symbol).strip().upper()
+        cache = getattr(self, '_analysis_history_cache', None)
+        if cache is None:
+            cache = self._analysis_history_cache = {}
+        cached = cache.get(key)
+        if cached and pytime.monotonic() - cached[0] < 60.0:
+            return deepcopy(cached[1]), deepcopy(cached[2])
+        evidence = {'status': 'unavailable', 'source': 'get_daily_candles',
+                    'bars': 0, 'required_ma_bars': 20, 'average_volume': None}
+        try:
+            getter = getattr(self.adapter, 'get_daily_candles', None)
+            rows = getter(symbol, limit=220) if callable(getter) else []
+            dated = {}
+            volumes = {}
+            for row in rows or []:
+                if not isinstance(row, dict):
+                    raise ValueError('invalid_daily_candle')
+                day = datetime.strptime(str(row.get('date') or '').replace('-', ''), '%Y%m%d').replace(tzinfo=timezone(timedelta(hours=9)))
+                # Today's in-progress close and future rows must not feed indicators.
+                if day.replace(hour=15, minute=30) > now:
+                    continue
+                close = float(row.get('close'))
+                if not math.isfinite(close) or close <= 0:
+                    raise ValueError('invalid_daily_close')
+                if day in dated and dated[day] != close:
+                    raise ValueError('conflicting_daily_candle')
+                dated[day] = close
+                volume = row.get('volume')
+                if volume is not None:
+                    volume = float(volume)
+                    if not math.isfinite(volume) or volume < 0:
+                        raise ValueError('invalid_daily_volume')
+                if day in volumes and volumes[day] != volume:
+                    raise ValueError('conflicting_daily_volume')
+                volumes[day] = volume
+            ordered = sorted(dated)[-220:]
+            prices = [dated[day] for day in ordered]
+            evidence.update(bars=len(prices), status='ready' if len(prices) >= 20 else 'insufficient_history' if prices else 'unavailable')
+            if not prices:
+                evidence['reason'] = 'daily_history_empty_or_unsupported'
+            if len(ordered) >= 20 and all(volumes[day] is not None for day in ordered[-20:]):
+                evidence['average_volume'] = sum(volumes[day] for day in ordered[-20:]) / 20
+            if ordered:
+                evidence['last_completed_date'] = ordered[-1].strftime('%Y-%m-%d')
+            # Retain legacy provider compatibility with validated chronological closes.
+            if not prices:
+                legacy = getattr(self.adapter, 'get_price_history', None)
+                if callable(legacy):
+                    prices = [float(row.get('close') if isinstance(row, dict) else row) for row in legacy(symbol, count=220) or []]
+                    if any(not math.isfinite(v) or v <= 0 for v in prices):
+                        raise ValueError('invalid_legacy_close')
+                    evidence.update(source='get_price_history', bars=len(prices), status='ready' if len(prices) >= 20 else 'insufficient_history')
+            if len(cache) >= 128:
+                cache.clear()
+            if prices:
+                cache[key] = (pytime.monotonic(), deepcopy(prices), deepcopy(evidence))
+            return prices or None, evidence
+        except Exception as exc:
+            # No stale fallback or zero-filled prices after a failed query.
+            evidence.update(status='unavailable', reason=type(exc).__name__, bars=0, average_volume=None)
+            return None, evidence
+
     def analyze_symbol(self, symbol: str) -> Dict[str, Any]:
         """
         단일 종목/ETF 분석.
@@ -2171,15 +2237,7 @@ class StockAnalysisService:
             # ── 현재 시장 레짐 ──
             market_regime = self.get_market_regime()
 
-            # AI 커스텀과 자동검증이 같은 지표 정의를 사용하도록 최대 220개 이력을 확보한다.
-            price_history: Optional[List[float]] = None
-            if hasattr(self.adapter, 'get_price_history'):
-                try:
-                    hist = self.adapter.get_price_history(symbol, count=220) or []
-                    if hist:
-                        price_history = [float(h.get('close') or h) for h in hist if h]
-                except Exception:
-                    price_history = None
+            price_history, history_evidence = self._load_analysis_history(symbol)
 
             scored: Dict[str, Any]
             if is_etf:
@@ -2200,13 +2258,13 @@ class StockAnalysisService:
                     f"ETF 분석: NAV괴리 {scored.get('nav_gap', 0):.3f}%, "
                     f"추적오차 {scored.get('tracking_error') if scored.get('tracking_error') is not None else 'N/A'}%, "
                     f"거래대금 {scored.get('trade_value', 0):,.0f}원 기준 점수화 | "
-                    f"시장레짐={market_regime} | "
+                    f"시장레짐={market_regime} | 일봉근거={history_evidence['status']} {history_evidence['bars']}개 | "
                     f"과거성과: {feedback_trade_count}건 승률 {feedback_win_rate:.0%} 평균손익 {pnl_rate:+.2f}%"
                 )
                 analysis_type = 'etf'
                 score_model = 'score_etf+regime+feedback'
             else:
-                avg_volume = float(info.get('avg_volume') or 0)
+                avg_volume = float(info.get('avg_volume') or history_evidence.get('average_volume') or 0)
 
                 # 외국인/기관 순매수 (어댑터 지원 시 사용)
                 foreign_net_buy = float(info.get('foreign_net_buy') or 0.0)
@@ -2231,7 +2289,7 @@ class StockAnalysisService:
                     f"주식 분석: 전일 대비 {scored.get('momentum', 0):+.2f}% 모멘텀, "
                     f"MA크로스={ma_signal}, {rsi_text}, {net_buy_text}, "
                     f"거래량 {volume:,.0f} 기준 점수화 | "
-                    f"시장레짐={market_regime} | "
+                    f"시장레짐={market_regime} | 일봉근거={history_evidence['status']} {history_evidence['bars']}개 | "
                     f"과거성과: {feedback_trade_count}건 승률 {feedback_win_rate:.0%} 평균손익 {pnl_rate:+.2f}%"
                 )
                 analysis_type = 'stock'
@@ -2244,6 +2302,7 @@ class StockAnalysisService:
                 'change_rate': change_rate,
                 'volume': volume,
                 'prev_close': prev_close,
+                'prev_close_source': info.get('prev_close_source'),
                 'score': scored['score'],
                 'momentum': scored.get('momentum', 0.0),
                 'is_etf': is_etf,
@@ -2256,6 +2315,7 @@ class StockAnalysisService:
                 'feedback_pnl_rate': pnl_rate,
                 'feedback_win_rate': feedback_win_rate,
                 'feedback_trade_count': feedback_trade_count,
+                'technical_history': deepcopy(history_evidence),
             })
             if price_history:
                 from trading.custom_strategy_validator import build_indicator_context
@@ -3032,6 +3092,19 @@ class StockAnalysisService:
                 })
                 continue
 
+            if execution_mode == ExecutionMode.PAPER.value:
+                valuation = self._refresh_paper_position_valuation(
+                    symbol, self._to_float(analysis.get('current_price')), paper_cost_policy,
+                )
+                if valuation.get('calculation_status') != 'valid':
+                    decisions.append({'symbol': symbol, 'action': 'SKIP',
+                                      'reason': 'paper_exit_valuation_unavailable'})
+                    continue
+                position = dict(self._paper_positions().get(symbol) or position)
+                # The common exit policy expects percentage PnL, while the PAPER
+                # ledger stores net_pnl_percent. Do not silently substitute zero.
+                position['pnl_rate'] = valuation['net_pnl_percent']
+
             custom_exit_plan = self._restore_custom_exit_plan(symbol)
             custom_exit_result: Dict[str, Any] = {}
             effective_exit_policy = dict(policy)
@@ -3791,6 +3864,7 @@ class StockAnalysisService:
                     'reason': hold_reason,
                     'trade_candidate': candidate.to_dict(),
                     'score': analysis.get('score'),
+                    'technical_history': analysis.get('technical_history'),
                     'momentum': analysis.get('momentum'),
                     'analysis_type': analysis.get('analysis_type'),
                     'score_model': analysis.get('score_model'),
@@ -3810,6 +3884,7 @@ class StockAnalysisService:
                             'reason': hold_reason,
                             'trade_candidate': candidate.to_dict(),
                             'score': analysis.get('score'),
+                            'technical_history': analysis.get('technical_history'),
                             'momentum': analysis.get('momentum'),
                             'effective_buy_threshold': effective_buy_threshold,
                             'effective_sell_threshold': effective_sell_threshold,

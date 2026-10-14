@@ -21,6 +21,13 @@ const readiness = { ready: true, historical_validation_applicable: true, validat
 Object.assign(rules, {target_scope:stock ? 'asset:stock' : 'exchange:binance'});
 const version = (id: string, status: string) => ({ version: 1, version_id: id, strategy_key: id, name: 'QA 추세 따라가기', status, active: false, paper_observing: false, missing_conditions: [], rules, created_at: '2026-09-13T08:39:25Z', xai: { summary: '구조화 완료 · 승인 후 검증합니다.' }, execution_readiness: readiness, paper_execution_readiness: readiness, version_diff: { changes: Array.from({length:76}, (_, i) => ({field:String(i)})) } });
 const versions: any[] = [version('paused', 'paper_paused')];
+const controlState = new URLSearchParams(location.search).get('control_state');
+if (controlState) {
+  versions[0].status=controlState;
+  versions[0].active=controlState==='active';
+  versions[0].paper_observing=controlState==='paper_observing';
+  if(['active','paper_validated'].includes(controlState)) versions[0].paper_validation={passed:true,trades:3,metrics:{observation_days:7}};
+}
 const replayState = new URLSearchParams(location.search).get('replay_state');
 if (replayState) {
   versions[0].status = replayState;
@@ -83,7 +90,7 @@ const client: any = {
   },
   validateStrategyDraft: async (payload: any) => (window as any).__qaValidate ? (window as any).__qaValidate(payload) : ++validationCalls === 1 ? ({ ready:false, blocking_details:[{code:'qa_missing',title:'거래 위험예산을 확인하세요',action:'원문 또는 보완 답변에 자신의 위험예산을 적고 다시 분석하세요.',example:'거래당 손실 0.5%'}] }) : ({ready:true,rules:payload.rules}),
   submitStrategy: async (payload: any) => { (window as any).__qaSubmitted = payload; const v=version('new','analyzed');versions.push(v);return v;},
-  strategyAction: async (p: any) => { (window as any).__qaStrategyActions = [...((window as any).__qaStrategyActions ?? []),p]; const v=versions.find(v=>v.version_id===p.version_id); if(p.action==='approve')v.status='approved';if(p.action==='start_paper'){v.status='paper_observing';v.paper_observing=true;}return {...v}; },
+  strategyAction: async (p: any) => { (window as any).__qaStrategyActions = [...((window as any).__qaStrategyActions ?? []),p]; const v=versions.find(v=>v.version_id===p.version_id); if(p.action==='deactivate'){v.status='paper_validated';v.active=false;v.deactivated={at:new Date().toISOString()};}if(p.action==='activate'){v.status='active';v.active=true;}if(p.action==='stop_paper'){v.status='paper_paused';v.paper_observing=false;}if(p.action==='approve')v.status='approved';if(p.action==='start_paper'){v.status='paper_observing';v.paper_observing=true;}return {...v}; },
   runHistoricalValidation: async (p: any) => { (window as any).__qaReplayRequests = [...((window as any).__qaReplayRequests ?? []),p]; const v=versions.find(v=>v.version_id===p.version_id);v.status='execution_validated';v.execution_validation={mode:'historical_replay',passed:true,metrics:{validation_interval:rules.decision_timeframe,candle_count:200}};return {...v}; },
 };
 document.body.style.overflow='auto';

@@ -1,0 +1,30 @@
+{
+  "status": "PASS",
+  "checks": [
+    "stock/beginner: active strategy pause maps to existing deactivate and explains scope",
+    "stock/beginner: validated version can explicitly reactivate",
+    "stock/beginner: approved PAPER starts immediately with promotion-gate explanation",
+    "stock/beginner: validation pause is separate from applied strategy pause",
+    "stock/standard: active strategy pause maps to existing deactivate and explains scope",
+    "stock/standard: validated version can explicitly reactivate",
+    "stock/standard: approved PAPER starts immediately with promotion-gate explanation",
+    "stock/standard: validation pause is separate from applied strategy pause",
+    "stock/advanced: active strategy pause maps to existing deactivate and explains scope",
+    "stock/advanced: validated version can explicitly reactivate",
+    "stock/advanced: approved PAPER starts immediately with promotion-gate explanation",
+    "stock/advanced: validation pause is separate from applied strategy pause",
+    "crypto/beginner: active strategy pause maps to existing deactivate and explains scope",
+    "crypto/beginner: validated version can explicitly reactivate",
+    "crypto/beginner: approved PAPER starts immediately with promotion-gate explanation",
+    "crypto/beginner: validation pause is separate from applied strategy pause",
+    "crypto/standard: active strategy pause maps to existing deactivate and explains scope",
+    "crypto/standard: validated version can explicitly reactivate",
+    "crypto/standard: approved PAPER starts immediately with promotion-gate explanation",
+    "crypto/standard: validation pause is separate from applied strategy pause",
+    "crypto/advanced: active strategy pause maps to existing deactivate and explains scope",
+    "crypto/advanced: validated version can explicitly reactivate",
+    "crypto/advanced: approved PAPER starts immediately with promotion-gate explanation",
+    "crypto/advanced: validation pause is separate from applied strategy pause"
+  ],
+  "scope": "React dev fixture; no actual exchange or Windows installation"
+}

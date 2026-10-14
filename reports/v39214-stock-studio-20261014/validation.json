@@ -1,0 +1,79 @@
+{
+  "status": "SOURCE_READY; CUSTOMER_CAUSE_AND_WINDOWS_INSTITUTION_ACCEPTANCE_UNCONFIRMED",
+  "verified_at": "2026-10-14T09:58:52.108309+00:00",
+  "source_version": "3.9.2.14",
+  "public_version": "3.9.2.13",
+  "public_commit": "33d351c0b606a619f16c00fc7b6e99aa10086dad",
+  "branch": "fix/v3.9.2.14-stock-studio-feedback-20261014",
+  "updater": "3.9.214",
+  "renderer": "3.9.2.14-ui.20261014.1",
+  "source_fingerprint": "3fd6271e089d9c8804d1c9f76483103472060eaf2afc0f94cc3ce73421b32866",
+  "renderer_source_hash": "fdc1ea0efe22a9935a6316148bea8c13fb930a15b96b1d65cf9f1161c2c8871c",
+  "findings": {
+    "stock_base_history": "Public .13 called get_price_history, real four broker adapters expose get_daily_candles. Price indicators and average volume could be absent. Fixed actual contract and validated completed bars; no threshold change.",
+    "paper_tp_sl": "PAPER stores net_pnl_percent; exit policy expected pnl_rate and silently read zero. Fixed fresh net percentage mapping; invalid valuation holds rather than liquidating.",
+    "kis_ema200": "KIS official API caps each response at 100 rows, inherited implementation fetched one page. Added bounded date-backwards pagination for up to 500 rows, paced reads and repeated/invalid page rejection.",
+    "seven_days": "Existing default promotion gate, not PAPER or base-trading start delay. >=3 valid closes + active permission-window sum >=7 days + no guard violations. Not measured engine uptime or statistical optimality proof.",
+    "pause": "Existing start/stop_paper and activate/deactivate preserved. UI clarifies applied strategy pause/reactivation. Deactivation excludes next pool lookup; in-flight evaluation/reserved/submitted orders are not atomically canceled. Existing position exit plans/evidence remain.",
+    "temporary_expiry": "Manual apply/pause exists. Time-scheduled expiry/resume is not implemented; STUDIO-TTL follow-up requires persistent expiry and submission boundary tests.",
+    "customer_mode": "User confirmed both Kiwoom and KIS use PAPER (2026-10-14); current hold message still pending. This confirms scope, not individual root cause or installed-app recovery.",
+    "other_users": "No other user reactions or aggregate deployment feedback evidence supplied.",
+    "kiwoom_previous_price": "Optional prev_close quote field absence produced zero momentum contribution. Added official OpenAPI+ GetMasterLastPrice fallback, preserving valid quote fields and explicit missing/source evidence. No REST contract substitution or inferred prices. Synthetic before/after verified; real OCX not run."
+  },
+  "results": {
+    "python_passed": 5931,
+    "python_skipped": 11,
+    "warnings": 2,
+    "subtests_passed": 3,
+    "new_targeted_tests": 40,
+    "focused_stock_studio_previous": 126,
+    "focused_stock_latest": 87,
+    "node_passed": 77,
+    "ui_studio": 24,
+    "ui_companion": 25,
+    "ui_navigation": 77,
+    "ui_existing_paper_help": 6,
+    "ui_total": 132,
+    "typescript_vite": "PASS; size advisory",
+    "npm_audit": "PASS; 0 vulnerabilities",
+    "docs_source_parity_bundle_spec": "PASS",
+    "public_13_asset_restore": "PASS; pinned cached installer SHA256",
+    "focused_customer_brokers": 110
+  },
+  "test_scope": "synthetic providers, deterministic clocks, isolated PAPER/state stores and React fixtures; no real orders, customer settings or real broker sessions",
+  "official_kis_reference": "https://github.com/koreainvestment/open-trading-api/blob/main/examples_llm/domestic_stock/inquire_daily_itemchartprice/inquire_daily_itemchartprice.py",
+  "missing_acceptance": [
+    "Windows .14 build/install/update/rollback",
+    "real broker/OCX/read authentication and intraday PAPER",
+    "real KIS page price/adjustment continuity and rate behavior",
+    "elapsed 24/72h soak",
+    "LIVE orders not authorized/not executed"
+  ],
+  "preserved": [
+    "public .13 installer/manifest and Git history",
+    "strategy approval/PAPER/activation guards",
+    "default score thresholds and 7-day condition",
+    "old positions/exit rules/ledgers"
+  ],
+  "commands": "docs/TEST_STATUS.md and adjacent local output files",
+  "actions": {
+    "local_commit": "handoff.json",
+    "remote_push": false,
+    "release_publication": false,
+    "deployment": false
+  },
+  "official_kiwoom_reference": "https://download.kiwoom.com/web/openapi/kiwoom_openapi_plus_devguide_ver_1.7.pdf",
+  "git_root": "/Users/playone/SynologyDrive/Works/noahai-v39212-post-release-20261012",
+  "original_sync": {
+    "status": "NOT_SYNCED_ORIGINAL_PRESERVED",
+    "reason": "Two release inputs differed from public .13 before this task. They match the initial original-folder guard and were not overwritten. Candidate copies were rolled back to before/ backups. Use reviewed Git branch/bundle for .14 Windows build.",
+    "preexisting_divergent_files": [
+      "trading/entry_diagnostics.py",
+      "webui/src/components/LegacyFeatureWorkspaces.tsx"
+    ],
+    "all_initial_guard_hashes_restored": true,
+    "original_identity_unchanged": true,
+    "customer_data_settings_modified": false,
+    "build_source": "/Users/playone/SynologyDrive/Works/noahai-v39212-post-release-20261012"
+  }
+}

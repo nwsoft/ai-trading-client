@@ -31,6 +31,31 @@ BROKER_ALIASES = {
 PUBLIC_BROKER_IDS = {"miraeAsset": "mirae", "koreaInvestment": "kis"}
 
 
+def stock_cycle_diagnosis(result):
+    """Bounded local explanation; no account balance or raw provider response."""
+    from collections import Counter
+    counts = Counter(str(item.get('reason') or item.get('action') or 'unknown')
+                     for item in result.get('decisions', []) if isinstance(item, dict))
+    labels = {'threshold_not_met':'점수·모멘텀 조건 대기', 'market_data_unavailable':'시장 국면 자료 미확인',
+              'custom_strategy_not_matched':'전략 조건 대기', 'profitability_blocked':'성과 위험 제한',
+              'strategy_blocked':'전략 운용 제한', 'analysis_error':'종목 분석 실패',
+              'market_closed':'장 운영시간 외', 'live_order_blocked':'주문 권한 제한',
+              'paper_exit_valuation_unavailable':'가상 청산 평가 근거 미확인'}
+    detail = ' / '.join(f'{labels.get(code, code)} {count}건' for code,count in counts.most_common(5))
+    holds = [d for d in result.get('decisions', []) if isinstance(d,dict) and d.get('reason')=='threshold_not_met']
+    if holds:
+        first=holds[0]; score=first.get('score'); threshold=result.get('effective_buy_threshold')
+        if isinstance(score,(int,float)) and isinstance(threshold,(int,float)):
+            detail += f' · 최근 점수 {score:.1f} / 매수 기준 {threshold:.1f}'
+        history=first.get('technical_history') or {}
+        if history:
+            state={'ready':'확인됨','insufficient_history':'부족','unavailable':'조회 실패·미지원'}.get(history.get('status'),'미확인')
+            detail += f" · 완료 일봉 {history.get('bars',0)}개({state})"
+    if counts.get('paper_exit_valuation_unavailable'):
+        detail += ' · 가상 보유의 진입가·수량·비용 근거를 확인하세요.'
+    return detail
+
+
 class StockRuntimeController:
     def __init__(
         self,
@@ -503,11 +528,11 @@ class StockRuntimeController:
                     reason = "stock_analysis_incomplete"
                     message = f"증권 분석 일부 실패 · {len(analysis_errors)}개 종목의 조회/분석 오류로 신규 진입을 보류했습니다. 시세·종목 조회와 최초 오류를 확인하세요."
                 else:
-                    message = f"증권 분석 주기 완료 · {str(result.get('execution_mode', '')).upper()} · 후보 {result.get('candidate_count', 0)}개 · 주문 {result.get('executed_orders', result.get('orders_executed', 0))}건. 주문 0건은 진입 조건·장 운영시간·가드레일을 확인하세요."
+                    message = f"증권 분석 주기 완료 · {str(result.get('execution_mode', '')).upper()} · 후보 {result.get('candidate_count', 0)}개 · 주문 {result.get('executed_orders', result.get('orders_executed', 0))}건. {stock_cycle_diagnosis(result)}"
                 issues = result.get("universe_issues") or []
                 if issues:
                     message += " 목록 조회 상태: " + "; ".join(issues)
-                emit_runtime_status(self, broker, (reason, tuple(issues)), message, level="WARNING" if analysis_errors or reason == "empty_stock_universe" or issues else "INFO")
+                emit_runtime_status(self, broker, (reason, tuple(issues), stock_cycle_diagnosis(result)), message, level="WARNING" if analysis_errors or reason == "empty_stock_universe" or issues else "INFO")
             except Exception as exc:
                 if stop_event.is_set() and str(exc) in {'stock_runtime_stopping', 'kiwoom_runtime_stopping'}:
                     break

@@ -830,10 +830,32 @@ class KiwoomStockAdapter(StockExchange):
                 return {"status": "error", "error": "not_available"}
 
             info = self._parse_stock_record(symbol, record, 'ETF' if self.is_etf(symbol) else 'KOSPI')
+            prev_close = optional_market_number(self._get_field(record, '전일종가', 'prev_close'))
+            if prev_close is not None:
+                prev_close = abs(prev_close)
+            prev_close_source = 'quote'
+            if prev_close is None or prev_close <= 0:
+                # OpenAPI+ developer guide: GetMasterLastPrice returns the
+                # previous-day price. Do not require an optional quote field
+                # or substitute REST's different base_pric contract here.
+                prev_close = None
+                prev_close_source = 'unavailable'
+                master_price = getattr(self.kiwoom, 'GetMasterLastPrice', None)
+                if callable(master_price):
+                    try:
+                        value = optional_market_number(master_price(symbol))
+                        if value is not None and abs(value) > 0:
+                            prev_close = abs(value)
+                            prev_close_source = 'GetMasterLastPrice'
+                    except Exception:
+                        # Quote/history can still be used; missing momentum
+                        # evidence stays explicit rather than invented as zero.
+                        pass
             info.update({
                 'bid_price': abs(self._to_float(self._get_field(record, '매수호가', 'bid_price'))),
                 'ask_price': abs(self._to_float(self._get_field(record, '매도호가', 'ask_price'))),
-                'prev_close': abs(self._to_float(self._get_field(record, '전일종가', 'prev_close'))),
+                'prev_close': prev_close,
+                'prev_close_source': prev_close_source,
                 'status': 'ok',
             })
             return info

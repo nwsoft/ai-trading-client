@@ -1,6 +1,8 @@
-# v3.9.2.13 현재 기술 경계
+# v3.9.2.14 현재 기술 경계
 
-현재 소스 후보: NoahAI Client v3.9.2.13 · 현재 공개 기반: NoahAI Client v3.9.2.12.
+현재 소스 후보: NoahAI Client v3.9.2.14 · 현재 공개 기반: NoahAI Client v3.9.2.13.
+
+이번 소스는 실제 기관 일봉을 증권 기본 점수에 연결하고 PAPER 청산 손익률 필드를 정합하게 전달한다. 전략 일시정지는 기존 적용 해제를 재사용한다. 실기관·Windows 검증과 고객 복구는 미확인이다.
 
 후속 .13은 release_acceptance의 항목/상태/개수 스냅샷을 일치시킨다. 공개 .12의 거래 보호와 PAPER 안내는 기존 구현이다. .13 Windows 빌드·게시·설치 인수는 미실시. [테스터 절차](DEPLOY_CHECKLIST.md#acceptance-v39213).
 

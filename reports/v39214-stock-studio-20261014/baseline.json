@@ -1,0 +1,12 @@
+{
+  "public_version": "v3.9.2.13",
+  "commit": "33d351c0b606a619f16c00fc7b6e99aa10086dad",
+  "published_at": "2026-10-12T09:32:20Z",
+  "manifest_sha256": "1397c6570ed270ea45c43e908a43b867eefd1d148223082b9ac37da23e7ba817",
+  "installer": {
+    "name": "NoahAI-3.9.2.13-Setup.exe",
+    "size": 451608545,
+    "sha256": "92250d1987034809bcf1a40c936deca49acfece9440924b07f9ad8f93157db6f",
+    "download_url": "https://github.com/nwsoft/ai-trading-client/releases/download/v3.9.2.13/NoahAI-3.9.2.13-Setup.exe"
+  }
+}

@@ -408,6 +408,60 @@ class KoreaInvestmentStockAdapter(MiraeAssetStockAdapter):
         })
         return self._kis_success(response)
 
+    def get_daily_candles(self, symbol: str, limit: int = 100) -> List[Dict[str, Any]]:
+        """KIS returns at most 100 rows per call; page backwards for EMA200.
+
+        Official contract: examples_llm/domestic_stock/inquire_daily_itemchartprice.
+        No order calls, guessed bars, unbounded retries or stale page fallback.
+        """
+        if not self.is_connected:
+            return []
+        from datetime import timedelta, timezone
+        target = max(1, min(int(limit), 500))
+        cursor = datetime.now(timezone(timedelta(hours=9))).strftime('%Y%m%d')
+        collected = {}
+        self.last_history_issue = ''
+        for page in range((target + 99) // 100):
+            if page:
+                time.sleep(0.6 if bool(getattr(self, 'sandbox', False)) else 0.12)
+            data = self._get('/uapi/domestic-stock/v1/quotations/inquire-daily-itemchartprice', params={
+                'FID_COND_MRKT_DIV_CODE':'J', 'FID_INPUT_ISCD':self._normalize_symbol(symbol),
+                'FID_INPUT_DATE_1':'20000101', 'FID_INPUT_DATE_2':cursor,
+                'FID_PERIOD_DIV_CODE':'D', 'FID_ORG_ADJ_PRC':'0',
+            })
+            items = data.get('output2') if isinstance(data, dict) else None
+            if not isinstance(items, list):
+                self.last_history_issue = 'daily_history_page_unavailable'
+                raise ValueError(self.last_history_issue)
+            if not items:
+                break
+            dates = []
+            for item in items:
+                if not isinstance(item, dict):
+                    raise ValueError('invalid_daily_history_row')
+                day = str(item.get('stck_bsop_date') or item.get('date') or '').replace('-', '')
+                datetime.strptime(day, '%Y%m%d')
+                if day > cursor:
+                    self.last_history_issue = 'daily_history_cursor_ignored'
+                    raise ValueError(self.last_history_issue)
+                row = {'date':day,
+                       'open':abs(self._to_float(item.get('stck_oprc') or item.get('open'))),
+                       'high':abs(self._to_float(item.get('stck_hgpr') or item.get('high'))),
+                       'low':abs(self._to_float(item.get('stck_lwpr') or item.get('low'))),
+                       'close':abs(self._to_float(item.get('stck_clpr') or item.get('close'))),
+                       'volume':self._to_float(item.get('acml_vol') or item.get('volume'))}
+                if day in collected and collected[day] != row:
+                    raise ValueError('conflicting_daily_history_row')
+                collected[day] = row
+                dates.append(day)
+            if len(collected) >= target or len(items) < 100:
+                break
+            next_cursor = (datetime.strptime(min(dates), '%Y%m%d') - timedelta(days=1)).strftime('%Y%m%d')
+            if next_cursor >= cursor:
+                raise ValueError('daily_history_not_advancing')
+            cursor = next_cursor
+        return [collected[day] for day in sorted(collected)[-target:]]
+
     def get_etf_list(self) -> List[Dict[str, Any]]:
         """Use the public master also for automatic ETF selection."""
         rows = super().get_etf_list()
