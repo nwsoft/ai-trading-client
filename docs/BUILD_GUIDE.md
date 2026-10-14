@@ -12,11 +12,75 @@
 
 적용된 전략의 기존 「적용 해제」를 「전략 적용 일시정지」로 명확히 안내하고 검증 버전의 재적용을 연결한다. 신규 진입 풀에서 그 전략만 제외하며 보유 포지션 청산계획·원장·검증 근거를 보존한다. 기본 AI·다른 전략은 계속 거래할 수 있다. 기관 전체 중지와 다르며 시간 지정 자동 만료/자동 재개는 미구현이다. 새 상태머신·LIVE 우회 권한은 만들지 않는다. 내장 어시스턴트에 7일/일시정지·증권 무거래 안내를 추가한다.
 
-[테스터 인수와 실행 기준](DEPLOY_CHECKLIST.md) · [검증 근거](../reports/v39214-stock-studio-20261014/validation.json). Windows .14 빌드·게시·실기관/OCX·고객 계정 복구·다른 배포 사용자의 반응은 확인되지 않았다. 고객이 키움·한국투자 모두 PAPER라고 확인했다(2026-10-14). 최근 진입 보류 문구는 전달 대기이며 개별 무거래 원인 확정·복구 확인은 아직 아니다. 아래 .13 이하 상태·수치는 해당 당시 이력이다.
+[테스터 인수와 실행 기준](DEPLOY_CHECKLIST.md) · [검증 근거](../reports/v39214-source-sync-20261014/validation.json). Windows .14 빌드·게시·실기관/OCX·고객 계정 복구·다른 배포 사용자의 반응은 확인되지 않았다. 고객이 키움·한국투자 모두 PAPER라고 확인했다(2026-10-14). 최근 진입 보류 문구는 전달 대기이며 개별 무거래 원인 확정·복구 확인은 아직 아니다. 아래 .13 이하 상태·수치는 해당 당시 이력이다.
 
-원본 `noahai_client` 폴더는 이번 작업 전부터 공개 .13과 다른 `trading/entry_diagnostics.py`, `webui/src/components/LegacyFeatureWorkspaces.tsx`를 포함했다. 해당 사용자 소스를 덮어쓰지 않고 원본 동기화를 철회했다. .14 Windows 빌드는 검증한 Git 브랜치 `fix/v3.9.2.14-stock-studio-feedback-20261014` 또는 아래 bundle로 복원한 별도 작업트리를 사용한다. 원본 폴더의 버전 표시만 보고 .14 빌드 입력으로 사용하지 않는다.
+원본 정합성 후속(2026-10-14): 공개 .13과 다른 두 파일을 원본 보존 후 .14 기준으로 맞췄다. 진단 파일의 `entry_activity`·23개 사유 코드 삭제와 `monitored_cycle()` 호출 계약 불일치, 화면의 `newPaperSession` callback 삭제가 확인됐다. 원본의 미추적 `test_entry_diagnostics_startup.py` 3개 검사에서 실패 주기를 정상 완료로 집계하지 않는 수정의 필요성이 확인됐다. 이 동작과 `tests/__init__.py`·`pytest.ini`의 기존/패키지형 test import 호환 설정을 보존하고 선택 source 호출 계약·23개 진단·무거래 함수는 공개 구현과 병합했다. 화면의 삭제된 callback은 복구했다. 과거 UI 회귀의 .8 고정 버전 검사는 현재 package 버전에 맞추고 출력 폴더를 분리했다. 누가/어떤 동기화 작업이 바꿨는지는 비 Git 원본에 기록이 없어 미확정이다. 이전 절차의 동기화 철회는 당시 이력이며 이번 최종 결과는 `reports/v39214-source-sync-20261014/handoff.json`이다.
 
-이번 .14의 로컬 커밋·소스 지문·증분 bundle 해시는 `reports/v39214-stock-studio-20261014/handoff.json`을 따른다. `v39214-candidate.bundle`은 공개 .13 `33d351c0b606a619f16c00fc7b6e99aa10086dad`가 있는 저장소에서 `git bundle verify` 후 별도 작업트리에 복원한다. 사용자 변경을 reset/clean하지 않는다. .13 원본 설치기를 `python scripts/restore_previous_release_asset.py`로 해시 검증하고, Python 3.11 x64/x86·Node >=22.12 Windows에서 skip 없이 `scripts/build_web_ui_windows.ps1`을 실행한다. 게시 명령은 이번 작업에서 실행하지 않는다. 실제 설치/PAPER 인수는 `DEPLOY_CHECKLIST.md`의 .14 절을 따른다.
+원본 폴더의 제품 소스·릴리스 입력은 검증한 .14 Git 작업트리와 같게 동기화한다. 고객 설정·원장·키·공개 .13 설치기/manifest는 복사 대상으로 삼지 않는다. 원본은 Git 저장소가 아니므로 **Windows 공식 빌드·게시에는 아래의 깨끗한 Git 복원본을 사용한다.** 원본의 `.venv`, `node_modules`, `dist`, `deploy/release-manifest.json`을 새 빌드 폴더로 가져오지 않는다. .13 manifest 원본은 저장소의 hash-pinned archive와 복구 스크립트로 준비한다.
+
+### 3.9.2.14 Windows에서 사용할 소스와 명령
+
+전달 자료는 동기화 폴더의 `reports/v39214-source-sync-20261014/` 안에 있는 **`handoff.json`과 `v39214-reconciled.bundle`**이다. 앞선 `v39214-candidate.bundle` 대신 이 최종 자료를 사용한다. 아래 `$handoffPath`만 해당 Windows PC의 실제 파일 경로로 바꾼다. PowerShell 5.1 호환 명령이며 네이티브 명령 실패 때 즉시 중단한다. `C:\NoahAI\client-v39214`는 새 폴더여야 한다. 기존 저장소를 reset/clean하지 않는다.
+
+```powershell
+$ErrorActionPreference = "Stop"
+function Invoke-CandidateChecked([scriptblock]$Command) {
+    & $Command
+    if ($LASTEXITCODE -ne 0) { throw "Command failed: $LASTEXITCODE" }
+}
+$handoffPath = "D:\SynologyDrive\Works\noahai_client\reports\v39214-source-sync-20261014\handoff.json"
+$handoffPath = (Resolve-Path -LiteralPath $handoffPath).Path
+$handoff = Get-Content -LiteralPath $handoffPath -Raw -Encoding UTF8 | ConvertFrom-Json
+if ($handoff.source_version -ne "3.9.2.14") { throw "Wrong handoff version" }
+$bundlePath = Join-Path (Split-Path -Parent $handoffPath) $handoff.bundle
+if ((Get-FileHash -LiteralPath $bundlePath -Algorithm SHA256).Hash.ToLowerInvariant() -ne $handoff.bundle_sha256) { throw "Bundle hash mismatch" }
+$buildRoot = "C:\NoahAI\client-v39214"
+if (Test-Path -LiteralPath $buildRoot) { throw "Use a new empty build path" }
+New-Item -ItemType Directory -Path (Split-Path -Parent $buildRoot) -Force | Out-Null
+Invoke-CandidateChecked { git clone --filter=blob:none --no-checkout https://github.com/nwsoft/ai-trading-client.git $buildRoot }
+Set-Location -LiteralPath $buildRoot
+Invoke-CandidateChecked { git fetch origin $handoff.public_commit }
+Invoke-CandidateChecked { git bundle verify $bundlePath }
+$branchRef = "{0}:refs/heads/{0}" -f $handoff.branch
+Invoke-CandidateChecked { git fetch $bundlePath $branchRef }
+Invoke-CandidateChecked { git switch $handoff.branch }
+$actualCommit = (Invoke-CandidateChecked { git rev-parse HEAD } | Out-String).Trim()
+if ($actualCommit -ne $handoff.source_commit) { throw "Candidate commit mismatch" }
+if ((Invoke-CandidateChecked { git status --porcelain } | Out-String).Trim()) { throw "Build source is dirty" }
+```
+
+Windows 10/11 x64, Python **3.11 x64·x86**, Node **22.12 이상**, Git·GitHub CLI, Visual Studio Build Tools/VC143 CRT를 준비한다. 같은 PowerShell 창에서 이어서 실행한다. `NOAHAI_PYTHON_X86`가 기존 다른 환경을 가리키면 올바른 3.11 x86 실행파일로 조정해야 한다. 아래는 기본 Python Launcher의 x86을 사용하는 경우다.
+
+```powershell
+Invoke-CandidateChecked { py -3.11-64 -m venv .venv }
+$env:Path = (Resolve-Path .venv\Scripts).Path + ";" + $env:Path
+$env:PYTHONUTF8 = "1"
+$env:PYTHONIOENCODING = "utf-8"
+Invoke-CandidateChecked { python -c "import struct,sys; assert sys.version_info[:2]==(3,11) and struct.calcsize('P')==8" }
+Invoke-CandidateChecked { python -m pip install -r requirements_windows.txt }
+Invoke-CandidateChecked { py -3.11-32 -m pip install -r requirements_kiwoom_x86.txt }
+$env:NOAHAI_PYTHON_X86 = (Invoke-CandidateChecked { py -3.11-32 -c "import sys; print(sys.executable)" } | Out-String).Trim()
+$env:NOAHAI_CANDIDATE_HANDOFF = $handoffPath
+Invoke-CandidateChecked { python -c "import json,os; from pathlib import Path; from scripts.verify_release_provenance import verify_source; h=json.load(open(os.environ['NOAHAI_CANDIDATE_HANDOFF'],encoding='utf-8')); print(verify_source(Path('.'),dict(source_revision=h['source_commit'],source_fingerprint=h['source_fingerprint'])))" }
+Invoke-CandidateChecked { python scripts/restore_previous_release_asset.py }
+Invoke-CandidateChecked { powershell -ExecutionPolicy Bypass -File scripts/build_windows.ps1 }
+```
+
+빌드 스크립트가 locked npm 설치·Node/Python 전체 검사·skip 감사·문서·source·npm 감사·x64 엔진·키움 x86 호스트·IPC smoke·Electron 설치기·PE/아이콘·메타데이터를 검사한다. `SkipTests`, `SkipEngineBuild`, `SkipNpmCi`, `AllowMissingKiwoomHost`를 사용하지 않는다. 기본 자동 검사만으로 실제 OCX 로그인·기관 PAPER 운용·24/72h가 통과한 것은 아니다. Windows 검사 수는 해당 PC의 `reports/windows-full-tests.xml`과 `reports/windows-skipped-tests.json`에 기록된 결과를 따른다.
+
+성공 산출물은 `deploy/web-release/NoahAI-3.9.2.14-Setup.exe`, 같은 이름의 `.blockmap`, `latest.yml`(updater **3.9.214**), `deploy/release-manifest.json`이다. manifest의 `version`, `source_revision`, `source_fingerprint`, `automated_checks_passed=true`, 실제 PE/호스트 검증과 파일 해시를 확인한다. 이전 .13 설치기는 자동 복구/해시 검사하여 보존한다. 격리 Windows에서 설치·시작·종료·PAPER 주문 모드와 기존 기록 보존을 확인한다. 고객 설정/실계좌 주문을 시험하지 않는다.
+
+**배포 명령:** 아래는 stable/latest를 실제로 게시한다. 이번 Mac 작업에서는 실행하지 않는다. 빌드한 동일 커밋을 원격에 먼저 올려야 출처 검증이 통과한다. 빌드 뒤 소스를 수정했다면 커밋·재빌드부터 다시 진행한다.
+
+```powershell
+Invoke-CandidateChecked { gh auth status --hostname github.com }
+Invoke-CandidateChecked { git push -u origin $handoff.branch }
+Invoke-CandidateChecked { powershell -ExecutionPolicy Bypass -File scripts/release_windows.ps1 }
+```
+
+게시 스크립트는 원격 커밋/태그·해시·설치기·blockmap·latest/manifest를 검증하고 stable/latest를 갱신한다. 이미 공개된 .14의 태그/설치기를 임의로 교체하지 않는다. 스크립트가 `SUCCESS`를 출력하고 공개 latest/list/Atom·업데이트 SHA512 대조가 통과해야 게시 완료다. 도중 실패하면 출력 원인을 확인하고 실패한 부분부터 대응하며 기존 태그를 강제로 옮기지 않는다.
+
+테스터는 로컬 .14 설치기 공유 또는 게시 후 설치본으로 키움·한국투자 PAPER와 24/72h를 검증한다. 이 검증을 위해 배포 전 72시간 대기할 필요는 없다. 실제 인수의 정상/실패/NOT_RUN 기준은 [DEPLOY_CHECKLIST의 .14 절](DEPLOY_CHECKLIST.md)을 따른다. 게시 스크립트는 남은 외부 인수를 `pending`으로 표시할 수 있으며 자동 완료로 바꾸지 않는다.
 
 ## 2026-10-12 — v3.9.2.13 Windows 빌드·stable/latest 게시
 
@@ -246,7 +310,7 @@ Windows/NSIS 아이콘은 추적된 루트 `icon.ico`, Mac 아이콘은 루트 `
 
 ## 2026-09-24 - v3.9.1.47 Strategy Repair and Reconciliation Diagnostics Patch (미배포 소스 후보)
 
-당시 소스 후보 v3.9.1.47 / updater 3.9.147 · 공개 v3.9.1.46. 전략 등록·기존 버전 보완 및 손익 대조 차단 안내 개선. 원문 실행값의 저장 단계 변형을 제거하고 미완성 초안 보관과 기존 버전의 원문 재분석/명시적 기본 AI 진입 전환을 제공합니다. 기존 성과는 새 버전에 승계하지 않습니다. 손익 확인 실패의 일반 409/워커 장애 안내를 구체화하고 복구 대상과 위험 검사 대상의 불일치를 보강하며 거래별 미확정 사유를 표시합니다. 미확정 손익 무시·자동 LIVE 재개는 제공하지 않습니다.
+당시 소스 후보 v3.9.1.47 / updater 3.9.214 · 공개 v3.9.1.46. 전략 등록·기존 버전 보완 및 손익 대조 차단 안내 개선. 원문 실행값의 저장 단계 변형을 제거하고 미완성 초안 보관과 기존 버전의 원문 재분석/명시적 기본 AI 진입 전환을 제공합니다. 기존 성과는 새 버전에 승계하지 않습니다. 손익 확인 실패의 일반 409/워커 장애 안내를 구체화하고 복구 대상과 위험 검사 대상의 불일치를 보강하며 거래별 미확정 사유를 표시합니다. 미확정 손익 무시·자동 LIVE 재개는 제공하지 않습니다.
 
 소스 검증: 전체 회귀 3,736 통과·9 제외·3 subtests 통과. 코인/증권 브라우저 신규 등록·명시적 기존 버전 전환·미완성 초안 보관 6경로 통과(실제 로컬 컴파일러/검증기, 저장 API fixture). 숫자 30.0/30 직렬화 차이의 오차단과 기존 고정 TP/SL 불러오기 충돌도 수정했습니다. Windows 설치본·실계좌·9월 24일 미대조 1건은 미검증입니다. 현재 data/Teayu-001이 없어 고객 사본 회귀 1개도 제외됐습니다. 설치기 빌드·게시를 하지 않았고, 미확정 손익의 조건부 LIVE 재개는 구현하지 않았습니다. 상세 범위는 TEST_STATUS와 최신 V39147 검증 원장을 따릅니다. 아래 이전 수치는 이력입니다.
 
@@ -367,13 +431,13 @@ powershell -ExecutionPolicy Bypass -File .\scripts\build_and_release_windows.ps1
 ```text
 deploy/web-engine/NoahAIEngine.exe                 x64
 deploy/web-engine/NoahAIKiwoomHost.exe             x86, PE 0x14c
-deploy/web-release/NoahAI-3.9.1.47-Setup.exe
-deploy/web-release/NoahAI-3.9.1.47-Setup.exe.blockmap
-deploy/web-release/latest.yml                      updater 3.9.147
+deploy/web-release/NoahAI-3.9.2.14-Setup.exe
+deploy/web-release/NoahAI-3.9.2.14-Setup.exe.blockmap
+deploy/web-release/latest.yml                      updater 3.9.214
 deploy/release-manifest.json
 ```
 
-빌드 전 `deploy/release-manifest.json`이 v3.9.1.43을 가리키는 것은 정상입니다. 이 파일은 공개 증거이며 Windows v44 빌드가 성공해 새 해시를 계산하기 전 문서 편집만으로 v44 값이나 가짜 해시를 넣지 않습니다. 빌드 스크립트가 새 산출물에서 v45 manifest를 생성한 뒤 설치기·blockmap·`latest.yml`과 함께 검증합니다.
+현재 .14 빌드 전 `deploy/release-manifest.json`이 공개 .13을 가리키는 것은 정상입니다. Windows 빌드 성공 전 공개 원본에 .14 값이나 가짜 해시를 넣지 않습니다. 복구 스크립트가 hash-pinned .13 원본을 준비하고 빌드 스크립트가 실제 .14 산출물에서 새 manifest를 생성해 설치기·blockmap·`latest.yml`과 함께 검증합니다. 아래 v3.9.1.x 항목들은 해당 버전 당시의 이력입니다.
 
 ### v3.9.1.45 추가 확인
 

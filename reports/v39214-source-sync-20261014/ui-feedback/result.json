@@ -1,0 +1,79 @@
+{
+  "passed": 6,
+  "checks": [
+    "companion PAPER help is immediate without server query",
+    "general assistant explains all OFF versus venue stop and new validation wallet sharing",
+    "usage guide is not offered as strategy and exposes owning venue destination",
+    "recovery destination uses readable themed button without full-width gray fallback",
+    "deep mode cannot turn this shipped help question into a provider dependency",
+    "no assistant network request, provider, reset, order, or browser error"
+  ],
+  "errors": [],
+  "requests": [
+    {
+      "ep": "/api/v1/platform",
+      "method": "GET",
+      "body": null
+    },
+    {
+      "ep": "/api/v1/session",
+      "method": "GET",
+      "body": null
+    },
+    {
+      "ep": "/api/v1/display-preferences",
+      "method": "GET",
+      "body": null
+    },
+    {
+      "ep": "/api/v1/alpha-arena",
+      "method": "GET",
+      "body": null
+    },
+    {
+      "ep": "/api/v1/features",
+      "method": "GET",
+      "body": null
+    },
+    {
+      "ep": "/api/v1/runtime/snapshot",
+      "method": "GET",
+      "body": null
+    },
+    {
+      "ep": "/api/v1/audit/export",
+      "method": "GET",
+      "body": null
+    },
+    {
+      "ep": "/api/v1/settings",
+      "method": "GET",
+      "body": null
+    },
+    {
+      "ep": "/api/v1/workspaces/blockchain/blockchain.logs",
+      "method": "GET",
+      "body": null
+    },
+    {
+      "ep": "/api/v1/companion/briefing",
+      "method": "GET",
+      "body": null
+    },
+    {
+      "ep": "/api/v1/settings",
+      "method": "GET",
+      "body": null
+    },
+    {
+      "ep": "/api/v1/assistant/status",
+      "method": "GET",
+      "body": null
+    },
+    {
+      "ep": "/api/v1/settings",
+      "method": "GET",
+      "body": null
+    }
+  ]
+}

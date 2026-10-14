@@ -1,0 +1,66 @@
+{
+  "status": "PASS",
+  "platform": "darwin",
+  "case_count": 5945,
+  "skipped_count": 11,
+  "skipped": [
+    {
+      "test": "tests.test_branding.test_real_non_noahai_executable_is_rejected",
+      "category": "windows_pe",
+      "reason": "Real Windows Python PE resource regression"
+    },
+    {
+      "test": "tests.test_stock_integration.TestLiveAPIIntegration.test_live_kiwoom_connect",
+      "category": "live_broker_opt_in",
+      "reason": "Live API 테스트: LIVE_STOCK_TEST=true 환경변수 필요"
+    },
+    {
+      "test": "tests.test_stock_integration.TestLiveAPIIntegration.test_live_kiwoom_get_balance",
+      "category": "live_broker_opt_in",
+      "reason": "Live API 테스트: LIVE_STOCK_TEST=true 환경변수 필요"
+    },
+    {
+      "test": "tests.test_stock_integration.TestLiveAPIIntegration.test_live_kiwoom_get_positions",
+      "category": "live_broker_opt_in",
+      "reason": "Live API 테스트: LIVE_STOCK_TEST=true 환경변수 필요"
+    },
+    {
+      "test": "tests.test_stock_integration.TestLiveAPIIntegration.test_live_kiwoom_get_stock_list",
+      "category": "live_broker_opt_in",
+      "reason": "Live API 테스트: LIVE_STOCK_TEST=true 환경변수 필요"
+    },
+    {
+      "test": "tests.test_stock_integration.TestLiveAPIIntegration.test_live_mirae_asset_connect",
+      "category": "live_broker_opt_in",
+      "reason": "Live API 테스트: LIVE_STOCK_TEST=true 환경변수 필요"
+    },
+    {
+      "test": "tests.test_stock_integration.TestLiveAPIIntegration.test_live_shinhan_connect",
+      "category": "live_broker_opt_in",
+      "reason": "Live API 테스트: LIVE_STOCK_TEST=true 환경변수 필요"
+    },
+    {
+      "test": "tests.test_tp_sl_validation.test_tp_sl_order_creation",
+      "category": "live_order_opt_in",
+      "reason": "requires explicit Binance integration-test opt-in"
+    },
+    {
+      "test": "tests.test_tp_sl_validation.test_place_futures_order_directly",
+      "category": "live_order_opt_in",
+      "reason": "requires explicit Binance integration-test opt-in"
+    },
+    {
+      "test": "tests.test_v39146_customer_write_recovery.test_customer_active_versions_and_missing_spot_holdings_readonly",
+      "category": "missing_historical_private_fixture",
+      "reason": "Private customer fixture is not distributed"
+    },
+    {
+      "test": "tests.test_v39147_customer_boundaries.test_customer_cached_cycle_proof_without_api_or_original_writes",
+      "category": "missing_historical_private_fixture",
+      "reason": "private read-only customer fixture absent"
+    }
+  ],
+  "errors": [],
+  "live_tests_enabled_by_auditor": false,
+  "scope": "Exclusion audit only; does not certify LIVE accounts, Windows installation or missing private fixtures"
+}

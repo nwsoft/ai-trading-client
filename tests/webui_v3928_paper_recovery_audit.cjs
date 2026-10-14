@@ -2,7 +2,8 @@
 const {chromium}=require(process.env.NOAHAI_QA_PLAYWRIGHT||'playwright');
 const fs=require('node:fs'),path=require('node:path'),assert=require('node:assert/strict');
 const root=path.resolve(__dirname,'..'),dist=path.join(root,'webui/dist');
-const reportDir=path.join(root,'reports/v3928/ui');
+const reportDir=path.resolve(process.env.NOAHAI_QA_OUTPUT || path.join(root,'reports/v3928/ui'));
+const productVersion=JSON.parse(fs.readFileSync(path.join(root,'webui/package.json'))).build.buildVersion;
 const crypto=['binance','upbit','bithumb','coinone','bybit','okx','bitget'],stock=['kiwoom','shinhan','mirae','kis'];
 const inventory=JSON.parse(fs.readFileSync(path.join(root,'config/web_ui_feature_inventory.json')));
 (async()=>{
@@ -32,7 +33,7 @@ const inventory=JSON.parse(fs.readFileSync(path.join(root,'config/web_ui_feature
    if(sessionAttempts===1)return route.fulfill({status:409,contentType:'application/json',body:JSON.stringify({detail:'paper_session_pending_orders'})});
    sessions.set(body.source,'fixture-new-session');payload={created:true,session_id:'fixture-new-session',orders_submitted:false,trading_started:false,historical_pnl_restored:false};
   }else if(ep.endsWith('/runtime/commands')){const body=route.request().postDataJSON();commands.push(body);assert.equal(body.command,'trading.recovery.cancel');cancelled.add(body.source);payload={status:'completed',result:{status:'cancelled_by_user',orders_submitted:false}};}
-  else if(ep.endsWith('/platform'))payload={release_version:'3.9.2.8',release_label:'v3.9.2.8 ISOLATED QA'};
+  else if(ep.endsWith('/platform'))payload={release_version:productVersion,release_label:`v${productVersion} ISOLATED QA`};
   else if(ep.endsWith('/session'))payload={authenticated:true,account:'trading-audit-fixture',user:{id:'fixture',user_grade:'premium'}};
   else if(ep.endsWith('/features'))payload=inventory;
   else if(ep.endsWith('/runtime/snapshot'))payload={status:'attached',enabled_sources:[...crypto,...stock],running_sources:['upbit','kiwoom'],selected_sources:{blockchain:'binance',stock:'kiwoom'},credential_status:Object.fromEntries([...crypto,...stock].map(s=>[s,true])),execution_modes:Object.fromEntries([...crypto,...stock].map(s=>[s,'paper'])),paper_trading:true};
@@ -52,7 +53,7 @@ const inventory=JSON.parse(fs.readFileSync(path.join(root,'config/web_ui_feature
  const capture=async name=>{await page.evaluate(()=>document.fonts.ready);await page.waitForTimeout(200);await page.screenshot({path:path.join(reportDir,name+'.png'),fullPage:true});};
  try{
   await page.goto('http://127.0.0.1:4209');
-  await page.getByText('· UI 3.9.2.8',{exact:true}).waitFor();mark('built UI product version matches 3.9.2.8');
+  await page.getByText(`· UI ${productVersion}`,{exact:true}).waitFor();mark(`built UI product version matches ${productVersion}`);
   for(const [service,label,count]of[['blockchain','블록체인',7],['stock','주식/증권',4]]){
    await page.getByRole('button',{name:label,exact:true}).click();
    await page.getByRole('button',{name:'거래 현황',exact:true}).click();

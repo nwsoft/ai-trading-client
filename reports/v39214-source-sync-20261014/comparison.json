@@ -1,0 +1,63 @@
+{
+  "public13": "33d351c0b606a619f16c00fc7b6e99aa10086dad",
+  "previous_candidate14": "12f871441bb7d11cb7ae1de8d59caf79eefb0276",
+  "files": [
+    {
+      "path": "trading/entry_diagnostics.py",
+      "original_sha256": "23ae2954e5e3558adf981968b7514bca9dc53fbc46575a63adbcd49963dbb8fa",
+      "public13_sha256": "977280fbb4561e8a520bf5217ed97879e77a733696c8007b548bc175a17fa80d",
+      "candidate14_sha256": "977280fbb4561e8a520bf5217ed97879e77a733696c8007b548bc175a17fa80d",
+      "candidate_matches_public13": true,
+      "original_mtime_kst": "2026-10-13T16:49:42+09:00"
+    },
+    {
+      "path": "webui/src/components/LegacyFeatureWorkspaces.tsx",
+      "original_sha256": "6ddb9f736895923f4078c2f944c57714faa83963f0759ac60b72cf5b9927a351",
+      "public13_sha256": "62db37f2fa7292694697e6e73de122c91747d52e8b287d032adf9d393b8bce7e",
+      "candidate14_sha256": "62db37f2fa7292694697e6e73de122c91747d52e8b287d032adf9d393b8bce7e",
+      "candidate_matches_public13": true,
+      "original_mtime_kst": "2026-10-13T15:27:13+09:00"
+    }
+  ],
+  "original_before_fingerprint": "aa47f1a35c4672307771f72b93c023dc9544efeef1b242758da49a2a16e76fe2",
+  "source_identity_claimed_fingerprint": "f37c4ea9cbaf3945f5ca40bf8f15c4af155dd4fc47a3d5529082337cdf3eb38f",
+  "missing_entry_activity": true,
+  "missing_diagnostic_codes": [
+    "aggregate_loss_cap_exceeded",
+    "available_capital_insufficient",
+    "available_capital_or_notional_unverified",
+    "available_capital_reserved_by_other_orders",
+    "duplicate_order_same_target_account_signal",
+    "dynamic_confidence_error",
+    "instrument_catalogue_unavailable",
+    "instrument_close_only",
+    "instrument_delisted",
+    "instrument_halted",
+    "instrument_not_listed",
+    "instrument_sell_disabled",
+    "instrument_unknown",
+    "instrument_wrong_product",
+    "max_parallel_targets_exceeded",
+    "order_spec_or_final_safety_blocked",
+    "paper_funds_reconciliation_required",
+    "pre_entry_error",
+    "previous_order_reconciliation_required",
+    "profitability_blocked",
+    "remote_entries_paused",
+    "reservation_capacity_reconciliation_required",
+    "target_not_authorized"
+  ],
+  "monitor_caller_incompatibility": "TypeError: source argument required; incompatible with existing @monitored_cycle() caller",
+  "original_only_functions": [],
+  "ui_difference": "Only newPaperSession callback removed from SourceWorkspace OperationSummary, disconnecting blockchain new PAPER evaluation action.",
+  "decision": "Merge original successful-return-only monitor semantics and three original untracked startup tests plus tests/__init__.py; retain public optional source contract, 23 diagnostics and entry_activity. Restore removed newPaperSession callback. Preserve all before bytes.",
+  "writer_or_sync_cause": "Unconfirmed: original is not a Git repository; file mtimes and byte differences do not identify actor or overwrite mechanism.",
+  "public_latest_checked": "v3.9.2.13 (GitHub API, 2026-10-14)",
+  "preserved_local_change": "Failed cycle exceptions propagate unchanged without incrementing returned_cycles; original tests prove this behavior was intentional/useful, while original monitor signature broke no-argument existing callers.",
+  "additional_untracked_original_files": [
+    "tests/test_entry_diagnostics_startup.py",
+    "tests/__init__.py",
+    "pytest.ini"
+  ],
+  "test_import_configuration": "Original pytest.ini sets pythonpath=. tests; together with tests/__init__.py this preserves both legacy from test_* and from tests.* imports. Fresh Git collection failed without this untracked setting. Preserved in candidate."
+}

@@ -1,0 +1,1 @@
+PASS: PowerShell instruction syntax. Parsing only; no Windows build or publication executed.

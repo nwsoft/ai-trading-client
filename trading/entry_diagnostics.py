@@ -90,10 +90,11 @@ def monitored_cycle(source=None):
             venue = source or (args[0] if args else kwargs.get('exchange_name', ''))
             epoch, mode = generation(owner, venue), mode_for(owner, venue)
             publish(owner, venue, 'cycle', mode=mode, phase='started', expected_generation=epoch)
-            try:
-                return function(owner, *args, **kwargs)
-            finally:
-                publish(owner, venue, 'cycle', mode=mode, phase='returned', expected_generation=epoch)
+            result = function(owner, *args, **kwargs)
+            # A failed cycle propagates its original exception and must not
+            # increase successful-return counters or claim normal completion.
+            publish(owner, venue, 'cycle', mode=mode, phase='returned', expected_generation=epoch)
+            return result
         return wrapped
     return decorate
 

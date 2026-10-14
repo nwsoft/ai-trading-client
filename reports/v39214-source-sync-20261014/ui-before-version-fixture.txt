@@ -1,0 +1,11 @@
+/Users/playone/SynologyDrive/Works/noahai_client/reports/v3928/ui
+locator.waitFor: Timeout 30000ms exceeded.
+Call log:
+[2m  - waiting for getByText('· UI 3.9.2.8', { exact: true }) to be visible[22m
+
+    at /Users/playone/SynologyDrive/Works/noahai_client/tests/webui_v3928_paper_recovery_audit.cjs:55:53 {
+  log: [
+    "  - waiting for getByText('· UI 3.9.2.8', { exact: true }) to be visible"
+  ],
+  name: 'TimeoutError'
+}

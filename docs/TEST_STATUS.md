@@ -4,6 +4,8 @@
 현재 공개 버전: **v3.9.2.13**
 현재 소스 후보: v3.9.2.14 · 현재 공개 기반: v3.9.2.13 · Stock Analysis History and Strategy Controls · updater 3.9.214 · renderer 3.9.2.14-ui.20261014.1.
 
+2026-10-14 원본 정합성 후속: 공개 .13과 다른 로컬 두 파일에서 무거래 함수/사유 23개·decorator 호출 계약과 새 PAPER 평가 callback 누락을 확인했다. 원본 실패를 재현한 뒤 기존 공개 구현을 복구하고 .14 후보 전체를 원본과 대조한다. 원본의 미추적 테스트 3개가 확인한 실패 주기 정상 완료 오집계 방지는 보존하고, 선택 source 호출 계약·23개 사유·무거래 관찰 함수는 공개 구현과 병합한다. 로컬 테스트·`tests/__init__.py`·`pytest.ini`의 기존/패키지형 import 호환 설정도 보존하며 변경 전 바이트는 백업한다. Git이 없는 원본의 작성 주체/덮어쓰기 경위는 미확정이다. 이전 동기화 철회 보고서는 당시 이력이다. 최신 소스·커밋·복원 bundle·검증 결과는 `reports/v39214-source-sync-20261014/handoff.json`과 [Windows 빌드 절차](BUILD_GUIDE.md)를 따른다. 제품 버전은 .14 유지, 공개판은 .13이며 실제 Windows 빌드·게시·실기관은 이번 작업에서 미실시다.
+
 공개 v3.9.2.13은 GitHub 최신판 `33d351c0b606a619f16c00fc7b6e99aa10086dad`이며 이번 .14는 별도 후속 후보다. .13에서 이미 제공하던 전략 승인/PAPER 시작·일시정지/이어가기·검증 후 적용/해제를 새 기능처럼 중복 구현하지 않는다. 최신 공개 소스에서 증권 일봉 연결 누락과 PAPER 청산 손익 필드 불일치를 재현해 수정했다. 키움의 전일가 입력 누락도 공식 OpenAPI+ 전일가 함수로 보완했다. 보류 기준·거래 임계값·7일 조건을 완화하지 않는다.
 
 증권 4기관(키움·한국투자·미래에셋·신한)의 실제 `get_daily_candles`를 기본 분석에 연결한다. 완료 일봉의 시간순·유한 양수 종가와 실제 최근 20봉 평균 거래량을 사용하고, 실패/부족은 `technical_history`로 표시한다. 증권 PAPER TP/SL은 최신 가격과 비용을 반영한 `net_pnl_percent`를 공통 청산 정책의 `pnl_rate`에 전달한다. 평가 실패는 `paper_exit_valuation_unavailable`로 보존한다. 실제 계정의 무거래 원인을 발견된 결함만으로 단정하지 않는다.
@@ -12,11 +14,25 @@
 
 적용된 전략의 기존 「적용 해제」를 「전략 적용 일시정지」로 명확히 안내하고 검증 버전의 재적용을 연결한다. 신규 진입 풀에서 그 전략만 제외하며 보유 포지션 청산계획·원장·검증 근거를 보존한다. 기본 AI·다른 전략은 계속 거래할 수 있다. 기관 전체 중지와 다르며 시간 지정 자동 만료/자동 재개는 미구현이다. 새 상태머신·LIVE 우회 권한은 만들지 않는다. 내장 어시스턴트에 7일/일시정지·증권 무거래 안내를 추가한다.
 
-[테스터 인수와 실행 기준](DEPLOY_CHECKLIST.md) · [검증 근거](../reports/v39214-stock-studio-20261014/validation.json). Windows .14 빌드·게시·실기관/OCX·고객 계정 복구·다른 배포 사용자의 반응은 확인되지 않았다. 고객이 키움·한국투자 모두 PAPER라고 확인했다(2026-10-14). 최근 진입 보류 문구는 전달 대기이며 개별 무거래 원인 확정·복구 확인은 아직 아니다. 아래 .13 이하 상태·수치는 해당 당시 이력이다.
+[테스터 인수와 실행 기준](DEPLOY_CHECKLIST.md) · [검증 근거](../reports/v39214-source-sync-20261014/validation.json). Windows .14 빌드·게시·실기관/OCX·고객 계정 복구·다른 배포 사용자의 반응은 확인되지 않았다. 고객이 키움·한국투자 모두 PAPER라고 확인했다(2026-10-14). 최근 진입 보류 문구는 전달 대기이며 개별 무거래 원인 확정·복구 확인은 아직 아니다. 아래 .13 이하 상태·수치는 해당 당시 이력이다.
 
 이번 실행: 공개 .13 커밋에서 증권 기본 분석의 일봉 누락을 재현하고, PAPER TP/SL 및 적용 일시정지 후 청산계획 보존을 시험했다. `tests/test_v39214_stock_studio.py`의 합성 테스트는 실제 브로커 주문/계정 인수가 아니다. 4기관 공통 분석 경로와 고객이 확인한 키움·한국투자 PAPER 각각의 가상 진입·TP/SL을 합성 응답으로 시험했다. 고객의 실제 보류 로그와 기관 연결은 미확인이므로 개별 원인은 미확정이다.
 
 최신 고객 확인 후 집중 검사: `.venv/bin/python -m pytest tests/test_v39214_stock_studio.py tests/test_kiwoom_backend_adapter.py tests/test_stock_analysis_service.py -q` → **110 passed / 3 subtests passed**. 키움 전일가 fallback 추가 전 회귀 7개 실패를 재현했고 수정 후 전체 40개 신규 검사가 통과했다. 모의 응답·가격이며 실제 기관 인증은 사용하지 않았다.
+
+원본 재검증(2026-10-14): 원본에서 `entry_activity` import 실패를 먼저 재현했다. 이후 원본에만 있던 startup 테스트 3개가 공개 구현의 실패 주기 완료 오집계 1개를 재현해, 원본의 유효 수정을 선택 source 호출/세션 세대 경계와 통합했다. 최종 원본 전체 **5,934 passed / 11 skipped / 2 warnings / 3 subtests passed**, 집중 **110**, Node **77**, 빌드/감사/정합성 PASS. 최신 QA의 .8 고정 버전 fixture를 현재 product version으로 교정한 후 PAPER 복구 화면 **43** 및 도움말 **6**을 재실행해 통과했다. UI 실패는 제품 버전 오류가 아니라 오래된 시험 기대값이었으며 실패 로그도 보존한다. 실제 Windows·OCX·기관 PAPER·장시간 운용·게시 검사는 미실시다. 최신 정본: `reports/v39214-source-sync-20261014/validation.json`.
+
+```sh
+# cwd: 원본 noahai_client (Git 복원 검사는 별도 깨끗한 복원본)
+.venv/bin/python -m pytest tests/test_entry_activity_followup.py tests/test_entry_diagnostics_startup.py tests/test_v39212_feedback.py tests/test_teayu_entry_diagnostics.py tests/test_v39214_stock_studio.py -q
+.venv/bin/python -m pytest tests -q -rs --junitxml=reports/v39214-source-sync-20261014/full.xml
+.venv/bin/python scripts/audit_release_test_skips.py reports/v39214-source-sync-20261014/full.xml reports/v39214-source-sync-20261014/skips.json
+node --test tests/*.test.cjs
+npm --prefix webui run build
+npm --prefix webui audit --audit-level=high
+NOAHAI_QA_PLAYWRIGHT=/tmp/noah-feedback-ui-qa/node_modules/playwright NOAHAI_QA_OUTPUT=reports/v39214-source-sync-20261014/ui-paper-recovery node tests/webui_v3928_paper_recovery_audit.cjs
+NOAHAI_QA_PLAYWRIGHT=/tmp/noah-feedback-ui-qa/node_modules/playwright NOAHAI_QA_OUTPUT=reports/v39214-source-sync-20261014/ui-feedback node tests/webui_v39212_feedback.cjs
+```
 
 실행 명령:
 
@@ -34,11 +50,11 @@ npm --prefix webui audit --audit-level=high
 .venv/bin/python scripts/restore_previous_release_asset.py
 ```
 
-화면: Vite 개발 QA fixture에서 초보/일반/고급 × 코인/증권의 적용 일시정지·재적용·즉시 PAPER 시작·모의 운용 일시정지 24개를 실행했다. 별도로 현재 production React bundle의 금융비서 25개·서비스 이동 77개·기존 PAPER 안내 6개를 실행했다. 합성 UI와 실제 Windows/기관 인수를 구분한다. 안내 문구 추가 뒤 새 빌드·집중 회귀/화면 검사를 다시 실행했다. [기계 판독 결과](../reports/v39214-stock-studio-20261014/validation.json).
+화면: Vite 개발 QA fixture에서 초보/일반/고급 × 코인/증권의 적용 일시정지·재적용·즉시 PAPER 시작·모의 운용 일시정지 24개를 실행했다. 별도로 현재 production React bundle의 금융비서 25개·서비스 이동 77개·기존 PAPER 안내 6개를 실행했다. 합성 UI와 실제 Windows/기관 인수를 구분한다. 안내 문구 추가 뒤 새 빌드·집중 회귀/화면 검사를 다시 실행했다. [기계 판독 결과](../reports/v39214-source-sync-20261014/validation.json).
 
 제외 11개는 Windows PE 1개, 실제 증권 연결 opt-in 6개, 실제 Binance 주문 opt-in 2개, 미배포 고객 과거 fixture 2개다. 제외를 없애려고 실주문을 켜거나 고객 원자료를 복사하지 않는다. Windows/실기관/OCX·장중 PAPER·설치/업데이트/롤백·24/72h는 NOT_RUN이며 실제 통과로 승계하지 않는다.
 
-최종 검증: Python **5,931 passed / 11 skipped / 2 warnings / 3 subtests passed**, 신규 집중 40개, Node 77개, 실제 React 합성 화면 132개(전략 24·금융비서 25·이동 77·기존 PAPER 안내 6), TypeScript/Vite·문서/source/parity/bundle-spec·npm 감사(취약점 0) PASS. 고객 모드는 키움·한국투자 PAPER로 확인됐고 실제 기관·Windows·고객 복구는 미확인이다. [근거](../reports/v39214-stock-studio-20261014/validation.json).
+최종 검증: Python **5,934 passed / 11 skipped / 2 warnings / 3 subtests passed**, 기존 .14 신규 집중 40개 및 원본의 후속 테스트 3개 보존, 이번 원본 집중 110개·Node 77개·실제 React 합성 화면 49개(복구 43·도움말 6), TypeScript/Vite·문서/source/parity/bundle-spec·npm 감사(취약점 0) PASS. 앞선 .14 화면 132개 검증은 이전 실행 이력이다. 고객 모드는 키움·한국투자 PAPER로 확인됐고 실제 기관·Windows·고객 복구는 미확인이다. [근거](../reports/v39214-source-sync-20261014/validation.json).
 
 ## 2026-10-12 — v3.9.2.13 배포 인수 상태 정합성 (소스 후보)
 
