@@ -3603,10 +3603,14 @@ html[lang="en"] button { white-space: normal; overflow-wrap: break-word; }
 
 .strategy-paper-trial { margin:12px 0; padding:14px; border:1px solid #38516c; border-radius:10px; background:#101e30; color:#dce8f4; }
 .strategy-paper-trial > label { display:flex; flex-wrap:wrap; align-items:center; gap:12px; font-weight:700; }
-.strategy-paper-trial select { width:110px; min-height:36px; }
+.strategy-paper-trial select { width:min(100%,280px); min-height:36px; }
 .strategy-paper-trial p, .strategy-paper-trial small { line-height:1.6; color:#c0d1e2; }
 .strategy-paper-clocks { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:12px; margin:12px 0; }
 .strategy-paper-clocks > div { display:flex; flex-direction:column; gap:6px; overflow-wrap:anywhere; }
 .strategy-paper-trial .strategy-paper-goal { padding:10px; border-left:3px solid #77d9f3; background:#17334b; color:#e1f5fc; }
 .strategy-paper-promotion { display:flex; flex-direction:column; gap:6px; padding:12px; border-top:1px solid #38516c; }
 @media(max-width:800px) { .strategy-paper-clocks { grid-template-columns:1fr; } }
+
+.strategy-paper-period-help { margin-top:12px; padding:12px; border:1px solid #38516c; border-radius:8px; }
+.strategy-paper-period-help p { margin:8px 0; }
+.strategy-paper-market-guide { border-left:3px solid #4fc3e7; padding-left:10px; }

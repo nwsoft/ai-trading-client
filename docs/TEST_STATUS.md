@@ -2,9 +2,13 @@
 
 현재 소스 후보 버전: **v3.9.2.14**
 현재 공개 버전: **v3.9.2.13**
-현재 소스 후보: v3.9.2.14 · 현재 공개 기반: v3.9.2.13 · Stock Analysis History and Strategy Controls · updater 3.9.214 · renderer 3.9.2.14-ui.20261014.2.
+현재 소스 후보: v3.9.2.14 · 현재 공개 기반: v3.9.2.13 · Stock Analysis History and Strategy Controls · updater 3.9.214 · renderer 3.9.2.14-ui.20261014.3.
 
-이번 PAPER 기간 선택 후속은 아래 이전 정합성 검증과 구분한다. Git 전체 회귀는 **5,967 passed / 11 skipped / 2 warnings / 3 subtests passed**다. 새 실패/복구 검사 33개, Node 77개, React 화면 79개(기간 선택·시간·적용 30 + 기존 복구 43 + 도움말 6), TypeScript/Vite 빌드, npm 감사(취약점 0), 문서/source/parity/bundle-spec, PowerShell 명령 AST 검사가 통과했다. 원본 전체 재검증·최종 커밋·복원 bundle은 같은 report 폴더의 `validation.json`과 `handoff.json`을 정본으로 한다. AST 검사는 Windows 실행 증거가 아니다.
+PAPER 기간 안내 후속(2026-10-14): 화면을 「PAPER 결과 점검 시점」으로 안내하고, 거래를 차단하는 날짜 제한이 아님을 설명한다. 1일은 빠른 작동 점검, 3일은 반복 평가 확인, 7일은 여러 날 관찰 용도이며 기본 7일이 필수/최적 기간이라는 뜻은 아니다. 코인은 통상 주말에도 거래되지만 연결·신호가 없으면 표본이 생기지 않는다. 국내 주식·ETF는 장 운영시간/휴장일의 영향을 받으며 달력 3일을 3거래일로 표시하지 않는다. 해당 검증을 일시정지 → 기간 선택 → 이어가기로 목표를 바꾸고 기존 표본·실측 근거를 보존한다. 기간 도달 뒤 검증 계속/최종 적용 별도 기준은 유지한다. 시장별 거래일 수나 기관 가동시간을 새로 계산한 기능은 아니다.
+
+시장별 기간 안내 추가 검증: 이번 후속은 UI·내장 도움말·매뉴얼의 설명과 renderer 식별을 변경했다. 집중 Python **133 passed**, Node **77 passed**, 코인/주식 × 초보/일반/고급 × 1/3/7일 목적 안내·목표 변경/표본 보존 등 브라우저 **54개**와 TypeScript/Vite·문서 정합성 검사가 통과했다. 전체 Python 5,967개 결과는 직전 `e1c6357`의 증거이며 이번 후속 전체 재실행 결과로 표기하지 않는다. 최신 증거: `reports/v39214-paper-guidance-20261014/validation.json`. Windows/기관 검증은 미실시다.
+
+이전 `e1c6357`의 PAPER 기간 선택 구현 검사는 아래 정합성 검증과 구분한다. 해당 커밋의 Git 전체 회귀는 **5,967 passed / 11 skipped / 2 warnings / 3 subtests passed**다. 새 실패/복구 검사 33개, Node 77개, React 화면 79개(기간 선택·시간·적용 30 + 기존 복구 43 + 도움말 6), TypeScript/Vite 빌드, npm 감사(취약점 0), 문서/source/parity/bundle-spec, PowerShell 명령 AST 검사가 통과했다. 원본 전체 재검증·최종 커밋·복원 bundle은 같은 report 폴더의 `validation.json`과 `handoff.json`을 정본으로 한다. AST 검사는 Windows 실행 증거가 아니다.
 
 ```sh
 # cwd: noahai-v39212-post-release-20261012, Python .venv / Node 22.23.1

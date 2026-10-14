@@ -2,7 +2,7 @@
 
 현재 소스 후보 버전: **v3.9.2.14**
 현재 공개 버전: **v3.9.2.13**
-현재 소스 후보: v3.9.2.14 · 현재 공개 기반: v3.9.2.13 · Stock Analysis History and Strategy Controls · updater 3.9.214 · renderer 3.9.2.14-ui.20261014.2.
+현재 소스 후보: v3.9.2.14 · 현재 공개 기반: v3.9.2.13 · Stock Analysis History and Strategy Controls · updater 3.9.214 · renderer 3.9.2.14-ui.20261014.3.
 
 공개 v3.9.2.13은 GitHub 최신판 `33d351c0b606a619f16c00fc7b6e99aa10086dad`이며 이번 .14는 별도 후속 후보다. .13에서 이미 제공하던 전략 승인/PAPER 시작·일시정지/이어가기·검증 후 적용/해제를 새 기능처럼 중복 구현하지 않는다. 최신 공개 소스에서 증권 일봉 연결 누락과 PAPER 청산 손익 필드 불일치를 재현해 수정했다. 키움의 전일가 입력 누락도 공식 OpenAPI+ 전일가 함수로 보완했다. 기존 거래 임계값과 주문 전 위험 검사는 유지한다. 이번 후속에서 PAPER 관찰 목표와 최종 적용 조건을 분리한다.
 
@@ -21,6 +21,8 @@ PAPER 시험 기간은 1·3·7일 중 선택하는 관찰 목표다(기본 7일)
 원본 폴더의 제품 소스·릴리스 입력은 검증한 .14 Git 작업트리와 같게 동기화한다. 고객 설정·원장·키·공개 .13 설치기/manifest는 복사 대상으로 삼지 않는다. 원본은 Git 저장소가 아니므로 **Windows 공식 빌드·게시에는 아래의 깨끗한 Git 복원본을 사용한다.** 원본의 `.venv`, `node_modules`, `dist`, `deploy/release-manifest.json`을 새 빌드 폴더로 가져오지 않는다. .13 manifest 원본은 저장소의 hash-pinned archive와 복구 스크립트로 준비한다.
 
 ### 3.9.2.14 Windows에서 사용할 소스와 명령
+
+시장별 기간 안내(renderer `3.9.2.14-ui.20261014.3`)를 포함하도록 같은 인계 경로의 bundle과 handoff를 갱신한다. `e1c6357`에서 받은 이전 bundle과 hash를 섞지 않고 최신 `handoff.json`에 적힌 커밋·해시를 따른다. 이번 UI/도움말 후속 검증은 `reports/v39214-paper-guidance-20261014/validation.json`, 직전 전체 회귀 결과는 이전 기간 선택 보고서로 구분한다.
 
 전달 자료는 동기화 폴더의 `reports/v39214-paper-trial-20261014/` 안에 있는 **`handoff.json`과 `v39214-paper-trial.bundle`**이다. 앞선 candidate/reconciled bundle은 이전 이력이다. 이번 PAPER 기간 선택 후속을 포함한 paper-trial bundle을 사용한다. 아래 `$handoffPath`만 해당 Windows PC의 실제 파일 경로로 바꾼다. PowerShell 5.1 호환 명령이며 네이티브 명령 실패 때 즉시 중단한다. `C:\NoahAI\client-v39214`는 새 폴더여야 한다. 기존 저장소를 reset/clean하지 않는다.
 

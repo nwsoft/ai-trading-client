@@ -101,10 +101,11 @@ def test_diagnosis_explains_score_and_history_without_claiming_data_wait():
 
 def test_offline_support_answers_the_feedback_questions():
     from config.assistant_support_knowledge import support_topic
-    for q in ['전략 7일 기다림은 왜 있나요?', '검증된 전략 일시 적용 일시 정지가 가능한가요?']:
+    for q in ['전략 7일 기다림은 왜 있나요?', '검증된 전략 일시 적용 일시 정지가 가능한가요?', '코인과 주식 날짜 제한은 왜 있나요?']:
         answer=support_topic(q)
         assert answer and answer.key=='studio_wait_pause'
         assert '최소 3건' in answer.ko and '기관 거래 정지' in answer.ko
+        assert '3거래일' in answer.ko and '결과 점검 시점' in answer.ko
     assert support_topic('증권사 거래가 안 이루어져요').key=='stock_no_trade'
 
 

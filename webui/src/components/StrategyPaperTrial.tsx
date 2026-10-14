@@ -14,8 +14,8 @@ function localTime(value?: string | null) {
   return `${new Date(value).toLocaleString('ko-KR')} (${Intl.DateTimeFormat().resolvedOptions().timeZone})`;
 }
 
-export function StrategyPaperTrial({version, days, disabled, onChange}: {
-  version: StrategyVersion; days: number; disabled: boolean; onChange: (days: number) => void;
+export function StrategyPaperTrial({version, days, disabled, onChange, market}: {
+  version: StrategyVersion; days: number; disabled: boolean; onChange: (days: number) => void; market: 'stock' | 'crypto';
 }) {
   const progress = version.paper_progress;
   const runtime = progress?.runtime;
@@ -25,12 +25,18 @@ export function StrategyPaperTrial({version, days, disabled, onChange}: {
   const passed = promotion?.ready ?? Boolean(version.paper_validation?.passed);
   const observing = version.paper_observing || version.status === 'paper_observing';
   return <section className="strategy-paper-trial" aria-label={`${version.name} PAPER 시험 안내`}>
-    <label>PAPER 시험 기간 · 관찰 목표
-      <select aria-label={`${version.name} v${version.version} PAPER 시험 기간`} value={days}
+    <label>PAPER 결과 점검 시점 · 관찰 목표
+      <select aria-label={`${version.name} v${version.version} PAPER 결과 점검 시점 (PAPER 시험 기간 · 관찰 목표)`} value={days}
         disabled={disabled || version.active || observing} onChange={event => onChange(Number(event.target.value))}>
-        {[1, 3, 7].map(day => <option key={day} value={day}>{day}일</option>)}
+        {[1, 3, 7].map(day => <option key={day} value={day}>{day}일 · {day === 1 ? '빠른 작동 점검' : day === 3 ? '반복 평가 확인' : '여러 날 관찰'}</option>)}
       </select>
     </label>
+    <div className="strategy-paper-period-help">
+      <strong>왜 기간을 정하나요?</strong>
+      <p>거래 수·비용·위험 근거를 다시 확인할 시점을 정합니다. 거래를 막거나 자동 종료하는 날짜 제한이 아닙니다. 7일은 기본 선택값이며 모든 전략에 필요한 필수 기간은 아닙니다.</p>
+      <p><strong>선택한 {days}일의 용도:</strong> {days === 1 ? '연결과 규칙이 작동하는지 빠르게 점검합니다. 성능 판단에는 표본이 부족할 수 있습니다.' : days === 3 ? '여러 차례의 평가 흐름을 확인합니다. 신호가 적거나 주식 휴장일이 겹치면 관찰을 이어가세요.' : '여러 날의 결과를 모아 검토합니다. 7일이 지나도 거래 표본이나 위험 근거가 부족하면 최종 적용은 대기합니다.'}</p>
+      <p className="strategy-paper-market-guide"><strong>{market === 'stock' ? '주식·ETF에서 확인할 점' : '코인에서 확인할 점'}</strong><br />{market === 'stock' ? '현재 기간은 달력일 기준입니다. 주말·휴장일이 포함된 3일은 3거래일이 아닙니다. 장이 열리고 기관 연결·시세 수신이 정상이어야 평가 기회가 생깁니다. 휴장 중 목표에 도달해도 거래 표본이 없으면 적용할 수 없습니다.' : '코인은 통상 주말에도 24시간 거래되지만, 거래소 점검·연결 끊김·앱 종료 중에는 평가하지 못할 수 있습니다. 정상 연결에서도 진입 조건이 맞지 않으면 거래가 없을 수 있으므로 날짜와 실제 평가·청산 표본을 함께 확인하세요.'}</p>
+    </div>
     <p>시작·재개할 때 선택한 기간을 저장합니다. 목표에 도달하면 알려드리고 검증은 계속합니다. 일시정지는 직접 선택하세요. 기간을 바꾸려면 먼저 일시정지하세요.</p>
     <div className="strategy-paper-clocks">
       <div><strong>등록 후 경과</strong><span>{version.paper_observation_started_at ? trialDuration(progress?.permission_elapsed_seconds) : '시작 전'}</span><small>일시정지 제외 · 앱 종료 시간 포함</small></div>
