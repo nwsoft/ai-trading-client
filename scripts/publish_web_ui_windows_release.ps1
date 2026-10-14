@@ -45,7 +45,7 @@ function Assert-RemoteDigest([string]$Tag, [string]$Path) {
 function Assert-ParityLedgerComplete([string]$Root) {
     $ledgerPath = Join-Path $Root "docs\WEB_UI_1_TO_1_PARITY_EXECUTION_PLAN_v3.9.1.0.md"
     if (-not (Test-Path -LiteralPath $ledgerPath)) { throw "1:1 parity ledger missing: $ledgerPath" }
-    $ledger = Get-Content -LiteralPath $ledgerPath -Raw
+    $ledger = Get-Content -LiteralPath $ledgerPath -Raw -Encoding UTF8
     if ($ledger -match '\[ \] OPEN' -or $ledger -match '\[~\] (SOURCE|MAC)') {
         throw "1:1 parity ledger is incomplete. Every required row must be [x] VERIFIED before release publishing."
     }
@@ -61,7 +61,7 @@ function Get-PatchPlanPath([string]$Root, [string]$Version) {
     # Keep the current runbook in the canonical document, not one duplicated MD per patch.
     $canonical = Join-Path $Root "docs\DEPLOY_CHECKLIST.md"
     if (Test-Path -LiteralPath $canonical) {
-        $body = Get-Content -LiteralPath $canonical -Raw
+        $body = Get-Content -LiteralPath $canonical -Raw -Encoding UTF8
         if ($body.Contains("<!-- patch-test-plan-version: $Version -->")) { return $canonical }
     }
     $parts = $Version.Split(".")
@@ -77,7 +77,7 @@ function Get-PatchPlanPath([string]$Root, [string]$Version) {
 function Get-PatchPlanStatus([string]$Root, [string]$Version) {
     $planPath = Get-PatchPlanPath $Root $Version
     if (-not $planPath) { throw "v$Version patch test plan missing: docs\V*_TEST_PLAN.md" }
-    $plan = Get-Content -LiteralPath $planPath -Raw
+    $plan = Get-Content -LiteralPath $planPath -Raw -Encoding UTF8
     $marker = "<!-- patch-test-plan-version: $Version -->"
     if ($plan.Contains($marker)) {
         $start = $plan.IndexOf($marker) + $marker.Length
@@ -115,7 +115,7 @@ try {
         Write-Host "[WEB_UI_RELEASE] external_validation=pending count=$($planStatus.pending_count) plan=$($planStatus.plan)"
     }
     $manifestPath = Join-Path $repoRoot "deploy\release-manifest.json"
-    $manifest = Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json
+    $manifest = Get-Content -LiteralPath $manifestPath -Raw -Encoding UTF8 | ConvertFrom-Json
     if ($manifest.version -ne $version) { throw "Manifest version mismatch" }
     if ($manifest.automated_checks_passed -ne $true) { throw "Official publication requires a fresh build without skipped tests/engine/host." }
     $currentFingerprint = Get-ReleaseSourceFingerprint $repoRoot
@@ -153,7 +153,7 @@ try {
     if (-not $latestVersionMatch.Success -or $latestVersionMatch.Groups[1].Value -ne $manifest.update_contract.updater_semver) {
         throw "latest.yml updater version mismatch"
     }
-    $releaseNotes = Get-Content -LiteralPath (Join-Path $repoRoot "deploy\release_notes.md") -Raw
+    $releaseNotes = Get-Content -LiteralPath (Join-Path $repoRoot "deploy\release_notes.md") -Raw -Encoding UTF8
     if ($releaseNotes -notmatch [regex]::Escape("v$version")) {
         throw "Release notes do not describe v$version"
     }

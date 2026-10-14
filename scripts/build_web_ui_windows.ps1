@@ -58,7 +58,7 @@ function Repair-ExistingManifestPreviousAsset([string]$Root, [string]$Version) {
     $manifestPath = Join-Path $Root "deploy\release-manifest.json"
     if (-not (Test-Path -LiteralPath $manifestPath)) { return }
 
-    $manifest = Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json
+    $manifest = Get-Content -LiteralPath $manifestPath -Raw -Encoding UTF8 | ConvertFrom-Json
     if (-not $manifest.previous_published_asset -or -not $manifest.assets -or -not $manifest.assets.installer) { return }
     if ([version]$manifest.version -ge [version]$Version) { return }
 
@@ -120,7 +120,7 @@ function Clear-ElectronBuildStaging([string]$Root) {
 function Get-ExistingManifest([string]$Root) {
     $manifestPath = Join-Path $Root "deploy\release-manifest.json"
     if (-not (Test-Path -LiteralPath $manifestPath)) { return $null }
-    return Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json
+    return Get-Content -LiteralPath $manifestPath -Raw -Encoding UTF8 | ConvertFrom-Json
 }
 
 function Get-PreviousPublishedAsset([string]$Root, [string]$Version, $ExistingManifest) {
@@ -363,7 +363,7 @@ try {
     if (-not $installer) { throw "NSIS installer was not produced" }
     $brandingReport = Join-Path $repoRoot "deploy\branding-verification.json"
     Invoke-Checked "Verify actual application and installer NoahAI icon resources" { & python scripts/verify_branding.py --root $repoRoot --exe "webui\release\win-unpacked\NoahAI.exe" --exe $installer.FullName --output $brandingReport }
-    $brandingVerification = Get-Content -LiteralPath $brandingReport -Raw | ConvertFrom-Json
+    $brandingVerification = Get-Content -LiteralPath $brandingReport -Raw -Encoding UTF8 | ConvertFrom-Json
     $latestYml = Join-Path $repoRoot "webui\release\latest.yml"
     if (-not (Test-Path -LiteralPath $latestYml)) { throw "electron-updater latest.yml was not produced" }
     $latestText = Get-Content -LiteralPath $latestYml -Raw
