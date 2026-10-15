@@ -4065,6 +4065,7 @@ class ApplicationServices:
             }
 
     def strategy_catalog(self) -> dict[str, Any]:
+        from trading.strategy_scope import strategy_runtime_support
         live_performance = self.queries.strategy_live_performance()
         paper_outcomes = read_paper_strategy_outcomes(
             path=self.data_dir / "strategy_paper_outcomes.jsonl"
@@ -4133,6 +4134,7 @@ class ApplicationServices:
                                           "unverified_trades": len(version_all_rows) - len(version_rows), "unknown_risk_records": unknown_risk},
                             "observing": bool(observing),
                         },
+                        "runtime_support": strategy_runtime_support(version.get("rules") or {}),
                         "live_performance": {'status':live_performance['status'], 'groups':live_performance['versions'].get((strategy_key,str(version.get('version_id'))),[])},
                         "paper_evidence_by_venue": self._strategy_paper_evidence_by_venue(
                             version_all_rows

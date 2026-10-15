@@ -3810,48 +3810,6 @@ class StockAnalysisService:
                 })
                 continue
 
-            # 고급 커스텀은 사용자 전략 원형이 주 전략이다. NoahAI 전체
-            # 수익성·합의 임계값은 기본/일반 후보에만 적용한다.
-            if candidate.requires_noah_strategy_policy and profitability_blocked:
-                decisions.append({
-                    'symbol': symbol,
-                    'action': 'SKIP',
-                    'reason': 'profitability_blocked',
-                    'profitability_report': profitability_report,
-                    'trade_candidate': candidate.to_dict(),
-                    'analysis_type': analysis.get('analysis_type'),
-                    'score_model': analysis.get('score_model'),
-                    'analysis_reasoning': analysis.get('reasoning', ''),
-                })
-                continue
-
-            if candidate.requires_noah_strategy_policy:
-                strategy_allowed, strategy_meta = strategy_engine.should_trade(
-                    symbol=symbol,
-                    analysis_result=analysis,
-                    runtime_state=strategy_runtime_state,
-                    policy=effective_strategy_policy,
-                )
-                if not strategy_allowed:
-                    decisions.append({
-                        'symbol': symbol,
-                        'action': 'SKIP',
-                        'reason': 'strategy_blocked',
-                        'strategy_reasons': list(strategy_meta.get('reasons') or []),
-                        'strategy_regime': strategy_meta.get('regime'),
-                        'strategy_candidate_regime': strategy_meta.get('candidate_regime'),
-                        'strategy_regime_confidence': strategy_meta.get('regime_confidence'),
-                        'strategy_regime_observed_at': strategy_meta.get('regime_observed_at'),
-                        'strategy_regime_transition_pending': strategy_meta.get(
-                            'regime_transition_pending'
-                        ),
-                        'strategy_consensus': strategy_meta.get('consensus'),
-                        'trade_candidate': candidate.to_dict(),
-                        'analysis_type': analysis.get('analysis_type'),
-                        'score_model': analysis.get('score_model'),
-                        'analysis_reasoning': analysis.get('reasoning', ''),
-                    })
-                    continue
             if signal == 'HOLD':
                 hold_reason = (
                     'custom_strategy_not_matched'
@@ -3933,6 +3891,49 @@ class StockAnalysisService:
                 )
                 continue
 
+            # 고급 커스텀은 사용자 전략 원형이 주 전략이다. NoahAI 전체
+            # 수익성·합의 임계값은 기본/일반 후보에만 적용한다.
+            if candidate.requires_noah_strategy_policy and profitability_blocked:
+                decisions.append({
+                    'symbol': symbol,
+                    'action': 'SKIP',
+                    'reason': 'profitability_blocked',
+                    'profitability_report': profitability_report,
+                    'trade_candidate': candidate.to_dict(),
+                    'analysis_type': analysis.get('analysis_type'),
+                    'score_model': analysis.get('score_model'),
+                    'analysis_reasoning': analysis.get('reasoning', ''),
+                })
+                continue
+
+            if candidate.requires_noah_strategy_policy:
+                strategy_allowed, strategy_meta = strategy_engine.should_trade(
+                    symbol=symbol,
+                    analysis_result=analysis,
+                    runtime_state=strategy_runtime_state,
+                    policy=effective_strategy_policy,
+                    signal_direction=signal,
+                )
+                if not strategy_allowed:
+                    decisions.append({
+                        'symbol': symbol,
+                        'action': 'SKIP',
+                        'reason': 'strategy_blocked',
+                        'strategy_reasons': list(strategy_meta.get('reasons') or []),
+                        'strategy_regime': strategy_meta.get('regime'),
+                        'strategy_candidate_regime': strategy_meta.get('candidate_regime'),
+                        'strategy_regime_confidence': strategy_meta.get('regime_confidence'),
+                        'strategy_regime_observed_at': strategy_meta.get('regime_observed_at'),
+                        'strategy_regime_transition_pending': strategy_meta.get(
+                            'regime_transition_pending'
+                        ),
+                        'strategy_consensus': strategy_meta.get('consensus'),
+                        'trade_candidate': candidate.to_dict(),
+                        'analysis_type': analysis.get('analysis_type'),
+                        'score_model': analysis.get('score_model'),
+                        'analysis_reasoning': analysis.get('reasoning', ''),
+                    })
+                    continue
             governance_check = {'allowed': True, 'reasons': [], 'metrics': {}}
             if isinstance(auto_risk_policy, dict) and bool(auto_risk_policy.get('risk_governance_enabled', False)):
                 governance_check = evaluate_stock_risk_governance(
@@ -4619,6 +4620,7 @@ class StockAnalysisService:
             decisions.append({
                 'symbol': symbol,
                 'action': signal,
+                'reason': 'order_accepted' if success else 'order_response_unconfirmed',
                 'score': analysis.get('score'),
                 'momentum': analysis.get('momentum'),
                 'analysis_type': analysis.get('analysis_type'),

@@ -81,3 +81,16 @@ def paper_pool_status(strategies, *, asset_class, target):
             'selection': 'priority_then_registration', 'independent_portfolios': False,
             'waiting_versions': [str(v.get('version_id') or v.get('id') or '')[:120]
                                  for v in observing if v not in chosen][:30]}
+
+
+def strategy_runtime_support(rules):
+    """Explain existing venue data support without granting or revoking execution."""
+    from trading.exchanges.venue_capabilities import STOCK_VENUES
+    scope = str(rules.get('target_scope') or 'asset:crypto')
+    brokers = [v for v in sorted(STOCK_VENUES) if scope_matches(scope, asset_class='stock', target=v)]
+    timeframe = str(rules.get('decision_timeframe') or '15m')
+    unsupported = bool(brokers and timeframe != '1d')
+    return {'status':'stock_timeframe_unsupported' if unsupported else 'scope_supported_data_required',
+            'timeframe':timeframe,'affected_brokers':brokers if unsupported else [],
+            'message':f'증권 {timeframe} 전략은 현재 분봉 공급이 연결되지 않아 평가할 수 없습니다. 일봉으로 자동 대체하지 않습니다. 원문을 검토하여 별도 일봉 버전을 만들거나 분봉 연동 후 다시 검증하세요. 기존 버전·기록은 보존됩니다.' if unsupported else '',
+            'grants_execution':False}

@@ -1,7 +1,7 @@
 ## 2026-10-15 — v3.9.2.15 사용자 피드백 수정 (소스 후보)
 
 현재 소스 후보 버전: **v3.9.2.15** · 현재 공개 버전: **v3.9.2.14**
-현재 소스 후보: v3.9.2.15 · 현재 공개 기반: v3.9.2.14 · updater 3.9.215 · renderer 3.9.2.15-ui.20261015.1.
+현재 소스 후보: v3.9.2.15 · 현재 공개 기반: v3.9.2.14 · updater 3.9.215 · renderer 3.9.2.15-ui.20261015.2.
 
 공개 .14의 `d8e698f5dd181ec5effffb045c5f51e999a4a72b`를 기준으로 수정한다. 공개 설치기·manifest는 덮어쓰지 않으며 아래 .14 이하 내용은 당시 이력이다. 이번 변경은 새 .15 후보이며 Windows 설치·실기관/OCX·24/72h·푸시·게시·운영 배포 완료를 의미하지 않는다.
 
@@ -20,11 +20,24 @@ TXT/Pine은 파일당 1MB·최대 10개를 순차 분석하고 파일별 이름�
 
 검증 정본은 `reports/v39215-feedback-20261015/validation.json`, Windows 소스는 같은 폴더의 `handoff.json`·`v39215-feedback.bundle` 및 [BUILD_GUIDE](BUILD_GUIDE.md)를 따른다. 공유 데이터는 읽기 전용으로 확인하며 키·계정·원장·고객 전략 원문을 문서/테스트 fixture로 복사하지 않는다. 설치본 의존성 제외 재현과 실제 Windows 빌드·기관 인수는 구분한다.
 
+최신 추가 검사: `reports/v39215-upgrade-audit-20261015/validation.json`을 따른다. pytest tests **5,999 통과·11 제외·실패 0**, subtest 3 통과. 추가 경계 검사 16건을 포함하며 증권/키움/기존 주문 계약 중심 검사 134건 통과. Node 79건·새 화면 16건·기존 빌드 화면 43+6건·TypeScript/Vite·npm 전체 감사(취약점 0)·문서·활성 소스·5서비스 source parity 검사를 실행한다. 원본 동기화/새 bundle 검사는 최신 handoff의 후속 검증 보고서로 구분한다. Windows 키 복호화/실제 OCX·기관 TR 회복·설치/24·72h는 미실행이다. 아래 5,983건은 3b700df 당시 첫 .15 후보의 이력이다.
+
+추가 명령: `.venv/bin/python -m pytest tests -q --junitxml=reports/v39215-upgrade-audit-20261015/full.xml`, `.venv/bin/python -m pytest tests/test_v39215_upgrade_audit.py tests/test_mock_live_boundary.py tests/test_stock_analysis_service.py tests/test_kiwoom_bounded_backend.py -q`, 기존 Node/화면/문서 명령은 출력 폴더를 `v39215-upgrade-audit-20261015`로 분리했다. 고객 데이터 점검은 설정/전략 복사본과 `mode=ro&immutable=1` SQLite 조회만 사용했다. 원장 WAL 파일은 0바이트임을 확인했다. 실제 거래/Provider 호출은 없다.
+
+
 실행 결과(2026-10-15, macOS Python 3.13.3·Node 22.23.1): 전체 pytest **5,983 통과·11 제외·실패 0**, subtest 3 통과. Node 단위 **79 통과**, 새 화면 시나리오 **15 통과**, 기존 빌드 화면 회귀 **43+6 통과**, TypeScript/Vite 빌드·문서·활성 소스·5서비스 source parity·skip 감사 통과. 새 파일 준비 검사 16건과 예제 코인/증권 변형 검사도 별도 통과했다. 브라우저는 실제 React 컴포넌트/빌드 화면에 합성 응답을 연결했으며 실제 금융기관 호출 증거가 아니다. 실제 업로드 10개는 읽기 전용 로컬 컴파일/최종 준비 검사 모두 통과했다. 국면 기존 7거래소 × 6시나리오도 전체 회귀에 포함된다.
 
 제외 11개는 Windows PE 1개, 명시 opt-in 기관 연결 6개, 실제 주문 opt-in 2개, 배포하지 않는 과거 고객 fixture 2개다. 실제 주문 2개는 이 작업에서 실행하지 않는다. Windows PE는 Windows 빌드에서 실행해야 하며 나머지는 허용된 환경의 담당자가 인수한다. `reports/v39215-feedback-20261015/skips.json`은 제외 감사 결과이며 외부 검사 통과를 의미하지 않는다. 기존 Starlette/httpx와 utcnow deprecation 경고 2건은 이번 실패가 아니다. Vite 번들 크기 경고는 남아 있으며 기능 검사 통과와 구분한다.
 
 실행 명령: `.venv/bin/python -m pytest -q --junitxml=reports/v39215-feedback-20261015/full.xml`, `node --test tests/*.test.cjs`, `npm --prefix webui run build`, `npm --prefix webui audit --json`, `python scripts/doc_consistency_check.py`, `python scripts/active_source_audit.py`, `python scripts/audit_web_ui_full_parity_contract.py`, `python scripts/audit_release_test_skips.py reports/v39215-feedback-20261015/full.xml`, `NOAHAI_QA_PLAYWRIGHT=<installed-playwright> node tests/webui_v39215_feedback.cjs`(Vite 5193 fixture), `node tests/webui_v3928_paper_recovery_audit.cjs`, `node tests/webui_v39212_feedback.cjs`(빌드 결과/합성 API). 자세한 코드·명령·증거 경로는 validation.json을 따른다.
+
+
+
+2026-10-15 배포 전 추가 점검: 공유 설정은 복사본에서 주요 거래 값과 자격증명 저장 필드 50개가 보존됐고, 기존 전략 70개·적용 2개·PAPER 등록 63개의 규칙/권한을 유지했다. 단, 증권 전략 10개는 분봉이며 현재 증권 엔진은 일봉만 공급한다. 규칙 문법 통과와 기관 자료 지원을 구분해 버전 화면에 경고를 추가하며 원문·권한을 자동 변경하지 않는다. 코인 60개 범위와 증권 10개 범위는 분리된다.
+
+한국투자의 .14 저장 판단 224건 중 합의 제한 172건은 HOLD였고, 52건은 매도 신호였다. HOLD를 매수 합의 실패로 설명하지 않도록 순서를 수정하고, 일반 주식 SELL 합의는 매수 매력도 점수의 반대 방향을 사용한다. 코인 기본 합의·ETF 위험 계산·국면·손실/수량/주문 권한 검사는 유지한다. 명시적 cooldown 0이 60으로 대체되는 결함과 주문 결과의 사유 누락도 수정한다. 키움은 저장된 연결 플래그 외에 현재 OCX 연결을 확인한다. Windows 실제 복호화/로그인·TR 응답 회복은 미확인이다.
+
+압축 포함 로그 430개·104,564,619줄을 읽었으며 읽기 실패는 없었다. 로그 행/재시도는 고유 장애 수가 아니다. 날짜만으로 버전을 단정하지 않고 DB의 .13/.14 app_version 및 새 호스트 구간을 구분한다. .13 장시간 무응답과 .14 키움 성공 255회·시간 초과 44회가 공존하므로 외부 장애가 모두 복구됐다고 쓰지 않는다. 원문 로그·키·계좌·원장·전략 내용은 공개하지 않는다. 최신 추가 검증은 `reports/v39215-upgrade-audit-20261015/validation.json`, 빌드 인계의 최신 커밋은 기존 handoff.json을 따른다. 앞선 .15 3b700df 검증은 이전 후보 이력이다.
 
 
 ## 2026-10-14 - v3.9.2.14 증권 무거래·전략 운용 피드백 후속 (소스 후보)

@@ -179,6 +179,7 @@ export interface StrategyVersion {
   guidance: Record<string, any>;
   deactivated?: { approved_by?: string; at?: string };
   paper_validation?: Record<string, any> | null;
+  runtime_support?: {status:string;timeframe:string;affected_brokers:string[];message:string;grants_execution:false};
   live_performance?: {status: string; groups: Array<Record<string, any>>};
   paper_trial?: {schema_version?: number; target_days?: number; kind?: string; auto_stop?: boolean};
   paper_progress?: {

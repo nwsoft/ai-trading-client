@@ -63,6 +63,7 @@ if (new URLSearchParams(location.search).get('named_repair') === '1') {
 if(new URLSearchParams(location.search).get('catalog')==='1'){
   versions.splice(0,versions.length,...['Charlie','Alpha','Beta'].map((name,i)=>({...version(`key-${i}`,'analyzed'),name,created_at:`2026-09-${21+i}T00:00:00Z`,active:i===0,paper_observing:i===1,paper_validation:i===2?{passed:true,trades:10}:undefined})));
 }
+if(new URLSearchParams(location.search).get('runtime_unsupported')==='1')versions[0].runtime_support={status:'stock_timeframe_unsupported',timeframe:'5m',affected_brokers:['kis'],message:'증권 5m 전략은 현재 분봉 공급이 연결되지 않아 평가할 수 없습니다. 일봉으로 자동 대체하지 않습니다. 원문을 검토하여 별도 일봉 버전을 만들거나 분봉 연동 후 다시 검증하세요. 기존 버전·기록은 보존됩니다.',grants_execution:false};
 let validationCalls = 0;
 const view=new URLSearchParams(location.search).get('view');
 const stats={execution_mode:'paper',closed_count:2,win_rate:50,groups:[{source:venue,settlement_currency:'USDT',closed_count:2,reconciled_closed_count:2,win_rate:50,net_pnl:1,fees:0.2,rows:[]}],range:{},pnl_by_currency:{USDT:1},fees_by_currency:{USDT:.2}};

@@ -53,6 +53,25 @@ def stock_cycle_diagnosis(result):
             detail += f" · 완료 일봉 {history.get('bars',0)}개({state})"
     if counts.get('paper_exit_valuation_unavailable'):
         detail += ' · 가상 보유의 진입가·수량·비용 근거를 확인하세요.'
+    import re
+    blocked = [d for d in result.get('decisions', []) if isinstance(d,dict) and d.get('reason')=='strategy_blocked']
+    for row in blocked[:1]:
+        for reason in row.get('strategy_reasons',[])[:4]:
+            match = re.fullmatch(r'consensus_low:([0-9]+(?:\.[0-9]+)?)<([0-9]+(?:\.[0-9]+)?)',str(reason))
+            if match: detail += f' · 합의 점수 {match[1]} / 필요 {match[2]}'
+    timeframes=set()
+    def timeframe_reasons(value, depth=0):
+        if depth>8:return
+        if isinstance(value,dict):
+            for key,nested in value.items():
+                if key=='reason' and isinstance(nested,str):
+                    match=re.fullmatch(r'strategy_timeframe_data_unavailable:([0-9]+[mhdw])',nested)
+                    if match:timeframes.add(match[1])
+                elif isinstance(nested,(dict,list)):timeframe_reasons(nested,depth+1)
+        elif isinstance(value,list):
+            for nested in value[:40]:timeframe_reasons(nested,depth+1)
+    timeframe_reasons(result.get('decisions', []))
+    if timeframes:detail += ' · 사용자 전략 시간봉 자료 없음: '+', '.join(sorted(timeframes))+'. 증권 전략은 현재 일봉만 지원하며 분봉을 일봉으로 바꾸지 않습니다.'
     return detail
 
 

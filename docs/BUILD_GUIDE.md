@@ -4,6 +4,8 @@
 
 아래 .14 게시 승인과 실행 기록은 당시 이력이며 .15 게시 완료나 승인을 의미하지 않는다. 이번 소스는 공개 .14 `d8e698f5dd181ec5effffb045c5f51e999a4a72b`의 Windows UTF-8 수정까지 보존한다. 원본 비 Git 폴더의 과거 dist/venv/설치기를 가져오지 말고, `reports/v39215-feedback-20261015/handoff.json`과 같은 폴더의 `v39215-feedback.bundle`을 새 Git 체크아웃에 복원한다. handoff의 커밋·bundle SHA256·소스 지문이 모두 일치해야 한다.
 
+추가 점검 후 renderer `3.9.2.15-ui.20261015.2`를 포함하도록 같은 handoff/bundle을 갱신한다. 이전 `3b700df` bundle을 섞지 않고 최신 handoff의 커밋·해시를 따른다. 기존 설정·전략 보존은 복사본/소스에서 확인했고 실제 Windows 키 복호화·업데이트·키움 TR 인수는 별도다.
+
 ### 3.9.2.15 Windows에서 사용할 소스와 명령
 
 `$handoffPath`만 해당 PC의 실제 경로로 바꾼다. 기존 폴더 reset/clean 없이 새 `C:\NoahAI\client-v39215`를 사용한다. 공개 .14 설치기/manifest의 hash-pinned 복원은 이전판 보존용이며 새 .15 빌드를 대체하지 않는다.

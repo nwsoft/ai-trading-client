@@ -146,8 +146,12 @@ class StrategyEngine:
             "confirmation_count": pending_count,
         }
 
-    def consensus_score(self, analysis_result: Dict[str, Any]) -> float:
+    def consensus_score(self, analysis_result: Dict[str, Any], *, direction: str = "") -> float:
         score = max(0.0, min(100.0, self._to_float(analysis_result.get("score", 0.0), 0.0))) / 100.0
+        # Stock score is bullish attractiveness, not conviction in either direction.
+        # Only the stock caller supplies direction; legacy crypto calls stay unchanged.
+        if str(direction).upper() == "SELL" and not bool(analysis_result.get("is_etf", False)):
+            score = 1.0 - score
         momentum = self._to_float(analysis_result.get("momentum", 0.0), 0.0)
         momentum_score = min(1.0, abs(momentum) / 2.5)
         etf_risk = str(analysis_result.get("etf_risk", "ok") or "ok").lower()
@@ -163,6 +167,7 @@ class StrategyEngine:
         analysis_result: Dict[str, Any],
         runtime_state: Dict[str, Any],
         policy: Dict[str, Any] | None = None,
+        signal_direction: str = "",
     ) -> Tuple[bool, Dict[str, Any]]:
         effective = dict(self.DEFAULT_POLICY)
         effective.update(policy or {})
@@ -181,7 +186,7 @@ class StrategyEngine:
             confirmations_required=confirmations_required,
         )
         regime = str(stabilized["regime"])
-        consensus = self.consensus_score(analysis_result)
+        consensus = self.consensus_score(analysis_result, direction=signal_direction)
         allow_regimes = [str(x).strip().lower() for x in (effective.get("allow_regimes") or [])]
 
         reasons = []
@@ -204,7 +209,8 @@ class StrategyEngine:
         if consensus < threshold:
             reasons.append(f"consensus_low:{consensus:.2f}<{threshold:.2f}")
 
-        cooldown_sec = max(0, int(effective.get("cooldown_sec", 60) or 60))
+        raw_cooldown = effective.get("cooldown_sec", 60)
+        cooldown_sec = max(0, int(60 if raw_cooldown in (None, "") else raw_cooldown))
         if cooldown_sec > 0:
             key = f"last_trade_at::{str(symbol).upper()}"
             last_trade_at = runtime_state.get(key)
@@ -225,5 +231,6 @@ class StrategyEngine:
             "regime_confirmations_required": confirmations_required,
             "regime_evidence": regime_details["evidence"],
             "consensus": round(consensus, 4),
+            "consensus_basis": "bearish_score" if str(signal_direction).upper()=="SELL" and not analysis_result.get("is_etf",False) else "bullish_score",
             "reasons": reasons,
         }

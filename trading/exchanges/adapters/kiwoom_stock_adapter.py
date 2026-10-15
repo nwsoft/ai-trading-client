@@ -287,6 +287,16 @@ class KiwoomStockAdapter(StockExchange):
                 self._last_connect_failure_reason = f'backend_init_failed:{err_msg}'
             return False
 
+    def _ocx_connection_confirmed(self) -> bool:
+        """Cached login success cannot certify a later disconnected OCX session."""
+        try:
+            connected = self.kiwoom is not None and int(self.kiwoom.GetConnectState()) == 1
+        except Exception:
+            connected = False
+        if not connected:
+            self.is_connected = False
+        return connected
+
     def get_live_readiness(self) -> tuple[bool, str]:
         """OpenAPI+ 실주문 직전 런타임/계좌 준비상태."""
         if platform.system() != 'Windows':
@@ -295,8 +305,8 @@ class KiwoomStockAdapter(StockExchange):
             return False, '키움 OpenAPI+ 드라이버는 pykiwoom으로 설정해야 합니다.'
         if not self.account_no:
             return False, '키움 계좌번호가 확인되지 않았습니다.'
-        if not self.is_connected or not self.kiwoom:
-            return False, '키움 OpenAPI+ 로그인/OCX 연결이 완료되지 않았습니다.'
+        if not self.is_connected or not self.kiwoom or not self._ocx_connection_confirmed():
+            return False, '키움 OpenAPI+ 로그인/OCX 연결이 완료되지 않았습니다. 현재 연결 상태를 확인하고 다시 로그인하세요.'
         if not hasattr(self.kiwoom, 'SendOrder'):
             return False, '키움 주문 함수(SendOrder)를 사용할 수 없습니다.'
         return True, ''
@@ -525,7 +535,7 @@ class KiwoomStockAdapter(StockExchange):
         """
         try:
             now_ts = time.time()
-            if self.is_connected:
+            if self.is_connected and self._ocx_connection_confirmed():
                 return True
 
             # 실패 직후 짧은 시간 동안은 재시도를 제한해 로그 폭주를 막는다.

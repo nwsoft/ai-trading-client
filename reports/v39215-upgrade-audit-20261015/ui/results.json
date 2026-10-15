@@ -1,0 +1,23 @@
+{
+  "checks": [
+    "10 independent reviewed drafts, metadata retained, no approval or runtime calls",
+    "incomplete file excluded while two valid files saved independently",
+    "lost submit responses require catalog inspection, no retry duplicates",
+    "stop after pending analysis without saving",
+    "single analysis metadata retained and newly saved version receives focus",
+    "catalog filter and explicit bulk approval skip running versions without execution",
+    "LIVE attributed performance separate from PAPER and unreconciled closes",
+    "stock learning rows and readable evidence area",
+    "blockchain learning rows and readable evidence area",
+    "kiwoom source-scoped stock candidates",
+    "kis source-scoped stock candidates",
+    "empty stock candidates honest missing state",
+    "missing technical score explanation",
+    "venue summary win rate",
+    "existing actual regime metrics and thresholds displayed",
+    "stock intraday limitation visible without changing saved rules or grants"
+  ],
+  "passed": 16,
+  "page_errors": [],
+  "scope": "synthetic responses in real React components; no provider/account/orders"
+}
