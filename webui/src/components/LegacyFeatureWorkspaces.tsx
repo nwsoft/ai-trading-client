@@ -235,7 +235,7 @@ export function LegacyAILearningWorkspace({ client, service, source, sources }: 
   const latest = rows.at(-1);
   const summaryScope = summaryComplete ? (service === "stock" ? "선택 증권사 DB 분석 기록 기준" : "전체 운영 파일 기준") : `최근 ${rows.length}개 표시 기준`;
 
-  return <section className="legacy-ai-learning">
+  return <section className={`legacy-ai-learning${service === "stock" ? " stock-learning" : ""}`}>
     <header className="legacy-learning-summary"><div><b>{t("오늘: ")}{todayCount}{t("개")}</b><b>{t("주간: ")}{weeklyCount}{t("개")}</b><b>{t("신호: LONG(")}{signals.LONG}) SHORT({signals.SHORT}) HOLD({signals.HOLD})</b><small>{summaryScope}</small></div><strong className={error || snapshot?.learning?.status === "unavailable" ? "negative" : "positive"}>{error || snapshot?.learning?.status === "unavailable" ? "조회 실패" : rows.length ? "분석 기록 있음" : "분석 기록 대기"}</strong></header>
     {service === "stock" && <p className="workspace-copy">{t("NoahAI XAI는 주식·ETF도 판단과 실행을 분리해 보여줍니다. LEARNING은 분석 판단, PAPER는 가상 체결, LIVE는 증권사 실제 주문이며 각 기록에 종목 유형·판단 근거·차단 사유·실제 주문 여부를 함께 남깁니다. 증권사별 기록은 기관 식별자로 분리하며 과거에 없던 근거는 추정하지 않습니다. 현재 국내 주식·국내 상장 ETF 범위이고, 미국 시세 조회만으로 해외주식 자동매매를 의미하지 않습니다.")}</p>}
     <label className="legacy-learning-source">{service === "stock" ? t("증권사") : t("거래소")}: <select value={selectedSource} disabled={!sourceOptions.length} onChange={(event) => setSelectedSource(event.target.value)}>{!sourceOptions.length && <option value="">{t("설정에서 선택 필요")}</option>}{sourceOptions.map((item) => <option value={item} key={item}>{item}</option>)}</select></label>
@@ -750,6 +750,7 @@ export function AssetInfoWorkspace({ client, service, source, enabledSources = [
     const recentTrades = snapshot?.trading?.recent_trades ?? [];
     return <section className="legacy-stock-info-workspace">
       <header className="legacy-stock-info-title">{t("종목/ETF 검색 & 분석 (")}{stockMode === "all" ? t("통합") : stockMode === "stock" ? t("주식만") : t("ETF만")})</header>
+      <article className="legacy-stock-candidates"><h3>최근 기관 선정·평가 종목</h3><p>실행 엔진이 실제 검토한 목록입니다. 신규 진입 확정이나 현재 보유 종목을 뜻하지 않습니다. 기관 정지 시 마지막 기록이며 최근 시각을 확인하세요.</p>{snapshot?.stock_candidates?.length ? snapshot.stock_candidates.map(row=><div key={`${row.source}:${row.symbol}`}><b>{String(row.source).toUpperCase()} · {row.symbol}</b> · 점수 {row.score == null ? '미평가' : numberText(row.score,1)} · {row.signal}<small>{row.observed_at ? new Date(Number(row.observed_at)*1000).toLocaleString() : '시각 미기록'} · {row.reason}</small></div>) : <p>아직 기관의 실제 선정 기록이 없습니다. 해당 증권사 실행·연결·장 운영 상태를 거래 현황에서 확인하세요.</p>}</article>
       <div className="legacy-stock-search">
         <label>{t("종목코드 검색")}</label>
         <input value={query} placeholder={t("예: 005930, 069500")} onChange={(event) => setQuery(event.target.value)} onKeyDown={(event) => event.key === "Enter" && void runStockAnalysis()} />
@@ -783,7 +784,7 @@ export function AssetInfoWorkspace({ client, service, source, enabledSources = [
             <div className="legacy-stock-market-line"><span>{t("현재가 ")}<strong>{numberText(stockAnalysis.close, 0)}{t("원")}</strong></span><span className={stockAnalysis.change >= 0 ? "positive" : "negative"}>{t("등락률 ")}{stockAnalysis.change >= 0 ? "+" : ""}{numberText(stockAnalysis.change, 2)}%</span><span>{t("거래량 ")}{stockAnalysis.volume == null || !Number.isFinite(Number(stockAnalysis.volume)) ? "미제공" : numberText(stockAnalysis.volume, 0)}</span></div>
             <div className="legacy-stock-score-line"><b>{t("AI 판단 점수 ")}{numberText(stockAnalysis.score, 1)}</b><span>{String(stockAnalysis.reasoning ?? `${String(stockAnalysis.source ?? source).toUpperCase()} 증권사 분석`)}</span></div>
           </div>;
-        })}</div> : <div className="empty-state">{t("종목코드를 검색하면 활성 증권사의 기존 StockAnalysisService가 시세·지표·AI 점수를 분석합니다.")}</div>}
+        })}</div> : <div className="empty-state">{t("종목코드를 검색하면 연결된 증권사의 시세·지표·AI 점수를 확인할 수 있습니다. 자료가 부족하면 해당 상태를 안내합니다.")}</div>}
       </article>
       <article className="legacy-stock-activity"><div className="legacy-section-title compact">{t("내 보유·최근 체결 종목")}</div>{recentTrades.length ? recentTrades.slice(0, 8).map((row, index) => <div className="legacy-stock-activity-row" key={String(row.id ?? index)}><b>{String(row.symbol ?? row.code ?? "—")}</b><span>{String(row.side ?? row.type ?? "—")}</span><span>{String(row.exit_time ?? row.created_at ?? "")}</span></div>) : <div className="empty-state">{t("저장된 주식/ETF 체결 기록이 없습니다.")}</div>}</article>
       <div className="legacy-stock-preview-header"><span>{t("브로커")}</span><span>{t("종목")}</span><span>{t("구분")}</span><span>{t("현재가")}</span><span>{t("등락률")}</span><span>{t("거래량")}</span><span>{t("비고")}</span></div>
@@ -803,6 +804,7 @@ export function AssetInfoWorkspace({ client, service, source, enabledSources = [
     <div className="legacy-coin-notices" role="status" aria-live="polite">
       {(error || actionMessage) && <div className={`inline-notice ${error ? "error-text" : ""}`}>{error || actionMessage}</div>}
       {fallbackSelection && <div className="inline-notice warning-text">{t("후보 데이터를 평가하지 못해 고정 참조 심볼을 표시합니다. 점수는 0이 아니라 미산출이며, 이 목록의 PAPER·LIVE 신규 주문은 차단됩니다. 기존 포지션 보호는 계속되며 연결·티커·캔들 데이터 회복 후 다시 선정하세요.")}</div>}
+      {!fallbackSelection && rows.some(row=>row.technical_score == null) && <p className="inline-notice">선정 시 15분·1시간 RSI 근거가 없으면 기술점수를 표시하지 않습니다. 빠른 선정은 티커·거래량·가격변동을 먼저 평가하며, 실제 진입 전 지표 분석은 별도입니다. 코인을 검색하고 실시간 분석에서 현재 지표를 확인하세요.</p>}
       {partialSelection && <div className="inline-notice warning-text">{t("목표 수량은 채우지 못했지만 정상적으로 점수를 산출한 후보만 부분 선정했습니다. 고정 목록으로 바꾸지 않으며, 각 후보는 후속 실시간 신호·전략·가드레일을 다시 통과해야 합니다.")}</div>}
       <div className="inline-notice">{t("코인 선정은 분석 후보를 좁히는 단계입니다. 정상 선정되어도 시장·전략 조건이 맞지 않으면 실시간 판단은 HOLD로 남으며 주문을 보장하지 않습니다.")}</div>
       <div className="inline-notice">{t("기술점수 미산출: 후보 선정은 일괄 시세를 우선 사용합니다. 선정 시점의 15분·1시간 RSI 근거가 없으면 점수를 만들지 않습니다. 실행 중 분석에서 저장된 RSI·MACD·추세는 AI 학습에서 확인하세요. 종합점수는 기술점수와 별도로 계산됩니다.")}</div>
@@ -811,7 +813,7 @@ export function AssetInfoWorkspace({ client, service, source, enabledSources = [
       <div className="legacy-section-title compact">{t("코인 분석 결과")}</div>
       <div className="legacy-coin-analysis-body">
         {coinAnalysis && <div className="legacy-coin-analysis-card live" key={String(coinAnalysis.symbol)}><b>{String(coinAnalysis.symbol)}{t(" 코인 분석")}</b><span>{t("현재가 ")}{numberText(coinAnalysis.current_price, 4)}<br />{t("신호 ")}<strong className={String(coinAnalysis.signal).toUpperCase() === "LONG" ? "positive" : String(coinAnalysis.signal).toUpperCase() === "SHORT" ? "negative" : "warning"}>{String(coinAnalysis.signal ?? "HOLD")}</strong>{t(" · 신뢰도 ")}{numberText(Number(coinAnalysis.confidence ?? 0) * 100, 1)}%</span><span>{t("트렌드 ")}{String(coinAnalysis.trend ?? "N/A")}{t(" · 변동성 ")}{numberText(coinAnalysis.volatility, 2)}%{coinAnalysis.reasoning ? <><br />{String(coinAnalysis.reasoning).slice(0, 220)}</> : null}</span></div>}
-        {!coinAnalysis && analyzedRows.map((row, index) => <div className="legacy-coin-analysis-card" key={String(row.id ?? `${row.symbol}-${index}`)}><b>{String(row.symbol ?? row.coin ?? "—")}</b><span>{t("AI 종합점수 ")}{numberText(row.overall_score)}</span><span>{t("기술 ")}{numberText(row.technical_score)}{t(" · 트렌드 ")}{numberText(row.trend_score)}{t(" · 리스크 ")}{numberText(row.risk_score)}</span></div>)}
+        {!coinAnalysis && analyzedRows.map((row, index) => <div className="legacy-coin-analysis-card" key={String(row.id ?? `${row.symbol}-${index}`)}><b>{String(row.symbol ?? row.coin ?? "—")}</b><span>{t("AI 종합점수 ")}{numberText(row.overall_score)}</span><span>{t("기술 ")}{row.technical_score == null ? "선정 시 지표 미수집" : numberText(row.technical_score)}{t(" · 트렌드 ")}{numberText(row.trend_score)}{t(" · 리스크 ")}{numberText(row.risk_score)}</span></div>)}
         {appliedQuery && !coinAnalysis && !analyzedRows.length && !loading && !error && <div className="empty-state">{t("실시간 분석 결과를 가져올 수 없습니다. 거래소 연결 상태와 심볼을 확인하세요.")}</div>}
       </div>
     </article>
@@ -825,7 +827,7 @@ export function AssetInfoWorkspace({ client, service, source, enabledSources = [
           return <div className="legacy-coin-row" key={String(row.id ?? `${row.symbol}-${index}`)}>
             <b>{String(row.symbol ?? row.coin ?? "—")}</b>
             <strong className={overall == null ? "warning" : overall >= 70 ? "positive" : overall >= 50 ? "warning" : "negative"}>{overall == null ? "미산출" : numberText(overall)}</strong>
-            <span>{metricText(row.volatility_score)}</span><span>{metricText(row.volume_score)}</span><span title={t("기술점수는 선정 시점의 15분·1시간 RSI 근거가 있을 때만 표시합니다. 종합점수와 별도이며 누락값을 추정하지 않습니다.")}>{row.technical_score == null ? t("미산출") : metricText(row.technical_score)}</span><span>{metricText(row.trend_score)}</span><span>{metricText(row.risk_score)}</span>
+            <span>{metricText(row.volatility_score)}</span><span>{metricText(row.volume_score)}</span><span title={t("기술점수는 선정 시점의 15분·1시간 RSI 근거가 있을 때만 표시합니다. 종합점수와 별도이며 누락값을 추정하지 않습니다.")}>{row.technical_score == null ? t("선정 시 지표 미수집") : metricText(row.technical_score)}</span><span>{metricText(row.trend_score)}</span><span>{metricText(row.risk_score)}</span>
           </div>;
         })}
         {!loading && !rows.length && <div className="empty-state legacy-selection-empty"><span>{t("선정된 코인이 없습니다.")}</span><span>{t("• 아래 '코인 선정 실행' 버튼을 누르거나")}</span><span>{t("• 자동매매를 시작하면 자동으로 코인이 선정됩니다.")}</span></div>}

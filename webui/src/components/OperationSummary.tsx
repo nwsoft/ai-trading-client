@@ -53,8 +53,9 @@ export function OperationSummary({ data, source, mode, running, failed, onOpenFe
     </article>}
     {scoped?.pre_entry && <article><h4>실제 진입 기준 비교</h4><p>{String(scoped.pre_entry.symbol)} · 신뢰도 {numberLabel(scoped.pre_entry.confidence,2)} / 필요 {numberLabel(scoped.pre_entry.required_confidence,2)}</p>
       <p>{scoped.pre_entry.history_observed?`완료 거래 손실률 ${numberLabel(scoped.pre_entry.loss_rate,1)}% / 상한 ${numberLabel(scoped.pre_entry.max_loss_rate,1)}%`:'완료 거래 성과 표본 미확인 · 기본 손실률을 실측값으로 표시하지 않습니다.'}</p><small>{timeLabel(scoped.pre_entry.observed_at)}</small></article>}
-    <div className="operation-evidence-grid"><article><h4>시장국면 관찰</h4>
+    <div className="operation-evidence-grid"><article><h4>시장국면 관찰</h4><p>기관 엔진의 판정 기준을 사용합니다. 코인의 대표 종목 단기 국면은 시장 트렌드의 오늘 등락 방향과 집계 대상·기간이 다릅니다. 일반은 해당 엔진의 확정 조건 미충족입니다.</p>
       <div className="operations-regime-pair"><span>관찰 <b>{regimeText(regime?.observed)}</b></span><span>확정 <b>{regimeText(regime?.confirmed)}</b></span></div>
+      {regime && typeof regime.trend_threshold_percent === 'number' && <details><summary>실제 지표와 국면 임계값</summary><p>{regime.symbol_basis} · 15분봉 최근 {regime.lookback_bars}개 종가 · 계산 {timeLabel(regime.calculation_at)}</p><p>추세 변화 {numberLabel(regime.trend_change_percent, 2)}% / 상승·하락 기준 ±{numberLabel(regime.trend_threshold_percent, 2)}% · RSI {numberLabel(regime.rsi, 1)} / 상승 {regime.rsi_bull_threshold} 초과·하락 {regime.rsi_bear_threshold} 미만 · 거래량 배율 {numberLabel(regime.volume_ratio, 2)} / {regime.volume_required} 초과</p><p>상승·하락은 추세·RSI·거래량 조건을 함께 만족해야 합니다. 30분 변화 {numberLabel(regime.change_30m_percent, 2)}% / 고변동 기준 절대 {regime.volatility_required}% 초과입니다.</p></details>}
       {regime ? <><small>{timeLabel(regime.observed_at)}{old(regime) ? ' · 오래된/불확실 근거 — 현재 국면으로 단정하지 마세요.' : ''}</small><p>{String(regime.basis ?? '엔진 국면 판정')} · 후보 판단과 관찰 시각이 다를 수 있습니다.</p></> : <p>해당 기관·모드의 국면 관찰 근거가 아직 없습니다.</p>}
     </article>
     <article><h4>종합 판단 근거 · 실제 검사</h4>

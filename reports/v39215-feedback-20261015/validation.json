@@ -1,0 +1,182 @@
+{
+  "version": "3.9.2.15",
+  "public_version": "3.9.2.14",
+  "public_commit": "d8e698f5dd181ec5effffb045c5f51e999a4a72b",
+  "branch": "fix/v3.9.2.15-teayu-feedback-20261015",
+  "source_commit_location": "handoff.json (created after reviewed source commit)",
+  "scope": "source/local verification; no customer writes, provider calls, actual orders or publication",
+  "environment": {
+    "platform": "macOS",
+    "python": "3.13.3",
+    "node": "22.23.1"
+  },
+  "tests": {
+    "pytest": {
+      "passed": 5983,
+      "skipped": 11,
+      "failed": 0,
+      "subtests_passed": 3,
+      "command": ".venv/bin/python -m pytest -q --junitxml=reports/v39215-feedback-20261015/full.xml",
+      "evidence": "full.txt / full.xml"
+    },
+    "feedback_python": {
+      "passed": 16,
+      "command": ".venv/bin/python -m pytest tests/test_v39215_feedback.py -q",
+      "evidence": "new-tests.txt"
+    },
+    "node": {
+      "passed": 79,
+      "command": "node --test tests/*.test.cjs",
+      "evidence": "node.txt"
+    },
+    "new_browser": {
+      "passed": 15,
+      "command": "NOAHAI_QA_PLAYWRIGHT=<installed-playwright> node tests/webui_v39215_feedback.cjs",
+      "evidence": "ui/results.json",
+      "mode": "real React components with synthetic API responses"
+    },
+    "built_browser_regressions": {
+      "passed": [
+        43,
+        6
+      ],
+      "commands": [
+        "node tests/webui_v3928_paper_recovery_audit.cjs",
+        "node tests/webui_v39212_feedback.cjs"
+      ],
+      "evidence": [
+        "ui-regression43.txt",
+        "ui-regression6.txt"
+      ],
+      "mode": "production renderer with intercepted synthetic API; no accounts"
+    },
+    "uploaded_source_readiness": {
+      "passed": 10,
+      "mode": "read-only local parser + final ApplicationServices rule validation; not performance proof; customer sources excluded from fixtures"
+    },
+    "prototype_readiness": {
+      "crypto": 4,
+      "stock_daily": 4,
+      "passed": true
+    },
+    "typescript_vite": "PASS",
+    "npm_audit_full": {
+      "info": 0,
+      "low": 0,
+      "moderate": 0,
+      "high": 0,
+      "critical": 0,
+      "total": 0
+    },
+    "documentation": "PASS",
+    "active_source": "PASS",
+    "five_service_source_parity": "PASS",
+    "powershell_handoff_ast": "PASS; not execution",
+    "skip_audit": "11 allowed; Windows PE 1, opt-in broker reads 6, opt-in real orders 2, absent historical private fixtures 2"
+  },
+  "assistant": {
+    "before": "guide and deep fail with UI imports blocked",
+    "after": "guide and deep pass; gateway unexpected errors preserve CORS, safe request ID, no exception body",
+    "packaged_windows_installer": "NOT_RUN"
+  },
+  "market_regime": {
+    "thresholds_changed": false,
+    "actual_crypto_classifier_regressions": 42,
+    "diagnostics": "actual RSI/trend/volume/calculation time; daily trend not copied into regime",
+    "remaining": "real venue observation and threshold effectiveness require operational evidence; cannot conclude optimal thresholds from selection history"
+  },
+  "published14_baseline": {
+    "version": "3.9.2.14",
+    "name": "NoahAI-3.9.2.14-Setup.exe",
+    "size": 451634894,
+    "sha256": "956ae419ec490b9bdaa57b4b56c275cee882b7a19852f9f26a8c54c830b3a53b",
+    "verified": true,
+    "cached": false,
+    "source": "https://github.com/nwsoft/ai-trading-client/releases/download/v3.9.2.14/NoahAI-3.9.2.14-Setup.exe"
+  },
+  "preserved_local_artifact_boundary": "existing ignored local deploy manifest failed baseline identity guard; fresh isolated root restored official .14 with verified size/hash; stale artifacts were not overwritten or used for .15 build",
+  "external_acceptance": {
+    "version": "3.9.2.15",
+    "plan": "DEPLOY_CHECKLIST.md",
+    "scope": "release_checklist_snapshot",
+    "plan_sha256": "059908d12eb867eaac00472b0aae2f024fc923e10c0642d707d4ec2de1c476cf",
+    "status": "pending",
+    "pending_count": 10,
+    "pending_ids": [
+      "WIN-BUILD",
+      "WIN-UPGRADE",
+      "ASSISTANT",
+      "REGIME",
+      "UPLOAD",
+      "STOCK-PAPER",
+      "LIVE-PERFORMANCE",
+      "ROLLBACK",
+      "SOAK",
+      "PUBLISH"
+    ],
+    "items": [
+      {
+        "id": "SOURCE",
+        "status": "complete",
+        "description": "공개 .14 원본 manifest 보존, 패키징 경계 재현과 피드백 수정·회귀"
+      },
+      {
+        "id": "WIN-BUILD",
+        "status": "pending",
+        "description": ".15 동일 커밋·지문·GUI 제외 엔진 필수 안내 모듈·x64/x86·설치기 확인"
+      },
+      {
+        "id": "WIN-UPGRADE",
+        "status": "pending",
+        "description": ".14→.15 업데이트와 설정/키/원장/전략/허용 상태 보존"
+      },
+      {
+        "id": "ASSISTANT",
+        "status": "pending",
+        "description": "설치본 일반 안내·심층 성공/실패·전략 상담·비용/한도·요청 ID 확인"
+      },
+      {
+        "id": "REGIME",
+        "status": "pending",
+        "description": "실제 7거래소 단기 지표·기준·계산/관찰 시각과 확정 대기 대조"
+      },
+      {
+        "id": "UPLOAD",
+        "status": "pending",
+        "description": "STUDIO · CATALOG · REPLAY-COST 기존 등록·허브·실제 비용 가정 인수 포함: 예제 4개·파일 10개 독립 분석/초안 저장·명시 승인·기간/표본/기존 청산 보존"
+      },
+      {
+        "id": "STOCK-PAPER",
+        "status": "pending",
+        "description": "실제 4기관 선정 종목/학습 표·PAPER 실주문 0·정상 HOLD와 실패 사유 확인"
+      },
+      {
+        "id": "LIVE-PERFORMANCE",
+        "status": "pending",
+        "description": "권한 있는 별도 환경에서 이미 발생한 버전 귀속 LIVE 청산과 화면 수치 대조"
+      },
+      {
+        "id": "ROLLBACK",
+        "status": "pending",
+        "description": ".15 기록 별도 백업 후 .14 복원/재업그레이드 보존"
+      },
+      {
+        "id": "SOAK",
+        "status": "pending",
+        "description": "테스터가 24/72h PAPER 운용·무거래 설명·재연결·응답 지연을 기록"
+      },
+      {
+        "id": "PUBLISH",
+        "status": "pending",
+        "description": ".15 새 자산/해시/manifest/latest 게시 결과 확인"
+      }
+    ]
+  },
+  "windows_build": false,
+  "live_provider_test": false,
+  "live_broker_test": false,
+  "soak_24_72h": false,
+  "push": false,
+  "release": false,
+  "deployment": false
+}

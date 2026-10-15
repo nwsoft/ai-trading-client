@@ -11,7 +11,7 @@ from typing import Any
 
 FORBIDDEN_ROOTS = {"main", "ui", "customtkinter", "tkinter", "PyQt5", "pykiwoom"}
 REQUIRED_AI_RUNTIME_MODULES = {"openai", "httpx", "jiter"}
-REQUIRED_EXACT_RUNTIME_MODULES = {"trading.notifications"}
+REQUIRED_EXACT_RUNTIME_MODULES = {"trading.notifications", "trading.ai_custom_guidance"}
 
 
 def _walk_module_entries(value: Any):

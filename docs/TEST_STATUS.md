@@ -1,3 +1,32 @@
+## 2026-10-15 — v3.9.2.15 사용자 피드백 수정 (소스 후보)
+
+현재 소스 후보 버전: **v3.9.2.15** · 현재 공개 버전: **v3.9.2.14**
+현재 소스 후보: v3.9.2.15 · 현재 공개 기반: v3.9.2.14 · updater 3.9.215 · renderer 3.9.2.15-ui.20261015.1.
+
+공개 .14의 `d8e698f5dd181ec5effffb045c5f51e999a4a72b`를 기준으로 수정한다. 공개 설치기·manifest는 덮어쓰지 않으며 아래 .14 이하 내용은 당시 이력이다. 이번 변경은 새 .15 후보이며 Windows 설치·실기관/OCX·24/72h·푸시·게시·운영 배포 완료를 의미하지 않는다.
+
+| 피드백 | 확인과 반영 |
+| --- | --- |
+| 코인 국면이 일반에 머묾 | 오늘 시장 트렌드와 대표 코인 단기 국면의 집계 차이, 추세·RSI·거래량 동시 조건을 설명한다. Binance 기본 단기 추세 ±1%, CCXT 경로 ±3% 등 기존 기준을 유지하며 실제 지표·임계값·계산 시각을 운용 요약에 추가한다. 일반을 실패나 오늘 보합으로 표시하지 않는다. |
+| 일반·심층 어시스턴트 연결 실패 | 공통 답변 경로가 설치 엔진에서 제외된 `ui.ai_custom_guidance`를 import하던 결함을 UI 제외 조건에서 재현했다. `trading.ai_custom_guidance`로 정본을 옮기고 구형 UI는 재노출한다. 예상 밖 오류에도 CORS·지원 코드·요청 ID를 유지한다. |
+| 예제의 필수 조건 누락 | 화면 기본 예제 4개를 숫자·단위·진입·청산 규칙이 있는 명시적 학습용 LONG 프로토타입으로 제공한다. 원문 전략이나 검증된 수익 전략으로 가장하지 않는다. 증권 예제는 일봉을 사용한다. |
+| 기술점수 미산출 | 빠른 선정은 티커 우선이며 RSI 자료가 없으면 기술점수가 None이다. 이유와 실시간 분석 경로를 표시하며 0점이나 고정 점수로 채우지 않는다. |
+| 거래소별 승률 | PAPER는 유효 가상 청산, LIVE는 대조 완료 청산을 분모로 기관·통화별 승률을 추가한다. 표본 없음/미대조는 미확정이다. |
+| 증권 선정 종목 | 실제 워커가 선정·평가한 종목·점수·사유·시각을 해당 기관의 종목정보에 표시한다. 현재 보유/신규 진입 확정과 구분하며, 기록이 없으면 코인 후보로 채우지 않는다. |
+| 증권 학습 화면 | 증권 전용 추가 안내 행을 고려해 모니터는 내용 높이, AI 판단·학습 근거는 남은 높이를 사용한다. 코인 학습 배치는 별도로 유지한다. |
+| 전략 등록·관리 | 미적용/내용 확인·승인 필요/PAPER 검증 필요 필터, 명시적 선택 내용 승인, 새 버전 위치 이동, 파일별 독립 초안 저장, 단일 기관 선택, 파일 명시 메타데이터·이름 연결을 추가한다. 버전별 LIVE 성과는 실제 귀속 청산만 기관·통화별로 조회한다. |
+
+TXT/Pine은 파일당 1MB·최대 10개를 순차 분석하고 파일별 이름·기관·규칙을 검토한 뒤 준비 완료 초안만 저장한다. 실제 사용자 파일 10개의 로컬 컴파일과 최종 실행 준비 검사를 별도로 확인한다. 일괄 분석은 묶음 자료를 한 전략으로 합치는 기존 방식과 구분한다. 실패/보완 항목은 개별 표시하고 저장 응답 유실은 자동 재전송하지 않는다. 내용 승인·PAPER 시작·최종 적용은 합치지 않는다. 명시 거래소/국면 기준/우선순위는 결정형 컴파일러가 읽으며 없거나 모호한 값은 추정하지 않는다. 선언한 범위의 수정은 원문 재분석 또는 명시적 사용자 재정의가 필요하다.
+
+검증 정본은 `reports/v39215-feedback-20261015/validation.json`, Windows 소스는 같은 폴더의 `handoff.json`·`v39215-feedback.bundle` 및 [BUILD_GUIDE](BUILD_GUIDE.md)를 따른다. 공유 데이터는 읽기 전용으로 확인하며 키·계정·원장·고객 전략 원문을 문서/테스트 fixture로 복사하지 않는다. 설치본 의존성 제외 재현과 실제 Windows 빌드·기관 인수는 구분한다.
+
+실행 결과(2026-10-15, macOS Python 3.13.3·Node 22.23.1): 전체 pytest **5,983 통과·11 제외·실패 0**, subtest 3 통과. Node 단위 **79 통과**, 새 화면 시나리오 **15 통과**, 기존 빌드 화면 회귀 **43+6 통과**, TypeScript/Vite 빌드·문서·활성 소스·5서비스 source parity·skip 감사 통과. 새 파일 준비 검사 16건과 예제 코인/증권 변형 검사도 별도 통과했다. 브라우저는 실제 React 컴포넌트/빌드 화면에 합성 응답을 연결했으며 실제 금융기관 호출 증거가 아니다. 실제 업로드 10개는 읽기 전용 로컬 컴파일/최종 준비 검사 모두 통과했다. 국면 기존 7거래소 × 6시나리오도 전체 회귀에 포함된다.
+
+제외 11개는 Windows PE 1개, 명시 opt-in 기관 연결 6개, 실제 주문 opt-in 2개, 배포하지 않는 과거 고객 fixture 2개다. 실제 주문 2개는 이 작업에서 실행하지 않는다. Windows PE는 Windows 빌드에서 실행해야 하며 나머지는 허용된 환경의 담당자가 인수한다. `reports/v39215-feedback-20261015/skips.json`은 제외 감사 결과이며 외부 검사 통과를 의미하지 않는다. 기존 Starlette/httpx와 utcnow deprecation 경고 2건은 이번 실패가 아니다. Vite 번들 크기 경고는 남아 있으며 기능 검사 통과와 구분한다.
+
+실행 명령: `.venv/bin/python -m pytest -q --junitxml=reports/v39215-feedback-20261015/full.xml`, `node --test tests/*.test.cjs`, `npm --prefix webui run build`, `npm --prefix webui audit --json`, `python scripts/doc_consistency_check.py`, `python scripts/active_source_audit.py`, `python scripts/audit_web_ui_full_parity_contract.py`, `python scripts/audit_release_test_skips.py reports/v39215-feedback-20261015/full.xml`, `NOAHAI_QA_PLAYWRIGHT=<installed-playwright> node tests/webui_v39215_feedback.cjs`(Vite 5193 fixture), `node tests/webui_v3928_paper_recovery_audit.cjs`, `node tests/webui_v39212_feedback.cjs`(빌드 결과/합성 API). 자세한 코드·명령·증거 경로는 validation.json을 따른다.
+
+
 ## 2026-10-14 - v3.9.2.14 증권 무거래·전략 운용 피드백 후속 (소스 후보)
 
 현재 소스 후보 버전: **v3.9.2.14**

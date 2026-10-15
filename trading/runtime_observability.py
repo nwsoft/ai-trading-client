@@ -6,7 +6,8 @@ def emit_regime_observation(owner, source, observed, confirmed, changed, *, mode
     """Local diagnostic only; never synthesize an outbound market transition."""
     from .operation_evidence import publish
     publish(owner, source, 'regime', observed=observed, confirmed=confirmed, changed=changed,
-            mode=mode, expected_generation=expected_generation)
+            mode=mode, expected_generation=expected_generation,
+            **dict((getattr(owner,'_fast_regime_diagnostics',{}) or {}).get(source) or {}))
     code = ('regime_changed' if changed else
             'regime_pending_confirmation' if observed != confirmed else 'regime_unchanged')
     emit_runtime_status(owner, source, code,

@@ -3614,3 +3614,17 @@ html[lang="en"] button { white-space: normal; overflow-wrap: break-word; }
 .strategy-paper-period-help { margin-top:12px; padding:12px; border:1px solid #38516c; border-radius:8px; }
 .strategy-paper-period-help p { margin:8px 0; }
 .strategy-paper-market-guide { border-left:3px solid #4fc3e7; padding-left:10px; }
+
+.legacy-ai-learning.stock-learning { grid-template-rows:auto auto auto auto minmax(230px,1fr) auto; }
+.legacy-learning-status { align-self:start; }
+.legacy-stock-candidates { padding:12px; margin:8px 0; border:1px solid #38516c; border-radius:8px; }
+.legacy-stock-candidates small { display:block; margin:4px 0 10px; }
+
+.strategy-batch-import { padding:16px; border:1px solid #334155; border-radius:12px; background:#111827; margin:12px 0; }
+.strategy-batch-import h3 { margin:0 0 8px; }
+.strategy-batch-import > button { margin:4px 8px 4px 0; }
+.strategy-batch-import ul { list-style:none; padding:0; display:grid; gap:10px; }
+.strategy-batch-import li { padding:12px; border:1px solid #334155; border-radius:8px; background:#0b1220; overflow-wrap:anywhere; }
+.strategy-batch-import dl { display:flex; flex-wrap:wrap; gap:12px 24px; margin:10px 0; }
+.strategy-batch-import dt { color:#94a3b8; font-size:12px; }.strategy-batch-import dd { margin:4px 0 0; }
+.strategy-batch-import pre { max-height:320px; overflow:auto; white-space:pre-wrap; }

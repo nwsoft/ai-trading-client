@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import hmac
+import logging
 import os
 import re
 import secrets
@@ -308,6 +309,10 @@ def create_gateway_app(
         except RuntimeError as exc:
             status = 429 if str(exc) == "interactive_ai_budget_exceeded" else 503
             raise HTTPException(status_code=status, detail=str(exc)) from exc
+        except Exception as exc:
+            request_id = uuid.uuid4().hex
+            logging.getLogger(__name__).error('assistant_processing_failed request_id=%s error_type=%s', request_id, type(exc).__name__)
+            raise HTTPException(500, detail=f"AI 요청을 처리하지 못했습니다. 일반 안내로 다시 확인하거나 기록의 지원 코드를 전달하세요. 지원 코드: assistant_processing_failed · 요청 ID: {request_id}") from None
 
     @app.get('/api/v1/companion/briefing', dependencies=[Depends(require_token)])
     def companion_briefing():

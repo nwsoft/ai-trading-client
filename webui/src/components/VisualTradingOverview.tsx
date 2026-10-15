@@ -26,7 +26,7 @@ export function VisualTradingOverview({runtime,workspace,sources,failed,onSource
     <div className="visual-context">{source.toUpperCase()||'기관 미선택'} · {mode.toUpperCase()} · {running?'실행 중':'정지'}{failed?' · 갱신 실패':''} <span>새 AI 판단이나 주문을 실행하지 않습니다.</span></div>
     <div className="visual-insight-grid">
       <article><h4>시장 국면</h4>
-        <div className={`regime-state-orbit regime-${state}`} role="img" aria-label={`확정 국면 ${regimeText(regime?.confirmed)} · 확률 아님`}><span>확정 국면</span><strong>{regimeText(regime?.confirmed)}</strong></div>
+        <p>기관 엔진의 국면과 시장 트렌드의 오늘 등락은 집계 대상·기간이 다를 수 있습니다. 코인은 추세·RSI·거래량의 확정 조건을 함께 검사합니다. 실제 기록은 근거·조치 상세에서 확인하세요.</p><div className={`regime-state-orbit regime-${state}`} role="img" aria-label={`확정 국면 ${regimeText(regime?.confirmed)} · 확률 아님`}><span>확정 국면</span><strong>{regimeText(regime?.confirmed)}</strong></div>
         <p>최근 관찰 <b>{regimeText(regime?.observed)}</b> <span>→</span> 확정 <b>{regimeText(regime?.confirmed)}</b></p>
         <small>{status(regime)}</small>
         <RegimeHistory rows={data?.regime_history}/>

@@ -1,3 +1,65 @@
+## 2026-10-15 — v3.9.2.15 Windows 빌드 인계 (미게시 소스 후보)
+
+현재 소스 후보 버전: **v3.9.2.15** · 현재 공개 버전: **v3.9.2.14**.
+
+아래 .14 게시 승인과 실행 기록은 당시 이력이며 .15 게시 완료나 승인을 의미하지 않는다. 이번 소스는 공개 .14 `d8e698f5dd181ec5effffb045c5f51e999a4a72b`의 Windows UTF-8 수정까지 보존한다. 원본 비 Git 폴더의 과거 dist/venv/설치기를 가져오지 말고, `reports/v39215-feedback-20261015/handoff.json`과 같은 폴더의 `v39215-feedback.bundle`을 새 Git 체크아웃에 복원한다. handoff의 커밋·bundle SHA256·소스 지문이 모두 일치해야 한다.
+
+### 3.9.2.15 Windows에서 사용할 소스와 명령
+
+`$handoffPath`만 해당 PC의 실제 경로로 바꾼다. 기존 폴더 reset/clean 없이 새 `C:\NoahAI\client-v39215`를 사용한다. 공개 .14 설치기/manifest의 hash-pinned 복원은 이전판 보존용이며 새 .15 빌드를 대체하지 않는다.
+
+```powershell
+$ErrorActionPreference = "Stop"
+function Invoke-CandidateChecked([scriptblock]$Command) {
+    & $Command
+    if ($LASTEXITCODE -ne 0) { throw "Command failed: $LASTEXITCODE" }
+}
+$handoffPath = "D:\SynologyDrive\Works\noahai_client\reports\v39215-feedback-20261015\handoff.json"
+$handoffPath = (Resolve-Path -LiteralPath $handoffPath).Path
+$handoff = Get-Content -LiteralPath $handoffPath -Raw -Encoding UTF8 | ConvertFrom-Json
+if ($handoff.source_version -ne "3.9.2.15") { throw "Wrong handoff version" }
+$bundlePath = Join-Path (Split-Path -Parent $handoffPath) $handoff.bundle
+if ((Get-FileHash -LiteralPath $bundlePath -Algorithm SHA256).Hash.ToLowerInvariant() -ne $handoff.bundle_sha256) { throw "Bundle hash mismatch" }
+$buildRoot = "C:\NoahAI\client-v39215"
+if (Test-Path -LiteralPath $buildRoot) { throw "Use a new empty build path" }
+New-Item -ItemType Directory -Path (Split-Path -Parent $buildRoot) -Force | Out-Null
+Invoke-CandidateChecked { git clone --filter=blob:none --no-checkout https://github.com/nwsoft/ai-trading-client.git $buildRoot }
+Set-Location -LiteralPath $buildRoot
+Invoke-CandidateChecked { git fetch origin $handoff.public_commit }
+Invoke-CandidateChecked { git bundle verify $bundlePath }
+$branchRef = "{0}:refs/heads/{0}" -f $handoff.branch
+Invoke-CandidateChecked { git fetch $bundlePath $branchRef }
+Invoke-CandidateChecked { git switch $handoff.branch }
+$actualCommit = (Invoke-CandidateChecked { git rev-parse HEAD } | Out-String).Trim()
+if ($actualCommit -ne $handoff.source_commit) { throw "Candidate commit mismatch" }
+if ((Invoke-CandidateChecked { git status --porcelain } | Out-String).Trim()) { throw "Build source is dirty" }
+```
+
+Windows 10/11 x64, Python **3.11 x64·x86**, Node **22.12 이상**, Git·GitHub CLI, Visual Studio Build Tools/VC143 CRT를 준비한다. 같은 PowerShell 창에서 이어서 실행한다. `NOAHAI_PYTHON_X86`가 기존 다른 환경을 가리키면 올바른 3.11 x86 실행파일로 조정해야 한다. 아래는 기본 Python Launcher의 x86을 사용하는 경우다.
+
+```powershell
+Invoke-CandidateChecked { py -3.11-64 -m venv .venv }
+$env:Path = (Resolve-Path .venv\Scripts).Path + ";" + $env:Path
+$env:PYTHONUTF8 = "1"
+$env:PYTHONIOENCODING = "utf-8"
+Invoke-CandidateChecked { python -c "import struct,sys; assert sys.version_info[:2]==(3,11) and struct.calcsize('P')==8" }
+Invoke-CandidateChecked { python -m pip install -r requirements_windows.txt }
+Invoke-CandidateChecked { py -3.11-32 -m pip install -r requirements_kiwoom_x86.txt }
+$env:NOAHAI_PYTHON_X86 = (Invoke-CandidateChecked { py -3.11-32 -c "import sys; print(sys.executable)" } | Out-String).Trim()
+$env:NOAHAI_CANDIDATE_HANDOFF = $handoffPath
+Invoke-CandidateChecked { python -c "import json,os; from pathlib import Path; from scripts.verify_release_provenance import verify_source; h=json.load(open(os.environ['NOAHAI_CANDIDATE_HANDOFF'],encoding='utf-8')); print(verify_source(Path('.'),dict(source_revision=h['source_commit'],source_fingerprint=h['source_fingerprint'])))" }
+Invoke-CandidateChecked { python scripts/restore_previous_release_asset.py }
+Invoke-CandidateChecked { powershell -ExecutionPolicy Bypass -File scripts/build_windows.ps1 }
+```
+
+빌드 스크립트가 locked npm 설치·Node/Python 전체 검사·skip 감사·문서·source·npm 감사·x64 엔진·키움 x86 호스트·IPC smoke·Electron 설치기·PE/아이콘·메타데이터를 검사한다. `SkipTests`, `SkipEngineBuild`, `SkipNpmCi`, `AllowMissingKiwoomHost`를 사용하지 않는다. 기본 자동 검사만으로 실제 OCX 로그인·기관 PAPER 운용·24/72h가 통과한 것은 아니다. Windows 검사 수는 해당 PC의 `reports/windows-full-tests.xml`과 `reports/windows-skipped-tests.json`에 기록된 결과를 따른다.
+
+성공 산출물은 `deploy/web-release/NoahAI-3.9.2.15-Setup.exe`, 같은 이름의 `.blockmap`, `latest.yml`(updater **3.9.215**), `deploy/release-manifest.json`이다. manifest의 `version`, `source_revision`, `source_fingerprint`, `automated_checks_passed=true`, 실제 PE/호스트 검증과 파일 해시를 확인한다. 이전 공개 .14 설치기는 자동 복구/해시 검사하여 보존한다. 격리 Windows에서 설치·시작·종료·PAPER 주문 모드와 기존 기록 보존을 확인한다. 고객 설정/실계좌 주문을 시험하지 않는다.
+
+.15 Windows 빌드와 로컬 설치·업데이트 확인 후 테스터에게 설치기를 전달하여 24/72h PAPER 검증을 진행할 수 있다. 사전 72시간 대기를 공개 빌드의 새 조건으로 만들지 않는다. 설치본의 일반/심층 안내, 10개 독립 등록, 증권 선정/학습과 정상/실패 기준은 [DEPLOY_CHECKLIST](DEPLOY_CHECKLIST.md)의 .15 절을 따른다. 실제 Provider·OCX·실기관 인수는 자동 테스트와 구분한다.
+
+이 Mac 작업은 원격 push·stable/latest 게시·실계좌 주문을 실행하지 않는다. 게시 승인 후에는 동일 커밋을 push하고 기존 `scripts/release_windows.ps1`의 출처·manifest·설치기/업데이트 자산 검증을 거쳐야 한다. 이미 공개된 .14 태그/자산을 대체하지 않는다.
+
 ## 2026-10-14 Windows .14 정식 빌드·게시 실행
 
 사용자의 최신 명시 요청은 전체 검사 후 `nwsoft/ai-trading-client` stable/latest 게시를 승인한다. 아래 소스 전용·push/게시 제외 기록은 작성 당시 이력이다. 이 Windows 원본은 Git 체크아웃이며, 아래의 Git 없는 원본 설명은 Mac 인계 환경에만 해당한다.

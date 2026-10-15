@@ -1751,6 +1751,12 @@ class Trader:
             else:
                 regime = 'normal'
 
+            from trading.regime_diagnostics import record_fast_metrics
+            record_fast_metrics(self, 'binance', symbol_basis='BTC·ETH 가용 자료 가중', lookback_bars=5,
+                rsi=rsi, trend_change_percent=trend_slope*100, volume_ratio=volume_ratio,
+                change_30m_percent=price_change_30m, trend_threshold_percent=fast_trend_threshold*100,
+                volume_required=fast_volume_threshold, volatility_required=fast_volatility_threshold,
+                rsi_bull_threshold=fast_rsi_overbought, rsi_bear_threshold=fast_rsi_oversold)
             # 캐시 저장
             if not hasattr(self, '_market_analysis_cache'):
                 self._market_analysis_cache = {}

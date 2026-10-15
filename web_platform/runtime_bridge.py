@@ -462,6 +462,34 @@ class HeadlessRuntimeBridge:
             "reason": "engine_active" if self._app is not None else "engine_lazy_until_confirmed_start" if authenticated else "login_required",
         }
 
+    def stock_candidate_snapshot(self, *, source: str = "") -> dict[str, Any]:
+        """Use the actual worker universe; no new broker call or crypto fallback."""
+        requested = _public_source(source)
+        if requested and requested not in STOCK_SOURCES:
+            return {'status':'source_not_stock','candidates':[]}
+        controller = getattr(self._app, 'stock_runtime_controller', None)
+        if controller is None: return {'status':'not_observed','candidates':[]}
+        snapshot = controller.snapshot(); rows=[]
+        for raw, result in dict(snapshot.get('last_results') or {}).items():
+            venue = _public_source(raw)
+            if venue not in STOCK_SOURCES or (requested and venue != requested) or not isinstance(result,dict):continue
+            decisions={str(v.get('symbol')):v for v in result.get('decisions',[]) if isinstance(v,dict)}
+            for symbol in list(result.get('candidate_symbols') or [])[:200]:
+                decision=decisions.get(str(symbol),{})
+                score=decision.get('score')
+                try:
+                    import math
+                    score = float(score) if score is not None and not isinstance(score,bool) else None
+                    if score is not None and not math.isfinite(score):score=None
+                except (ValueError,TypeError):score=None
+                rows.append({'source':venue,'symbol':str(symbol),'score':score,
+                    'signal':str(decision.get('action') or '미평가'),
+                    'reason':str(decision.get('reason') or decision.get('analysis_reasoning') or '기관 후보 목록, 진입 판단 별도')[:300],
+                    'observed_at':result.get('candidate_observed_at'),
+                    'execution_mode':result.get('execution_mode'),'entry_permission':'not_certified_by_candidate_list'})
+        return {'status':'observed' if rows else 'not_observed','candidates':rows,
+                'running_sources':[_public_source(v) for v in snapshot.get('running_sources',[])]}
+
     def assistant_context_snapshot(self, *, service: str, source: str = "") -> dict[str, Any]:
         """Return bounded in-memory execution evidence without an exchange call."""
         runtime = self.snapshot()

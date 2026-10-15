@@ -27,13 +27,14 @@ def test_web_engine_bundle_audit_requires_notification_runtime_module(tmp_path):
         ("httpx", "httpx.pyc", "PYMODULE"),
         ("jiter", "jiter.pyd", "EXTENSION"),
     ]), encoding="utf-8")
-    assert missing_required_runtime_modules(toc) == ["trading.notifications"]
+    assert missing_required_runtime_modules(toc) == ["trading.ai_custom_guidance", "trading.notifications"]
 
     toc.write_text(repr([
         ("openai", "openai.pyc", "PYMODULE"),
         ("httpx", "httpx.pyc", "PYMODULE"),
         ("jiter", "jiter.pyd", "EXTENSION"),
         ("trading.notifications", "trading/notifications.pyc", "PYMODULE"),
+        ("trading.ai_custom_guidance", "trading/ai_custom_guidance.pyc", "PYMODULE"),
     ]), encoding="utf-8")
     assert missing_required_runtime_modules(toc) == []
 

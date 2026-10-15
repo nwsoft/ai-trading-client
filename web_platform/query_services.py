@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import math
 import mmap
 import os
 import re
@@ -1023,6 +1024,39 @@ class AccountQueryService:
             "scopes": scopes,
         }
 
+    def strategy_live_performance(self) -> dict[str, Any]:
+        """One account-local aggregate, attributed by exact key/version/venue/currency."""
+        try:
+            with closing(self._connect()) as db:
+                columns={str(v[1]) for v in db.execute('PRAGMA table_info(trade_log)')}
+                required={'strategy_key','strategy_version_id','exchange','settlement_currency','execution_mode','exit_time','net_pnl','reconciliation_status'}
+                if not required.issubset(columns):return {'status':'attribution_unavailable','versions':{}}
+                def finite_numeric(expression):
+                    return f"CASE WHEN typeof(({expression})) IN ('real','integer') AND ({expression}) BETWEEN -1.7976931348623157e308 AND 1.7976931348623157e308 THEN ({expression}) ELSE NULL END"
+                confirmed=finite_numeric(_confirmed_net_pnl_expression(columns))
+                fees=finite_numeric('fees') if 'fees' in columns else 'NULL'
+                query=f"""SELECT strategy_key,strategy_version_id,exchange,settlement_currency,
+                    COUNT(*) AS recorded_closes, COUNT({confirmed}) AS confirmed_closes,
+                    SUM(CASE WHEN ({confirmed})>0 THEN 1 ELSE 0 END) AS wins,
+                    SUM({confirmed}) AS net_pnl, SUM({fees}) AS recorded_costs,
+                    COUNT({fees}) AS cost_records, MAX(exit_time) AS last_close
+                    FROM trade_log WHERE LOWER(TRIM(execution_mode))='live'
+                    AND exit_time IS NOT NULL AND exit_time!='' AND strategy_key!='' AND strategy_version_id!=''
+                    GROUP BY strategy_key,strategy_version_id,exchange,settlement_currency"""
+                versions={}
+                for raw in db.execute(query):
+                    row=dict(raw);key=(str(row.pop('strategy_key')),str(row.pop('strategy_version_id')))
+                    row['win_rate']=round(row['wins']/row['confirmed_closes']*100,2) if row['confirmed_closes'] else None
+                    for field in ['net_pnl','recorded_costs']:
+                        value=row[field]
+                        if value is not None and not math.isfinite(float(value)):row[field]=None
+                    row['settlement_currency']=row['settlement_currency'] or '미기록'
+                    versions.setdefault(key,[]).append(row)
+                return {'status':'observed','versions':versions}
+        except (OSError,sqlite3.Error,ValueError,TypeError):
+            return {'status':'unavailable','versions':{}}
+
+
     def trading_statistics(
         self,
         *,
@@ -1182,6 +1216,7 @@ class AccountQueryService:
                 group["gross_pnl"] += gross_pnl
                 group["gross_pnl_count"] += gross_pnl_count
                 group["reconciled_count"] += row_reconciled
+                group["winning_trades"] = group.get("winning_trades", 0) + row_wins
                 group["unresolved_count"] += max(0, total - row_reconciled)
                 group["total_fees"] += fees
                 group["total_notional"] += notional
@@ -1215,6 +1250,7 @@ class AccountQueryService:
 
         rendered_groups: list[dict[str, Any]] = []
         for group in groups.values():
+            group["win_rate"] = round(group.get("winning_trades", 0) / group["reconciled_count"] * 100, 2) if group["reconciled_count"] else None
             rows = list(group["rows"])
             rows.sort(key=lambda row: (-int(row["total_trades"]), str(row["symbol"])))
             hold_total = float(group.pop("hold_total"))

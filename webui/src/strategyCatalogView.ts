@@ -3,6 +3,9 @@ export function strategyCatalogView(groups:StrategyCatalog['strategies'],query:s
   const needle=query.trim().toLocaleLowerCase();
   function matches(v:StrategyVersion) {
     if(status==='active')return v.active;
+    if(status==='inactive')return !v.active && v.status!=='active';
+    if(status==='approval')return ['analyzed','needs_clarification'].includes(v.status);
+    if(status==='paper_needed')return !v.active && !v.paper_observing && !v.paper_validation?.passed && ['approved','execution_validated','execution_rejected','paper_paused','paper_rejected'].includes(v.status);
     if(status==='paper')return v.paper_observing || v.status==='paper_observing';
     if(status==='passed')return v.paper_validation?.passed===true;
     if(status==='repair')return (v.execution_readiness??v.paper_execution_readiness)?.ready===false;

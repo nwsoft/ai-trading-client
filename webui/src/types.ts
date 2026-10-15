@@ -179,6 +179,7 @@ export interface StrategyVersion {
   guidance: Record<string, any>;
   deactivated?: { approved_by?: string; at?: string };
   paper_validation?: Record<string, any> | null;
+  live_performance?: {status: string; groups: Array<Record<string, any>>};
   paper_trial?: {schema_version?: number; target_days?: number; kind?: string; auto_stop?: boolean};
   paper_progress?: {
     trades: number;
@@ -288,6 +289,8 @@ export interface LifeFinanceSnapshot {
 }
 
 export interface WorkspaceSnapshot {
+  stock_candidates?: Array<Record<string, any>>;
+  stock_candidate_status?: string;
   operation_overview?: Record<string, NonNullable<WorkspaceSnapshot['operation_summary']>>;
   operation_summary?: {
     entry_health?: {code:string;label:string;action:string;blocked:boolean;observed_at?:number;since?:number;consecutive_count?:number;last_entry_at?:number};

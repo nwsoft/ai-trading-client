@@ -255,7 +255,7 @@ def test_settings_have_visible_section_save_bars_and_noahai_close_branding():
 
     custom_source = (ROOT / "ui" / "widgets" / "custom_strategy_widget.py").read_text(encoding="utf-8")
     assert "검토 및 전략 버전 저장" in custom_source
-    guidance_source = (ROOT / "ui" / "ai_custom_guidance.py").read_text(encoding="utf-8")
+    guidance_source = (ROOT / "trading" / "ai_custom_guidance.py").read_text(encoding="utf-8")
     assert "AI_CUSTOM_CONFIRM_ROLE_LABEL" in custom_source
     assert "AI_CUSTOM_INDEPENDENT_ROLE_LABEL" in custom_source
     assert 'AI_CUSTOM_CONFIRM_ROLE_LABEL = "기본 AI 후보 확인 (권장)"' in guidance_source

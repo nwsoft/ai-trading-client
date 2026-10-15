@@ -8,7 +8,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 import re
 
-GUIDE_REVISION = "3.9.2.14-support.20261014.3"
+GUIDE_REVISION = "3.9.2.15-support.20261015.1"
 
 
 @dataclass(frozen=True)
@@ -145,7 +145,7 @@ TOPICS = (
         "정의와 근거 포함 패키지는 다르며 ZIP을 풀어 기존 가져오기로 확인합니다.",
         "In My private strategy versions, select versions for deletion, pause, definition/package export or PAPER start. Select-all covers current search results; changing scope/filters clears selection. Up to 100 are processed sequentially with per-item outcomes. Active/validating versions cannot simply be deleted. Pause is not liquidation. Approval, executable rules, scope and capacity checks still apply. There is no automatic approval, evidence reset or LIVE switch."),
     SupportTopic("strategy_flow", ("백테스트없이", "백테스트필수", "백테스트통과", "level", "레벨", "기존전략복구", "빈실행식", "실행식누락", "전략스튜디오사용법"),
-        "ui/ai_custom_guidance.py",
+        "trading/ai_custom_guidance.py",
         "전략 스튜디오는 Level 1~5를 지원합니다. 단계는 제작·표시 복잡도이며 수익 등급이나 안전 검사 면제권이 아닙니다. "
         "과거 시세 재생은 선택적 역사 시뮬레이션입니다. 유효한 실행식과 사용자 승인 등 PAPER 자격을 충족하면 백테스트 합격 없이 PAPER를 시작할 수 있습니다. "
         "PAPER 시작 자격, 검증 결과, 최종 적용, LIVE 권한은 별도입니다. PAPER 성과가 과거재생과 같아야 한다는 뜻도 아니고 수익 보장도 아닙니다. "

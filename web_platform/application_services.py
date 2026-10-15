@@ -1562,6 +1562,11 @@ class ApplicationServices:
             statistics_end=statistics_end,
             statistics_baseline_at=str(statistics_state.get("baseline_at") or ""),
         )
+        if service == 'stock' and 'info' in feature:
+            getter = getattr(self.runtime_bridge, 'stock_candidate_snapshot', None)
+            selection = getter(source=source) if callable(getter) else {'status':'not_observed','candidates':[]}
+            snapshot['stock_candidates'] = selection.get('candidates', [])
+            snapshot['stock_candidate_status'] = selection.get('status', 'not_observed')
         if service == "ai_analyst" and "scenario" in feature:
             from .asset_insight_data import load_paper_trade_records
             records = load_paper_trade_records(self.data_dir)["records"] if normalized_statistics_mode == "paper" else None
@@ -2790,7 +2795,7 @@ class ApplicationServices:
             content = str(item.get("content") or "").strip()[:4000] if isinstance(item, dict) else ""
             if role in {"user", "assistant"} and content:
                 safe_recent_messages.append({"role": role, "content": content})
-        from ui.ai_custom_guidance import build_ai_custom_safe_flow
+        from trading.ai_custom_guidance import build_ai_custom_safe_flow
         safe_flow = build_ai_custom_safe_flow()
         provider_guide = (
             "일반 도움말은 로컬 정본을 사용해 비용이 들지 않습니다. 시장 심층분석만 설정된 "
@@ -4060,6 +4065,7 @@ class ApplicationServices:
             }
 
     def strategy_catalog(self) -> dict[str, Any]:
+        live_performance = self.queries.strategy_live_performance()
         paper_outcomes = read_paper_strategy_outcomes(
             path=self.data_dir / "strategy_paper_outcomes.jsonl"
         )
@@ -4127,6 +4133,7 @@ class ApplicationServices:
                                           "unverified_trades": len(version_all_rows) - len(version_rows), "unknown_risk_records": unknown_risk},
                             "observing": bool(observing),
                         },
+                        "live_performance": {'status':live_performance['status'], 'groups':live_performance['versions'].get((strategy_key,str(version.get('version_id'))),[])},
                         "paper_evidence_by_venue": self._strategy_paper_evidence_by_venue(
                             version_all_rows
                         ),
@@ -4467,6 +4474,7 @@ class ApplicationServices:
                 "total_fees": 0.0, "total_notional": 0.0, "hold_seconds": 0.0,
                 "hold_count": 0, "rows": [],
             })
+            group["winning_trades"] = group.get("winning_trades", 0) + row_wins
             group["closed_count"] += total
             group["total_pnl"] += sum(pnl_values)
             group["total_fees"] += fee_total
@@ -4483,6 +4491,7 @@ class ApplicationServices:
                 "max_loss": min(pnl_values) if pnl_values else 0.0,
             })
         for group in by_venue.values():
+            group["win_rate"] = round(group.get("winning_trades", 0) / group["closed_count"] * 100, 2) if group["closed_count"] else None
             group_hold_count = int(group.pop("hold_count"))
             group_hold_seconds = float(group.pop("hold_seconds"))
             group["avg_hold_minutes"] = group_hold_seconds / 60.0 / group_hold_count if group_hold_count else None
@@ -4827,6 +4836,10 @@ class ApplicationServices:
                 authoring_mode=authoring_mode,
                 **extra,
             )
+            if not result.get('rules', {}).get('strategy_name'):
+                single_name = str(bundle_items[0].get('name') or bundle_items[0].get('file_name') or '') if len(bundle_items) == 1 else public_name if (temporary_path or file_name) else ''
+                if single_name: result['name'] = Path(single_name.replace('\\','/')).stem[:160]
+            else: result['name'] = result['rules']['strategy_name']
             if bundle_items:
                 result['source_manifest'] = extra['extracted_source'].evidence['sources']
                 if not extra['extracted_source'].evidence['coverage_complete']:

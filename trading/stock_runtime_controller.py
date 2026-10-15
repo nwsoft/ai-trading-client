@@ -677,4 +677,4 @@ class StockRuntimeController:
             result = {**result, "live_blocked_reason": blocked_reason}
         if not symbols:
             result = {**result, "reason": "empty_stock_universe"}
-        return {**result, "candidate_count": len(symbols), "universe_issues": list(getattr(adapter, "last_universe_issues", []) or [])}, interval
+        return {**result, "candidate_count": len(symbols), "candidate_symbols": list(symbols)[:200], "candidate_observed_at": time.time(), "universe_issues": list(getattr(adapter, "last_universe_issues", []) or [])}, interval

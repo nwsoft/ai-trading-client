@@ -230,7 +230,7 @@ def test_feedback_surfaces_expose_trade_scope_and_preset_handoff():
     assert "아래를 비우면 모든 활성 거래소가 학습 전용으로 시작됩니다." in settings_source
     assert "'trade_enabled_exchanges': trade_exchange_values" in settings_source
     assert "초보자 시작: AI 자동 대응 + 검토용 기본 전략 4개" in custom_source
-    guidance_source = (ROOT / "ui" / "ai_custom_guidance.py").read_text(encoding="utf-8")
+    guidance_source = (ROOT / "trading" / "ai_custom_guidance.py").read_text(encoding="utf-8")
     assert "AI_CUSTOM_RULE_EDITOR_TITLE" in custom_source
     assert 'AI_CUSTOM_RULE_EDITOR_TITLE = "다중 시간봉 규칙 편집 (선택)"' in guidance_source
     assert "12단계 자세히" in custom_source

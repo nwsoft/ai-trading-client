@@ -13,10 +13,10 @@ export function StrategyBulkActions({client, rows, selected, onSelection, disabl
   useEffect(() => { mounted.current = true; return () => { mounted.current = false; stop.current = true; }; }, []);
   useEffect(() => () => { if (download) URL.revokeObjectURL(download.url); }, [download]);
   const targets = rows.filter(row => selected.has(bulkKey(row)));
-  const names: Record<BulkOperation,string> = {delete:'선택 버전 삭제', pause:'선택 일시중지', paper:'선택 PAPER 검증', definition:'선택 전략 내보내기', package:'선택 패키지 내보내기'};
+  const names: Record<BulkOperation,string> = {approve:'선택 내용 확인·승인', delete:'선택 버전 삭제', pause:'선택 일시중지', paper:'선택 PAPER 검증', definition:'선택 전략 내보내기', package:'선택 패키지 내보내기'};
   async function run(operation: BulkOperation) {
     if (lock.current || disabled || !targets.length || targets.length > BULK_LIMIT) return;
-    const note = operation === 'delete' ? '선택한 버전의 규칙만 삭제합니다. 다른 버전·거래 원장은 삭제하지 않습니다. 적용/검증 중인 버전은 보류합니다. 먼저 내보내기를 권장합니다.'
+    const note = operation === 'approve' ? '선택한 각 버전의 원문과 실행 규칙을 읽고 내용 확인·승인합니다. 실행 조건이 부족한 버전은 보류하며 PAPER 시작이나 실제 적용은 하지 않습니다.' : operation === 'delete' ? '선택한 버전의 규칙만 삭제합니다. 다른 버전·거래 원장은 삭제하지 않습니다. 적용/검증 중인 버전은 보류합니다. 먼저 내보내기를 권장합니다.'
       : operation === 'pause' ? 'PAPER 검증은 근거를 보존하고 일시중지합니다. 적용 중인 전략은 신규 진입 풀에서 해제합니다. 기존 포지션 강제청산이나 거래소 전체 정지가 아닙니다.'
       : operation === 'paper' ? '승인된 실행 가능 버전만 PAPER 시작/재개합니다. 자동 승인·LIVE 전환·기존 검증 초기화는 하지 않습니다. 같은 전략의 다른 버전과 충돌하면 서버가 거부하며, 일반 10/프리미엄 30 평가 한도와 대기 정책은 유지합니다.'
       : '로컬 ZIP으로 저장합니다. 압축을 풀고 .noahstrategy 파일을 기존 전략 가져오기로 열 수 있습니다. 승인·활성 권한은 포함하지 않으며 허브로 전송하지 않습니다.';
@@ -64,7 +64,7 @@ export function StrategyBulkActions({client, rows, selected, onSelection, disabl
       lock.current = false;
       if (mounted.current) {
         setResults([...report]);setProgress(stop.current ? '중단됨 · 완료 항목은 유지됩니다.' : '처리 완료 · 아래 개별 결과를 확인하세요.');setRunning(false);onBusy(false);
-        onSelection(new Set()); if (operation==='delete'||operation==='pause'||operation==='paper') onRefresh();
+        onSelection(new Set()); if (operation==='delete'||operation==='pause'||operation==='paper'||operation==='approve') onRefresh();
       }
     }
   }

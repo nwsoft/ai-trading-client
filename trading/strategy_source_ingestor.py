@@ -684,6 +684,47 @@ class StrategySourceIngestor:
         match = re.fullmatch(r"(?:ta\.)?(ema|sma)\(close,(20|50|200)\)", normalized)
         return f"{match.group(1)}{match.group(2)}" if match else ""
 
+    @staticmethod
+    def declared_metadata(text: str) -> Dict[str, Any]:
+        """Read explicit source routing fields; never infer venues from indicators."""
+        output: Dict[str, Any] = {}
+        aliases = {'strategy_name':'strategy_name', '전략명':'strategy_name',
+                   '거래소':'target_scope', '거래소증권사':'target_scope', 'target_scope':'target_scope',
+                   '국면기준':'regime_scope', 'regime_scope':'regime_scope',
+                   '우선순위':'priority', 'priority':'priority', 'entry_signal':'entry_signal'}
+        seen = {}
+        for line in text.splitlines():
+            match = re.match(r'^\s*([^=:]+?)\s*[=:]\s*(.*?)\s*$', line)
+            if not match: continue
+            label, value = match.groups(); field = aliases.get(re.sub(r'\s+', '', label).lower())
+            if not field: continue
+            if field in seen and seen[field] != value:
+                output.setdefault('metadata_issues', []).append('source_metadata_conflict:' + field)
+                continue
+            seen[field] = value
+            if field == 'target_scope':
+                from trading.exchanges.venue_capabilities import CRYPTO_VENUES, STOCK_VENUES
+                names = [v.strip().lower() for v in re.split(r'[+,，]', value)]
+                names = [dict(koreainvestment='kis',miraeasset='mirae').get(v,v) for v in names]
+                if value.lower().startswith(('exchange:', 'broker:', 'asset:')):
+                    kind, _, rest = value.lower().partition(':'); names = rest.split(',')
+                    if kind == 'asset' and rest in {'crypto','stock','etf','all'}:output[field]=value.lower();continue
+                else:kind = 'exchange' if all(v in CRYPTO_VENUES for v in names) else 'broker'
+                allowed = CRYPTO_VENUES if kind == 'exchange' else STOCK_VENUES
+                if names and all(v in allowed for v in names):output[field]=kind+':'+','.join(sorted(set(names)))
+                else:output.setdefault('metadata_issues', []).append('source_target_scope_invalid')
+            elif field == 'regime_scope':
+                normalized = {'종목별':'symbol','종목':'symbol','시장상황':'market','시장':'market','시장과종목':'both','국면무관':'none'}.get(value,value.lower())
+                if normalized in {'market','symbol','both','none'}:output[field]=normalized
+                else:output.setdefault('metadata_issues', []).append('source_regime_scope_invalid')
+            elif field == 'priority':
+                if re.fullmatch(r'[0-9]{1,2}',value) and 1 <= int(value) <= 10:output[field]=int(value)
+                else:output.setdefault('metadata_issues', []).append('source_priority_invalid')
+            elif field == 'entry_signal':
+                if value.upper() in {'LONG','SHORT'}:output[field]=value.upper()
+            else:output[field]=value[:160]
+        return output
+
     def _heuristic_rules(self, source: ExtractedStrategySource) -> Dict[str, Any]:
         text = source.text or ""
         lower = text.lower()
@@ -1079,6 +1120,17 @@ class StrategySourceIngestor:
                 if structured['gaps']:
                     rules['source_condition_gaps'] = structured['gaps']
                     rules['compiler_issues'].append('source_conditions_require_definition')
+        metadata = self.declared_metadata(text)
+        rules['compiler_issues'].extend(metadata.pop('metadata_issues', []))
+        rules.update(metadata)
+        routing = {key:metadata[key] for key in ('target_scope','regime_scope','priority') if key in metadata}
+        if routing: rules['source_routing_contract'] = routing
+        explicit_risk = re.search(r'(?im)^\s*RISK_PER_TRADE_PERCENT\s*=\s*(\d+(?:\.\d+)?)\s*%\s*$', text)
+        explicit_margin = re.search(r'(?im)^\s*MAX_MARGIN_USAGE_PERCENT\s*=\s*(\d+(?:\.\d+)?)\s*%\s*$', text)
+        if explicit_risk: rules.setdefault('risk_model', {})['risk_per_trade_percent'] = float(explicit_risk.group(1))
+        if explicit_margin: rules.setdefault('risk_model', {})['max_margin_usage_percent'] = float(explicit_margin.group(1))
+        positions = re.search(r'(?im)^\s*MAX_CONCURRENT_POSITIONS\s*=\s*([0-9]+)\s*$', text)
+        if positions: rules.setdefault('risk_model', {})['max_concurrent_positions'] = int(positions.group(1))
         return rules
 
     def _coverage_summary(self, source: ExtractedStrategySource) -> str:
@@ -1160,6 +1212,8 @@ class StrategySourceIngestor:
                 if key in engine
             },
         }
+        if 'source_routing_contract' in rules:
+            payload['source_routing_contract'] = {key:rules.get(key) for key in rules['source_routing_contract']}
         if 'entry_contract' in rules:
             payload['entry_contract'] = rules['entry_contract']
         if 'numeric_state' in rules:
@@ -1646,7 +1700,7 @@ class StrategySourceIngestor:
         # React keys, allowing answers/rows to be associated with another clause.
         clarification_questions = build_clarification_questions(blocking_details)
         return {
-            "name": str(result.get("name") or source.title or "사용자 전략"),
+            "name": str(rules.get("strategy_name") or result.get("name") or source.title or "사용자 전략"),
             "summary": str(result.get("summary") or "소스에서 확인 가능한 조건만 추출했습니다."),
             "source": source_payload,
             "source_manifest": source.evidence.get('sources', []) if source.kind == 'bundle' else [],

@@ -7149,6 +7149,12 @@ Response in JSON format:
             else:
                 regime = 'normal'  # 정상 시장
 
+            from trading.regime_diagnostics import record_fast_metrics
+            record_fast_metrics(self, exchange_name, symbol_basis=symbol, lookback_bars=10,
+                rsi=rsi, trend_change_percent=trend_slope*100, volume_ratio=volume_ratio,
+                change_30m_percent=price_change_30m, trend_threshold_percent=3.0,
+                volume_required=1.2, volatility_required=2.0,
+                rsi_bull_threshold=65, rsi_bear_threshold=35)
             # 시장 분석 결과 로그
             if callable(getattr(self, 'log_event', None)):
                 self.log_event('analysis', f"🔍 {exchange_name} 빠른 시장 분석 결과:", exchange=exchange_name)

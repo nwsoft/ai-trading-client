@@ -42,7 +42,10 @@ def publish(owner, source, kind, *, mode=None, expected_generation=None, **evide
                    'strategy_key', 'version_id', 'strategy_name', 'timeframe',
                    'bar_timestamp', 'allowed', 'code', 'basis', 'base_signal',
                    'confidence', 'required_confidence', 'loss_rate', 'max_loss_rate',
-                   'recent_trades', 'min_trades_history', 'history_observed', 'phase'}
+                   'recent_trades', 'min_trades_history', 'history_observed', 'phase',
+                   'calculation_at','rsi','trend_change_percent','volume_ratio','change_30m_percent',
+                   'trend_threshold_percent','volume_required','volatility_required',
+                   'rsi_bull_threshold','rsi_bear_threshold','lookback_bars','symbol_basis'}
         row = {k: (v[:300] if isinstance(v, str) else v)
                for k,v in evidence.items() if k in allowed and
                (v is None or isinstance(v, (str, bool, int, float))) and

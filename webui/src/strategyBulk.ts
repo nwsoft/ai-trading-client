@@ -1,7 +1,7 @@
 import type { StrategyVersion } from './types';
 
 export type BulkRow = { scope: string; version: StrategyVersion };
-export type BulkOperation = 'delete' | 'pause' | 'paper' | 'definition' | 'package';
+export type BulkOperation = 'delete' | 'pause' | 'paper' | 'approve' | 'definition' | 'package';
 export const BULK_LIMIT = 100;
 export const EXPORT_LIMIT = 20 * 1024 * 1024;
 export const bulkKey = ({scope, version}: BulkRow) => JSON.stringify([scope, version.strategy_key, version.version_id]);
@@ -11,6 +11,7 @@ export function bulkDecision(row: BulkRow, operation: BulkOperation): {action?: 
   const v = row.version;
   const active = v.active || v.status === 'active';
   const observing = v.paper_observing || v.status === 'paper_observing';
+  if (operation === 'approve') return !active && !observing && v.status === 'analyzed' && (v.execution_readiness ?? v.paper_execution_readiness)?.ready !== false ? {action:'approve'} : {reason:'내용 확인이 가능한 분석 완료 버전만 승인합니다. 누락 조건·적용 중 상태는 개별 확인하세요.'};
   if (operation === 'definition' || operation === 'package') return {action: operation};
   if (operation === 'delete') return active || observing
     ? {reason: '적용/검증 중입니다. 먼저 일시중지하고 상태를 확인하세요.'} : {action: 'delete'};
