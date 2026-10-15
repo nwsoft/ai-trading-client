@@ -51,6 +51,7 @@ a = Analysis(
         "ccxt.bybit", "ccxt.okx", "ccxt.bitget",
         "trading.exchange_manager", "trading.api_signal_manager",
         "trading.ai_custom_features", "trading.user_indicator_language",
+        "trading.stock_candles", "trading.kis_intraday_history",
         "trading.strategy_package", "trading.strategy_quality_report",
         "trading.signed_strategy_webhook", "trading.notifications", "referral_account_proof",
         "trading.remote_entry_pause", "web_platform.remote_monitor", "api.telemetry_batch",

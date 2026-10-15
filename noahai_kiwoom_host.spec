@@ -7,7 +7,7 @@ if sys.platform != "win32" or struct.calcsize("P") != 4:
 
 a = Analysis(["scripts/kiwoom_host.py"], pathex=["."], binaries=[], datas=[],
              hiddenimports=["pykiwoom.kiwoom", "PyQt5.QAxContainer", "PyQt5.QtWidgets",
-                            "log_system.log_stream"],
+                            "log_system.log_stream", "trading.stock_candles"],
              excludes=["tkinter", "torch", "tensorflow", "matplotlib"], noarchive=False)
 pyz = PYZ(a.pure)
 exe = EXE(pyz, a.scripts, a.binaries, a.datas, [], name="NoahAIKiwoomHost",

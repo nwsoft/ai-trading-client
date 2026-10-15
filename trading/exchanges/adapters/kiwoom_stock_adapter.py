@@ -874,6 +874,40 @@ class KiwoomStockAdapter(StockExchange):
             self.log_event('system', f"종목 정보 조회 실패: {symbol} - {e}", level='ERROR')
             return {"status": "error", "error": str(e)}
 
+    def get_intraday_candles(self, symbol: str, timeframe: str, limit: int = 205) -> List[Dict[str, Any]]:
+        from trading.stock_candles import candle, completed, intraday_minutes
+        minutes = intraday_minutes(timeframe)
+        if not self.is_connected:
+            raise RuntimeError('stock_intraday_not_connected')
+        symbol = self._normalize_symbol(symbol)
+        target = max(1, min(int(limit), 600))
+        cache = getattr(self, '_intraday_cache', {})
+        self._intraday_cache = cache
+        key = (symbol, timeframe)
+        old = cache.get(key)
+        if old and time.monotonic()-old[0] < 10 and old[1] >= target:
+            return completed(old[2])[-target:]
+        rows = []
+        # opt10080 supports native 1/3/5/10/15/30/60 minute bars. At most
+        # two pages, sharing the host RPC deadline, never a daily fallback.
+        for page in range(2):
+            raw = self._call_block_request('opt10080', 종목코드=symbol, 틱범위=str(minutes),
+                수정주가구분='1', output='주식분봉차트조회', next=2 if page else 0)
+            items = self._extract_records(raw)
+            for item in items:
+                row = candle(self._get_field(item, '체결시간'), {
+                    'open':self._get_field(item, '시가'), 'high':self._get_field(item, '고가'),
+                    'low':self._get_field(item, '저가'), 'close':self._get_field(item, '현재가'),
+                    'volume':self._get_field(item, '거래량')}, minutes)
+                rows.append(row)
+            if len(completed(rows)) >= target or not getattr(self.kiwoom, 'tr_remained', False) or not items:
+                break
+        rows = completed(rows)
+        if len(cache) >= 32 and key not in cache:
+            cache.pop(next(iter(cache)))
+        cache[key] = (time.monotonic(),target,rows)
+        return rows[-target:]
+
     def get_daily_candles(self, symbol: str, limit: int = 100) -> List[Dict[str, Any]]:
         if not self.is_connected:
             return []

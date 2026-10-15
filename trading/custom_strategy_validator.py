@@ -292,6 +292,7 @@ def enrich_advanced_indicator_context(
     for timeframe in declared:
         grouped.setdefault(timeframe, [])
     contexts: Dict[str, Any] = {}
+    history_evidence: Dict[str, Any] = {}
     from .numeric_strategy_state import fields as state_fields, enrich_states
     state_programs=[(item.get('rules') or item).get('numeric_state') for item in pool if isinstance(item,dict)]
     state_programs=[p for p in state_programs if p]
@@ -301,6 +302,7 @@ def enrich_advanced_indicator_context(
         from .temporal_strategy_conditions import required_bars, required_fields
         temporal_bars = max(required_bars(pool),400 if state_programs else 0)
         limit = min(600, max([int(item.get("period") or 0) + 5 for item in items] + [205 + temporal_bars if timeframe in declared else 5]))
+        history_error = None
         try:
             rows = _candle_rows(candle_fetcher(timeframe, limit) or [])
             from trading.strategy_timeframes import timeframe_ms
@@ -308,8 +310,13 @@ def enrich_advanced_indicator_context(
             rows = [row for row in rows if row.get("timestamp") is not None and
                     float(row.get("close_timestamp") or (row["timestamp"] + timeframe_ms(timeframe) / 1000)) <= now]
             rows = sorted({row["timestamp"]: row for row in rows}.values(), key=lambda row: row["timestamp"])
-        except Exception:
+        except Exception as exc:
+            # Do not leak arbitrary adapter/server text into runtime evidence.
+            history_error = type(exc).__name__
             rows = []
+        history_evidence[timeframe] = {'bars':len(rows), 'requested':limit,
+            'status':'fetch_failed' if history_error else ('ready' if len(rows)>=limit else 'insufficient_history'),
+            'error_type':history_error}
         if timeframe in declared and len(rows) >= 80:
             contexts[timeframe] = _context(rows, len(rows) - 1, str(context.get("signal") or "HOLD"))
             if temporal_bars:
@@ -353,6 +360,7 @@ def enrich_advanced_indicator_context(
         enriched["_previous"] = previous
     enriched["_advanced_indicator_values"] = compared
     enriched["_strategy_timeframe_contexts"] = contexts
+    enriched["_strategy_timeframe_history"] = history_evidence
     if state_programs:
         enriched=enrich_states(enriched,rules_or_pool if state_pool is None else state_pool,state_scope,state_store)
     return enriched

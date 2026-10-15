@@ -60,18 +60,28 @@ def stock_cycle_diagnosis(result):
             match = re.fullmatch(r'consensus_low:([0-9]+(?:\.[0-9]+)?)<([0-9]+(?:\.[0-9]+)?)',str(reason))
             if match: detail += f' · 합의 점수 {match[1]} / 필요 {match[2]}'
     timeframes=set()
+    history_details=set()
     def timeframe_reasons(value, depth=0):
         if depth>8:return
         if isinstance(value,dict):
             for key,nested in value.items():
                 if key=='reason' and isinstance(nested,str):
                     match=re.fullmatch(r'strategy_timeframe_data_unavailable:([0-9]+[mhdw])',nested)
-                    if match:timeframes.add(match[1])
+                    if match:
+                        timeframes.add(match[1])
+                        history=value.get('timeframe_history')
+                        if isinstance(history,dict):
+                            bars,requested=history.get('bars'),history.get('requested')
+                            labels={'fetch_failed':'조회 실패','insufficient_history':'수집 중·부족','ready':'확인됨'}
+                            state=labels.get(history.get('status'))
+                            if state and type(bars) is int and type(requested) is int and 0<=bars<=600 and 1<=requested<=600:
+                                history_details.add(f'{match[1]} {bars}/{requested}봉({state})')
                 elif isinstance(nested,(dict,list)):timeframe_reasons(nested,depth+1)
         elif isinstance(value,list):
             for nested in value[:40]:timeframe_reasons(nested,depth+1)
     timeframe_reasons(result.get('decisions', []))
-    if timeframes:detail += ' · 사용자 전략 시간봉 자료 없음: '+', '.join(sorted(timeframes))+'. 증권 전략은 현재 일봉만 지원하며 분봉을 일봉으로 바꾸지 않습니다.'
+    if timeframes:detail += ' · 사용자 전략 시간봉 자료 없음: '+', '.join(sorted(timeframes))+'. 키움·한국투자는 분봉 수집 상태와 연결을 확인하세요. 자료가 부족하거나 미지원 기관이면 평가하지 않으며 일봉으로 바꾸지 않습니다.'
+    if history_details:detail += ' · 자료 현황: '+', '.join(sorted(history_details)[:5])
     return detail
 
 

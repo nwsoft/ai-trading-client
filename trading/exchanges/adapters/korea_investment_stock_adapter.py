@@ -38,6 +38,8 @@ class KoreaInvestmentStockAdapter(MiraeAssetStockAdapter):
         kwargs.setdefault("api_version", "kis_openapi_v1")
         super().__init__(user_id, password, cert_password, account_no, **kwargs)
         self.exchange_name = "koreaInvestment"
+        self._intraday_lock = threading.RLock()
+        self._intraday_cache = {}
         self._token_retry_at: float = 0.0
         self._token_limit_notice_at: float = 0.0
         self._configured_etf_symbols = [
@@ -162,6 +164,8 @@ class KoreaInvestmentStockAdapter(MiraeAssetStockAdapter):
         real_ids = {
             '/uapi/domestic-stock/v1/quotations/inquire-price': 'FHKST01010100',
             '/uapi/domestic-stock/v1/quotations/inquire-daily-itemchartprice': 'FHKST03010100',
+            '/uapi/domestic-stock/v1/quotations/inquire-time-dailychartprice': 'FHKST03010230',
+            '/uapi/domestic-stock/v1/quotations/inquire-time-itemchartprice': 'FHKST03010200',
             '/uapi/etfetn/v1/quotations/inquire-price': 'FHPST02400000',
             '/uapi/etfetn/v1/quotations/nav-comparison-trend': 'FHPST02440000',
             '/uapi/domestic-stock/v1/trading/inquire-balance': 'TTTC8434R',
@@ -407,6 +411,18 @@ class KoreaInvestmentStockAdapter(MiraeAssetStockAdapter):
             'EXCG_ID_DVSN_CD': 'KRX', 'CNDT_PRIC': '',
         })
         return self._kis_success(response)
+
+    def get_intraday_candles(self, symbol: str, timeframe: str, limit: int = 205) -> List[Dict[str, Any]]:
+        from trading.stock_candles import intraday_minutes, aggregate_minutes, KST
+        from trading.kis_intraday_history import read_intraday
+        intraday_minutes(timeframe)
+        if not self.is_connected:
+            raise RuntimeError('stock_intraday_not_connected')
+        with self._intraday_lock:
+            rows = read_intraday(self, self._normalize_symbol(symbol), int(limit)*intraday_minutes(timeframe))
+            result = aggregate_minutes(rows, timeframe)
+            self.last_history_issue = '' if len(result) >= min(600,int(limit)) else 'intraday_history_warming_or_insufficient'
+            return result[-max(1,min(600,int(limit))):]
 
     def get_daily_candles(self, symbol: str, limit: int = 100) -> List[Dict[str, Any]]:
         """KIS returns at most 100 rows per call; page backwards for EMA200.

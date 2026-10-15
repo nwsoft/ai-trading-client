@@ -20,7 +20,7 @@ def test_stock_direction_does_not_change_default_crypto_consensus_or_risk_checks
     assert not allowed and any(v.startswith('consensus_low') for v in meta['reasons'])
 
 
-@pytest.mark.parametrize('scope,tf,expected',[('asset:stock','5m',True),('broker:kis,kiwoom','3m',True),('asset:all','15m',True),('asset:stock','1d',False),('exchange:binance,okx','5m',False)])
+@pytest.mark.parametrize('scope,tf,expected',[('asset:stock','5m',True),('broker:kis,kiwoom','3m',False),('asset:all','15m',True),('asset:stock','1d',False),('exchange:binance,okx','5m',False)])
 def test_stock_timeframe_support_is_explained_without_mutating_execution_grants(scope,tf,expected):
     from trading.strategy_scope import strategy_runtime_support
     rules={'target_scope':scope,'decision_timeframe':tf};before=deepcopy(rules)

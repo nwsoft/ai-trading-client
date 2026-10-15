@@ -89,8 +89,12 @@ def strategy_runtime_support(rules):
     scope = str(rules.get('target_scope') or 'asset:crypto')
     brokers = [v for v in sorted(STOCK_VENUES) if scope_matches(scope, asset_class='stock', target=v)]
     timeframe = str(rules.get('decision_timeframe') or '15m')
-    unsupported = bool(brokers and timeframe != '1d')
+    from trading.stock_candles import STOCK_INTRADAY_MINUTES
+    supported = [v for v in brokers if timeframe == '1d' or (v in {'kiwoom','kis','koreaInvestment'} and timeframe in STOCK_INTRADAY_MINUTES)]
+    unsupported = [v for v in brokers if v not in supported]
     return {'status':'stock_timeframe_unsupported' if unsupported else 'scope_supported_data_required',
-            'timeframe':timeframe,'affected_brokers':brokers if unsupported else [],
-            'message':f'증권 {timeframe} 전략은 현재 분봉 공급이 연결되지 않아 평가할 수 없습니다. 일봉으로 자동 대체하지 않습니다. 원문을 검토하여 별도 일봉 버전을 만들거나 분봉 연동 후 다시 검증하세요. 기존 버전·기록은 보존됩니다.' if unsupported else '',
+            'timeframe':timeframe,'affected_brokers':unsupported,
+            'supported_brokers':supported,
+            'message':(f'증권 {timeframe} 분봉: 키움·한국투자에서 완료봉을 조회해 PAPER·운용 평가합니다. 한국투자 모의 서버는 당일 자료만 제공하므로 장 초반·긴 시간봉의 표본이 부족할 수 있습니다. 자료 수집 중/부족은 진입 근거 미확보로 표시하며 일봉으로 대체하지 않습니다. 증권 과거 재생은 일봉 경로와 구분됩니다. '
+                       + (f"미지원 기관: {', '.join(unsupported)}. 해당 기관에서는 평가할 수 없습니다." if unsupported else '')) if brokers and timeframe != '1d' else '',
             'grants_execution':False}

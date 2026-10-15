@@ -1,0 +1,37 @@
+{
+  "versions": 10,
+  "original_bytes_unchanged": true,
+  "existing_rules_unchanged": true,
+  "evidence": "synthetic completed KRX candles; no real market/order/provider validation",
+  "timeframes": {
+    "3m": {
+      "bars": 207,
+      "requested": 207,
+      "status": "ready",
+      "error_type": null
+    },
+    "5m": {
+      "bars": 207,
+      "requested": 207,
+      "status": "ready",
+      "error_type": null
+    },
+    "15m": {
+      "bars": 207,
+      "requested": 207,
+      "status": "ready",
+      "error_type": null
+    },
+    "1h": {
+      "bars": 207,
+      "requested": 207,
+      "status": "ready",
+      "error_type": null
+    }
+  },
+  "evaluation_reason_counts": {
+    "custom_entry_not_met": 10
+  },
+  "orders_attempted": 0,
+  "missing_timeframe_results": 0
+}

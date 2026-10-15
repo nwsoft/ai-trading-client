@@ -50,6 +50,7 @@ EXPLICIT_FILES = (
     "scripts/build_macos.py",
     "scripts/publish_macos.py",
     "scripts/smoke_kiwoom_host.py",
+    "scripts/probe_stock_intraday.py",
     "webui/electron-builder.mac.cjs",
     "noahai_kiwoom_host.spec",
     "requirements.txt",

@@ -30,7 +30,7 @@ def backend():
     )
     client.ocx = SimpleNamespace(dynamicCall=Mock(return_value=0))
     client.SetInputValue = Mock()
-    client.GetConnectState = Mock(return_value=0)
+    client.GetConnectState = Mock(return_value=1)
     client._load_tr_schema = lambda code: {"output": [{"price": ["현재가"]}]}
     return client
 
@@ -81,24 +81,27 @@ def test_invalid_output_fails_before_submission(backend):
     backend.ocx.dynamicCall.assert_not_called()
 
 
-def test_repeated_missing_callbacks_cool_down_only_same_tr_and_recover(backend):
+def test_repeated_missing_callbacks_cool_down_reads_and_recover(backend):
     for _ in range(3):
         with pytest.raises(TimeoutError):
             request(backend)
     submissions = backend.ocx.dynamicCall.call_count
-    with pytest.raises(RuntimeError, match='kiwoom_tr_cooldown:response_timeout:opt10001'):
+    with pytest.raises(RuntimeError, match='kiwoom_tr_cooldown:session_read_stalled'):
         request(backend)
     assert backend.ocx.dynamicCall.call_count == submissions
     backend._event_pump = lambda: backend.OnReceiveTrData(*backend._pending_tr, '', '0')
     backend._next_tr_at = 0
+    backend._clock = lambda: backend._read_retry_at + 1
     assert backend.block_request('opt10075', output='price', next=0)
     retry_at = backend._tr_timeouts['opt10001'][1]
     backend._clock = lambda: retry_at + 1
+    backend._next_tr_at = 0
     assert request(backend)
     assert 'opt10001' not in backend._tr_timeouts
 
 
 def test_login_failure_callback_does_not_wait_for_success_forever(backend):
+    backend.GetConnectState.return_value = 0
     backend._event_pump = lambda: backend.OnEventConnect(-100)
     with pytest.raises(RuntimeError, match="kiwoom_login_failed:-100"):
         backend.CommConnect()
@@ -198,12 +201,12 @@ def test_compound_reads_share_rpc_budget_without_waiting_for_parent_timeout(back
     backend.set_rpc_deadline(1.5)
     with pytest.raises(TimeoutError, match='kiwoom_tr_response_timeout'):
         request(backend)
-    with pytest.raises(TimeoutError, match='kiwoom_tr_rpc_budget_exhausted'):
+    with pytest.raises(TimeoutError, match='kiwoom_tr_rpc_budget_insufficient'):
         request(backend)
     assert backend._clock() < 1.6
-    with pytest.raises(TimeoutError, match='kiwoom_tr_rpc_budget_exhausted'):
+    with pytest.raises(TimeoutError, match='kiwoom_tr_rpc_budget_insufficient'):
         request(backend)
-    assert backend.ocx.dynamicCall.call_count == 2
+    assert backend.ocx.dynamicCall.call_count == 1
     backend.set_rpc_deadline(None)
     with pytest.raises(TimeoutError, match='kiwoom_tr_response_timeout'):
         request(backend)
@@ -318,3 +321,92 @@ def test_parent_fault_diagnostics_do_not_require_child_environment(tmp_path, mon
     record = json.loads(path.read_text())
     assert record['stage'] == 'proxy_rpc_transport_fault'
     assert record['error_type'] == 'get_stock_info:TimeoutError'
+
+
+def test_disconnected_tr_fails_before_submission_and_recovers(backend):
+    backend.GetConnectState.return_value=0
+    with pytest.raises(RuntimeError,match='not_connected'):request(backend)
+    backend.ocx.dynamicCall.assert_not_called()
+    backend.GetConnectState.return_value=1
+    backend._event_pump=lambda:backend.OnReceiveTrData(*backend._pending_tr,'','0')
+    assert request(backend)
+
+
+def test_connection_loss_inside_wait_is_not_ten_second_timeout(backend):
+    backend._event_pump=lambda:setattr(backend.GetConnectState,'return_value',0)
+    with pytest.raises(RuntimeError,match='connection_lost'):request(backend)
+    assert backend._clock()==0
+
+
+def test_server_tr_error_is_not_success_or_timeout(backend):
+    backend._event_pump=lambda:backend.OnReceiveTrData(*backend._pending_tr,'','0',0,'-201','private-payload','')
+    with pytest.raises(RuntimeError,match='callback_rejected'):request(backend)
+    assert not backend.received
+
+
+def test_server_message_known_code_finishes_wait_without_logging_private_text(backend,monkeypatch):
+    import trading.exchanges.adapters.kiwoom_bounded_backend as m
+    log=Mock();monkeypatch.setattr(m,'record_stage',log)
+    backend._event_pump=lambda:backend.OnReceiveMsg(*backend._pending_tr,'[-200] private-account-secret')
+    with pytest.raises(RuntimeError,match='server_rejected:opt10001:-200'):request(backend)
+    assert 'private' not in str(log.call_args_list)
+    with pytest.raises(RuntimeError,match='cooldown'):request(backend)
+    assert backend.ocx.dynamicCall.call_count==1
+
+
+def test_unknown_server_message_does_not_invent_failure_or_complete_read(backend):
+    def pump():
+        backend.OnReceiveMsg(*backend._pending_tr,'[0000] query received')
+        assert not backend._tr_done
+        backend.OnReceiveTrData(*backend._pending_tr,'','0')
+    backend._event_pump=pump
+    assert request(backend)
+
+
+def test_mixed_tr_timeouts_pause_all_reads_without_order_or_relogin(backend):
+    for code in ('opt10001','opw00018','opt10075'):
+        with pytest.raises(TimeoutError):backend.block_request(code,output='price',next=0)
+    with pytest.raises(RuntimeError,match='session_read_stalled'):
+        backend.block_request('opt10080',output='price',next=0)
+    assert backend.ocx.dynamicCall.call_count==3
+    assert all(c.args[0].startswith('CommRqData') for c in backend.ocx.dynamicCall.call_args_list)
+
+
+def test_upstream_parser_schema_and_generated_rqname_contract(backend,monkeypatch):
+    # pykiwoom 0.1.6 selects fields using tr_record, then calls GetCommData
+    # with the callback rqname. It does not require rqname == trcode.
+    import pandas as pd
+    def parser(self,screen,rqname,trcode,record,next):
+        fields=list(self.tr_items['output'][0].values())[0]
+        assert self.tr_record=='price' and rqname.startswith('noah')
+        self.tr_data=pd.DataFrame([[self.GetCommData(trcode,rqname,0,k) for k in fields]],columns=fields)
+        self.received=True
+    monkeypatch.setattr(ParserBackend,'OnReceiveTrData',parser)
+    backend.GetCommData=Mock(return_value='70000')
+    backend._event_pump=lambda:backend.OnReceiveTrData(*backend._pending_tr,'','0')
+    assert request(backend).iloc[0]['현재가']=='70000'
+    assert backend.GetCommData.call_args.args[1]=='noah1'
+
+
+def test_unknown_bracketed_identifier_never_written_to_diagnostics(backend,monkeypatch):
+    import trading.exchanges.adapters.kiwoom_bounded_backend as m
+    log=Mock();monkeypatch.setattr(m,'record_stage',log)
+    def pump():
+        backend.OnReceiveMsg(*backend._pending_tr,'[1234567890] private-account')
+        backend.OnReceiveTrData(*backend._pending_tr,'','0')
+    backend._event_pump=pump
+    assert request(backend)
+    assert '1234567890' not in str(log.call_args_list) and 'private' not in str(log.call_args_list)
+
+
+@pytest.mark.parametrize('ok,payload',[(False,'RuntimeError: kiwoom_tr_connection_lost'),(True,{'status':'error','error':'session_expired:kiwoom_tr_not_connected'})])
+def test_confirmed_host_disconnect_updates_proxy_without_restart_or_retry(ok,payload):
+    from trading.exchanges.adapters.kiwoom_process_proxy import KiwoomProcessProxy
+    p=KiwoomProcessProxy('synthetic','','');p.is_connected=True;p._ensure_process=Mock()
+    p._connection=Mock();p._connection.poll.return_value=True;p._connection.recv.return_value=(1,ok,payload)
+    p._shutdown_process=Mock()
+    if ok:p.get_realtime_price('005930')
+    else:
+        with pytest.raises(RuntimeError,match='connection_lost'):p.get_intraday_candles('005930','5m')
+    assert not p.is_connected and not p._order_outcome_unknown and not p._restart_blocked_reason
+    p._shutdown_process.assert_not_called();assert p._connection.send.call_count==1

@@ -3013,12 +3013,15 @@ class StockAnalysisService:
         return success, normalized_result, call_errors
 
     def _enrich_strategy_context(self, context, pool, symbol, execution_mode, *, state_pool=None):
-        """Use the same completed daily bars and state scope for entry and exit."""
+        """Use exact completed broker bars for entry, PAPER observation and exit."""
         from trading.custom_strategy_validator import enrich_advanced_indicator_context
         from trading.numeric_strategy_state import runtime_store
         def strategy_candles(timeframe, limit):
             if timeframe != '1d':
-                raise ValueError('stock_strategy_timeframe_unsupported:' + timeframe)
+                getter = getattr(self.adapter, 'get_intraday_candles', None)
+                if not callable(getter):
+                    raise ValueError('stock_strategy_timeframe_unsupported:' + timeframe)
+                return getter(symbol, timeframe, limit)
             getter = getattr(self.adapter, 'get_daily_candles', None)
             if not callable(getter):
                 return []
@@ -3686,7 +3689,11 @@ class StockAnalysisService:
             paper_strategy_pool = list(
                 getattr(self, 'paper_validation_strategy_pool', []) or []
             )
-            from .strategy_scope import scoped_pool
+            from .strategy_scope import scoped_pool, scope_candidates
+            # The provider is global (crypto + all brokers). Other venues'
+            # timeframes/state programs must not trigger stock TR/history reads.
+            # Keep all eligible PAPER entries here; the observer owns slot caps.
+            paper_strategy_pool = scope_candidates(paper_strategy_pool, asset_class='stock', target=self.broker_name)
             evaluation_pool = scoped_pool(custom_strategy_pool or [], asset_class='stock', target=self.broker_name)
             custom_context = self._enrich_strategy_context(
                 custom_context, list(evaluation_pool) + paper_strategy_pool,

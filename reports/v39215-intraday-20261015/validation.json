@@ -1,0 +1,189 @@
+{
+  "version": "3.9.2.15",
+  "renderer": "3.9.2.15-ui.20261015.3",
+  "branch": "fix/v3.9.2.15-teayu-feedback-20261015",
+  "base_commit": "6164fe0f78cbe59d3a4299c47d2f6af232b3839f",
+  "public_version": "3.9.2.14",
+  "public_commit": "d8e698f5dd181ec5effffb045c5f51e999a4a72b",
+  "source_commit": "see refreshed ../v39215-feedback-20261015/handoff.json; post-commit-verification.json",
+  "scope": "Source implementation, synthetic provider/IPC/PAPER tests and read-only shared strategy audit; no customer settings writes or real orders",
+  "confirmed_roots": [
+    "stock runtime only supplied daily candles for intraday strategies",
+    "global PAPER pool caused unrelated crypto/broker timeframe/state history preparation",
+    "TR connection state not checked immediately before/during reads",
+    "explicit callback/server rejection not classified",
+    "TR could be submitted with insufficient outer RPC wait budget",
+    "mixed read timeouts lacked aggregate cooldown",
+    "confirmed host disconnect not mirrored in proxy flag"
+  ],
+  "historical_timeout_evidence": {
+    "new_v14_host_utc": "2026-10-14 14:47..15:30",
+    "opt10001": {
+      "complete": 125,
+      "timeout": 13
+    },
+    "opt10075": {
+      "complete": 15,
+      "timeout": 8
+    },
+    "opw00018": {
+      "complete": 1,
+      "timeout": 22
+    },
+    "opt10081": {
+      "complete": 114,
+      "timeout": 1
+    },
+    "timeout_origin": "Not established: old logs lack ignored-callback/connection/server-code context; actual Windows acceptance needed"
+  },
+  "implemented": [
+    "Kiwoom opt10080 native 1/3/5/10/15/30/60 minute read, 2 bounded pages, x86 IPC forwarding and cache",
+    "KIS real historical 120 minute/page and demo current-day 30 minute/page endpoints; 4 page incremental warmup, shared bounded RAM cache",
+    "completed KRX KST session bars, exact timeframe, no missing minute synthesis or daily substitution",
+    "current venue PAPER scope before enrichment; observer retains slot/permission policy",
+    "history progress and fetch failure evidence with safe user explanation",
+    "TR disconnect/rejection/budget/cooldown/recovery and secret-free diagnostics; no order retry/relogin added",
+    "required frozen-runtime module gate and read-only Windows probe"
+  ],
+  "shared_strategies": {
+    "versions": 10,
+    "original_bytes_unchanged": true,
+    "existing_rules_unchanged": true,
+    "evidence": "synthetic completed KRX candles; no real market/order/provider validation",
+    "timeframes": {
+      "3m": {
+        "bars": 207,
+        "requested": 207,
+        "status": "ready",
+        "error_type": null
+      },
+      "5m": {
+        "bars": 207,
+        "requested": 207,
+        "status": "ready",
+        "error_type": null
+      },
+      "15m": {
+        "bars": 207,
+        "requested": 207,
+        "status": "ready",
+        "error_type": null
+      },
+      "1h": {
+        "bars": 207,
+        "requested": 207,
+        "status": "ready",
+        "error_type": null
+      }
+    },
+    "evaluation_reason_counts": {
+      "custom_entry_not_met": 10
+    },
+    "orders_attempted": 0,
+    "missing_timeframe_results": 0
+  },
+  "tests": {
+    "git_full_passed": 6039,
+    "original_full_passed": 6039,
+    "skipped": 11,
+    "subtests_passed": 3,
+    "warnings": 2,
+    "focused_passed": 101,
+    "node_passed": 79,
+    "browser_passed": [
+      16,
+      43,
+      6
+    ],
+    "typescript_vite": "PASS in Git and original",
+    "npm_vulnerabilities": 0,
+    "docs": "PASS",
+    "active_source": "PASS",
+    "five_service_source_parity": "PASS",
+    "bundle_spec_only": "PASS; actual Windows TOC/build NOT_RUN",
+    "powershell_doc_ast": "PASS; execution NOT_RUN",
+    "python311_syntax": "PASS; actual Windows runtime NOT_RUN"
+  },
+  "commands": [
+    ".venv/bin/python -m pytest tests -q --junitxml=reports/v39215-intraday-20261015/final-full.xml",
+    "original: .venv/bin/python -m pytest tests -q --junitxml=reports/v39215-intraday-20261015/original-full.xml",
+    ".venv/bin/python -m pytest tests/test_v39215_stock_intraday.py tests/test_kiwoom_bounded_backend.py tests/test_v39215_upgrade_audit.py tests/test_build_release_workflow.py -q",
+    "node --test tests/*.test.cjs",
+    "npm --prefix webui run build",
+    "npm --prefix webui audit --json",
+    "node tests/webui_v39215_feedback.cjs",
+    "node tests/webui_v3928_paper_recovery_audit.cjs",
+    "node tests/webui_v39212_feedback.cjs",
+    ".venv/bin/python scripts/doc_consistency_check.py",
+    ".venv/bin/python scripts/active_source_audit.py",
+    ".venv/bin/python scripts/audit_web_ui_full_parity_contract.py",
+    ".venv/bin/python scripts/verify_web_engine_bundle.py --spec-only",
+    ".venv/bin/python scripts/audit_release_test_skips.py reports/v39215-intraday-20261015/final-full.xml reports/v39215-intraday-20261015/skips.json",
+    "pwsh: Parser.ParseFile on three documented PowerShell blocks; no execution",
+    "gh api repos/nwsoft/ai-trading-client/releases/latest"
+  ],
+  "modified_files": [
+    "README.md",
+    "RELEASE_NOTES.md",
+    "USER_GUIDE_AI_EXECUTION.md",
+    "deploy/release_notes.md",
+    "docs/AI_ASSISTANT_GUIDE.md",
+    "docs/ARCHITECTURE.md",
+    "docs/BUILD_GUIDE.md",
+    "docs/CHANGELOG.md",
+    "docs/DEPLOY_CHECKLIST.md",
+    "docs/KIWOOM_V39136_POST_RELEASE_TIMEOUT_INVESTIGATION.md",
+    "docs/NOAHAI_STRATEGY_STUDIO_MASTER_PLAN.md",
+    "docs/README.md",
+    "docs/STOCK_ETF_CURRENT_STATUS_20260118.md",
+    "docs/TEST_STATUS.md",
+    "docs/TRADING_FLOW.md",
+    "docs/UPDATE_PLAN.md",
+    "docs/USER_GUIDE.md",
+    "noahai_kiwoom_host.spec",
+    "noahai_web_engine.spec",
+    "scripts/probe_stock_intraday.py",
+    "scripts/release_source_fingerprint.py",
+    "scripts/verify_web_engine_bundle.py",
+    "tests/test_build_release_workflow.py",
+    "tests/test_kiwoom_bounded_backend.py",
+    "tests/test_v39215_stock_intraday.py",
+    "tests/test_v39215_upgrade_audit.py",
+    "tests/webui_v39215_feedback.cjs",
+    "trading/custom_strategy_validator.py",
+    "trading/declarative_strategy_engine.py",
+    "trading/exchanges/adapters/kiwoom_bounded_backend.py",
+    "trading/exchanges/adapters/kiwoom_process_proxy.py",
+    "trading/exchanges/adapters/kiwoom_stock_adapter.py",
+    "trading/exchanges/adapters/korea_investment_stock_adapter.py",
+    "trading/kis_intraday_history.py",
+    "trading/stock_analysis_service.py",
+    "trading/stock_candles.py",
+    "trading/stock_runtime_controller.py",
+    "trading/strategy_scope.py",
+    "webui/qa/strategy-feedback.tsx",
+    "webui/src/uiBuild.ts"
+  ],
+  "windows_instructions": "docs/DEPLOY_CHECKLIST.md .15 minute/TR acceptance; docs/BUILD_GUIDE.md handoff commands",
+  "not_run": [
+    "actual Windows x64/x86 build and PE/frozen TOC",
+    "Windows credential decryption and upgrade",
+    "OCX login/TR/candle comparison and failure recovery",
+    "KIS real/demo API acceptance",
+    "real customer PAPER recovery",
+    "24/72h soak",
+    "public push/release/deployment"
+  ],
+  "intentional_limits": [
+    "Mirae/Shinhan intraday not implemented",
+    "KRX regular session only; no NXT/after-hours",
+    "stock intraday dated historical replay not implemented; daily replay retained",
+    "KIS demo current-day history can never provide long lookbacks; no automatic server/key switch",
+    "RAM history must warm again after restart; missing/no-trade data not fabricated"
+  ],
+  "commit": "final local commit recorded in refreshed handoff.json and post-commit-verification.json",
+  "push": false,
+  "release": false,
+  "deployment": false,
+  "orders_attempted": 0
+}

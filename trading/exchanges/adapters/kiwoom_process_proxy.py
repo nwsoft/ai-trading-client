@@ -194,6 +194,11 @@ class KiwoomProcessProxy(StockExchange):
                 if isinstance(exc, TimeoutError):
                     raise TimeoutError(self.last_error) from exc
                 raise OSError(self.last_error) from exc
+            connection_error = str(payload) if not ok else str(payload.get('error') or '') if isinstance(payload, dict) else ''
+            if any(code in connection_error for code in ('kiwoom_tr_not_connected', 'kiwoom_tr_connection_lost', 'stock_intraday_not_connected')):
+                # Mirror a confirmed host disconnect; keep the IPC channel and
+                # unknown-order protection. Never relogin/retry from this path.
+                self.is_connected = False
             if not ok:
                 self.last_error = str(payload)
                 if "kiwoom_login_callback_timeout" in self.last_error:
@@ -292,6 +297,8 @@ class KiwoomProcessProxy(StockExchange):
     def get_stock_info(self, symbol: str) -> Dict[str, Any]: return self._call("get_stock_info", symbol)
     def get_realtime_price(self, symbol: str) -> Dict[str, Any]: return self._call("get_realtime_price", symbol)
     def get_etf_realtime_metrics(self, symbol: str) -> Dict[str, Any]: return self._call("get_etf_realtime_metrics", symbol)
+    def get_intraday_candles(self, symbol: str, timeframe: str, limit: int = 205) -> List[Dict[str, Any]]: return self._call("get_intraday_candles", symbol, timeframe, limit)
+
     def get_daily_candles(self, symbol: str, limit: int = 100) -> List[Dict[str, Any]]: return self._call("get_daily_candles", symbol, limit)
     def get_open_orders(self, symbol: Optional[str] = None) -> List[Dict[str, Any]]: return self._call("get_open_orders", symbol)
     def get_trade_history(self, symbol: Optional[str] = None, limit: int = 100) -> List[Dict[str, Any]]: return self._call("get_trade_history", symbol, limit)

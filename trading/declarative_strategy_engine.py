@@ -552,7 +552,8 @@ class DeclarativeStrategyEngine:
                 return {"allowed": False, "bypassed": False, "reason": "strategy_execution_timeframe_mismatch"}
             scoped = dict(context.get("_strategy_timeframe_contexts") or {}).get(timeframe)
             if not isinstance(scoped, dict):
-                return {"allowed": False, "bypassed": False, "reason": f"strategy_timeframe_data_unavailable:{timeframe}"}
+                return {"allowed": False, "bypassed": False, "reason": f"strategy_timeframe_data_unavailable:{timeframe}",
+                        "timeframe_history": dict(context.get("_strategy_timeframe_history") or {}).get(timeframe)}
             # Preserve live account/signal inputs, replacing only candle-derived indicators.
             context = {**context, **{key: value for key, value in scoped.items() if key not in {"signal", "current_price", "confidence"}},
                        "_previous": {**dict(context.get("_previous") or {}), **dict(scoped.get("_previous") or {})}}
