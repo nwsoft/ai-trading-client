@@ -1,7 +1,7 @@
 ## 2026-10-16 — v3.9.2.16 PAPER 기간 선택 위치·버전 안내 (로컬 수정 후보)
 
 현재 소스 후보 버전: **v3.9.2.16** · 현재 공개 버전: **v3.9.2.15**
-현재 소스 후보: v3.9.2.16 · 현재 공개 기반: v3.9.2.15 · updater 3.9.216 · renderer 3.9.2.16-ui.20261016.2.
+현재 소스 후보: v3.9.2.16 · 현재 공개 기반: v3.9.2.15 · updater 3.9.216 · renderer 3.9.2.16-ui.20261016.3.
 
 공개 .15 `9e9fcc3dc3c21e36518081a0d349df91f0dd145c`는 2026-10-15 18:01:11 KST 게시됐다. 공개 .14는 `d8e698f5dd181ec5effffb045c5f51e999a4a72b`다. 아래의 후보/미게시 문장은 작성 당시 이력이며 현재 공개 상태를 뜻하지 않는다. 이번 수정은 공개 .15를 덮어쓰지 않는 별도 .16 소스 후보다. Windows .16 빌드·게시·실기관 인수는 미실시다.
 
@@ -10,6 +10,19 @@
 이번 직접 재실행 시험에서 macOS에 남은 프로세스가 이미 닫힌 창에 접근하는 `Object has been destroyed` 오류도 발견했다. .16은 닫힌 창 참조를 정리하고 재실행 시 창의 생존 여부·gateway 준비·종료 상태를 확인한다. 새 거래 엔진을 중복 기동하지 않는다. Windows 빌드의 Node 검사에 Electron 창 수명주기 검사도 포함한다. Mac 종료·재실행과 단위 검사는 별도 근거로 기록하며 Windows 확인을 대신하지 않는다.
 
 최신 근거: `reports/v39215-paper-trial-review-20261016/validation.json`. 실제 데스크톱 확인과 모의 React/단위 검사, Windows 설치본·실거래 검증은 구분한다. 기존 1·3·7일의 저장·일시정지·재개·최종 적용 안전 검사는 유지한다.
+
+### .16 최종 호환성 재검증 — renderer .3
+
+최신 정본: `reports/v39216-compatibility-20261016/validation.json`, `handoff.json`. 아래 이전 6,039/6,058건은 앞선 .16 후보 이력이며 최종 결과는 **6,088 passed / 11 skipped / 2 warnings / 3 subtests passed**(108.22초)다. 추가 시험에서 ‘국면 기준’의 띄어쓰기를 잘못 가정한 테스트 7건을 바로잡고 전체를 재실행했다. 마지막 전체 실행은 실패0이다.
+
+- 공개 .15 코드와 공유 전략70개를 서로 독립 임시 복사본으로 로드: 저장 규칙/원문/승인/평가 기록·권한·최종 검증 동일70/70, 원본 바이트/mtime/권한 무변경, 외부 호출0. 원문 재분석은 전체시장 별칭 수정으로64→70/70이다. 기존 확정 규칙은 자동 변경하지 않는다. 로컬 다른 저장소는 전략0개로 표본 없음이다.
+- 공유 TXT10개: 로컬 컴파일·최종 draft/source-grounding 검증10/10, 원본 무변경. 공개 .15 원문과 이번 후보를 구분하며 실제 분봉 확보·거래·수익 통과를 뜻하지 않는다.
+- 관리 예제4×코인/주식=8개, 합성 진입1,440건, 멘토 선택 프로필2,916개/후보7,776개: 원문/규칙·위험·시간봉·최종 저장 검사PASS, 네트워크/주문0. 손실률은 유효 범위 경계0.05/0.5/2%를 검사했다. 연속 입력값 전부의 수학적 증명은 아니다.
+- 신규 경계 포함 집중49개PASS, Node/Electron91개PASS, TypeScript/Vite·npm audit(취약점0)·문서·활성 소스·Web 계약·빌드 포함·PowerShell AST PASS. Windows 스크립트 구문 검사는 실제 실행이 아니다.
+- 실제 Mac production Electron+FastAPI+격리 전략 JSON에서 눌림목 원문 분석 보완0→최종 재검증→analyzed/미승인/비활성 저장 및 기존 교차 연산 보존을 확인했다. 멘토5%는 범위 안내/후보 없음,2%는 후보3개. 제품 종료 확인 뒤 프로세스 종료0. 기존 고객 설정/전략은 건드리지 않았다. 앞선 .16 실제 1·3·7일 저장/정지/재개 증거는 유지한다.
+- 제외11개: Windows PE1(Windows에서 필수), 실기관 연결opt-in6, 실주문opt-in2, 미배포 과거 고객 자료2. 별도 skip 감사PASS. 261010 폴더는 이번 환경에 없어 해당 원본 전체 재감사를 주장하지 않는다. 실제 Windows 설치/복호화/OCX/기관·외부 AI/24·72h는NOT_RUN이다.
+
+실행 명령: `.venv/bin/python -m pytest tests -q -rs --junitxml=reports/v39216-compatibility-20261016/full-pytest.xml`, `node --test webui/electron/*.test.cjs tests/*.test.cjs`, `python scripts/audit_managed_strategy_sources.py --output reports/v39216-compatibility-20261016/managed-sources.json`, `python scripts/audit_strategy_upgrade.py --stores <명시적으로 승인된 공유 전략 저장소> --baseline-root <공개 .15 격리 소스> --output <고객 저장소 밖 집계 JSON>`. 실제 원문/계정/키/원장을 공개 보고서나 테스트 fixture에 복사하지 않는다. 자세한 추가 명령과 결과는 validation.json을 따른다.
 
 ### 2026-10-16 실제 재검증 결과
 

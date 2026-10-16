@@ -207,7 +207,7 @@ def render_preset_source(name: str, rules: Dict[str, Any]) -> str:
             field, operator = condition['field'], condition['operator']
             target = condition.get('value_field', condition.get('value'))
             if operator in {'crosses_above','crosses_below'}:
-                clauses.append(f"became_true({field} {'>' if operator=='crosses_above' else '<'} {target})")
+                clauses.append(f"{operator}({field}, {target})")
             else:
                 clauses.append(f"{field} {operators[operator.removesuffix('_field')]} {target}")
         lines.append(f"{direction} 진입: "+' AND '.join(clauses))

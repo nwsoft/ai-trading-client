@@ -7,6 +7,22 @@ import re
 from .source_condition_compiler import ConditionCompiler
 
 
+def _clauses(text):
+    # A field-pair crossing call contains an argument comma; only outer
+    # commas separate prose conditions. Invalid parentheses still fail AST parsing.
+    depth = 0
+    start = 0
+    for index, char in enumerate(text):
+        if char == '(':
+            depth += 1
+        elif char == ')':
+            depth -= 1
+        elif char in ',，' and depth == 0:
+            yield text[start:index]
+            start = index + 1
+    yield text[start:]
+
+
 def _expression(clause):
     text = clause.strip().rstrip('.。').strip()
     text = re.sub(r'현재\s*가격', 'current_price', text)
@@ -30,7 +46,7 @@ def compile_directional_source(text):
             if direction in entries:
                 gaps.append(dict(line=number, section='entry', text=line, reason='direction_duplicate_definition'))
             nodes = []
-            for clause in re.split(r'[,，]', body):
+            for clause in _clauses(body):
                 try:
                     nodes.append(_expression(clause))
                 except ValueError as exc:

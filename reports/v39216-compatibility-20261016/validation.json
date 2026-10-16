@@ -1,0 +1,148 @@
+{
+  "status": "PASS_LOCAL_SOURCE_COMPATIBILITY_AND_NATIVE_UI",
+  "candidate_version": "3.9.2.16",
+  "renderer_tag": "3.9.2.16-ui.20261016.3",
+  "branch": "fix/v3.9.2.16-paper-trial-review-20261016",
+  "previous_candidate_commit": "b0722249cc210a61bf470b4ac1aca2e777813358",
+  "public_version": "3.9.2.15",
+  "public_commit": "9e9fcc3dc3c21e36518081a0d349df91f0dd145c",
+  "new_root_fixes": [
+    "pullback managed source crossed using closed-bar became_true instead of original field-pair crossing",
+    "explicit whole-market Korean aliases absent;6 existing sources blocked reanalysis in public15",
+    "mentor allowed5% while existing final save safety limit2%;input/backend/UI now0.05~2%"
+  ],
+  "checks": [
+    {
+      "name": "full Python",
+      "command": ".venv/bin/python -m pytest tests -q -rs --junitxml=reports/v39216-compatibility-20261016/full-pytest.xml",
+      "result": "6088 passed;11 skipped;2 warnings;3 subtests;108.22s",
+      "evidence": "full-pytest.txt"
+    },
+    {
+      "name": "focused",
+      "command": ".venv/bin/python -m pytest tests/test_v39216_upgrade_audit.py tests/test_v39216_strategy_examples.py -q",
+      "result": "49 passed",
+      "evidence": "focused.txt"
+    },
+    {
+      "name": "release contracts",
+      "command": ".venv/bin/python -m pytest tests/test_build_release_workflow.py tests/test_release_provenance.py -q",
+      "result": "35 passed",
+      "evidence": "release-contracts.txt"
+    },
+    {
+      "name": "Node/Electron",
+      "command": "node --test webui/electron/*.test.cjs tests/*.test.cjs",
+      "result": "91 passed;0 skipped",
+      "evidence": "node.txt"
+    },
+    {
+      "name": "managed roundtrip",
+      "command": "python scripts/audit_managed_strategy_sources.py --output <report>",
+      "result": "8 examples;1440 entry comparisons;2916 profiles;7776 candidates PASS",
+      "evidence": "managed-sources.json"
+    },
+    {
+      "name": "private strategy copies",
+      "command": "python scripts/audit_strategy_upgrade.py --stores <explicit shared strategy directory> --baseline-root <isolated public15 source> --output <aggregate report>",
+      "result": "70 stored versions preserved;raw source readiness64->70;original byte/mtime/mode unchanged",
+      "evidence": "shared-strategies.json"
+    },
+    {
+      "name": "shared TXT",
+      "command": "offline explicit shared10 O15F text analysis and ApplicationServices.validate_strategy_draft",
+      "result": "10/10 ready;original byte/mtime/mode unchanged",
+      "evidence": "uploaded-sources.json"
+    },
+    {
+      "name": "catalogue",
+      "command": "python scripts/export_strategy_presets.py --check",
+      "result": "PASS",
+      "evidence": "catalogue.txt"
+    },
+    {
+      "name": "manual export",
+      "command": "python scripts/export_legacy_manual_sections.py",
+      "result": "11 sections PASS",
+      "evidence": "../../docs/USER_MANUAL_SECTIONS.json"
+    },
+    {
+      "name": "TypeScript/Vite",
+      "command": "npm --prefix webui run build",
+      "result": "PASS;existing chunk warning",
+      "evidence": "build.txt"
+    },
+    {
+      "name": "dependency audit",
+      "command": "npm --prefix webui audit --audit-level=low --json",
+      "result": "0 vulnerabilities",
+      "evidence": "npm-audit.txt"
+    },
+    {
+      "name": "docs",
+      "command": "python scripts/doc_consistency_check.py",
+      "result": "PASS",
+      "evidence": "docs.txt"
+    },
+    {
+      "name": "active source",
+      "command": "python scripts/active_source_audit.py",
+      "result": "PASS",
+      "evidence": "source-audit.txt"
+    },
+    {
+      "name": "Web parity",
+      "command": "python scripts/audit_web_ui_full_parity_contract.py",
+      "result": "PASS source contract",
+      "evidence": "parity.txt"
+    },
+    {
+      "name": "build inclusion",
+      "command": "python verify_build_includes.py",
+      "result": "PASS source inclusion contract",
+      "evidence": "includes.txt"
+    },
+    {
+      "name": "PowerShell",
+      "command": "pwsh AST ParseFile for4 build/publish scripts",
+      "result": "PASS syntax;not Windows execution",
+      "evidence": "powershell.txt"
+    },
+    {
+      "name": "skip audit",
+      "command": "python scripts/audit_release_test_skips.py <actual final junit> <skip json>",
+      "result": "PASS;11 known exclusions",
+      "evidence": "skipped-tests.json"
+    },
+    {
+      "name": "native Mac UI",
+      "command": "actual production Electron/local FastAPI/synthetic account; CUA actions",
+      "result": "PASS pullback analyze/final save;mentor2/5%;Exit0",
+      "evidence": "native-ui.json"
+    }
+  ],
+  "earlier16_evidence": [
+    "../v39215-paper-trial-review-20261016/validation.json",
+    "../v39216-preset-feedback-20261016/validation.json"
+  ],
+  "test_harness_correction": "Initial run7 test failures due whitespace assumption in newly added synthetic metadata replacement; test corrected; final full run0 failures",
+  "network_orders_submitted": 0,
+  "customer_settings_or_saved_strategies_changed": false,
+  "windows_build_executed": false,
+  "push": false,
+  "published": false,
+  "deployment": false,
+  "not_run": [
+    "Windows16 installer/upgrade/credential decrypt/rollback",
+    "actual OCX/TR/KIS/provider recovery",
+    "external AI provider acceptance",
+    "24/72h tester PAPER soak",
+    "undistributed historical private fixtures",
+    "real account orders/cancellations/liquidations explicitly excluded"
+  ],
+  "scope_limits": [
+    "only provided261015 strategy stores and10 shared text files;older261010 absent",
+    "static/fixture/isolated UI validation does not establish profitability or future no-failure guarantee",
+    "original vague ATR/swing/directional EMA exit/multitimeframe guards remain blocked until defined/supported"
+  ]
+}

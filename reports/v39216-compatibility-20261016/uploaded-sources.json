@@ -1,0 +1,89 @@
+{
+  "files": 10,
+  "compiled_ready": 10,
+  "final_ready": 10,
+  "all_originals_unchanged": true,
+  "records": [
+    {
+      "index": 1,
+      "local_compile_ready": true,
+      "final_draft_ready": true,
+      "missing_codes": [],
+      "timeframe": "3m",
+      "original_unchanged": true
+    },
+    {
+      "index": 2,
+      "local_compile_ready": true,
+      "final_draft_ready": true,
+      "missing_codes": [],
+      "timeframe": "5m",
+      "original_unchanged": true
+    },
+    {
+      "index": 3,
+      "local_compile_ready": true,
+      "final_draft_ready": true,
+      "missing_codes": [],
+      "timeframe": "5m",
+      "original_unchanged": true
+    },
+    {
+      "index": 4,
+      "local_compile_ready": true,
+      "final_draft_ready": true,
+      "missing_codes": [],
+      "timeframe": "5m",
+      "original_unchanged": true
+    },
+    {
+      "index": 5,
+      "local_compile_ready": true,
+      "final_draft_ready": true,
+      "missing_codes": [],
+      "timeframe": "5m",
+      "original_unchanged": true
+    },
+    {
+      "index": 6,
+      "local_compile_ready": true,
+      "final_draft_ready": true,
+      "missing_codes": [],
+      "timeframe": "5m",
+      "original_unchanged": true
+    },
+    {
+      "index": 7,
+      "local_compile_ready": true,
+      "final_draft_ready": true,
+      "missing_codes": [],
+      "timeframe": "3m",
+      "original_unchanged": true
+    },
+    {
+      "index": 8,
+      "local_compile_ready": true,
+      "final_draft_ready": true,
+      "missing_codes": [],
+      "timeframe": "5m",
+      "original_unchanged": true
+    },
+    {
+      "index": 9,
+      "local_compile_ready": true,
+      "final_draft_ready": true,
+      "missing_codes": [],
+      "timeframe": "5m",
+      "original_unchanged": true
+    },
+    {
+      "index": 10,
+      "local_compile_ready": true,
+      "final_draft_ready": true,
+      "missing_codes": [],
+      "timeframe": "15m",
+      "original_unchanged": true
+    }
+  ],
+  "network_attempts": 0
+}

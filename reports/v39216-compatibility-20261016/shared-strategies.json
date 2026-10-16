@@ -1,0 +1,42 @@
+{
+  "status": "PASS",
+  "scope": "offline temporary copies; no customer source/IDs/keys/settings/ledger output; no orders or provider calls",
+  "counts": {
+    "stores": 2,
+    "active_grants": 2,
+    "paper_grants": 63,
+    "versions": 70,
+    "all_nonstatus_fields_preserved": 70,
+    "stored_paper_ready": 70,
+    "stored_final_draft_ready": 70,
+    "recorded_source_texts": 70,
+    "reanalyzed_source_ready": 70
+  },
+  "original_bytes_mtime_permissions_unchanged": true,
+  "current_stored_blocking_code_counts": {},
+  "source_reanalysis_blocking_code_counts": {},
+  "network_attempts": 0,
+  "baseline_counts": {
+    "stores": 2,
+    "active_grants": 2,
+    "paper_grants": 63,
+    "versions": 70,
+    "all_nonstatus_fields_preserved": 70,
+    "stored_paper_ready": 70,
+    "stored_final_draft_ready": 70,
+    "recorded_source_texts": 70,
+    "reanalyzed_source_ready": 64
+  },
+  "stored_readiness_transitions": {
+    "1->1": 70
+  },
+  "differences": {
+    "loaded_digest": 0,
+    "stored_ready": 0,
+    "final_ready": 0,
+    "grounding_valid": 0,
+    "source_reanalysis_readiness": 6,
+    "source_reanalysis_execution": 6
+  },
+  "execution_grants_equal": true
+}

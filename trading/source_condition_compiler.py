@@ -60,6 +60,16 @@ class ConditionCompiler:
                     'children':[self.visit(child,depth+1) for child in node.values]}
         if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and not node.keywords:
             name = node.func.id.lower()
+            if name in {'crosses_above', 'crosses_below'}:
+                if len(node.args) != 2 or any(not isinstance(arg, ast.Name) or
+                        arg.id.lower() not in Engine.ALLOWED_FIELDS or arg.id.lower() == 'signal'
+                        for arg in node.args):
+                    raise ValueError('crossing_fields_required')
+                condition = {'field':node.args[0].id.lower(), 'operator':name,
+                             'value_field':node.args[1].id.lower()}
+                valid, reason = Engine.validate_condition_spec(condition)
+                if not valid: raise ValueError(reason)
+                return {'type':'condition', 'condition':condition}
             if name in {'all_for', 'any_within', 'became_true', 'became_false', 'after', 'latched'}:
                 arity = 1 if name.startswith('became_') else 3 if name in {'after','latched'} else 2
                 if len(node.args) != arity:

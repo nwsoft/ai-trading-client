@@ -1,0 +1,10 @@
+{
+  "status": "PASS",
+  "managed_asset_examples": 8,
+  "synthetic_entry_comparisons": 1440,
+  "mentor_profiles": 2916,
+  "mentor_candidates": 7776,
+  "network_attempts": 0,
+  "orders_submitted": 0,
+  "scope": "four managed prototypes; crypto/stock; finite profile options and 0.05/0.5/2% risk boundaries; no customer data"
+}

@@ -714,7 +714,9 @@ class StrategySourceIngestor:
                 if names and all(v in allowed for v in names):output[field]=kind+':'+','.join(sorted(set(names)))
                 else:output.setdefault('metadata_issues', []).append('source_target_scope_invalid')
             elif field == 'regime_scope':
-                normalized = {'종목별':'symbol','종목':'symbol','시장상황':'market','시장':'market','시장과종목':'both','국면무관':'none'}.get(value,value.lower())
+                normalized = {'종목별':'symbol','종목':'symbol','시장상황':'market','시장':'market',
+                              '전체시장':'market','시장전체':'market','시장과종목':'both',
+                              '국면무관':'none'}.get(value,value.lower())
                 if normalized in {'market','symbol','both','none'}:output[field]=normalized
                 else:output.setdefault('metadata_issues', []).append('source_regime_scope_invalid')
             elif field == 'priority':

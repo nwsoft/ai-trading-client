@@ -1,0 +1,19 @@
+{
+  "status": "PASS",
+  "scope": "offline temporary copies; no customer source/IDs/keys/settings/ledger output; no orders or provider calls",
+  "counts": {
+    "stores": 1,
+    "active_grants": 0,
+    "paper_grants": 0,
+    "versions": 0,
+    "all_nonstatus_fields_preserved": 0,
+    "stored_paper_ready": 0,
+    "stored_final_draft_ready": 0,
+    "recorded_source_texts": 0,
+    "reanalyzed_source_ready": 0
+  },
+  "original_bytes_mtime_permissions_unchanged": true,
+  "current_stored_blocking_code_counts": {},
+  "source_reanalysis_blocking_code_counts": {},
+  "network_attempts": 0
+}

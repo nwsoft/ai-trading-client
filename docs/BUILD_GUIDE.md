@@ -1,7 +1,7 @@
 ## 2026-10-16 — v3.9.2.16 PAPER 기간 선택 위치·버전 안내 (로컬 수정 후보)
 
 현재 소스 후보 버전: **v3.9.2.16** · 현재 공개 버전: **v3.9.2.15**
-현재 소스 후보: v3.9.2.16 · 현재 공개 기반: v3.9.2.15 · updater 3.9.216 · renderer 3.9.2.16-ui.20261016.2.
+현재 소스 후보: v3.9.2.16 · 현재 공개 기반: v3.9.2.15 · updater 3.9.216 · renderer 3.9.2.16-ui.20261016.3.
 
 공개 .15 `9e9fcc3dc3c21e36518081a0d349df91f0dd145c`는 2026-10-15 18:01:11 KST 게시됐다. 공개 .14는 `d8e698f5dd181ec5effffb045c5f51e999a4a72b`다. 아래의 후보/미게시 문장은 작성 당시 이력이며 현재 공개 상태를 뜻하지 않는다. 이번 수정은 공개 .15를 덮어쓰지 않는 별도 .16 소스 후보다. Windows .16 빌드·게시·실기관 인수는 미실시다.
 
@@ -13,7 +13,7 @@
 
 ### 3.9.2.16 Windows에서 사용할 소스와 명령
 
-다음 로컬 인계 파일은 .16 후보 전용입니다: `reports/v39216-preset-feedback-20261016/handoff.json`, 같은 폴더의 `v39216-preset-feedback.bundle`. .15 공개 소스/설치기는 변경하지 않습니다. `$handoffPath`를 Windows의 동기화 경로로 수정하고 새 `C:\NoahAI\client-v39216`에서 실행하세요. Git 원본 폴더의 오래된 bundle/설치기/venv/dist를 혼합하지 마세요.
+다음 로컬 인계 파일은 .16 후보 전용입니다: `reports/v39216-compatibility-20261016/handoff.json`, 같은 폴더의 `v39216-release-ready.bundle`. .15 공개 소스/설치기는 변경하지 않습니다. `$handoffPath`를 Windows의 동기화 경로로 수정하고 새 `C:\NoahAI\client-v39216-final-20261016`에서 실행하세요. Git 원본 폴더의 오래된 bundle/설치기/venv/dist를 혼합하지 마세요.
 
 ```powershell
 $ErrorActionPreference = "Stop"
@@ -21,13 +21,13 @@ function Invoke-CandidateChecked([scriptblock]$Command) {
     & $Command
     if ($LASTEXITCODE -ne 0) { throw "Command failed: $LASTEXITCODE" }
 }
-$handoffPath = "D:\SynologyDrive\Works\noahai_client\reports\v39216-preset-feedback-20261016\handoff.json"
+$handoffPath = "D:\SynologyDrive\Works\noahai_client\reports\v39216-compatibility-20261016\handoff.json"
 $handoffPath = (Resolve-Path -LiteralPath $handoffPath).Path
 $handoff = Get-Content -LiteralPath $handoffPath -Raw -Encoding UTF8 | ConvertFrom-Json
 if ($handoff.source_version -ne "3.9.2.16") { throw "Wrong handoff version" }
 $bundlePath = Join-Path (Split-Path -Parent $handoffPath) $handoff.bundle
 if ((Get-FileHash -LiteralPath $bundlePath -Algorithm SHA256).Hash.ToLowerInvariant() -ne $handoff.bundle_sha256) { throw "Bundle hash mismatch" }
-$buildRoot = "C:\NoahAI\client-v39216"
+$buildRoot = "C:\NoahAI\client-v39216-final-20261016"
 if (Test-Path -LiteralPath $buildRoot) { throw "Use a new empty build path" }
 New-Item -ItemType Directory -Path (Split-Path -Parent $buildRoot) -Force | Out-Null
 Invoke-CandidateChecked { git clone --filter=blob:none --no-checkout https://github.com/nwsoft/ai-trading-client.git $buildRoot }
@@ -67,8 +67,35 @@ Invoke-CandidateChecked { powershell -ExecutionPolicy Bypass -File scripts/build
 
 사용자의 원문은 그대로 보존한다. LONG/SHORT별 EMA 비교·RSI 범위와 「15m (완성된 봉 기준)」을 보존하고, 연결된 제외 시장(횡보·고변동)을 허용 시장으로 잘못 추출하던 결함을 수정한다. ATR/스윙 손절은 없다고 안내하지 않고 실행 수치 미정으로, 손익비 1.8은 익절 1.8%가 아닌 목표가 정의 필요로 안내한다. 평균 거래량 기간·방향별 EMA 청산·HIGH 적용 범위·큰 시간대/유동성/스프레드 필터는 임의로 만들거나 삭제하지 않으며 미정/미지원이면 실행 차단과 행별 질문을 유지한다. 원문에 고정 비율만 넣어도 나머지 미정 조건을 통과시키지 않는다. 새 예제와 원문을 같은 전략으로 표시하지 않는다.
 
-이번 추가 검증: `reports/v39216-preset-feedback-20261016/validation.json`. 이 보고서와 최신 handoff가 이전 .16 기간 선택 점검의 인계 파일을 대체한다. 공개 .15 자산은 보존하며 Windows .16 설치/실기관/24·72h 검증은 별도다.
+이번 추가 검증: `reports/v39216-compatibility-20261016/validation.json`. 이 보고서와 최신 handoff가 이전 .16 기간 선택 점검의 인계 파일을 대체한다. 공개 .15 자산은 보존하며 Windows .16 설치/실기관/24·72h 검증은 별도다.
 
+
+### .16 최종 호환성 점검과 게시 순서
+
+최신 인계는 `reports/v39216-compatibility-20261016/handoff.json`만 사용한다. 같은 폴더의 `v39216-release-ready.bundle`은 공개 .15 이후 .16 수정 전체를 포함한다. 앞선 기간 선택/preset-feedback handoff는 이전 후보이며 새 빌드에 사용하지 않는다. Mac venv·node_modules·dist·과거 설치기를 복사하지 않는다.
+
+소스 전체 검사에 더해 다음은 실제 고객 데이터 없이 관리 예제 8개·합성 신호·멘토 선택 조합을 다시 점검한다. Windows에서는 실행한 결과를 `reports/windows-managed-sources.json`에 기록한다.
+
+```powershell
+Invoke-CandidateChecked { python scripts/audit_managed_strategy_sources.py --output reports/windows-managed-sources.json }
+```
+
+설치 후 [DEPLOY_CHECKLIST](DEPLOY_CHECKLIST.md)의 .16 정상·실패 기준대로 .15→.16 업데이트와 기존 설정/전략/기간/표본 보존, 4개 예제×코인/증권의 분석·초안 저장, 일시정지/재개·종료/재실행을 확인한다. 고객 전략을 삭제하거나 새 예제로 덮어쓰지 않는다. PAPER와 LIVE 권한은 각각 확인하며 자동 주문/자동 승인/규칙 변경이 생기면 게시를 중단한다. 24/72h 검증은 설치기를 받은 테스터가 수행하며, 배포 전에 72시간 기다려야 한다는 뜻은 아니다. 실기관/OCX/외부 AI/Windows 수동 인수 미확인은 실제 결과 그대로 기록한다.
+
+빌드·로컬 설치 확인을 마친 동일 PowerShell 세션에서 게시할 때만 아래를 실행한다. GitHub push/release 권한과 `gh auth status`가 필요하다. 이 문서를 작성한 Mac 작업에서는 실행하지 않았다.
+
+```powershell
+Invoke-CandidateChecked { gh auth status }
+$actualCommit = (Invoke-CandidateChecked { git rev-parse HEAD } | Out-String).Trim()
+if ($actualCommit -ne $handoff.source_commit) { throw "Candidate commit mismatch" }
+if ((Invoke-CandidateChecked { git status --porcelain } | Out-String).Trim()) { throw "Build source is dirty; commit and rebuild if source changed" }
+Invoke-CandidateChecked { git push origin "HEAD:refs/heads/$($handoff.branch)" }
+Invoke-CandidateChecked { python scripts/verify_release_provenance.py --phase preflight }
+Invoke-CandidateChecked { powershell -ExecutionPolicy Bypass -File scripts/release_windows.ps1 }
+Invoke-CandidateChecked { python scripts/verify_release_provenance.py --phase published }
+```
+
+`release_windows.ps1`은 동일 커밋/소스 지문·자동 검사·설치기/블록맵/latest.yml·필수 키움 호스트를 검증한 뒤 새 **v3.9.2.16 stable/latest** 릴리스를 게시한다. 기존 v3.9.2.15 태그/자산을 교체하지 않는다. manifest에는 실제 남은 외부 인수를 기록한다. 미확인 항목을 통과로 체크하거나 생략 옵션으로 우회하지 않는다. `published` 검사는 원격 커밋/태그·공개 다운로드 해시·최신 릴리스/Atom·업데이터 버전 **3.9.216**까지 확인해야 성공이다. 자산/네트워크 오류는 게시 성공으로 취급하지 말고 출력된 단계부터 원격 상태를 재확인한다. 소스나 릴리스 검사 입력을 고쳤다면 새 커밋으로 다시 빌드한다.
 
 ## 2026-10-15 — v3.9.2.15 Windows 정식 빌드·게시 실행
 

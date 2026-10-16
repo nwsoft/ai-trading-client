@@ -39,7 +39,7 @@ def validate_mentor_profile(profile: Mapping[str, Any] | None) -> Dict[str, Any]
     errors: List[str] = []
     try:
         max_loss = float(values.get("max_loss_percent", 0.0) or 0.0)
-        if not 0.05 <= max_loss <= 5.0:
+        if not 0.05 <= max_loss <= 2.0:
             errors.append("max_loss_percent_out_of_range")
     except (TypeError, ValueError):
         errors.append("max_loss_percent_invalid")
