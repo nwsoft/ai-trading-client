@@ -42,6 +42,23 @@ if ($actualCommit -ne $handoff.source_commit) { throw "Candidate commit mismatch
 if ((Invoke-CandidateChecked { git status --porcelain } | Out-String).Trim()) { throw "Build source is dirty" }
 ```
 
+Windows 10/11 x64, Python **3.11 x64·x86**, Node **22.12 이상**, Git·GitHub CLI, Visual Studio Build Tools/VC143 CRT를 준비한다. 같은 PowerShell 창에서 이어서 실행한다. `NOAHAI_PYTHON_X86`가 기존 다른 환경을 가리키면 올바른 3.11 x86 실행파일로 조정해야 한다. 아래는 기본 Python Launcher의 x86을 사용하는 경우다.
+
+```powershell
+Invoke-CandidateChecked { py -3.11-64 -m venv .venv }
+$env:Path = (Resolve-Path .venv\Scripts).Path + ";" + $env:Path
+$env:PYTHONUTF8 = "1"
+$env:PYTHONIOENCODING = "utf-8"
+Invoke-CandidateChecked { python -c "import struct,sys; assert sys.version_info[:2]==(3,11) and struct.calcsize('P')==8" }
+Invoke-CandidateChecked { python -m pip install -r requirements_windows.txt }
+Invoke-CandidateChecked { py -3.11-32 -m pip install -r requirements_kiwoom_x86.txt }
+$env:NOAHAI_PYTHON_X86 = (Invoke-CandidateChecked { py -3.11-32 -c "import sys; print(sys.executable)" } | Out-String).Trim()
+$env:NOAHAI_CANDIDATE_HANDOFF = $handoffPath
+Invoke-CandidateChecked { python -c "import json,os; from pathlib import Path; from scripts.verify_release_provenance import verify_source; h=json.load(open(os.environ['NOAHAI_CANDIDATE_HANDOFF'],encoding='utf-8')); print(verify_source(Path('.'),dict(source_revision=h['source_commit'],source_fingerprint=h['source_fingerprint'])))" }
+Invoke-CandidateChecked { python scripts/restore_previous_release_asset.py }
+Invoke-CandidateChecked { powershell -ExecutionPolicy Bypass -File scripts/build_windows.ps1 }
+```
+
 생략 옵션 없이 실행합니다. 정상 산출물은 `deploy/web-release/NoahAI-3.9.2.16-Setup.exe`, `.blockmap`, `latest.yml`(updater **3.9.216**), `deploy/release-manifest.json`입니다. 공개 .15 설치기/manifest는 해시가 고정된 아카이브를 통해 보존합니다. 전체 Python/Node/Electron 창 검사, skip 감사, 문서/소스/의존성 검사, x64 엔진·x86 키움 호스트·IPC/PE/설치기 추출 검사와 출처 일치를 확인하세요. 실제 설치·업데이트·기간 선택·기존 표본 보존·종료/재실행은 DEPLOY_CHECKLIST의 .16 절을 따릅니다. 자동 검사만으로 실제 기관/Windows 설치/24·72h를 통과 처리하지 않습니다.
 
 이번 .16의 원격 push·게시·운영 배포는 실행하지 않았습니다. Windows 빌드 후 사용자 검토와 기존 릴리스 절차를 거쳐 별도 게시합니다. 아래 .15 이하 절은 당시 사용한 명령/상태의 이력입니다.
