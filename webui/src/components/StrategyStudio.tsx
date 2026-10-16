@@ -470,6 +470,17 @@ export function StrategyStudio({ client, service, source = "", onAskAssistant, o
   const [sourceNotice,setSourceNotice]=useState('');
   const [catalogQuery,setCatalogQuery]=useState('');
   const pendingVersionFocus = useRef<string | null>(null);
+  const workspaceRef = useRef<HTMLElement>(null);
+  function focusPaperTrial() {
+    const root = workspaceRef.current;
+    const select = root?.querySelector<HTMLSelectElement>(".strategy-paper-trial select:not(:disabled)")
+      ?? root?.querySelector<HTMLSelectElement>(".strategy-paper-trial select");
+    if (!select) return;
+    const panel = select.closest<HTMLElement>(".strategy-paper-trial");
+    panel?.scrollIntoView({block:"start"});
+    if (select.disabled && panel) { panel.tabIndex = -1; panel.focus({preventScroll:true}); }
+    else select.focus({preventScroll:true});
+  }
   const [catalogStatus,setCatalogStatus]=useState('all');
   const [catalogSort,setCatalogSort]=useState('date_desc');
   const [bulkSelection, setBulkSelection] = useState<Set<string>>(new Set());
@@ -1434,13 +1445,19 @@ export function StrategyStudio({ client, service, source = "", onAskAssistant, o
   const analysisAssistantPrompt = sourceAnalysis
     ? strategyExplanationPrompt(sourceAnalysis, name, service)
     : "전략 스튜디오 XAI 결과 화면에서 분석 전 무엇을 입력하고 무엇을 확인해야 하는지 설명해줘.";
-  return <section className="legacy-strategy-workspace">
+  return <section className="legacy-strategy-workspace" ref={workspaceRef}>
     <header className="legacy-strategy-header strategy-simple-header">
       <h2>{t("NoahAI 전략 스튜디오")}</h2>
       <p>{t("전략을 고르고, 내 생각을 만들고, 다른 사람과 공유하세요.")}</p>
       <nav className="strategy-task-nav" aria-label={t("전략 스튜디오 작업 선택")}>
         {([["use", "전략 사용하기", "저장된 전략 확인·모의 운용"], ["create", "내 전략 만들기", "아이디어·자료에서 시작"], ["share", "공유하기", "공개할 버전 선택·제출"]] as const).map(([task, label, hint]) => <button type="button" key={task} aria-pressed={studioTask === task} onClick={() => setStudioTask(task)}><strong>{t(label)}</strong><span>{t(hint)}</span></button>)}
       </nav>
+      {studioTask === "use" && <div className="strategy-period-entry" role="note">
+        <div><strong>{t("PAPER 점검 시점 · 1일·3일·7일 선택")}</strong><span>{t("각 저장 전략 버전에서 선택합니다. 거래를 자동 종료하는 기간이 아닙니다.")}</span></div>
+        <button type="button" disabled={busy || !visibleStrategies.some(group => group.versions.length > 0)} onClick={focusPaperTrial}>{t("기간 선택 위치로 이동")}</button>
+        {versionCount === 0 && <small>{t("먼저 전략을 저장하세요. 전략 사용하기의 저장 버전에서 기간을 선택할 수 있습니다.")}</small>}
+        {versionCount > 0 && visibleStrategies.length === 0 && <small>{t("검색·필터를 초기화하면 기간 선택 대상이 다시 표시됩니다.")}</small>}
+      </div>}
       <div className="strategy-learning-entry"><span>{t("처음에는 모의 운용으로 확인하세요. 실거래는 별도 승인이 필요합니다.")}</span><button type="button" aria-pressed={studioTask === "learn"} onClick={() => setStudioTask("learn")}>{t("학습·고급 안내")}</button></div>
     </header>
     {message && <p className="strategy-task-message" role="status">{message}</p>}

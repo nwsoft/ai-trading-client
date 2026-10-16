@@ -174,5 +174,10 @@
   "재개하지 못했습니다.": "Could not resume new entries.", "새 거래": "New entries",
   "AI 판단·학습 근거": "AI decision and learning evidence",
   "XAI 실행 근거": "XAI execution evidence",
-  "NoahAI XAI는 주식·ETF도 판단과 실행을 분리해 보여줍니다. LEARNING은 분석 판단, PAPER는 가상 체결, LIVE는 증권사 실제 주문이며 각 기록에 종목 유형·판단 근거·차단 사유·실제 주문 여부를 함께 남깁니다. 증권사별 기록은 기관 식별자로 분리하며 과거에 없던 근거는 추정하지 않습니다. 현재 국내 주식·국내 상장 ETF 범위이고, 미국 시세 조회만으로 해외주식 자동매매를 의미하지 않습니다.": "NoahAI XAI separates decisions from execution for stocks and ETFs. LEARNING records analysis decisions, PAPER records simulated fills, and LIVE may place actual broker orders. Each record carries the instrument type, decision evidence, block reason, and whether an actual order was placed. Broker records remain isolated and missing historical evidence is never inferred. The current scope is Korean stocks and Korea-listed ETFs; access to US quotes alone does not mean US-stock automated trading is supported."
+  "NoahAI XAI는 주식·ETF도 판단과 실행을 분리해 보여줍니다. LEARNING은 분석 판단, PAPER는 가상 체결, LIVE는 증권사 실제 주문이며 각 기록에 종목 유형·판단 근거·차단 사유·실제 주문 여부를 함께 남깁니다. 증권사별 기록은 기관 식별자로 분리하며 과거에 없던 근거는 추정하지 않습니다. 현재 국내 주식·국내 상장 ETF 범위이고, 미국 시세 조회만으로 해외주식 자동매매를 의미하지 않습니다.": "NoahAI XAI separates decisions from execution for stocks and ETFs. LEARNING records analysis decisions, PAPER records simulated fills, and LIVE may place actual broker orders. Each record carries the instrument type, decision evidence, block reason, and whether an actual order was placed. Broker records remain isolated and missing historical evidence is never inferred. The current scope is Korean stocks and Korea-listed ETFs; access to US quotes alone does not mean US-stock automated trading is supported.",
+  "PAPER 점검 시점 · 1일·3일·7일 선택": "PAPER review target · Choose 1, 3 or 7 days",
+  "각 저장 전략 버전에서 선택합니다. 거래를 자동 종료하는 기간이 아닙니다.": "Choose a target for each saved strategy version. Trading does not stop automatically at this target.",
+  "기간 선택 위치로 이동": "Go to review target",
+  "먼저 전략을 저장하세요. 전략 사용하기의 저장 버전에서 기간을 선택할 수 있습니다.": "Save a strategy first, then choose its review target under Use strategies.",
+  "검색·필터를 초기화하면 기간 선택 대상이 다시 표시됩니다.": "Reset search and filters to show versions with review targets."
 }

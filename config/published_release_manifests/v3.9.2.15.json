@@ -1,0 +1,183 @@
+{
+    "version":  "3.9.2.15",
+    "release_label":  "v3.9.2.15 Assistant Recovery and Strategy Workflow",
+    "channel":  "stable",
+    "generated_at":  "2026-10-15T08:58:52.6157393Z",
+    "source_fingerprint":  "ce7a7ade33a55301f56bddccab74d50f70696c8dba722433e943618662e84e47",
+    "source_revision":  "9e9fcc3dc3c21e36518081a0d349df91f0dd145c",
+    "source_worktree_dirty":  true,
+    "source_archive_authoritative":  false,
+    "build_status":  "windows_verified_release_candidate",
+    "automated_checks_passed":  true,
+    "publish_ready":  true,
+    "notes_file":  "release_notes.md",
+    "verification":  {
+                         "sha256_required":  true,
+                         "authenticode_required":  false,
+                         "source":  "github_release_manifest",
+                         "branding":  {
+                                          "assets":  {
+                                                         "icon.ico":  "d9cd39ecfc52d0f1b37f9760130fb1edf96259c26fc7b429b49194caa67c2519",
+                                                         "icon.png":  "bc47272288999dfd627b62acb39bf79dec213448f1afa0db9bf28d1764a4030c",
+                                                         "webui/public/icon.png":  "bc47272288999dfd627b62acb39bf79dec213448f1afa0db9bf28d1764a4030c"
+                                                     },
+                                          "executables":  [
+                                                              {
+                                                                  "name":  "NoahAI.exe",
+                                                                  "sha256":  "5fef839c174bc892866affe5cb905692ccf439a53a3316d758b741ddd7951458",
+                                                                  "matching_groups":  [
+                                                                                          [
+                                                                                              1,
+                                                                                              1033
+                                                                                          ]
+                                                                                      ],
+                                                                  "image_count":  7,
+                                                                  "verified":  true
+                                                              },
+                                                              {
+                                                                  "name":  "NoahAI-3.9.2.15-Setup.exe",
+                                                                  "sha256":  "f2fd07c3b37be6a06168c7ce4dc2fc2b945127aa0728ea2b864bb9d04afc1646",
+                                                                  "matching_groups":  [
+                                                                                          [
+                                                                                              103,
+                                                                                              1033
+                                                                                          ]
+                                                                                      ],
+                                                                  "image_count":  7,
+                                                                  "verified":  true
+                                                              }
+                                                          ]
+                                      }
+                     },
+    "assets":  {
+                   "installer":  {
+                                     "name":  "NoahAI-3.9.2.15-Setup.exe",
+                                     "size":  451678692,
+                                     "sha256":  "f2fd07c3b37be6a06168c7ce4dc2fc2b945127aa0728ea2b864bb9d04afc1646",
+                                     "download_url":  "https://github.com/nwsoft/ai-trading-client/releases/download/v3.9.2.15/NoahAI-3.9.2.15-Setup.exe"
+                                 },
+                   "latest_yml":  {
+                                      "name":  "latest.yml",
+                                      "size":  349,
+                                      "sha256":  "f8969e1100eef410c54576f11c466a7eb9c24154754be03bcde356efe09560a7",
+                                      "download_url":  "https://github.com/nwsoft/ai-trading-client/releases/download/v3.9.2.15/latest.yml"
+                                  },
+                   "blockmap":  {
+                                    "name":  "NoahAI-3.9.2.15-Setup.exe.blockmap",
+                                    "size":  470674,
+                                    "sha256":  "dbde49acc133f0ea9f8512e73a20c8ca6799d902ed7c80c3f9fec6c64392fb65",
+                                    "download_url":  "https://github.com/nwsoft/ai-trading-client/releases/download/v3.9.2.15/NoahAI-3.9.2.15-Setup.exe.blockmap"
+                                },
+                   "engine_sidecar":  {
+                                          "name":  "NoahAIEngine.exe",
+                                          "size":  302981852,
+                                          "sha256":  "32f42a0d15a6d0a97ffae501caf7657da095cb9c16c99eedf6449f6656f4af04",
+                                          "distribution":  "embedded_in_installer"
+                                      },
+                   "kiwoom_host":  {
+                                       "name":  "NoahAIKiwoomHost.exe",
+                                       "size":  46697221,
+                                       "sha256":  "ae0c93d73755c62d0b8948243f42795f426ce078faddc4f5f96663a34ebde0a2",
+                                       "pe_machine":  "0x14c",
+                                       "supported":  true,
+                                       "distribution":  "embedded_in_installer"
+                                   }
+               },
+    "update_contract":  {
+                            "provider":  "electron_updater_github",
+                            "metadata":  "latest.yml",
+                            "product_version":  "3.9.2.15",
+                            "updater_semver":  "3.9.215",
+                            "version_mapping":  "A.B.C.D -\u003e A.B.(C*100+D); D=0..99",
+                            "check_policy":  "automatic_on_app_start",
+                            "download_policy":  "user_approved",
+                            "install_policy":  "user_approved_safe_shutdown_restart",
+                            "user_actions":  [
+                                                 "download",
+                                                 "install_and_restart"
+                                             ],
+                            "legacy_single_exe_updater":  "retired_after_v3.9.0.10"
+                        },
+    "previous_published_asset":  {
+                                     "version":  "3.9.2.14",
+                                     "release_label":  "v3.9.2.14",
+                                     "path":  "deploy/web-release/NoahAI-3.9.2.14-Setup.exe",
+                                     "size":  451634894,
+                                     "sha256":  "956ae419ec490b9bdaa57b4b56c275cee882b7a19852f9f26a8c54c830b3a53b",
+                                     "purpose":  "previous_published_windows_build"
+                                 },
+    "external_validation_status":  "pending",
+    "external_validation_plan":  "DEPLOY_CHECKLIST.md",
+    "external_validation_pending_count":  10,
+    "external_validation":  [
+                                "WIN-BUILD",
+                                "WIN-UPGRADE",
+                                "ASSISTANT",
+                                "REGIME",
+                                "UPLOAD",
+                                "STOCK-PAPER",
+                                "LIVE-PERFORMANCE",
+                                "ROLLBACK",
+                                "SOAK",
+                                "PUBLISH"
+                            ],
+    "external_validation_items":  [
+                                      {
+                                          "id":  "SOURCE",
+                                          "status":  "complete",
+                                          "description":  "공개 .14 원본 manifest 보존, 패키징 경계 재현과 피드백 수정·회귀"
+                                      },
+                                      {
+                                          "id":  "WIN-BUILD",
+                                          "status":  "pending",
+                                          "description":  ".15 동일 커밋·지문·GUI 제외 엔진 필수 안내 모듈·x64/x86·설치기 확인"
+                                      },
+                                      {
+                                          "id":  "WIN-UPGRADE",
+                                          "status":  "pending",
+                                          "description":  ".14→.15 업데이트와 설정/키/원장/전략/허용 상태 보존"
+                                      },
+                                      {
+                                          "id":  "ASSISTANT",
+                                          "status":  "pending",
+                                          "description":  "설치본 일반 안내·심층 성공/실패·전략 상담·비용/한도·요청 ID 확인"
+                                      },
+                                      {
+                                          "id":  "REGIME",
+                                          "status":  "pending",
+                                          "description":  "실제 7거래소 단기 지표·기준·계산/관찰 시각과 확정 대기 대조"
+                                      },
+                                      {
+                                          "id":  "UPLOAD",
+                                          "status":  "pending",
+                                          "description":  "STUDIO · CATALOG · REPLAY-COST 기존 등록·허브·실제 비용 가정 인수 포함: 예제 4개·파일 10개 독립 분석/초안 저장·명시 승인·기간/표본/기존 청산 보존"
+                                      },
+                                      {
+                                          "id":  "STOCK-PAPER",
+                                          "status":  "pending",
+                                          "description":  "실제 4기관 선정 종목/학습 표·PAPER 실주문 0·정상 HOLD와 실패 사유 확인"
+                                      },
+                                      {
+                                          "id":  "LIVE-PERFORMANCE",
+                                          "status":  "pending",
+                                          "description":  "권한 있는 별도 환경에서 이미 발생한 버전 귀속 LIVE 청산과 화면 수치 대조"
+                                      },
+                                      {
+                                          "id":  "ROLLBACK",
+                                          "status":  "pending",
+                                          "description":  ".15 기록 별도 백업 후 .14 복원/재업그레이드 보존"
+                                      },
+                                      {
+                                          "id":  "SOAK",
+                                          "status":  "pending",
+                                          "description":  "테스터가 24/72h PAPER 운용·무거래 설명·재연결·응답 지연을 기록"
+                                      },
+                                      {
+                                          "id":  "PUBLISH",
+                                          "status":  "pending",
+                                          "description":  ".15 새 자산/해시/manifest/latest 게시 결과 확인"
+                                      }
+                                  ],
+    "external_validation_scope":  "release_checklist_snapshot",
+    "external_validation_plan_sha256":  "d0241a4e9de89b645c66e908461b6bbffb358ec7cb3bc4efb24f136d5e2369da"
+}

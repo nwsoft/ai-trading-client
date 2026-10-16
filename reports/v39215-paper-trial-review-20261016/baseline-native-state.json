@@ -1,0 +1,46 @@
+{
+  "source_commit": "9e9fcc3dc3c21e36518081a0d349df91f0dd145c",
+  "native_app": "macOS Electron; production renderer + real FastAPI + isolated synthetic account",
+  "ui_actions_verified": [
+    "crypto select 1/start/pause/select3/resume/pause/select7/resume",
+    "stock default7/start",
+    "disabled during observation; editable after pause",
+    "actual state persisted to local strategy JSON"
+  ],
+  "state": {
+    "strategies": [
+      {
+        "scope": "binance",
+        "versions": [
+          {
+            "name": "기간 선택 확인 · 코인",
+            "status": "paper_observing",
+            "target_days": 7,
+            "active": null,
+            "paper_observing": null,
+            "version_id": "strategy_053fcc6693_v1_a37523",
+            "samples": null
+          }
+        ]
+      },
+      {
+        "scope": "unified",
+        "versions": [
+          {
+            "name": "기간 선택 확인 · 주식",
+            "status": "paper_observing",
+            "target_days": 7,
+            "active": null,
+            "paper_observing": null,
+            "version_id": "strategy_d7ef4a6cfe_v1_a96bf6",
+            "samples": null
+          }
+        ]
+      }
+    ],
+    "external_connections_blocked": 0,
+    "runtime": "detached",
+    "orders_submitted": 0
+  },
+  "observed_issue": "period control below first viewport with no entry guidance; no failed period save reproduced"
+}

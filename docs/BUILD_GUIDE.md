@@ -1,3 +1,51 @@
+## 2026-10-16 — v3.9.2.16 PAPER 기간 선택 위치·버전 안내 (로컬 수정 후보)
+
+현재 소스 후보 버전: **v3.9.2.16** · 현재 공개 버전: **v3.9.2.15**
+현재 소스 후보: v3.9.2.16 · 현재 공개 기반: v3.9.2.15 · updater 3.9.216 · renderer 3.9.2.16-ui.20261016.1.
+
+공개 .15 `9e9fcc3dc3c21e36518081a0d349df91f0dd145c`는 2026-10-15 18:01:11 KST 게시됐다. 공개 .14는 `d8e698f5dd181ec5effffb045c5f51e999a4a72b`다. 아래의 후보/미게시 문장은 작성 당시 이력이며 현재 공개 상태를 뜻하지 않는다. 이번 수정은 공개 .15를 덮어쓰지 않는 별도 .16 소스 후보다. Windows .16 빌드·게시·실기관 인수는 미실시다.
+
+실제 Mac Electron 앱의 빌드 화면 + 실제 로컬 FastAPI/전략 저장 경로에서 PAPER 1·3·7일 선택과 시작/일시정지/기간 변경/재개를 확인한다. 시험 계정·별도 데이터 경로·Detached runtime을 사용하며 실주문/실기관 인증·고객 설정 변경은 하지 않는다. .14/.15의 기간 선택 기능은 존재하고 기간 저장 실패는 현재 재현되지 않았다. 다만 첫 화면에 선택 위치 안내가 없고 스크롤 아래의 버전 카드 안에 있어 찾기 어렵다. .16에서는 전략 사용하기 첫 화면에 기간 설명과 「기간 선택 위치로 이동」을 추가한다. 현재 검색 목록의 변경 가능한 버전으로 이동하고, 모두 실행 중이면 해당 안내를 보여주며 자동 정지/기간 저장을 하지 않는다. 빈 목록은 저장 또는 검색 초기화 안내를 표시한다.
+
+이번 직접 재실행 시험에서 macOS에 남은 프로세스가 이미 닫힌 창에 접근하는 `Object has been destroyed` 오류도 발견했다. .16은 닫힌 창 참조를 정리하고 재실행 시 창의 생존 여부·gateway 준비·종료 상태를 확인한다. 새 거래 엔진을 중복 기동하지 않는다. Windows 빌드의 Node 검사에 Electron 창 수명주기 검사도 포함한다. Mac 종료·재실행과 단위 검사는 별도 근거로 기록하며 Windows 확인을 대신하지 않는다.
+
+최신 근거: `reports/v39215-paper-trial-review-20261016/validation.json`. 실제 데스크톱 확인과 모의 React/단위 검사, Windows 설치본·실거래 검증은 구분한다. 기존 1·3·7일의 저장·일시정지·재개·최종 적용 안전 검사는 유지한다.
+
+### 3.9.2.16 Windows에서 사용할 소스와 명령
+
+다음 로컬 인계 파일은 .16 후보 전용입니다: `reports/v39215-paper-trial-review-20261016/handoff.json`, 같은 폴더의 `v39216-paper-trial.bundle`. .15 공개 소스/설치기는 변경하지 않습니다. `$handoffPath`를 Windows의 동기화 경로로 수정하고 새 `C:\NoahAI\client-v39216`에서 실행하세요. Git 원본 폴더의 오래된 bundle/설치기/venv/dist를 혼합하지 마세요.
+
+```powershell
+$ErrorActionPreference = "Stop"
+function Invoke-CandidateChecked([scriptblock]$Command) {
+    & $Command
+    if ($LASTEXITCODE -ne 0) { throw "Command failed: $LASTEXITCODE" }
+}
+$handoffPath = "D:\SynologyDrive\Works\noahai_client\reports\v39215-paper-trial-review-20261016\handoff.json"
+$handoffPath = (Resolve-Path -LiteralPath $handoffPath).Path
+$handoff = Get-Content -LiteralPath $handoffPath -Raw -Encoding UTF8 | ConvertFrom-Json
+if ($handoff.source_version -ne "3.9.2.16") { throw "Wrong handoff version" }
+$bundlePath = Join-Path (Split-Path -Parent $handoffPath) $handoff.bundle
+if ((Get-FileHash -LiteralPath $bundlePath -Algorithm SHA256).Hash.ToLowerInvariant() -ne $handoff.bundle_sha256) { throw "Bundle hash mismatch" }
+$buildRoot = "C:\NoahAI\client-v39216"
+if (Test-Path -LiteralPath $buildRoot) { throw "Use a new empty build path" }
+New-Item -ItemType Directory -Path (Split-Path -Parent $buildRoot) -Force | Out-Null
+Invoke-CandidateChecked { git clone --filter=blob:none --no-checkout https://github.com/nwsoft/ai-trading-client.git $buildRoot }
+Set-Location -LiteralPath $buildRoot
+Invoke-CandidateChecked { git fetch origin $handoff.public_commit }
+Invoke-CandidateChecked { git bundle verify $bundlePath }
+$branchRef = "{0}:refs/heads/{0}" -f $handoff.branch
+Invoke-CandidateChecked { git fetch $bundlePath $branchRef }
+Invoke-CandidateChecked { git switch $handoff.branch }
+$actualCommit = (Invoke-CandidateChecked { git rev-parse HEAD } | Out-String).Trim()
+if ($actualCommit -ne $handoff.source_commit) { throw "Candidate commit mismatch" }
+if ((Invoke-CandidateChecked { git status --porcelain } | Out-String).Trim()) { throw "Build source is dirty" }
+```
+
+생략 옵션 없이 실행합니다. 정상 산출물은 `deploy/web-release/NoahAI-3.9.2.16-Setup.exe`, `.blockmap`, `latest.yml`(updater **3.9.216**), `deploy/release-manifest.json`입니다. 공개 .15 설치기/manifest는 해시가 고정된 아카이브를 통해 보존합니다. 전체 Python/Node/Electron 창 검사, skip 감사, 문서/소스/의존성 검사, x64 엔진·x86 키움 호스트·IPC/PE/설치기 추출 검사와 출처 일치를 확인하세요. 실제 설치·업데이트·기간 선택·기존 표본 보존·종료/재실행은 DEPLOY_CHECKLIST의 .16 절을 따릅니다. 자동 검사만으로 실제 기관/Windows 설치/24·72h를 통과 처리하지 않습니다.
+
+이번 .16의 원격 push·게시·운영 배포는 실행하지 않았습니다. Windows 빌드 후 사용자 검토와 기존 릴리스 절차를 거쳐 별도 게시합니다. 아래 .15 이하 절은 당시 사용한 명령/상태의 이력입니다.
+
 ## 2026-10-15 — v3.9.2.15 Windows 정식 빌드·게시 실행
 
 사용자의 2026-10-15 최신 명시 요청은 전체 Windows 검사 후 stable/latest 게시를 승인한다. 아래 Mac 소스 전용·push 제외 기록은 당시 이력이다. 최신 handoff `2698d0c6f37484028efd48d58b12d683aea6ed0c`와 bundle SHA256을 검증해 고유 작업트리에 복원하고 원본과 60초 이상 소스 안정성을 대조한다. 생략 옵션 없이 빌드·설치기 추출·의존성·아이콘·공개 다운로드를 검사하며 실제 결과는 `reports/v39215-windows-publication-20261015.json`에 기록한다.

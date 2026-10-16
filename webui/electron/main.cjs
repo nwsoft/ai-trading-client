@@ -18,6 +18,7 @@ function publishUpdateStatus(status) {
 
 let gatewayProcess = null;
 let gatewayBootstrap = null;
+const { activateWindow } = require("./window-activation.cjs");
 let mainWindow = null;
 let shutdownPromise = null;
 let shutdownComplete = false;
@@ -292,6 +293,8 @@ function createWindow() {
       nodeIntegration: false, contextIsolation: true, sandbox: true, webSecurity: true,
     },
   });
+  const createdWindow = mainWindow;
+  createdWindow.on("closed", () => { if (mainWindow === createdWindow) mainWindow = null; });
   mainWindow.webContents.setWindowOpenHandler(({ url }) => { if (url.startsWith("https://")) shell.openExternal(url); return { action: "deny" }; });
   mainWindow.webContents.on("will-navigate", (event) => event.preventDefault());
   mainWindow.once("ready-to-show", () => {
@@ -480,7 +483,10 @@ if (!ownsSingleInstanceLock) {
   // a second NoahAIEngine.exe that races the real owner's settings writes.
   app.quit();
 } else {
-app.on("second-instance", () => { if (mainWindow) { if (mainWindow.isMinimized()) mainWindow.restore(); mainWindow.focus(); } });
+app.on("second-instance", () => {
+  if (app.isQuitting || shutdownComplete) return;
+  activateWindow(mainWindow, createWindow, Boolean(gatewayBootstrap));
+});
 
 app.whenReady().then(async () => {
   // Windows/Linux place Electron's default menu inside the window. NoahAI

@@ -3628,3 +3628,10 @@ html[lang="en"] button { white-space: normal; overflow-wrap: break-word; }
 .strategy-batch-import dl { display:flex; flex-wrap:wrap; gap:12px 24px; margin:10px 0; }
 .strategy-batch-import dt { color:#94a3b8; font-size:12px; }.strategy-batch-import dd { margin:4px 0 0; }
 .strategy-batch-import pre { max-height:320px; overflow:auto; white-space:pre-wrap; }
+
+.strategy-period-entry { display:flex; flex-wrap:wrap; align-items:center; gap:12px; margin:12px 0; padding:12px 14px; border:1px solid #426281; border-radius:10px; background:#12253a; }
+.strategy-period-entry > div { display:flex; flex:1 1 320px; flex-direction:column; gap:5px; }
+.strategy-period-entry strong { color:#91e5f4; font-size:14px; }
+.strategy-period-entry span, .strategy-period-entry small { color:#c0d1e2; font-size:12px; line-height:1.5; }
+.strategy-period-entry small { flex-basis:100%; }
+.strategy-paper-trial:focus { outline:2px solid #91e5f4; outline-offset:3px; }

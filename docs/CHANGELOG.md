@@ -1,3 +1,67 @@
+## 2026-10-16 - v3.9.2.16 PAPER 기간 선택 위치·버전 안내 (로컬 수정 후보)
+
+현재 소스 후보 버전: **v3.9.2.16** · 현재 공개 버전: **v3.9.2.15**
+현재 소스 후보: v3.9.2.16 · 현재 공개 기반: v3.9.2.15 · updater 3.9.216 · renderer 3.9.2.16-ui.20261016.1.
+
+공개 .15 `9e9fcc3dc3c21e36518081a0d349df91f0dd145c`는 2026-10-15 18:01:11 KST 게시됐다. 공개 .14는 `d8e698f5dd181ec5effffb045c5f51e999a4a72b`다. 아래의 후보/미게시 문장은 작성 당시 이력이며 현재 공개 상태를 뜻하지 않는다. 이번 수정은 공개 .15를 덮어쓰지 않는 별도 .16 소스 후보다. Windows .16 빌드·게시·실기관 인수는 미실시다.
+
+실제 Mac Electron 앱의 빌드 화면 + 실제 로컬 FastAPI/전략 저장 경로에서 PAPER 1·3·7일 선택과 시작/일시정지/기간 변경/재개를 확인한다. 시험 계정·별도 데이터 경로·Detached runtime을 사용하며 실주문/실기관 인증·고객 설정 변경은 하지 않는다. .14/.15의 기간 선택 기능은 존재하고 기간 저장 실패는 현재 재현되지 않았다. 다만 첫 화면에 선택 위치 안내가 없고 스크롤 아래의 버전 카드 안에 있어 찾기 어렵다. .16에서는 전략 사용하기 첫 화면에 기간 설명과 「기간 선택 위치로 이동」을 추가한다. 현재 검색 목록의 변경 가능한 버전으로 이동하고, 모두 실행 중이면 해당 안내를 보여주며 자동 정지/기간 저장을 하지 않는다. 빈 목록은 저장 또는 검색 초기화 안내를 표시한다.
+
+이번 직접 재실행 시험에서 macOS에 남은 프로세스가 이미 닫힌 창에 접근하는 `Object has been destroyed` 오류도 발견했다. .16은 닫힌 창 참조를 정리하고 재실행 시 창의 생존 여부·gateway 준비·종료 상태를 확인한다. 새 거래 엔진을 중복 기동하지 않는다. Windows 빌드의 Node 검사에 Electron 창 수명주기 검사도 포함한다. Mac 종료·재실행과 단위 검사는 별도 근거로 기록하며 Windows 확인을 대신하지 않는다.
+
+인앱 메뉴얼에는 .15의 마지막 증권 분봉/TR 변경을 보완하고, 업데이트 목차에서 최신 .16/.15/.14 버전 제목으로 바로 이동하게 했다. 이전 짧은 버전 제목만 목차에 잡히던 표시 누락도 수정했다.
+
+최신 근거: `reports/v39215-paper-trial-review-20261016/validation.json`. 실제 데스크톱 확인과 모의 React/단위 검사, Windows 설치본·실거래 검증은 구분한다. 기존 1·3·7일의 저장·일시정지·재개·최종 적용 안전 검사는 유지한다.
+
+## 2026-10-16 — 공개 3.9.2.14·3.9.2.15 버전별 변경 정본
+
+공개 태그 간 변경을 비교했다: .13 `33d351c` → .14 `d8e698f` → .15 `9e9fcc3`. .14/.15의 후보 작성 기록과 실제 게시 상태를 구분한다. **1·3·7일은 .14부터 제공하며 .15 신규 기능이 아니다.** 아래는 사용자 변경과 운영/호환/검증 변경을 함께 분류한 목록이며 생성된 보고서·아이콘/버전 숫자 변경을 별도 신기능으로 세지 않는다.
+
+### 3.9.2.14 — 증권 분석·PAPER 기간/적용 분리
+
+| 항목 | 해당 버전에서 바뀐 내용 | 주요 코드/근거 |
+| --- | --- | --- |
+| PAPER 관찰 목표 | 고정 7일 대기처럼 보이던 흐름을 1·3·7일 선택으로 변경. 기본 7일은 필수 기간이 아니며 승인 후 즉시 시작 | trading/custom_strategy_pipeline.py · webui/src/components/StrategyPaperTrial.tsx |
+| 목표 도달 동작 | 도달을 알리고 계속 검증. 사용자가 일시정지하며 자동 종료·자동 적용하지 않음 | trading/custom_strategy_pipeline.py |
+| 최종 적용 조건 | 기간과 별도로 유효 청산 최소 3건·실제 원장/비용 대조·위험 근거·사용자 확인 검사. 수동 건수/기간만으로 적용하지 않음 | web_platform/application_services.py · trading/custom_strategy_pipeline.py |
+| 시간 표시 | 등록 후 경과와 실제 정상 후보 규칙 평가시간 분리. 겹친 구간 중복 제외, 일시정지/오프라인 평가시간 부풀림·시계 이동 경계 검사 | trading/paper_runtime_evidence.py |
+| 기간 변경·기록 보존 | 일시정지→기간 선택→이어가기. 기존 표본·권한 구간·실측 근거 보존, 새 검증은 이전 시도 기록과 분리 | trading/custom_strategy_pipeline.py · strategy_customizer.py |
+| 코인·증권 기간 안내 | 코인은 24시간 거래 조건, 증권은 달력일/휴장/장 운영시간 설명. 3일을 3거래일로 표시하지 않음 | webui/src/components/StrategyPaperTrial.tsx · config/assistant_support_knowledge.py |
+| 전략 적용 제어 | 기존 적용 해제의 의미를 전략 적용 일시정지로 명확화. 재적용 검사, 보유 포지션 청산 계획 유지. 시간 지정 자동 만료는 미구현 | webui/src/components/StrategyStudio.tsx |
+| 증권 분석 자료 | 키움·한국투자·미래에셋·신한 실제 일봉을 분석에 연결. 완료/정렬/가격/평균 거래량 검증, 캐시 만료·오류 시 오래된 자료 대체 방지 | trading/stock_analysis_service.py |
+| 한국투자 장기 지표 | 1회 100봉 제약을 날짜 역방향 페이지로 보완(최대 500봉). 중복·진행 없는 커서·실패 검사 | trading/exchanges/adapters/korea_investment_stock_adapter.py |
+| 키움 전일가 | 시세 필드 누락 시 공식 GetMasterLastPrice 전일가 사용. 없는 값을 0/현재가로 추정하지 않음 | trading/exchanges/adapters/kiwoom_stock_adapter.py |
+| 증권 PAPER 청산 | 비용 반영 가상 평가손익률을 익절·손절 판단으로 전달. 근거 누락은 보류 | trading/stock_analysis_service.py |
+| 증권 무거래 진단 | 사유별 건수·점수/기준·완료 일봉 수 표시. 정상 대기·장 종료·분석/자금/전략 제한 구분 | trading/stock_runtime_controller.py |
+| 원본·실패 주기 정합성 | 원본 두 파일의 공개 .13 동작/콜백과 로컬 실패 처리 병합. 실패 주기를 정상 완료로 집계하지 않음. 테스트 import 호환 보존 | trading/entry_diagnostics.py · tests/__init__.py · pytest.ini |
+| Windows·문서·빌드 | UTF-8 manifest/인수 문서 읽기, Python 로깅 시계 격리 시험, .14 버전/가이드/원본/bundle 정합성 및 공개 .13 복원 기준 보존 | scripts/build_web_ui_windows.ps1 · scripts/publish_web_ui_windows_release.ps1 |
+
+### 3.9.2.15 — 어시스턴트·전략 등록/관리·증권 분봉/TR
+
+| 항목 | 해당 버전에서 바뀐 내용 | 주요 코드/근거 |
+| --- | --- | --- |
+| 어시스턴트 연결 | 설치 엔진에서 제외된 GUI 안내 모듈 참조를 엔진 모듈로 이동. 구형 UI 호환 재노출·필수 패키징 모듈 검사 | trading/ai_custom_guidance.py · ui/ai_custom_guidance.py |
+| API 오류 식별 | 예상 밖 오류에도 CORS·지원 코드·요청 ID를 유지하고 민감한 원본 오류는 노출하지 않음 | web_platform/gateway.py |
+| 코인 시장국면 | 실제 지표·임계값·계산 시각과 오늘 방향/단기 국면의 차이 표시. 기존 판정 기준 유지 | webui/src/components/OperationSummary.tsx |
+| 기술점수 미산출 | 티커 우선 선정에서 지표 근거가 없는 이유 및 상세 분석 경로 표시. 점수를 만들어 채우지 않음 | webui/src/components/LegacyFeatureWorkspaces.tsx |
+| 기관별 승률 | 유효 PAPER 청산 또는 대조 완료 LIVE 청산을 기관·통화별 집계. 표본 없음은 미확정 | web_platform/query_services.py · webui/src/components/TradingStatisticsWorkspace.tsx |
+| 증권 종목정보 | 실제 기관 워커의 선정·평가 종목/점수/사유/시각 연결 | trading/operation_evidence.py · webui/src/components/LegacyFeatureWorkspaces.tsx |
+| 증권 AI학습 배치 | 모니터 높이와 판단·학습 근거 표 공간 조정. 코인 화면 배치와 분리 | webui/src/components/LegacyFeatureWorkspaces.tsx |
+| 기본 예제 | 자산별 기본 예제 4종에 진입·청산·손절·익절 숫자/단위 보완. 학습용 LONG 초안으로 표시 | webui/src/components/StrategyStudio.tsx |
+| 여러 파일 등록 | TXT/Pine 최대 10개·파일당 1MB를 독립 순차 분석·검토·초안 저장. 개별 실패/보완, 응답 유실 자동 재전송 방지 | webui/src/components/StrategyBatchImport.tsx |
+| 이름·범위·메타데이터 | 파일명/명시 전략명 연결, 기관 선택 한곳으로 통합. 명시 기관·국면 기준·우선순위 읽기 및 source_routing_contract 정합 검사 | trading/strategy_source_ingestor.py · webui/src/components/StrategyStudio.tsx |
+| 전략 관리 | 미적용/내용 확인·승인 필요/PAPER 필요 필터, 선택 내용 승인, 새로 저장한 버전으로 이동 | webui/src/components/StrategyBulkActions.tsx · StrategyStudio.tsx |
+| 버전별 LIVE 성과 | 실제 버전 귀속 청산만 기관/통화별 조회. PAPER·미대조·귀속 미기록을 분리하고 자동 교체하지 않음 | web_platform/query_services.py · StrategyStudio.tsx |
+| 증권 판단·사유 | 일반 주식 SELL 합의의 방향 수정. HOLD를 합의 실패로 설명하던 순서·cooldown 0·주문 결과 사유 누락 수정 | trading/strategy_engine.py · trading/stock_analysis_service.py |
+| 증권 분봉 실행 | 키움 opt10080/32bit IPC 및 KIS 실제/모의 분봉 REST를 진입·청산·PAPER에 연결. 1/3/5/10/15/30분·1시간 | trading/stock_candles.py · trading/kis_intraday_history.py · broker adapters |
+| 분봉 안전·조회량 | 완료봉·KRX/KST·누락/미래/비정상 값·페이지/캐시·워밍업 검사. 다른 자산/기관 PAPER 규칙의 불필요한 증권 조회 제거 | trading/stock_analysis_service.py · trading/stock_candles.py |
+| 키움 TR 처리 | 현재 연결/서버 거부/콜백/남은 RPC 예산 구분, 연속 무응답 조회 대기·회복, 부모 연결 상태 반영. 자동 주문 재전송/재로그인 없음 | trading/exchanges/adapters/kiwoom_bounded_backend.py · kiwoom_process_proxy.py |
+| 자료 부족 표시 | 실제 봉 수/요청 수와 조회 실패를 구분해 5m 48/207봉 등의 진행·보류 근거 표시 | trading/custom_strategy_validator.py · trading/stock_runtime_controller.py |
+| 업그레이드·운영 도구 | 기존 설정·70개 전략 규칙/승인/PAPER 이력 보존 검사, 비밀값 없는 진단 이벤트·읽기 전용 Windows probe·필수 동결 모듈 검사 | scripts/probe_stock_intraday.py · scripts/verify_web_engine_bundle.py |
+| Windows 공개·검증 | .14 공개 원본 보존, .15 Windows 빌드·자산/PE/공개 다운로드 검증 및 게시. 설치/OCX/실기관/24·72h 인수는 별도 | reports/v39215-windows-publication-20261015.json |
+
+.14는 .13 기능을, .15는 .14의 기간 선택·정지/이어가기·표본/위험 검사·기존 청산 보호를 유지한다. 내 금융비서/내 돈 계획과 거래소 변경 대응의 앞선 버전 구현을 .14/.15 신규 기능으로 재기재하지 않는다. 한국투자 모의 서버의 당일 분봉 제약, 미래에셋/신한 분봉·증권 분봉 기간 재생 미지원, 실제 고객 복구·예측 정확도·수익 보장은 별도다.
+
 ## 2026-10-15 - v3.9.2.15 사용자 피드백 수정 (소스 후보)
 
 현재 소스 후보 버전: **v3.9.2.15** · 현재 공개 버전: **v3.9.2.14**

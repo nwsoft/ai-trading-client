@@ -779,7 +779,7 @@ function parseManualDocument(content: string): ManualDocumentBlock[] {
 function ManualDocumentContent({ sectionId, content, query }: { sectionId: string; content: string; query: string }) {
   const blocks = useMemo(() => parseManualDocument(content), [content]);
   const chapterLinks = blocks.map((block, index) => ({ block, index }))
-    .filter(({ block }) => block.kind === "heading" && block.level <= 3)
+    .filter(({ block }) => block.kind === "heading" && (block.level <= 3 || (sectionId === "updates" && /^v\d+\.\d+\.\d+\.\d+\s/.test(block.text))))
     .slice(1, sectionId === "updates" ? 20 : 16) as Array<{ block: Extract<ManualDocumentBlock, { kind: "heading" }>; index: number }>;
   const jumpTo = (index: number) => document.getElementById(`manual-${sectionId}-block-${index}`)?.scrollIntoView({ behavior: "smooth", block: "start" });
   return <section className="manual-document" aria-label={t("전체 사용자 설명")}>
