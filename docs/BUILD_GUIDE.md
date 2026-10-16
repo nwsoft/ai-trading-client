@@ -1,3 +1,9 @@
+## 2026-10-16 Windows .16 정식 빌드·게시 실행
+
+사용자의 최신 명시 요청에 따라 최신 compatibility handoff의 커밋 `a3aaa2e6c72d387c89f60d1fcbb085f454f19d44`와 bundle SHA256·소스 지문을 확인하고 별도 깨끗한 작업트리에서 생략 옵션 없이 Windows 빌드 후 stable/latest 게시한다. 제품 3.9.2.16 · updater 3.9.216 · renderer 3.9.2.16-ui.20261016.3. 아래 소스 후보·미게시 문장은 작성 당시 이력이다.
+
+기존 x64 `.venv`와 Python311-32를 사용한다. 실제 설치/업데이트/롤백·OCX·실마이크·실기관·외부 AI·24/72h 인수는 자동 검사와 구분하여 pending으로 유지한다. 사용자 앱 설치·실주문·외부 서버 배포·유료 서명은 수행하지 않는다. 결과 정본은 `reports/v39216-windows-publication-20261016.json`이며 수동 인수 ID/상태/개수는 `release_acceptance.py`가 읽는 DEPLOY_CHECKLIST의 .16 절을 따른다.
+
 ## 2026-10-16 — v3.9.2.16 PAPER 기간 선택 위치·버전 안내 (로컬 수정 후보)
 
 현재 소스 후보 버전: **v3.9.2.16** · 현재 공개 버전: **v3.9.2.15**
