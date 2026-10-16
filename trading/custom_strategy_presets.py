@@ -30,16 +30,6 @@ PRESET_CATALOG: Dict[str, Dict[str, Any]] = {
         "regimes": ["bull", "bear", "trend"],
         "executable_template": True,
         "summary": "EMA 20·50·200 정렬과 가격·RSI·거래량을 확인해 명확한 추세 방향만 따릅니다.",
-        "source_text": """전략명: 추세 따라가기
-목적: 명확한 추세에서만 이동평균 정렬 방향으로 진입한다.
-시장상황: 상승장, 하락장, 추세장. 횡보장과 HIGH 고변동에서는 신규 진입하지 않는다.
-LONG 진입: EMA20 > EMA50 > EMA200, 현재 가격 > EMA20, RSI는 50 이상 75 이하, 거래량은 최근 평균 이상.
-SHORT 진입: EMA20 < EMA50 < EMA200, 현재 가격 < EMA20, RSI는 25 이상 50 이하, 거래량은 최근 평균 이상.
-청산: EMA20과 EMA50 정렬이 반대로 바뀌거나 가격이 EMA50을 반대 방향으로 확정 이탈할 때.
-손절: ATR 기반 또는 최근 스윙 지점 밖. 익절: 최소 예상 손익비 1.8 이상.
-포지션: 1회 위험예산 0.5%, 증거금 최대 10%, 레버리지 상한 3배.
-공통 안전: 큰 시간대와 진입 신호가 충돌하거나 유동성·스프레드·손익비 기준 미달이면 HOLD한다.
-이 초안은 성과를 보장하지 않으며 사용자 검토·자동검증 전에는 실행하지 않는다.""",
         "rules_template": {
             "entry": "EMA 20·50·200 정렬, 가격 위치, RSI, 거래량 비율을 모두 확인",
             "exit": "고정 TP/SL 또는 사용자 승인 후 선언한 실행 청산 조건",
@@ -84,16 +74,6 @@ SHORT 진입: EMA20 < EMA50 < EMA200, 현재 가격 < EMA20, RSI는 25 이상 50
         "regimes": ["bull", "bear", "trend"],
         "executable_template": True,
         "summary": "EMA50·EMA200으로 큰 추세를 확인한 뒤 EMA20·EMA50 부근 조정이 끝날 때만 재진입합니다.",
-        "source_text": """전략명: 눌림목 진입
-목적: 확인된 추세 중 되돌림이 끝날 때 추세 방향으로 재진입한다.
-시장상황: 완만한 상승·하락 추세와 NORMAL 변동성. 횡보장과 급격한 HIGH 국면에서는 HOLD한다.
-LONG 진입: EMA50 > EMA200, 가격이 EMA20 또는 EMA50 부근까지 조정, RSI가 40~55에서 다시 상승, 가격이 EMA20을 재돌파, 거래량 회복.
-SHORT 진입: EMA50 < EMA200, 가격이 EMA20 또는 EMA50 부근까지 반등, RSI가 45~60에서 다시 하락, 가격이 EMA20 아래로 재진입, 거래량 회복.
-청산: EMA50 반대 이탈 또는 추세 정렬 해제.
-손절: 최근 스윙 지점 밖 또는 ATR 기반. 익절: 최소 예상 손익비 1.8 이상, 추세 유지 시 추적손절 검토.
-포지션: 1회 위험예산 0.5%, 증거금 최대 10%, 레버리지 상한 3배.
-공통 안전: 큰 시간대 방향과 진입 신호가 충돌하거나 조건이 부족하면 HOLD한다.
-이 초안은 성과를 보장하지 않으며 사용자 검토·자동검증 전에는 실행하지 않는다.""",
         "rules_template": {
             "entry": "큰 추세 정렬 후 EMA20 재돌파·재이탈과 RSI·거래량 회복을 확인",
             "exit": "고정 TP/SL 또는 사용자 승인 후 선언한 실행 청산 조건",
@@ -134,16 +114,6 @@ SHORT 진입: EMA50 < EMA200, 가격이 EMA20 또는 EMA50 부근까지 반등, 
         "regimes": ["range", "calm"],
         "executable_template": True,
         "summary": "평평한 추세와 박스권이 확인된 경우에만 RSI 반전을 사용하고 돌파가 시작되면 중지합니다.",
-        "source_text": """전략명: 횡보장 저점·고점 대응
-목적: 방향성이 낮은 박스권에서만 RSI 평균회귀 후보를 만든다.
-시장상황: 횡보장, LOW 또는 NORMAL 변동성. 상승·하락 추세와 HIGH 변동성에서는 신규 진입하지 않는다.
-LONG 진입: 가격이 박스권 하단에 접근, RSI 28~35 이하에서 상향 전환, 하락 모멘텀 둔화, 반등 거래량 확인.
-SHORT 진입: 가격이 박스권 상단에 접근, RSI 65~72 이상에서 하향 전환, 상승 모멘텀 둔화.
-청산: 박스권 중앙에서 일부, 반대편에서 나머지. 박스권 경계를 거래량과 함께 이탈하면 즉시 전략 중지 또는 손절.
-손절: 박스권 경계 밖 또는 ATR 기반. 익절: 최소 예상 손익비 1.8 이상.
-포지션: 1회 위험예산 0.5%, 증거금 최대 10%, 레버리지 상한 2배.
-공통 안전: 추세가 강해지거나 여러 시간대 방향이 충돌하면 HOLD한다.
-이 초안은 성과를 보장하지 않으며 사용자 검토·자동검증 전에는 실행하지 않는다.""",
         "rules_template": {
             "entry": "ADX 25 이하 횡보장에서 RSI 과매도·과매수 반전 후보를 확인",
             "exit": "고정 TP/SL 또는 사용자 승인 후 선언한 실행 청산 조건",
@@ -178,16 +148,6 @@ SHORT 진입: 가격이 박스권 상단에 접근, RSI 65~72 이상에서 하�
         "regimes": ["trend", "volatile"],
         "executable_template": True,
         "summary": "거래량 확장과 ADX 추세 강도를 동반한 EMA20 모멘텀 돌파만 검토합니다.",
-        "source_text": """전략명: 강한 거래량 돌파
-목적: 좁은 가격 범위 이후 거래량을 동반한 확정 돌파만 추종한다.
-시장상황: LOW에서 NORMAL로 변동성이 확대되는 구간. 이미 과도한 HIGH 변동성이면 HOLD한다.
-LONG 진입: 최근 20개 봉 최고가 돌파, 거래량이 최근 평균의 1.5배 이상, 모멘텀 양수, RSI 55 이상 75 이하, 돌파선 위 유지.
-SHORT 진입: 최근 20개 봉 최저가 돌파, 거래량이 최근 평균의 1.5배 이상, 모멘텀 음수, RSI 25 이상 45 이하, 돌파선 아래 유지.
-청산: 가격이 돌파선 안으로 복귀하거나 거래량과 모멘텀이 동시에 약화될 때.
-손절: 돌파 기준선 반대편 또는 ATR 1.5배. 익절: 최소 예상 손익비 2.0 이상, 변동성 유지 시 추적손절 검토.
-포지션: 1회 위험예산 0.5%, 증거금 최대 8%, 레버리지 상한 2배.
-공통 안전: 유동성 부족·스프레드 확대·큰 시간대 역방향·가짜 돌파 의심 시 HOLD한다.
-이 초안은 성과를 보장하지 않으며 사용자 검토·자동검증 전에는 실행하지 않는다.""",
         "rules_template": {
             "entry": "거래량 1.5배·ADX 25 이상에서 EMA20 방향 돌파와 RSI 범위를 확인",
             "exit": "고정 TP/SL 또는 사용자 승인 후 선언한 실행 청산 조건",
@@ -224,13 +184,48 @@ SHORT 진입: 최근 20개 봉 최저가 돌파, 거래량이 최근 평균의 1
 }
 
 
+def render_preset_source(name: str, rules: Dict[str, Any]) -> str:
+    """Render the actual template contract; never revive the former vague prose."""
+    engine = rules.get('engine_settings') or {}
+    risk = rules.get('risk_model') or {}
+    timeframe = rules.get('decision_timeframe') or '15m'
+    labels = rules.get('market_conditions') or []
+    lines = [f'전략명: {name}',
+             '학습용 실행 프로토타입입니다. ATR·스윙 동적 손절 전략과 다릅니다.',
+             '성과를 보장하지 않으며 사용자 검토·자동검증 전에는 실행하지 않습니다.',
+             '시장상황: '+', '.join(labels), '국면 기준: 종목별', '우선순위: 5',
+             f'판단 시간봉: {timeframe} (완성된 봉 기준)',
+             f"손절: {engine['sl_percent']:g}%", f"익절: {engine['tp_percent']:g}%",
+             f"포지션 크기: {engine.get('position_size', 0.1)*100:g}%",
+             f"거래당 계좌 손실 위험: {risk.get('risk_per_trade_percent', 0.5):g}%",
+             f"레버리지 상한: {risk.get('max_leverage', engine.get('leverage', 1)):g}배"]
+    branches = rules.get('independent_entries') or {rules.get('entry_signal') or 'LONG':rules['executable_entry']}
+    operators = {'gt':'>','gte':'>=','lt':'<','lte':'<=','eq':'==','ne':'!='}
+    for direction, spec in branches.items():
+        clauses = []
+        for condition in spec.get('all') or []:
+            field, operator = condition['field'], condition['operator']
+            target = condition.get('value_field', condition.get('value'))
+            if operator in {'crosses_above','crosses_below'}:
+                clauses.append(f"became_true({field} {'>' if operator=='crosses_above' else '<'} {target})")
+            else:
+                clauses.append(f"{field} {operators[operator.removesuffix('_field')]} {target}")
+        lines.append(f"{direction} 진입: "+' AND '.join(clauses))
+    lines.append('청산: 전략 자체 고정 익절·손절')
+    return '\n'.join(lines)
+
+
 def list_beginner_presets() -> List[Dict[str, Any]]:
-    return [{"key": key, **deepcopy(value)} for key, value in PRESET_CATALOG.items()]
+    return [{'key':key, **get_beginner_preset(key)} for key in PRESET_CATALOG]
 
 
 def get_beginner_preset(key: str) -> Optional[Dict[str, Any]]:
-    item = PRESET_CATALOG.get(str(key or "").strip().lower())
-    return deepcopy(item) if item else None
+    item = PRESET_CATALOG.get(str(key or '').strip().lower())
+    if not item: return None
+    result = deepcopy(item)
+    if result.get('executable_template'):
+        result['source_text'] = render_preset_source(result['name'], result['rules_template'])
+    return result
 
 
 def preset_key_from_text(message: str) -> Optional[str]:

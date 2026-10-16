@@ -1,0 +1,57 @@
+[
+  {
+    "scope": "binance",
+    "active_versions": 0,
+    "paper_versions": 0,
+    "versions": [
+      {
+        "name": "기간 선택 확인 · 코인",
+        "status": "approved",
+        "timeframe": "5m",
+        "directions": [
+          "LONG"
+        ],
+        "stop_loss": 1.0,
+        "take_profit": 2.0
+      },
+      {
+        "name": "추세 따라가기",
+        "status": "analyzed",
+        "timeframe": "15m",
+        "directions": [
+          "LONG",
+          "SHORT"
+        ],
+        "stop_loss": "1.0%",
+        "take_profit": "2.0%"
+      }
+    ]
+  },
+  {
+    "scope": "unified",
+    "active_versions": 0,
+    "paper_versions": 0,
+    "versions": [
+      {
+        "name": "기간 선택 확인 · 주식",
+        "status": "approved",
+        "timeframe": "1d",
+        "directions": [
+          "LONG"
+        ],
+        "stop_loss": 1.0,
+        "take_profit": 2.0
+      },
+      {
+        "name": "추세 따라가기",
+        "status": "analyzed",
+        "timeframe": "1d",
+        "directions": [
+          "LONG"
+        ],
+        "stop_loss": "1.0%",
+        "take_profit": "2.0%"
+      }
+    ]
+  }
+]

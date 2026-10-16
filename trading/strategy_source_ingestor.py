@@ -1120,6 +1120,45 @@ class StrategySourceIngestor:
                 if structured['gaps']:
                     rules['source_condition_gaps'] = structured['gaps']
                     rules['compiler_issues'].append('source_conditions_require_definition')
+        if not is_pine:
+            from .directional_source_compiler import compile_directional_source
+            directional = compile_directional_source(text)
+            if directional['present']:
+                if structured.get('timeframe'):
+                    rules['decision_timeframe'] = structured['timeframe']
+                    rules['execution_timeframe'] = structured['timeframe']
+                    rules['source_declared_timeframe'] = structured['timeframe']
+                if not structured.get('timeframe'):
+                    directional['gaps'].append({'line':0,'section':'definition','text':'판단 시간봉',
+                                               'reason':'timeframe_definition_required'})
+                if structured['gaps']:
+                    rules.setdefault('source_condition_gaps', []).extend(structured['gaps'])
+                    rules['compiler_issues'].append('source_conditions_require_definition')
+                rules['signal_mode'] = 'independent'
+                rules['entry_signal'] = ''
+                rules['executable_entry'] = {'all': [], 'any': []}
+                rules.pop('independent_entries', None)
+                if len(directional['entries']) == 1:
+                    direction, spec = next(iter(directional['entries'].items()))
+                    rules['entry_signal'] = direction
+                    rules['executable_entry'] = spec
+                elif directional['entries']:
+                    rules['independent_entries'] = directional['entries']
+                rules['executable_exit'] = directional['exit']
+                rules['exit_policy'] = {'mode':'strategy_owned'}
+                if directional['gaps']:
+                    rules.setdefault('source_condition_gaps', []).extend(directional['gaps'])
+                    rules['compiler_issues'].append('source_conditions_require_definition')
+                # Preserve a declared but unresolved rate instead of claiming it is absent.
+                for field, label, value in [('stop_loss','손절',sl), ('take_profit','익절',tp)]:
+                    declared = re.search(rf'{label}\s*[:：]\s*([^\n]+?)(?=\s*(?:손절|익절|포지션)\s*[:：]|$)', text, re.M)
+                    if declared and value is None:
+                        rules[field] = declared[1].strip().rstrip('.。')
+                        if field == 'take_profit' and '손익비' in declared[1]:
+                            rules['compiler_issues'] = [x for x in rules['compiler_issues'] if x != 'take_profit_unit_missing']
+                            rules['compiler_issues'].append('take_profit_risk_reward_requires_definition')
+                        elif field == 'stop_loss' and re.search(r'ATR|스윙', declared[1], re.I):
+                            rules['compiler_issues'].append('stop_loss_definition_required')
         metadata = self.declared_metadata(text)
         rules['compiler_issues'].extend(metadata.pop('metadata_issues', []))
         rules.update(metadata)
@@ -1338,12 +1377,11 @@ class StrategySourceIngestor:
         )
         matches = []
         for regime, label, patterns in definitions:
-            match = next(
-                (found for pattern in patterns if (found := re.search(pattern, combined, flags=re.I))),
-                None,
-            )
-            if match:
-                matches.append((match.start(), match.end(), regime, label))
+            for pattern in patterns:
+                for match in re.finditer(pattern, combined, flags=re.I):
+                    item = (match.start(), match.end(), regime, label)
+                    if item not in matches:
+                        matches.append(item)
         matches.sort(key=lambda item: item[0])
         excluded_match_indexes = set()
         for exclusion in exclusion_pattern.finditer(combined):
@@ -1377,14 +1415,28 @@ class StrategySourceIngestor:
                     ),
                 )
                 excluded_match_indexes.add(closest_index)
+                # Adjacent market labels joined by 과/와/및 share the same
+                # prohibition. Do not include the earlier positive sentence.
+                left = closest_index
+                while left > 0:
+                    prev, current = matches[left-1], matches[left]
+                    bridge = combined[prev[1]:current[0]]
+                    if not re.fullmatch(r"[\s·,]*(?:과|와|및|그리고|and)?[\s·,]*(?:high\s*)?", bridge, re.I):
+                        break
+                    if prev[0] < sentence_start: break
+                    excluded_match_indexes.add(left-1)
+                    left -= 1
+        excluded = {matches[index][2] for index in excluded_match_indexes}
         for index, (start, end, regime, label) in enumerate(matches):
-            if index in excluded_match_indexes:
-                excluded_regimes.append(regime)
-                excluded_labels.append(label)
+            if regime in excluded:
+                if regime not in excluded_regimes:
+                    excluded_regimes.append(regime)
+                    excluded_labels.append(label)
                 continue
-            regimes.append(regime)
-            labels.append(label)
-            evidence.append(label)
+            if regime not in regimes:
+                regimes.append(regime)
+                labels.append(label)
+                evidence.append(label)
         if not regimes and explicit_all_market:
             return {
                 "regimes": ["all"],
@@ -1680,6 +1732,14 @@ class StrategySourceIngestor:
                 action = f"'{name}'가 참이 되는 정확한 조건을 보완 답변에 '{name} = ...' 형태로 입력하세요. 예시는 자동 적용되지 않습니다. 지원 필드의 비교식과 AND/OR·괄호를 사용하며 기존 정의를 바꾸려면 원문을 수정해야 합니다."
             elif reason.startswith(('condition_circular_reference:', 'condition_duplicate_definition', 'condition_field_redefined:')):
                 action = '원문의 중복 정의·순환 참조·기본 지표 이름 재정의를 확인하고 수정하세요. 정의를 임의로 선택하지 않습니다.'
+            elif reason == 'volume_average_period_required':
+                action = '최근 평균의 봉 수·계산 방식을 정해야 합니다. 현재 엔진의 volume_ratio 계산 기준을 확인하고 그 기준을 쓰기로 검토했다면 원문에 volume_ratio >= 1을 명시하세요. 평균 기간을 임의로 정하지 않습니다.'
+            elif reason == 'direction_exit_definition_required':
+                action = 'LONG과 SHORT에서 각각 어떤 비교식으로 청산하는지 명시하세요. 반대 정렬·확정 이탈을 한 방향 조건으로 추측하지 않습니다. 현재 고정 익절·손절 예제는 원래의 EMA 청산과 다른 전략입니다.'
+            elif reason == 'volatility_scope_definition_required':
+                action = 'HIGH가 거래소 전체 변동성인지 종목 국면인지와 실제 사용할 필터를 확정해야 합니다. 시장상황에서 고변동성을 제외하는 것만으로 별도의 HIGH 필터까지 실행됐다고 간주하지 않습니다.'
+            elif reason == 'safety_thresholds_require_definition':
+                action = '큰 시간대의 종류·충돌 기준, 유동성·스프레드·비용 반영 손익비의 수치와 적용 범위를 정해야 합니다. 현재 엔진이 실행하지 못하는 필터를 삭제한 채 승인하지 않습니다. 계좌 공통 보호와 원문의 개별 필터는 별개입니다.'
             else:
                 action = '이 행을 현재 엔진이 실행식으로 변환하지 못했습니다. 명확한 비교식은 지원 필드·AND/OR·괄호로 표현할 수 있습니다. 미지원 함수·상태는 엔진 지원이 필요하므로 같은 내용을 반복 등록하지 마세요. 원래 조건을 다른 조건으로 바꾸면 복원이 아니라 전략 변경입니다.'
             detail = {

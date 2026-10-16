@@ -1,0 +1,24 @@
+{
+  "surface": "Mac Electron main.cjs + production renderer3.9.2.16-ui.20261016.2 + real FastAPI/ApplicationServices and JSON strategy storage",
+  "isolation": "synthetic account/temp data/DetachedRuntimeBridge; backend non-loopback network blocked; no customer credentials loaded",
+  "verified": [
+    "exact533character user example: LONG/SHORT EMA/RSI and15m retained, range excluded; precise ATR/R:R/line-level gaps; PAPER blocked",
+    "crypto managed trend source: local analyze ready; final revalidation and save succeeds; analyzed/unapproved/inactive; both branches retained",
+    "stock managed trend source: 1d/LONG/1x visible; local analyze ready; zero clarification categories/details; final revalidation/save succeeds; analyzed/unapproved/inactive",
+    "period1/3/7 selector still visible on new saved versions; no automatic approval or PAPER start",
+    "product Exit confirmed and Electron process exits"
+  ],
+  "saved_state": "native-saved-state.json",
+  "audit_events": {
+    "strategy.source_analyze": 3,
+    "strategy.submit": 2
+  },
+  "orders_submitted": 0,
+  "external_connections_blocked": 0,
+  "screenshots": "native CUA screenshots in conversation; not saved to local image files",
+  "not_run": [
+    "Windows installed EXE/upgrade/OCX/provider trading",
+    "real fills/24-72h soak",
+    "original dynamic ATR/swing/directional EMA exit/undefined multi-timeframe and safety filters not implemented; remain blocked"
+  ]
+}

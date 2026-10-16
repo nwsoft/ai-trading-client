@@ -102,6 +102,18 @@ VALIDATION_ISSUE_GUIDANCE: Dict[str, Dict[str, str]] = {
         "action": "원문에 손절 기준과 단위를 함께 적어 주세요.",
         "example": "진입가 대비 손절 1%",
     },
+    "stop_loss_definition_required": {
+        "title": "손절 설명은 있지만 실행 수치가 미정입니다",
+        "explanation": "ATR 기반·최근 스윙 밖이라는 설명만으로 손절 가격을 계산할 수 없습니다.",
+        "action": "ATR 기간·배수·스윙 봉 수와 선택 방식을 정하세요. 현재 고정 비율 실행을 원하면 원문을 새 버전으로 변경해 %를 명시하세요.",
+        "example": "지원되는 고정 비율 예: 진입가 대비 손절 1%. 원래 ATR 전략과 다른 조건입니다.",
+    },
+    "take_profit_risk_reward_requires_definition": {
+        "title": "손익비 목표는 익절 비율과 다릅니다",
+        "explanation": "손익비 1.8은 익절 1.8%가 아닙니다. 확정된 손절거리와 비용을 포함한 목표가 계산식이 필요합니다.",
+        "action": "목표가 계산 방식을 확정하세요. 고정 비율로 바꾸려면 새 버전 원문에 익절 %를 직접 지정하세요.",
+        "example": "손절 1%·익절 1.8%는 비용 전 명목 손익비 1.8이며, 원래 동적 손절 조건을 자동 대체하지 않습니다.",
+    },
     "take_profit_unit_missing": {
         "title": "익절 값의 단위가 없습니다",
         "explanation": "숫자만 있으면 비율인지 가격인지 판단할 수 없어 임의로 실행하지 않습니다.",
@@ -209,7 +221,7 @@ def build_validation_issue_details(
         ):
             continue
         if code == "strategy_exit_rates_missing" and any(
-            item in expanded for item in ("stop_loss_unit_missing", "take_profit_unit_missing")
+            item in expanded for item in ("stop_loss_unit_missing", "take_profit_unit_missing", "stop_loss_definition_required", "take_profit_risk_reward_requires_definition")
         ):
             continue
         if code == "stop_loss" and "stop_loss_unit_missing" in expanded:

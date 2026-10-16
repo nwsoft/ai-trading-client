@@ -1,0 +1,37 @@
+[
+  {
+    "key": "auto_regime",
+    "label": "AI가 시장에 맞춰 자동 대응",
+    "name": "AI가 시장에 맞춰 자동 대응",
+    "source": "NoahAI 기본 판단이 시장 국면을 먼저 확인하고 추세·눌림목·횡보·돌파 중 조건이 맞는 방식만 후보로 검토합니다. 맞는 전략이 없거나 신호가 충돌하면 HOLD합니다.",
+    "stock_source": "NoahAI 기본 판단이 시장 국면을 먼저 확인하고 추세·눌림목·횡보·돌파 중 조건이 맞는 방식만 후보로 검토합니다. 맞는 전략이 없거나 신호가 충돌하면 HOLD합니다."
+  },
+  {
+    "key": "trend_follow",
+    "label": "추세 따라가기",
+    "name": "추세 따라가기",
+    "source": "전략명: 추세 따라가기\n학습용 실행 프로토타입입니다. ATR·스윙 동적 손절 전략과 다릅니다.\n성과를 보장하지 않으며 사용자 검토·자동검증 전에는 실행하지 않습니다.\n시장상황: 상승장, 하락장, 추세장\n국면 기준: 종목별\n우선순위: 5\n판단 시간봉: 15m (완성된 봉 기준)\n손절: 1%\n익절: 2%\n포지션 크기: 10%\n거래당 계좌 손실 위험: 0.5%\n레버리지 상한: 1배\nLONG 진입: ema20 > ema50 AND ema50 > ema200 AND current_price > ema20 AND rsi >= 50 AND rsi <= 75 AND volume_ratio >= 1.0\nSHORT 진입: ema20 < ema50 AND ema50 < ema200 AND current_price < ema20 AND rsi >= 25 AND rsi <= 50 AND volume_ratio >= 1.0\n청산: 전략 자체 고정 익절·손절",
+    "stock_source": "전략명: 추세 따라가기\n학습용 실행 프로토타입입니다. ATR·스윙 동적 손절 전략과 다릅니다.\n성과를 보장하지 않으며 사용자 검토·자동검증 전에는 실행하지 않습니다.\n시장상황: 상승장, 하락장, 추세장\n국면 기준: 종목별\n우선순위: 5\n판단 시간봉: 1d (완성된 봉 기준)\n손절: 1%\n익절: 2%\n포지션 크기: 10%\n거래당 계좌 손실 위험: 0.5%\n레버리지 상한: 1배\nLONG 진입: ema20 > ema50 AND ema50 > ema200 AND current_price > ema20 AND rsi >= 50 AND rsi <= 75 AND volume_ratio >= 1.0\n청산: 전략 자체 고정 익절·손절"
+  },
+  {
+    "key": "trend_pullback",
+    "label": "눌림목 진입",
+    "name": "눌림목 진입",
+    "source": "전략명: 눌림목 진입\n학습용 실행 프로토타입입니다. ATR·스윙 동적 손절 전략과 다릅니다.\n성과를 보장하지 않으며 사용자 검토·자동검증 전에는 실행하지 않습니다.\n시장상황: 상승장, 하락장, 추세장\n국면 기준: 종목별\n우선순위: 5\n판단 시간봉: 15m (완성된 봉 기준)\n손절: 1%\n익절: 1.8%\n포지션 크기: 10%\n거래당 계좌 손실 위험: 0.5%\n레버리지 상한: 1배\nLONG 진입: ema50 > ema200 AND became_true(current_price > ema20) AND rsi >= 40 AND rsi <= 60 AND volume_ratio >= 1.0\nSHORT 진입: ema50 < ema200 AND became_true(current_price < ema20) AND rsi >= 40 AND rsi <= 60 AND volume_ratio >= 1.0\n청산: 전략 자체 고정 익절·손절",
+    "stock_source": "전략명: 눌림목 진입\n학습용 실행 프로토타입입니다. ATR·스윙 동적 손절 전략과 다릅니다.\n성과를 보장하지 않으며 사용자 검토·자동검증 전에는 실행하지 않습니다.\n시장상황: 상승장, 하락장, 추세장\n국면 기준: 종목별\n우선순위: 5\n판단 시간봉: 1d (완성된 봉 기준)\n손절: 1%\n익절: 1.8%\n포지션 크기: 10%\n거래당 계좌 손실 위험: 0.5%\n레버리지 상한: 1배\nLONG 진입: ema50 > ema200 AND became_true(current_price > ema20) AND rsi >= 40 AND rsi <= 60 AND volume_ratio >= 1.0\n청산: 전략 자체 고정 익절·손절"
+  },
+  {
+    "key": "range_rsi",
+    "label": "횡보장 저점·고점 대응",
+    "name": "횡보장 저점·고점 대응",
+    "source": "전략명: 횡보장 저점·고점 대응\n학습용 실행 프로토타입입니다. ATR·스윙 동적 손절 전략과 다릅니다.\n성과를 보장하지 않으며 사용자 검토·자동검증 전에는 실행하지 않습니다.\n시장상황: 횡보장, 저변동성\n국면 기준: 종목별\n우선순위: 5\n판단 시간봉: 15m (완성된 봉 기준)\n손절: 0.8%\n익절: 1.2%\n포지션 크기: 10%\n거래당 계좌 손실 위험: 0.5%\n레버리지 상한: 1배\nLONG 진입: adx <= 25 AND rsi <= 30\nSHORT 진입: adx <= 25 AND rsi >= 70\n청산: 전략 자체 고정 익절·손절",
+    "stock_source": "전략명: 횡보장 저점·고점 대응\n학습용 실행 프로토타입입니다. ATR·스윙 동적 손절 전략과 다릅니다.\n성과를 보장하지 않으며 사용자 검토·자동검증 전에는 실행하지 않습니다.\n시장상황: 횡보장, 저변동성\n국면 기준: 종목별\n우선순위: 5\n판단 시간봉: 1d (완성된 봉 기준)\n손절: 0.8%\n익절: 1.2%\n포지션 크기: 10%\n거래당 계좌 손실 위험: 0.5%\n레버리지 상한: 1배\nLONG 진입: adx <= 25 AND rsi <= 30\n청산: 전략 자체 고정 익절·손절"
+  },
+  {
+    "key": "volume_breakout",
+    "label": "강한 거래량 돌파",
+    "name": "강한 거래량 돌파",
+    "source": "전략명: 강한 거래량 돌파\n학습용 실행 프로토타입입니다. ATR·스윙 동적 손절 전략과 다릅니다.\n성과를 보장하지 않으며 사용자 검토·자동검증 전에는 실행하지 않습니다.\n시장상황: 추세장, 고변동성 진입 전환\n국면 기준: 종목별\n우선순위: 5\n판단 시간봉: 15m (완성된 봉 기준)\n손절: 1%\n익절: 2%\n포지션 크기: 8%\n거래당 계좌 손실 위험: 0.5%\n레버리지 상한: 1배\nLONG 진입: became_true(current_price > ema20) AND volume_ratio >= 1.5 AND adx >= 25 AND rsi >= 55 AND rsi <= 75\nSHORT 진입: became_true(current_price < ema20) AND volume_ratio >= 1.5 AND adx >= 25 AND rsi >= 25 AND rsi <= 45\n청산: 전략 자체 고정 익절·손절",
+    "stock_source": "전략명: 강한 거래량 돌파\n학습용 실행 프로토타입입니다. ATR·스윙 동적 손절 전략과 다릅니다.\n성과를 보장하지 않으며 사용자 검토·자동검증 전에는 실행하지 않습니다.\n시장상황: 추세장, 고변동성 진입 전환\n국면 기준: 종목별\n우선순위: 5\n판단 시간봉: 1d (완성된 봉 기준)\n손절: 1%\n익절: 2%\n포지션 크기: 8%\n거래당 계좌 손실 위험: 0.5%\n레버리지 상한: 1배\nLONG 진입: became_true(current_price > ema20) AND volume_ratio >= 1.5 AND adx >= 25 AND rsi >= 55 AND rsi <= 75\n청산: 전략 자체 고정 익절·손절"
+  }
+]

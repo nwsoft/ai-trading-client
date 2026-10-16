@@ -1,0 +1,101 @@
+{
+  "status": "PASS_LOCAL_SOURCE_AND_NATIVE_UI",
+  "candidate_version": "3.9.2.16",
+  "renderer_tag": "3.9.2.16-ui.20261016.2",
+  "branch": "fix/v3.9.2.16-paper-trial-review-20261016",
+  "base_candidate_commit": "cc9c9ddb8db2fc1acdef2060000775289dca505a",
+  "public_version": "3.9.2.15",
+  "public_commit": "9e9fcc3dc3c21e36518081a0d349df91f0dd145c",
+  "feedback": "2026-10-16 20:32 trend example on3.9.2.15",
+  "root_causes": [
+    "managed/mentor/native sources and Web prototypes diverged; existing regression explicitly expected old preset sources to remain incomplete",
+    "Korean directional headings/comparison lists and annotated timeframe were not compiled; source mode fell back to confirm",
+    "ATR description counted absent; risk/reward1.8 mislabeled missing percent unit",
+    "joined excluded markets were partly included; repeated labels only checked first occurrence"
+  ],
+  "changes": [
+    "one managed template source rendered from actual rules/budget/timeframe; generated Web catalogue with drift check/build export",
+    "explicit directional comparison compilation with known conditions retained and unresolved lines blocking approval; typed ATR/RR guidance; exact source preserved",
+    "known timeframe annotation and invalid/conflicting timeframe fail closed; joined/repeated exclusions cannot widen included markets",
+    "category/detail counts in UI; frozen module requirements and source fingerprint updated; existing saved strategies not migrated"
+  ],
+  "checks": [
+    {
+      "command": ".venv/bin/python -m pytest tests -q -rs --junitxml=reports/v39216-preset-feedback-20261016/full-pytest.xml",
+      "result": "6058 passed,11 skipped,2 warnings,3 subtests passed;108.74s",
+      "evidence": "full-pytest.txt"
+    },
+    {
+      "command": ".venv/bin/python -m pytest tests/test_v39216_strategy_examples.py tests/test_ai_custom_advisor_3901.py tests/test_v3903_feedback_stability_presets.py tests/test_build_release_workflow.py tests/test_v39215_feedback.py -q",
+      "result": "76 passed,1 warning",
+      "evidence": "focused.txt"
+    },
+    {
+      "command": ".venv/bin/python -m pytest tests/test_build_release_workflow.py tests/test_release_provenance.py -q",
+      "result": "35 passed",
+      "evidence": "release-contracts.txt"
+    },
+    {
+      "command": "node --test webui/electron/*.test.cjs tests/*.test.cjs",
+      "result": "91 passed",
+      "evidence": "node.txt"
+    },
+    {
+      "command": "npm --prefix webui run build",
+      "result": "PASS; existing chunk warning",
+      "evidence": "build.txt"
+    },
+    {
+      "command": "npm --prefix webui audit --audit-level=low --json",
+      "result": "0 vulnerabilities",
+      "evidence": "npm-audit.json"
+    },
+    {
+      "command": ".venv/bin/python scripts/export_strategy_presets.py --check",
+      "result": "PASS",
+      "evidence": "catalogue.txt"
+    },
+    {
+      "command": ".venv/bin/python scripts/doc_consistency_check.py",
+      "result": "PASS",
+      "evidence": "docs.txt"
+    },
+    {
+      "command": ".venv/bin/python scripts/active_source_audit.py",
+      "result": "PASS",
+      "evidence": "source-audit.txt"
+    },
+    {
+      "command": ".venv/bin/python scripts/audit_web_ui_full_parity_contract.py",
+      "result": "PASS source contract; not Windows",
+      "evidence": "parity.txt"
+    },
+    {
+      "command": "pwsh PowerShell AST parse scripts/build_web_ui_windows.ps1",
+      "result": "PASS AST; not Windows execution",
+      "evidence": "powershell.txt"
+    },
+    {
+      "command": ".venv/bin/python scripts/audit_release_test_skips.py <actual full pytest junit> <skip json>",
+      "result": "PASS;11 known exclusions",
+      "evidence": "skipped-tests.json"
+    }
+  ],
+  "native_ui": "native-ui-verification.json",
+  "baseline": "before.json",
+  "after": "after.json",
+  "ready_managed_example": "trend_follow_example.txt",
+  "orders_submitted": 0,
+  "customer_settings_or_saved_strategies_changed": false,
+  "windows_build_executed": false,
+  "push": false,
+  "published": false,
+  "deployment": false,
+  "remaining": [
+    "Windows16 installation/upgrade/frozen module/OCX/institution acceptance/24-72h soak",
+    "original dynamic ATR/swing, direction-specific EMA exit and undefined safety/multiple timeframe filters remain unsupported or unspecified; original remains blocked",
+    "arbitrary natural-language strategies are not universally compiled; unknown clauses fail closed"
+  ],
+  "supersedes_handoff": "../v39215-paper-trial-review-20261016/handoff.json; previous period/UI fixes retained",
+  "initial_test_updates": "old hardcoded four runtime modules fixture expanded to six; old deliberately incomplete preset test replaced by complete managed source + explicit approval required test; exact original still fails closed"
+}

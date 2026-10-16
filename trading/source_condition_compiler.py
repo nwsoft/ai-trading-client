@@ -141,12 +141,16 @@ def compile_sections(text):
             state_seen=True;section=''
             gaps.append({'line':number,'section':'definition','text':line,'reason':'state_declaration_invalid'})
             continue
-        tf = re.fullmatch(r'(?:TIMEFRAME|판단 시간봉)\s*[:：]\s*(\S+)',line,re.I)
+        tf = re.fullmatch(r'(?:TIMEFRAME|판단 시간봉)\s*[:：]\s*(\S+?)(?:\s*\(완성된 봉 기준\))?',line,re.I)
         if tf:
             value = tf[1].lower()
             if value not in Engine.ALLOWED_TIMEFRAMES or (timeframe and timeframe != value):
                 gaps.append({'line':number,'section':'definition','text':line,'reason':'timeframe_definition_required'})
             else: timeframe = value
+            section = ''
+            continue
+        if re.match(r'^(?:TIMEFRAME|판단 시간봉)\s*[:：]',line,re.I):
+            gaps.append({'line':number,'section':'definition','text':line,'reason':'timeframe_definition_required'})
             section = ''
             continue
         heading = re.fullmatch(r'(ENTRY|EXIT|진입 조건|청산 조건)\s*[:：]\s*(.*)',line,re.I)

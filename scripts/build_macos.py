@@ -44,6 +44,7 @@ def main():
                 raise RuntimeError(f"Install requirements_macos.txt first: {package} version mismatch")
     run([py, "-c", "from rapidocr_onnxruntime import RapidOCR; RapidOCR(); from pypdf import PdfReader; import youtube_transcript_api, yt_dlp; print('MAC OCR/PDF/source dependency preflight PASS')"])
     run([py, "scripts/export_legacy_manual_sections.py"])
+    run([py, "scripts/export_strategy_presets.py"])
     run([py, "scripts/doc_consistency_check.py"])
     run(["npm", "--prefix", "webui", "ci", "--include=optional"])
     run([py, "-m", "pytest", "-q"])

@@ -62,5 +62,8 @@
   "초보자 · 따라하기": "Beginner · Step by step", "일반 · 핵심 요약": "Standard · Key points", "고급 · 계약/근거": "Advanced · Contracts / Evidence",
   "제품 설정과 사용법을 로컬 정본으로 설명하며 외부 AI 비용이 들지 않습니다.": "Local product guidance; no external AI cost. Some original guidance remains Korean in this beta.",
   "심층분석 (외부 AI·비용) · 사용자가 명시적으로 요청한 질문 1건만 외부 AI Provider로 분석하며 토큰 비용이 발생할 수 있습니다.": "Deep analysis (external AI, may incur cost). Sends only the explicitly requested question with its permitted context to the configured provider.",
-  "AI에게 질문하거나 요청사항을 입력하세요…": "Ask a question or describe your request…", "현재 전략의 누락 조건, 수정 방법, 저장·검증 순서를 질문하세요…": "Ask about missing strategy conditions, revisions, saving or validation…", "주식/ETF 관련 질문을 입력하세요…": "Ask about stocks or ETFs…"
+  "AI에게 질문하거나 요청사항을 입력하세요…": "Ask a question or describe your request…", "현재 전략의 누락 조건, 수정 방법, 저장·검증 순서를 질문하세요…": "Ask about missing strategy conditions, revisions, saving or validation…", "주식/ETF 관련 질문을 입력하세요…": "Ask about stocks or ETFs…",
+  "보완 유형 ": "Clarification categories ",
+  "개 · 상세 확인 ": " · Detailed checks ",
+  "보완할 조건": "Conditions to clarify"
 }

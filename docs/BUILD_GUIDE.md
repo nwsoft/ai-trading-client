@@ -1,7 +1,7 @@
 ## 2026-10-16 — v3.9.2.16 PAPER 기간 선택 위치·버전 안내 (로컬 수정 후보)
 
 현재 소스 후보 버전: **v3.9.2.16** · 현재 공개 버전: **v3.9.2.15**
-현재 소스 후보: v3.9.2.16 · 현재 공개 기반: v3.9.2.15 · updater 3.9.216 · renderer 3.9.2.16-ui.20261016.1.
+현재 소스 후보: v3.9.2.16 · 현재 공개 기반: v3.9.2.15 · updater 3.9.216 · renderer 3.9.2.16-ui.20261016.2.
 
 공개 .15 `9e9fcc3dc3c21e36518081a0d349df91f0dd145c`는 2026-10-15 18:01:11 KST 게시됐다. 공개 .14는 `d8e698f5dd181ec5effffb045c5f51e999a4a72b`다. 아래의 후보/미게시 문장은 작성 당시 이력이며 현재 공개 상태를 뜻하지 않는다. 이번 수정은 공개 .15를 덮어쓰지 않는 별도 .16 소스 후보다. Windows .16 빌드·게시·실기관 인수는 미실시다.
 
@@ -13,7 +13,7 @@
 
 ### 3.9.2.16 Windows에서 사용할 소스와 명령
 
-다음 로컬 인계 파일은 .16 후보 전용입니다: `reports/v39215-paper-trial-review-20261016/handoff.json`, 같은 폴더의 `v39216-paper-trial.bundle`. .15 공개 소스/설치기는 변경하지 않습니다. `$handoffPath`를 Windows의 동기화 경로로 수정하고 새 `C:\NoahAI\client-v39216`에서 실행하세요. Git 원본 폴더의 오래된 bundle/설치기/venv/dist를 혼합하지 마세요.
+다음 로컬 인계 파일은 .16 후보 전용입니다: `reports/v39216-preset-feedback-20261016/handoff.json`, 같은 폴더의 `v39216-preset-feedback.bundle`. .15 공개 소스/설치기는 변경하지 않습니다. `$handoffPath`를 Windows의 동기화 경로로 수정하고 새 `C:\NoahAI\client-v39216`에서 실행하세요. Git 원본 폴더의 오래된 bundle/설치기/venv/dist를 혼합하지 마세요.
 
 ```powershell
 $ErrorActionPreference = "Stop"
@@ -21,7 +21,7 @@ function Invoke-CandidateChecked([scriptblock]$Command) {
     & $Command
     if ($LASTEXITCODE -ne 0) { throw "Command failed: $LASTEXITCODE" }
 }
-$handoffPath = "D:\SynologyDrive\Works\noahai_client\reports\v39215-paper-trial-review-20261016\handoff.json"
+$handoffPath = "D:\SynologyDrive\Works\noahai_client\reports\v39216-preset-feedback-20261016\handoff.json"
 $handoffPath = (Resolve-Path -LiteralPath $handoffPath).Path
 $handoff = Get-Content -LiteralPath $handoffPath -Raw -Encoding UTF8 | ConvertFrom-Json
 if ($handoff.source_version -ne "3.9.2.16") { throw "Wrong handoff version" }
@@ -62,6 +62,13 @@ Invoke-CandidateChecked { powershell -ExecutionPolicy Bypass -File scripts/build
 생략 옵션 없이 실행합니다. 정상 산출물은 `deploy/web-release/NoahAI-3.9.2.16-Setup.exe`, `.blockmap`, `latest.yml`(updater **3.9.216**), `deploy/release-manifest.json`입니다. 공개 .15 설치기/manifest는 해시가 고정된 아카이브를 통해 보존합니다. 전체 Python/Node/Electron 창 검사, skip 감사, 문서/소스/의존성 검사, x64 엔진·x86 키움 호스트·IPC/PE/설치기 추출 검사와 출처 일치를 확인하세요. 실제 설치·업데이트·기간 선택·기존 표본 보존·종료/재실행은 DEPLOY_CHECKLIST의 .16 절을 따릅니다. 자동 검사만으로 실제 기관/Windows 설치/24·72h를 통과 처리하지 않습니다.
 
 이번 .16의 원격 push·게시·운영 배포는 실행하지 않았습니다. Windows 빌드 후 사용자 검토와 기존 릴리스 절차를 거쳐 별도 게시합니다. 아래 .15 이하 절은 당시 사용한 명령/상태의 이력입니다.
+
+2026-10-16 20:32 사용자 예제 피드백 추가: 「추세 따라가기」의 예전 멘토/기존 화면 원문과 Web 예제가 달랐다. .16은 관리 템플릿의 실제 수치·방향·시간봉·사용자 위험예산을 원문으로 생성하고 Web JSON도 같은 정본에서 내보낸다. 코인은 LONG/SHORT, 주식은 명시적인 LONG/1d/1배 프로토타입이다. 기존 저장 전략·승인·PAPER 표본은 마이그레이션하지 않는다. 새 예제의 고정 TP/SL은 원래 ATR/스윙·동적 손익비 전략과 다르며 수익 검증 전략이 아니다.
+
+사용자의 원문은 그대로 보존한다. LONG/SHORT별 EMA 비교·RSI 범위와 「15m (완성된 봉 기준)」을 보존하고, 연결된 제외 시장(횡보·고변동)을 허용 시장으로 잘못 추출하던 결함을 수정한다. ATR/스윙 손절은 없다고 안내하지 않고 실행 수치 미정으로, 손익비 1.8은 익절 1.8%가 아닌 목표가 정의 필요로 안내한다. 평균 거래량 기간·방향별 EMA 청산·HIGH 적용 범위·큰 시간대/유동성/스프레드 필터는 임의로 만들거나 삭제하지 않으며 미정/미지원이면 실행 차단과 행별 질문을 유지한다. 원문에 고정 비율만 넣어도 나머지 미정 조건을 통과시키지 않는다. 새 예제와 원문을 같은 전략으로 표시하지 않는다.
+
+이번 추가 검증: `reports/v39216-preset-feedback-20261016/validation.json`. 이 보고서와 최신 handoff가 이전 .16 기간 선택 점검의 인계 파일을 대체한다. 공개 .15 자산은 보존하며 Windows .16 설치/실기관/24·72h 검증은 별도다.
+
 
 ## 2026-10-15 — v3.9.2.15 Windows 정식 빌드·게시 실행
 

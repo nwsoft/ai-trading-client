@@ -71,18 +71,22 @@ def test_invalid_source_routing_cannot_silently_fall_back_to_all_venues(scope,pr
 
 
 def test_all_builtin_ui_prototypes_compile_without_missing_risk_or_entry_fields():
-    import re,json
+    import json
+    from scripts.export_strategy_presets import payload
     from trading.strategy_source_ingestor import StrategySourceIngestor
-    s=(Path(__file__).resolve().parents[1]/'webui/src/components/StrategyStudio.tsx').read_text()
-    for key in ['trend_follow','trend_pullback','range_rsi','volume_breakout']:
-        match=re.search(r'\{ key: "'+key+r'"[^\n]*source: (".*") \},',s)
-        assert match,key
-        result=StrategySourceIngestor().analyze(json.loads(match[1]),kind='text')
-        assert result['ready_for_execution'],(key,result['missing_conditions'])
-        from web_platform.application_services import ApplicationServices
-        assert ApplicationServices.__new__(ApplicationServices).validate_strategy_draft(rules=result['rules'])['ready']
-        stock=StrategySourceIngestor().analyze(json.loads(match[1]).replace('15m','1d'),kind='text')
-        assert stock['ready_for_execution'] and ApplicationServices.__new__(ApplicationServices).validate_strategy_draft(rules=stock['rules'])['ready']
+    from web_platform.application_services import ApplicationServices
+    root = Path(__file__).resolve().parents[1]
+    catalog = json.loads((root/'webui/src/generated/strategy-presets.json').read_text())
+    assert catalog == payload()  # browser and backend/mentor share one reviewed catalogue
+    for item in catalog[1:]:
+        for field in ['source', 'stock_source']:
+            result = StrategySourceIngestor().analyze(item[field],kind='text')
+            assert result['ready_for_execution'],(item['key'],field,result['missing_conditions'])
+            assert ApplicationServices.__new__(ApplicationServices).validate_strategy_draft(rules=result['rules'])['ready']
+            if field == 'stock_source':
+                assert result['rules']['entry_signal'] == 'LONG'
+                assert not result['rules'].get('independent_entries')
+                assert result['rules']['engine_settings']['leverage'] == 1
 
 
 def test_unexpected_assistant_failure_has_cors_and_safe_request_id(tmp_path,monkeypatch):

@@ -1,3 +1,4 @@
+import managedPresets from "../generated/strategy-presets.json";
 import {StrategyBatchImport} from "./StrategyBatchImport";
 import {StrategyPaperTrial} from "./StrategyPaperTrial";
 import { strategyDifficultyLabel } from '../strategyDifficulty';
@@ -70,13 +71,7 @@ const STARTER_RULES = {
   engine_settings: { _unit: "percent_points", tp_percent: 2, sl_percent: 1 },
 };
 
-const BEGINNER_PRESETS = [
-  { key: "auto_regime", label: "AI가 시장에 맞춰 자동 대응", name: "NoahAI 시장 국면 자동 대응", source: "NoahAI 기본 판단이 시장 국면을 먼저 확인하고 추세·눌림목·횡보·돌파 중 조건이 맞는 방식만 검토합니다. 조건이 충돌하거나 맞는 전략이 없으면 HOLD합니다." },
-  { key: "trend_follow", label: "추세 따라가기", name: "추세 따라가기", source: "학습용 LONG 프로토타입 · 원문 규칙을 검토하고 자신의 조건으로 수정하세요.\n시장상황: 상승장\n국면 기준: 종목별\n우선순위: 5\n판단 시간봉: 15m\n손절: 1%\n익절: 1.8%\n포지션 크기: 10%\n거래당 계좌 손실 위험: 0.5%\nTIMEFRAME: 15m\nENTRY:\nsignal == \"LONG\" AND ema20 > ema50 AND rsi >= 45 AND rsi <= 65\nEXIT:\nrsi >= 70" },
-  { key: "trend_pullback", label: "눌림목 진입", name: "눌림목 진입", source: "학습용 LONG 프로토타입 · 원문 규칙을 검토하고 자신의 조건으로 수정하세요.\n시장상황: 상승장\n국면 기준: 종목별\n우선순위: 5\n판단 시간봉: 15m\n손절: 1%\n익절: 1.8%\n포지션 크기: 10%\n거래당 계좌 손실 위험: 0.5%\nTIMEFRAME: 15m\nENTRY:\nsignal == \"LONG\" AND ema50 > ema200 AND became_true(close > ema20) AND rsi >= 40 AND rsi <= 60\nEXIT:\nrsi >= 70" },
-  { key: "range_rsi", label: "횡보장 저점·고점 대응", name: "횡보장 저점·고점 대응", source: "학습용 LONG 프로토타입 · 원문 규칙을 검토하고 자신의 조건으로 수정하세요.\n시장상황: 횡보장\n국면 기준: 종목별\n우선순위: 5\n판단 시간봉: 15m\n손절: 1%\n익절: 1.8%\n포지션 크기: 10%\n거래당 계좌 손실 위험: 0.5%\nTIMEFRAME: 15m\nENTRY:\nsignal == \"LONG\" AND adx <= 25 AND rsi >= 28 AND rsi <= 35\nEXIT:\nrsi >= 55" },
-  { key: "volume_breakout", label: "강한 거래량 돌파", name: "강한 거래량 돌파", source: "학습용 LONG 프로토타입 · 원문 규칙을 검토하고 자신의 조건으로 수정하세요.\n시장상황: 상승장\n국면 기준: 종목별\n우선순위: 5\n판단 시간봉: 15m\n손절: 1%\n익절: 1.8%\n포지션 크기: 10%\n거래당 계좌 손실 위험: 0.5%\nTIMEFRAME: 15m\nENTRY:\nsignal == \"LONG\" AND close > resistance_level AND volume_ratio >= 1.5\nEXIT:\nrsi >= 75" },
-] as const;
+const BEGINNER_PRESETS = managedPresets;
 
 const SAFE_USE_STEPS = [
   "설정 → AI 엔진/API에서 Provider·API 키·모델을 확인합니다.",
@@ -826,7 +821,7 @@ export function StrategyStudio({ client, service, source = "", onAskAssistant, o
     setSourceKind("text");
     setSourceFile(null);
     setSourceReferenceInput("");
-    setSourceValue(service === "stock" ? preset.source.replaceAll("15m", "1d") : preset.source);
+    setSourceValue(service === "stock" ? preset.stock_source : preset.source);
     setSourceReference(`noahai://beginner-preset/${preset.key}`);
     setSourceSummary(`${preset.label} 검토용 초안을 불러왔습니다. 자동 저장·승인·적용되지 않습니다.`);
     setSourceAnalysis(null);
@@ -1192,7 +1187,7 @@ export function StrategyStudio({ client, service, source = "", onAskAssistant, o
         priority: parsedPriority,
       }, null, 2));
       setSourceReference(String(result.source?.reference ?? (fileName || "pasted")));
-      setSourceSummary(`${String(result.summary ?? "원본 분석 완료")} · 누락 ${Number(result.missing_conditions?.length ?? 0)}개 · ${result.provider_called ? "외부 AI 사용" : "규칙 기반 추출"} · ${suggestion.auto_select === true ? `명시 국면 ${marketRegimeLabels(suggestedRegimes).join("·")} 추천 적용` : "국면 근거 없음 → NoahAI 판단"}`);
+      setSourceSummary(`${String(result.summary ?? "원본 분석 완료")} · 보완 유형 ${Number(result.missing_conditions?.length ?? 0)}개 · ${result.provider_called ? "외부 AI 사용" : "규칙 기반 추출"} · ${suggestion.auto_select === true ? `명시 국면 ${marketRegimeLabels(suggestedRegimes).join("·")} 추천 적용` : "국면 근거 없음 → NoahAI 판단"}`);
       setSourceAnalysis(result);
       setSourceNotice(`분석 완료 · ${files.length || 1}개 입력 · 실행 가능 여부와 누락 조건은 아래 분석 결과를 확인하세요.`);
       setClarificationAnswers({});
@@ -1602,7 +1597,7 @@ export function StrategyStudio({ client, service, source = "", onAskAssistant, o
     </article>
     <article className="panel studio-editor legacy-strategy-result-card" hidden={studioTask !== "create"}>
       <div className="panel-heading legacy-xai-heading"><div className="legacy-xai-title-group"><h3>{t("분석 결과 확인")}</h3><select value={resultView} onChange={(event) => setResultView(event.target.value)}><option value={"Level 1 이해·시험"}>{t("Level 1 이해·시험")}</option><option disabled={featureViewLevel < 2} value={"Level 2 핵심값"}>{t("Level 2 핵심값")}</option><option disabled={featureViewLevel < 3} value="Level 3 전체 근거">{t("Level 3 전체 IR")}</option><option disabled={featureViewLevel < 4} value="Level 4 전문가 운용">{t("Level 4 전문가 운용")}</option><option disabled={featureViewLevel < 5} value="Level 5 연구실">{t("Level 5 연구실")}</option></select><small>{featureViewLevel < 3 ? t("Level 3은 설정에서 고급을 선택하면 열립니다.") : featureViewLevel < 4 ? "Level 4는 실험실에서 열리며 가드레일 해제 권한은 없습니다." : "Level 4 운용 정책을 사용할 수 있으며, 연구실에서는 Level 5 근거 비교가 추가됩니다."}</small></div><div className="legacy-xai-actions"><button type="button" disabled={!onAskAssistant} onClick={() => onAskAssistant?.(analysisAssistantPrompt)}>{t("이 결과 AI에게 묻기")}</button><span>{sourceAnalysis ? "분석 완료" : t("분석 전")}</span></div></div>
-      <div className="legacy-xai-result">{sourceAnalysis ? <><strong>{String(sourceAnalysis.summary ?? "원본 분석 완료")}</strong><p>{t("원본 분석 기준 · 자료 읽기 ")}{String(sourceDetails.coverage_summary || "범위 확인 필요")}{t(" → 문서/IR ")}{sourceAnalysis.ready_for_review ? t("완료") : "보완 필요"}{t(" → 실행 규칙 ")}{analysisReady ? t("완료") : "보완 필요"} → PAPER {analysisReady ? "승인 후 후보" : "시작 불가"}</p><p>{t("누락 조건 ")}{missingConditions.length}{t("개 · ")}{sourceAnalysis.provider_called ? "외부 AI 정밀 분석" : "로컬 규칙 기반 1차 추출"}{t(" · 편집한 최종값은 저장 직전에 서버에서 다시 검증")}</p></> : <p>{t("원본을 분석하면 출처 근거, 명시된 조건, 누락 조건, 위험, 엔진 설정값이 표시됩니다.")}</p>}</div>
+      <div className="legacy-xai-result">{sourceAnalysis ? <><strong>{String(sourceAnalysis.summary ?? "원본 분석 완료")}</strong><p>{t("원본 분석 기준 · 자료 읽기 ")}{String(sourceDetails.coverage_summary || "범위 확인 필요")}{t(" → 문서/IR ")}{sourceAnalysis.ready_for_review ? t("완료") : "보완 필요"}{t(" → 실행 규칙 ")}{analysisReady ? t("완료") : "보완 필요"} → PAPER {analysisReady ? "승인 후 후보" : "시작 불가"}</p><p>{t("보완 유형 ")}{missingConditions.length}{t("개 · 상세 확인 ")}{analysisBlockingDetails.length}{t("개 · ")}{sourceAnalysis.provider_called ? "외부 AI 정밀 분석" : "로컬 규칙 기반 1차 추출"}{t(" · 편집한 최종값은 저장 직전에 서버에서 다시 검증")}</p></> : <p>{t("원본을 분석하면 출처 근거, 명시된 조건, 누락 조건, 위험, 엔진 설정값이 표시됩니다.")}</p>}</div>
       {sourceAnalysis && !analysisReady && authoringMode !== "guided_clarification" && <div className="strategy-authoring-next"><div><b>{t("무엇을 써야 할지 모르겠나요?")}</b><span>{t("현재 분석 결과는 그대로 두고, 빠진 조건만 한 항목씩 질문받을 수 있습니다.")}</span></div><button type="button" onClick={() => { setAuthoringMode("guided_clarification"); setMessage("현재 분석에서 빠진 조건을 질문 카드로 열었습니다. 자신의 전략 기준만 답해 주세요."); }}>{t("빠진 조건을 질문으로 완성")}</button></div>}
       {sourceNotice && <div className="inline-notice" role="status" data-testid="source-upload-status">{sourceNotice}</div>}
       {sourceSummary && <div className="inline-notice">{sourceSummary}</div>}
@@ -1620,7 +1615,7 @@ export function StrategyStudio({ client, service, source = "", onAskAssistant, o
       {sourceAnalysis && <div className="legacy-xai-sections">
         <StrategyBeginnerExplanation analysis={sourceAnalysis} name={name} service={service} />
         <section className="legacy-xai-card"><h4>{t("자료 분석 범위")}</h4><dl><div><dt>{t("자료 종류")}</dt><dd>{String(sourceDetails.kind ?? sourceKind)}</dd></div><div><dt>{t("출처")}</dt><dd>{String(sourceDetails.reference ?? sourceReference ?? "직접 입력")}</dd></div><div><dt>{t("읽은 범위")}</dt><dd>{String(sourceDetails.coverage_summary ?? "입력된 텍스트 범위")}</dd></div><div><dt>{t("분석 방식")}</dt><dd>{sourceAnalysis.provider_called ? "외부 AI API 정밀 분석" : "앱 내부 규칙 기반 추출 · API 비용 없음"}</dd></div></dl>{Object.keys(sourceEvidence).length > 0 && <details><summary>{t("영상·문서 근거 수집 정보")}</summary><pre>{JSON.stringify(sourceEvidence, null, 2)}</pre></details>}{analysisWarnings.length > 0 && <><h5>{t("자료 읽기 경고")}</h5><ul>{analysisWarnings.map((item: unknown, index: number) => <li key={index}>{readableDetail(item)}</li>)}</ul></>}</section>
-        <section className={`legacy-xai-card ${missingConditions.length ? "warning" : "complete"}`}><h4>{t("누락 조건")}</h4>{missingConditions.length > 0 ? analysisBlockingDetails.length > 0 ? <ul className="legacy-xai-missing-list">{analysisBlockingDetails.map((item: Record<string, string>, index: number) => <li key={`${item.code}:${index}`}><b>{item.title}</b><span>{item.action}</span>{item.example && <small>{t("예: ")}{item.example}</small>}{canInsertConfirmedSupplement(item.code) && <button type="button" onClick={() => void insertConfirmedSupplement(item.code)}>{t("현재 선택값 확정·재분석")}</button>}</li>)}</ul> : <ul>{missingConditions.map((item: unknown, index: number) => <li key={index}>{readableDetail(item)}</li>)}</ul> : <p>{t("필수 구조 조건이 모두 확인되었습니다. 수익성이나 안전성이 보장된다는 의미는 아닙니다.")}</p>}</section>
+        <section className={`legacy-xai-card ${missingConditions.length ? "warning" : "complete"}`}><h4>{t("보완할 조건")}</h4>{missingConditions.length > 0 ? analysisBlockingDetails.length > 0 ? <ul className="legacy-xai-missing-list">{analysisBlockingDetails.map((item: Record<string, string>, index: number) => <li key={`${item.code}:${index}`}><b>{item.title}</b><span>{item.action}</span>{item.example && <small>{t("예: ")}{item.example}</small>}{canInsertConfirmedSupplement(item.code) && <button type="button" onClick={() => void insertConfirmedSupplement(item.code)}>{t("현재 선택값 확정·재분석")}</button>}</li>)}</ul> : <ul>{missingConditions.map((item: unknown, index: number) => <li key={index}>{readableDetail(item)}</li>)}</ul> : <p>{t("필수 구조 조건이 모두 확인되었습니다. 수익성이나 안전성이 보장된다는 의미는 아닙니다.")}</p>}</section>
         <section className={`legacy-xai-card ${analysisReady ? "complete" : "warning"}`}><h4>{t("실행 준비 상태")}</h4>{analysisReady ? <p>{t("승인 후 자동검증과 PAPER를 시작할 수 있습니다. 실제 적용과 수익을 보장하지는 않습니다.")}</p> : <><p>{t("전략 문서는 저장할 수 있지만 아직 승인·PAPER·적용할 수 없습니다.")}</p><ul>{(Array.isArray(analysisReadiness.reasons) ? analysisReadiness.reasons : []).map((item: unknown, index: number) => <li key={index}>{readinessReason(item)}</li>)}</ul></>}<small>{t("청산 정책: ")}{analysisReadiness.exit_policy_mode === "strategy_owned" ? "전략 자체 TP/SL" : "NoahAI 스마트 청산 상속"}</small></section>
         <section className="legacy-xai-card"><h4>{t("위험과 주의사항")}</h4>{analysisRisks.length > 0 ? <ul>{analysisRisks.map((item: unknown, index: number) => <li key={index}>{readableDetail(item)}</li>)}</ul> : <p>{t("추가로 추출된 위험 문장이 없습니다. PAPER 검증과 계정 가드레일은 계속 필요합니다.")}</p>}</section>
         {resultView !== "Level 1 이해·시험" && <>

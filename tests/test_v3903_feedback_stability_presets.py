@@ -158,15 +158,20 @@ def test_assistant_handoff_loads_draft_only_and_switches_tab():
     assert "아직 분석·저장·승인·실행하지 않았습니다" in response
 
 
-def test_reviewable_presets_fail_closed_without_ai_structuring():
+def test_managed_presets_compile_without_ai_but_need_explicit_approval(tmp_path):
     ingestor = StrategySourceIngestor(None)
     for preset in list_beginner_presets():
         if not preset["executable_template"]:
             continue
         result = ingestor.analyze(preset["source_text"], "text")
         assert result["unsupported_conditions"] == []
-        assert result["missing_conditions"]
-        assert result["ready_for_review"] is False
+        assert result["missing_conditions"] == []
+        assert result["ready_for_review"] is True
+        from trading.custom_strategy_pipeline import CustomStrategyPipeline
+        pipeline = CustomStrategyPipeline(str(tmp_path/(preset['key']+'.json')))
+        version = pipeline.submit(name=preset['name'], rules=result['rules'])
+        assert version['status'] == 'analyzed'
+        assert not pipeline.active_versions and not pipeline.paper_versions
 
 
 def test_unified_start_allows_learning_only_exchange_and_starts_loop():

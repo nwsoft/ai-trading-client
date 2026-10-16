@@ -5,7 +5,7 @@ from __future__ import annotations
 from copy import deepcopy
 from typing import Any, Dict, List, Mapping
 
-from .custom_strategy_presets import get_beginner_preset
+from .custom_strategy_presets import get_beginner_preset, render_preset_source
 
 
 PROFILE_FIELDS = (
@@ -91,7 +91,7 @@ def recommend_strategy_candidates(profile: Mapping[str, Any]) -> List[Dict[str, 
             rules["entry_signal"] = "LONG"
             rules["executable_entry"] = long_spec
 
-        source_text = str(preset.get("source_text") or "") + f"\n판단 시간봉: {rules['decision_timeframe']} (완성된 봉 기준)"
+        source_text = render_preset_source(str(preset.get("name") or key), rules)
         source_reference = f"noahai://mentor/{key}"
         trace = {
             field: {
