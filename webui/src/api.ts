@@ -18,6 +18,8 @@ import type {
 export interface GatewayClient {
   newPaperSession?: (source: string) => Promise<Record<string, any>>;
   profitabilityDiagnostic?: (source: string) => Promise<Record<string, any>>;
+  reconciliationReason?: (reason:string)=>string;
+  reconciliation?: (payload?: {action:'start'|'resume'|'cancel';sources?:string[];mode?:'paper'|'live'}) => Promise<Record<string,any>>;
   recordRecovery: (source: string, start?: boolean) => Promise<Record<string, any>>;
   recoveryStatement?: (payload: Record<string, unknown>) => Promise<Record<string, any>>;
   storageMaintenance: (action?: 'optimize' | 'debug', hours?: number) => Promise<Record<string, any>>;
@@ -111,6 +113,15 @@ function bootstrap(): NoahAIBootstrap {
 }
 
 const GATEWAY_ERROR_MESSAGES: Record<string, string> = {
+  invalid_reconciliation_request: '점검 모드와 선택 기관을 확인하세요. PAPER는 코인 기관을 선택하고 같은 기관을 중복 지정하지 마세요.',
+  paper_ledger_record_too_large: '한 PAPER 기록이 안전하게 읽을 수 있는 크기를 넘었습니다. 원본을 보존하고 해당 기록의 저장 근거를 점검하세요. 전체 누적 용량 제한은 아닙니다.',
+  paper_ledger_index_unavailable: '대조 저장소에 접근하지 못했습니다. 디스크 여유·권한·파일 점유를 확인하고 다시 점검하세요. 원장을 삭제하지 마세요.',
+  paper_ledger_index_invalid: 'PAPER 대조용 색인의 무결성을 확인하지 못했습니다. 원본 원장은 보존하고 PAPER 백그라운드 대조를 다시 실행하세요.',
+  paper_ledger_changed_during_read: '대조 중 원장이 변경됐습니다. 이번 결과로 신규 진입하지 않고 다음 점검에서 다시 확인합니다.',
+  paper_close_recovery_torn_ledger: 'PAPER 원장 마지막 기록이 완전히 저장되지 않았거나 JSON이 손상됐습니다. 원본을 보존하고 저장 장치·저장 실패 기록을 점검하세요.',
+  paper_reconciliation_cancelled: '점검을 일시정지했습니다. 완료 구간은 보존되며 이어서 점검할 수 있습니다.',
+  recovery_additional_evidence_required: 'LIVE 미확정 기록에 추가 체결 근거가 필요합니다. 아래 개별 거래기록 복구 사유를 확인하세요.',
+  recovery_check_failed: '점검을 완료하지 못했습니다. 저장소 권한·여유 공간과 현재 연결을 확인한 뒤 다시 점검하세요.',
   paper_session_save_failed: '새 PAPER 평가 기준을 저장하지 못했습니다. 기존 기록은 유지됩니다. 저장소 쓰기 권한·잠금·여유 공간을 확인하세요.',
   paper_session_stop_required: '해당 기관의 PAPER 운용을 정지한 뒤 새 평가를 준비하세요.',
   paper_session_flat_required: '보유 PAPER 포지션이 남아 있습니다. 기존 포지션 청산 후 해당 기관을 정지하세요.',
@@ -120,7 +131,6 @@ const GATEWAY_ERROR_MESSAGES: Record<string, string> = {
   paper_close_recovery_required: 'PAPER 청산 기록은 저장됐지만 잔여 보유량 저장을 확인하지 못했습니다. 저장 장애를 해결하고 재시작해 복구하세요. 새 평가로 우회할 수 없습니다.',
   paper_close_recovery_evidence_missing: '기존 PAPER 청산과 보유량을 맞출 근거가 부족합니다. 원본 기록을 보존한 상태로 거래를 보류합니다.',
   paper_close_recovery_snapshot_conflict: 'PAPER 보유량과 청산 복구 기록이 서로 다릅니다. 기록 대조 전에는 거래하거나 새 평가를 준비할 수 없습니다.',
-  paper_close_recovery_torn_ledger: 'PAPER 원장에 완전히 저장되지 않은 행이 있습니다. 원본을 보존하고 저장 기록을 확인하세요.',
   paper_close_recovery_evidence_invalid: 'PAPER 청산 복구 근거를 검증하지 못했습니다. 기록 대조가 필요합니다.',
   paper_close_recovery_ledger_changed: 'PAPER 보유 기록이 참조하는 원장이 삭제되거나 바뀌었습니다. 원본을 보존하고 기록 대조 후 복구하세요.',
   paper_close_recovery_checkpoint_invalid: 'PAPER 원장 대조 기준을 검증하지 못했습니다. 거래를 보류하고 저장 기록을 확인하세요.',
@@ -484,6 +494,8 @@ export function createGatewayClient(): GatewayClient {
     ),
     profitabilityDiagnostic: source => get<Record<string, any>>(`/api/v1/maintenance/profitability?source=${encodeURIComponent(source)}`),
     newPaperSession: source => mutate<Record<string, any>>('POST', '/api/v1/maintenance/paper-session', {source, new_baseline_acknowledged:true}),
+    reconciliationReason: reason => userFacingGatewayError(reason,409),
+    reconciliation: payload => payload ? mutate<Record<string,any>>('POST','/api/v1/maintenance/reconciliation',payload) : get<Record<string,any>>('/api/v1/maintenance/reconciliation'),
     recordRecovery: (source, start = false) => start
       ? mutate<Record<string, any>>("POST", "/api/v1/maintenance/trade-records", { source })
       : get<Record<string, any>>(`/api/v1/maintenance/trade-records?source=${encodeURIComponent(source)}`),

@@ -1,0 +1,90 @@
+{
+  "status": "PASS_LOCAL_NATIVE_SCOPE",
+  "platform": "macOS production Electron + real local FastAPI",
+  "data": "isolated synthetic account; 67109696-byte synthetic journal",
+  "observed_product_version": "3.9.2.17",
+  "observed_renderer_tag": "3.9.2.17-ui.20261017.1",
+  "actions": [
+    "settings version17",
+    "PAPER select all7/start",
+    "all7 checked; first source 64.0/64.0MiB",
+    "close settings",
+    "open Strategy Studio; select saved version",
+    "six bulk actions enabled",
+    "PAPER confirmation opens; cancel preserves approved/unstarted state",
+    "reopen settings; persisted all7 checked",
+    "separate log/learning/PAPER storage explanations visible",
+    "final built screen after Mac unlock: local-formatted last-check timestamp",
+    "free disk/total capacity and low-space explanation visible; no trading block from warning",
+    "final all7 PAPER job started; close settings; use Strategy Studio; reopen all7 checked",
+    "actual definition ZIP downloaded to explicit temporary path; CRC valid; one noahstrategy file",
+    "dashboard with isolated empty recorder schema: no exits/no samples, not fabricated PnL",
+    "normal product quit confirmation; process exit0"
+  ],
+  "orders_submitted": 0,
+  "external_connections_blocked": true,
+  "not_run": [
+    "Windows installation/OCX/real providers/24-72h"
+  ],
+  "queue_state": {
+    "state": "checked",
+    "mode": "paper",
+    "items": [
+      {
+        "source": "binance",
+        "state": "checked",
+        "reason": "",
+        "processed_bytes": 67109696,
+        "total_bytes": 67109696,
+        "phase": "verifying",
+        "orders_submitted": false
+      },
+      {
+        "source": "upbit",
+        "state": "checked",
+        "reason": "",
+        "orders_submitted": false
+      },
+      {
+        "source": "bithumb",
+        "state": "checked",
+        "reason": "",
+        "orders_submitted": false
+      },
+      {
+        "source": "coinone",
+        "state": "checked",
+        "reason": "",
+        "orders_submitted": false
+      },
+      {
+        "source": "bybit",
+        "state": "checked",
+        "reason": "",
+        "orders_submitted": false
+      },
+      {
+        "source": "okx",
+        "state": "checked",
+        "reason": "",
+        "orders_submitted": false
+      },
+      {
+        "source": "bitget",
+        "state": "checked",
+        "reason": "",
+        "orders_submitted": false
+      }
+    ],
+    "started_at": 1792247027.147896,
+    "updated_at": 1792247027.417237,
+    "orders_submitted": false,
+    "trading_started": false
+  },
+  "renderer_source_sha256": "22de6428980b39676f44647dbf78f36d6a0836aa9921de32c2a3b08c66b34e7d",
+  "export": {
+    "definition_zip_crc": "PASS",
+    "files": 1,
+    "bytes": 5324
+  }
+}

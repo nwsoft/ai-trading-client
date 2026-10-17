@@ -1,6 +1,7 @@
 """Resumable maintenance without touching trading/PAPER ledgers."""
 from __future__ import annotations
 
+import shutil
 import sqlite3
 import threading
 import time
@@ -11,6 +12,18 @@ from log_system.storage_policy import disk_usage, read_policy, DEFAULT_LOG_BUDGE
 from trading.learning_storage import LearningStore
 
 _JOBS = {}; _LOCK = threading.RLock()
+
+
+def disk_capacity(root):
+    try:
+        space=shutil.disk_usage(root)
+        threshold=max(1024**3,int(space.total*0.05))
+        return {'disk_free_bytes':space.free,'disk_total_bytes':space.total,
+                'disk_low_space_warning':space.free<threshold,'disk_capacity_error':None}
+    except OSError:
+        return {'disk_free_bytes':None,'disk_total_bytes':None,
+                'disk_low_space_warning':None,'disk_capacity_error':'disk_capacity_unavailable'}
+
 
 
 class StorageMaintenance:
@@ -58,7 +71,11 @@ class StorageMaintenance:
                     last = row[0] if row else None
             except sqlite3.Error as exc:
                 storage_error = type(exc).__name__
-        return {**state, **usage, 'legacy_archives_pending':len(legacy),
+        paper=self.root/'strategy_paper_outcomes.jsonl'
+        paper_index=paper.with_name(paper.name+'.index.sqlite3')
+        return {**state, **usage, **disk_capacity(self.root), 'paper_journal_bytes':paper.stat().st_size if paper.exists() else 0,
+                'paper_index_bytes':paper_index.stat().st_size if paper_index.exists() else 0,
+                'paper_journal_lifetime_limit':None, 'legacy_archives_pending':len(legacy),
                 'writer_activity':snapshot(self.root/'trading.db'),
                 'record_writes': writes,
                 'legacy_archives_pending_bytes':pending_bytes,

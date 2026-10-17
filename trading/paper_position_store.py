@@ -218,9 +218,12 @@ def reconcile_close_events(stores: dict, ledger_file: Path, *, execution_scope: 
         if any((p.entry_evidence or {}).get('paper_close_events') for ps in stores.values() for p in ps.values()):
             raise ValueError('paper_close_recovery_ledger_changed')
         return False
-    with FileLock(str(ledger_file) + '.lock', timeout=10):
-        rows = read_close_ledger(ledger_file)
-    known = {str(row.get('event_id') or '') for row in rows}
+    from .paper_ledger_index import index_for
+    index=index_for(ledger_file)
+    index.sync()
+    rows=index.position_rows(stores,execution_scope)
+    needed={event for ps in stores.values() for p in ps.values() for event in (p.entry_evidence or {}).get('paper_close_events', [])}
+    known={event for event in needed if index.event(event) is not None}
     if any(not set((p.entry_evidence or {}).get('paper_close_events', [])).issubset(known) for ps in stores.values() for p in ps.values()):
         raise ValueError('paper_close_recovery_ledger_changed')
     changed = False
@@ -247,37 +250,7 @@ def reconcile_close_events(stores: dict, ledger_file: Path, *, execution_scope: 
             continue
         if not isinstance(evidence, dict):
             raise ValueError('paper_close_recovery_evidence_invalid')
-        content = {k: v for k, v in evidence.items() if k != 'sha256'}
-        if (content.get('schema_version') != 1 or recovery_digest(content) != evidence.get('sha256')
-            or content.get('outcome_sha256') != close_outcome_digest(row)
-            or paper_outcome_calculation_status(row) != 'valid'):
-            raise ValueError('paper_close_recovery_evidence_invalid')
-        before, after = content['before'], content['after']
-        identity = str(before.get('position_id') or '')
-        # Bind the recovery state to the actual ledger slice and execution venue.
-        same = all(before.get(k) == after.get(k) for k in ('position_id','symbol','side','entry_time','entry_price','contract_size'))
-        unit_matches = before['contract_size'] == row.get('contract_size') or (
-            venue in {'upbit', 'bithumb', 'coinone', 'binance'}
-            and before['contract_size'] is None and row.get('contract_size') == 1.0
-        )  # Intrinsic base-asset quantity contract; never infer foreign futures.
-        valid_numbers = all(not isinstance(v,bool) and math.isfinite(float(v)) for v in (before['quantity'], after['quantity'], row['quantity']))
-        if (not identity or not same or not valid_numbers or before['symbol'] != symbol
-            or not 0 <= after['quantity'] < before['quantity']
-            or abs(before['quantity'] - after['quantity'] - row['quantity']) > max(1e-9, before['quantity']*1e-10)
-            or before['entry_price'] != row['entry_price'] or before['side'] != row['side']
-            or not unit_matches
-            or str(row.get('position_id') or '') not in {identity, identity+':partial:'+str(index_from_plan(content))}):
-            raise ValueError('paper_close_recovery_evidence_invalid')
-        import hashlib
-        event_identity = '|'.join((execution_scope, venue, str(row['position_id'])))
-        expected_event = 'paper_outcome_' + hashlib.sha256(event_identity.encode()).hexdigest()[:32]
-        is_full = str(row['position_id']) == identity
-        if (row.get('event_id') != expected_event
-            or sorted(content['after_plan'].get('completed_partial_indices', [])) != after['completed']
-            or not set(before['completed']).issubset(after['completed'])
-            or (is_full and (after['quantity'] != 0 or after['completed'] != before['completed']))
-            or (not is_full and index_from_plan(content) is None)):
-            raise ValueError('paper_close_recovery_evidence_invalid')
+        content,identity,before,after = validate_close_proof(row)
         if position is None or str(position.position_id or '') != identity:
             continue  # already fully closed, or a different later position
         state = close_state(position)
@@ -319,27 +292,57 @@ def fsync_parent(path: Path):
 
 
 def ledger_checkpoint(path: Path) -> dict:
-    import hashlib
-    from filelock import FileLock
-    with FileLock(str(path) + '.lock', timeout=10):
-        if path.exists() and path.stat().st_size > 64 * 1024 * 1024:
-            raise ValueError('paper_close_recovery_budget')
-        data = path.read_bytes() if path.exists() else b''
-    return {'schema_version': 1, 'offset': len(data), 'sha256': hashlib.sha256(data).hexdigest()}
+    from .paper_ledger_index import index_for,ledger_lock
+    with ledger_lock(path):
+        index=index_for(path);index.sync()
+        offset=path.stat().st_size if path.exists() else 0
+        return {'schema_version':1,'offset':offset,'sha256':index.prefix_hash(offset)}
 
 
 def validate_ledger_checkpoint(path: Path, checkpoint: dict):
-    import hashlib
-    from filelock import FileLock
-    if (not isinstance(checkpoint, dict) or checkpoint.get('schema_version') != 1
-        or type(checkpoint.get('offset')) is not int or not 0 <= checkpoint['offset'] <= 64*1024*1024):
+    from .paper_ledger_index import index_for
+    if (not isinstance(checkpoint,dict) or checkpoint.get('schema_version')!=1
+        or type(checkpoint.get('offset')) is not int or checkpoint['offset']<0):
         raise ValueError('paper_close_recovery_checkpoint_invalid')
-    with FileLock(str(path) + '.lock', timeout=10):
-        if (not path.exists() and checkpoint['offset']) or (path.exists() and path.stat().st_size < checkpoint['offset']):
-            raise ValueError('paper_close_recovery_ledger_changed')
-        data = b''
-        if path.exists():
-            with path.open('rb') as handle:
-                data = handle.read(checkpoint['offset'])
-    if hashlib.sha256(data).hexdigest() != checkpoint.get('sha256'):
+    if index_for(path).prefix_hash(checkpoint['offset'])!=checkpoint.get('sha256'):
         raise ValueError('paper_close_recovery_ledger_changed')
+
+
+def validate_close_proof(row):
+    from .paper_strategy_ledger import close_outcome_digest,paper_outcome_calculation_status
+    evidence=row.get("close_recovery")
+    if not isinstance(evidence,dict):raise ValueError("paper_close_recovery_evidence_invalid")
+    venue,symbol=str(row.get("exchange") or "").lower(),str(row.get("symbol") or "")
+    execution_scope=str(row.get("scope") or "").lower()
+    content = {k: v for k, v in evidence.items() if k != 'sha256'}
+    if (content.get('schema_version') != 1 or recovery_digest(content) != evidence.get('sha256')
+        or content.get('outcome_sha256') != close_outcome_digest(row)
+        or paper_outcome_calculation_status(row) != 'valid'):
+        raise ValueError('paper_close_recovery_evidence_invalid')
+    before, after = content['before'], content['after']
+    identity = str(before.get('position_id') or '')
+    # Bind the recovery state to the actual ledger slice and execution venue.
+    same = all(before.get(k) == after.get(k) for k in ('position_id','symbol','side','entry_time','entry_price','contract_size'))
+    unit_matches = before['contract_size'] == row.get('contract_size') or (
+        venue in {'upbit', 'bithumb', 'coinone', 'binance'}
+        and before['contract_size'] is None and row.get('contract_size') == 1.0
+    )  # Intrinsic base-asset quantity contract; never infer foreign futures.
+    valid_numbers = all(not isinstance(v,bool) and math.isfinite(float(v)) for v in (before['quantity'], after['quantity'], row['quantity']))
+    if (not identity or not same or not valid_numbers or before['symbol'] != symbol
+        or not 0 <= after['quantity'] < before['quantity']
+        or abs(before['quantity'] - after['quantity'] - row['quantity']) > max(1e-9, before['quantity']*1e-10)
+        or before['entry_price'] != row['entry_price'] or before['side'] != row['side']
+        or not unit_matches
+        or str(row.get('position_id') or '') not in {identity, identity+':partial:'+str(index_from_plan(content))}):
+        raise ValueError('paper_close_recovery_evidence_invalid')
+    import hashlib
+    event_identity = '|'.join((execution_scope, venue, str(row['position_id'])))
+    expected_event = 'paper_outcome_' + hashlib.sha256(event_identity.encode()).hexdigest()[:32]
+    is_full = str(row['position_id']) == identity
+    if (row.get('event_id') != expected_event
+        or sorted(content['after_plan'].get('completed_partial_indices', [])) != after['completed']
+        or not set(before['completed']).issubset(after['completed'])
+        or (is_full and (after['quantity'] != 0 or after['completed'] != before['completed']))
+        or (not is_full and index_from_plan(content) is None)):
+        raise ValueError('paper_close_recovery_evidence_invalid')
+    return content,identity,before,after

@@ -10,7 +10,7 @@ export function StrategyBulkActions({client, rows, selected, onSelection, disabl
   const [running, setRunning] = useState(false), [results, setResults] = useState<Result[]>([]);
   const [progress, setProgress] = useState(''), [download, setDownload] = useState<{url: string; name: string} | null>(null);
   const stop = useRef(false), mounted = useRef(true), lock = useRef(false);
-  useEffect(() => { mounted.current = true; return () => { mounted.current = false; stop.current = true; }; }, []);
+  useEffect(() => { mounted.current = true; return () => { mounted.current = false; stop.current = true; onBusy(false); }; }, []);
   useEffect(() => () => { if (download) URL.revokeObjectURL(download.url); }, [download]);
   const targets = rows.filter(row => selected.has(bulkKey(row)));
   const names: Record<BulkOperation,string> = {approve:'선택 내용 확인·승인', delete:'선택 버전 삭제', pause:'선택 일시중지', paper:'선택 PAPER 검증', definition:'선택 전략 내보내기', package:'선택 패키지 내보내기'};

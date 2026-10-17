@@ -1,0 +1,472 @@
+{
+  "status": "LOCAL_SOURCE_READY_EXTERNAL_ACCEPTANCE_PENDING",
+  "source_version": "3.9.2.17",
+  "public_version": "3.9.2.16",
+  "branch": "fix/v3.9.2.17-paper-maintenance-20261017",
+  "inspected_base_commit": "52a7b093bab3b89d9b4b56991a1fa5d38e163ccf",
+  "public_commit": "8b4f62b24df04cfe427d46eb2f55dfef24ff1b28",
+  "source_commit": "recorded in handoff.json after commit",
+  "verified_at": "2026-10-17T14:17:45.831728+00:00",
+  "incident": {
+    "journal_bytes": 67109696,
+    "old_lifetime_limit_bytes": 67108864,
+    "excess_bytes": 832,
+    "events": 39565,
+    "original_positions": 28,
+    "confirmed_close_replayed": 1,
+    "recovered_positions": 27,
+    "all7_wallets": true,
+    "independent_replay_all_fields_equal": true,
+    "independent_pnl_sums_equal": true,
+    "original_files_unchanged": true
+  },
+  "changes": [
+    "remove lifetime byte/row limits from capital/replay/checkpoints/session prefix verification; retain bounded per-record and active-snapshot validation",
+    "rebuildable private hash-verified incremental SQLite sidecar; journal remains source of truth",
+    "PAPER background sequential reconciliation; LIVE uses existing recovery worker; cancel/resume preserves exact mode/source scope",
+    "finite reason-specific status/errors; disk free/unknown/low-space observation; no history reset",
+    "expose pre-existing Strategy Studio bulk actions and preserve consent/eligibility/idempotence",
+    "existing gpt-6-luna compatibility rechecked against official docs; no default model migration",
+    "Windows modules/version/updater/renderer/public16 asset pin/manual/docs alignment"
+  ],
+  "commands": [
+    {
+      "command": ".venv/bin/python -m pytest tests -q -rs --junitxml=reports/v39217-paper-maintenance-20261017/final-full.xml",
+      "result": "6135 passed /11 skipped /2 warnings /3 subtests; exit0;113.02s"
+    },
+    {
+      "command": ".venv/bin/python -m pytest tests/test_v39217_paper_maintenance.py tests/test_v39216_paper_reconciliation_limits.py tests/test_v3920_model_refresh.py tests/test_build_release_workflow.py -q",
+      "result": "107 passed; exit0"
+    },
+    {
+      "command": ".venv/bin/python -m pytest tests/test_v39216_paper_reconciliation_limits.py tests/test_v39217_paper_maintenance.py -q",
+      "result": "47 passed; exit0"
+    },
+    {
+      "command": "node --test tests/*.test.cjs webui/electron/*.test.cjs",
+      "result": "94 passed /0 skipped /0 failed; exit0"
+    },
+    {
+      "command": "npm --prefix webui run build",
+      "result": "TypeScript app/node and Vite PASS; existing chunk-size warning"
+    },
+    {
+      "command": "npm --prefix webui audit --json",
+      "result": "0 vulnerabilities"
+    },
+    {
+      "command": ".venv/bin/python scripts/audit_paper_upgrade.py --snapshot <explicit 261017 snapshot> --output reports/v39217-paper-maintenance-20261017/shared-upgrade.json",
+      "result": "PASS; temporary copies; original4 files bytes/mtime/mode unchanged; network0/orders0"
+    },
+    {
+      "command": ".venv/bin/python scripts/audit_strategy_upgrade.py --stores <261017 custom_strategies> --baseline-root <public16 extracted source> --output reports/v39217-paper-maintenance-20261017/strategy-upgrade.json",
+      "result": "71/71 rules/source/approval/permissions/readiness preserved; network0"
+    },
+    {
+      "command": "isolated pure settings normalization on four explicit copies against public16",
+      "result": "equal; originals unchanged; credentials not used"
+    },
+    {
+      "command": ".venv/bin/python scripts/audit_managed_strategy_sources.py --output reports/v39217-paper-maintenance-20261017/managed-sources.json",
+      "result": "8 examples /1440 entry comparisons /2916 mentor profiles /7776 candidates PASS"
+    },
+    {
+      "command": ".venv/bin/python scripts/audit_release_test_skips.py <final-full.xml> <skip-audit.json>",
+      "result": "11 allowed exclusions; no unexpected skip; PASS"
+    },
+    {
+      "command": ".venv/bin/python scripts/doc_consistency_check.py",
+      "result": "PASS"
+    },
+    {
+      "command": ".venv/bin/python scripts/active_source_audit.py",
+      "result": "PASS"
+    },
+    {
+      "command": ".venv/bin/python scripts/audit_web_ui_full_parity_contract.py",
+      "result": "PASS; source contract only"
+    },
+    {
+      "command": ".venv/bin/python scripts/audit_settings_ai_assistant_contract.py",
+      "result": "PASS"
+    },
+    {
+      "command": "PowerShell AST parse scripts/*.ps1 and four current BUILD_GUIDE blocks",
+      "result": "12 files PASS; Windows execution false"
+    },
+    {
+      "command": "git -c core.whitespace=cr-at-eol diff --cached --check",
+      "result": "PASS; hash-pinned public16 manifest retains original CRLF bytes"
+    }
+  ],
+  "reports": {
+    "shared-upgrade.json": {
+      "status": "PASS",
+      "snapshot": "explicit_snapshot",
+      "baseline_commit": "8b4f62b24df04cfe427d46eb2f55dfef24ff1b28",
+      "original_ledger_bytes": 67109696,
+      "old64MiB_limit_exceeded_by": 832,
+      "initial_index_seconds": 2.916,
+      "counts": {
+        "unique_indexed_paper_events": 39565,
+        "raw_lines": 39565
+      },
+      "engine_recovery": [
+        {
+          "engine": "binance",
+          "success": true,
+          "reason": "",
+          "raw_snapshot_equals_replayed_state": true,
+          "raw_saved_positions": 3,
+          "recovered_positions": 3,
+          "independent_public16_replay_fields_equal": true,
+          "changed_field_counts": {},
+          "empty_venue_groups_added": 0
+        },
+        {
+          "engine": "unified",
+          "success": true,
+          "reason": "",
+          "raw_snapshot_equals_replayed_state": false,
+          "raw_saved_positions": 25,
+          "recovered_positions": 24,
+          "independent_public16_replay_fields_equal": true,
+          "changed_field_counts": {
+            "confirmed_closed_position": 1
+          },
+          "empty_venue_groups_added": 0
+        }
+      ],
+      "wallets": [
+        {
+          "independent_pnl_sum_equal": true,
+          "source": "binance",
+          "basis": "paper_reconciled_funds",
+          "reason": null,
+          "preserved_positions": 3
+        },
+        {
+          "independent_pnl_sum_equal": true,
+          "source": "upbit",
+          "basis": "paper_reconciled_funds",
+          "reason": null,
+          "preserved_positions": 0
+        },
+        {
+          "independent_pnl_sum_equal": true,
+          "source": "bithumb",
+          "basis": "paper_reconciled_funds",
+          "reason": null,
+          "preserved_positions": 4
+        },
+        {
+          "independent_pnl_sum_equal": true,
+          "source": "coinone",
+          "basis": "paper_reconciled_funds",
+          "reason": null,
+          "preserved_positions": 5
+        },
+        {
+          "independent_pnl_sum_equal": true,
+          "source": "bybit",
+          "basis": "paper_reconciled_funds",
+          "reason": null,
+          "preserved_positions": 5
+        },
+        {
+          "independent_pnl_sum_equal": true,
+          "source": "okx",
+          "basis": "paper_reconciled_funds",
+          "reason": null,
+          "preserved_positions": 5
+        },
+        {
+          "independent_pnl_sum_equal": true,
+          "source": "bitget",
+          "basis": "paper_reconciled_funds",
+          "reason": null,
+          "preserved_positions": 5
+        }
+      ],
+      "ledger_copy_bytes_unchanged": true,
+      "original_bytes_mtime_permissions_unchanged": true,
+      "network_attempts": 0,
+      "orders_submitted": 0
+    },
+    "strategy-upgrade.json": {
+      "status": "PASS",
+      "scope": "offline temporary copies; no customer source/IDs/keys/settings/ledger output; no orders or provider calls",
+      "counts": {
+        "versions": 71,
+        "all_nonstatus_fields_preserved": 71,
+        "stored_paper_ready": 71,
+        "stored_final_draft_ready": 71,
+        "recorded_source_texts": 71,
+        "reanalyzed_source_ready": 71,
+        "stores": 2,
+        "active_grants": 17,
+        "paper_grants": 52
+      },
+      "original_bytes_mtime_permissions_unchanged": true,
+      "current_stored_blocking_code_counts": {},
+      "source_reanalysis_blocking_code_counts": {},
+      "network_attempts": 0,
+      "baseline_counts": {
+        "versions": 71,
+        "all_nonstatus_fields_preserved": 71,
+        "stored_paper_ready": 71,
+        "stored_final_draft_ready": 71,
+        "recorded_source_texts": 71,
+        "reanalyzed_source_ready": 71,
+        "stores": 2,
+        "active_grants": 17,
+        "paper_grants": 52
+      },
+      "stored_readiness_transitions": {
+        "1->1": 71
+      },
+      "differences": {
+        "loaded_digest": 0,
+        "stored_ready": 0,
+        "final_ready": 0,
+        "grounding_valid": 0,
+        "source_reanalysis_readiness": 0,
+        "source_reanalysis_execution": 0
+      },
+      "execution_grants_equal": true
+    },
+    "settings-upgrade.json": {
+      "status": "PASS",
+      "settings_files": 4,
+      "public16_and_candidate17_normalized_equal": true,
+      "original_bytes_mtime_permissions_unchanged": true,
+      "credentials_used": false,
+      "provider_calls": 0,
+      "scope": "normalization on independent explicit copies; Windows decryption NOT_RUN"
+    },
+    "managed-sources.json": {
+      "status": "PASS",
+      "managed_asset_examples": 8,
+      "synthetic_entry_comparisons": 1440,
+      "mentor_profiles": 2916,
+      "mentor_candidates": 7776,
+      "network_attempts": 0,
+      "orders_submitted": 0,
+      "scope": "four managed prototypes; crypto/stock; finite profile options and 0.05/0.5/2% risk boundaries; no customer data"
+    },
+    "skip-audit.json": {
+      "status": "PASS",
+      "platform": "darwin",
+      "case_count": 6146,
+      "skipped_count": 11,
+      "skipped": [
+        {
+          "test": "tests.test_branding.test_real_non_noahai_executable_is_rejected",
+          "category": "windows_pe",
+          "reason": "Real Windows Python PE resource regression"
+        },
+        {
+          "test": "tests.test_stock_integration.TestLiveAPIIntegration.test_live_kiwoom_connect",
+          "category": "live_broker_opt_in",
+          "reason": "Live API 테스트: LIVE_STOCK_TEST=true 환경변수 필요"
+        },
+        {
+          "test": "tests.test_stock_integration.TestLiveAPIIntegration.test_live_kiwoom_get_balance",
+          "category": "live_broker_opt_in",
+          "reason": "Live API 테스트: LIVE_STOCK_TEST=true 환경변수 필요"
+        },
+        {
+          "test": "tests.test_stock_integration.TestLiveAPIIntegration.test_live_kiwoom_get_positions",
+          "category": "live_broker_opt_in",
+          "reason": "Live API 테스트: LIVE_STOCK_TEST=true 환경변수 필요"
+        },
+        {
+          "test": "tests.test_stock_integration.TestLiveAPIIntegration.test_live_kiwoom_get_stock_list",
+          "category": "live_broker_opt_in",
+          "reason": "Live API 테스트: LIVE_STOCK_TEST=true 환경변수 필요"
+        },
+        {
+          "test": "tests.test_stock_integration.TestLiveAPIIntegration.test_live_mirae_asset_connect",
+          "category": "live_broker_opt_in",
+          "reason": "Live API 테스트: LIVE_STOCK_TEST=true 환경변수 필요"
+        },
+        {
+          "test": "tests.test_stock_integration.TestLiveAPIIntegration.test_live_shinhan_connect",
+          "category": "live_broker_opt_in",
+          "reason": "Live API 테스트: LIVE_STOCK_TEST=true 환경변수 필요"
+        },
+        {
+          "test": "tests.test_tp_sl_validation.test_tp_sl_order_creation",
+          "category": "live_order_opt_in",
+          "reason": "requires explicit Binance integration-test opt-in"
+        },
+        {
+          "test": "tests.test_tp_sl_validation.test_place_futures_order_directly",
+          "category": "live_order_opt_in",
+          "reason": "requires explicit Binance integration-test opt-in"
+        },
+        {
+          "test": "tests.test_v39146_customer_write_recovery.test_customer_active_versions_and_missing_spot_holdings_readonly",
+          "category": "missing_historical_private_fixture",
+          "reason": "Private customer fixture is not distributed"
+        },
+        {
+          "test": "tests.test_v39147_customer_boundaries.test_customer_cached_cycle_proof_without_api_or_original_writes",
+          "category": "missing_historical_private_fixture",
+          "reason": "private read-only customer fixture absent"
+        }
+      ],
+      "errors": [],
+      "live_tests_enabled_by_auditor": false,
+      "scope": "Exclusion audit only; does not certify LIVE accounts, Windows installation or missing private fixtures"
+    },
+    "powershell.json": {
+      "windows_executed": false,
+      "failures": [],
+      "status": "PASS",
+      "parsed_files": 12
+    }
+  },
+  "model": {
+    "existing_support": true,
+    "official_source": "https://developers.openai.com/api/docs/models/gpt-6-luna",
+    "mocked_paths": [
+      "catalogue",
+      "text",
+      "JSON",
+      "vision",
+      "token options",
+      "reasoning none",
+      "account models probe",
+      "pricing"
+    ],
+    "live_provider_calls": 0,
+    "user_model_or_key_changed": false
+  },
+  "native_ui": {
+    "status": "PASS_LOCAL_NATIVE_SCOPE",
+    "platform": "macOS production Electron + real local FastAPI",
+    "data": "isolated synthetic account; 67109696-byte synthetic journal",
+    "observed_product_version": "3.9.2.17",
+    "observed_renderer_tag": "3.9.2.17-ui.20261017.1",
+    "actions": [
+      "settings version17",
+      "PAPER select all7/start",
+      "all7 checked; first source 64.0/64.0MiB",
+      "close settings",
+      "open Strategy Studio; select saved version",
+      "six bulk actions enabled",
+      "PAPER confirmation opens; cancel preserves approved/unstarted state",
+      "reopen settings; persisted all7 checked",
+      "separate log/learning/PAPER storage explanations visible",
+      "final built screen after Mac unlock: local-formatted last-check timestamp",
+      "free disk/total capacity and low-space explanation visible; no trading block from warning",
+      "final all7 PAPER job started; close settings; use Strategy Studio; reopen all7 checked",
+      "actual definition ZIP downloaded to explicit temporary path; CRC valid; one noahstrategy file",
+      "dashboard with isolated empty recorder schema: no exits/no samples, not fabricated PnL",
+      "normal product quit confirmation; process exit0"
+    ],
+    "orders_submitted": 0,
+    "external_connections_blocked": true,
+    "not_run": [
+      "Windows installation/OCX/real providers/24-72h"
+    ],
+    "queue_state": {
+      "state": "checked",
+      "mode": "paper",
+      "items": [
+        {
+          "source": "binance",
+          "state": "checked",
+          "reason": "",
+          "processed_bytes": 67109696,
+          "total_bytes": 67109696,
+          "phase": "verifying",
+          "orders_submitted": false
+        },
+        {
+          "source": "upbit",
+          "state": "checked",
+          "reason": "",
+          "orders_submitted": false
+        },
+        {
+          "source": "bithumb",
+          "state": "checked",
+          "reason": "",
+          "orders_submitted": false
+        },
+        {
+          "source": "coinone",
+          "state": "checked",
+          "reason": "",
+          "orders_submitted": false
+        },
+        {
+          "source": "bybit",
+          "state": "checked",
+          "reason": "",
+          "orders_submitted": false
+        },
+        {
+          "source": "okx",
+          "state": "checked",
+          "reason": "",
+          "orders_submitted": false
+        },
+        {
+          "source": "bitget",
+          "state": "checked",
+          "reason": "",
+          "orders_submitted": false
+        }
+      ],
+      "started_at": 1792247027.147896,
+      "updated_at": 1792247027.417237,
+      "orders_submitted": false,
+      "trading_started": false
+    },
+    "renderer_source_sha256": "22de6428980b39676f44647dbf78f36d6a0836aa9921de32c2a3b08c66b34e7d",
+    "export": {
+      "definition_zip_crc": "PASS",
+      "files": 1,
+      "bytes": 5324
+    }
+  },
+  "windows_build_executed": false,
+  "push": false,
+  "published": false,
+  "deployment": false,
+  "external_acceptance_pending_count": 13,
+  "external_acceptance_document": "docs/DEPLOY_CHECKLIST.md current3.9.2.17 section",
+  "remaining": [
+    "Windows x64 engine/x86 Kiwoom/PE/installer and .16->.17 real upgrade/decryption",
+    "provider account permission and real connections: Kiwoom/KIS/crypto/Luna; no live orders in this task",
+    "tester24/72h PAPER after installer delivery"
+  ],
+  "preservation": {
+    "customer_raw_data_in_git": false,
+    "customer_originals_changed": false,
+    "settings_models_permissions_auto_changed": false,
+    "learning_db_optimized_or_deleted": false,
+    "public16_artifacts_overwritten": false
+  },
+  "initial_failures_resolved": [
+    "README release patch identifier",
+    "CHANGELOG canonical header",
+    "ignored local old deploy/version.txt aligned with preserved public16 manifest",
+    "current acceptance gate contract labels"
+  ],
+  "limitations": [
+    "no physical infinite disk promise; per-record8MiB/active snapshot4MiB/session-state64KiB defenses remain, not lifetime ledger limits",
+    "display/strategy queries retain their existing100000-row display scope; financial wallet/recovery no lifetime row limit",
+    "learning8GiB warning does not certify compression will shrink the live database or trigger automatic deletion",
+    "native happy-path check and mocked tests are separate from final Windows/external acceptance"
+  ],
+  "public_latest_rechecked": {
+    "tag_name": "v3.9.2.16",
+    "target_commitish": "8b4f62b24df04cfe427d46eb2f55dfef24ff1b28",
+    "published_at": "2026-10-16T13:24:37Z"
+  },
+  "fresh_restore_initial_missing_ignored_metadata": "Two metadata tests required ignored deploy files; seeded the exact pinned public16 manifest/version as build preparation, then127 passed; no tests weakened"
+}

@@ -129,6 +129,7 @@ class HeadlessRuntimeBridge:
         self._app: Any = None
         self._lock = threading.RLock()
         self._record_recovery = None
+        self._maintenance_queue = None
 
     def start_paper_session(self, source: str) -> dict[str, Any]:
         """Create a separate virtual baseline only on explicit local user intent."""
@@ -252,6 +253,63 @@ class HeadlessRuntimeBridge:
             from trading.recorder import Recorder
             recorder=Recorder(db_path=get_db_file_path(),log_path=get_log_dir())
         return import_statement(recorder,payload,commit=commit)
+
+    def reconciliation(self, *, action='status', sources=None, mode='paper'):
+        from pathlib import Path
+        from path_utils import get_db_file_path
+        from trading.paper_maintenance import MaintenanceQueue,reconcile_paper_files
+        if self.account=='local':raise RuntimeError('recovery_login_required')
+        with self._lock:
+            if self._maintenance_queue is None:
+                folder=Path(getattr(getattr(self._app,'recorder',None),'db_path',None) or get_db_file_path()).resolve().parent
+                def runner(source,mode,cancel,progress):
+                    if mode=='live':
+                        state=self.record_recovery(source,start=True)
+                        while state.get('state') in {'running','retry_wait','paused'}:
+                            if cancel.wait(.25):
+                                if self._record_recovery is not None:self._record_recovery.cancel()
+                                return {'state':'paused','reason':'paper_reconciliation_cancelled'}
+                            state=self.record_recovery(source)
+                        return {'state':'checked' if state.get('state')=='checked' else 'needs_evidence',
+                                'reason': '' if state.get('state')=='checked' else 'recovery_additional_evidence_required'}
+                    reconcile_paper_files(folder,cancel,progress)
+                    if cancel.is_set():return {'state':'paused','reason':'paper_reconciliation_cancelled'}
+                    owner=self._evidence_owner(source)
+                    if owner is not None:
+                        method=getattr(owner,'_recover_paper_closes',None)
+                        if callable(method) and not method(restore=bool(getattr(owner,'_paper_restore_failed',False))):
+                            raise RuntimeError(getattr(owner,'_paper_recovery_error','paper_close_recovery_required'))
+                        positions=(getattr(owner,'paper_active_positions',{}) if source=='binance' else (getattr(owner,'paper_positions',{}) or {}).get(source,{}))
+                        from trading.paper_capital import paper_funds_for,remember_capital
+                        from trading.position_sizing_policy import normalize_position_sizing_policy
+                        quote='KRW' if source in KRW_SPOT_VENUES else 'USDT'
+                        initial=normalize_position_sizing_policy(getattr(owner,'settings',{}) or {},quote_currency=quote)['paper_equity']
+                        funds=paper_funds_for(owner,initial,positions,venue=source,quote=quote)
+                        remember_capital(owner,venue=source,mode='paper',funds=funds)
+                        if funds.get('capital_basis')!='paper_reconciled_funds':raise RuntimeError(funds.get('reason','paper_funds_reconciliation_required'))
+                    else:
+                        # No hidden runtime/authentication startup. Verify saved PAPER state only.
+                        from trading.paper_position_store import load_positions,reconcile_close_events,save_positions,position_lock
+                        from trading.trader import Position,PositionSide
+                        from trading.paper_capital import paper_available_funds
+                        from trading.position_sizing_policy import normalize_position_sizing_policy
+                        ledger=folder/'strategy_paper_outcomes.jsonl'
+                        path=folder/('paper_open_positions_binance.json' if source=='binance' else 'paper_open_positions_unified.json')
+                        with position_lock(path):
+                            stores=load_positions(path,Position,PositionSide,ledger_file=ledger)
+                            changed=reconcile_close_events(stores,ledger,execution_scope='binance' if source=='binance' else 'unified')
+                            if changed:save_positions(path,stores,ledger_file=ledger)
+                            quote='KRW' if source in KRW_SPOT_VENUES else 'USDT'
+                            initial=normalize_position_sizing_policy(self._settings(),quote_currency=quote)['paper_equity']
+                            funds=paper_available_funds(initial,stores.get(source,{}),venue=source,quote=quote,ledger_file=ledger)
+                            if funds['capital_basis']!='paper_reconciled_funds':raise RuntimeError(funds.get('reason','paper_funds_reconciliation_required'))
+                    return {'state':'checked','reason':'','orders_submitted':False}
+                self._maintenance_queue=MaintenanceQueue(folder,runner)
+            queue=self._maintenance_queue
+        if action=='status':return queue.status()
+        if action=='cancel':return queue.cancel()
+        if action in {'start','resume'}:return queue.start(sources,mode,resume=action=='resume')
+        raise ValueError('invalid_reconciliation_request')
 
     def record_recovery(self, source: str, *, start: bool = False) -> dict[str, Any]:
         from trading.record_recovery import RecordRecovery
@@ -1191,6 +1249,8 @@ scoped_pool(list(getattr(self._app, "active_custom_strategy_pool", []) or []), a
     def shutdown(self) -> dict[str, Any]:
         """Prepare the sidecar for process exit. Safe and idempotent."""
         with self._lock:
+            if self._maintenance_queue is not None:
+                self._maintenance_queue.cancel()
             if self._record_recovery is not None:
                 self._record_recovery.cancel()
             if self._app is None:

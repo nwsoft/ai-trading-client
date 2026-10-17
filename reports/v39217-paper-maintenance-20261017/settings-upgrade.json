@@ -1,0 +1,9 @@
+{
+  "status": "PASS",
+  "settings_files": 4,
+  "public16_and_candidate17_normalized_equal": true,
+  "original_bytes_mtime_permissions_unchanged": true,
+  "credentials_used": false,
+  "provider_calls": 0,
+  "scope": "normalization on independent explicit copies; Windows decryption NOT_RUN"
+}

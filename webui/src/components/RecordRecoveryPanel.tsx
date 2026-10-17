@@ -1,3 +1,4 @@
+import {MaintenanceBatchPanel} from './MaintenanceBatchPanel';
 import { ProfitabilityDiagnostic } from './ProfitabilityDiagnostic';
 import { useEffect, useRef, useState } from 'react';
 import type { GatewayClient } from '../api';
@@ -124,7 +125,8 @@ export function RecordRecoveryPanel({ client, initialSource = 'binance', sources
     finally { if (id === sequence.current) setBusy(false); }
   }
   return <section className="settings-parity-panel record-recovery" aria-label={localized('거래 기록 점검·복구', 'Trade record recovery')}>
-    <h3>{localized('유지관리 · 거래 기록 점검·복구', 'Maintenance · Trade record recovery')}</h3>
+    <MaintenanceBatchPanel client={client}/>
+    <h3>{localized('유지관리 · LIVE 거래 기록 점검·복구', 'Maintenance · Trade record recovery')}</h3>
     <ProfitabilityDiagnostic key={`profit-${source}`} client={client} source={source} />
     {client.recoveryStatement && <RecoveryStatementImport key={source} client={client} source={source}/>}
     <p>{localized('새 점검은 보관된 전체 기간의 LIVE 미확정 기록을 300건 제한 없이 확인합니다. 진행 중인 작업은 기존 범위에서 이어집니다. 거래소의 과거 조회 제한으로 근거를 확보하지 못한 기록은 미확정으로 보존합니다. PAPER 기록·손실 한도는 변경하지 않습니다.', 'A new check covers unresolved LIVE records across the entire stored history, beyond the 300-record policy sample. Existing jobs continue within their original range. Records outside exchange history availability remain unresolved. PAPER records and loss limits are unchanged.')}</p>

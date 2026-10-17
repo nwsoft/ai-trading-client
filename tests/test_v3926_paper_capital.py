@@ -30,8 +30,8 @@ def test_available_cash_deducts_open_margin_and_realized_loss_not_mark_gains(tmp
 def test_other_venues_and_duplicate_close_events_cannot_change_wallet(tmp_path):
     ledger = tmp_path/'ledger.jsonl'
     one = outcome()
-    other = {**one, 'exchange':'upbit', 'quote_currency':'KRW', 'net_pnl':999999}
-    ledger.write_text('\n'.join(json.dumps(r) for r in [one, one, other]))
+    other = {**one, 'event_id':'other-venue', 'exchange':'upbit', 'quote_currency':'KRW', 'net_pnl':999999}
+    ledger.write_text('\n'.join(json.dumps(r) for r in [one, one, other])+'\n')
     assert paper_available_funds(1000, {}, venue='binance', quote='USDT', ledger_file=ledger)['available_capital'] == 950
 
 
@@ -39,7 +39,7 @@ def test_other_venues_and_duplicate_close_events_cannot_change_wallet(tmp_path):
                                   {'calculation_status':'legacy_unverified'}, {'event_id':''}])
 def test_uncertain_ledger_blocks_new_cash_without_zero_pnl_assumption(tmp_path, change):
     ledger = tmp_path/'ledger.jsonl'
-    ledger.write_text(json.dumps({**outcome(), **change}))
+    ledger.write_text(json.dumps({**outcome(), **change})+'\n')
     result = paper_available_funds(1000, {}, venue='binance', quote='USDT', ledger_file=ledger)
     assert result['available_capital'] == 0 and result['realized_net_pnl'] is None
     assert result['capital_basis'] == 'paper_funds_unverified'
@@ -100,7 +100,7 @@ def test_recorder_ownership_survives_global_account_change(tmp_path):
 
 def test_conflicting_duplicate_is_not_silently_deduplicated(tmp_path):
     ledger = tmp_path/'ledger.jsonl'
-    ledger.write_text(json.dumps(outcome())+'\n'+json.dumps({**outcome(), 'net_pnl':9999}))
+    ledger.write_text(json.dumps(outcome())+'\n'+json.dumps({**outcome(), 'net_pnl':9999})+'\n')
     assert paper_available_funds(1000, {}, venue='binance', quote='USDT', ledger_file=ledger)['reason'] == 'paper_ledger_event_conflict'
 
 
@@ -108,7 +108,7 @@ def test_old_unverifiable_paper_history_is_reconciliation_not_a_pending_order(tm
     from trading.opportunity_coordinator import OpportunityCoordinator
     ledger = tmp_path/'ledger.jsonl'
     ledger.write_text(json.dumps(dict(event_id='old', exchange='okx', execution_mode='paper',
-                                    scope='unified', net_pnl=0., fees=0.)))
+                                    scope='unified', net_pnl=0., fees=0.))+'\n')
     funds = paper_available_funds(1000, {}, venue='okx', quote='USDT', ledger_file=ledger)
     c = OpportunityCoordinator(tmp_path/'runtime.db')
     result = c.authorize(policy={}, asset_class='crypto', target='okx', symbol='BTCUSDT',
@@ -134,7 +134,7 @@ def test_order_free_strategy_observation_cannot_debit_or_credit_execution_cash(t
     ledger.write_text('\n'.join(json.dumps(row) for row in [
         outcome(), {**outcome(), 'event_id':'shadow', 'net_pnl':shadow_pnl,
                     'cost_calculation_status':'parallel_paper_recorded_contract'},
-    ]))
+    ])+'\n')
     result = paper_available_funds(1000, {}, venue='binance', quote='USDT', ledger_file=ledger)
     assert result['available_capital'] == 950 and result['realized_net_pnl'] == -50
 
@@ -146,7 +146,7 @@ def test_actual_allocation_preserves_legacy_reconciliation_cause_without_account
     from trading.unified_trader import UnifiedTrader
     ledger = tmp_path/'strategy_paper_outcomes.jsonl'
     ledger.write_text(json.dumps(dict(event_id='old', exchange=venue, execution_mode='paper',
-                                    scope='unified', net_pnl=0., fees=0.)))
+                                    scope='unified', net_pnl=0., fees=0.))+'\n')
     def real_call(*a, **kw): pytest.fail('PAPER account API read')
     if venue == 'binance':
         engine = Trader.__new__(Trader)

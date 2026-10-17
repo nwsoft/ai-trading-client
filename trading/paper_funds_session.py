@@ -1,6 +1,5 @@
 """Explicit new simulated baselines; never rewrite or certify old trade history."""
 from __future__ import annotations
-import hashlib
 import json
 import math
 import os
@@ -9,7 +8,6 @@ from uuid import uuid4
 from datetime import datetime, timezone
 from filelock import FileLock
 
-MAX_PREFIX = 64 * 1024 * 1024
 
 
 def _store(ledger):
@@ -37,23 +35,14 @@ def _load(ledger):
 
 
 def _prefix_digest(ledger, offset):
-    if not isinstance(offset, int) or isinstance(offset, bool) or not 0 < offset <= MAX_PREFIX:
-        raise ValueError('paper_session_boundary_unverified')
-    digest = hashlib.sha256()
+    if type(offset) is not int or offset<=0:raise ValueError('paper_session_boundary_unverified')
+    from .paper_ledger_index import index_for
     try:
-        with Path(ledger).open('rb') as handle:
-            remaining = offset
-            while remaining:
-                chunk = handle.read(min(1024 * 1024, remaining))
-                if not chunk:
-                    raise ValueError('paper_session_boundary_unverified')
-                digest.update(chunk)
-                remaining -= len(chunk)
-            if chunk[-1:] != b'\n':
-                raise ValueError('paper_session_boundary_unverified')
-    except OSError as exc:
-        raise ValueError('paper_session_boundary_unverified') from exc
-    return digest.hexdigest()
+        with Path(ledger).open('rb') as stream:
+            stream.seek(offset-1)
+            if stream.read(1)!=b'\n':raise ValueError()
+        return index_for(ledger).prefix_hash(offset)
+    except (OSError,ValueError) as exc:raise ValueError('paper_session_boundary_unverified') from exc
 
 
 def read_session(ledger, *, venue, quote):

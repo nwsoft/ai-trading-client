@@ -43,7 +43,7 @@ def _entry(
 
 MODEL_REGISTRY: Dict[str, List[Dict[str, Any]]] = {
     "openai": [
-        _entry("gpt-6-luna", "recommended", capabilities=("chat_text", "chat_json", "vision"), note="빈번한 단순·반복 작업용. 기존 설정 자동 변경 없음; 계정 호출 권한 별도 확인"),
+        _entry("gpt-6-luna", "recommended", capabilities=("chat_text", "chat_json", "vision"), note="빈번한 단순·반복 작업용. 2026-10-17 공식 API 재확인: 텍스트·JSON·비전, Chat Completions 도구 호출은 reasoning none 조건. 기존 설정 자동 변경 없음; 계정 권한 별도 확인"),
         _entry("gpt-6.1-sol", "recommended", capabilities=("chat_text", "chat_json", "vision"), note="정밀 분석용. Chat Completions 도구 호출 미지원"),
         _entry("gpt-6-sol", "available", capabilities=("chat_text", "chat_json", "vision")),
         _entry(

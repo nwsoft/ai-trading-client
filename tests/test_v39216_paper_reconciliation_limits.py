@@ -1,6 +1,4 @@
-"""Reproduce published .16 limits. These passing assertions certify defects exist,
-not that lifetime limits/PAPER maintenance have been fixed. Synthetic data only.
-"""
+"""Regression: previously reproduced .16 lifetime limits are removed in .17."""
 import json
 from pathlib import Path
 import pytest
@@ -37,50 +35,46 @@ def boundary_ledgers(tmp_path_factory):
 
 
 @pytest.mark.parametrize('venue',VENUES)
-def test_published16_all_venues_switch_to_generic_funds_block_at_shared_size_limit(boundary_ledgers,venue):
+def test_all_venues_keep_verified_funds_above_previous_shared_size_limit(boundary_ledgers,venue):
     before,after=boundary_ledgers
     quote='KRW' if venue in {'upbit','bithumb','coinone'} else 'USDT'
     assert paper_available_funds(1000,{},venue=venue,quote=quote,ledger_file=before)['capital_basis']=='paper_reconciled_funds'
     funds=paper_available_funds(1000,{},venue=venue,quote=quote,ledger_file=after)
-    assert funds['capital_basis']=='paper_funds_unverified'
-    assert funds['reason']=='paper_ledger_reconciliation_budget'
-    visible=entry_health({'capital':funds})
-    assert visible['label']=='가상 자금 대조 필요'
-    assert '거래 기록 점검' in visible['action']
-    assert visible['code']=='paper_funds_unverified'  # actual budget cause lost from headline
+    assert funds['capital_basis']=='paper_reconciled_funds'
+    assert funds['available_capital']==1000
 
 
-def test_close_checkpoint_and_replay_also_stop_at_same_lifetime_bytes(boundary_ledgers):
+def test_close_checkpoint_and_replay_support_growth_above_old_limit(boundary_ledgers):
     before,after=boundary_ledgers
     checkpoint=ledger_checkpoint(before)
     assert checkpoint['offset']==LIMIT
     validate_ledger_checkpoint(before,checkpoint)
-    with pytest.raises(ValueError,match='paper_close_recovery_budget'):ledger_checkpoint(after)
-    with pytest.raises(ValueError,match='paper_close_recovery_budget'):read_close_ledger(after)
+    assert ledger_checkpoint(after)['offset']==LIMIT+1
+    assert len(read_close_ledger(after))==1
 
 
 @pytest.mark.parametrize('venue',VENUES)
-def test_unrelated_parallel_or_blank_history_counts_toward_wallet_line_limit(tmp_path,venue):
+def test_blank_history_has_no_lifetime_line_limit(tmp_path,venue):
     path=tmp_path/'synthetic.jsonl'
     # No actual trades or money discrepancy: blank lines are supported, but
     # lifetime line count is checked before venue/mode/observation filtering.
     path.write_bytes(b'\n'*100_001)
     quote='KRW' if venue in {'upbit','bithumb','coinone'} else 'USDT'
-    assert paper_available_funds(1000,{},venue=venue,quote=quote,ledger_file=path)['reason']=='paper_ledger_reconciliation_budget'
-    with pytest.raises(ValueError,match='paper_close_recovery_budget'):read_close_ledger(path)
+    assert paper_available_funds(1000,{},venue=venue,quote=quote,ledger_file=path)['capital_basis']=='paper_reconciled_funds'
+    assert len(read_close_ledger(path))==0
 
 
-def test_old_checkpoint_still_valid_after_append_but_new_checkpoint_cannot_be_written(boundary_ledgers):
+def test_old_and_new_checkpoints_both_validate_after_growth(boundary_ledgers):
     from hashlib import sha256
     _,after=boundary_ledgers
     with after.open('rb') as stream:prefix=stream.readline()
     checkpoint=dict(schema_version=1,offset=len(prefix),sha256=sha256(prefix).hexdigest())
     validate_ledger_checkpoint(after,checkpoint)
-    with pytest.raises(ValueError,match='paper_close_recovery_budget'):ledger_checkpoint(after)
+    validate_ledger_checkpoint(after,ledger_checkpoint(after))
 
 
 @pytest.mark.parametrize('venue',VENUES)
-def test_real_recovery_method_propagates_shared_lifetime_limit_to_all_wallets(boundary_ledgers,tmp_path,venue):
+def test_real_recovery_method_recovers_all_wallets_after_old_size_limit(boundary_ledgers,tmp_path,venue):
     from types import SimpleNamespace
     from trading.trader import Trader
     from trading.unified_trader import UnifiedTrader
@@ -95,9 +89,29 @@ def test_real_recovery_method_propagates_shared_lifetime_limit_to_all_wallets(bo
     owner.paper_active_positions={};owner.paper_positions={}
     owner.logger=SimpleNamespace(error=lambda *a:None)
     owner.log_event=lambda *a,**k:None
-    assert owner._recover_paper_closes() is False
-    assert owner._paper_recovery_error=='paper_close_recovery_budget'
+    assert owner._recover_paper_closes() is True
+    assert owner._paper_recovery_error==''
     funds=paper_funds_for(owner,1000,{},venue=venue,quote='KRW' if venue in {'upbit','bithumb','coinone'} else 'USDT')
-    assert funds['reason']=='paper_close_recovery_budget'
-    assert entry_health({'capital':funds})['label']=='가상 자금 대조 필요'
+    assert funds['capital_basis']=='paper_reconciled_funds'
     assert not owner.paper_positions and not owner.paper_active_positions
+
+
+def test_real_durable_writer_crosses_old_limit_and_retry_is_idempotent(boundary_ledgers,tmp_path):
+    import shutil
+    from trading.paper_strategy_ledger import record_paper_strategy_outcome
+    before,_=boundary_ledgers
+    path=tmp_path/'growing.jsonl';shutil.copyfile(before,path)
+    checkpoint=ledger_checkpoint(path)
+    arguments=dict(scope='binance',exchange='binance',symbol='SYNTHETICUSDT',strategy_key='',version_id='',
+        opened_at='2026-10-17T00:00:00+00:00',closed_at='2026-10-17T01:00:00+00:00',
+        net_pnl=-2,gross_pnl=-2,fees=0,quote_currency='USDT',cost_calculation_status='recorded',
+        position_id='synthetic-boundary-close',ledger_file=path)
+    first=record_paper_strategy_outcome(**arguments)
+    size=path.stat().st_size;assert size>LIMIT
+    assert record_paper_strategy_outcome(**arguments)['event_id']==first['event_id']
+    assert path.stat().st_size==size
+    validate_ledger_checkpoint(path,checkpoint)
+    assert ledger_checkpoint(path)['offset']==size
+    funds=paper_available_funds(1000,{},venue='binance',quote='USDT',ledger_file=path)
+    assert funds['capital_basis']=='paper_reconciled_funds' and funds['realized_net_pnl']==-2
+    assert funds['available_capital']==998

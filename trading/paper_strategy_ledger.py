@@ -213,19 +213,22 @@ def record_paper_strategy_outcome(
     path = Path(ledger_file) if ledger_file is not None else ledger_path()
     with _LOCK:
         path.parent.mkdir(parents=True, exist_ok=True)
-        with FileLock(str(path) + '.lock', timeout=10):
-            existing = read_close_ledger(path)
-            for prior in existing:
-                if prior.get('event_id') == event_id:
-                    if outcome_identity(prior) != outcome_identity(row):
-                        raise ValueError('paper_ledger_event_conflict')
-                    return prior
+        from .paper_ledger_index import index_for,ledger_lock,_signature
+        with ledger_lock(path):
+            index=index_for(path)
+            prior=index.event(event_id)
+            if prior is not None:
+                if outcome_identity(prior)!=outcome_identity(row):raise ValueError('paper_ledger_event_conflict')
+                return prior
+            before_signature=_signature(path)
+            raw=(json.dumps(row,ensure_ascii=False,separators=(',', ':'),allow_nan=False)+'\n').encode('utf-8')
             with path.open('a', encoding='utf-8', newline='\n') as handle:
                 handle.write(json.dumps(row, ensure_ascii=False, separators=(',', ':'), allow_nan=False) + '\n')
                 handle.flush()
                 os.fsync(handle.fileno())
             from trading.paper_position_store import fsync_parent
             fsync_parent(path)
+            index.appended(raw,before_signature)
     return row
 
 
@@ -239,37 +242,9 @@ def close_outcome_digest(row):
 
 
 def read_close_ledger(path):
-    """Strict bounded commit-log read. Never discard a torn/conflicting close."""
-    if not path.exists():
-        return []
-    if path.stat().st_size > 64 * 1024 * 1024:
-        raise ValueError('paper_close_recovery_budget')
-    rows, seen = [], {}
-    with path.open('rb') as handle:
-        for index, line in enumerate(handle):
-            if index >= 100_000:
-                raise ValueError('paper_close_recovery_budget')
-            if not line.endswith(b'\n'):
-                raise ValueError('paper_close_recovery_torn_ledger')
-            if not line.strip():
-                continue
-            try:
-                row = json.loads(line)
-            except (ValueError, UnicodeDecodeError) as exc:
-                raise ValueError('paper_close_recovery_torn_ledger') from exc
-            if not isinstance(row, dict):
-                raise ValueError('paper_close_recovery_invalid_ledger')
-            if row.get('execution_mode') != 'paper':
-                continue
-            event = str(row.get('event_id') or '')
-            if event and event in seen:
-                if outcome_identity(seen[event]) != outcome_identity(row):
-                    raise ValueError('paper_ledger_event_conflict')
-                continue
-            if event:
-                seen[event] = row
-            rows.append(row)
-    return rows
+    from .paper_ledger_index import index_for,Rows
+    index=index_for(path);index.sync()
+    return Rows(index)
 
 
 def paper_outcome_calculation_status(row: dict[str, Any] | None) -> str:

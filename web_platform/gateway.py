@@ -213,6 +213,25 @@ def create_gateway_app(
         except RuntimeError as exc:
             raise HTTPException(409, str(exc)) from exc
 
+    @app.get('/api/v1/maintenance/reconciliation', dependencies=[Depends(require_token)])
+    def reconciliation_status():
+        return reconciliation_call('status')
+
+    @app.post('/api/v1/maintenance/reconciliation', dependencies=[Depends(require_token),Depends(require_confirmed_intent)])
+    def reconciliation_start(payload: dict[str,Any]):
+        action=payload.get('action')
+        if (action not in {'start','resume','cancel'} or
+            set(payload)!=({'action'} if action=='cancel' else {'action','sources','mode'})):
+            raise HTTPException(400,'invalid_reconciliation_request')
+        return reconciliation_call(action,payload.get('sources'),payload.get('mode','paper'))
+
+    def reconciliation_call(action,sources=None,mode='paper'):
+        method=getattr(services.runtime_bridge,'reconciliation',None)
+        if not callable(method):raise HTTPException(409,'recovery_runtime_unavailable')
+        try:return method(action=action,sources=sources,mode=mode)
+        except ValueError as exc:raise HTTPException(400,str(exc)) from exc
+        except RuntimeError as exc:raise HTTPException(409,str(exc)) from exc
+
     @app.get('/api/v1/maintenance/trade-records', dependencies=[Depends(require_token)])
     def record_recovery_status(source: str = Query(max_length=32)):
         return record_recovery_call(source, False)

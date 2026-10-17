@@ -1,3 +1,78 @@
+## 2026-10-17 — v3.9.2.17 PAPER 원장 연속 운용·백그라운드 대조 (소스 후보·미배포)
+
+현재 소스 후보 버전: **v3.9.2.17**
+현재 공개 버전: **v3.9.2.16**
+현재 소스 후보: v3.9.2.17 · 현재 공개 기반: v3.9.2.16 · updater 3.9.217 · renderer 3.9.2.17-ui.20261017.1.
+
+공개 v3.9.2.16은 `8b4f62b24df04cfe427d46eb2f55dfef24ff1b28`이며 아래 .16 이하 후보·미게시·검증 표시는 당시 이력이다. .17 Windows 빌드·설치·게시·실기관 인수는 아직 수행하지 않았다. 이번 인계의 정본은 `reports/v39217-paper-maintenance-20261017/handoff.json`과 같은 폴더의 `validation.json`이다.
+
+누적 한도 제거·원본 보존·백그라운드/기관 순차 점검·선택 전략 도구 발견성·GPT-6 Luna 기존 호환 재검증을 반영한다. [CHANGELOG](CHANGELOG.md)와 [BUILD_GUIDE](BUILD_GUIDE.md)를 따른다.
+
+### Windows 3.9.2.17 소스 복원 → 빌드 → 설치 확인 → 게시
+
+Windows10/11 x64, Python3.11 x64/x86, Node22.12+, Git/GitHub CLI·VSBuildTools/VC143을 준비한다. 원본 비Git 폴더나 옛 .16 dist/venv를 섞지 말고 최신 handoff/bundle을 새 Git 폴더에 복원한다. 아래 `$handoffPath`만 Windows 동기화 경로로 고친다. 명령은 같은 PowerShell에서 순서대로 실행한다.
+
+```powershell
+$ErrorActionPreference = "Stop"
+function Invoke-CandidateChecked([scriptblock]$Command) {
+    & $Command
+    if ($LASTEXITCODE -ne 0) { throw "Command failed: $LASTEXITCODE" }
+}
+$handoffPath = "D:\SynologyDrive\Works\noahai_client\reports\v39217-paper-maintenance-20261017\handoff.json"
+$handoffPath = (Resolve-Path -LiteralPath $handoffPath).Path
+$handoff = Get-Content -LiteralPath $handoffPath -Raw -Encoding UTF8 | ConvertFrom-Json
+if ($handoff.source_version -ne "3.9.2.17") { throw "Wrong handoff version" }
+$bundlePath = Join-Path (Split-Path -Parent $handoffPath) $handoff.bundle
+if ((Get-FileHash -LiteralPath $bundlePath -Algorithm SHA256).Hash.ToLowerInvariant() -ne $handoff.bundle_sha256) { throw "Bundle hash mismatch" }
+$buildRoot = "C:\NoahAI\client-v39217-final-20261017"
+if (Test-Path -LiteralPath $buildRoot) { throw "Use a new empty build path" }
+New-Item -ItemType Directory -Path (Split-Path -Parent $buildRoot) -Force | Out-Null
+Invoke-CandidateChecked { git clone --filter=blob:none --no-checkout https://github.com/nwsoft/ai-trading-client.git $buildRoot }
+Set-Location -LiteralPath $buildRoot
+Invoke-CandidateChecked { git fetch origin $handoff.public_commit }
+Invoke-CandidateChecked { git bundle verify $bundlePath }
+$branchRef = "{0}:refs/heads/{0}" -f $handoff.branch
+Invoke-CandidateChecked { git fetch $bundlePath $branchRef }
+Invoke-CandidateChecked { git switch $handoff.branch }
+$actualCommit = (Invoke-CandidateChecked { git rev-parse HEAD } | Out-String).Trim()
+if ($actualCommit -ne $handoff.source_commit) { throw "Candidate commit mismatch" }
+if ((Invoke-CandidateChecked { git status --porcelain } | Out-String).Trim()) { throw "Build source is dirty" }
+```
+
+```powershell
+Invoke-CandidateChecked { py -3.11-64 -m venv .venv }
+$env:Path = (Resolve-Path .venv\Scripts).Path + ";" + $env:Path
+$env:PYTHONUTF8 = "1"
+$env:PYTHONIOENCODING = "utf-8"
+Invoke-CandidateChecked { python -c "import struct,sys; assert sys.version_info[:2]==(3,11) and struct.calcsize('P')==8" }
+Invoke-CandidateChecked { python -m pip install -r requirements_windows.txt }
+Invoke-CandidateChecked { py -3.11-32 -m pip install -r requirements_kiwoom_x86.txt }
+$env:NOAHAI_PYTHON_X86 = (Invoke-CandidateChecked { py -3.11-32 -c "import sys; print(sys.executable)" } | Out-String).Trim()
+$env:NOAHAI_CANDIDATE_HANDOFF = $handoffPath
+Invoke-CandidateChecked { python -c "import json,os; from pathlib import Path; from scripts.verify_release_provenance import verify_source; h=json.load(open(os.environ['NOAHAI_CANDIDATE_HANDOFF'],encoding='utf-8')); print(verify_source(Path('.'),dict(source_revision=h['source_commit'],source_fingerprint=h['source_fingerprint'])))" }
+Invoke-CandidateChecked { python scripts/restore_previous_release_asset.py }
+Invoke-CandidateChecked { powershell -ExecutionPolicy Bypass -File scripts/build_windows.ps1 }
+```
+
+```powershell
+Invoke-CandidateChecked { python scripts/audit_managed_strategy_sources.py --output reports/windows-managed-sources.json }
+```
+
+```powershell
+Invoke-CandidateChecked { gh auth status }
+$actualCommit = (Invoke-CandidateChecked { git rev-parse HEAD } | Out-String).Trim()
+if ($actualCommit -ne $handoff.source_commit) { throw "Candidate commit mismatch" }
+if ((Invoke-CandidateChecked { git status --porcelain } | Out-String).Trim()) { throw "Build source is dirty; commit and rebuild if source changed" }
+Invoke-CandidateChecked { git push origin "HEAD:refs/heads/$($handoff.branch)" }
+Invoke-CandidateChecked { python scripts/verify_release_provenance.py --phase preflight }
+Invoke-CandidateChecked { powershell -ExecutionPolicy Bypass -File scripts/release_windows.ps1 }
+Invoke-CandidateChecked { python scripts/verify_release_provenance.py --phase published }
+```
+
+사용자가 제공한261017 원본 보존/손익/보유 재생 검사를 다시 실행하려면 원본을 직접 앱에 덮어쓰지 않고 `python scripts/audit_paper_upgrade.py --snapshot "D:\SynologyDrive\Works\noahai_client\data\261017_Teayu" --output reports/paper-snapshot-upgrade.json`을 실행한다. 내부 임시 복사본에서만 검사하고 금액/종목/ID/원문을 보고서에 싣지 않는다. 독립 참조는 공개.16 로직의 조회 한도만 제외한 비교이며 .16 자체 운용 성공을 뜻하지 않는다. `status=PASS`, 두 엔진/7기관·독립 손익/재생 일치·원본 바이트/mtime/권한 보존·네트워크/주문0이 정상 기준이다. 저장28개→확정청산1개 재생→잔여27개는 정상이며 근거 없는 삭제는 실패다.
+
+처음 두 블록은 소스/환경/생략 없는 전체 빌드다. 임시 합성 자료의 대용량/취소/재개 검사는 전체 빌드에 포함되며 별도 재현은 `python -m pytest tests/test_v39216_paper_reconciliation_limits.py tests/test_v39217_paper_maintenance.py -q`를 사용한다. 고객 원장에 시험 데이터를 추가하지 않는다. 세 번째는 합성 관리 예제 검사이며, 마지막 push/preflight/release/published 블록은 로컬 설치 인수 뒤 게시할 때만 실행한다. 이 Mac 작업은 push/게시하지 않는다. 정상 산출물은 `deploy/web-release/NoahAI-3.9.2.17-Setup.exe`·blockmap·latest.yml(updater3.9.217)·deploy/release-manifest.json이다. manifest의source_revision/source_fingerprint/automated_checks_passed를 대조한다. 출처·설치기 검증 우회 옵션은 사용하지 않는다. 공개 .16 원본 manifest와 설치기 해시는 보존한다. 실제 설치 인수/정상·실패 기준은 DEPLOY_CHECKLIST의 .17 절을 따른다. 게시 후 provenance published 검사는 원격 커밋/태그/해시/latest/Atom/업데이터까지 성공해야 한다.
+
 ## 2026-10-16 Windows .16 정식 빌드·게시 실행
 
 사용자의 최신 명시 요청에 따라 최신 compatibility handoff의 커밋 `a3aaa2e6c72d387c89f60d1fcbb085f454f19d44`와 bundle SHA256·소스 지문을 확인하고 별도 깨끗한 작업트리에서 생략 옵션 없이 Windows 빌드 후 stable/latest 게시한다. 제품 3.9.2.16 · updater 3.9.216 · renderer 3.9.2.16-ui.20261016.3. 아래 소스 후보·미게시 문장은 작성 당시 이력이다.
@@ -182,7 +257,7 @@ Invoke-CandidateChecked { powershell -ExecutionPolicy Bypass -File scripts/build
 ## 2026-10-14 - v3.9.2.14 증권 무거래·전략 운용 피드백 후속 (소스 후보)
 
 현재 소스 후보 버전: **v3.9.2.14**
-현재 공개 버전: **v3.9.2.13**
+작성 당시 공개 버전: **v3.9.2.13**
 현재 소스 후보: v3.9.2.14 · 현재 공개 기반: v3.9.2.13 · Stock Analysis History and Strategy Controls · updater 3.9.214 · renderer 3.9.2.14-ui.20261014.3.
 
 공개 v3.9.2.13은 GitHub 최신판 `33d351c0b606a619f16c00fc7b6e99aa10086dad`이며 이번 .14는 별도 후속 후보다. .13에서 이미 제공하던 전략 승인/PAPER 시작·일시정지/이어가기·검증 후 적용/해제를 새 기능처럼 중복 구현하지 않는다. 최신 공개 소스에서 증권 일봉 연결 누락과 PAPER 청산 손익 필드 불일치를 재현해 수정했다. 키움의 전일가 입력 누락도 공식 OpenAPI+ 전일가 함수로 보완했다. 기존 거래 임계값과 주문 전 위험 검사는 유지한다. 이번 후속에서 PAPER 관찰 목표와 최종 적용 조건을 분리한다.
@@ -278,7 +353,7 @@ Node >=22.12, Python 3.11 x64 및 `NOAHAI_PYTHON_X86`의 Python311-32, 실제 CC
 ## 2026-10-12 — v3.9.2.13 배포 인수 상태 정합성 (소스 후보 이력)
 
 현재 소스 후보 버전: **v3.9.2.13**
-현재 공개 버전: **v3.9.2.12**
+작성 당시 공개 버전: **v3.9.2.12**
 현재 소스 후보: v3.9.2.13 · 현재 공개 기반: v3.9.2.12 · updater 3.9.213 · renderer 3.9.2.13-ui.20261012.1.
 
 공개 .12는 2026-10-12 11:21:46 KST 게시된 5a645b455b9800696b5cad6f1b06946fb2d32623이다. .13은 별도 후속 후보이며 새 Windows 빌드·게시·설치는 미실시다. 기존 .12의 거래 보호·PAPER 안내·내 돈 계획과 Windows junction 보호를 유지한다. 수정 범위는 인수 체크리스트의 ID·상태·미완료 개수를 같은 원본에서 생성하는 빌드/게시 계약, .12 공개 원본 보존 및 .13 버전·안내 정합성이다.
@@ -316,7 +391,7 @@ Windows에서 `powershell -ExecutionPolicy Bypass -File scripts/build_windows.ps
 ## 2026-10-10 — v3.9.2.11 거래 신뢰성·통합 금융비서 연결
 
 현재 소스 후보 버전: **v3.9.2.11**
-현재 공개 버전: **v3.9.2.10**
+작성 당시 공개 버전: **v3.9.2.10**
 현재 소스 후보: v3.9.2.11 · 현재 공개 기반: v3.9.2.10. 제품/엔진/PE 3.9.2.11, updater 3.9.211, renderer 3.9.2.11-ui.20261010.2.
 
 **통합 금융비서 내부 연결:** 상단 「내 금융비서」에서 저장 근거 브리핑·거래 진단·보유 종목 자료·계획 재점검을 읽고 기존 금융 비교·저장·상담 준비와 전략 초안 검토로 이어간다. 같은 입력 지문의 저장 전략 재생 비교, 같은 통화의 배분 가정·비용 비교, 음성 입력 후 조건 검토를 추가한다. 외부 기관 계약·개인 견적·실접수·송금/가입 실행은 별도다. [범위·기술·인수 정본](V39211_FINANCIAL_COMPANION_PLAN.md).

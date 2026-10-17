@@ -1,0 +1,93 @@
+{
+  "status": "PASS",
+  "snapshot": "explicit_snapshot",
+  "baseline_commit": "8b4f62b24df04cfe427d46eb2f55dfef24ff1b28",
+  "original_ledger_bytes": 67109696,
+  "old64MiB_limit_exceeded_by": 832,
+  "initial_index_seconds": 2.916,
+  "counts": {
+    "unique_indexed_paper_events": 39565,
+    "raw_lines": 39565
+  },
+  "engine_recovery": [
+    {
+      "engine": "binance",
+      "success": true,
+      "reason": "",
+      "raw_snapshot_equals_replayed_state": true,
+      "raw_saved_positions": 3,
+      "recovered_positions": 3,
+      "independent_public16_replay_fields_equal": true,
+      "changed_field_counts": {},
+      "empty_venue_groups_added": 0
+    },
+    {
+      "engine": "unified",
+      "success": true,
+      "reason": "",
+      "raw_snapshot_equals_replayed_state": false,
+      "raw_saved_positions": 25,
+      "recovered_positions": 24,
+      "independent_public16_replay_fields_equal": true,
+      "changed_field_counts": {
+        "confirmed_closed_position": 1
+      },
+      "empty_venue_groups_added": 0
+    }
+  ],
+  "wallets": [
+    {
+      "independent_pnl_sum_equal": true,
+      "source": "binance",
+      "basis": "paper_reconciled_funds",
+      "reason": null,
+      "preserved_positions": 3
+    },
+    {
+      "independent_pnl_sum_equal": true,
+      "source": "upbit",
+      "basis": "paper_reconciled_funds",
+      "reason": null,
+      "preserved_positions": 0
+    },
+    {
+      "independent_pnl_sum_equal": true,
+      "source": "bithumb",
+      "basis": "paper_reconciled_funds",
+      "reason": null,
+      "preserved_positions": 4
+    },
+    {
+      "independent_pnl_sum_equal": true,
+      "source": "coinone",
+      "basis": "paper_reconciled_funds",
+      "reason": null,
+      "preserved_positions": 5
+    },
+    {
+      "independent_pnl_sum_equal": true,
+      "source": "bybit",
+      "basis": "paper_reconciled_funds",
+      "reason": null,
+      "preserved_positions": 5
+    },
+    {
+      "independent_pnl_sum_equal": true,
+      "source": "okx",
+      "basis": "paper_reconciled_funds",
+      "reason": null,
+      "preserved_positions": 5
+    },
+    {
+      "independent_pnl_sum_equal": true,
+      "source": "bitget",
+      "basis": "paper_reconciled_funds",
+      "reason": null,
+      "preserved_positions": 5
+    }
+  ],
+  "ledger_copy_bytes_unchanged": true,
+  "original_bytes_mtime_permissions_unchanged": true,
+  "network_attempts": 0,
+  "orders_submitted": 0
+}

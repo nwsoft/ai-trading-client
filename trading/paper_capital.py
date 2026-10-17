@@ -18,7 +18,7 @@ def _number(value: Any) -> float:
 
 def paper_available_funds(initial_equity, positions, *, venue: str, quote: str,
                           ledger_file: Path) -> dict:
-    """Reconcile the complete bounded close ledger and current open margin.
+    """Reconcile the complete streamed close ledger and current open margin.
 
     No current-price profit is spendable. A malformed/truncated/legacy ledger
     blocks new simulated entries instead of restoring the original bankroll.
@@ -41,40 +41,8 @@ def paper_available_funds(initial_equity, positions, *, venue: str, quote: str,
             result.update(paper_session_id=session['session_id'], paper_session_started_at=session['started_at'],
                           paper_session_basis=session['basis'], historical_pnl_restored=False)
         realized, margin = 0.0, 0.0
-        seen = {}
-        if ledger_file.exists():
-            if ledger_file.stat().st_size - offset > 64 * 1024 * 1024:
-                raise ValueError('paper_ledger_reconciliation_budget')
-            with ledger_file.open('rb') as handle:
-                handle.seek(offset)
-                for index, line in enumerate(handle):
-                    if index >= 100_000:
-                        raise ValueError('paper_ledger_reconciliation_budget')
-                    if not line.strip():
-                        continue
-                    raw = json.loads(line)
-                    if not isinstance(raw, dict):
-                        raise ValueError('paper_ledger_invalid')
-                    if canonical_venue(str(raw.get('exchange') or '')) != canonical_venue(venue):
-                        continue
-                    if raw.get('execution_mode') != 'paper':
-                        continue
-                    # Order-free strategy observation has its own positions;
-                    # its closes cannot fund the execution PAPER wallet.
-                    if raw.get('cost_calculation_status') == 'parallel_paper_recorded_contract':
-                        continue
-                    row = normalize_paper_outcome_costs(raw)
-                    if str(row.get('quote_currency') or '').upper() != quote:
-                        raise ValueError('paper_ledger_currency_unverified')
-                    identity = str(row.get('event_id') or '')
-                    if not identity or paper_outcome_calculation_status(row) != 'valid':
-                        raise ValueError('paper_ledger_pnl_unverified')
-                    if identity in seen:
-                        if seen[identity] != _number(row.get('net_pnl')):
-                            raise ValueError('paper_ledger_event_conflict')
-                        continue
-                    seen[identity] = _number(row.get('net_pnl'))
-                    realized += seen[identity]
+        from .paper_ledger_index import index_for
+        realized=index_for(ledger_file).wallet(canonical_venue(venue),quote,offset)
         for position in list((positions or {}).values()):
             get = position.get if isinstance(position, Mapping) else lambda k, d=None: getattr(position, k, d)
             if str(get('execution_mode') or '').lower() != 'paper':
@@ -104,7 +72,9 @@ def paper_available_funds(initial_equity, positions, *, venue: str, quote: str,
                    'paper_ledger_pnl_unverified', 'paper_position_mode_unverified',
                    'paper_ledger_event_conflict',
                    'paper_position_notional_unverified', 'paper_position_margin_unverified',
-                   'paper_funds_nonfinite'}
+                   'paper_funds_nonfinite','paper_close_recovery_ledger_changed',
+                   'paper_close_recovery_torn_ledger','paper_close_recovery_invalid_ledger',
+                   'paper_close_recovery_evidence_invalid','paper_ledger_index_invalid','paper_ledger_index_unavailable','paper_ledger_record_too_large','paper_ledger_changed_during_read'}
         allowed.update({'paper_session_store_unverified', 'paper_session_boundary_unverified'})
         result['reason'] = str(error) if str(error) in allowed else 'paper_funds_reconciliation_required'
     return result
