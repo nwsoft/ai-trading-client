@@ -3635,3 +3635,12 @@ html[lang="en"] button { white-space: normal; overflow-wrap: break-word; }
 .strategy-period-entry span, .strategy-period-entry small { color:#c0d1e2; font-size:12px; line-height:1.5; }
 .strategy-period-entry small { flex-basis:100%; }
 .strategy-paper-trial:focus { outline:2px solid #91e5f4; outline-offset:3px; }
+
+/* Account-scoped maintenance remains visible when its settings panel is closed. */
+.maintenance-notice { flex: 0 0 auto; display: flex; flex-wrap: wrap; align-items: center; gap: 5px 14px; margin: 0 12px; padding: 8px 12px; border: 1px solid #365d78; border-radius: 8px; background: #102235; color: #dceaf6; font-size: 12px; }
+.maintenance-notice p { flex: 1 1 600px; margin: 0; line-height: 1.5; }
+.maintenance-notice button { border: 1px solid #4b85ac; border-radius: 6px; background: #1c4260; color: #eef8ff; padding: 6px 12px; cursor: pointer; }
+.maintenance-notice small { flex: 1 0 100%; color: #b9cddd; line-height: 1.5; }
+.legacy-dashboard-shell:has(> .maintenance-notice) { grid-template-rows: auto auto minmax(0, 1fr) auto; }
+.legacy-dashboard-shell:has(> .english-beta-notice) { grid-template-rows: auto auto minmax(0, 1fr) auto; }
+.legacy-dashboard-shell:has(> .maintenance-notice):has(> .english-beta-notice) { grid-template-rows: auto auto auto minmax(0, 1fr) auto; }

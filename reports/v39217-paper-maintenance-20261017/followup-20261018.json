@@ -1,0 +1,101 @@
+{
+  "status": "LOCAL_SOURCE_PASS_WINDOWS_AND_PROVIDER_ACCEPTANCE_PENDING",
+  "verified_at": "2026-10-17T16:45:01.032622+00:00",
+  "reviewed_base_commit": "1b358beab14f52b34bcdbd212d4bde41b2b24383",
+  "source_commit": "see handoff.json after commit",
+  "version": "3.9.2.17",
+  "renderer_tag": "3.9.2.17-ui.20261018.2",
+  "public_latest_verified": "v3.9.2.16",
+  "cap_history": {
+    "first_funds_commit": "bd687bf",
+    "replay_commit": "7aeb12e",
+    "observed_role": "bounded full-file read; cap rejects otherwise valid lifetime growth",
+    "numeric_threshold_justification": "not recorded in commit evidence",
+    "records_deleted": false,
+    "guards_removed_except_lifetime_budget": false
+  },
+  "changes": [
+    "read-only global maintenance notice: progress, count, results navigation, local timestamp, failure/recovery, account response cleanup",
+    "Haiku5.5 catalog and sampling compatibility, thinking/text separation, long-input pricing incl cached/written prompt tokens",
+    "OpenAI sunset guidance, DeepSeek1017 current alias, Gemini provider routing/pricing, discontinued Kimi IDs; existing defaults and keys unchanged"
+  ],
+  "official_sources": {
+    "checked_at": "2026-10-18",
+    "openai": [
+      "https://developers.openai.com/api/docs/models",
+      "https://developers.openai.com/api/docs/deprecations",
+      "https://developers.openai.com/api/docs/guides/latest-model"
+    ],
+    "anthropic": [
+      "https://platform.claude.com/docs/en/models/overview",
+      "https://platform.claude.com/docs/en/models/haiku-5-5/migration-guide",
+      "https://platform.claude.com/docs/en/about-claude/pricing"
+    ],
+    "deepseek": [
+      "https://api-docs.deepseek.com/updates/",
+      "https://api-docs.deepseek.com/quick_start/pricing/"
+    ],
+    "gemini": [
+      "https://ai.google.dev/gemini-api/docs/models",
+      "https://ai.google.dev/gemini-api/docs/deprecations",
+      "https://ai.google.dev/gemini-api/docs/pricing"
+    ],
+    "kimi": [
+      "https://platform.kimi.ai/docs/models",
+      "https://platform.kimi.ai/docs/pricing/chat"
+    ]
+  },
+  "executed": [
+    {
+      "command": ".venv/bin/python -m pytest tests -q -rs --junitxml=reports/v39217-paper-maintenance-20261017/followup-full.xml",
+      "result": "6150 passed /11 skipped /2 warnings /3 subtests; exit0;112.63sec"
+    },
+    {
+      "command": "node --test tests/*.test.cjs webui/electron/*.test.cjs",
+      "result": "100 passed /0 skipped /0 failed; exit0"
+    },
+    {
+      "command": "npm --prefix webui run build",
+      "result": "TypeScript app/node + Vite PASS; existing chunk-size warning"
+    },
+    {
+      "command": ".venv/bin/python scripts/audit_paper_upgrade.py --snapshot <explicit 261017 snapshot> --output reports/v39217-paper-maintenance-20261017/followup-shared-upgrade.json",
+      "result": "PASS; all7 independent funds sums equal; 39565 events; original bytes/mtime/mode unchanged; network0/orders0"
+    },
+    {
+      "command": ".venv/bin/python scripts/audit_release_test_skips.py <followup-full.xml> <followup-skip-audit.json>",
+      "result": "11 expected exclusions; PASS"
+    },
+    {
+      "command": "doc_consistency_check.py / active_source_audit.py / audit_settings_ai_assistant_contract.py / audit_web_ui_full_parity_contract.py",
+      "result": "all PASS"
+    }
+  ],
+  "native_ui": {
+    "artifact": "3.9.2.17-ui.20261018.2; production renderer on Mac with isolated synthetic local gateway",
+    "observed": [
+      "7/7 completed result with local timestamp",
+      "results button opens settings update maintenance section",
+      "closing settings retains global result",
+      "crypto/stock page switch retains result",
+      "gateway stop shows status unavailable instead of stale completed; restart restores result",
+      "final sole isolated Electron instance native quit exit0"
+    ],
+    "progress_and_late_reply_boundaries": "VM component tests; very fast synthetic job completion observed natively, not sustained job duration",
+    "test_harness_cleanup": "first duplicate QA instance required explicit termination; final sole instance quit normally; no product quit regression established",
+    "customer_data_used": false,
+    "orders_submitted": 0,
+    "provider_api_calls": 0
+  },
+  "shared_upgrade_report": "followup-shared-upgrade.json",
+  "skip_audit": "followup-skip-audit.json",
+  "not_run": [
+    "Windows installer build/install/PE/OCX",
+    "real provider account/model calls and actual invoice comparison",
+    "external brokers/exchange execution",
+    "24/72h installed-client acceptance"
+  ],
+  "push": false,
+  "published": false,
+  "deployment": false
+}

@@ -2,7 +2,7 @@
 
 현재 소스 후보 버전: **v3.9.2.17**
 현재 공개 버전: **v3.9.2.16**
-현재 소스 후보: v3.9.2.17 · 현재 공개 기반: v3.9.2.16 · updater 3.9.217 · renderer 3.9.2.17-ui.20261017.1.
+현재 소스 후보: v3.9.2.17 · 현재 공개 기반: v3.9.2.16 · updater 3.9.217 · renderer 3.9.2.17-ui.20261018.2.
 
 공개 v3.9.2.16은 `8b4f62b24df04cfe427d46eb2f55dfef24ff1b28`이며 아래 .16 이하 후보·미게시·검증 표시는 당시 이력이다. .17 Windows 빌드·설치·게시·실기관 인수는 아직 수행하지 않았다. 이번 인계의 정본은 `reports/v39217-paper-maintenance-20261017/handoff.json`과 같은 폴더의 `validation.json`이다.
 
@@ -24,7 +24,7 @@ $handoff = Get-Content -LiteralPath $handoffPath -Raw -Encoding UTF8 | ConvertFr
 if ($handoff.source_version -ne "3.9.2.17") { throw "Wrong handoff version" }
 $bundlePath = Join-Path (Split-Path -Parent $handoffPath) $handoff.bundle
 if ((Get-FileHash -LiteralPath $bundlePath -Algorithm SHA256).Hash.ToLowerInvariant() -ne $handoff.bundle_sha256) { throw "Bundle hash mismatch" }
-$buildRoot = "C:\NoahAI\client-v39217-final-20261017"
+$buildRoot = "C:\NoahAI\client-v39217-final-20261018"
 if (Test-Path -LiteralPath $buildRoot) { throw "Use a new empty build path" }
 New-Item -ItemType Directory -Path (Split-Path -Parent $buildRoot) -Force | Out-Null
 Invoke-CandidateChecked { git clone --filter=blob:none --no-checkout https://github.com/nwsoft/ai-trading-client.git $buildRoot }

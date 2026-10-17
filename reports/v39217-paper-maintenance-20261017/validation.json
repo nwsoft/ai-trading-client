@@ -468,5 +468,8 @@
     "target_commitish": "8b4f62b24df04cfe427d46eb2f55dfef24ff1b28",
     "published_at": "2026-10-16T13:24:37Z"
   },
-  "fresh_restore_initial_missing_ignored_metadata": "Two metadata tests required ignored deploy files; seeded the exact pinned public16 manifest/version as build preparation, then127 passed; no tests weakened"
+  "fresh_restore_initial_missing_ignored_metadata": "Two metadata tests required ignored deploy files; seeded the exact pinned public16 manifest/version as build preparation, then127 passed; no tests weakened",
+  "latest_followup": "followup-20261018.json",
+  "initial_validation_source_commit": "1b358beab14f52b34bcdbd212d4bde41b2b24383",
+  "initial_validation_scope": "2026-10-17 first candidate; current added changes verified separately in latest_followup and final handoff"
 }

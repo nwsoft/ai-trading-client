@@ -6,6 +6,7 @@ import { userTime } from './userTime';
 import { useLocale, getLocale, setLocaleAccount, setLocale, t, localized } from './i18n';
 import { LegacyTradingLogWorkspace, LifeFinance } from "./components/Operations";
 import { SettingsCenter } from "./components/SettingsCenter";
+import { MaintenanceNotice } from "./components/MaintenanceNotice";
 import { StrategyStudio, type StrategyAssistantDraft } from "./components/StrategyStudio";
 import { LoginHelpScreen, LoginScreen } from "./components/LoginScreen";
 import { AssistantWorkspace, ManualCenter } from "./components/AssistantWorkspace";
@@ -467,6 +468,7 @@ function DesktopApp() {
         }}><AppIcon name="power" />{t("종료")}</button>
       </div>
     </header>
+    {session?.authenticated && <MaintenanceNotice key={session.account??'local'} client={client} onOpen={()=>{setSettingsInitialField('maintenance.reconciliation');setSettingsOpen(true);}}/>}
     {getLocale() === 'en' && <div className="english-beta-notice">English beta: some advanced guidance and diagnostics remain in Korean. Original strategies and logs are preserved. Language does not change trading permissions or PnL accounting. Open Manual for the English operating guide.</div>}
     <section className="legacy-content-frame">
       <nav className="feature-nav" key={activeService} aria-label={`${selected?.label ?? "서비스"} 기능`}>

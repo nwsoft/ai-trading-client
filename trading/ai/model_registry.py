@@ -11,7 +11,7 @@ from __future__ import annotations
 from typing import Any, Dict, Iterable, List, Optional
 
 
-CATALOG_AS_OF = "2026-10-01"
+CATALOG_AS_OF = "2026-10-18"
 
 STATUS_LABELS = {
     "recommended": "권장",
@@ -57,21 +57,21 @@ MODEL_REGISTRY: Dict[str, List[Dict[str, Any]]] = {
         _entry("gpt-5.6-sol", "recommended", capabilities=("chat_text", "chat_json", "vision")),
         _entry("gpt-5.6", "available", capabilities=("chat_text", "chat_json", "vision"), note="gpt-5.6-sol 별칭"),
         _entry("gpt-5.5", "available", capabilities=("chat_text", "chat_json", "vision")),
-        _entry("gpt-5.4-nano", "available", capabilities=("chat_text", "chat_json", "vision")),
+        _entry("gpt-5.4-nano", "deprecated", capabilities=("chat_text", "chat_json", "vision"), replacement="gpt-6-luna", note="2027-04-01 API 종료 예정; 설정 자동 변경 없음"),
         _entry("gpt-5.4-mini", "available", capabilities=("chat_text", "chat_json", "vision")),
         _entry("gpt-5.4", "available", capabilities=("chat_text", "chat_json", "vision")),
         _entry("gpt-5-mini", "available", capabilities=("chat_text", "chat_json", "vision")),
         _entry("gpt-5", "available", capabilities=("chat_text", "chat_json", "vision")),
-        _entry("gpt-4.1-mini", "available", capabilities=("chat_text", "chat_json", "vision")),
-        _entry("gpt-4.1", "available", capabilities=("chat_text", "chat_json", "vision")),
-        _entry("gpt-4o-mini", "deprecated", capabilities=("chat_text", "chat_json", "vision"), replacement="gpt-5.6-luna"),
-        _entry("gpt-4o", "deprecated", capabilities=("chat_text", "chat_json", "vision"), replacement="gpt-5.6-terra"),
+        _entry("gpt-4.1-mini", "deprecated", capabilities=("chat_text", "chat_json", "vision"), replacement="gpt-6-luna", note="2027-01-14 API 종료 예정"),
+        _entry("gpt-4.1", "deprecated", capabilities=("chat_text", "chat_json", "vision"), replacement="gpt-6-luna", note="2027-01-14 API 종료 예정"),
+        _entry("gpt-4o-mini", "deprecated", capabilities=("chat_text", "chat_json", "vision"), replacement="gpt-6-luna", note="2027-01-14 API 종료 예정"),
+        _entry("gpt-4o", "deprecated", capabilities=("chat_text", "chat_json", "vision"), replacement="gpt-6-luna", note="2027-01-14 API 종료 예정"),
         _entry("gpt-4o-mini-transcribe", "recommended", capabilities=("transcribe",)),
         _entry("gpt-4o-transcribe", "recommended", capabilities=("transcribe",)),
         _entry("gpt-4o-transcribe-diarize", "available", capabilities=("transcribe",), note="다중 화자 구분"),
     ],
     "deepseek": [
-        _entry("deepseek-flash", "recommended", capabilities=("chat_text", "chat_json", "vision"), note="공식 최신 Flash 별칭; 현재 V4.1 Flash"),
+        _entry("deepseek-flash", "recommended", capabilities=("chat_text", "chat_json", "vision"), note="2026-10-18 공식 확인: V4.1 Flash-1017; 호출 ID·가격 유지"),
         _entry(
             "deepseek-v4-flash",
             "deprecated",
@@ -106,8 +106,14 @@ MODEL_REGISTRY: Dict[str, List[Dict[str, Any]]] = {
         ),
         _entry("kimi-latest", "retired", replacement="kimi-k3"),
         _entry("kimi-k2", "retired", replacement="kimi-k2.6"),
+        *[_entry(model, "retired", replacement="kimi-k3", note="공식 종료 모델; 기존 설정은 보존하고 새 모델을 직접 선택하세요") for model in (
+            "kimi-k2.5", "moonshot-v1-8k", "moonshot-v1-32k", "moonshot-v1-128k", "moonshot-v1-auto",
+            "moonshot-v1-8k-vision-preview", "moonshot-v1-32k-vision-preview", "moonshot-v1-128k-vision-preview",
+            "kimi-k2-0905-preview", "kimi-k2-0711-preview", "kimi-k2-turbo-preview", "kimi-k2-thinking", "kimi-k2-thinking-turbo", "kimi-thinking-preview",
+        )],
     ],
     "anthropic": [
+        _entry("claude-haiku-5-5", "recommended", capabilities=("chat_text", "chat_json"), note="2026-10-18 공식 확인; 10만 입력 토큰 초과 단가 상승. 앱의 Claude 이미지 전송은 미지원"),
         _entry("claude-sonnet-5-5", "recommended", capabilities=("chat_text", "chat_json")),
         _entry("claude-opus-5-5", "recommended", capabilities=("chat_text", "chat_json")),
         # 현재 NoahAI Anthropic 어댑터는 텍스트/JSON만 구현한다. 모델 자체의
@@ -124,9 +130,9 @@ MODEL_REGISTRY: Dict[str, List[Dict[str, Any]]] = {
     "gemini": [
         _entry("gemini-3.5-flash-lite", "recommended", capabilities=("chat_text", "chat_json", "vision")),
         _entry("gemini-3.8-flash", "recommended", capabilities=("chat_text", "chat_json", "vision")),
-        _entry("gemini-3.7-flash", "available", capabilities=("chat_text", "chat_json", "vision")),
+        _entry("gemini-3.7-flash", "available", capabilities=("chat_text", "chat_json", "vision"), replacement="gemini-3.8-flash", note="API ID 유지; 제공사가 3.8 Flash로 자동 라우팅"),
         _entry("gemini-3.6-flash", "available", capabilities=("chat_text", "chat_json", "vision")),
-        _entry("gemini-3.5-flash", "available", capabilities=("chat_text", "chat_json", "vision")),
+        _entry("gemini-3.5-flash", "available", capabilities=("chat_text", "chat_json", "vision"), replacement="gemini-3.6-flash", note="API ID 유지; 제공사가 3.6 Flash로 자동 라우팅"),
         _entry("gemini-3.1-pro-preview", "preview", capabilities=("chat_text", "chat_json", "vision")),
         _entry(
             "gemini-3.1-flash-lite",

@@ -293,6 +293,9 @@ class InteractiveAIService:
         if provider == "openai" and str(row["model"]).startswith("gpt-6") and input_tokens > 272_000:
             input_rate *= 2
             output_rate *= 1.5
+        if provider == "anthropic" and row["model"] == "claude-haiku-5-5" and input_tokens > 100_000:
+            input_rate *= 5
+            output_rate *= 5
         return round((billable_input * input_rate + output_tokens * output_rate) / 1_000_000, 8)
 
     def ask_decision(self, *, settings, question, context, system_prompt, expected_route):

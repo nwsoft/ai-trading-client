@@ -290,7 +290,7 @@ export function SettingsCenter({ client, open, initialField, onClose, onAskAssis
       .then((next) => {
         setSnapshot(next);
         setDraft(Object.fromEntries(next.fields.map((field) => [field.path, field.value])));
-        setActiveSection(initialField === STRATEGY_DIFFICULTY_PATH || initialField === FINANCE_DECISION_MODEL ? "ai_engine" : "general");
+        setActiveSection(initialField === 'maintenance.reconciliation' ? 'update' : initialField === STRATEGY_DIFFICULTY_PATH || initialField === FINANCE_DECISION_MODEL ? "ai_engine" : "general");
         if(initialField === FINANCE_DECISION_MODEL) setCredentialProvider(String(next.fields.find(f=>f.path===FINANCE_DECISION_PROVIDER)?.value || "openai"));
         setShowTechnicalFields(false);
         setReadinessOpen(false);
@@ -323,9 +323,10 @@ export function SettingsCenter({ client, open, initialField, onClose, onAskAssis
   }, [client, open, initialField]);
 
   useEffect(() => {
-    if (!open || busy || !snapshot || focusedTarget.current || ![STRATEGY_DIFFICULTY_PATH, FINANCE_DECISION_MODEL].includes(initialField || '') || activeSection !== 'ai_engine') return;
+    const maintenance=initialField==='maintenance.reconciliation';
+    if (!open || busy || !snapshot || focusedTarget.current || ![STRATEGY_DIFFICULTY_PATH, FINANCE_DECISION_MODEL,'maintenance.reconciliation'].includes(initialField || '') || activeSection !== (maintenance?'update':'ai_engine')) return;
     const frame = window.requestAnimationFrame(() => {
-      const target = document.querySelector<HTMLElement>(`[data-setting-path="${initialField}"]`);
+      const target = document.querySelector<HTMLElement>(maintenance?'[data-maintenance-panel]':`[data-setting-path="${initialField}"]`);
       if (!target) return;
       target.scrollIntoView({ block: 'center' });
       target.querySelector<HTMLSelectElement>('select')?.focus({ preventScroll: true });

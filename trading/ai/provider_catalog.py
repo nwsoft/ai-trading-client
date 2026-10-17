@@ -41,6 +41,7 @@ PROVIDER_PRICE_CATALOG: Dict[str, List[Dict[str, Any]]] = {
         {"model": "kimi-k3", "input": 3.00, "output": 15.00, "use": "정밀형·장문 추론/비전", "strength": "장문 추론과 비전", "limitation": "캐시 쓰기·장문 단가는 별도 확인", "note": "공식 홈페이지 기본 가격; 실제 청구와 별도"},
     ],
     "anthropic": [
+        {"model": "claude-haiku-5-5", "input": 0.10, "output": 0.50, "use": "최신 절약형", "strength": "빠른 텍스트·JSON·분류", "limitation": "앱의 이미지 전송 미지원; 10만 입력 토큰 초과 비용 증가", "note": "2026-10-18 공식 확인; 입력 100,000 초과 시 입력 $0.50·출력 $2.50 / MTok"},
         {"model": "claude-sonnet-5-5", "input": 2.00, "output": 10.00, "use": "최신 균형형", "strength": "속도·전문 분석의 균형", "limitation": "NoahAI 어댑터의 이미지 입력은 미지원"},
         {"model": "claude-opus-5-5", "input": 4.00, "output": 20.00, "use": "최신 정밀형", "strength": "복잡한 전문·장기 작업", "limitation": "단순 반복 호출은 비용 비교 필요"},
         {"model": "claude-haiku-4-5", "input": 1.00, "output": 5.00, "use": "절약형", "strength": "빠른 텍스트·JSON 응답", "limitation": "NoahAI 어댑터의 이미지 입력은 미지원"},
@@ -53,7 +54,7 @@ PROVIDER_PRICE_CATALOG: Dict[str, List[Dict[str, Any]]] = {
         {"model": "gemini-3.8-flash", "input": 0.75, "output": 3.75, "use": "최신 균형형", "strength": "복잡한 멀티모달·장기 작업", "limitation": "프로모션 종료 뒤 단가 변경 예정", "note": "2026-12-31까지 Standard 소개 가격"},
         {"model": "gemini-3.7-flash", "input": 0.75, "output": 3.75, "use": "균형형", "strength": "빠른 다단계·도구 작업", "limitation": "3.8 이전 세대", "note": "2026-12-31까지 Standard 소개 가격"},
         {"model": "gemini-3.6-flash", "input": 0.75, "output": 3.75, "use": "호환형", "strength": "멀티모달 범용 작업", "limitation": "이전 세대", "note": "2026-12-31까지 Standard 소개 가격"},
-        {"model": "gemini-3.5-flash", "input": 1.50, "output": 9.00, "use": "호환형", "strength": "일반 고처리량 멀티모달", "limitation": "최신 Flash보다 가격 효율이 낮을 수 있음"},
+        {"model": "gemini-3.5-flash", "input": 0.75, "output": 3.75, "use": "호환형", "strength": "일반 고처리량 멀티모달", "limitation": "기존 ID는 3.6으로 제공사 라우팅", "note": "2026-10-18 재확인; 2026-12-31까지 3.6 Standard 소개 가격"},
         {"model": "gemini-3.1-pro-preview", "input": 2.00, "output": 12.00, "use": "정밀형", "strength": "복잡한 문제 해결", "limitation": "Preview·계정 권한 확인 필요", "note": "20만 토큰 이하"},
     ],
 }

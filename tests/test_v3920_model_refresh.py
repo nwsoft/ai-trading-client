@@ -26,6 +26,7 @@ def fake_completion(client, captured, content='{"ok":true}'):
     ("openai", "gpt-6.1-sol", True), ("deepseek", "deepseek-flash", True),
     ("kimi", "kimi-k2.7-code", True), ("kimi", "kimi-k2.7-code-highspeed", True),
     ("anthropic", "claude-sonnet-5-5", False), ("anthropic", "claude-opus-5-5", False),
+    ("anthropic", "claude-haiku-5-5", False),
     ("gemini", "gemini-3.8-flash", True),
 ])
 def test_new_catalog_keeps_capability_and_account_checks_separate(provider, model, vision):
@@ -87,7 +88,7 @@ def test_luna_explicit_none_keeps_sampling_and_token_cap():
     assert options == {"max_completion_tokens": 80, "reasoning_effort": "none", "temperature": 0.2}
 
 
-@pytest.mark.parametrize("model", ["claude-sonnet-5-5", "claude-opus-5-5", "claude-fable-5-1", "claude-opus-4-7", "claude-opus-5-5-20260922"])
+@pytest.mark.parametrize("model", ["claude-sonnet-5-5", "claude-opus-5-5", "claude-haiku-5-5", "claude-fable-5-1", "claude-opus-4-7", "claude-opus-5-5-20260922"])
 def test_claude_current_models_omit_sampling_and_record_actual_model(monkeypatch, model):
     client = AnthropicClient(api_key="mock", model=model)
     captured = {}
@@ -127,3 +128,46 @@ def test_existing_default_and_explicit_routes_are_not_migrated():
     assert settings["ai_model_roles"]["frequent_cheap"]["model"] == "gpt-5.6-luna"
     for provider, model in (("openai", "gpt-5.6-luna"), ("deepseek", "deepseek-v4-flash"), ("anthropic", "claude-sonnet-5")):
         assert AIProviderRouter(provider, api_key="", model=model).adapter.model == model
+
+
+@pytest.mark.parametrize('tokens,expected', [(100_000, .0105), (100_001, .0525005)])
+def test_haiku_price_boundary_includes_entire_prompt(tokens, expected):
+    assert InteractiveAIService._estimate_cost('anthropic', 'claude-haiku-5-5', {'input_tokens': tokens, 'output_tokens': 1000}) == expected
+
+
+def test_haiku_cached_prompt_normalization_and_thinking_blocks(monkeypatch):
+    client=AnthropicClient(api_key='mock', model='claude-haiku-5-5')
+    captured={}
+    def request(method,path,payload):
+        captured.update(payload)
+        return {'model': 'claude-haiku-5-5', 'content': [{'type':'thinking','thinking':'not an answer'}, {'type':'text','text':'{"ok":true}'}], 'usage': {'input_tokens': 2, 'cache_read_input_tokens': 99_000, 'cache_creation_input_tokens': 1000, 'output_tokens': 1000}}
+    monkeypatch.setattr(client,'_request_json',request)
+    assert client.chat_json('system','question')=={'ok':True}
+    assert not {'temperature','top_p','top_k','thinking'} & captured.keys()
+    assert captured['messages'][-1]['role']=='user'
+    usage=client.get_last_usage()
+    assert usage['input_tokens']==100_002
+    assert usage['total_tokens']==101_002
+    assert usage['cached_input_tokens']==99_000
+    assert InteractiveAIService._estimate_cost('anthropic','claude-haiku-5-5',usage)==.052501
+
+
+@pytest.mark.parametrize('model', ['gpt-4.1','gpt-4.1-mini','gpt-4o','gpt-4o-mini','gpt-5.4-nano'])
+def test_sunset_openai_models_warn_without_overwriting_selection(model):
+    result=validate_model_route('openai',model,capability='chat_json')
+    assert result['ok'] and result['status']=='deprecated' and result['replacement']=='gpt-6-luna'
+    assert result['warnings']
+    assert AIProviderRouter('openai',api_key='',model=model).adapter.model==model
+
+
+@pytest.mark.parametrize('model', ['kimi-k2.5','moonshot-v1-auto','moonshot-v1-8k-vision-preview','kimi-k2-thinking'])
+def test_officially_discontinued_kimi_models_are_not_unknown_permitted_routes(model):
+    assert not validate_model_route('kimi',model,capability='chat_json')['ok']
+    assert model not in selectable_models('kimi')
+
+
+def test_gemini_provider_aliases_keep_call_ids_but_explain_effective_models():
+    rows={r['model']:r for r in model_catalog_details('gemini')}
+    assert rows['gemini-3.7-flash']['replacement']=='gemini-3.8-flash'
+    assert rows['gemini-3.5-flash']['replacement']=='gemini-3.6-flash'
+    assert rows['gemini-3.5-flash']['input_per_mtok_usd']==.75

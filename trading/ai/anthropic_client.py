@@ -100,7 +100,7 @@ class AnthropicClient:
         # Include current releases and dated snapshots, not only three exact IDs.
         supports_sampling = not model.startswith((
             "claude-sonnet-5", "claude-opus-5", "claude-fable-5",
-            "claude-opus-4-7", "claude-opus-4-8",
+            "claude-opus-4-7", "claude-opus-4-8", "claude-haiku-5-5",
         ))
         if "temperature" in kwargs and supports_sampling:
             payload["temperature"] = max(0.0, min(float(kwargs["temperature"]), 1.0))
@@ -114,14 +114,19 @@ class AnthropicClient:
             if isinstance(block, dict) and block.get("type") == "text"
         ).strip()
         usage = data.get("usage") or {}
-        input_tokens = int(usage.get("input_tokens", 0) or 0)
+        cached_tokens = int(usage.get("cache_read_input_tokens", 0) or 0)
+        cache_write_tokens = int(usage.get("cache_creation_input_tokens", 0) or 0)
+        # Anthropic input_tokens excludes cache reads/writes. Include them in
+        # the normalized prompt length, notably Haiku 5.5's long-input tier.
+        input_tokens = int(usage.get("input_tokens", 0) or 0) + cached_tokens + cache_write_tokens
         output_tokens = int(usage.get("output_tokens", 0) or 0)
         self._usage_local.value = {
             "provider": self.provider,
             "model": str(data.get("model") or model),
             "requested_model": model,
             "input_tokens": input_tokens,
-            "cached_input_tokens": int(usage.get("cache_read_input_tokens", 0) or 0),
+            "cached_input_tokens": cached_tokens,
+            "cache_creation_input_tokens": cache_write_tokens,
             "output_tokens": output_tokens,
             "total_tokens": input_tokens + output_tokens,
         }
