@@ -1,0 +1,83 @@
+{
+  "scope": "READ_ONLY_TEMP_COPY_OF_261015_PRE16_SNAPSHOT; cannot identify10/17 exact cause",
+  "baseline_public_commit": "8b4f62b24df04cfe427d46eb2f55dfef24ff1b28",
+  "ledger_bytes": 64993694,
+  "byte_limit": 67108864,
+  "bytes_until_limit": 2115170,
+  "limit_percent": 96.85,
+  "ledger_lines": 38687,
+  "line_limit": 100000,
+  "record_categories": {
+    "valid_json": 38687,
+    "other_records": 38314,
+    "parallel_order_free_records": 373
+  },
+  "latest_record_date": "2026-10-14",
+  "position_store_checks": [
+    {
+      "engine": "binance",
+      "load": "PASS",
+      "close_replay": "PASS",
+      "replayed": false
+    },
+    {
+      "engine": "unified",
+      "load": "PASS",
+      "close_replay": "PASS",
+      "replayed": false
+    }
+  ],
+  "wallet_checks": [
+    {
+      "venue": "binance",
+      "basis": "paper_reconciled_funds",
+      "reason": null,
+      "session_state": "present",
+      "ledger_tail_bytes": 8605246
+    },
+    {
+      "venue": "upbit",
+      "basis": "paper_reconciled_funds",
+      "reason": null,
+      "session_state": "present",
+      "ledger_tail_bytes": 8605246
+    },
+    {
+      "venue": "bithumb",
+      "basis": "paper_reconciled_funds",
+      "reason": null,
+      "session_state": "present",
+      "ledger_tail_bytes": 8605246
+    },
+    {
+      "venue": "coinone",
+      "basis": "paper_reconciled_funds",
+      "reason": null,
+      "session_state": "absent",
+      "ledger_tail_bytes": 64993694
+    },
+    {
+      "venue": "bybit",
+      "basis": "paper_reconciled_funds",
+      "reason": null,
+      "session_state": "present",
+      "ledger_tail_bytes": 8605246
+    },
+    {
+      "venue": "okx",
+      "basis": "paper_reconciled_funds",
+      "reason": null,
+      "session_state": "present",
+      "ledger_tail_bytes": 8605246
+    },
+    {
+      "venue": "bitget",
+      "basis": "paper_reconciled_funds",
+      "reason": null,
+      "session_state": "present",
+      "ledger_tail_bytes": 8605246
+    }
+  ],
+  "network_attempts": 0,
+  "customer_originals_unchanged": true
+}

@@ -1,0 +1,62 @@
+{
+  "status": "REPRODUCED_PUBLISHED16_LIFETIME_LIMIT",
+  "baseline_bytes": 64993694,
+  "baseline_real_recovery_pass": 7,
+  "simulated_bytes": 67108865,
+  "simulated_append_bytes": 2115171,
+  "synthetic_append_note": "single valid JSON PAPER observation row;no order;not actual10/17 data",
+  "results": [
+    {
+      "venue": "binance",
+      "recovered": false,
+      "reason": "paper_close_recovery_budget",
+      "headline": "가상 자금 대조 필요",
+      "blocked": true
+    },
+    {
+      "venue": "upbit",
+      "recovered": false,
+      "reason": "paper_close_recovery_budget",
+      "headline": "가상 자금 대조 필요",
+      "blocked": true
+    },
+    {
+      "venue": "bithumb",
+      "recovered": false,
+      "reason": "paper_close_recovery_budget",
+      "headline": "가상 자금 대조 필요",
+      "blocked": true
+    },
+    {
+      "venue": "coinone",
+      "recovered": false,
+      "reason": "paper_close_recovery_budget",
+      "headline": "가상 자금 대조 필요",
+      "blocked": true
+    },
+    {
+      "venue": "bybit",
+      "recovered": false,
+      "reason": "paper_close_recovery_budget",
+      "headline": "가상 자금 대조 필요",
+      "blocked": true
+    },
+    {
+      "venue": "okx",
+      "recovered": false,
+      "reason": "paper_close_recovery_budget",
+      "headline": "가상 자금 대조 필요",
+      "blocked": true
+    },
+    {
+      "venue": "bitget",
+      "recovered": false,
+      "reason": "paper_close_recovery_budget",
+      "headline": "가상 자금 대조 필요",
+      "blocked": true
+    }
+  ],
+  "original_bytes_mtime_mode_unchanged": true,
+  "network_attempts": 0,
+  "orders_submitted": 0
+}

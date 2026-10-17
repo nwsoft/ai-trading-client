@@ -1,0 +1,75 @@
+{
+  "status": "INVESTIGATION_COMPLETE_DEFECT_REPRODUCED_NOT_FIXED",
+  "public_version": "3.9.2.16",
+  "public_commit": "8b4f62b24df04cfe427d46eb2f55dfef24ff1b28",
+  "branch": "fix/v39216-paper-reconciliation-investigation-20261017",
+  "screenshot": "2026-10-17 20.09.23.jpg:7 PAPER venues blocked;detailed capital reason not visible",
+  "confirmed_defects": [
+    {
+      "code": "lifetime_ledger_budget",
+      "paths": [
+        "trading/paper_capital.py:47",
+        "trading/paper_strategy_ledger.py:245",
+        "trading/paper_position_store.py:325"
+      ],
+      "description": "shared complete ledger size/line count bounded as lifetime limit;normal growth eventually prevents capital/close replay/checkpoint"
+    },
+    {
+      "code": "misrouted_paper_help",
+      "paths": [
+        "trading/entry_diagnostics.py:10",
+        "webui/src/components/OperationSummary.tsx:68",
+        "trading/record_recovery.py:264",
+        "webui/src/components/RecordRecoveryPanel.tsx:131"
+      ],
+      "description": "budget root cause maps to generic PAPER funds help which points toward LIVE-only record recovery"
+    }
+  ],
+  "shared_copy": "shared-copy.json",
+  "actual_engine_growth_reproduction": "shared-growth-reproduction.json",
+  "incident_attribution": "High-priority plausible cause consistent with screenshot;10/17 original runtime/ledger unavailable;not confirmed exact incident cause",
+  "checks": [
+    {
+      "command": ".venv/bin/python -m pytest tests/test_v39216_paper_reconciliation_limits.py tests/test_v39143_record_recovery.py tests/test_v39144_recovery_completion.py tests/test_v3926_paper_capital.py tests/test_v3928_close_recovery.py -q",
+      "result": "197 passed;1 warning;8.55s",
+      "evidence": "focused.txt",
+      "scope": "23 new assertions reproduce defects;passing does not certify defect fixed;existing LIVE/PAPER isolation/background/margin/partial-close recovery also exercised"
+    },
+    {
+      "command": ".venv/bin/python scripts/doc_consistency_check.py",
+      "result": "PASS",
+      "evidence": "docs.txt"
+    },
+    {
+      "command": "offline temporary-copy audit of four explicitly shared261015 PAPER files;actual Trader/UnifiedTrader recovery before/after synthetic growth",
+      "result": "baseline7 recoverable;after64MiB+1 all7 blocked withpaper_close_recovery_budget;original byte/mtime/mode unchanged;network/orders0",
+      "evidence": "shared-growth-reproduction.json"
+    }
+  ],
+  "background_status": {
+    "live_record_recovery": "implemented;boundedqueries;continueswithoutpanel;2transientretries;progresspreserved",
+    "paper_funds": "periodic runtime recheck30s;notasynchronous large-ledger maintenance worker",
+    "batch_venue_queue": "notimplemented;recommendexplicitselectionsequentialqueuewithmodeisolation"
+  },
+  "changes": {
+    "runtime_code": false,
+    "tests_added": 23,
+    "docs": [
+      "docs/UPDATE_PLAN.md",
+      "docs/TRADING_FLOW.md",
+      "docs/TEST_STATUS.md"
+    ],
+    "version_bumped": false,
+    "customer_settings_or_original_data_changed": false,
+    "windows_executed": false,
+    "push": false,
+    "published": false
+  },
+  "remaining_work": [
+    "incremental/chunked verified replay,funds andcheckpoint together;no lifetime cap increase as sole fix",
+    "reason-specificPAPER/LIVE diagnosisrouting and proactive growth/staleprogress warnings",
+    "sequential multi-venue queue cancellation/resume/per-venue isolation",
+    "Windows locking/atomic storage/24-72h tester acceptance"
+  ],
+  "next_release": "Separate follow-up patch;version not assigned or approved in this investigation"
+}
