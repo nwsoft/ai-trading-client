@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import { createGatewayClient } from "./api";
 import { UI_BUILD_TAG } from './uiBuild';
@@ -194,6 +194,16 @@ function DesktopApp() {
       });
     }
   }, [activeSurface, assistantContextKey, assistantService, assistantSettingsSection, session?.account, session?.authenticated]);
+  const lastProductView = useRef("");
+  useEffect(() => {
+    if (!session?.authenticated || document.visibilityState === 'hidden') return;
+    const action = activeSurface === 'strategy' ? 'studio_open' : 'app_open';
+    const key = `${session.account}:${action}:${action === 'app_open' ? '' : activeService}`;
+    if (lastProductView.current === key) return;
+    lastProductView.current = key;
+    void client.observeProduct?.(action, crypto.randomUUID()).catch(() => undefined);
+  }, [client, session?.authenticated, session?.account, activeSurface, activeFeature, activeService]);
+
   const activeSourceTabs = ["blockchain", "stock"].includes(activeService) ? serviceRuntime?.enabled_sources ?? [] : [];
   const requestedChartSource = activeService === "stock" ? selectedSources.stock : selectedSources.blockchain;
   const chartSource = activeSourceTabs.includes(requestedChartSource) ? requestedChartSource : activeSourceTabs[0] ?? "";

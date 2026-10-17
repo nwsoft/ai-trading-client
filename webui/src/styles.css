@@ -3644,3 +3644,8 @@ html[lang="en"] button { white-space: normal; overflow-wrap: break-word; }
 .legacy-dashboard-shell:has(> .maintenance-notice) { grid-template-rows: auto auto minmax(0, 1fr) auto; }
 .legacy-dashboard-shell:has(> .english-beta-notice) { grid-template-rows: auto auto minmax(0, 1fr) auto; }
 .legacy-dashboard-shell:has(> .maintenance-notice):has(> .english-beta-notice) { grid-template-rows: auto auto auto minmax(0, 1fr) auto; }
+.product-metrics-consent { padding: 16px; margin: 12px 0; border: 1px solid var(--border-color, #637083); border-radius: 10px; }
+.product-metrics-consent p { line-height: 1.65; overflow-wrap: anywhere; }
+.product-metrics-consent label { display: flex; align-items: flex-start; gap: 8px; margin: 12px 0; }
+.product-metrics-consent input { margin-top: 5px; }
+.product-metrics-consent button { min-height: 40px; white-space: normal; padding: 8px 12px; }

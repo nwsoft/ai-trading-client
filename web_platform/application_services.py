@@ -942,6 +942,55 @@ class ApplicationServices:
             "status": "not_checked", "active": self.account != "local", "checked_at": None,
         }
 
+    def product_metrics(self):
+        from api.product_metrics import ProductMetrics
+        with self._lock:
+            current = getattr(self, '_product_metrics', None)
+            if current is None or current.account != self.account or current.closed.is_set():
+                if current is not None: current.close()
+                account, directory = self.account, Path(self.data_dir)
+                def credentials():
+                    if self.account != account or account == 'local': return None
+                    try:
+                        value = json.loads((directory / 'token.json').read_text(encoding='utf-8'))
+                        if str((value.get('user_info') or {}).get('id') or '') != account: return None
+                        return str(value.get('access_token') or '') or None
+                    except (OSError, ValueError, TypeError): return None
+                current = ProductMetrics(directory=directory, account=account, credentials=credentials)
+                self._product_metrics = current
+            return current
+
+    def product_metrics_status(self):
+        metrics = self.product_metrics()
+        if getattr(self, '_accepting_runtime_commands', True):
+            metrics.start()  # also resumes a committed outbox after process restart
+        status = metrics.status()
+        status['error'] = getattr(self, '_product_metrics_error', None) or status['error']
+        return status
+
+    def configure_product_metrics(self, *, enabled, policy):
+        if self.account == 'local': raise ValueError('login_required')
+        if not getattr(self, '_accepting_runtime_commands', True): raise ValueError('shutdown_in_progress')
+        result = self.product_metrics().configure(enabled, policy)
+        self._product_metrics_error = None
+        return result
+
+    def observe_product(self, action, mode='none', event_id=None):
+        # Product telemetry must never turn a successful save/trading command
+        # into a failed command. Collection failures stay visible in settings.
+        try:
+            if self.account == 'local' or not getattr(self, '_accepting_runtime_commands', True): return False
+            result = self.product_metrics().record(action, mode, event_id)
+            self._product_metrics_error = None
+            return result
+        except Exception:
+            self._product_metrics_error = 'collection_error'
+            return False
+
+    def close_product_metrics(self):
+        current = getattr(self, '_product_metrics', None)
+        if current is not None: current.close()
+
     def session_snapshot(self) -> dict[str, Any]:
         return {
             "authenticated": self.account != "local",
@@ -1309,6 +1358,9 @@ class ApplicationServices:
         if self._remote_monitor is not None:
             self._remote_monitor.close()
             self._remote_monitor = None
+        self.close_product_metrics()
+        self._product_metrics = None
+        self._product_metrics_error = None
         set_current_user_account(account)
         if getattr(self,'_drive_authorization',None) is not None:
             self._drive_authorization.disconnect()
@@ -1374,6 +1426,7 @@ class ApplicationServices:
             emit_kpi_event(event_type="web_session_started", category="platform", asset_class="platform", metadata={"user_grade": self.session_user["user_grade"]})
         except Exception:
             pass
+        self.product_metrics().start()
         return self.session_snapshot()
 
     def runtime_snapshot(self) -> dict[str, Any]:
@@ -4936,6 +4989,7 @@ class ApplicationServices:
             validation["unsupported_conditions"],
         )
         validation["rules"] = normalized
+        self.observe_product('studio_validate')
         return sanitize_settings(validation)
 
     def strategy_mentor(self, *, profile: dict[str, Any]) -> dict[str, Any]:
@@ -5219,6 +5273,7 @@ class ApplicationServices:
                 "source_kind": source_kind,
                 "status": version.get("status"),
             })
+            self.observe_product('studio_save')
             return sanitize_settings(version)
 
     def _checked_paper_application(self, pipeline, scope, strategy_key, version_id, operation_mode):
@@ -5297,6 +5352,11 @@ class ApplicationServices:
                 "scope": scope, "strategy_key": strategy_key, "version_id": version_id,
                 "operation_mode": operation_mode if action == "activate" else None,
             })
+            metric_action = {'approve':'studio_approve', 'activate':'studio_activate',
+                             'start_paper':'paper_start', 'restart_paper':'paper_start',
+                             'stop_paper':'paper_pause'}.get(action)
+            if metric_action:
+                self.observe_product(metric_action, 'paper' if metric_action.startswith('paper_') else 'none')
             result = sanitize_settings(version)
             result["runtime_refresh"] = self._refresh_runtime_after_strategy_change()
             return result
@@ -6081,6 +6141,8 @@ class ApplicationServices:
             if len(self._command_results) > 500:
                 self._command_results.pop(next(iter(self._command_results)))
             self._audit(command, {"command_id": normalized_id, "source": source, "accepted": True})
+            if command == 'trading.start' and requested_mode == 'live':
+                self.observe_product('live_start', 'live')
             if command in {"trading.start", "trading.stop"}:
                 try:
                     from api.kpi_client import emit_kpi_event
@@ -6109,6 +6171,7 @@ class ApplicationServices:
                 "errors": list(result.get("errors") or []),
             })
             if safe:
+                self.close_product_metrics()
                 if self._remote_monitor is not None:
                     self._remote_monitor.close()
                 try:

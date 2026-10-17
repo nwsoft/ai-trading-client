@@ -9,6 +9,7 @@ import { UpdateCenter } from "./UpdateCenter";
 import { RecordRecoveryPanel } from './RecordRecoveryPanel';
 import { StorageMaintenancePanel } from './StorageMaintenancePanel';
 import { RemoteMonitorSettings } from "./RemoteMonitorSettings";
+import { ProductMetricsConsent } from './ProductMetricsConsent';
 import { LanguagePicker } from './LanguagePicker';
 import { STRATEGY_DIFFICULTY_PATH, strategyDifficultyLabel } from '../strategyDifficulty';
 
@@ -1016,6 +1017,7 @@ export function SettingsCenter({ client, open, initialField, onClose, onAskAssis
               <div><strong>{localized('표시 언어', 'Display language')}</strong><p>{localized('처음에는 시스템의 선호 언어를 참고합니다. 직접 선택하면 즉시 적용·별도 저장되며, 거래 설정은 바뀌지 않습니다.', 'Initially follows your system’s preferred language. Your choice is applied and saved separately immediately, without changing trading settings.')}</p></div>
               <LanguagePicker client={client} />
             </section>}
+            {activeSection === "general" && <ProductMetricsConsent client={client} />}
             <div className="settings-tab-commandbar">
               <div><strong>{t(activeSection === "general" ? "1. 운용 모드 · 변경 후 저장을 눌러야 적용됩니다." : activeSectionInfo.label)}</strong><p>{t(activeSectionInfo.description)}</p></div>
               <div className="settings-command-actions">

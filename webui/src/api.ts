@@ -25,6 +25,9 @@ export interface GatewayClient {
   storageMaintenance: (action?: 'optimize' | 'debug', hours?: number) => Promise<Record<string, any>>;
   displayPreferences: () => Promise<{locale: string; saved: boolean}>;
   saveDisplayPreferences: (locale: string) => Promise<{locale: string; saved: boolean}>;
+  productMetricsStatus?: () => Promise<Record<string, any>>;
+  configureProductMetrics?: (enabled: boolean, policy: string) => Promise<Record<string, any>>;
+  observeProduct?: (action: string, eventId: string) => Promise<{queued: boolean}>;
   remoteStatus: () => Promise<Record<string, any>>;
   configureRemote: (enabled: boolean, name: string, allowPause?: boolean, allowControl?: boolean, shareDetails?: boolean) => Promise<Record<string, any>>;
   resumeEntries: (source: string) => Promise<Record<string, any>>;
@@ -406,6 +409,9 @@ export function createGatewayClient(): GatewayClient {
       mutate<SettingsSnapshot>("POST", "/api/v1/settings", { expected_revision: expectedRevision, changes }),
     updateCredentials: (expectedRevision, provider, values) =>
       mutate<SettingsSnapshot>("POST", "/api/v1/settings/credentials", { expected_revision: expectedRevision, provider, values }),
+    productMetricsStatus: () => get<Record<string, any>>("/api/v1/product-metrics"),
+    configureProductMetrics: (enabled, policy) => mutate<Record<string, any>>("POST", "/api/v1/product-metrics/consent", {enabled, policy}),
+    observeProduct: (action, eventId) => mutate<{queued: boolean}>("POST", "/api/v1/product-metrics/observe", {action, event_id: eventId}),
     remoteStatus: () => get<Record<string, any>>("/api/v1/remote/status"),
     configureRemote: (enabled, name, allowPause = false, allowControl = false, shareDetails = false) => mutate<Record<string, any>>("POST", "/api/v1/remote/configure", { enabled, name, allow_pause: allowPause, allow_control: allowControl, share_details: shareDetails }),
     resumeEntries: (source) => mutate<Record<string, any>>("POST", "/api/v1/remote/resume-entries", { source }),

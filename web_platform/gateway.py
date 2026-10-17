@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from contextlib import asynccontextmanager
 import asyncio
 import hmac
 import logging
@@ -17,6 +18,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.exceptions import RequestValidationError
 from fastapi.exception_handlers import request_validation_exception_handler
 from fastapi.responses import JSONResponse
+from starlette.concurrency import run_in_threadpool
 
 from config.app_version import RELEASE_BUILD_LABEL, RELEASE_VERSION
 
@@ -101,7 +103,16 @@ def create_gateway_app(
     provider = runtime_provider or services.runtime_snapshot
     market_provider = market_data or MultiSourcePublicMarketData()
 
+    @asynccontextmanager
+    async def product_lifespan(app):
+        try:
+            yield
+        finally:
+            close = getattr(services, 'close_product_metrics', None)
+            if callable(close): await run_in_threadpool(close)
+
     app = FastAPI(
+        lifespan=product_lifespan,
         title="NoahAI Local Gateway",
         version=RELEASE_VERSION,
         docs_url=None,
@@ -122,7 +133,7 @@ def create_gateway_app(
         if origin and origin not in ALLOWED_ORIGINS:
             return _forbidden_response()
         response = await call_next(request)
-        if request.url.path.startswith('/api/v1/companion/'):
+        if request.url.path.startswith(('/api/v1/companion/', '/api/v1/product-metrics')):
             response.headers['Cache-Control'] = 'no-store'
         return response
 
@@ -141,6 +152,28 @@ def create_gateway_app(
     def require_confirmed_intent(x_noahai_intent: str | None = Header(default=None)) -> None:
         if x_noahai_intent != "confirmed":
             raise HTTPException(status_code=428, detail="explicit_user_intent_required")
+
+    @app.get('/api/v1/product-metrics', dependencies=[Depends(require_token)])
+    def product_metrics_status():
+        try: return services.product_metrics_status()
+        except OSError as exc: raise HTTPException(503, 'collection_error') from exc
+
+    @app.post('/api/v1/product-metrics/consent', dependencies=[Depends(require_token), Depends(require_confirmed_intent)])
+    def product_metrics_consent(payload: dict[str, Any]):
+        if set(payload) != {'enabled', 'policy'}: raise HTTPException(400, 'invalid_consent')
+        try: return services.configure_product_metrics(**payload)
+        except ValueError as exc: raise HTTPException(400, str(exc)) from exc
+        except OSError as exc: raise HTTPException(503, 'collection_error') from exc
+
+    @app.post('/api/v1/product-metrics/observe', dependencies=[Depends(require_token), Depends(require_confirmed_intent)])
+    def product_metrics_observe(payload: dict[str, Any]):
+        from api.product_metrics import UI_ACTIONS
+        from uuid import UUID
+        if set(payload) != {'action', 'event_id'} or not isinstance(payload['action'], str) or payload['action'] not in UI_ACTIONS:
+            raise HTTPException(400, 'invalid_product_action')
+        try: event_id = str(UUID(payload['event_id']))
+        except (ValueError, TypeError, AttributeError): raise HTTPException(400, 'invalid_event_id')
+        return {'queued': services.observe_product(payload['action'], event_id=event_id)}
 
     @app.get("/api/v1/health", response_model=HealthContract)
     def health() -> HealthContract:
