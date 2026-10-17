@@ -27,10 +27,13 @@ def test_append_restart_missing_cache_and_tampered_cache_do_not_restore_spent_ca
  idx=index_for(p);assert idx.wallet('binance','USDT',0)==-15
  idx.db_path.unlink()
  assert idx.wallet('binance','USDT',0)==-15
- with sqlite3.connect(idx.db_path) as db:db.execute('UPDATE events SET net=9999')
+ from contextlib import closing
+ with closing(sqlite3.connect(idx.db_path)) as db:
+  with db:db.execute('UPDATE events SET net=9999')
  assert idx.wallet('binance','USDT',0)==-15
  # A fresh process also checks derived rows against the verified source chunks.
- with sqlite3.connect(idx.db_path) as db:db.execute('UPDATE events SET net=9999')
+ with closing(sqlite3.connect(idx.db_path)) as db:
+  with db:db.execute('UPDATE events SET net=9999')
  _INDEXES.pop(str(p.resolve()))
  assert index_for(p).wallet('binance','USDT',0)==-15
 
