@@ -1,3 +1,9 @@
+## 2026-10-18 Windows .17 정식 빌드·게시 실행
+
+최신 사용자 명시 요청으로 최신 handoff/bundle 커밋 `14cd174e43d1f9d120f7383b94068999241b553f`에서 별도 깨끗한 작업트리에 복원해 생략 옵션 없이 빌드하고 stable/latest 게시한다. 제품 3.9.2.17 · updater 3.9.217 · renderer 3.9.2.17-ui.20261018.2. 아래 후보·미게시·설치 인수 후 게시 문장은 이전 인계 이력이며 이번 요청은 실제 설치 없이 게시를 허용한다.
+
+기존 x64 .venv와 Python311-32를 사용한다. 실제 설치/업데이트/롤백·OCX·기관·외부 AI·24/72h는 DEPLOY_CHECKLIST의 같은 인수 ID/상태를 pending으로 유지한다. 자동 검사를 수동 인수 통과로 기록하지 않는다. 실행 중인 사용자 앱 설치·실주문·외부 서버 배포·유료 서명은 수행하지 않는다. 결과는 `reports/v39217-windows-publication-20261018.json`에 기록한다. 새 빌드 전 공개 .16 manifest 원본 바이트와 deploy/version.txt의 .16 기준을 복원하고 현재 pending manifest의 release_label은 RELEASE_BUILD_LABEL과 일치시킨다.
+
 ## 2026-10-17 — v3.9.2.17 PAPER 원장 연속 운용·백그라운드 대조 (소스 후보·미배포)
 
 현재 소스 후보 버전: **v3.9.2.17**
