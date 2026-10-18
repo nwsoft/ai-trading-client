@@ -6,13 +6,17 @@ import threading
 from datetime import datetime, timedelta, timezone
 from typing import Dict, List, Optional
 import logging
+import json
+import os
+from pathlib import Path
+from collections import deque
 from trading.pnl_evidence import verified_live_samples
 
 class AIAutoOptimizer:
     """
     시간/거래/성과 기반 자동 모니터링 및 파라미터 조정
     """
-    def __init__(self, ai_manager, recorder, settings, logger=None):
+    def __init__(self, ai_manager, recorder, settings, logger=None, history_path=None):
         self.ai_manager = ai_manager
         self.recorder = recorder
         self.settings = settings
@@ -35,6 +39,15 @@ class AIAutoOptimizer:
             'drawdown_limit': -0.02
         }
         self.last_proposal: Optional[Dict] = None
+        self._history_path = Path(history_path) if history_path is not None else None
+        self.proposal_history = []
+        self.history_status = "not_configured" if self._history_path is None else "ready"
+        if self._history_path is not None and self._history_path.exists():
+            try:
+                with self._history_path.open(encoding="utf-8") as handle:
+                    self.proposal_history = [json.loads(line) for line in deque(handle, maxlen=20) if line.strip()]
+            except (OSError, ValueError): self.history_status = "unavailable"
+
 
     def start(self):
         if self.is_running: 
@@ -159,6 +172,10 @@ class AIAutoOptimizer:
             "default_tp": new_tp,
             "default_sl": new_sl,
             "default_leverage": new_lev,
+            "current_parameters": {"default_tp":current_tp, "default_sl":current_sl, "default_leverage":int(self.settings.get("default_leverage",10))},
+            "evidence": {key:stats.get(key) for key in ("win_rate", "avg_profit_percent", "max_drawdown", "total_trades")},
+            "source": "verified_live_outcomes",
+            "applied": False,
             "issues": list(issues),
             "generated_at": datetime.now(timezone.utc).isoformat(),
             "requires_approval": True,
@@ -167,6 +184,17 @@ class AIAutoOptimizer:
             "AutoOptimizer proposal only (not applied): "
             f"tp={new_tp:.6f}, sl={new_sl:.6f}, lev={new_lev}"
         )
+        comparable = lambda row: {k:v for k,v in row.items() if k != "generated_at"}
+        if not self.proposal_history or comparable(self.proposal_history[-1]) != comparable(self.last_proposal):
+            if self._history_path is not None:
+                try:
+                    self._history_path.parent.mkdir(parents=True, exist_ok=True)
+                    with self._history_path.open("a",encoding="utf-8") as handle:
+                        handle.write(json.dumps(self.last_proposal,ensure_ascii=False,allow_nan=False)+"\n")
+                        handle.flush(); os.fsync(handle.fileno())
+                    self.history_status = "ready"
+                except (OSError, ValueError): self.history_status = "unavailable"
+            self.proposal_history = (self.proposal_history + [dict(self.last_proposal)])[-20:]
         return dict(self.last_proposal)
 
     def _count_consecutive_losses(self, trades: List[Dict]) -> int:

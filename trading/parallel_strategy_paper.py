@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import math
+import os
 import threading
 from datetime import datetime, timezone
 from pathlib import Path
@@ -44,7 +45,10 @@ class ParallelStrategyPaperEngine:
         self.logger = logger
         self._lock = threading.RLock()
         self._path = Path(get_app_data_dir()) / "parallel_strategy_paper_positions.json"
+        self._load_error = ""
         self._positions: Dict[str, Dict[str, Any]] = self._load()
+        self._last_error = ""
+        self._last_checked_at = None
 
     def _settings(self) -> Dict[str, Any]:
         try:
@@ -57,23 +61,30 @@ class ParallelStrategyPaperEngine:
         policy = dict(settings.get("parallel_strategy_paper_validation") or {})
         # Parallel observation is meaningful only while the primary runtime is
         # LIVE. Global PAPER already has its own order-free execution ledger.
-        return bool(policy.get("enabled", False)) and not bool(settings.get("paper_trading", True))
+        return not self._load_error and bool(policy.get("enabled", False)) and not bool(settings.get("paper_trading", True))
 
     def _load(self) -> Dict[str, Dict[str, Any]]:
         try:
             raw = json.loads(self._path.read_text(encoding="utf-8"))
-            return {str(k): dict(v) for k, v in dict(raw or {}).items() if isinstance(v, dict)}
+            if not isinstance(raw, dict) or any(not isinstance(v, dict) for v in raw.values()):
+                raise ValueError("invalid_snapshot_shape")
+            return {str(k):dict(v) for k,v in raw.items()}
+        except FileNotFoundError:
+            return {}
         except (OSError, ValueError, TypeError, json.JSONDecodeError):
+            self._load_error = "parallel_paper_snapshot_invalid"
             return {}
 
     def _save(self) -> None:
         self._path.parent.mkdir(parents=True, exist_ok=True)
         temp = self._path.with_suffix(".tmp")
-        temp.write_text(
-            json.dumps(self._positions, ensure_ascii=False, separators=(",", ":")),
-            encoding="utf-8",
-        )
+        with temp.open("w", encoding="utf-8") as handle:
+            json.dump(self._positions, handle, ensure_ascii=False, separators=(",", ":"), allow_nan=False)
+            handle.flush()
+            os.fsync(handle.fileno())
         temp.replace(self._path)
+        from trading.paper_position_store import fsync_parent
+        fsync_parent(self._path)
 
     @staticmethod
     def _identity(strategy: Mapping[str, Any], target: str, symbol: str) -> str:
@@ -112,6 +123,183 @@ class ParallelStrategyPaperEngine:
         with self._lock:
             return [dict(value) for value in self._positions.values()]
 
+    def _remove_committed(self, identity):
+        saved = self._positions.pop(identity)
+        try:
+            self._save()
+        except Exception:
+            self._positions[identity] = saved
+            raise
+
+    def status(self):
+        with self._lock:
+            return {"state": "needs_attention" if self._load_error or self._last_error or any(p.get("pending_close") or p.get("watch_error") for p in self._positions.values()) else "watching" if self._positions else "idle",
+                    "open_positions": len(self._positions),
+                    "pending_closes": sum(bool(p.get("pending_close")) for p in self._positions.values()),
+                    "last_checked_at": self._last_checked_at, "reason_code": self._load_error or self._last_error or next((p.get("watch_error") for p in self._positions.values() if p.get("watch_error")), ""),
+                    "continues_existing_exits_across_modes": True, "submits_real_orders": False}
+
+    def service_exits(self, quote_provider):
+        """Read-only market polling, independent of entry gates and candidate selection."""
+        result = {"evaluated": 0, "opened": 0, "closed": 0}
+        # Commit frozen exits before any network read. An unavailable quote
+        # provider must never delay recovery of an already observed exit.
+        with self._lock:
+            pending_targets = sorted({(p.get("target"),p.get("symbol"),p.get("asset_class","crypto"))
+                                      for p in self._positions.values() if p.get("pending_close")})
+        for target, symbol, asset in pending_targets:
+            update = self.observe(target=target, symbol=symbol, asset_class=asset,
+                primary_execution_mode="exit_only", context={"current_price":0.0},
+                strategy_pool=[], market_regime="unknown")
+            for key in result: result[key] += update[key]
+        with self._lock:
+            targets = sorted({(p.get("target"), p.get("symbol"), p.get("asset_class", "crypto"))
+                              for p in self._positions.values() if not p.get("pending_close")})
+        for target, symbol, asset in targets:
+            try:
+                price = _float(quote_provider(target, symbol, asset))
+            except Exception:
+                price = 0.0
+            update = self.observe(target=target, symbol=symbol, asset_class=asset,
+                primary_execution_mode="exit_only", context={"current_price": price, "_price_only_exit_watch": True},
+                strategy_pool=[], market_regime="unknown")
+            for key in result: result[key] += update[key]
+        return result
+
+    def _close_existing(self, identity, existing, context, price, now):
+        # A previous process may have committed before its position snapshot was saved.
+        from trading.paper_ledger_index import index_for
+        import hashlib
+        scope = "binance" if str(existing.get("target")).lower() == "binance" else "unified"
+        target, symbol = existing.get("target"), existing.get("symbol")
+        event = "paper_outcome_" + hashlib.sha256(
+            f"{scope}|{str(target).lower()}|{existing.get('position_id')}".encode()).hexdigest()[:32]
+        ledger = self._path.with_name("strategy_paper_outcomes.jsonl")
+        try:
+            prior = index_for(ledger).event(event)
+        except (ValueError, OSError):
+            # An unavailable derived index must not prevent freezing an observed exit.
+            prior = None
+        if prior is not None:
+            for key, saved_key in (("position_id", "position_id"), ("strategy_key", "strategy_key"),
+                                   ("version_id", "version_id"), ("symbol", "symbol")):
+                if str(prior.get(key) or "") != str(existing.get(saved_key) or ""):
+                    raise ValueError("parallel_paper_close_identity_conflict")
+            if str(prior.get("exchange") or "").lower() != str(target).lower():
+                raise ValueError("parallel_paper_close_identity_conflict")
+            for key in ("entry_price", "quantity", "contract_size"):
+                if prior.get(key) is not None and float(prior[key]) != float(existing.get(key, 1.0 if key == "contract_size" else 0)):
+                    raise ValueError("parallel_paper_close_identity_conflict")
+            if existing.get("pending_close"):
+                for key in ("exit_price", "net_pnl", "fees", "estimated_slippage", "closed_at"):
+                    if prior.get(key) != existing["pending_close"].get(key):
+                        raise ValueError("parallel_paper_close_identity_conflict")
+            self._remove_committed(identity)
+            return True
+        pending = existing.get("pending_close")
+        if not pending:
+            if price <= 0:
+                self._last_error = "parallel_paper_quote_unavailable"
+                existing["watch_error"] = self._last_error
+                return False
+            existing.pop("watch_error", None)
+            side = str(existing.get("side") or "LONG").upper()
+            entry = _float(existing.get("entry_price"))
+            if entry <= 0: raise ValueError("parallel_paper_entry_price_invalid")
+            tp, sl = _float(existing.get("tp_fraction")), _float(existing.get("sl_fraction"))
+            signed_return = ((price - entry) / entry) * (1 if side == "LONG" else -1)
+            from .numeric_strategy_state import identity as state_identity
+            context = {**context, "_numeric_state_identity":state_identity(existing.get("rules") or {}, existing)}
+            exit_eval = ({"allowed": False} if context.get("_price_only_exit_watch") else
+                DeclarativeStrategyEngine.evaluate_exit(dict(existing.get("rules") or {}), context))
+            exit_reason = ("take_profit" if tp > 0 and signed_return >= tp else
+                           "stop_loss" if sl > 0 and signed_return <= -sl else
+                           "strategy_exit" if exit_eval.get("allowed") and not exit_eval.get("bypassed") else "")
+            previous = existing.get("last_observed_at")
+            if not previous:
+                existing["observation_status"] = "legacy_observation_gap"
+            else:
+                try:
+                    if (now - datetime.fromisoformat(previous)).total_seconds() > 120:
+                        existing["observation_status"] = "observation_gap"
+                except (TypeError, ValueError): existing["observation_status"] = "observation_gap"
+            existing["last_observed_at"] = now.isoformat()
+            existing["current_price"] = price
+            if not exit_reason:
+                self._save()
+                return False
+            quantity = _float(existing.get("quantity"), 0.0)
+            contract = _float(existing.get("contract_size"), 1.0)
+            direction = 1.0 if side == "LONG" else -1.0
+            gross = (price - entry) * direction * quantity * contract
+            fee_rate = _float(existing.get("round_trip_fee_rate"), 0.0)
+            slip_rate = _float(existing.get("round_trip_slippage_rate"), 0.0)
+            tax_rate = _float(existing.get("exit_tax_rate"), 0.0)
+            entry_notional = entry * quantity * contract
+            exit_notional = price * quantity * contract
+            fees = (entry_notional + exit_notional) * fee_rate / 2.0
+            slippage = (entry_notional + exit_notional) * slip_rate / 2.0
+            taxes = exit_notional * tax_rate
+            net = gross - fees - slippage - taxes
+            pending = dict(
+                scope="binance" if str(target).lower() == "binance" else "unified",
+                strategy_scope=str(existing.get("strategy_scope") or "unified"),
+                exchange=target, symbol=symbol,
+                strategy_key=str(existing.get("strategy_key") or ""),
+                version_id=str(existing.get("version_id") or ""),
+                position_id=str(existing.get("position_id") or ""),
+                opened_at=existing.get("opened_at"), closed_at=now.isoformat(),
+                gross_pnl=gross, net_pnl=net,
+                net_pnl_percent=(net / entry_notional * 100.0) if entry_notional else 0.0,
+                fees=fees, estimated_slippage=slippage, estimated_taxes=taxes,
+                entry_price=entry, exit_price=price, quantity=quantity,
+                contract_size=contract,
+                side=side, quote_currency=str(existing.get("quote_currency") or ""),
+                cost_calculation_status="parallel_paper_recorded_contract",
+                calculation_status="valid",
+                leverage=existing.get("leverage"),
+                entry_reason=str(existing.get("entry_reason") or ""),
+                entry_market_regime=str(existing.get("market_regime") or ""),
+                entry_regime_scope=str(existing.get("regime_scope") or ""),
+                entry_signal_source=str(existing.get("signal_source") or ""),
+                sizing_policy_reason=str(
+                    dict(existing.get("position_sizing") or {}).get("reason") or ""
+                ),
+                sizing_target_notional=dict(
+                    existing.get("position_sizing") or {}
+                ).get("target_notional"),
+                sizing_final_notional=dict(
+                    existing.get("position_sizing") or {}
+                ).get("final_notional"),
+                sizing_limiting_reasons=list(dict(
+                    existing.get("position_sizing") or {}
+                ).get("limiting_reasons") or []),
+                exit_reason=exit_reason,
+                tp_price=(
+                    entry * (1.0 + tp)
+                    if side == "LONG" else entry * (1.0 - tp)
+                ) if tp > 0 else None,
+                sl_price=(
+                    entry * (1.0 - sl)
+                    if side == "LONG" else entry * (1.0 + sl)
+                ) if sl > 0 else None,
+                effective_tp_fraction=tp if tp > 0 else None,
+                effective_sl_fraction=sl if sl > 0 else None,
+                exit_policy_source="custom_strategy_parallel_paper",
+                exit_policy_reason="strategy_exit_plan",
+            )
+            pending.update(fee_rate=fee_rate, slippage_rate=slip_rate, tax_rate=tax_rate)
+            pending.update(validation_path="parallel_validation", capital_basis="independent_strategy_virtual_equity",
+                           capital_reference=(existing.get("position_sizing") or {}).get("account_equity"),
+                           observation_status=existing.get("observation_status", "continuous"),
+                           exit_observed_at=now.isoformat(), exit_commit_status="frozen_exit_intent")
+            existing["pending_close"] = pending
+        # Persist intent before attempting a journal commit. Retries reuse ALL frozen fields.
+        self._save()
+        record_paper_strategy_outcome(**pending, ledger_file=ledger)
+        self._remove_committed(identity)
+        return True
+
     def observe(
         self,
         *,
@@ -127,10 +315,7 @@ class ParallelStrategyPaperEngine:
         # Parallel validation is deliberately a LIVE companion. LEARNING and
         # global PAPER own separate lifecycles and must not create a second,
         # ambiguous PAPER ledger stream.
-        if not self.enabled() or str(primary_execution_mode or "").lower() not in {
-            "live", "live_api"
-        }:
-            return {"evaluated": 0, "opened": 0, "closed": 0}
+        can_open = self.enabled() and str(primary_execution_mode or "").lower() in {"live", "live_api"}
         settings = self._settings()
         maximum = max(
             1,
@@ -157,15 +342,15 @@ class ParallelStrategyPaperEngine:
             if isinstance(item, Mapping)
             and str(item.get("operation_mode") or "").lower() == "paper_validation"
             and item.get("strategy_key") and item.get("version_id")
-        ][:maximum]
+        ][:maximum] if can_open else []
         price = _float(context.get("current_price", context.get("price", 0.0)), 0.0)
-        if price <= 0:
-            return {"evaluated": len(observing), "opened": 0, "closed": 0}
 
         result = {"evaluated": 0, "opened": 0, "closed": 0}
         now = datetime.now(timezone.utc)
         changed = False
         with self._lock:
+            self._last_error = ""
+            self._last_checked_at = now.isoformat()
             # Revocation/completion stops new entries, not exits of already open
             # virtual positions. Preserve the entry version's frozen exit rules.
             active_ids = {self._identity(item, target, symbol) for item in observing}
@@ -188,88 +373,16 @@ class ParallelStrategyPaperEngine:
                 identity = self._identity(strategy, target, symbol)
                 existing = self._positions.get(identity)
                 if existing:
-                    side = str(existing.get("side") or "LONG").upper()
-                    entry = _float(existing.get("entry_price"), 0.0)
-                    tp = _float(existing.get("tp_fraction"), 0.0)
-                    sl = _float(existing.get("sl_fraction"), 0.0)
-                    signed_return = ((price - entry) / entry) * (1.0 if side == "LONG" else -1.0)
-                    exit_eval = DeclarativeStrategyEngine.evaluate_exit(
-                        dict(strategy.get("rules") or {}), {**context,'_numeric_state_identity':state_identity(strategy.get('rules') or {},strategy)}
-                    )
-                    exit_reason = ""
-                    if tp > 0 and signed_return >= tp:
-                        exit_reason = "take_profit"
-                    elif sl > 0 and signed_return <= -sl:
-                        exit_reason = "stop_loss"
-                    elif bool(exit_eval.get("allowed")) and not bool(exit_eval.get("bypassed")):
-                        exit_reason = "strategy_exit"
-                    if exit_reason:
-                        quantity = _float(existing.get("quantity"), 0.0)
-                        contract = _float(existing.get("contract_size"), 1.0)
-                        direction = 1.0 if side == "LONG" else -1.0
-                        gross = (price - entry) * direction * quantity * contract
-                        fee_rate = _float(existing.get("round_trip_fee_rate"), 0.0)
-                        slip_rate = _float(existing.get("round_trip_slippage_rate"), 0.0)
-                        tax_rate = _float(existing.get("exit_tax_rate"), 0.0)
-                        entry_notional = entry * quantity * contract
-                        exit_notional = price * quantity * contract
-                        fees = (entry_notional + exit_notional) * fee_rate / 2.0
-                        slippage = (entry_notional + exit_notional) * slip_rate / 2.0
-                        taxes = exit_notional * tax_rate
-                        net = gross - fees - slippage - taxes
-                        record_paper_strategy_outcome(
-                            scope="binance" if str(target).lower() == "binance" else "unified",
-                            strategy_scope=str(strategy.get("strategy_scope") or "unified"),
-                            exchange=target, symbol=symbol,
-                            strategy_key=str(strategy.get("strategy_key") or ""),
-                            version_id=str(strategy.get("version_id") or ""),
-                            position_id=str(existing.get("position_id") or ""),
-                            opened_at=existing.get("opened_at"), closed_at=now,
-                            gross_pnl=gross, net_pnl=net,
-                            net_pnl_percent=(net / entry_notional * 100.0) if entry_notional else 0.0,
-                            fees=fees, estimated_slippage=slippage, estimated_taxes=taxes,
-                            entry_price=entry, exit_price=price, quantity=quantity,
-                            contract_size=contract,
-                            side=side, quote_currency=str(existing.get("quote_currency") or ""),
-                            cost_calculation_status="parallel_paper_recorded_contract",
-                            calculation_status="valid",
-                            leverage=existing.get("leverage"),
-                            entry_reason=str(existing.get("entry_reason") or ""),
-                            entry_market_regime=str(existing.get("market_regime") or ""),
-                            entry_regime_scope=str(existing.get("regime_scope") or ""),
-                            entry_signal_source=str(existing.get("signal_source") or ""),
-                            sizing_policy_reason=str(
-                                dict(existing.get("position_sizing") or {}).get("reason") or ""
-                            ),
-                            sizing_target_notional=dict(
-                                existing.get("position_sizing") or {}
-                            ).get("target_notional"),
-                            sizing_final_notional=dict(
-                                existing.get("position_sizing") or {}
-                            ).get("final_notional"),
-                            sizing_limiting_reasons=list(dict(
-                                existing.get("position_sizing") or {}
-                            ).get("limiting_reasons") or []),
-                            exit_reason=exit_reason,
-                            tp_price=(
-                                entry * (1.0 + tp)
-                                if side == "LONG" else entry * (1.0 - tp)
-                            ) if tp > 0 else None,
-                            sl_price=(
-                                entry * (1.0 - sl)
-                                if side == "LONG" else entry * (1.0 + sl)
-                            ) if sl > 0 else None,
-                            effective_tp_fraction=tp if tp > 0 else None,
-                            effective_sl_fraction=sl if sl > 0 else None,
-                            exit_policy_source="custom_strategy_parallel_paper",
-                            exit_policy_reason="strategy_exit_plan",
-                        )
-                        self._positions.pop(identity, None)
-                        result["closed"] += 1
-                        changed = True
+                    try:
+                        if self._close_existing(identity, existing, context, price, now):
+                            result["closed"] += 1
+                    except Exception as exc:
+                        self._last_error = (str(exc) if isinstance(exc, ValueError) and
+                            str(exc).replace("_", "").isalnum() else "parallel_paper_close_storage_unavailable")
+                        existing["watch_error"] = self._last_error
                     continue
 
-                if strategy.get("_exit_only"):
+                if strategy.get("_exit_only") or not can_open or price <= 0 or any(p.get("pending_close") for p in self._positions.values()):
                     continue
                 candidate = evaluate_trade_candidate(
                     symbol=symbol, context=context, strategy_pool=[strategy],
@@ -346,6 +459,7 @@ class ParallelStrategyPaperEngine:
                     "round_trip_slippage_rate": slip_rate,
                     "exit_tax_rate": tax_rate, "opened_at": now.isoformat(),
                     "position_sizing": plan,
+                    "last_observed_at": now.isoformat(), "observation_status": "continuous",
                 }
                 result["opened"] += 1
                 changed = True

@@ -1183,5 +1183,7 @@
     "auto_update_auto_apply_on_exit": true,
     "auto_update_open_position_action": "defer",
     "auto_update_release_repo": "nwsoft/ai-trading-client"
-  }
+  },
+  "tp_sl_working_type": "MARK_PRICE",
+  "live_strategy_evaluation_limit": 10
 }

@@ -3203,60 +3203,18 @@ class UnifiedTrader:
                 )
                 optimized_params["_client_order_id"] = exchange_client_order_id(crypto_command_id)
 
-            # 레버리지/마진 타입 설정 (선물 거래소에서만)
-            try:
-                # CCXT 어댑터 여부에 따라 심볼 정규화
-                normalized_symbol = self._normalize_symbol_for_adapter(exchange_client, symbol) if exchange_client else symbol
-                is_futures_exchange = exchange_name in ['bybit', 'okx', 'bitget']  # 바이낸스 제외
-                # 레버리지 가드레일 적용
-                desired_leverage = leverage
-                # 마진 타입 가드레일 적용
-                default_margin_type = str(self.settings.get('default_margin_type', 'ISOLATED')).upper()
-                if default_margin_type not in ('ISOLATED', 'CROSS', 'CROSSED'):
-                    default_margin_type = 'ISOLATED'
-
-                if is_futures_exchange and not paper:
-                    # set_leverage
-                    try:
-                        set_lev = getattr(exchange_client, 'set_leverage', None)
-                        if callable(set_lev):
-                            ok = False
-                            try:
-                                ok = bool(set_lev(normalized_symbol, int(desired_leverage)))
-                            except Exception as ie:
-                                raise ie
-                            if ok:
-                                self.logger.info(f"⚙️ {exchange_name} {normalized_symbol} 레버리지 설정: {int(desired_leverage)}x")
-                            else:
-                                self.logger.warning(f"{exchange_name} 레버리지 설정 실패 또는 미지원")
-                    except Exception as e:
-                        self.logger.warning(f"{exchange_name} 레버리지 설정 실패(계속): {e}")
-                    # set_margin_type / set_margin_mode
-                    try:
-                        mt = default_margin_type
-                        # 바이낸스 네이티브 API 명칭 호환
-                        if hasattr(exchange_client, 'client'):
-                            # python-binance 경로 가능성: CROSSED 사용
-                            if mt == 'CROSS':
-                                mt = 'CROSSED'
-                        set_mt = getattr(exchange_client, 'set_margin_type', None)
-                        if not callable(set_mt):
-                            # CCXT의 경우 set_margin_mode 사용
-                            set_mt = getattr(exchange_client, 'set_margin_mode', None)
-                        if callable(set_mt):
-                            ok_mt = False
-                            try:
-                                ok_mt = bool(set_mt(normalized_symbol, mt))
-                            except Exception as ime:
-                                raise ime
-                            if ok_mt:
-                                self.logger.info(f"⚙️ {exchange_name} {normalized_symbol} 마진 타입 설정: {mt}")
-                            else:
-                                self.logger.warning(f"{exchange_name} 마진 타입 설정 실패 또는 미지원: {mt}")
-                    except Exception as e:
-                        self.logger.warning(f"{exchange_name} 마진 타입 설정 실패(계속): {e}")
-            except Exception as e:
-                self.logger.warning(f"레버리지/마진 설정 단계 경고(계속): {e}")
+            if exchange_name in {'bybit', 'okx', 'bitget'} and not paper and not demo:
+                from trading.entry_margin_policy import confirm_entry_margin
+                normalized_symbol = self._normalize_symbol_for_adapter(exchange_client, symbol)
+                if not confirm_entry_margin(exchange_client, normalized_symbol, self.settings):
+                    self.recorder.update_crypto_order_command(crypto_command_id, status="rejected", error_class="margin_setup_unconfirmed")
+                    get_opportunity_coordinator(self).release(opportunity_auth)
+                    return {"status":"skipped", "reason":"margin_setup_unconfirmed: 요청한 교차·격리 방식 확인 실패 · 신규 진입 보류"}
+                try:
+                    setter = getattr(exchange_client, 'set_leverage', None)
+                    if callable(setter): setter(normalized_symbol, int(leverage))
+                except Exception:
+                    self.logger.warning('leverage_setup_unconfirmed')
 
             # 주문 실행 (어댑터 심볼 규칙 적용 + 사이드 매핑 + 경로 통일)
             order_symbol = self._normalize_symbol_for_adapter(exchange_client, symbol) if exchange_client else symbol
@@ -3485,7 +3443,7 @@ class UnifiedTrader:
                                 try:
                                     # 🔥 closePosition=True 사용 시 quantity 파라미터 불필요 (Binance API 규칙)
                                     # place_tp_sl_orders()는 내부에서 closePosition=True를 사용하므로 quantity는 무시됨
-                                    bc.place_tp_sl_orders(symbol=symbol, position_side=pos_side, take_profit=tp_price, stop_loss=sl_price, quantity=None)
+                                    bc.place_tp_sl_orders(symbol=symbol, position_side=pos_side, take_profit=tp_price, stop_loss=sl_price, quantity=None, working_type=self.settings.get("tp_sl_working_type", "MARK_PRICE"))
                                     self.logger.info(f"🛡️ {exchange_name} {symbol} TP/SL 주문 발주(TP:{tp_price:.6f}, SL:{sl_price:.6f})")
                                 except Exception as tp_e:
                                     self.logger.warning(f"{exchange_name} {symbol} TP/SL 주문 발주 실패(계속): {tp_e}")

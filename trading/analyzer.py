@@ -1890,7 +1890,7 @@ class Analyzer:
                 log_event(
                     level='INFO',
                     category='analysis',
-                    message=f"{symbol} Multi-timeframe RSI: 5m={rsi_5:.2f}, 10m={rsi_10:.2f}, 14m={rsi:.2f}, 21m={rsi_21:.2f}",
+                    message=f"{symbol} 동일 시간봉 RSI 기간 비교: 5봉={rsi_5:.2f}, 10봉={rsi_10:.2f}, {rsi_period}봉={rsi:.2f}, 21봉={rsi_21:.2f}",
                     exchange=str(self._exchange_context or 'binance')
                 )
 

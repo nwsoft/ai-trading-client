@@ -202,6 +202,7 @@ class HeadlessTradingRuntime:
             recorder=self.recorder,
             settings=self.settings,
             logger=self.logger,
+            history_path=Path(get_app_data_dir()) / "ai_tuning_proposals.jsonl",
         )
         self.auto_optimizer.start()
         self.stock_runtime_controller = StockRuntimeController(
@@ -213,6 +214,31 @@ class HeadlessTradingRuntime:
             web_runtime=True,
             logger=self.logger,
         )
+
+        self._parallel_exit_stop = threading.Event()
+        self._parallel_exit_thread = threading.Thread(target=self._parallel_exit_loop, name="paper-exit-watch", daemon=True)
+        self._parallel_exit_thread.start()
+
+    def _parallel_exit_quote(self, target, symbol, asset):
+        # Existing virtual positions need public prices, never order authority or a new OCX login.
+        if asset in {"stock", "etf"}:
+            controller = self.stock_runtime_controller
+            adapter = controller._adapters.get(controller._canonical(target))
+            if adapter is None or not getattr(adapter, "is_connected", False): return 0.0
+            quote = adapter.get_realtime_price(symbol)
+            return float(quote.get("price", quote.get("current_price", 0)) or 0)
+        if target == "binance":
+            client = self.binance_client
+            return client.get_current_price(symbol) if client else 0.0
+        return self.exchange_manager.get_current_price(symbol, exchange_name=target)
+
+    def _parallel_exit_loop(self):
+        while not self._parallel_exit_stop.is_set():
+            try:
+                self.parallel_strategy_paper.service_exits(self._parallel_exit_quote)
+            except Exception:
+                self.logger.warning("parallel_paper_exit_service_unavailable")
+            if self._parallel_exit_stop.wait(5.0): break
 
     def _initialize_strategy_runtime(self) -> None:
         from ai_chat_strategy import AITradingChatbot
@@ -481,6 +507,8 @@ class HeadlessTradingRuntime:
         if paper_mode:
             from trading.strategy_scope import runtime_paper_pool
             pool = runtime_paper_pool(pool, self)
+        from trading.strategy_scope import runtime_applied_pool
+        pool = runtime_applied_pool(pool, self)
         for engine in (self.trader, self.unified_trader):
             if engine is not None:
                 engine.active_custom_strategy_pool = list(pool)
@@ -781,6 +809,12 @@ class HeadlessTradingRuntime:
                 return {"safe_to_exit": True, "already_complete": True, "running_sources": []}
             self._accepting_commands = False
             errors: list[str] = []
+            paper_stop = getattr(self, "_parallel_exit_stop", None)
+            paper_thread = getattr(self, "_parallel_exit_thread", None)
+            if paper_stop is not None: paper_stop.set()
+            if paper_thread is not None:
+                paper_thread.join(timeout=15.0)
+                if paper_thread.is_alive(): errors.append("parallel_paper_exit_shutdown_timeout")
             if self.alpha_arena_runner is not None:
                 try:
                     self.alpha_arena_runner.stop()

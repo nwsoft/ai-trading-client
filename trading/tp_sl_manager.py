@@ -87,7 +87,7 @@ class TpSlManager:
     def _protective_order_is_open(order: Dict[str, Any]) -> bool:
         status = str(order.get("algoStatus") or order.get("status") or "PENDING").upper()
         working_type = str(order.get("workingType") or "MARK_PRICE").upper()
-        return status in {"NEW", "PENDING", "WORKING"} and working_type == "MARK_PRICE"
+        return status in {"NEW", "PENDING", "WORKING"} and working_type in {"MARK_PRICE", "CONTRACT_PRICE"}
 
     def create_tp_sl(
         self,

@@ -590,6 +590,7 @@ class OkxFuturesAdapter(FuturesExchange):
             self.logger.info(f"OKX 마진 타입 설정 완료: {symbol} -> {margin_mode}, leverage={current_leverage}")
             return True
         except Exception as e:
+            if type(e).__name__ == "MarginModeAlreadySet": return True
             error_msg = str(e).lower()
             # OKX 계정 모드 문제 감지 (51010 에러)
             if '51010' in error_msg or 'account mode' in error_msg:

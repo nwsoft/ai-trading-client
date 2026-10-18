@@ -28,6 +28,8 @@ export interface RuntimeSnapshot {
   credential_status: Record<string, boolean>;
   configured_sources_by_service: Record<string, string[]>;
   execution_modes: Record<string, "learning" | "paper" | "live">;
+  tuning_status?: {status: string; proposal: Record<string, any>; history?: Array<Record<string, any>>; history_status?: string; automatic_shared_setting_change: boolean; indicator_period_search: boolean; description: string};
+  parallel_paper_status?: {state: string; open_positions?: number; pending_closes: number; last_checked_at?: string | null; reason_code?: string};
   paper_trading: boolean | null;
   live_trading: boolean | null;
   captured_at: string;
@@ -405,6 +407,7 @@ export interface WorkspaceSnapshot {
     execution_authority?: "exchange_execution_log" | "trade_log" | "paper_virtual_fill_ledger";
     legacy_execution_modes_mapped_to_live?: string[];
     legacy_unattributed_count?: number;
+    paper_capital_notice?: string;
   };
   period_statistics?: WorkspaceSnapshot["trading_statistics"];
   statistics_view?: {

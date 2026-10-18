@@ -408,6 +408,7 @@ class BitgetFuturesAdapter(FuturesExchange):
             self.logger.info(f"Bitget 마진 타입 설정 완료: {symbol} -> {margin_mode}")
             return True
         except Exception as e:
+            if type(e).__name__ == "MarginModeAlreadySet": return True
             self.logger.error(f"마진 타입 설정 실패: {e}")
             return False
     

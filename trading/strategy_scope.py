@@ -50,19 +50,30 @@ def runtime_paper_pool(strategies, owner):
     return output
 
 
+def runtime_applied_pool(strategies, owner):
+    """Only runtime membership may raise LIVE evaluation capacity. Default stays ten."""
+    from membership_policy import normalize_user_grade
+    maximum = 30 if normalize_user_grade(getattr(owner, "current_user_grade", "")) == "premium" else 10
+    try: requested = int((getattr(owner, "settings", {}) or {}).get("live_strategy_evaluation_limit", 10))
+    except (ValueError, TypeError): requested = 10
+    cap = max(1, min(maximum, requested))
+    return [{**row, "_runtime_applied_limit":cap} for row in strategies]
+
+
 def scoped_pool(strategies, *, asset_class: str, target: str, limit: int | None = None):
     eligible = scope_candidates(strategies, asset_class=asset_class, target=target)
     if limit is not None:
         return eligible[:max(0, int(limit))]
+    applied_cap = max(1, min(30, max([int(v.get("_runtime_applied_limit", 10)) for v in eligible] or [10])))
     cap = max([int(v.get('_runtime_paper_limit', 10)) for v in eligible
                if v.get('operation_mode') == 'paper_validation'] or [10])
-    cap = max(1, min(30, cap))
+    cap = max(applied_cap if any(v.get("operation_mode") != "paper_validation" and "_runtime_applied_limit" in v for v in eligible) else 1, max(1, min(30, cap)))
     selected, applied = [], 0
     for item in eligible:
         if len(selected) >= cap:
             break
         if item.get('operation_mode') != 'paper_validation':
-            if applied >= 10:
+            if applied >= applied_cap:
                 continue
             applied += 1
         selected.append(item)

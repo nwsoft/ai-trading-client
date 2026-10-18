@@ -59,7 +59,9 @@ export function TradingStatisticsWorkspace({
   const [customEnd, setCustomEnd] = useState("");
   const initialMode = defaultSource && String(runtime?.execution_modes?.[defaultSource] ?? "").toLowerCase() === "paper" ? "paper" : "live";
   const [statisticsMode, setStatisticsMode] = useState<"live" | "paper">(initialMode);
+  const [paperCohort, setPaperCohort] = useState("all");
   const requestSequence = useRef(0);
+  useEffect(() => { setPaperCohort("all"); }, [selectedSource, period, customStart, customEnd, statisticsMode]);
 
   function refresh() {
     const requestId = ++requestSequence.current;
@@ -114,7 +116,19 @@ export function TradingStatisticsWorkspace({
     if (selectedSource !== "all" && !sources.includes(selectedSource)) setSelectedSource("all");
   }, [selectedSource, sources]);
 
-  const statistics = snapshot?.trading_statistics ?? snapshot?.period_statistics;
+  const rawStatistics = snapshot?.trading_statistics ?? snapshot?.period_statistics;
+  const cohortOptions = Array.from(new Map((rawStatistics?.groups ?? []).map(g => [String(g.cohort_key ?? "legacy"), g])).values());
+  const selectedGroups = (rawStatistics?.groups ?? []).filter(g => paperCohort === "all" || String(g.cohort_key ?? "legacy") === paperCohort);
+  const filteredPaper = statisticsMode === "paper" && paperCohort !== "all" && rawStatistics;
+  const statistics = filteredPaper ? {...rawStatistics, groups: selectedGroups,
+    closed_count: selectedGroups.reduce((n,g) => n + Number(g.closed_count ?? 0), 0),
+    win_rate: selectedGroups.reduce((n,g) => n + Number(g.winning_trades ?? 0), 0) / Math.max(1, selectedGroups.reduce((n,g) => n + Number(g.closed_count ?? 0), 0)) * 100,
+    pnl_by_currency: selectedGroups.reduce((a,g) => ({...a, [g.currency]: (a[g.currency] ?? 0) + Number(g.total_pnl ?? 0)}), {} as Record<string, number>),
+    fees_by_currency: selectedGroups.reduce((a,g) => ({...a, [g.currency]: (a[g.currency] ?? 0) + Number(g.total_fees ?? 0)}), {} as Record<string, number>),
+    notional_by_currency: selectedGroups.reduce((a,g) => ({...a, [g.currency]: (a[g.currency] ?? 0) + Number(g.total_notional ?? 0)}), {} as Record<string, number>),
+    valid_hold_count: selectedGroups.reduce((n,g) => n + Number(g.valid_hold_count ?? 0), 0),
+    avg_hold_minutes: selectedGroups.reduce((n,g) => n + Number(g.avg_hold_minutes ?? 0) * Number(g.valid_hold_count ?? 0), 0) / Math.max(1, selectedGroups.reduce((n,g) => n + Number(g.valid_hold_count ?? 0), 0)),
+  } : rawStatistics;
   const groups = statistics?.groups ?? [];
   const filterLabel = service === "stock" ? "증권사 필터" : "거래소 필터";
   const reconciledCount = Number(statistics?.reconciled_closed_count ?? 0);
@@ -181,7 +195,13 @@ export function TradingStatisticsWorkspace({
         </select>
       </label>
     </header>
+    <details className="workspace-copy"><summary>지표 보정·최적화 제안 확인</summary><p>{runtime?.tuning_status?.description ?? "운용을 시작한 뒤 현재 제안을 확인할 수 있습니다."}</p><p>현재 상태: {runtime?.tuning_status?.status === "proposal_awaiting_review" ? "검토 대기 · 미적용" : "현재 제안 없음 · 자동 적용을 뜻하지 않습니다"}</p><p>제안 이력 저장: {runtime?.tuning_status?.history_status === "ready" ? "정상" : runtime?.tuning_status?.history_status === "unavailable" ? "확인 필요 · 과거 이력 미확인" : "시작 전"} · 적용 이력과 구분</p>{[...(runtime?.tuning_status?.history ?? [])].reverse().slice(0, 6).map((p, index) => <p key={index}>{p.generated_at ? new Date(p.generated_at).toLocaleString() : "시각 미기록"} · 미적용 제안: 익절 {numberText(Number(p.current_parameters?.default_tp) * 100)}% → {numberText(Number(p.default_tp) * 100)}%, 손절 {numberText(Number(p.current_parameters?.default_sl) * 100)}% → {numberText(Number(p.default_sl) * 100)}%, 레버리지 {p.current_parameters?.default_leverage ?? "미기록"} → {p.default_leverage ?? "미기록"}배 · 관찰 승률 {p.evidence?.win_rate == null ? "미기록" : `${numberText(Number(p.evidence.win_rate) * 100)}%`}</p>)}</details>
     {periodControls}
+    {statisticsMode === "paper" && <aside className="workspace-copy" aria-label="PAPER 검증 경로와 자금 기준">
+      <label className="paper-cohort-filter">검증 경로·자금 기준 <select aria-label="검증 경로·자금 기준" value={paperCohort} onChange={e => setPaperCohort(e.target.value)}><option value="all">전체 기록 합계 · 계좌 수익률 아님</option>{cohortOptions.map(g => <option key={String(g.cohort_key)} value={String(g.cohort_key)}>{g.validation_label} · {g.capital_label}</option>)}</select></label>
+      <p>{rawStatistics?.paper_capital_notice} LIVE 병행 검증은 기록 생성 경로이며 현재 LIVE 실행을 뜻하지 않습니다.</p>
+      <p role="status">기존 병행 PAPER 청산 점검: {{needs_attention:"확인 필요", watching:"기존 가상 포지션 점검 중", idle:"저장 대기 없음 · 병행 가상 보유 없음", not_started:"시작 전"}[runtime?.parallel_paper_status?.state ?? "not_started"] ?? "확인 중"} · 저장 대기 {runtime?.parallel_paper_status?.pending_closes ?? 0}건 · 최근 확인 {runtime?.parallel_paper_status?.last_checked_at ? new Date(runtime.parallel_paper_status.last_checked_at).toLocaleString() : "미확인"}{runtime?.parallel_paper_status?.reason_code ? ` · ${{parallel_paper_quote_unavailable:"시세 연결을 확인하세요", parallel_paper_snapshot_invalid:"가상 보유 기록을 읽지 못했습니다. 원본을 보존하고 점검하세요", parallel_paper_close_storage_unavailable:"청산 저장 대기 · 디스크 여유와 저장 권한을 확인하세요"}[runtime.parallel_paper_status.reason_code] ?? "기록 저장·대조 확인이 필요합니다"}` : ""}</p>
+    </aside>}
     <p className="workspace-copy">{t("조회 범위: ")}{rangeLabel} · {sourceLabel} · {statisticsMode.toUpperCase()}{t(". 전체 대시보드는 오늘, 기관별 카드는 전체 기간입니다. 같은 기간·기관·모드로 비교하세요.")}</p>
     {statisticsMode === "live" && <aside className="workspace-copy" aria-label={t("손익 비교 기준")}>
       <p><b>{t("NoahAI 연결 청산 순손익")}{unresolvedCount > 0 ? " · 확정분 부분 합계" : ""}: {totalPnl}</b>{t(" · 진입·청산 수수료 반영 기준, 펀딩비 포함 계좌 총손익과는 다릅니다.")}</p>
@@ -207,8 +227,10 @@ export function TradingStatisticsWorkspace({
         {[service === "stock" ? "종목" : "코인", "총 거래", "익절", "손절", "승률", "평균 순수익률", "연결 청산 총손익", "순손익", "수수료·세금", "최대 순수익", "최대 순손실"].map((label) => <b key={label}>{label}</b>)}
       </div>
       <div className="legacy-stat-body">
-      {groups.map((group) => <section className="legacy-stat-group" key={String(group.source)}>
-        <h2>{String(group.label)}{group.attribution_status === "legacy_source_unconfirmed" ? " · 출처 미확정" : ""}</h2>
+      {groups.map((group) => <section className="legacy-stat-group" key={String(group.group_key ?? group.source)}>
+        <h2>{String(group.label)}{isPaper ? ` · ${group.validation_label} · ${group.capital_label}` : ""}{group.attribution_status === "legacy_source_unconfirmed" ? " · 출처 미확정" : ""}</h2>
+        {isPaper && group.capital_observed_min != null && <p>진입 시점 관측자금: {numberText(group.capital_observed_min)}~{numberText(group.capital_observed_max)} {String(group.currency)} · 명목금액/계좌 수익률과 구분</p>}
+        {isPaper && Number(group.observation_review_count) > 0 && <p>관찰 연속성 확인 필요 {group.observation_review_count}건 · 원본 손익을 보존하며 검증 통과와 구분합니다.</p>}
         <p><b>{performanceLabel} 승률 {group.win_rate == null ? emptyPerformance : `${numberText(group.win_rate, 1)}%`}</b> · {t("총 ")}{Number(group.closed_count ?? 0).toLocaleString()}{t("건 | ")}{performanceLabel}{t(" 순손익 ")}{Number(isPaper ? group.closed_count : group.reconciled_count) > 0 ? `${numberText(group.total_pnl)} ${String(group.currency ?? "")}` : emptyPerformance}{t(" | 비용 ")}{numberText(group.total_fees)} {String(group.currency ?? "")} | {isPaper ? "가상 원장 기준 · 거래소 체결 대조 대상 아님" : `체결 대조 ${Number(group.reconciled_count ?? 0)}/${Number(group.closed_count ?? 0)}건 · 미확정 ${Number(group.unresolved_count ?? 0)}건`}</p>
         <p className="operating">{isPaper ? t("가상") : "실제"}{t(" 체결금액 ")}{numberText(group.total_notional)} {String(group.currency ?? "")}{t(" | 평균 보유시간 ")}{holdText(group.avg_hold_minutes)}{t(" (유효 ")}{Number(group.valid_hold_count ?? 0)}/{Number(group.closed_count ?? 0)}{t("건)")}</p>
         {(group.rows ?? []).map((row: Record<string, any>) => <div className="legacy-stat-row" key={`${String(group.source)}-${String(row.symbol)}`}>

@@ -1357,6 +1357,8 @@ def get_default_settings() -> Dict[str, Any]:
         # 거래 설정
         'default_leverage': 10,
         'default_margin_type': 'ISOLATED',
+        'tp_sl_working_type': 'MARK_PRICE',
+        'live_strategy_evaluation_limit': 10,
         'default_tp': 0.0018,
         'default_sl': 0.002,
         'rr_guardrail': {

@@ -280,9 +280,10 @@ EDITABLE_SETTINGS: tuple[EditableSetting, ...] = (
     EditableSetting("position_mode", "포지션 운영 방식", "운영 모드", "select", "집중 운용 또는 여러 포지션 분산 운용을 선택합니다.", options=("focus", "multi"), risk="high"),
     EditableSetting(
         "default_margin_type", "코인 선물 마진 방식", "운영 모드", "select",
-        "주식과 현물에는 적용되지 않습니다. 현재 자동 적용 경로는 Bybit·OKX·Bitget 선물이며, Binance 네이티브 경로에서는 이 공통값을 신뢰하면 안 됩니다. 일반 사용자는 격리 마진을 유지하세요.",
+        "주식·현물에는 적용되지 않습니다. Binance·Bybit·OKX·Bitget 선물의 신규 진입 전에 적용 확인하며 실패하면 진입을 보류합니다. 기존 포지션을 강제 전환하지 않습니다.",
         options=("ISOLATED", "CROSSED"), risk="high",
     ),
+    EditableSetting("tp_sl_working_type", "Binance TP/SL 발동 가격", "운영 모드", "select", "MARK_PRICE는 기준가격, CONTRACT_PRICE는 최근 체결가격(Last)입니다. 새 보호주문에 적용하며 기존 주문을 자동 교체하지 않습니다. 순간 급변·슬리피지로 실제 청산가는 다를 수 있습니다.", options=("MARK_PRICE", "CONTRACT_PRICE"), risk="high"),
     EditableSetting("broadcast_replay_enabled", "방송 리플레이 표시", "운영 모드", "boolean", "지원용 방송·재현 계정의 화면 상태를 다시 표시합니다. 실제 주문 권한을 열지 않습니다."),
     EditableSetting("broadcast_replay_source_account", "방송 리플레이 원본 계정", "운영 모드", "text", "리플레이 원본 계정 식별자입니다. 일반 사용자는 비워 둡니다."),
     EditableSetting("operation_mode", "튜닝 적용 방식", "전략 엔진", "select", "자동 적용·권장만 표시·미사용 중 튜닝 적용 방식을 선택합니다.", options=("auto", "guided", "pro")),
@@ -298,6 +299,7 @@ EDITABLE_SETTINGS: tuple[EditableSetting, ...] = (
     EditableSetting("position_sizing_policy.paper_equity_usdt", "PAPER 기준자금 (USDT)", "주문·위험", "number", "실계좌 잔고를 읽지 않고 해외 선물 PAPER 수량을 계산할 독립 가상 기준자금입니다.", 1, 100000000, risk="high"),
     EditableSetting("position_sizing_policy.paper_equity_krw", "PAPER 기준자금 (KRW)", "주문·위험", "number", "실계좌 잔고를 읽지 않고 국내 현물·주식 PAPER 수량을 계산할 독립 가상 기준자금입니다.", 1000, 100000000000, risk="high"),
     EditableSetting("paper_strategy_evaluation_limit", "PAPER 전략 평가 상한", "전략 스튜디오", "integer", "기관별 후보 평가 슬롯입니다. 일반 최대 10, 프리미엄 최대 30이며 회원 한도가 우선합니다. 적용 전략도 슬롯을 사용하며 초과 전략은 우선순위 순으로 대기합니다. 포지션 상한 및 LIVE 병행 검증 한도와 별개입니다.", 1, 30),
+    EditableSetting("live_strategy_evaluation_limit", "LIVE 전략 평가 상한", "전략 스튜디오", "integer", "기본 10개, 프리미엄 최대 30개입니다. 실제 평가는 우선순위·호환 범위를 따르며 동시 포지션·자금·위험 한도는 별도로 유지합니다. PAPER 통과만으로 LIVE를 시작하지 않습니다.", 1, 30, risk="high"),
     EditableSetting("parallel_strategy_paper_validation.enabled", "LIVE 중 전략 PAPER 병행검증", "전략 스튜디오", "boolean", "LIVE 주문 엔진과 분리된 가상 원장에서 승인된 전략을 검증합니다. PAPER 결과는 LIVE 자금관리나 자동 적용에 사용하지 않습니다.", risk="critical"),
     EditableSetting("parallel_strategy_paper_validation.max_strategies_per_venue", "거래소별 병행검증 전략 상한", "전략 스튜디오", "integer", "LIVE 처리 우선권을 보존하기 위해 한 거래소에서 동시에 관찰할 전략 수를 제한합니다.", 1, 10, risk="high"),
     EditableSetting("parallel_strategy_paper_validation.max_positions_per_strategy", "전략별 거래소 동시 가상 포지션 상한", "전략 스튜디오", "integer", "회원등급과 무관하게 모든 사용자가 동일하게 설정합니다. 한 전략 버전이 한 거래소에서 가상 기준자금을 중복 사용하지 않도록 최대 5개로 제한합니다.", 1, 5, risk="high"),
@@ -559,6 +561,8 @@ ADVANCED_ONLY_SETTING_PATHS = {
     "position_sizing_policy.paper_equity_krw",
     "parallel_strategy_paper_validation.enabled",
     "paper_strategy_evaluation_limit",
+    "live_strategy_evaluation_limit",
+    "tp_sl_working_type",
     "parallel_strategy_paper_validation.max_strategies_per_venue",
     "parallel_strategy_paper_validation.max_positions_per_strategy",
     "auto_trade_interval",
@@ -4455,7 +4459,7 @@ class ApplicationServices:
         crypto_sources = set(CRYPTO_VENUES)
         stock_sources = set(STOCK_VENUES)
         allowed_sources = stock_sources if asset_class == "stock" else stock_sources | crypto_sources if asset_class == "all" else crypto_sources
-        grouped: dict[tuple[str, str, str], list[dict[str, Any]]] = {}
+        grouped: dict[tuple, list[dict[str, Any]]] = {}
         recorded_count = 0
         unverified_count = 0
         outcome_rows = read_paper_strategy_outcomes(
@@ -4483,7 +4487,9 @@ class ApplicationServices:
                 continue
             symbol = str(row.get("symbol") or "UNKNOWN").upper()
             currency = str(row.get("quote_currency") or paper_quote_currency(venue, symbol)).upper()
-            grouped.setdefault((venue, symbol, currency), []).append(row)
+            from trading.paper_statistics_cohorts import cohort
+            cohort_key = cohort(row)["cohort_key"]
+            grouped.setdefault((venue, symbol, currency, cohort_key), []).append(row)
 
         rendered_groups: list[dict[str, Any]] = []
         pnl_by_currency: dict[str, float] = {}
@@ -4494,14 +4500,14 @@ class ApplicationServices:
         hold_seconds = 0.0
         hold_count = 0
         by_venue: dict[tuple[str, str], dict[str, Any]] = {}
-        for (venue, symbol, currency), rows in grouped.items():
+        for (venue, symbol, currency, cohort_key), rows in grouped.items():
             total = len(rows)
             row_wins = sum(1 for row in rows if float(row.get("net_pnl", 0.0) or 0.0) > 0)
             row_losses = sum(1 for row in rows if float(row.get("net_pnl", 0.0) or 0.0) < 0)
             pnl_values = [float(row.get("net_pnl", 0.0) or 0.0) for row in rows]
             fee_total = sum(float(row.get("fees", 0.0) or 0.0) for row in rows)
             notional_total = sum(
-                abs(float(row.get("entry_price", 0.0) or 0.0) * float(row.get("quantity", 0.0) or 0.0))
+                abs(float(row.get("entry_price", 0.0) or 0.0) * float(row.get("quantity", 0.0) or 0.0) * float(row.get("contract_size", 1.0) or 1.0))
                 for row in rows
             )
             percent_values = [
@@ -4523,12 +4529,20 @@ class ApplicationServices:
             pnl_by_currency[currency] = pnl_by_currency.get(currency, 0.0) + sum(pnl_values)
             fees_by_currency[currency] = fees_by_currency.get(currency, 0.0) + fee_total
             notional_by_currency[currency] = notional_by_currency.get(currency, 0.0) + notional_total
-            group = by_venue.setdefault((venue, currency), {
+            attribution = cohort(rows[0])
+            group = by_venue.setdefault((venue, currency, cohort_key), {
+                **attribution, "group_key": f"{venue}|{currency}|{cohort_key}",
+                "observation_review_count": 0,
                 "source": venue, "label": venue.upper(), "attribution_status": "paper_local_ledger",
                 "currency": currency, "closed_count": 0, "total_pnl": 0.0,
                 "total_fees": 0.0, "total_notional": 0.0, "hold_seconds": 0.0,
                 "hold_count": 0, "rows": [],
             })
+            observed_capital = [cohort(row)["capital_observed_at_entry"] for row in rows if cohort(row)["capital_observed_at_entry"] is not None]
+            if observed_capital:
+                group["capital_observed_min"] = min(observed_capital + ([group["capital_observed_min"]] if "capital_observed_min" in group else []))
+                group["capital_observed_max"] = max(observed_capital + ([group["capital_observed_max"]] if "capital_observed_max" in group else []))
+            group["observation_review_count"] += sum(row.get("observation_status") != "continuous" for row in rows)
             group["winning_trades"] = group.get("winning_trades", 0) + row_wins
             group["closed_count"] += total
             group["total_pnl"] += sum(pnl_values)
@@ -4579,6 +4593,7 @@ class ApplicationServices:
             "ledger_authority": "strategy_paper_outcomes.jsonl",
             "execution_authority": "paper_virtual_fill_ledger",
             "legacy_unattributed_count": 0,
+            "paper_capital_notice": "일반 PAPER와 LIVE 병행 검증은 별도 자금입니다. 합계는 계좌 수익률이 아니며 명목금액은 기준자금과 다릅니다. 과거 기준금액·관찰 연속성 미기록은 추정하지 않습니다.",
         }
         # Cache only aggregates, never 100k raw rows or user credentials.
         if len(cache) >= 24:
@@ -4638,7 +4653,7 @@ class ApplicationServices:
                        and row.get("strategy_key") == strategy_key and row.get("version_id") == version_id
                        and pipeline.paper_observation_contains(version, row.get("opened_at") or row.get("closed_at"))]
             recorded_violations, unknown_risk = _paper_risk_counts(related)
-            evidence_complete = unknown_risk == 0 and all(paper_outcome_calculation_status(row) == "valid" for row in related)
+            evidence_complete = unknown_risk == 0 and all(paper_outcome_calculation_status(row) == "valid" and row.get("observation_status") not in {"observation_gap", "legacy_observation_gap"} for row in related)
             current = dict(version.get("paper_validation") or {})
             current_metrics = dict(current.get("metrics") or {})
             evidence_contract = sorted(
@@ -4650,6 +4665,7 @@ class ApplicationServices:
                     float(row.get("estimated_slippage", 0.0) or 0.0),
                     str(row.get("cost_calculation_status") or ""),
                     str(row.get("guardrail_violations", "unrecorded")),
+                    str(row.get("observation_status") or "unrecorded"),
                 )
                 for row in rows
             )

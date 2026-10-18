@@ -233,6 +233,7 @@ class KiwoomProcessProxy(StockExchange):
             "kiwoom_manual_reconnect_required: 키움 세션 상태가 불확실하여 자동 재로그인을 "
             "차단했습니다. 중복 로그인 알림을 확인하고 NoahAI의 증권 거래 실행을 중지한 뒤 "
             "키움 연결 상태를 정리하고 다시 시작하세요. "
+            "Windows의 키움 NKStarter 권한 승인창 또는 로그인창이 대기 중인지 확인하세요. UAC를 자동 승인하지 않습니다. "
             f"최초 오류: {self._restart_blocked_reason}"
         )
 

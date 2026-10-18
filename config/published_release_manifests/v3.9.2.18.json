@@ -1,0 +1,178 @@
+{
+    "version":  "3.9.2.18",
+    "release_label":  "v3.9.2.18 Opt-in Product Metrics and Durable Delivery",
+    "channel":  "stable",
+    "generated_at":  "2026-10-18T05:00:19.0102014Z",
+    "source_fingerprint":  "11f6c246beffe0e5cb94e2ddb22123a18d8906d78272e71b8c553ed0db7afcff",
+    "source_revision":  "07e017754dd9dd1be044b9eec0fe8f054512f315",
+    "source_worktree_dirty":  true,
+    "source_archive_authoritative":  false,
+    "build_status":  "windows_verified_release_candidate",
+    "automated_checks_passed":  true,
+    "publish_ready":  true,
+    "notes_file":  "release_notes.md",
+    "verification":  {
+                         "sha256_required":  true,
+                         "authenticode_required":  false,
+                         "source":  "github_release_manifest",
+                         "branding":  {
+                                          "assets":  {
+                                                         "icon.ico":  "d9cd39ecfc52d0f1b37f9760130fb1edf96259c26fc7b429b49194caa67c2519",
+                                                         "icon.png":  "bc47272288999dfd627b62acb39bf79dec213448f1afa0db9bf28d1764a4030c",
+                                                         "webui/public/icon.png":  "bc47272288999dfd627b62acb39bf79dec213448f1afa0db9bf28d1764a4030c"
+                                                     },
+                                          "executables":  [
+                                                              {
+                                                                  "name":  "NoahAI.exe",
+                                                                  "sha256":  "ad572d72f50e4c86fae65cba069f46f9d3446fdb11f17bae4399f39d55619f99",
+                                                                  "matching_groups":  [
+                                                                                          [
+                                                                                              1,
+                                                                                              1033
+                                                                                          ]
+                                                                                      ],
+                                                                  "image_count":  7,
+                                                                  "verified":  true
+                                                              },
+                                                              {
+                                                                  "name":  "NoahAI-3.9.2.18-Setup.exe",
+                                                                  "sha256":  "8e8453a03b4e77447673c082d1720e6cf32f38ce5cff4ce574846fa32e860f88",
+                                                                  "matching_groups":  [
+                                                                                          [
+                                                                                              103,
+                                                                                              1033
+                                                                                          ]
+                                                                                      ],
+                                                                  "image_count":  7,
+                                                                  "verified":  true
+                                                              }
+                                                          ]
+                                      }
+                     },
+    "assets":  {
+                   "installer":  {
+                                     "name":  "NoahAI-3.9.2.18-Setup.exe",
+                                     "size":  454391569,
+                                     "sha256":  "8e8453a03b4e77447673c082d1720e6cf32f38ce5cff4ce574846fa32e860f88",
+                                     "download_url":  "https://github.com/nwsoft/ai-trading-client/releases/download/v3.9.2.18/NoahAI-3.9.2.18-Setup.exe"
+                                 },
+                   "latest_yml":  {
+                                      "name":  "latest.yml",
+                                      "size":  349,
+                                      "sha256":  "c7bb8364ad7db2542cdf8ab99f23ed197d476d136dda07cf1d83088d5288ab25",
+                                      "download_url":  "https://github.com/nwsoft/ai-trading-client/releases/download/v3.9.2.18/latest.yml"
+                                  },
+                   "blockmap":  {
+                                    "name":  "NoahAI-3.9.2.18-Setup.exe.blockmap",
+                                    "size":  473274,
+                                    "sha256":  "66dea8588805e3fb7a82937e3c57dcabf90fa518f71e745a0b6cb520893a7d6e",
+                                    "download_url":  "https://github.com/nwsoft/ai-trading-client/releases/download/v3.9.2.18/NoahAI-3.9.2.18-Setup.exe.blockmap"
+                                },
+                   "engine_sidecar":  {
+                                          "name":  "NoahAIEngine.exe",
+                                          "size":  305696707,
+                                          "sha256":  "c620a7c0e60695d39f99a1fb653c60ea68f5ccbb0f130dc72bd4c16a06cacc25",
+                                          "distribution":  "embedded_in_installer"
+                                      },
+                   "kiwoom_host":  {
+                                       "name":  "NoahAIKiwoomHost.exe",
+                                       "size":  46694999,
+                                       "sha256":  "7b0daeff68c91bd0eef864798b9eed86ef7b6ecf5038e4a4b6717d3411f52c8d",
+                                       "pe_machine":  "0x14c",
+                                       "supported":  true,
+                                       "distribution":  "embedded_in_installer"
+                                   }
+               },
+    "update_contract":  {
+                            "provider":  "electron_updater_github",
+                            "metadata":  "latest.yml",
+                            "product_version":  "3.9.2.18",
+                            "updater_semver":  "3.9.218",
+                            "version_mapping":  "A.B.C.D -\u003e A.B.(C*100+D); D=0..99",
+                            "check_policy":  "automatic_on_app_start",
+                            "download_policy":  "user_approved",
+                            "install_policy":  "user_approved_safe_shutdown_restart",
+                            "user_actions":  [
+                                                 "download",
+                                                 "install_and_restart"
+                                             ],
+                            "legacy_single_exe_updater":  "retired_after_v3.9.0.10"
+                        },
+    "previous_published_asset":  {
+                                     "version":  "3.9.2.17",
+                                     "release_label":  "v3.9.2.17",
+                                     "path":  "deploy/web-release/NoahAI-3.9.2.17-Setup.exe",
+                                     "size":  451717560,
+                                     "sha256":  "b96a0fe222e20fe78ad53fed8271bd42619e6d1c504e971ff9d8298f291ae393",
+                                     "purpose":  "previous_published_windows_build"
+                                 },
+    "external_validation_status":  "pending",
+    "external_validation_plan":  "DEPLOY_CHECKLIST.md",
+    "external_validation_pending_count":  10,
+    "external_validation":  [
+                                "UPLOAD",
+                                "REPLAY-COST",
+                                "CATALOG",
+                                "WIN-BUILD",
+                                "WIN-UPGRADE",
+                                "CONSENT-UI",
+                                "OFFLINE-UI",
+                                "PROVIDER",
+                                "ROLLBACK",
+                                "PUBLISH"
+                            ],
+    "external_validation_items":  [
+                                      {
+                                          "id":  "UPLOAD",
+                                          "status":  "pending",
+                                          "description":  "기존 전략 업로드 원문·승인·버전 보존"
+                                      },
+                                      {
+                                          "id":  "REPLAY-COST",
+                                          "status":  "pending",
+                                          "description":  "기존 PAPER/거래 비용·손익 재생 보존"
+                                      },
+                                      {
+                                          "id":  "CATALOG",
+                                          "status":  "pending",
+                                          "description":  "현재 기관 종목/시세 조회와 재접속 인수"
+                                      },
+                                      {
+                                          "id":  "WIN-BUILD",
+                                          "status":  "pending",
+                                          "description":  "전체 회귀·생략 감사·엔진/호스트·설치기·소스/해시 검증"
+                                      },
+                                      {
+                                          "id":  "WIN-UPGRADE",
+                                          "status":  "pending",
+                                          "description":  ".17→.18 설정/키/전략/원장/손익 보존 설치 인수"
+                                      },
+                                      {
+                                          "id":  "CONSENT-UI",
+                                          "status":  "pending",
+                                          "description":  "설치 화면에서 기본 꺼짐·동의·철회·계정 전환 인수"
+                                      },
+                                      {
+                                          "id":  "OFFLINE-UI",
+                                          "status":  "pending",
+                                          "description":  "설치 화면에서 오프라인·종료/재시작·재전송·수신 인수"
+                                      },
+                                      {
+                                          "id":  "PROVIDER",
+                                          "status":  "pending",
+                                          "description":  "기관/OCX·외부 AI·24/72시간 PAPER 인수"
+                                      },
+                                      {
+                                          "id":  "ROLLBACK",
+                                          "status":  "pending",
+                                          "description":  ".17 설치기 보존·고객 데이터 초기화 없이 복구 인수"
+                                      },
+                                      {
+                                          "id":  "PUBLISH",
+                                          "status":  "pending",
+                                          "description":  "새 태그/자산/latest/manifest/source provenance 일치"
+                                      }
+                                  ],
+    "external_validation_scope":  "release_checklist_snapshot",
+    "external_validation_plan_sha256":  "8da08f63201885245cd005640b1e80d8bb482bba02df4449eaf9c5f4329fbd74"
+}

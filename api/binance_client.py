@@ -1940,6 +1940,8 @@ class BinanceClient:
             return True
 
         except Exception as e:
+            if getattr(e, "code", None) == -4046:  # Exchange confirms the requested mode is already set.
+                return True
             self.logger.error(f"마진 타입 설정 오류: {e}")
             return False
 
@@ -2546,8 +2548,13 @@ class BinanceClient:
         stop_loss: float,
         quantity: Optional[float] = None,
         price_precision: Optional[int] = None,
+        working_type: str = "MARK_PRICE",
     ) -> Tuple[Optional[Dict], Optional[Dict]]:
         """안전장치용 TP/SL 오더 발주(TAKE_PROFIT_MARKET, STOP_MARKET)"""
+        working_type = str(working_type).upper()
+        working_type = {"LAST": "CONTRACT_PRICE", "MARK": "MARK_PRICE"}.get(working_type, working_type)
+        if working_type not in {"MARK_PRICE", "CONTRACT_PRICE"}:
+            raise ValueError("protection_working_type_invalid")
         # 🔥 디버깅: 메서드 호출 확인 (log_event 사용)
         self.log_event('order', f"[{symbol}] 🔍 place_tp_sl_orders() 호출됨 - TP={take_profit}, SL={stop_loss}, position_side={position_side}")
         
@@ -2629,7 +2636,7 @@ class BinanceClient:
                 'order_type': 'TAKE_PROFIT_MARKET',
                 'stop_price': tp_price,
                 'close_position': True,  # 🔥 closePosition=True 사용 (reduceOnly 제거)
-                'working_type': 'MARK_PRICE',
+                'working_type': working_type,
             }
             sl_params = {
                 'symbol': symbol,
@@ -2637,7 +2644,7 @@ class BinanceClient:
                 'order_type': 'STOP_MARKET',
                 'stop_price': sl_price,
                 'close_position': True,  # 🔥 closePosition=True 사용 (reduceOnly 제거)
-                'working_type': 'MARK_PRICE',
+                'working_type': working_type,
             }
             
             # 헤지 모드일 때 positionSide 추가

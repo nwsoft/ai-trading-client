@@ -13,3 +13,4 @@ config/published_release_manifests/v3.9.2.11.json -text
 
 # All hash-pinned public archives retain their original bytes in future releases.
 config/published_release_manifests/*.json -text
+config/published_release_manifests/v3.9.2.18.json -text

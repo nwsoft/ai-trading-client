@@ -3649,3 +3649,7 @@ html[lang="en"] button { white-space: normal; overflow-wrap: break-word; }
 .product-metrics-consent label { display: flex; align-items: flex-start; gap: 8px; margin: 12px 0; }
 .product-metrics-consent input { margin-top: 5px; }
 .product-metrics-consent button { min-height: 40px; white-space: normal; padding: 8px 12px; }
+
+/* PAPER cohorts share the existing dark control palette. */
+.paper-cohort-filter{display:flex;align-items:center;flex-wrap:wrap;gap:10px;font-weight:600}
+.paper-cohort-filter select{min-height:36px;max-width:100%;padding:6px 12px;border:1px solid #426078;border-radius:6px;background:#1b344d;color:#f5f8fc;font:inherit}

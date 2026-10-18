@@ -53,6 +53,9 @@ def paper_position_execution_evidence(
             canonical = json.dumps(rules, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
             contract_hash = hashlib.sha256(canonical.encode("utf-8")).hexdigest()
     return {
+        "validation_path": "runtime_paper",
+        "capital_basis": "runtime_virtual_account",
+        "capital_reference": sizing.get("account_equity"),
         "leverage": get("leverage"),
         "contract_size": sizing.get("contract_size", 1.0),
         "entry_reason": str(
@@ -119,6 +122,8 @@ def record_paper_strategy_outcome(
     smart_exit_source: str = "",
     smart_exit_reason: str = "",
     strategy_contract_hash: str = "",
+    validation_path: str = "", capital_basis: str = "", capital_reference: float | None = None,
+    observation_status: str = "", exit_observed_at: str = "", exit_commit_status: str = "",
     close_recovery: dict | None = None,
     ledger_file: Path | None = None,
 ) -> dict[str, Any]:
@@ -205,6 +210,10 @@ def record_paper_strategy_outcome(
         "guardrail_violations": max(0, int(guardrail_violations or 0)),
         "execution_mode": "paper",
     }
+    for key, value in dict(validation_path=validation_path, capital_basis=capital_basis,
+            capital_reference=capital_reference, observation_status=observation_status,
+            exit_observed_at=exit_observed_at, exit_commit_status=exit_commit_status).items():
+        if value is not None and value != "": row[key] = value
     if close_recovery is not None:
         from trading.paper_position_store import recovery_digest
         proof = {key: value for key, value in close_recovery.items() if key != 'sha256'}

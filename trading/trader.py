@@ -1901,6 +1901,7 @@ class Trader:
     def _place_owned_binance_protection(self, *, entry_order_id=None, **kwargs):
         # Persist only protection IDs returned from our own submission. Do not
         # adopt arbitrary exchange open orders by matching symbol or TP price.
+        kwargs.setdefault("working_type", (getattr(self, "settings", {}) or {}).get("tp_sl_working_type", "MARK_PRICE"))
         results = self.binance_client.place_tp_sl_orders(**kwargs)
         symbol = str(kwargs.get('symbol') or '')
         position = getattr(self, 'active_positions', {}).get(symbol)
@@ -3822,6 +3823,13 @@ class Trader:
                 self.log_event('trade', f"[{symbol}] ⚠️ 잔고 검증 중 오류: {e}", level='WARNING')
                 # 오류 발생 시에도 거래 계속 진행 (current_price가 0이면 나중에 재조회)
 
+            # A rejected/unknown margin setup must not fall through to a new LIVE entry.
+            if 'default_margin_type' in self.settings:
+                from trading.entry_margin_policy import confirm_entry_margin
+                if not confirm_entry_margin(self.binance_client, symbol, self.settings):
+                    self.log_event('trade', f'[{symbol}] margin_setup_unconfirmed: 요청한 교차·격리 방식을 확인하지 못해 신규 진입 보류', level='WARNING')
+                    self._reset_trade_flag(symbol)
+                    return False
             # 레버리지 설정
             self.log_event('trade', f"[{symbol}] 🔍 레버리지 설정: {leverage}x")
             self.binance_client.set_leverage(symbol, leverage)

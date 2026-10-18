@@ -1,3 +1,62 @@
+## 2026-10-19 — v3.9.2.19 PAPER 청산 복구·거래 피드백 (소스 후보)
+
+현재 소스 후보 버전: **v3.9.2.19** · 현재 공개 버전: **v3.9.2.18**
+제품 3.9.2.19 · updater 3.9.219 · renderer 3.9.2.19-ui.20261019.1. 공개 기반은 `07e017754dd9dd1be044b9eec0fe8f054512f315`입니다. 아래 이전 버전의 후보·게시·검증 상태는 당시 이력입니다.
+기존 설정·인증정보·전략 원문/버전/승인·원장·과거 손익을 초기화하지 않습니다. 이번 Mac 소스 후보 작업은 Windows 빌드·설치·기관 인수·게시를 뜻하지 않습니다. 절차 정본은 `docs/BUILD_GUIDE.md`, 검증 근거는 `reports/v39219-feedback-20261019/validation.json`, Windows 인계는 같은 폴더 `handoff.json`입니다.
+
+### Windows에서 사용할 소스와 순서
+
+원본 비Git 폴더/옛 dist를 빌드하지 않습니다. Synology로 전달한 `reports/v39219-feedback-20261019/handoff.json`과 같은 폴더의 bundle이 정본입니다. 아래 경로만 자신의 Windows 동기화 경로로 바꿉니다. PowerShell에서 순서대로 실행하고 실패하면 중단합니다.
+
+```powershell
+$ErrorActionPreference = "Stop"
+function Invoke-NoahChecked([scriptblock]$Command) {
+    & $Command
+    if ($LASTEXITCODE -ne 0) { throw "Command failed: $LASTEXITCODE" }
+}
+$handoffPath = (Resolve-Path "D:\SynologyDrive\Works\noahai_client\reports\v39219-feedback-20261019\handoff.json").Path
+$handoff = Get-Content -LiteralPath $handoffPath -Raw -Encoding UTF8 | ConvertFrom-Json
+if ($handoff.source_version -ne "3.9.2.19") { throw "Wrong version" }
+$bundlePath = Join-Path (Split-Path -Parent $handoffPath) $handoff.bundle
+if ((Get-FileHash $bundlePath -Algorithm SHA256).Hash.ToLowerInvariant() -ne $handoff.bundle_sha256) { throw "Bundle hash mismatch" }
+$buildRoot = "C:\NoahAI\client-v39219-final-20261019"
+if (Test-Path $buildRoot) { throw "Use a new empty directory" }
+Invoke-NoahChecked { git clone $bundlePath $buildRoot }
+Set-Location $buildRoot
+Invoke-NoahChecked { git switch $handoff.branch }
+if ((git rev-parse HEAD).Trim() -ne $handoff.source_commit) { throw "Commit mismatch" }
+Invoke-NoahChecked { git bundle verify $bundlePath }
+Invoke-NoahChecked { py -3.11-64 -m venv .venv }
+$env:Path = (Resolve-Path .venv\Scripts).Path + ";" + $env:Path
+$env:PYTHONUTF8 = "1"
+$env:PYTHONIOENCODING = "utf-8"
+Invoke-NoahChecked { python -m pip install -r requirements_windows.txt }
+Invoke-NoahChecked { py -3.11-32 -m pip install -r requirements_kiwoom_x86.txt }
+$env:NOAHAI_PYTHON_X86 = (py -3.11-32 -c "import sys; print(sys.executable)" | Out-String).Trim()
+$env:NOAHAI_CANDIDATE_HANDOFF = $handoffPath
+Invoke-NoahChecked { python -c "import json,os; from pathlib import Path; from scripts.verify_release_provenance import verify_source; h=json.load(open(os.environ['NOAHAI_CANDIDATE_HANDOFF'],encoding='utf-8')); print(verify_source(Path('.'),dict(source_revision=h['source_commit'],source_fingerprint=h['source_fingerprint'])))" }
+Invoke-NoahChecked { python scripts/restore_previous_release_asset.py }
+Invoke-NoahChecked { powershell -ExecutionPolicy Bypass -File scripts/build_windows.ps1 }
+```
+
+준비물은 Windows10/11 x64, Python3.11 x64/x86, Node22.12+, Git/GitHub CLI, VSBuildTools/VC143입니다. 생략/검사 우회 옵션 없이 빌드합니다. 예상 산출물은 `deploy/web-release/NoahAI-3.9.2.19-Setup.exe`, blockmap, latest.yml(updater3.9.219), release manifest입니다. manifest의 source_revision/source_fingerprint/자동 검사·미완료 인수를 handoff와 대조합니다. 다른 커밋에서 빌드하거나 이전 설치기에 버전만 바꾸지 않습니다.
+
+자동 패키지 검사가 통과하면 테스터에게 새 설치기를 전달하여 DEPLOY_CHECKLIST의 .19 설치·실행 인수를 시작할 수 있습니다. 24/72h PAPER 운용은 해당 설치기로 테스터가 진행하는 배포 후 인수이며, 이를 시작하기 위해 사전 완료를 요구하지 않습니다. 담당 테스터·시작/종료 시각·기관/모드·실패 사유와 결과를 기록하고 미완료 상태를 공개 빌드의 자동 검사와 구분합니다. 고객 원본은 앱에 덮어쓰지 않고 `python scripts/audit_paper_upgrade.py --snapshot "D:\SynologyDrive\Works\noahai_client\data\261018_Teayu" --output reports/paper-upgrade.json`으로 임시 복사본에서 보존을 확인합니다. 추가된 병행 pending close 시험은 테스트 계정에서만 실행합니다.
+
+게시할 때만 아래 명령을 실행합니다. Mac 준비 작업은 push/태그/릴리스/배포를 수행하지 않습니다. bundle clone의 origin은 로컬 bundle이므로 반드시 GitHub로 바꾼 뒤 커밋을 게시합니다.
+
+```powershell
+Invoke-NoahChecked { gh auth status }
+Invoke-NoahChecked { git remote set-url origin https://github.com/nwsoft/ai-trading-client.git }
+if ((git status --porcelain | Out-String).Trim()) { throw "Dirty source: review, commit and rebuild" }
+Invoke-NoahChecked { git push origin "HEAD:refs/heads/$($handoff.branch)" }
+Invoke-NoahChecked { python scripts/verify_release_provenance.py --phase preflight }
+Invoke-NoahChecked { powershell -ExecutionPolicy Bypass -File scripts/release_windows.ps1 }
+Invoke-NoahChecked { python scripts/verify_release_provenance.py --phase published }
+```
+
+---
+
 ## v3.9.2.18 — 선택 동의 기반 제품 사용 지표
 
 제품 3.9.2.18 · updater 3.9.218 · renderer 3.9.2.18-ui.20261018.1
