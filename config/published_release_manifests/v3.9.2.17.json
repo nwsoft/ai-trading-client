@@ -1,0 +1,196 @@
+{
+    "version":  "3.9.2.17",
+    "release_label":  "v3.9.2.17 PAPER Ledger Continuity and Background Reconciliation",
+    "channel":  "stable",
+    "generated_at":  "2026-10-17T23:50:02.2461195Z",
+    "source_fingerprint":  "0791e831400944ae0f2ae6ce75f9d5e7f979cc81850e20b6a381806142f6fe8f",
+    "source_revision":  "426400dc33decdc22cfd7e52fecaa89ebf63696b",
+    "source_worktree_dirty":  false,
+    "source_archive_authoritative":  false,
+    "build_status":  "windows_verified_release_candidate",
+    "automated_checks_passed":  true,
+    "publish_ready":  true,
+    "notes_file":  "release_notes.md",
+    "verification":  {
+                         "sha256_required":  true,
+                         "authenticode_required":  false,
+                         "source":  "github_release_manifest",
+                         "branding":  {
+                                          "assets":  {
+                                                         "icon.ico":  "d9cd39ecfc52d0f1b37f9760130fb1edf96259c26fc7b429b49194caa67c2519",
+                                                         "icon.png":  "bc47272288999dfd627b62acb39bf79dec213448f1afa0db9bf28d1764a4030c",
+                                                         "webui/public/icon.png":  "bc47272288999dfd627b62acb39bf79dec213448f1afa0db9bf28d1764a4030c"
+                                                     },
+                                          "executables":  [
+                                                              {
+                                                                  "name":  "NoahAI.exe",
+                                                                  "sha256":  "0645b50fe0a206788de8a048e825c579536bd254221f0db889bb4191f78cea3a",
+                                                                  "matching_groups":  [
+                                                                                          [
+                                                                                              1,
+                                                                                              1033
+                                                                                          ]
+                                                                                      ],
+                                                                  "image_count":  7,
+                                                                  "verified":  true
+                                                              },
+                                                              {
+                                                                  "name":  "NoahAI-3.9.2.17-Setup.exe",
+                                                                  "sha256":  "b96a0fe222e20fe78ad53fed8271bd42619e6d1c504e971ff9d8298f291ae393",
+                                                                  "matching_groups":  [
+                                                                                          [
+                                                                                              103,
+                                                                                              1033
+                                                                                          ]
+                                                                                      ],
+                                                                  "image_count":  7,
+                                                                  "verified":  true
+                                                              }
+                                                          ]
+                                      }
+                     },
+    "assets":  {
+                   "installer":  {
+                                     "name":  "NoahAI-3.9.2.17-Setup.exe",
+                                     "size":  451717560,
+                                     "sha256":  "b96a0fe222e20fe78ad53fed8271bd42619e6d1c504e971ff9d8298f291ae393",
+                                     "download_url":  "https://github.com/nwsoft/ai-trading-client/releases/download/v3.9.2.17/NoahAI-3.9.2.17-Setup.exe"
+                                 },
+                   "latest_yml":  {
+                                      "name":  "latest.yml",
+                                      "size":  349,
+                                      "sha256":  "1cadf447ec7e112b4ffd0cd3996cf56f374ec495b85bf12b7cfbd64cb47223a3",
+                                      "download_url":  "https://github.com/nwsoft/ai-trading-client/releases/download/v3.9.2.17/latest.yml"
+                                  },
+                   "blockmap":  {
+                                    "name":  "NoahAI-3.9.2.17-Setup.exe.blockmap",
+                                    "size":  470970,
+                                    "sha256":  "541ab44fdb651587648ed6fe1b1a6316c4e0705699ca3acd992a0ab1b9fd5c0b",
+                                    "download_url":  "https://github.com/nwsoft/ai-trading-client/releases/download/v3.9.2.17/NoahAI-3.9.2.17-Setup.exe.blockmap"
+                                },
+                   "engine_sidecar":  {
+                                          "name":  "NoahAIEngine.exe",
+                                          "size":  303018870,
+                                          "sha256":  "7226ead8ceadaf1740ca3872122170419609a0037fa1e439a66577c408af2a12",
+                                          "distribution":  "embedded_in_installer"
+                                      },
+                   "kiwoom_host":  {
+                                       "name":  "NoahAIKiwoomHost.exe",
+                                       "size":  46696988,
+                                       "sha256":  "79482e58bed8dc42ce033c2648b81ae7eb68f32164f52a3633b78415b48ce434",
+                                       "pe_machine":  "0x14c",
+                                       "supported":  true,
+                                       "distribution":  "embedded_in_installer"
+                                   }
+               },
+    "update_contract":  {
+                            "provider":  "electron_updater_github",
+                            "metadata":  "latest.yml",
+                            "product_version":  "3.9.2.17",
+                            "updater_semver":  "3.9.217",
+                            "version_mapping":  "A.B.C.D -\u003e A.B.(C*100+D); D=0..99",
+                            "check_policy":  "automatic_on_app_start",
+                            "download_policy":  "user_approved",
+                            "install_policy":  "user_approved_safe_shutdown_restart",
+                            "user_actions":  [
+                                                 "download",
+                                                 "install_and_restart"
+                                             ],
+                            "legacy_single_exe_updater":  "retired_after_v3.9.0.10"
+                        },
+    "previous_published_asset":  {
+                                     "version":  "3.9.2.16",
+                                     "release_label":  "v3.9.2.16",
+                                     "path":  "deploy/web-release/NoahAI-3.9.2.16-Setup.exe",
+                                     "size":  451687154,
+                                     "sha256":  "23407ca3e52e05c67f6ba3dbc88398e3ee3b6d61d5a4d0d94e8e5e96204240fc",
+                                     "purpose":  "previous_published_windows_build"
+                                 },
+    "external_validation_status":  "pending",
+    "external_validation_plan":  "DEPLOY_CHECKLIST.md",
+    "external_validation_pending_count":  13,
+    "external_validation":  [
+                                "UPLOAD",
+                                "REPLAY-COST",
+                                "CATALOG",
+                                "WIN-BUILD",
+                                "WIN-UPGRADE",
+                                "PAPER-GROWTH",
+                                "BACKGROUND",
+                                "BULK",
+                                "MODEL",
+                                "STOCK-PAPER",
+                                "SOAK",
+                                "ROLLBACK",
+                                "PUBLISH"
+                            ],
+    "external_validation_items":  [
+                                      {
+                                          "id":  "UPLOAD",
+                                          "status":  "pending",
+                                          "description":  "기존/새 전략·다중 파일 등록 후 원문·승인·버전·미지원 조건을 유지하고 자동 승인/적용이 없음"
+                                      },
+                                      {
+                                          "id":  "REPLAY-COST",
+                                          "status":  "pending",
+                                          "description":  "백테스트/PAPER 비용·최소 주문·부분청산 근거와 이전 버전 손익 합계가 보존됨"
+                                      },
+                                      {
+                                          "id":  "CATALOG",
+                                          "status":  "pending",
+                                          "description":  "사용 기관의 현재 종목/시세 조회와 재접속 확인; 과거 목록으로 신규 진입하지 않음"
+                                      },
+                                      {
+                                          "id":  "WIN-BUILD",
+                                          "status":  "pending",
+                                          "description":  "동일 커밋/지문·필수 색인/유지관리 모듈·x64/x86·PE·설치기 검증"
+                                      },
+                                      {
+                                          "id":  "WIN-UPGRADE",
+                                          "status":  "pending",
+                                          "description":  ".16→.17 설정/키/전략/원장/손익/세션/보유 근거 보존(공유본28개 중 확정청산1건 재생→27개) 및 실제 복호화 확인"
+                                      },
+                                      {
+                                          "id":  "PAPER-GROWTH",
+                                          "status":  "pending",
+                                          "description":  "64MiB·10만행 이상 원장에서도 손익/보유/청산·체크포인트 유지, 정상 append 중복 없음"
+                                      },
+                                      {
+                                          "id":  "BACKGROUND",
+                                          "status":  "pending",
+                                          "description":  "화면 닫기·기관 순차 결과·중지/재개·재시작·잠금·부분 저장/실패 격리 확인"
+                                      },
+                                      {
+                                          "id":  "BULK",
+                                          "status":  "pending",
+                                          "description":  "개별/전체 선택 후 삭제·중지·정의/패키지ZIP·PAPER·승인, 취소/혼합 상태/통신 실패 경계"
+                                      },
+                                      {
+                                          "id":  "MODEL",
+                                          "status":  "pending",
+                                          "description":  "GPT-6 Luna 선택·계정 모델 조회·일반/JSON/비전 실제 성공/권한 실패, 기존 모델 자동 변경 없음"
+                                      },
+                                      {
+                                          "id":  "STOCK-PAPER",
+                                          "status":  "pending",
+                                          "description":  "기존 증권 선정/분봉/키움 TR 및 PAPER/LIVE 모드·무보유 매도 방지 회귀"
+                                      },
+                                      {
+                                          "id":  "SOAK",
+                                          "status":  "pending",
+                                          "description":  "테스터24/72h PAPER 운용·재연결·공간 부족·대조 최신성 확인"
+                                      },
+                                      {
+                                          "id":  "ROLLBACK",
+                                          "status":  "pending",
+                                          "description":  ".17 파일 별도 보존 뒤 .16 복구;64MiB 초과 원장은 .16 한도 때문에 운용 불가하므로 원장 삭제로 롤백하지 않음"
+                                      },
+                                      {
+                                          "id":  "PUBLISH",
+                                          "status":  "pending",
+                                          "description":  ".17 별도 태그·자산·manifest·latest/Atom/업데이터 해시 일치"
+                                      }
+                                  ],
+    "external_validation_scope":  "release_checklist_snapshot",
+    "external_validation_plan_sha256":  "9fc632e64c11541c30d79e8ecdf7229dfa6f0366deedfd19b1a1529af2463a15"
+}

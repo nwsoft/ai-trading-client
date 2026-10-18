@@ -54,7 +54,7 @@ a = Analysis(
         "trading.stock_candles", "trading.kis_intraday_history",
         "trading.strategy_package", "trading.strategy_quality_report",
         "trading.signed_strategy_webhook", "trading.notifications", "referral_account_proof",
-        "trading.remote_entry_pause", "web_platform.remote_monitor", "api.telemetry_batch",
+        "trading.remote_entry_pause", "web_platform.remote_monitor", "api.telemetry_batch", "api.product_metrics",
         "trading.event_contract", "trading.decision_storage", "trading.learning_storage",
         "trading.contract_rejections",
         "trading.storage_maintenance", "log_system.event_audit", "log_system.storage_policy",
