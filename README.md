@@ -1,3 +1,5 @@
+현재 소스 후보: v3.9.2.18 · 현재 공개 기반: v3.9.2.17 · Opt-in Product Metrics and Durable Delivery
+
 ## v3.9.2.18 — 선택 동의 기반 제품 지표
 
 현재 소스 후보 버전: **v3.9.2.18**

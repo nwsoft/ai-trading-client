@@ -4989,7 +4989,9 @@ class ApplicationServices:
             validation["unsupported_conditions"],
         )
         validation["rules"] = normalized
-        self.observe_product('studio_validate')
+        # Pure validation also supports the existing account-free caller.
+        if self is not None:
+            self.observe_product('studio_validate')
         return sanitize_settings(validation)
 
     def strategy_mentor(self, *, profile: dict[str, Any]) -> dict[str, Any]:
