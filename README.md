@@ -1,6 +1,6 @@
 ## 2026-10-19 — v3.9.2.19 PAPER 청산 복구·거래 피드백 (소스 후보)
 
-현재 소스 후보: v3.9.2.19 · Durable PAPER Exits and Trading Feedback · Windows 검증 후보
+현재 소스 후보: v3.9.2.19 · 현재 공개 기반: v3.9.2.18 · Durable PAPER Exits and Trading Feedback · Windows 검증 후보
 
 현재 소스 후보 버전: **v3.9.2.19** · 현재 공개 버전: **v3.9.2.18**
 제품 3.9.2.19 · updater 3.9.219 · renderer 3.9.2.19-ui.20261019.1. 공개 기반은 `07e017754dd9dd1be044b9eec0fe8f054512f315`입니다. 아래 이전 버전의 후보·게시·검증 상태는 당시 이력입니다.
