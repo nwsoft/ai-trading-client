@@ -1,3 +1,11 @@
+## 2026-10-19 Windows .19 stable/latest 게시 실행
+
+사용자의 2026-10-19 명시 승인으로 최신 인계 `f436d3b5ffacce340b7a77e937ef3f08ea1447ab`에서 전체 Windows 빌드와 GitHub stable/latest 게시를 실행합니다. 제품 3.9.2.19 · updater 3.9.219 · renderer 3.9.2.19-ui.20261019.1, 공개 기반은 3.9.2.18 (`07e017754dd9dd1be044b9eec0fe8f054512f315`)입니다. 아래 Mac 소스 후보·미게시 설명은 당시 이력이며 이번 게시 승인과 구분합니다.
+
+고객 앱 설치·실주문·외부 제공사 호출·서버 배포 없이 수행합니다. DEPLOY_CHECKLIST의 14개 인수 ID와 pending 상태는 자동 검사 결과와 별도로 유지합니다. 실제 설치/업데이트/롤백·OCX·외부 기관·24/72시간 운용을 통과로 간주하지 않습니다. 설치기는 unsigned이며 결과와 제한은 `reports/v39219-windows-publication-20261019.json`에 기록합니다.
+
+새 경로에서 번들 SHA256·커밋·지문과 원본의 60초 안정성을 확인하고, 공개 .18 manifest 바이트와 이전 설치기를 해시로 검증해 준비합니다. 모든 빌드 입력은 Git blob 바이트와 일치해야 하며 `deploy/release_notes.md`도 포함합니다. 생략 옵션 없이 `scripts/build_windows.ps1`, 검증 후 `scripts/release_windows.ps1`을 실행합니다. 기존 x64 .venv가 비어 있어 별도 빌드 경로에 환경을 구성하며 Python311-32의 고정 의존성을 확인합니다.
+
 ## 2026-10-19 — v3.9.2.19 PAPER 청산 복구·거래 피드백 (소스 후보)
 
 현재 소스 후보 버전: **v3.9.2.19** · 현재 공개 버전: **v3.9.2.18**
