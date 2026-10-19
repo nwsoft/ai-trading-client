@@ -54,6 +54,8 @@ class RuntimeSnapshotContract(StrictContract):
     execution_modes: dict[str, Literal["learning", "paper", "live"]] = Field(default_factory=dict)
     paper_trading: bool | None = None
     live_trading: bool | None = None
+    tuning_status: dict[str, Any] = Field(default_factory=dict)
+    parallel_paper_status: dict[str, Any] = Field(default_factory=dict)
     captured_at: datetime = Field(default_factory=utc_now)
     reason: str = "headless_runtime_not_attached"
 

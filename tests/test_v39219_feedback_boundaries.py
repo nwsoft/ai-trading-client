@@ -5,6 +5,33 @@ from unittest.mock import Mock
 import pytest
 
 
+def test_gateway_preserves_real_bridge_exit_and_tuning_status(monkeypatch):
+    from fastapi.testclient import TestClient
+    from web_platform.gateway import create_gateway_app
+    from web_platform.runtime_bridge import HeadlessRuntimeBridge
+    from web_platform.contracts import RuntimeSnapshotContract
+    from pydantic import ValidationError
+    bridge = HeadlessRuntimeBridge(account='synthetic-contract-qa')
+    monkeypatch.setattr(bridge, '_settings', lambda: {})
+    bridge._app = SimpleNamespace(
+        parallel_strategy_paper=SimpleNamespace(status=lambda: {'state':'needs_attention','pending_closes':1,'reason_code':'parallel_paper_close_storage_unavailable'}),
+        auto_optimizer=SimpleNamespace(last_proposal={'default_tp':.011},proposal_history=[{'applied':False}],history_status='ready'),
+    )
+    token = 'synthetic-runtime-contract-token-39219'
+    services = SimpleNamespace(close_product_metrics=lambda: None)
+    with TestClient(create_gateway_app(token=token,runtime_provider=bridge.snapshot,application_services=services)) as client:
+        response=client.get('/api/v1/runtime/snapshot',headers={'Authorization':'Bearer '+token,'Origin':'noahai://app'})
+    assert response.status_code==200
+    payload=response.json()
+    assert payload['parallel_paper_status']['pending_closes']==1
+    assert payload['parallel_paper_status']['reason_code']=='parallel_paper_close_storage_unavailable'
+    assert payload['tuning_status']['status']=='proposal_awaiting_review'
+    assert payload['tuning_status']['history']==[{'applied':False}]
+    assert payload['running_sources']==[]
+    with pytest.raises(ValidationError):
+        RuntimeSnapshotContract.model_validate({**bridge.snapshot(),'unknown_runtime_field':True})
+
+
 def test_optimizer_history_is_proposal_only_persists_and_coalesces(tmp_path):
     from trading.ai.auto_optimizer import AIAutoOptimizer
     settings={'default_tp':.01,'default_sl':.01,'default_leverage':4,'rsi_period':14}

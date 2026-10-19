@@ -10,6 +10,7 @@ import secrets
 import socket
 import subprocess
 import sys
+import tempfile
 import time
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
@@ -68,12 +69,22 @@ def main() -> int:
     token = secrets.token_urlsafe(36)
     env["NOAHAI_GATEWAY_TOKEN"] = token
     env["NOAHAI_ENABLE_WEB_RUNTIME"] = "1"
+    # Never discover the operator's Documents/accounts during package QA.
+    # File-backed logs also avoid a full, unread PIPE blocking startup on Windows.
+    sandbox = Path(tempfile.mkdtemp(prefix="noahai-bootstrap-qa-"))
+    for name in ("USERPROFILE", "APPDATA", "LOCALAPPDATA"):
+        env[name] = str(sandbox)
+    env["NOAHAI_USER_ACCOUNT"] = "synthetic-bootstrap-qa"
+    stdout_path = sandbox / "stdout.log"
+    stderr_path = sandbox / "stderr.log"
+    stdout_log = stdout_path.open("w", encoding="utf-8")
+    stderr_log = stderr_path.open("w", encoding="utf-8")
     process = subprocess.Popen(
         [str(executable), "--gateway-only", "--host", "127.0.0.1", "--port", str(port)],
-        cwd=str(executable.parent),
+        cwd=str(sandbox),
         env=env,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
+        stdout=stdout_log,
+        stderr=stderr_log,
         text=True,
         encoding="utf-8",
         errors="replace",
@@ -83,7 +94,8 @@ def main() -> int:
         last_error = "health endpoint did not respond"
         while time.monotonic() < deadline:
             if process.poll() is not None:
-                stdout, stderr = process.communicate(timeout=5)
+                stdout = stdout_path.read_text(encoding="utf-8", errors="replace")
+                stderr = stderr_path.read_text(encoding="utf-8", errors="replace")
                 detail = (stderr or stdout or f"exit={process.returncode}").strip()
                 print(f"[WEB_ENGINE_SMOKE] FAIL: {detail[-4000:]}")
                 return 1
@@ -112,6 +124,9 @@ def main() -> int:
         return 1
     finally:
         _stop_process_tree(process)
+        stdout_log.close()
+        stderr_log.close()
+        print(f"[WEB_ENGINE_SMOKE] isolated diagnostic logs={sandbox}")
 
 
 if __name__ == "__main__":
