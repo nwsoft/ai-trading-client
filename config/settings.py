@@ -1082,8 +1082,29 @@ def create_settings_backup(retention: int = 3) -> str:
             return ''
 
         os.makedirs(backup_dir, exist_ok=True)
-        timestamp = __import__('datetime').datetime.now().strftime('%Y%m%d_%H%M%S_%f')
-        backup_path = os.path.join(backup_dir, f'settings_{timestamp}.json')
+        clock = __import__('datetime')
+        created = clock.datetime.now()
+        # Windows wall-clock resolution can produce the same microsecond text
+        # for several saves. Clock rollback must not reorder or overwrite a backup.
+        # Canonical settings writers already hold the account interprocess lock.
+        for name in os.listdir(backup_dir):
+            if not (name.startswith('settings_') and name.endswith('.json')):
+                continue
+            try:
+                previous = clock.datetime.strptime(name[9:-5], '%Y%m%d_%H%M%S_%f')
+            except ValueError:
+                continue
+            if previous >= created:
+                created = previous + clock.timedelta(microseconds=1)
+        while True:
+            timestamp = created.strftime('%Y%m%d_%H%M%S_%f')
+            backup_path = os.path.join(backup_dir, f'settings_{timestamp}.json')
+            try:
+                fd = os.open(backup_path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+                os.close(fd)
+                break
+            except FileExistsError:
+                created += clock.timedelta(microseconds=1)
         shutil.copy2(config_path, backup_path)
         try:
             os.chmod(backup_path, 0o600)

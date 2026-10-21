@@ -390,3 +390,23 @@ def test_evaluator_coin_persistence_uses_path_merge_without_private_backup(monke
     method = source[source.index("    def _update_env_coins"):source.index("    def _verify_data_consistency")]
     assert "open(env_file" not in method
     assert "shutil.copy2" not in method
+
+
+@pytest.mark.parametrize('rollback',[False,True])
+def test_backup_names_survive_equal_or_backwards_wall_clock(tmp_path,monkeypatch,rollback):
+    import datetime as clock
+    actual_datetime=clock.datetime
+    current=[actual_datetime(2026,10,21,12,0,0)]
+    class FrozenClock(actual_datetime):
+        @classmethod
+        def now(cls,tz=None): return current[0]
+    monkeypatch.setattr(clock,'datetime',FrozenClock)
+    monkeypatch.setattr('path_utils.get_config_dir',lambda:str(tmp_path))
+    settings_path=tmp_path/'settings.json';_write_json(settings_path,{'seq':0})
+    for index in range(1,7):
+        if rollback and index==3:current[0]=actual_datetime(2025,1,1)
+        assert settings_module.save_settings({'seq':index})
+    backups=settings_module.list_settings_backups(limit=20)
+    assert len(backups)==3
+    assert [_read_json(Path(p))['seq'] for p in backups]==[5,4,3]
+    assert _read_json(settings_path)['seq']==6
