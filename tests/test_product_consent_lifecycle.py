@@ -33,9 +33,9 @@ def test_offline_withdrawal_survives_restart_and_arrives_before_old_grant(tmp_pa
 
 def test_upgrade_preserves_queue_without_inventing_consent(tmp_path,monkeypatch):
     m=make(tmp_path,monkeypatch)
-    old=dict(event_id='00000000-0000-4000-8000-000000000001',action='studio_open',mode='none',consent=True,consent_version=POLICY,occurred_at='2026-10-18T00:00:00+00:00')
+    old=dict(event_id='00000000-0000-4000-8000-000000000001',action='studio_open',mode='none',consent=True,consent_version='product-observation-20261018',occurred_at='2026-10-18T00:00:00+00:00')
     with m.connect() as c:
-        c.execute('INSERT INTO consent VALUES(1,1,?)',(POLICY,))
+        c.execute('INSERT INTO consent VALUES(1,1,?)',('product-observation-20261018',))
         c.execute('INSERT INTO outbox(id,payload) VALUES(?,?)',(old['event_id'],json.dumps(old)))
     assert m.status()['consent_reconfirmation_required']
     assert not m.status()['enabled'] and not m.record('app_open') and not m.deliver_once()

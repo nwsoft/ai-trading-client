@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import type { GatewayClient } from '../api';
 import { localized } from '../i18n';
 
-const POLICY = 'product-observation-20261018';
+const POLICY = 'product-observation-20261021';
 const errorText: Record<string, string> = {
   delivery_pending: '연결 대기 중입니다. 저장된 활동은 연결되면 다시 전송합니다.',
   authentication_required: '다시 로그인하면 미전송 활동을 이어서 전송합니다.',

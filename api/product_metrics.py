@@ -17,7 +17,7 @@ from uuid import UUID, uuid4
 import requests
 from config.app_version import RELEASE_VERSION
 
-POLICY = 'product-observation-20261018'
+POLICY = 'product-observation-20261021'
 ACTIONS = frozenset({'app_open','studio_open','studio_save','studio_validate','studio_approve',
     'studio_activate','paper_start','paper_pause','paper_complete','live_start','xai_open','review_open'})
 UI_ACTIONS = frozenset({'app_open','studio_open','xai_open','review_open'})
