@@ -1,0 +1,202 @@
+{
+    "version":  "3.9.2.19",
+    "release_label":  "v3.9.2.19 Durable PAPER Exits and Trading Feedback",
+    "channel":  "stable",
+    "generated_at":  "2026-10-19T04:02:05.7650227Z",
+    "source_fingerprint":  "92076f008822612d6f7143d547f4ba9aa05bbbe0f85f569b96c44fdbe55cbada",
+    "source_revision":  "ef0d19926c1320ccda565a2c8ba18e4990ee6821",
+    "source_worktree_dirty":  false,
+    "source_archive_authoritative":  false,
+    "build_status":  "windows_verified_release_candidate",
+    "automated_checks_passed":  true,
+    "publish_ready":  true,
+    "notes_file":  "release_notes.md",
+    "verification":  {
+                         "sha256_required":  true,
+                         "authenticode_required":  false,
+                         "source":  "github_release_manifest",
+                         "branding":  {
+                                          "assets":  {
+                                                         "icon.ico":  "d9cd39ecfc52d0f1b37f9760130fb1edf96259c26fc7b429b49194caa67c2519",
+                                                         "icon.png":  "bc47272288999dfd627b62acb39bf79dec213448f1afa0db9bf28d1764a4030c",
+                                                         "webui/public/icon.png":  "bc47272288999dfd627b62acb39bf79dec213448f1afa0db9bf28d1764a4030c"
+                                                     },
+                                          "executables":  [
+                                                              {
+                                                                  "name":  "NoahAI.exe",
+                                                                  "sha256":  "0b81a552a9c50ed5e2d8eb9fd70833c66e6333b81651fb161a97b4107ca44026",
+                                                                  "matching_groups":  [
+                                                                                          [
+                                                                                              1,
+                                                                                              1033
+                                                                                          ]
+                                                                                      ],
+                                                                  "image_count":  7,
+                                                                  "verified":  true
+                                                              },
+                                                              {
+                                                                  "name":  "NoahAI-3.9.2.19-Setup.exe",
+                                                                  "sha256":  "cce6120db9d8948820271fbb5dca28b0259d10b64d0206512afa517b3de04302",
+                                                                  "matching_groups":  [
+                                                                                          [
+                                                                                              103,
+                                                                                              1033
+                                                                                          ]
+                                                                                      ],
+                                                                  "image_count":  7,
+                                                                  "verified":  true
+                                                              }
+                                                          ]
+                                      }
+                     },
+    "assets":  {
+                   "installer":  {
+                                     "name":  "NoahAI-3.9.2.19-Setup.exe",
+                                     "size":  451783646,
+                                     "sha256":  "cce6120db9d8948820271fbb5dca28b0259d10b64d0206512afa517b3de04302",
+                                     "download_url":  "https://github.com/nwsoft/ai-trading-client/releases/download/v3.9.2.19/NoahAI-3.9.2.19-Setup.exe"
+                                 },
+                   "latest_yml":  {
+                                      "name":  "latest.yml",
+                                      "size":  349,
+                                      "sha256":  "2f6e7b7a89f0d97b0a9beddf0054cf793061c3f3482ef79193607ba3f23338db",
+                                      "download_url":  "https://github.com/nwsoft/ai-trading-client/releases/download/v3.9.2.19/latest.yml"
+                                  },
+                   "blockmap":  {
+                                    "name":  "NoahAI-3.9.2.19-Setup.exe.blockmap",
+                                    "size":  469657,
+                                    "sha256":  "6b9a3d181a3b3bb15fec46d6b78d2b2baa0359c4aeefa8d9e038425aafbb18ad",
+                                    "download_url":  "https://github.com/nwsoft/ai-trading-client/releases/download/v3.9.2.19/NoahAI-3.9.2.19-Setup.exe.blockmap"
+                                },
+                   "engine_sidecar":  {
+                                          "name":  "NoahAIEngine.exe",
+                                          "size":  303072450,
+                                          "sha256":  "6b345fd21ca358b5fdb82e32499ffa677740bf014bb21c94e765ad6bbdeec00c",
+                                          "distribution":  "embedded_in_installer"
+                                      },
+                   "kiwoom_host":  {
+                                       "name":  "NoahAIKiwoomHost.exe",
+                                       "size":  46697425,
+                                       "sha256":  "41f205bde8f90686fcaace8f015bc0f193fff2f9aba93492566cd31bda83f3a5",
+                                       "pe_machine":  "0x14c",
+                                       "supported":  true,
+                                       "distribution":  "embedded_in_installer"
+                                   }
+               },
+    "update_contract":  {
+                            "provider":  "electron_updater_github",
+                            "metadata":  "latest.yml",
+                            "product_version":  "3.9.2.19",
+                            "updater_semver":  "3.9.219",
+                            "version_mapping":  "A.B.C.D -\u003e A.B.(C*100+D); D=0..99",
+                            "check_policy":  "automatic_on_app_start",
+                            "download_policy":  "user_approved",
+                            "install_policy":  "user_approved_safe_shutdown_restart",
+                            "user_actions":  [
+                                                 "download",
+                                                 "install_and_restart"
+                                             ],
+                            "legacy_single_exe_updater":  "retired_after_v3.9.0.10"
+                        },
+    "previous_published_asset":  {
+                                     "version":  "3.9.2.18",
+                                     "release_label":  "v3.9.2.18",
+                                     "path":  "deploy/web-release/NoahAI-3.9.2.18-Setup.exe",
+                                     "size":  454391569,
+                                     "sha256":  "8e8453a03b4e77447673c082d1720e6cf32f38ce5cff4ce574846fa32e860f88",
+                                     "purpose":  "previous_published_windows_build"
+                                 },
+    "external_validation_status":  "pending",
+    "external_validation_plan":  "DEPLOY_CHECKLIST.md",
+    "external_validation_pending_count":  14,
+    "external_validation":  [
+                                "UPLOAD",
+                                "REPLAY-COST",
+                                "CATALOG",
+                                "WIN-BUILD",
+                                "WIN-UPGRADE",
+                                "EXIT-RECOVERY",
+                                "MODE-WATCH",
+                                "PAPER-COHORT",
+                                "MARGIN-TRIGGER",
+                                "STRATEGY-UI",
+                                "KIWOOM",
+                                "SOAK",
+                                "ROLLBACK",
+                                "PUBLISH"
+                            ],
+    "external_validation_items":  [
+                                      {
+                                          "id":  "UPLOAD",
+                                          "status":  "pending",
+                                          "description":  "기존 전략 원문/승인/버전과 새 전략·일괄 도구 보존"
+                                      },
+                                      {
+                                          "id":  "REPLAY-COST",
+                                          "status":  "pending",
+                                          "description":  "기존 손익/비용/관찰 기록 보존 및 재생 일치"
+                                      },
+                                      {
+                                          "id":  "CATALOG",
+                                          "status":  "pending",
+                                          "description":  "현재 시세/종목·공개 연결과 재접속 확인"
+                                      },
+                                      {
+                                          "id":  "WIN-BUILD",
+                                          "status":  "pending",
+                                          "description":  "전체 Python/Node·생략 감사·x64/x86·PE·설치기·커밋/지문 확인"
+                                      },
+                                      {
+                                          "id":  "WIN-UPGRADE",
+                                          "status":  "pending",
+                                          "description":  ".18→.19 설치 전후 설정/키/전략/승인/원장/과거 손익/대기 청산 보존"
+                                      },
+                                      {
+                                          "id":  "EXIT-RECOVERY",
+                                          "status":  "pending",
+                                          "description":  "합성 저장 실패·재시작·응답 유실·후속 가격 변경에도 고정 청산 1건"
+                                      },
+                                      {
+                                          "id":  "MODE-WATCH",
+                                          "status":  "pending",
+                                          "description":  "PAPER/LEARNING 전환·병행 끄기·미선정·진입 차단에도 기존 가상 청산 점검, 새 실주문 0"
+                                      },
+                                      {
+                                          "id":  "PAPER-COHORT",
+                                          "status":  "pending",
+                                          "description":  "경로/자금/통화 필터별 표·카드 일치, 원본 손실·미기록 보존"
+                                      },
+                                      {
+                                          "id":  "MARGIN-TRIGGER",
+                                          "status":  "pending",
+                                          "description":  "mock/demo에서 교차/격리 확인 실패 진입 0, MARK/Last 전달·기존 보호주문 보존"
+                                      },
+                                      {
+                                          "id":  "STRATEGY-UI",
+                                          "status":  "pending",
+                                          "description":  "LIVE 적용명·기본10/프리미엄30·현재 제안 미적용 안내 및 기존 1/3/7일·일괄도구 회귀"
+                                      },
+                                      {
+                                          "id":  "KIWOOM",
+                                          "status":  "pending",
+                                          "description":  "정상 단절 재연결·UAC 직접 승인·불명확 주문 안전 보류·증권 PAPER 회귀"
+                                      },
+                                      {
+                                          "id":  "SOAK",
+                                          "status":  "pending",
+                                          "description":  "테스트 계정24/72h PAPER·디스크/잠금/시세 단절·정상 종료/재시작 점검"
+                                      },
+                                      {
+                                          "id":  "ROLLBACK",
+                                          "status":  "pending",
+                                          "description":  ".18 설치기·원본 백업 보존, .19 pending 청산이 남으면 먼저 .19에서 복구하고 구버전으로 무조건 다운그레이드 금지"
+                                      },
+                                      {
+                                          "id":  "PUBLISH",
+                                          "status":  "pending",
+                                          "description":  "Windows 검증 후 별도 커밋 push·태그·설치기·latest/Atom/manifest/해시 일치"
+                                      }
+                                  ],
+    "external_validation_scope":  "release_checklist_snapshot",
+    "external_validation_plan_sha256":  "245b636c24c6c2226c73911aeca7deb11c2c00b0e2029b41fc2ba44b1db15ef5"
+}

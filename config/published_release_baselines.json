@@ -136,6 +136,16 @@
       "download_url": "https://github.com/nwsoft/ai-trading-client/releases/download/v3.9.2.18/NoahAI-3.9.2.18-Setup.exe",
       "manifest_source_path": "config/published_release_manifests/v3.9.2.18.json",
       "manifest_source_sha256": "0c611ea8c4e510f22bd3d9e7ed6af48570b2c4ed4e2ba87f7d5b713ca6e0bb03"
+    },
+    "3.9.2.19": {
+      "name": "NoahAI-3.9.2.19-Setup.exe",
+      "size": 451783646,
+      "sha256": "cce6120db9d8948820271fbb5dca28b0259d10b64d0206512afa517b3de04302",
+      "download_url": "https://github.com/nwsoft/ai-trading-client/releases/download/v3.9.2.19/NoahAI-3.9.2.19-Setup.exe",
+      "version": "3.9.2.19",
+      "published_release_url": "https://github.com/nwsoft/ai-trading-client/releases/tag/v3.9.2.19",
+      "manifest_source_path": "config/published_release_manifests/v3.9.2.19.json",
+      "manifest_source_sha256": "278dea025626577bba1d79a2623f5429a1ae14eb8344cdd61f306df4bdc61980"
     }
   }
 }

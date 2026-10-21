@@ -17,9 +17,9 @@ def metrics(tmp_path,monkeypatch):
 def test_opt_in_payload_and_no_credentials(metrics):
     assert not metrics.path.exists() and not metrics.record('studio_save')
     assert not metrics.path.exists()
-    metrics.configure(True,POLICY); assert metrics.record('studio_save')
+    metrics.configure(True,POLICY); assert metrics.deliver_once(); assert metrics.record('studio_save')
     with metrics.connect() as c: value=c.execute('SELECT payload FROM outbox').fetchone()[0]
-    assert set(json.loads(value))=={'event_id','action','mode','consent','occurred_at','consent_version'}
+    assert set(json.loads(value))=={'event_id','action','mode','consent','occurred_at','consent_version','installation_id','consent_revision','client_version'}
     assert b'test-only-token' not in metrics.path.read_bytes()
     assert metrics.deliver_once() and metrics.status()['pending']==0
 
@@ -27,8 +27,9 @@ def test_lost_ack_retries_identical_event_after_restart(metrics):
     seen=[]
     def lost(url,**kw):
         seen.append(kw['json']); raise requests.ConnectionError('lost-ack')
+    metrics.configure(True,POLICY); assert metrics.deliver_once()
     metrics.transport=lost
-    metrics.configure(True,POLICY); metrics.record('studio_save')
+    metrics.record('studio_save')
     assert not metrics.deliver_once() and metrics.status()['pending']==1
     metrics.close()
     second=ProductMetrics(directory=metrics.path.parent.parent,account='alice',credentials=lambda:'new-token')
@@ -39,14 +40,14 @@ def test_lost_ack_retries_identical_event_after_restart(metrics):
     assert seen[0]==seen[1] and second.status()['pending']==0
 
 def test_revoke_clears_and_remains_off(metrics):
-    metrics.configure(True,POLICY); metrics.record('paper_start','paper')
+    metrics.configure(True,POLICY); assert metrics.deliver_once(); metrics.record('paper_start','paper')
     metrics.configure(False,POLICY)
     assert metrics.status()['pending']==0 and not metrics.record('studio_save')
     second=ProductMetrics(directory=metrics.path.parent.parent,account='alice',credentials=lambda:'token')
     assert not second.status()['enabled']
 
 def test_auth_failure_pending_and_rejection_visible(metrics):
-    metrics.configure(True,POLICY); metrics.record('app_open')
+    metrics.configure(True,POLICY); assert metrics.deliver_once(); metrics.record('app_open')
     metrics.transport=lambda *a,**kw:SimpleNamespace(status_code=401)
     assert not metrics.deliver_once() and metrics.status()['pending']==1
     metrics.transport=lambda *a,**kw:SimpleNamespace(status_code=400)
@@ -54,12 +55,12 @@ def test_auth_failure_pending_and_rejection_visible(metrics):
     assert metrics.status()['error']=='observation_rejected'
 
 def test_wrong_receipt_not_deleted(metrics):
-    metrics.configure(True,POLICY); metrics.record('app_open')
+    metrics.configure(True,POLICY); assert metrics.deliver_once(); metrics.record('app_open')
     metrics.transport=lambda *a,**kw:SimpleNamespace(status_code=200,json=lambda:{'accepted':True,'event_id':str(uuid4())})
     assert not metrics.deliver_once() and metrics.status()['pending']==1
 
 def test_cross_account_isolation(metrics):
-    metrics.configure(True,POLICY); metrics.record('studio_save')
+    metrics.configure(True,POLICY); assert metrics.deliver_once(); metrics.record('studio_save')
     bob=ProductMetrics(directory=metrics.path.parent.parent,account='bob',credentials=lambda:'bob-token')
     assert metrics.path!=bob.path and not bob.status()['enabled']
     assert not bob.record('app_open') and metrics.status()['pending']==1
@@ -79,7 +80,7 @@ os._exit(23)
     assert m.status()['pending']==1
 
 def test_shutdown_preserves_offline_outbox(metrics):
-    metrics.configure(True,POLICY); metrics.record('studio_save'); metrics.close()
+    metrics.configure(True,POLICY); assert metrics.deliver_once(); metrics.record('studio_save'); metrics.close()
     assert metrics.status()['pending']==1 and not metrics.record('app_open')
 
 def test_record_does_not_wait_for_network_and_revoke_waits_for_inflight(metrics):
@@ -88,7 +89,7 @@ def test_record_does_not_wait_for_network_and_revoke_waits_for_inflight(metrics)
     def slow(url,**kw):
         entered.set();assert release.wait(3)
         return SimpleNamespace(status_code=200,json=lambda:dict(accepted=True,event_id=kw['json']['event_id']))
-    metrics.configure(True,POLICY);metrics.record('app_open');metrics.transport=slow
+    metrics.configure(True,POLICY); assert metrics.deliver_once();metrics.record('app_open');metrics.transport=slow
     sender=threading.Thread(target=metrics.deliver_once);sender.start();assert entered.wait(1)
     # A second durable recording completes while HTTP is deliberately blocked.
     recorded=threading.Event()

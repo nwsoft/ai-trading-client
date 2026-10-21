@@ -22,7 +22,7 @@ def service(tmp_path,monkeypatch):
 
 def actions(service):
     m=service.product_metrics()
-    with m.connect() as c:return [json.loads(r['payload'])['action'] for r in c.execute('SELECT payload FROM outbox ORDER BY rowid')]
+    with m.connect() as c:return [json.loads(r['payload'])['action'] for r in c.execute("SELECT payload FROM outbox WHERE json_extract(payload,'$.action') NOT IN ('consent_granted','consent_withdrawn') ORDER BY rowid")]
 
 def test_real_strategy_save_boundary_and_failure_not_counted(service):
     original=service.data_dir.joinpath('trades-original.json').read_bytes()

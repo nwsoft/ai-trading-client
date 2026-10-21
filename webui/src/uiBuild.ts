@@ -1,1 +1,1 @@
-export const UI_BUILD_TAG = '3.9.2.19-ui.20261019.1';
+export const UI_BUILD_TAG = '3.9.2.20-ui.20261021.1';

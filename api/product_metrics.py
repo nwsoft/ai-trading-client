@@ -15,6 +15,7 @@ import time
 from datetime import datetime, timezone
 from uuid import UUID, uuid4
 import requests
+from config.app_version import RELEASE_VERSION
 
 POLICY = 'product-observation-20261018'
 ACTIONS = frozenset({'app_open','studio_open','studio_save','studio_validate','studio_approve',
@@ -56,20 +57,26 @@ class ProductMetrics:
 
     def _enabled(self, c):
         row = c.execute('SELECT enabled,policy FROM consent WHERE id=1').fetchone()
-        return bool(row and row['enabled'] and row['policy'] == POLICY)
+        return bool(row and row['enabled'] and row['policy'] == POLICY and
+                    c.execute("SELECT 1 FROM state WHERE key='consent_revision'").fetchone())
 
     def status(self):
         with self.lock:
             out = dict(enabled=False, policy=POLICY, pending=0, rejected=0,
-                       last_received=None, error=self.error)
+                       last_received=None, error=self.error, consent_pending=0, consent_rejected=0,
+                       consent_reconfirmation_required=False, client_version=RELEASE_VERSION)
             if self.path.exists():
                 with self.connect() as c:
                     out['enabled'] = self._enabled(c)
-                    for row in c.execute('SELECT state,count(*) AS n FROM outbox GROUP BY state'):
+                    prior=c.execute('SELECT enabled FROM consent WHERE id=1').fetchone()
+                    out['consent_reconfirmation_required']=bool(prior and prior['enabled'] and not out['enabled'])
+                    out['consent_pending']=c.execute("SELECT count(*) FROM outbox WHERE state='pending' AND json_extract(payload,'$.action') IN ('consent_granted','consent_withdrawn')").fetchone()[0]
+                    out['consent_rejected']=c.execute("SELECT count(*) FROM outbox WHERE state='rejected' AND json_extract(payload,'$.action') IN ('consent_granted','consent_withdrawn')").fetchone()[0]
+                    for row in c.execute("SELECT state,count(*) AS n FROM outbox WHERE json_extract(payload,'$.action') NOT IN ('consent_granted','consent_withdrawn') GROUP BY state"):
                         out[row['state']] = row['n']
                     row = c.execute("SELECT value FROM state WHERE key='last_received'").fetchone()
                     out['last_received'] = row['value'] if row else None
-            if out['rejected'] and not out['error']: out['error'] = 'observation_rejected'
+            if (out['rejected'] or out['consent_rejected']) and not out['error']: out['error'] = 'observation_rejected'
             return out
 
     def configure(self, enabled, policy):
@@ -78,12 +85,24 @@ class ProductMetrics:
         with self.delivery_lock, self.lock:
             with self.connect() as c:
                 c.execute('INSERT OR REPLACE INTO consent VALUES(1,?,?)',(int(enabled),POLICY))
+                row=c.execute("SELECT value FROM state WHERE key='installation_id'").fetchone()
+                installation=row['value'] if row else str(uuid4())
+                row=c.execute("SELECT value FROM state WHERE key='consent_revision'").fetchone()
+                revision=int(row['value'])+1 if row else 1
+                c.execute("INSERT OR REPLACE INTO state VALUES('installation_id',?)",(installation,))
+                c.execute("INSERT OR REPLACE INTO state VALUES('consent_revision',?)",(str(revision),))
                 if not enabled:
-                    c.execute('DELETE FROM outbox')
+                    c.execute("DELETE FROM outbox WHERE json_extract(payload,'$.action') NOT IN ('consent_granted','consent_withdrawn')")
+                event_id=str(uuid4())
+                data=dict(event_id=event_id,action='consent_granted' if enabled else 'consent_withdrawn',
+                    mode='none',consent=enabled,consent_version=POLICY,
+                    occurred_at=datetime.now(timezone.utc).isoformat(),installation_id=installation,
+                    consent_revision=revision,client_version=RELEASE_VERSION)
+                c.execute('INSERT INTO outbox(id,payload) VALUES(?,?)',(event_id,json.dumps(data,sort_keys=True)))
                 c.commit()
             self.error = None
-        if enabled:
-            self.start()
+        self.wake.set()
+        self.start()
         return self.status()
 
     def record(self, action, mode='none', event_id=None):
@@ -102,7 +121,10 @@ class ProductMetrics:
                 existing = c.execute('SELECT payload FROM outbox WHERE id=?',(event_id,)).fetchone()
                 if not existing:
                     data = dict(event_id=event_id,action=action,mode=mode,consent=True,
-                                consent_version=POLICY,occurred_at=datetime.now(timezone.utc).isoformat())
+                                consent_version=POLICY,occurred_at=datetime.now(timezone.utc).isoformat(),
+                                client_version=RELEASE_VERSION,
+                                installation_id=c.execute("SELECT value FROM state WHERE key='installation_id'").fetchone()['value'],
+                                consent_revision=int(c.execute("SELECT value FROM state WHERE key='consent_revision'").fetchone()['value']))
                     c.execute('INSERT INTO outbox(id,payload) VALUES(?,?)',(event_id,json.dumps(data,sort_keys=True)))
                     c.commit()
             self.wake.set()
@@ -116,8 +138,11 @@ class ProductMetrics:
             with self.lock:
                 if self.closed.is_set() or not self.path.exists(): return False
                 with self.connect() as c:
-                    if not self._enabled(c): return False
-                    row = c.execute("SELECT id,payload FROM outbox WHERE state='pending' ORDER BY rowid LIMIT 1").fetchone()
+                    # Latest transition first: offline withdrawal reaches the server before any stale grant.
+                    row = c.execute("SELECT id,payload FROM outbox WHERE state='pending' AND json_extract(payload,'$.action') IN ('consent_granted','consent_withdrawn') ORDER BY json_extract(payload,'$.consent_revision') DESC LIMIT 1").fetchone()
+                    if not row:
+                        if not self._enabled(c): return False
+                        row=c.execute("SELECT id,payload FROM outbox WHERE state='pending' ORDER BY rowid LIMIT 1").fetchone()
                     if not row: return False
                 token = self.credentials()
                 if not token:
@@ -154,7 +179,7 @@ class ProductMetrics:
             if self.closed.is_set() or (self.worker and self.worker.is_alive()): return
             if not self.path.exists(): return
             with self.connect() as c:
-                if not self._enabled(c): return
+                if not self._enabled(c) and not c.execute("SELECT 1 FROM outbox WHERE state='pending' AND json_extract(payload,'$.action') IN ('consent_granted','consent_withdrawn')").fetchone(): return
             self.worker=threading.Thread(target=self._run,daemon=True,name='product-observations')
             self.worker.start()
 
