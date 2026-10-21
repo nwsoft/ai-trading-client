@@ -1,3 +1,4 @@
+-c requirements_kiwoom_x86.lock.txt
 # Dedicated Windows x86 runtime used only by NoahAIKiwoomHost.exe.
 numpy==1.26.4
 pandas==2.0.3

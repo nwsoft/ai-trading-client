@@ -1,3 +1,4 @@
+-c requirements_windows.lock.txt
 # Windows 배포용 의존성 패키지
 # Windows 환경에서 안정적으로 실행되도록 버전 조정
 

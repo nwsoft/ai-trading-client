@@ -25,7 +25,7 @@ jobs:
 
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.11"
+          python-version: "3.11.9"
           architecture: "x64"
           cache: pip
 
@@ -47,8 +47,14 @@ jobs:
 
       - name: Install Python dependencies
         run: |
+          python -m pip install -r requirements_windows.lock.txt
           python -m pip install -r requirements_windows.txt
+          python scripts/verify_windows_dependencies.py windows
+          python -m pip freeze --all > reports-windows-dependencies.txt
+          & $env:NOAHAI_PYTHON_X86 -m pip install -r requirements_kiwoom_x86.lock.txt
           & $env:NOAHAI_PYTHON_X86 -m pip install -r requirements_kiwoom_x86.txt
+          & $env:NOAHAI_PYTHON_X86 scripts/verify_windows_dependencies.py kiwoom_x86
+          & $env:NOAHAI_PYTHON_X86 -m pip freeze --all > reports-kiwoom-dependencies.txt
 
       - name: Verify VC143 runtime before expensive regression
         shell: powershell
@@ -77,6 +83,10 @@ jobs:
             deploy/web-release/NoahAI-${{ steps.app_version.outputs.version }}-Setup.exe.blockmap
             deploy/web-release/latest.yml
             deploy/release-manifest.json
+            requirements_windows.lock.txt
+            requirements_kiwoom_x86.lock.txt
+            reports-windows-dependencies.txt
+            reports-kiwoom-dependencies.txt
 
       - name: Reject publication without external gate acknowledgement
         if: ${{ inputs.publish_release && !inputs.confirm_external_gates }}

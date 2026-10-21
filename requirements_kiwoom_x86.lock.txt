@@ -1,0 +1,19 @@
+# Verified Windows run 39581201148, Python 3.11.9; installed log + setuptools already-satisfied evidence.
+altgraph==0.17.5
+numpy==1.26.4
+packaging==26.3
+pandas==2.0.3
+pefile==2024.8.26
+pyinstaller-hooks-contrib==2026.9
+PyInstaller==6.21.0
+pykiwoom==0.1.6
+PyQt5-Qt5==5.15.2
+PyQt5-sip==12.20.0
+PyQt5==5.15.11
+python-dateutil==2.9.0.post0
+pytz==2026.5
+pywin32-ctypes==0.2.3
+pywin32==311
+setuptools==65.5.0
+six==1.17.0
+tzdata==2026.5

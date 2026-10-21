@@ -261,6 +261,9 @@ try {
     foreach ($commandName in @("python", "node", "npm")) {
         if (-not (Get-Command $commandName -ErrorAction SilentlyContinue)) { throw "$commandName is required" }
     }
+    if ($SkipEngineBuild) { throw "SkipEngineBuild is disabled: every candidate requires freshly built sidecars" }
+    Invoke-Checked "Verify locked Windows dependencies" { & python scripts/verify_windows_dependencies.py windows }
+    Invoke-Checked "Verify locked Kiwoom dependencies" { Invoke-KiwoomX86Python @("scripts/verify_windows_dependencies.py", "kiwoom_x86") }
     $nodeVersion = [version]((& node -p "process.versions.node").Trim())
     if ($nodeVersion -lt [version]"22.12.0") { throw "Node.js 22.12.0 or newer is required (actual=$nodeVersion)" }
 
@@ -314,6 +317,7 @@ try {
 
     Invoke-Checked "UI-neutral sidecar spec audit" { & python scripts/verify_web_engine_bundle.py --spec-only }
     Invoke-Checked "Windows VC143 preflight" { & python -c "import build_safe; build_safe.resolve_windows_vc_runtime_binaries()" }
+    Remove-Item -LiteralPath "dist\NoahAIEngine.exe", "dist\NoahAIKiwoomHost.exe" -Force -ErrorAction SilentlyContinue
     if (-not $SkipEngineBuild) {
         Invoke-Checked "Build Python engine sidecar" { & python -m PyInstaller --clean --noconfirm noahai_web_engine.spec }
     } elseif (-not (Test-Path -LiteralPath "dist\NoahAIEngine.exe")) {
@@ -325,6 +329,7 @@ try {
     $engineSource = (Resolve-Path "dist\NoahAIEngine.exe").Path
     $engineDir = Join-Path $repoRoot "deploy\web-engine"
     New-Item -ItemType Directory -Path $engineDir -Force | Out-Null
+    Get-ChildItem -LiteralPath $engineDir -Force | Remove-Item -Recurse -Force
     Copy-Item -LiteralPath $engineSource -Destination (Join-Path $engineDir "NoahAIEngine.exe") -Force
     # OpenAPI+ is a separate x86 COM server. A spawned x64 engine cannot load it.
     # Strict builds must package the host. Operator override can publish the
