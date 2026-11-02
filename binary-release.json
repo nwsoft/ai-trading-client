@@ -1,0 +1,7 @@
+{
+  "installer_sha256": "35dd6a9d610fe52cd4d1c94291d8d57890636240874207c6d5d1d1d3f7427fbf",
+  "source_fingerprint": "3babfe6bea7d0e8f941d78a6490e68bf73d0e2bd3b0f640e5e94f261137ba538",
+  "source_revision": "132ba4d4af1f8d377014641c055d00217ac6c0d5",
+  "source_visibility": "private",
+  "version": "3.9.2.22"
+}
