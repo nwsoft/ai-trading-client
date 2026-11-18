@@ -1,0 +1,7 @@
+{
+  "installer_sha256": "8f8fbfac06a76d6efdf2fe3ce1ed54301d8bb0bb56817fef1e6b4a7d5fb8a9cc",
+  "source_fingerprint": "7c11e586eec8685921f607795e500b70550187dd9dfb1e025a0aed431ab7165c",
+  "source_revision": "9125ff4ed5c8e449c4723be3b46b93ef6b8b7505",
+  "source_visibility": "private",
+  "version": "3.9.2.33"
+}
